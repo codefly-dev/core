@@ -1,7 +1,7 @@
 FROM node:22-alpine AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci && cat /proc/sys/kernel/random/uuid > /dependency-receipt
 FROM dependencies AS build
 COPY pages ./pages
 COPY next.config.js ./
@@ -10,3 +10,5 @@ ARG BUILD_INPUT=one
 RUN NEXT_PUBLIC_BUILD_INPUT=${BUILD_INPUT} npm run build
 FROM scratch
 COPY --from=build /app/out /out
+
+COPY --from=build /dependency-receipt /dependency-receipt

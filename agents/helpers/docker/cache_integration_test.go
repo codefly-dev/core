@@ -73,9 +73,9 @@ func TestLanguageRegistryCacheAcrossCleanBuilders(t *testing.T) {
 	if os.Getenv("CODEFLY_TEST_REGISTRY_CACHE") != "1" {
 		t.Skip("set CODEFLY_TEST_REGISTRY_CACHE=1 for language cache integration")
 	}
-	for _, fixture := range []struct{ name, source, lock, install, base, newBase string }{
-		{"go", "main.go", "go.sum", "RUN go mod download", "golang:1.26-alpine", "golang:1.25-alpine"},
-		{"next", "pages/index.js", "package-lock.json", "RUN npm ci", "node:22-alpine", "node:24-alpine"},
+	for _, fixture := range []struct{ name, source, lock, base, newBase string }{
+		{"go", "main.go", "go.sum", "golang:1.26-alpine", "golang:1.25-alpine"},
+		{"next", "pages/index.js", "package-lock.json", "node:22-alpine", "node:24-alpine"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
@@ -119,6 +119,12 @@ func TestLanguageRegistryCacheAcrossCleanBuilders(t *testing.T) {
 			}
 			if phase == "warm" {
 				first = 1
+			}
+			previousReceipt := ""
+			if phase == "warm" {
+				data, err := os.ReadFile(filepath.Join(state, fixture.name+".receipt"))
+				require.NoError(t, err)
+				previousReceipt = string(data)
 			}
 			for i := first; i <= last; i++ {
 				builderName := fmt.Sprintf("%s-%d", name, i)
@@ -164,8 +170,20 @@ func TestLanguageRegistryCacheAcrossCleanBuilders(t *testing.T) {
 				result, err := builder.Build(ctx)
 				require.NoError(t, err, "%s", output.String())
 				t.Logf("%s run=%d wall=%s\n%s", fixture.name, i, result.Duration, output.String())
-				cached := buildStepCached(t, output.String(), fixture.install)
-				require.Equal(t, i == 1 || i == 4, cached, "dependency-install cache result for run %d", i)
+				id := run("create", "--platform", "linux/amd64", tag, "unused")
+				receiptPath := filepath.Join(t.TempDir(), "receipt")
+				run("cp", id+":/dependency-receipt", receiptPath)
+				run("rm", id)
+				receipt, err := os.ReadFile(receiptPath)
+				require.NoError(t, err)
+				require.NotEmpty(t, receipt)
+				if i > 0 {
+					// A cached filesystem retains the install receipt; executing RUN mints a new one.
+					hit := string(receipt) == previousReceipt
+					require.Equal(t, i == 1 || i == 4, hit, "dependency-install reuse for run %d", i)
+					t.Logf("%s run=%d dependency_cache_hit=%t", fixture.name, i, hit)
+				}
+				previousReceipt = string(receipt)
 				wantSource := "source-v1"
 				if i > 0 {
 					wantSource = "source-v2"
@@ -193,20 +211,8 @@ func TestLanguageRegistryCacheAcrossCleanBuilders(t *testing.T) {
 				require.NotEmpty(t, state)
 				require.NoError(t, os.MkdirAll(state, 0755))
 				run("cp", registry+":/var/lib/registry", filepath.Join(state, fixture.name))
+				require.NoError(t, os.WriteFile(filepath.Join(state, fixture.name+".receipt"), []byte(previousReceipt), 0600))
 			}
 		})
 	}
-}
-
-func buildStepCached(t *testing.T, output, instruction string) bool {
-	t.Helper()
-	step := ""
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, instruction) {
-			step = strings.Fields(line)[0]
-			break
-		}
-	}
-	require.NotEmpty(t, step, "missing build step %q in output", instruction)
-	return strings.Contains(output, step+" CACHED")
 }
