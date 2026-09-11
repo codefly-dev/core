@@ -221,9 +221,7 @@ type DockerBuildRecipe struct {
 	// build_args are Docker build arguments passed with --build-arg.
 	BuildArgs map[string]string `protobuf:"bytes,7,rep,name=build_args,json=buildArgs,proto3" json:"build_args,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// target is the optional Dockerfile stage to build.
-	Target string `protobuf:"bytes,8,opt,name=target,proto3" json:"target,omitempty"`
-	// cache carries caller transport policy separately from recipe file integrity.
-	Cache         *BuildCacheOptions `protobuf:"bytes,9,opt,name=cache,proto3" json:"cache,omitempty"`
+	Target        string `protobuf:"bytes,8,opt,name=target,proto3" json:"target,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -314,13 +312,6 @@ func (x *DockerBuildRecipe) GetTarget() string {
 	return ""
 }
 
-func (x *DockerBuildRecipe) GetCache() *BuildCacheOptions {
-	if x != nil {
-		return x.Cache
-	}
-	return nil
-}
-
 // DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
 // output_directory. The caller owns running docker buildx from the recipes, so
 // the recipes are a durable, first-class artifact rather than an image built
@@ -409,7 +400,7 @@ type BuildCacheOptions struct {
 	// scope separates workspace/service/recipe and trust domain. It must be stable
 	// across source edits. The backend adds the target platform to the cache tag.
 	Scope string `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`
-	// mode selects exported layers. Empty defaults to min; max includes intermediate layers.
+	// mode selects exported layers. Empty defaults to max; max includes intermediate layers.
 	Mode string `protobuf:"bytes,4,opt,name=mode,proto3" json:"mode,omitempty"`
 	// backend currently supports only registry; unknown or empty backends fail.
 	Backend       string `protobuf:"bytes,5,opt,name=backend,proto3" json:"backend,omitempty"`
@@ -497,7 +488,7 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"RecipeFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\x12\n" +
-	"\x04mode\x18\x03 \x01(\rR\x04mode\"\xb3\x03\n" +
+	"\x04mode\x18\x03 \x01(\rR\x04mode\"\xed\x02\n" +
 	"\x11DockerBuildRecipe\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -509,8 +500,7 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\tplatforms\x18\x06 \x03(\tR\tplatforms\x12\\\n" +
 	"\n" +
 	"build_args\x18\a \x03(\v2=.codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntryR\tbuildArgs\x12\x16\n" +
-	"\x06target\x18\b \x01(\tR\x06target\x12D\n" +
-	"\x05cache\x18\t \x01(\v2..codefly.services.builder.v0.BuildCacheOptionsR\x05cache\x1a<\n" +
+	"\x06target\x18\b \x01(\tR\x06target\x1a<\n" +
 	"\x0eBuildArgsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdd\x01\n" +
@@ -552,14 +542,13 @@ var file_codefly_services_builder_v0_docker_proto_goTypes = []any{
 var file_codefly_services_builder_v0_docker_proto_depIdxs = []int32{
 	5, // 0: codefly.services.builder.v0.DockerBuildContext.cache:type_name -> codefly.services.builder.v0.BuildCacheOptions
 	6, // 1: codefly.services.builder.v0.DockerBuildRecipe.build_args:type_name -> codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
-	5, // 2: codefly.services.builder.v0.DockerBuildRecipe.cache:type_name -> codefly.services.builder.v0.BuildCacheOptions
-	3, // 3: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
-	2, // 4: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	3, // 2: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
+	2, // 3: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_builder_v0_docker_proto_init() }

@@ -53,8 +53,6 @@ message DockerBuildRecipe {
   map<string, string> build_args = 7;
   // target is the optional Dockerfile stage to build.
   string target = 8;
-  // cache carries caller transport policy separately from recipe file integrity.
-  BuildCacheOptions cache = 9;
 }
 
 // DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
@@ -83,7 +81,7 @@ message BuildCacheOptions {
   // scope separates workspace/service/recipe and trust domain. It must be stable
   // across source edits. The backend adds the target platform to the cache tag.
   string scope = 3;
-  // mode selects exported layers. Empty defaults to min; max includes intermediate layers.
+  // mode selects exported layers. Empty defaults to max; max includes intermediate layers.
   string mode = 4;
   // backend currently supports only registry; unknown or empty backends fail.
   string backend = 5;

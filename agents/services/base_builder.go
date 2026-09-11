@@ -15,7 +15,6 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
-	"google.golang.org/protobuf/proto"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
@@ -276,9 +275,6 @@ func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv0.BuildRequest, i
 	cache := req.GetBuildContext().GetDockerBuildContext().GetCache()
 	if _, err := dockerhelpers.CacheArguments(cache, plan.Recipes[0].Platforms); err != nil {
 		return s.BuildError(err)
-	}
-	if cache != nil {
-		plan.Recipes[0].Cache = proto.Clone(cache).(*builderv0.BuildCacheOptions)
 	}
 	s.WithBuildPlan(plan)
 	resp, err := s.BuildResponse()

@@ -26,7 +26,7 @@ func CacheArguments(cache *builderv0.BuildCacheOptions, platforms []string) ([]s
 	}
 	mode := cache.Mode
 	if mode == "" {
-		mode = "min"
+		mode = "max"
 	}
 	if mode != "min" && mode != "max" {
 		return nil, fmt.Errorf("unsupported build cache mode %q", mode)

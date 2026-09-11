@@ -80,7 +80,7 @@ func TestSingleImageBuildResponseEmitsPlan(t *testing.T) {
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 }
 
-func TestSingleImageBuildResponseCarriesCacheWithoutChangingRecipeDigest(t *testing.T) {
+func TestSingleImageBuildResponseAcknowledgesCallerCacheWithoutReturningAuthority(t *testing.T) {
 	dir := writeRecipeTree(t, true)
 	base := &Base{loaded: true}
 	wrapper := &BuilderWrapper{Base: base}
@@ -94,9 +94,6 @@ func TestSingleImageBuildResponseCarriesCacheWithoutChangingRecipeDigest(t *test
 	require.NoError(t, err)
 	require.Equal(t, "registry-v1", warm.CacheContractVersion)
 	require.Equal(t, cold.GetResult().GetDockerBuildPlan().Digest, warm.GetResult().GetDockerBuildPlan().Digest)
-	recipe := warm.GetResult().GetDockerBuildPlan().Recipes[0]
-	require.Equal(t, cache.Scope, recipe.Cache.Scope)
-	cache.Scope = "mutated"
-	require.NotEqual(t, cache.Scope, recipe.Cache.Scope)
+	require.Nil(t, warm.GetResult().GetDockerBuildPlan().Recipes[0].ProtoReflect().Descriptor().Fields().ByName("cache"))
 	require.NoError(t, VerifyDockerBuildPlan(dir, warm.GetResult().GetDockerBuildPlan()))
 }

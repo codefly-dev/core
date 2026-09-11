@@ -24,16 +24,27 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(codefly/services/builder/v0/docker.proto\x12\x1b\x63odefly.services.builder.v0\"d\n\x12\x44ockerBuildContext\x12+\n\x11\x64ocker_repository\x18\x01 \x01(\tR\x10\x64ockerRepository\x12!\n\x0cimage_digest\x18\x02 \x01(\tR\x0bimageDigest\"+\n\x11\x44ockerBuildResult\x12\x16\n\x06images\x18\x01 \x03(\tR\x06imagesB\x84\x02\n\x1f\x63om.codefly.services.builder.v0B\x0b\x44ockerProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04\x43SBV\xaa\x02\x1b\x43odefly.Services.Builder.V0\xca\x02\x1b\x43odefly\\Services\\Builder\\V0\xe2\x02\'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1e\x43odefly::Services::Builder::V0b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(codefly/services/builder/v0/docker.proto\x12\x1b\x63odefly.services.builder.v0\"\xaa\x01\n\x12\x44ockerBuildContext\x12+\n\x11\x64ocker_repository\x18\x01 \x01(\tR\x10\x64ockerRepository\x12!\n\x0cimage_digest\x18\x02 \x01(\tR\x0bimageDigest\x12\x44\n\x05\x63\x61\x63he\x18\x03 \x01(\x0b\x32..codefly.services.builder.v0.BuildCacheOptionsR\x05\x63\x61\x63he\"+\n\x11\x44ockerBuildResult\x12\x16\n\x06images\x18\x01 \x03(\tR\x06images\"L\n\nRecipeFile\x12\x12\n\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n\x06\x64igest\x18\x02 \x01(\tR\x06\x64igest\x12\x12\n\x04mode\x18\x03 \x01(\rR\x04mode\"\xed\x02\n\x11\x44ockerBuildRecipe\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n\ndockerfile\x18\x02 \x01(\tR\ndockerfile\x12\x18\n\x07\x63ontext\x18\x03 \x01(\tR\x07\x63ontext\x12\"\n\x0c\x64ockerignore\x18\x04 \x01(\tR\x0c\x64ockerignore\x12\x14\n\x05image\x18\x05 \x01(\tR\x05image\x12\x1c\n\tplatforms\x18\x06 \x03(\tR\tplatforms\x12\\\n\nbuild_args\x18\x07 \x03(\x0b\x32=.codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntryR\tbuildArgs\x12\x16\n\x06target\x18\x08 \x01(\tR\x06target\x1a<\n\x0e\x42uildArgsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x02\x38\x01\"\xdd\x01\n\x0f\x44ockerBuildPlan\x12H\n\x07recipes\x18\x01 \x03(\x0b\x32..codefly.services.builder.v0.DockerBuildRecipeR\x07recipes\x12=\n\x05\x66iles\x18\x02 \x03(\x0b\x32\'.codefly.services.builder.v0.RecipeFileR\x05\x66iles\x12\x16\n\x06\x64igest\x18\x03 \x01(\tR\x06\x64igest\x12)\n\x10\x63ontract_version\x18\x04 \x01(\tR\x0f\x63ontractVersion\"\x8b\x01\n\x11\x42uildCacheOptions\x12\x18\n\x07imports\x18\x01 \x03(\tR\x07imports\x12\x18\n\x07\x65xports\x18\x02 \x03(\tR\x07\x65xports\x12\x14\n\x05scope\x18\x03 \x01(\tR\x05scope\x12\x12\n\x04mode\x18\x04 \x01(\tR\x04mode\x12\x18\n\x07\x62\x61\x63kend\x18\x05 \x01(\tR\x07\x62\x61\x63kendb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'codefly.services.builder.v0.docker_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
-  _globals['DESCRIPTOR']._loaded_options = None
-  _globals['DESCRIPTOR']._serialized_options = b'\n\037com.codefly.services.builder.v0B\013DockerProtoP\001ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\242\002\004CSBV\252\002\033Codefly.Services.Builder.V0\312\002\033Codefly\\Services\\Builder\\V0\342\002\'Codefly\\Services\\Builder\\V0\\GPBMetadata\352\002\036Codefly::Services::Builder::V0'
-  _globals['_DOCKERBUILDCONTEXT']._serialized_start=73
-  _globals['_DOCKERBUILDCONTEXT']._serialized_end=173
-  _globals['_DOCKERBUILDRESULT']._serialized_start=175
-  _globals['_DOCKERBUILDRESULT']._serialized_end=218
+  DESCRIPTOR._loaded_options = None
+  _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._loaded_options = None
+  _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._serialized_options = b'8\001'
+  _globals['_DOCKERBUILDCONTEXT']._serialized_start=74
+  _globals['_DOCKERBUILDCONTEXT']._serialized_end=244
+  _globals['_DOCKERBUILDRESULT']._serialized_start=246
+  _globals['_DOCKERBUILDRESULT']._serialized_end=289
+  _globals['_RECIPEFILE']._serialized_start=291
+  _globals['_RECIPEFILE']._serialized_end=367
+  _globals['_DOCKERBUILDRECIPE']._serialized_start=370
+  _globals['_DOCKERBUILDRECIPE']._serialized_end=735
+  _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._serialized_start=675
+  _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._serialized_end=735
+  _globals['_DOCKERBUILDPLAN']._serialized_start=738
+  _globals['_DOCKERBUILDPLAN']._serialized_end=959
+  _globals['_BUILDCACHEOPTIONS']._serialized_start=962
+  _globals['_BUILDCACHEOPTIONS']._serialized_end=1101
 # @@protoc_insertion_point(module_scope)

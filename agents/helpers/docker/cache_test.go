@@ -44,7 +44,11 @@ func TestCacheArguments(t *testing.T) {
 	policy.Mode = ""
 	defaults, err := CacheArguments(policy, []string{"linux/amd64"})
 	require.NoError(t, err)
-	require.Contains(t, defaults[3], ",mode=min")
+	require.Contains(t, defaults[3], ",mode=max")
+	policy.Mode = "min"
+	minimum, err := CacheArguments(policy, []string{"linux/amd64"})
+	require.NoError(t, err)
+	require.Contains(t, minimum[3], ",mode=min")
 	policy.Exports = nil
 	readOnly, err := CacheArguments(policy, []string{"linux/amd64"})
 	require.NoError(t, err)

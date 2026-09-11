@@ -36,8 +36,9 @@ lockfile, toolchain/base-image and relevant build-argument changes invalidate
 consuming dependency layers. Cache mounts are not exported by registry layer
 caching: required dependency outputs must be in ordinary filesystem layers.
 
-`mode` is `min` (default, final-image layers) or `max` (including intermediate
-stages). Only `registry` is supported. Unknown backends/modes fail before
+`mode` defaults to `max` (including intermediate dependency stages). Explicit
+`min` exports only final-image layers and generally cannot retain Go/Next.js
+dependency-install work across source edits. Only `registry` is supported. Unknown backends/modes fail before
 building. Empty exports means read-only; absent cache options retain existing
 behavior. A missing registry cache is a BuildKit cache miss. BuildKit validates
 content-addressed blobs; import failures can produce a warning or fail the
@@ -49,8 +50,7 @@ build instead of claiming publication succeeded.
 ## Integration through Codefly
 
 The Go and Rust shared in-agent builders forward cache policy to Buildx.
-`SingleImageBuildResponse` carries it into each conventional recipe and
-acknowledges `registry-v1` in `BuildResponse.cache_contract_version`.
+`SingleImageBuildResponse` acknowledges `registry-v1` in `BuildResponse.cache_contract_version`.
 `BuilderAgent.Build` rejects successful responses lacking that acknowledgement
 when cache was requested, including responses from older agents. Callers using
 the generated gRPC client directly must perform the same check.
@@ -58,9 +58,8 @@ the generated gRPC client directly must perform the same check.
 CLI recipe executors should verify the recipe tree as usual, then append
 `docker.CacheArguments(callerCache, recipe.Platforms)` to their existing Buildx
 invocation, preserving platform, target, build arguments and digest/provenance
-collection. Use the caller's policy as authority: an agent-returned recipe must
-not broaden import/export permissions. Cache transport is intentionally outside
-the recipe file digest. No provider workflow should replace Codefly builds with
+collection. Cache policy stays with the caller and is not part of agent-returned recipes;
+recipe verification therefore cannot be mistaken for cache publication authority. No provider workflow should replace Codefly builds with
 service-specific Docker commands.
 
 The CLI flag/CI plumbing is tracked in codefly-dev/cli#611 and is not implemented
