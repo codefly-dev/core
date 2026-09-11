@@ -13,7 +13,7 @@
 ARG CODEFLY_BASE_IMAGE=ghcr.io/codefly-dev/codefly:0.0.4
 FROM ${CODEFLY_BASE_IMAGE} AS codeflybase
 
-FROM node:24.16.0-alpine3.22
+FROM node:26.3.0-alpine3.22
 
 # Re-install alpine dev tools so the node companion carries the same
 # toolbox as the codefly base.
