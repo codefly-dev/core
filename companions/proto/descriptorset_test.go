@@ -129,6 +129,14 @@ func TestTypeScriptClientFromPlainDescriptorSetKeepsWhatItImportsRelatively(t *t
 	testutil.RequireProtoImage(t, ctx)
 
 	dest := t.TempDir()
+	// A namespace an earlier contract imported and this one does not. The clean
+	// step runs before buf, so what the run still owes is rewritten and what it
+	// does not is reclaimed; skipping the clean for the namespaces TypeScript
+	// keeps would leave this shipping in the library forever.
+	stale := filepath.Join(dest, "google", "rpc", "status_pb.ts")
+	require.NoError(t, os.MkdirAll(filepath.Dir(stale), 0750))
+	require.NoError(t, os.WriteFile(stale, []byte("export {};\n"), 0600))
+
 	require.NoError(t, proto.GenerateClient(ctx, proto.ClientRequest{
 		Language:      languages.TYPESCRIPT,
 		Destination:   dest,
@@ -136,7 +144,10 @@ func TestTypeScriptClientFromPlainDescriptorSetKeepsWhatItImportsRelatively(t *t
 		DescriptorSet: plainDescriptorSet(t, ctx),
 	}))
 
-	_, err := os.Stat(filepath.Join(dest, "google", "protobuf"))
+	_, err := os.Stat(stale)
+	require.True(t, os.IsNotExist(err), "a foreign namespace the contract no longer imports must be reclaimed")
+
+	_, err = os.Stat(filepath.Join(dest, "google", "protobuf"))
 	require.True(t, os.IsNotExist(err),
 		"the well-known types come from @bufbuild/protobuf/wkt; a local copy is one Timestamp the consumer's is not")
 

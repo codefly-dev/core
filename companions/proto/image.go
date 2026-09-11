@@ -27,17 +27,6 @@ import (
 type foreignNamespace struct {
 	pathPrefix    string
 	packagePrefix string
-
-	// resolvedByTypeScript reports whether protoc-gen-es refers to this
-	// namespace by package name rather than by a path relative to the file it
-	// generates. Only the well-known types are: protobuf-es publishes them as
-	// @bufbuild/protobuf/wkt and imports them from there for every file it is
-	// not asked to generate. It ships no package for googleapis or
-	// protovalidate, so it emits `../../google/api/annotations_pb` — an import
-	// that only resolves if the library carries that file itself. Dropping one
-	// of those from a TypeScript library therefore does not move it upstream,
-	// it just dangles, and tsc fails with TS2307 on every reference.
-	resolvedByTypeScript bool
 }
 
 // foreignNamespaces covers google/protobuf (package google.protobuf and
@@ -45,11 +34,7 @@ type foreignNamespace struct {
 // google.type, ...) and buf/validate. It deliberately mirrors the namespaces
 // strip_custom_options.py refuses to vendor, so the Go path and the Python path
 // agree on what the generated library is allowed to own.
-//
-// Order matters: google/protobuf/ has to be matched before the google/
-// catch-all, because the two carry different answers for TypeScript.
 var foreignNamespaces = []foreignNamespace{
-	{pathPrefix: "google/protobuf/", packagePrefix: "google.protobuf", resolvedByTypeScript: true},
 	{pathPrefix: "google/", packagePrefix: "google."},
 	{pathPrefix: "buf/validate/", packagePrefix: "buf.validate"},
 }
@@ -59,10 +44,37 @@ func (ns foreignNamespace) owns(file *descriptorpb.FileDescriptorProto) bool {
 	return strings.HasPrefix(file.GetName(), ns.pathPrefix) && strings.HasPrefix(file.GetPackage(), ns.packagePrefix)
 }
 
-// vendoredBy reports whether a library generated for language has to carry its
-// own copy of this namespace, which is the inverse of being able to drop it.
-func (ns foreignNamespace) vendoredBy(language languages.Language) bool {
-	return language == languages.TYPESCRIPT && !ns.resolvedByTypeScript
+// protobufESRuntimeFiles are the proto files protoc-gen-es imports from
+// @bufbuild/protobuf/wkt instead of a path relative to the file it is
+// generating. It is protobuf-es's own wktPublicImportPaths, enumerated rather
+// than approximated by the google/protobuf/ prefix: the two are not the same
+// set, and which files are in it changes with the generator (2.2.3 carried no
+// cpp_features, go_features or java_features). Keep it in step with the
+// protoc-gen-es the companion bakes — companion_plugins_test.go's
+// protocGenEsRuntimeVersion.
+//
+// A foreign file outside this set — anything under google/api, buf/validate, or
+// a google/protobuf file protobuf-es has no runtime export for — is emitted with
+// a relative import, so a TypeScript library has to own it. Marking one as a buf
+// image import does not move it upstream, it just leaves
+// `../../google/api/annotations_pb` pointing at a file nothing wrote, and tsc
+// fails with TS2307 on every reference.
+var protobufESRuntimeFiles = map[string]bool{
+	"google/protobuf/any.proto":             true,
+	"google/protobuf/api.proto":             true,
+	"google/protobuf/compiler/plugin.proto": true,
+	"google/protobuf/cpp_features.proto":    true,
+	"google/protobuf/descriptor.proto":      true,
+	"google/protobuf/duration.proto":        true,
+	"google/protobuf/empty.proto":           true,
+	"google/protobuf/field_mask.proto":      true,
+	"google/protobuf/go_features.proto":     true,
+	"google/protobuf/java_features.proto":   true,
+	"google/protobuf/source_context.proto":  true,
+	"google/protobuf/struct.proto":          true,
+	"google/protobuf/timestamp.proto":       true,
+	"google/protobuf/type.proto":            true,
+	"google/protobuf/wrappers.proto":        true,
 }
 
 // buf marks a file that an image carries only to resolve imports with
@@ -76,12 +88,24 @@ const (
 // isForeign reports whether a library generated for language must not own this
 // file's bindings.
 func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Language) bool {
+	owned := false
 	for _, ns := range foreignNamespaces {
 		if ns.owns(file) {
-			return !ns.vendoredBy(language)
+			owned = true
+			break
 		}
 	}
-	return false
+	if !owned {
+		return false
+	}
+	// Go and Python name a dropped file's package absolutely — a rewritten
+	// go_package, an untouched `from buf.validate import validate_pb2` — so
+	// every foreign namespace resolves to whatever the consumer installed.
+	// TypeScript only does for the files protobuf-es publishes in its runtime.
+	if language == languages.TYPESCRIPT {
+		return protobufESRuntimeFiles[file.GetName()]
+	}
+	return true
 }
 
 // MarkForeignImports marks every file of a serialized FileDescriptorSet that

@@ -6,10 +6,12 @@ plugins:
   # second pin that nothing keeps in step, so the bindings a consumer generates
   # and the @bufbuild/protobuf it runs them against drift apart.
   #
-  # It is also what makes the image's import markers mean anything: remote
-  # execution generated the marked namespaces anyway, so a library got local
-  # copies of google/api and buf/validate whether or not it was owed them. See
-  # MarkForeignImports.
+  # It is also what makes the image's import markers mean anything on the
+  # descriptor-set path. A contract is a plain FileDescriptorSet, so the markers
+  # MarkForeignImports writes carry is_import but no buf module identity, and
+  # remote execution generated those files regardless; the local plugin honours
+  # them. (Markers that come from a real buf module — the Sources path — were
+  # honoured either way.) See MarkForeignImports.
   - name: es
     out: {{.Destination}}
     opt: target=ts

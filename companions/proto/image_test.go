@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/languages"
@@ -51,6 +52,16 @@ func foreignSet() *descriptorpb.FileDescriptorSet {
 				},
 			},
 			{
+				// A google/protobuf file protobuf-es publishes no runtime export
+				// for. The prefix says "well-known type"; wktPublicImportPaths
+				// is what decides, and it does not carry this one.
+				Name:    googleproto.String("google/protobuf/rust_features.proto"),
+				Package: googleproto.String("google.protobuf"),
+				Options: &descriptorpb.FileOptions{
+					GoPackage: googleproto.String("google.golang.org/protobuf/types/gofeaturespb"),
+				},
+			},
+			{
 				Name:       googleproto.String("saas/accounts/v1/accounts.proto"),
 				Package:    googleproto.String("saas.accounts.v1"),
 				Dependency: []string{"google/protobuf/timestamp.proto", "google/api/annotations.proto"},
@@ -91,6 +102,7 @@ func TestMarkForeignImports(t *testing.T) {
 	want := map[string]bool{
 		"google/protobuf/timestamp.proto":       true,
 		"google/protobuf/compiler/plugin.proto": true,
+		"google/protobuf/rust_features.proto":   true,
 		"google/api/annotations.proto":          true,
 		"buf/validate/validate.proto":           true,
 		"saas/accounts/v1/accounts.proto":       false,
@@ -109,7 +121,7 @@ func TestMarkForeignImports(t *testing.T) {
 	require.Equal(t, "google.protobuf", image.GetFile()[0].GetPackage())
 	require.Equal(t,
 		[]string{"google/protobuf/timestamp.proto", "google/api/annotations.proto"},
-		image.GetFile()[4].GetDependency())
+		image.GetFile()[5].GetDependency())
 }
 
 // TestMarkForeignImportsTypeScriptKeepsRelativelyImportedNamespaces pins the
@@ -130,6 +142,7 @@ func TestMarkForeignImportsTypeScriptKeepsRelativelyImportedNamespaces(t *testin
 	want := map[string]bool{
 		"google/protobuf/timestamp.proto":       true,
 		"google/protobuf/compiler/plugin.proto": true,
+		"google/protobuf/rust_features.proto":   false,
 		"google/api/annotations.proto":          false,
 		"buf/validate/validate.proto":           false,
 		"saas/accounts/v1/accounts.proto":       false,
@@ -140,6 +153,39 @@ func TestMarkForeignImportsTypeScriptKeepsRelativelyImportedNamespaces(t *testin
 		marked, known := want[file.GetName()]
 		require.True(t, known, "unexpected file %s", file.GetName())
 		require.Equal(t, marked, isMarkedAsImport(file), "file %s", file.GetName())
+	}
+}
+
+// TestMarkForeignImportsTypeScriptMarksNothingOutsideTheRuntime is the guard on
+// the list itself, rather than on today's entries. `generate client` in the CLI
+// keeps its own table of these namespaces and exempts the same ones from
+// TypeScript, and the two markings merge — a second field-8042 submessage merges
+// with the first and is_import=true merged onto true stays true — so whichever
+// side marks a file wins. Core marking a namespace the CLI deliberately left for
+// TypeScript silently overrides that decision and the library loses a file its
+// own bindings import.
+//
+// Adding a namespace root here without a runtime export for it is therefore the
+// failure, not a detail: every foreign file a TypeScript library is asked to
+// give up has to be one protobuf-es publishes.
+func TestMarkForeignImportsTypeScriptMarksNothingOutsideTheRuntime(t *testing.T) {
+	var probes []*descriptorpb.FileDescriptorProto
+	for _, ns := range foreignNamespaces {
+		probes = append(probes, &descriptorpb.FileDescriptorProto{
+			Name:    googleproto.String(ns.pathPrefix + "probe.proto"),
+			Package: googleproto.String(strings.TrimSuffix(ns.packagePrefix, ".") + ".probe"),
+		})
+	}
+	require.NotEmpty(t, probes)
+
+	data, _, err := MarkForeignImports(marshal(t, &descriptorpb.FileDescriptorSet{File: probes}), languages.TYPESCRIPT)
+	require.NoError(t, err)
+
+	var image descriptorpb.FileDescriptorSet
+	require.NoError(t, googleproto.Unmarshal(data, &image))
+	for _, file := range image.GetFile() {
+		require.False(t, isMarkedAsImport(file),
+			"%s is not published by protobuf-es, so a TypeScript library imports it relatively and must keep it", file.GetName())
 	}
 }
 
@@ -158,6 +204,7 @@ func TestMarkForeignImportsReturnsGoPackageOverrides(t *testing.T) {
 	require.Equal(t, map[string]string{
 		"google/protobuf/timestamp.proto":       "google.golang.org/protobuf/types/known/timestamppb",
 		"google/protobuf/compiler/plugin.proto": "google.golang.org/protobuf/types/pluginpb",
+		"google/protobuf/rust_features.proto":   "google.golang.org/protobuf/types/gofeaturespb",
 		"google/api/annotations.proto":          "google.golang.org/genproto/googleapis/api/annotations;annotations",
 		"buf/validate/validate.proto":           "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate",
 	}, overrides)
@@ -269,7 +316,7 @@ func TestRemoveForeignOutput(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(own), 0750))
 	require.NoError(t, os.WriteFile(own, []byte("package accountsv1\n"), 0600))
 
-	require.NoError(t, removeForeignOutput(context.Background(), dest, languages.GO))
+	require.NoError(t, removeForeignOutput(context.Background(), dest))
 
 	for _, rel := range stale {
 		_, err := os.Stat(filepath.Join(dest, filepath.FromSlash(rel)))
@@ -279,36 +326,8 @@ func TestRemoveForeignOutput(t *testing.T) {
 	require.NoError(t, err, "the module's own bindings must survive")
 }
 
-// TestRemoveForeignOutputTypeScriptKeepsVendoredNamespaces is the clean half of
-// the same invariant: what is cleaned has to be what is not emitted. A
-// TypeScript library owns its google/api and buf/validate copies because its own
-// bindings import them by relative path; removing them here would delete files
-// this very run is about to write, and leave the tree without them whenever a
-// run fails in between.
-func TestRemoveForeignOutputTypeScriptKeepsVendoredNamespaces(t *testing.T) {
-	dest := t.TempDir()
-	files := map[string]bool{
-		"google/protobuf/timestamp_pb.ts": false,
-		"google/api/annotations_pb.ts":    true,
-		"buf/validate/validate_pb.ts":     true,
-		"saas/accounts/v1/accounts_pb.ts": true,
-	}
-	for rel := range files {
-		path := filepath.Join(dest, filepath.FromSlash(rel))
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0750))
-		require.NoError(t, os.WriteFile(path, []byte("export {};\n"), 0600))
-	}
-
-	require.NoError(t, removeForeignOutput(context.Background(), dest, languages.TYPESCRIPT))
-
-	for rel, survives := range files {
-		_, err := os.Stat(filepath.Join(dest, filepath.FromSlash(rel)))
-		require.Equal(t, survives, err == nil, "%s", rel)
-	}
-}
-
 // removeForeignOutput runs on every generation, including the very first one
 // into an empty destination.
 func TestRemoveForeignOutputOnEmptyDestination(t *testing.T) {
-	require.NoError(t, removeForeignOutput(context.Background(), t.TempDir(), languages.GO))
+	require.NoError(t, removeForeignOutput(context.Background(), t.TempDir()))
 }
