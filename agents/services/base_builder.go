@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 
+	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
 	serviceaudit "github.com/codefly-dev/core/agents/services/audit"
 	servicesbom "github.com/codefly-dev/core/agents/services/sbom"
 	"github.com/codefly-dev/core/builders"
@@ -1038,6 +1039,9 @@ func (s *BuilderWrapper) DockerBuildRequest(_ context.Context, req *builderv0.Bu
 	}
 	switch v := req.BuildContext.Kind.(type) {
 	case *builderv0.BuildContext_DockerBuildContext:
+		if _, err := dockerhelpers.CacheArguments(v.DockerBuildContext.GetCache(), RecipeBuildPlatforms()); err != nil {
+			return nil, err
+		}
 		return v.DockerBuildContext, nil
 	default:
 		return nil, s.Wool.Wrapf(fmt.Errorf("unsupported build context kind: %T", v), "cannot build")

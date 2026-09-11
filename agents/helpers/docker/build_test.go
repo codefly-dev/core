@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/dockerrun"
 )
@@ -247,6 +248,9 @@ func TestBuilderBuildsRequestedArchitecture(t *testing.T) {
 
 func newTestBuilder(t *testing.T, cfg BuilderConfiguration, backend buildBackend) *Builder {
 	t.Helper()
+	if err := os.WriteFile(filepath.Join(cfg.Root, cfg.Dockerfile), []byte("FROM scratch\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	builder, err := NewBuilder(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -263,9 +267,11 @@ type scriptedBackend struct {
 	architecture string
 	platforms    []string
 	calls        int
+	cache        *builderv0.BuildCacheOptions
 }
 
 func (b *scriptedBackend) Build(_ context.Context, req backendBuildRequest) error {
+	b.cache = req.Cache
 	b.platforms = append(b.platforms, req.Platform)
 	b.calls++
 	if b.buildErr != nil {

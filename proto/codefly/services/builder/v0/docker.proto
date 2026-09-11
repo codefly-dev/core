@@ -8,6 +8,8 @@ message DockerBuildContext {
   string docker_repository = 1;
   // image_digest is the immutable sha256 manifest digest used for promotable output.
   string image_digest = 2;
+  // cache configures optional external layer reuse, never artifact or test reuse.
+  BuildCacheOptions cache = 3;
 }
 
 // DockerBuildResult captures Docker image references produced by a build.
@@ -67,4 +69,20 @@ message DockerBuildPlan {
   string digest = 3;
   // contract_version identifies the recipe contract the caller validates.
   string contract_version = 4;
+}
+
+// BuildCacheOptions is caller-owned transport policy. Registry credentials are
+// resolved by Docker, never serialized into a request or recipe.
+message BuildCacheOptions {
+  // imports are trusted registry cache repositories to read.
+  repeated string imports = 1;
+  // exports are registry cache repositories to write; empty is read-only.
+  repeated string exports = 2;
+  // scope separates workspace/service/recipe and trust domain. It must be stable
+  // across source edits. The backend adds the target platform to the cache tag.
+  string scope = 3;
+  // mode selects exported layers. Empty defaults to max; max includes intermediate layers.
+  string mode = 4;
+  // backend currently supports only registry; unknown or empty backends fail.
+  string backend = 5;
 }

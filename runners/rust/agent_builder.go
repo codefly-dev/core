@@ -79,6 +79,7 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 
 	b, err := dockerhelpers.NewBuilder(dockerhelpers.BuilderConfiguration{
 		Root:        location,
+		Cache:       dockerRequest.GetCache(),
 		Dockerfile:  "builder/Dockerfile",
 		Ignorefile:  "builder/dockerignore",
 		Destination: image,
@@ -92,7 +93,11 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 		return builder.BuildError(err)
 	}
 	builder.WithDockerImages(image)
-	return builder.BuildResponse()
+	resp, err := builder.BuildResponse()
+	if resp != nil && dockerRequest.GetCache() != nil {
+		resp.CacheContractVersion = dockerhelpers.CacheContractVersion
+	}
+	return resp, err
 }
 
 // DeployRustKubernetes deploys a Rust service to Kubernetes. Identical in
