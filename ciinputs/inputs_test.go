@@ -430,3 +430,46 @@ func TestResolvedContextIsAuthoritative(t *testing.T) {
 		t.Fatal("consumed context change was lost")
 	}
 }
+
+func TestValidatedDeclarationIsRetained(t *testing.T) {
+	r := response(declaration(integration,
+		input(agent.EffectiveInputKind_EFFECTIVE_INPUT_KIND_SERVICE_IMPLEMENTATION, "api", "implementation"),
+		input(agent.EffectiveInputKind_EFFECTIVE_INPUT_KIND_ARTIFACT, "api/compile/binary", "binary"),
+		input(agent.EffectiveInputKind_EFFECTIVE_INPUT_KIND_VALIDATION, "api/test/unit", "passed"),
+	))
+	r.Tasks[0].RuntimeServices = []string{"api"}
+	req := &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: r.Snapshot}
+	for _, complete := range []bool{true, false} {
+		r.Tasks[0].Complete = complete
+		got, err := Discover(context.Background(), wireClient(t, &wireAgent{reply: r}), &agent.AgentInformation{EffectiveInputsVersions: []uint32{Version}}, req, []Key{integration, unit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(got[0].Declaration, r.Tasks[0]) {
+			t.Fatal("lost validated inputs or scheduling dependencies")
+		}
+		if got[1].Declaration != nil {
+			t.Fatal("invented declaration for missing suite")
+		}
+	}
+	original := proto.Clone(r.Tasks[0]).(*agent.TaskInputs)
+	got, err := Evaluate(r, req, []Key{integration})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Tasks[0].RuntimeServices[0] = "mutated"
+	r.Tasks[0].Inputs[0].Identity.Digest = strings.Repeat("b", 64)
+	if !proto.Equal(got[0].Declaration, original) {
+		t.Fatal("returned declaration aliases wire response")
+	}
+	got[0].Declaration.Inputs[1].Name = "changed"
+	if r.Tasks[0].Inputs[1].Name == "changed" {
+		t.Fatal("wire response aliases returned declaration")
+	}
+	unknownResponse := response(declaration(integration))
+	unknownResponse.SchemaVersion = 2
+	fallback := evaluate(t, unknownResponse, integration)
+	if fallback[0].Declaration != nil {
+		t.Fatal("returned unvalidated future declaration")
+	}
+}

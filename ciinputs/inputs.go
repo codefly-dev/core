@@ -31,6 +31,8 @@ type Key struct {
 
 type Task struct {
 	Key Key
+	// Declaration is an owned, validated copy; nil means no usable declaration.
+	Declaration *agent.TaskInputs
 	// Identity is empty when selection must fall back to the full service and
 	// dependency closure. An empty identity must never be used as a cache key.
 	Identity      string
@@ -117,6 +119,7 @@ func Evaluate(response *agent.GetEffectiveInputsResponse, req *agent.GetEffectiv
 						return nil, fmt.Errorf("effective input contradicts resolved context")
 					}
 				}
+				task.Declaration = proto.Clone(declaration).(*agent.TaskInputs)
 				if declaration.Complete && resolved {
 					identity, err := fingerprint(declaration)
 					if err != nil {

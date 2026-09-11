@@ -22,7 +22,11 @@ scheduling, evidence persistence and result storage are separate consumers.
    Preserve the union of reference and candidate required tasks. A removed suite
    is a coverage/policy decision for the consumer, not permission for discovery
    to silently remove required validation.
-4. Use `Changed` on the evaluated snapshots. A conservative task requires the
+4. Each evaluated task retains an owned `Declaration` containing its validated
+   inputs and runtime requirements, even when incomplete. Missing/unsupported
+   declarations have a nil `Declaration`. Use this same validated data for
+   scheduling and evidence; no second discovery call is needed.
+5. Use `Changed` on the evaluated snapshots. A conservative task requires the
    existing whole-service selection and dependency closure. Never use its empty
    identity as a cache key. A missing task in either snapshot is changed.
 
