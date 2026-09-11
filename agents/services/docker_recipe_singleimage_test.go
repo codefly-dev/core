@@ -80,7 +80,7 @@ func TestSingleImageBuildResponseEmitsPlan(t *testing.T) {
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
 }
 
-func TestSingleImageBuildResponseAcknowledgesCallerCacheWithoutReturningAuthority(t *testing.T) {
+func TestSingleImageBuildResponseLeavesCacheExecutionWithCaller(t *testing.T) {
 	dir := writeRecipeTree(t, true)
 	base := &Base{loaded: true}
 	wrapper := &BuilderWrapper{Base: base}
@@ -92,7 +92,7 @@ func TestSingleImageBuildResponseAcknowledgesCallerCacheWithoutReturningAuthorit
 	req.BuildContext = &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{Cache: cache}}}
 	warm, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1")
 	require.NoError(t, err)
-	require.Equal(t, "registry-v1", warm.CacheContractVersion)
+	require.Empty(t, warm.CacheContractVersion)
 	require.Equal(t, cold.GetResult().GetDockerBuildPlan().Digest, warm.GetResult().GetDockerBuildPlan().Digest)
 	require.Nil(t, warm.GetResult().GetDockerBuildPlan().Recipes[0].ProtoReflect().Descriptor().Fields().ByName("cache"))
 	require.NoError(t, VerifyDockerBuildPlan(dir, warm.GetResult().GetDockerBuildPlan()))

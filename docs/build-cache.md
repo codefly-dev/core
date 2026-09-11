@@ -50,10 +50,12 @@ build instead of claiming publication succeeded.
 ## Integration through Codefly
 
 The Go and Rust shared in-agent builders forward cache policy to Buildx.
-`SingleImageBuildResponse` acknowledges `registry-v1` in `BuildResponse.cache_contract_version`.
-`BuilderAgent.Build` rejects successful responses lacking that acknowledgement
-when cache was requested, including responses from older agents. Callers using
-the generated gRPC client directly must perform the same check.
+`SingleImageBuildResponse` returns only recipes. Recipe agents need not claim
+cache execution: the CLI validates their plan and applies its own policy.
+`BuilderAgent.Build` requires `registry-v1` acknowledgement for successful
+in-agent image results when cache was requested, rejecting legacy agents that
+silently ignore it. Generated gRPC clients used directly must enforce the same
+result-kind distinction.
 
 CLI recipe executors should verify the recipe tree as usual, then append
 `docker.CacheArguments(callerCache, recipe.Platforms)` to their existing Buildx

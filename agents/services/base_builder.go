@@ -272,16 +272,8 @@ func (s *BuilderWrapper) SingleImageBuildResponse(req *builderv0.BuildRequest, i
 	if err != nil {
 		return s.BuildError(err)
 	}
-	cache := req.GetBuildContext().GetDockerBuildContext().GetCache()
-	if _, err := dockerhelpers.CacheArguments(cache, plan.Recipes[0].Platforms); err != nil {
-		return s.BuildError(err)
-	}
 	s.WithBuildPlan(plan)
-	resp, err := s.BuildResponse()
-	if resp != nil && cache != nil {
-		resp.CacheContractVersion = dockerhelpers.CacheContractVersion
-	}
-	return resp, err
+	return s.BuildResponse()
 }
 
 func (s *BuilderWrapper) BuildResponse() (*builderv0.BuildResponse, error) {

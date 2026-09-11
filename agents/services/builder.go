@@ -26,7 +26,8 @@ func NewBuilderAgentClient(conn *grpc.ClientConn) *BuilderAgent {
 	}
 }
 
-// Build rejects success from agents that silently ignored requested cache policy.
+// Build requires cache acknowledgement only when the agent executes the image
+// build. Recipe execution, including cache policy, belongs to the caller.
 func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, opts ...grpc.CallOption) (*builderv0.BuildResponse, error) {
 	cache := req.GetBuildContext().GetDockerBuildContext().GetCache()
 	if cache != nil {
@@ -35,7 +36,7 @@ func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, o
 		}
 	}
 	resp, err := b.BuilderClient.Build(ctx, req, opts...)
-	if err == nil && cache != nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetCacheContractVersion() != dockerhelpers.CacheContractVersion {
+	if err == nil && cache != nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildPlan() == nil && resp.GetCacheContractVersion() != dockerhelpers.CacheContractVersion {
 		return nil, fmt.Errorf("builder agent did not acknowledge build cache contract %s; upgrade the agent or remove cache options", dockerhelpers.CacheContractVersion)
 	}
 	return resp, err
