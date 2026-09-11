@@ -1,0 +1,1 @@
+{"name":"codefly-cache-example","version":"1.0.0","private":true,"scripts":{"build":"next build"},"dependencies":{"next":"15.5.12","react":"19.1.6","react-dom":"19.1.6"}}

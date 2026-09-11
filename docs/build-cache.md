@@ -62,10 +62,11 @@ collection. Cache policy stays with the caller and is not part of agent-returned
 recipe verification therefore cannot be mistaken for cache publication authority. No provider workflow should replace Codefly builds with
 service-specific Docker commands.
 
-The CLI flag/CI plumbing is tracked in codefly-dev/cli#611 and is not implemented
-in this Core repository. Next.js agent recipe ordering must be verified in its
-own repository. Consequently this change alone does not enable an end-to-end
-cached CLI workflow on hosted runners.
+CLI integration is implemented in codefly-dev/cli#622. `build service`,
+`build module`, `ci build`, and the build phase of `ci run` accept cache-from,
+cache-to, cache-scope, cache-mode and cache-backend options. The CLI owns policy,
+adds service/recipe identity and preserves the executed platform and image-digest
+metadata. Its dependency pin includes this Core contract.
 
 ## Permissions and build inputs
 
@@ -95,31 +96,39 @@ not represented in declared inputs cannot be made reproducible by caching.
 
 ## Validation and measurements
 
-Run the isolated registry boundary test with:
+Run the registry and exported-input conformance tests with:
 
 ```sh
-CODEFLY_TEST_REGISTRY_CACHE=1 go test ./agents/helpers/docker -run TestRegistryCacheAcrossCleanBuilders -v -timeout=900s
+CODEFLY_TEST_REGISTRY_CACHE=1 go test ./agents/helpers/docker -run 'TestLanguageRegistryCacheAcrossCleanBuilders|TestMaxCacheDoesNotExportHiddenOrUnusedContext' -v -timeout=45m
 ```
 
-It creates a private local test registry and a fresh BuildKit container per
-build, verifies imported hits after a source edit, invalidation after a dependency
-input edit, and reads the produced image's source file. It removes its own
-containers, builders and images afterward. This is a small layer fixture, not
-a representative Go/Next.js hosted-runner benchmark.
+Go and Next.js multistage fixtures perform real module/npm installation and
+compilation. Each build uses a fresh BuildKit instance. The tests check dependency
+install hits after source edits, invalidation after lockfile/base-image changes,
+retained eligible dependency work after application build-argument changes, and
+produced binary/page contents. The export inspection test opens actual cache
+blobs and rejects hidden or unused input markers, including a Dockerfile located
+in an ignored directory.
 
-`BuilderOutput.Duration` measures in-agent wall time including context creation,
-Buildx and architecture inspection. The configured output writer receives
-BuildKit's plain progress, including cache import/export vertex durations,
-`CACHED` hits and transfer sizes when BuildKit emits them. Unavailable values
-must remain unavailable, not be reported as zero. CLI total operation wall time
-and structured telemetry aggregation remain the CLI executor's responsibility.
-Separate clean hosted-runner Go/Next.js measurements, base/build-argument
-invalidation and corrupt-registry tests remain outstanding integration evidence.
+The `Registry build cache conformance` workflow runs cold and warm phases on
+separate clean hosted runners. A one-day artifact transfers only the disposable
+test registry's data between jobs; the builders import/export through registry
+transport. No protected publication credentials are used. This test storage
+handoff is not a production workflow requirement.
 
-In a local BuildKit 0.32.2 run, the cold build took 40.62 s and exported its
-cache in 2.7 s. A fresh builder after a source edit imported the manifest in
-0.2 s, reported the dependency `COPY` as `CACHED`, transferred its 119-byte layer,
-and exported cache in 3.8 s. That build took 117.08 s overall, including 86.5 s
-bootstrapping the isolated builder. These small-fixture measurements demonstrate
-remote reuse, not a speedup or hosted-runner performance claim. A third fresh
-builder after a dependency edit took 38.08 s and reported no cached layers.
+`BuilderOutput.Duration` measures context preparation, Buildx and architecture
+inspection. The output writer receives BuildKit cache import/export durations,
+hits and transferred bytes when available. The CLI also logs image-build wall
+time; CI reporting records operation wall time. Unavailable metrics are not zero.
+
+Local clean-builder measurements (seconds, including builder startup):
+
+| Fixture | Cold | Source edit | Lockfile edit | Base change | Build-argument change |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Go | 37.15 | 89.00 | 26.64 | 23.57 | 19.93 |
+| Next.js | 48.76 | 30.02 | 53.64 | 47.36 | 27.43 |
+
+Both fixtures hit the dependency-install cache on source and application-argument
+edits, rebuilt it for lockfile/base changes, and produced the expected changed
+outputs. These are conformance measurements, not a speedup claim; startup and
+host load affect wall time.

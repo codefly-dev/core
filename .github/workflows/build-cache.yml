@@ -1,0 +1,72 @@
+name: Registry build cache conformance
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  cache-cold:
+    name: Registry cache cold (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        language: [go, next]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.27.0"
+      - name: Reject hidden inputs in exported cache layers
+        env:
+          CODEFLY_TEST_REGISTRY_CACHE: "1"
+        run: go test ./agents/helpers/docker -run '^TestMaxCacheDoesNotExportHiddenOrUnusedContext$' -v -timeout=5m
+      - name: Export real dependency layers through Core
+        env:
+          CODEFLY_TEST_REGISTRY_CACHE: "1"
+          CODEFLY_TEST_CACHE_PHASE: cold
+          CODEFLY_TEST_CACHE_STATE: ${{ runner.temp }}/registry-state
+        run: go test ./agents/helpers/docker -run '^TestLanguageRegistryCacheAcrossCleanBuilders/${{ matrix.language }}$' -v -timeout=25m
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: registry-cache-${{ matrix.language }}
+          path: ${{ runner.temp }}/registry-state
+          include-hidden-files: true
+          retention-days: 1
+
+  cache-warm:
+    name: Registry cache clean runner (${{ matrix.language }})
+    needs: cache-cold
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        language: [go, next]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.27.0"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: registry-cache-${{ matrix.language }}
+          path: ${{ runner.temp }}/registry-state
+      - name: Verify source reuse and lock, base, and build-input invalidation
+        env:
+          CODEFLY_TEST_REGISTRY_CACHE: "1"
+          CODEFLY_TEST_CACHE_PHASE: warm
+          CODEFLY_TEST_CACHE_STATE: ${{ runner.temp }}/registry-state
+        run: go test ./agents/helpers/docker -run '^TestLanguageRegistryCacheAcrossCleanBuilders/${{ matrix.language }}$' -v -timeout=25m
