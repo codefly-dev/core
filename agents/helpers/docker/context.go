@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +18,18 @@ type PreparedBuildContext struct {
 	directory  string
 }
 
-func (c *PreparedBuildContext) Close() error { return os.RemoveAll(c.directory) }
+func (c *PreparedBuildContext) Close() error {
+	err := filepath.WalkDir(c.directory, func(file string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return os.Chmod(file, 0700)
+		}
+		return nil
+	})
+	return errors.Join(err, os.RemoveAll(c.directory))
+}
 
 // PrepareBuildContext separates the build definition from COPY inputs and
 // applies each ignore policy before any files reach BuildKit. Custom policy
