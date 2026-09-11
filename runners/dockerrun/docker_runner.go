@@ -516,6 +516,9 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	if EphemeralContainers() || docker.ephemeral {
 		config.Labels[LabelCodeflyEphemeral] = "true"
 	}
+	if scope := inheritedContainerRecoveryScope(); scope != "" {
+		config.Labels[LabelCodeflyRecoveryScope] = scope
+	}
 	if docker.invocation != "" {
 		config.Labels[LabelCodeflyInvocation] = docker.invocation
 	}
@@ -534,6 +537,7 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 // containers and their spawning CLI. These are set on every container
 // created via DockerEnvironment and consumed by ReapStaleContainers.
 const (
+	labelTrue             = "true"
 	LabelCodeflyOwner     = "codefly.owner"     // always "true"
 	LabelCodeflySession   = "codefly.session"   // PID of the spawning CLI
 	LabelCodeflyName      = "codefly.name"      // container's logical name
