@@ -85,8 +85,12 @@ protected write credentials to untrusted code, even with exports omitted.
 `max` can publish source and intermediate artifacts. Cache repositories need
 appropriate read restrictions. Use Docker secret mounts for secrets, keep
 secret-dependent outputs out of exported layers, and declare all ordinary build
-inputs. The in-agent tar builder honors Docker ignore directory patterns,
-globstars and negation; ignored directory contents are not sent to BuildKit.
+inputs. Builds stage a local context filtered by root, Dockerfile-specific and custom
+ignore policies. Negations apply within each policy; a custom policy cannot
+re-include root-excluded files. The Dockerfile is provided separately, so ignoring
+its directory does not remove the build definition. Local BuildKit transfer
+avoids exporting the intermediate full-context snapshot created by stdin tar
+builds; unused files are not cache layers.
 This transport introduces no additional context inputs. Secret or network state
 not represented in declared inputs cannot be made reproducible by caching.
 

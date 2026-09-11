@@ -248,6 +248,9 @@ func TestBuilderBuildsRequestedArchitecture(t *testing.T) {
 
 func newTestBuilder(t *testing.T, cfg BuilderConfiguration, backend buildBackend) *Builder {
 	t.Helper()
+	if err := os.WriteFile(filepath.Join(cfg.Root, cfg.Dockerfile), []byte("FROM scratch\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	builder, err := NewBuilder(cfg)
 	if err != nil {
 		t.Fatal(err)

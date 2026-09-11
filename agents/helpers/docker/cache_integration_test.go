@@ -2,8 +2,10 @@ package docker
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,4 +81,47 @@ func TestRegistryCacheAcrossCleanBuilders(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, source, string(data))
 	}
+}
+
+func TestMaxCacheDoesNotExportHiddenOrUnusedContext(t *testing.T) {
+	if os.Getenv("CODEFLY_TEST_REGISTRY_CACHE") != "1" {
+		t.Skip("set CODEFLY_TEST_REGISTRY_CACHE=1 for BuildKit cache inspection")
+	}
+	root := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(root, "builder"), 0755))
+	marker := "codefly-never-export-this-input"
+	for name, data := range map[string]string{
+		"builder/Dockerfile":   "FROM scratch\nCOPY app /app\n",
+		"builder/dockerignore": "builder/\n!secret\n",
+		".dockerignore":        "secret\n", "secret": marker, "unused": marker, "app": "application",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(data), 0600))
+	}
+	prepared, err := PrepareBuildContext(context.Background(), root, "builder/Dockerfile", "builder/dockerignore")
+	require.NoError(t, err)
+	defer prepared.Close()
+	cacheDir := filepath.Join(t.TempDir(), "cache")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	args := []string{"buildx", "build", "--platform", "linux/amd64", "-f", prepared.Dockerfile, "--cache-to", "type=local,dest=" + cacheDir + ",mode=max,compression=gzip", prepared.Root}
+	output, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	blobs, err := filepath.Glob(filepath.Join(cacheDir, "blobs", "sha256", "*"))
+	require.NoError(t, err)
+	inspected := 0
+	for _, blob := range blobs {
+		data, err := os.ReadFile(blob)
+		require.NoError(t, err)
+		if !bytes.HasPrefix(data, []byte{0x1f, 0x8b}) {
+			continue
+		}
+		zipped, err := gzip.NewReader(bytes.NewReader(data))
+		require.NoError(t, err)
+		layer, err := io.ReadAll(zipped)
+		require.NoError(t, err)
+		require.NoError(t, zipped.Close())
+		require.NotContains(t, string(layer), marker, "exported layer %s contains undeclared input", blob)
+		inspected++
+	}
+	require.Positive(t, inspected, "must inspect actual exported filesystem layers")
 }

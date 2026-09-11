@@ -1,12 +1,10 @@
 package docker
 
 import (
-	"archive/tar"
 	"context"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -79,25 +77,13 @@ func TestBuildContextExcludesIgnoredDirectoryContents(t *testing.T) {
 	for name, data := range map[string]string{".secrets/token": "hidden", "nested/private.key": "hidden", "nested/public.key": "public", "Dockerfile": "FROM scratch", ".dockerignore": ".secrets\n**/*.key\n!nested/public.key\n"} {
 		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(data), 0600))
 	}
-	builder := &Builder{BuilderConfiguration: BuilderConfiguration{Root: root, Ignorefile: ".dockerignore"}}
-	archive, err := builder.createTarArchive(context.Background())
+	prepared, err := PrepareBuildContext(context.Background(), root, "Dockerfile", ".dockerignore")
 	require.NoError(t, err)
-	reader := tar.NewReader(archive)
-	names := []string{}
-	for {
-		header, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err)
-		names = append(names, header.Name)
-		data, err := io.ReadAll(reader)
-		require.NoError(t, err)
-		require.False(t, strings.Contains(string(data), "hidden"))
-	}
-	require.Contains(t, names, "nested/public.key")
-	require.NotContains(t, names, ".secrets/token")
-	require.NotContains(t, names, "nested/private.key")
+	t.Cleanup(func() { require.NoError(t, prepared.Close()) })
+	require.FileExists(t, filepath.Join(prepared.Root, "nested/public.key"))
+	require.NoFileExists(t, filepath.Join(prepared.Root, ".secrets/token"))
+	require.NoFileExists(t, filepath.Join(prepared.Root, "nested/private.key"))
+
 }
 
 func TestCacheBuildStillVerifiesArchitecture(t *testing.T) {
