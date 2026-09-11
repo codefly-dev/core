@@ -1,0 +1,134 @@
+# Dependency updates for every ecosystem this repository ships.
+#
+# Each ecosystem gets TWO catch-all groups and open-pull-requests-limit 2:
+#
+#   <ecosystem>         minor + patch -- the routine, near-always-mergeable bump
+#   <ecosystem>-major   major         -- the one that needs a human
+#
+# Splitting them is load-bearing, not cosmetic. open-pull-requests-limit caps
+# open VERSION-update PRs per entry, so with a single all-levels group one
+# breaking major (docker:28-dind -> 29, actions/setup-go v3 -> v5) sits red at
+# the cap and Dependabot opens nothing further for that ecosystem -- routine
+# patches included -- until a human closes it. Quarantining majors means a
+# stuck major can never hold minor/patch hostage. (Security updates are exempt
+# from this limit and are never grouped here, so they are unaffected either
+# way.)
+#
+# Dependabot CAN group across ecosystems -- top-level `multi-ecosystem-groups`
+# plus a per-entry `multi-ecosystem-group` key -- which would collapse the five
+# entries below into one pull request. We deliberately do not: it makes the
+# failure above strictly worse, because a single red cross-ecosystem PR would
+# freeze gomod, npm, pip, docker AND github-actions at once. Five isolated
+# blast radii are worth more than four fewer pull requests.
+#
+# The github-actions entry exists because every action is pinned by commit SHA;
+# nothing else would ever move those pins.
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    # The root module, plus the Go proto facade -- a real published module
+    # (github.com/codefly-dev/core/companions/proto/facades/go) whose
+    # TypeScript sibling is already covered by the npm entry below. The other
+    # go.mod files in the tree are test fixtures (code/testdata/repos/*,
+    # runners/golang/testdata/*) and are deliberately left alone: bumping them
+    # would break the tests that assert against their pinned contents.
+    directories:
+      - /
+      - /companions/proto/facades/go
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      gomod:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      gomod-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
+
+  - package-ecosystem: npm
+    directories:
+      - /companions/proto/facades/ts
+      - /companions/proto/ts-generators
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      npm:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      npm-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
+
+  - package-ecosystem: pip
+    # agents/services/audit/testdata/python is a fixture, not shipped code.
+    directory: /generated/python/codefly-cli
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      pip:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      pip-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
+
+  - package-ecosystem: docker
+    directories:
+      - /companions/go
+      - /companions/node
+      - /companions/proto
+      - /companions/python
+      - /companions/codefly
+      - /companions/execution
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      docker:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      docker-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      github-actions-major:
+        patterns:
+          - "*"
+        update-types:
+          - major

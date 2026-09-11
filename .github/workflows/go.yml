@@ -26,12 +26,12 @@ jobs:
         run: docker pull alpine:latest
         # We use it for tests
       - name: set up
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@be3c94b385c4f180051c996d336f57a34c397495 # v3.6.1
         with:
           go-version: "1.27.0"
 
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: version/tag drift guard
         # version/info.codefly.yaml is embedded into the binary and gates every
@@ -43,7 +43,7 @@ jobs:
         run: ./scripts/check_version_tag.sh
 
       - name: Cache Go Modules
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         continue-on-error: true
         with:
           path: ~/go/pkg/mod
@@ -88,7 +88,7 @@ jobs:
         # setup-uv is the de-facto standard installer for GH Actions: pinned,
         # deterministic, adds uv to PATH. uv provisions its own Python on
         # demand, so no separate python setup is needed.
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: Install Nix
         # Strict — nix is core to the platform; if it doesn't install,
@@ -96,7 +96,12 @@ jobs:
         # DeterminateSystems' installer is the de-facto standard for
         # GH Actions: deterministic, no daemon issues on ephemeral
         # runners.
-        uses: DeterminateSystems/nix-installer-action@main
+        #
+        # This ref tracked the `main` BRANCH before it was pinned. The pinned
+        # commit is also tagged v23, so Dependabot's github-actions updater can
+        # still move it (it bumps SHA pins to newer releases, and would have
+        # nothing to move an untagged branch commit to).
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       - name: Allow unprivileged user namespaces (for bwrap)
         # Ubuntu 24.04 ships with kernel.apparmor_restrict_unprivileged_userns=1
@@ -107,7 +112,7 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 #
 #      - name: golangci-lint
-#        uses: golangci/golangci-lint-action@v3
+#        uses: golangci/golangci-lint-action@3a919529898de77ec3da873e3063ca4b10e7f5cc # v3.7.0
 #        with:
 #          version: v1.55
 
@@ -149,7 +154,7 @@ jobs:
 
       - name: check test coverage
         id: coverage
-        uses: vladopajic/go-test-coverage@v2
+        uses: vladopajic/go-test-coverage@f94bcf0d6b9fa5fb8b783830b22648f6c17475e2 # v2.19.0
         with:
           config: ./.testcoverage.yaml
           ## when token is not specified (value '') this feature is turned off
@@ -174,8 +179,15 @@ jobs:
         run: go test -race ./... -timeout 10m
 
       - name: Notify Slack on Failure
-        if: failure()
-        uses: slackapi/slack-github-action@v1.24.0
+        # Push-only, and not merely to cut PR noise: a workflow run triggered by
+        # Dependabot (or a fork) is handled as though it came from a fork, so
+        # `secrets.*` resolves to the empty string. slack-github-action rejects
+        # an empty webhook outright -- `throw new Error('Need to provide at
+        # least one botToken or webhookUrl')` -- and core.setFailed turns the
+        # whole job red after build, test, race and coverage have all passed.
+        # These alerts are about main's health anyway, so gate them on push.
+        if: failure() && github.event_name == 'push'
+        uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
         with:
           payload: |
             {
@@ -185,8 +197,11 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
       - name: Notify Slack on Success
-        if: success()
-        uses: slackapi/slack-github-action@v1.24.0
+        # Push-only for the same reason as the failure notification above: on a
+        # Dependabot pull request this step would fire on every GREEN run and
+        # fail it. See the comment there.
+        if: success() && github.event_name == 'push'
+        uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
         with:
           payload: |
             {
