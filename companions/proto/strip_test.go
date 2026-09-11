@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/languages"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
@@ -356,7 +357,7 @@ func TestStripPreservesImportMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	marked, _, err := MarkForeignImports(source)
+	marked, _, err := MarkForeignImports(source, languages.PYTHON)
 	if err != nil {
 		t.Fatal(err)
 	}

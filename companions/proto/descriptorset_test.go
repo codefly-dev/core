@@ -18,19 +18,20 @@ import (
 )
 
 // restProtoPath is a contract shaped like the real ones: it imports a well-known
-// type and google/api/annotations.proto, the two namespaces whose bindings the
-// generated library must not own.
+// type, google/api/annotations.proto and buf/validate/validate.proto, the three
+// namespaces whose bindings someone else publishes.
 const restProtoPath = "saas/rest/v1/rest.proto"
 
 const restProto = `syntax = "proto3";
 
 package saas.rest.v1;
 
+import "buf/validate/validate.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 
 message GetRequest {
-  string id = 1;
+  string id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message GetResponse {
@@ -59,7 +60,7 @@ func plainDescriptorSet(t *testing.T, ctx context.Context) []byte {
 	require.NoError(t, os.MkdirAll(filepath.Dir(protoPath), 0755))
 	require.NoError(t, os.WriteFile(protoPath, []byte(restProto), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "buf.yaml"),
-		[]byte("version: v2\nmodules:\n  - path: .\ndeps:\n  - buf.build/googleapis/googleapis\n"), 0600))
+		[]byte("version: v2\nmodules:\n  - path: .\ndeps:\n  - buf.build/googleapis/googleapis\n  - buf.build/bufbuild/protovalidate\n"), 0600))
 
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
 		"-v", dir+":/work", "-w", "/work", imageRef(t, ctx),
@@ -110,6 +111,45 @@ func TestGoClientFromPlainDescriptorSetOwnsOnlyItsOwnProtos(t *testing.T) {
 	mod := generatedModule(t, dest)
 	run(t, ctx, mod, "go", "mod", "tidy")
 	run(t, ctx, mod, "go", "build", "./...")
+}
+
+// TestTypeScriptClientFromPlainDescriptorSetKeepsWhatItImportsRelatively is the
+// TypeScript half, where the answer is not the Go one. protoc-gen-es names the
+// well-known types by package — @bufbuild/protobuf/wkt — for every file it is
+// not asked to generate, so dropping those is right. It has no package for
+// googleapis or protovalidate: it emits `../../google/api/annotations_pb`, a
+// path that resolves only if the library carries the file, so dropping those
+// leaves one dangling import per reference.
+//
+// Only tsc catches it. Generation succeeds either way and the bindings it
+// writes are well-formed TypeScript; they just import files nothing wrote.
+func TestTypeScriptClientFromPlainDescriptorSetKeepsWhatItImportsRelatively(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	testutil.RequireProtoImage(t, ctx)
+
+	dest := t.TempDir()
+	require.NoError(t, proto.GenerateClient(ctx, proto.ClientRequest{
+		Language:      languages.TYPESCRIPT,
+		Destination:   dest,
+		Module:        "rest",
+		DescriptorSet: plainDescriptorSet(t, ctx),
+	}))
+
+	_, err := os.Stat(filepath.Join(dest, "google", "protobuf"))
+	require.True(t, os.IsNotExist(err),
+		"the well-known types come from @bufbuild/protobuf/wkt; a local copy is one Timestamp the consumer's is not")
+
+	for _, vendored := range []string{"google/api/annotations_pb.ts", "buf/validate/validate_pb.ts"} {
+		_, err = os.Stat(filepath.Join(dest, filepath.FromSlash(vendored)))
+		require.NoError(t, err, "the module's bindings import %s relatively, so the library has to own it", vendored)
+	}
+
+	bindings, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash("saas/rest/v1/rest_pb.ts")))
+	require.NoError(t, err)
+	require.Contains(t, string(bindings), "@bufbuild/protobuf/wkt")
+
+	tsc(t, ctx, dest)
 }
 
 // restModulePath must match the go_package prefix CreateBufConfiguration derives

@@ -127,7 +127,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	var goPackageOverrides map[string]string
 	if len(spec.descriptorSet) > 0 {
 		var merr error
-		if markedDescriptorSet, goPackageOverrides, merr = MarkForeignImports(spec.descriptorSet); merr != nil {
+		if markedDescriptorSet, goPackageOverrides, merr = MarkForeignImports(spec.descriptorSet, spec.language); merr != nil {
 			return w.Wrapf(merr, "cannot mark foreign imports in descriptor set")
 		}
 	}
@@ -187,7 +187,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 		return w.Wrapf(err, "cannot create destination")
 	}
 
-	if err = removeForeignOutput(ctx, spec.destination); err != nil {
+	if err = removeForeignOutput(ctx, spec.destination, spec.language); err != nil {
 		return w.Wrapf(err, "cannot remove stale foreign bindings")
 	}
 
@@ -202,12 +202,18 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 // the descriptors stay in the pool) even though the current run emits nothing
 // there, and the fix looks like it did not work.
 //
-// Only the namespace roots that MarkForeignImports marks are removed, and they
-// are removed before buf runs, so a Sources-path caller that legitimately owns
-// protos under those paths has them regenerated in the same run.
-func removeForeignOutput(ctx context.Context, destination string) error {
+// Only the namespace roots that MarkForeignImports marks for this language are
+// removed, so the clean set and the emitted set stay the same set: a TypeScript
+// library keeps the google/api and buf/validate copies its own bindings import
+// relatively, and removing those would break the very tree this run produces.
+// They are removed before buf runs, so a Sources-path caller that legitimately
+// owns protos under those paths has them regenerated in the same run.
+func removeForeignOutput(ctx context.Context, destination string, language languages.Language) error {
 	w := wool.Get(ctx).In("removeForeignOutput", wool.DirField(destination))
 	for _, ns := range foreignNamespaces {
+		if ns.vendoredBy(language) {
+			continue
+		}
 		path := filepath.Join(destination, filepath.FromSlash(strings.TrimSuffix(ns.pathPrefix, "/")))
 		if err := os.RemoveAll(path); err != nil {
 			return w.Wrapf(err, "cannot remove %s", path)

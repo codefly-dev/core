@@ -3,6 +3,7 @@ package proto
 import (
 	"strings"
 
+	"github.com/codefly-dev/core/languages"
 	"google.golang.org/protobuf/encoding/protowire"
 	googleproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -26,16 +27,42 @@ import (
 type foreignNamespace struct {
 	pathPrefix    string
 	packagePrefix string
+
+	// resolvedByTypeScript reports whether protoc-gen-es refers to this
+	// namespace by package name rather than by a path relative to the file it
+	// generates. Only the well-known types are: protobuf-es publishes them as
+	// @bufbuild/protobuf/wkt and imports them from there for every file it is
+	// not asked to generate. It ships no package for googleapis or
+	// protovalidate, so it emits `../../google/api/annotations_pb` — an import
+	// that only resolves if the library carries that file itself. Dropping one
+	// of those from a TypeScript library therefore does not move it upstream,
+	// it just dangles, and tsc fails with TS2307 on every reference.
+	resolvedByTypeScript bool
 }
 
 // foreignNamespaces covers google/protobuf (package google.protobuf and
 // google.protobuf.compiler), the rest of google/ (google.api, google.rpc,
 // google.type, ...) and buf/validate. It deliberately mirrors the namespaces
-// strip_custom_options.py refuses to vendor, so the Go/TypeScript path and the
-// Python path agree on what the generated library is allowed to own.
+// strip_custom_options.py refuses to vendor, so the Go path and the Python path
+// agree on what the generated library is allowed to own.
+//
+// Order matters: google/protobuf/ has to be matched before the google/
+// catch-all, because the two carry different answers for TypeScript.
 var foreignNamespaces = []foreignNamespace{
+	{pathPrefix: "google/protobuf/", packagePrefix: "google.protobuf", resolvedByTypeScript: true},
 	{pathPrefix: "google/", packagePrefix: "google."},
 	{pathPrefix: "buf/validate/", packagePrefix: "buf.validate"},
+}
+
+// owns reports whether file belongs to this namespace.
+func (ns foreignNamespace) owns(file *descriptorpb.FileDescriptorProto) bool {
+	return strings.HasPrefix(file.GetName(), ns.pathPrefix) && strings.HasPrefix(file.GetPackage(), ns.packagePrefix)
+}
+
+// vendoredBy reports whether a library generated for language has to carry its
+// own copy of this namespace, which is the inverse of being able to drop it.
+func (ns foreignNamespace) vendoredBy(language languages.Language) bool {
+	return language == languages.TYPESCRIPT && !ns.resolvedByTypeScript
 }
 
 // buf marks a file that an image carries only to resolve imports with
@@ -46,21 +73,25 @@ const (
 	bufImageFileIsImportField  = 1
 )
 
-// isForeign reports whether the generated library must not own this file's
-// bindings.
-func isForeign(file *descriptorpb.FileDescriptorProto) bool {
+// isForeign reports whether a library generated for language must not own this
+// file's bindings.
+func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Language) bool {
 	for _, ns := range foreignNamespaces {
-		if strings.HasPrefix(file.GetName(), ns.pathPrefix) && strings.HasPrefix(file.GetPackage(), ns.packagePrefix) {
-			return true
+		if ns.owns(file) {
+			return !ns.vendoredBy(language)
 		}
 	}
 	return false
 }
 
 // MarkForeignImports marks every file of a serialized FileDescriptorSet that
-// belongs to a foreign namespace as a buf image import, and returns the
-// re-serialized set together with the go_package each marked file declares,
-// keyed by file name.
+// belongs to a foreign namespace the generated library can drop as a buf image
+// import, and returns the re-serialized set together with the go_package each
+// marked file declares, keyed by file name.
+//
+// Which namespaces those are depends on language, because dropping one only
+// works if the generator refers to it by package name: Go and Python do that for
+// all of them, TypeScript only for the well-known types. See foreignNamespace.
 //
 // A descriptor set handed to GenerateClient is a *plain* FileDescriptorSet —
 // a codefly contract is built with `buf build --as-file-descriptor-set`, which
@@ -93,7 +124,7 @@ func isForeign(file *descriptorpb.FileDescriptorProto) bool {
 // A caller that already marked its image loses nothing by this running again:
 // a second field-8042 submessage merges with the first, and is_import=true
 // merged onto true stays true.
-func MarkForeignImports(descriptorSet []byte) ([]byte, map[string]string, error) {
+func MarkForeignImports(descriptorSet []byte, language languages.Language) ([]byte, map[string]string, error) {
 	var set descriptorpb.FileDescriptorSet
 	if err := googleproto.Unmarshal(descriptorSet, &set); err != nil {
 		return nil, nil, err
@@ -102,7 +133,7 @@ func MarkForeignImports(descriptorSet []byte) ([]byte, map[string]string, error)
 	extension := protowire.AppendBytes(protowire.AppendTag(nil, bufImageFileExtensionField, protowire.BytesType), isImport)
 	goPackages := make(map[string]string)
 	for _, file := range set.GetFile() {
-		if !isForeign(file) {
+		if !isForeign(file, language) {
 			continue
 		}
 		message := file.ProtoReflect()
