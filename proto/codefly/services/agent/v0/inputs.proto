@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package codefly.services.agent.v0;
+
+// TaskPhase is part of the provider-neutral effective-input contract.
+enum TaskPhase {
+  // TASK_PHASE_UNSPECIFIED: No phase declared.
+  TASK_PHASE_UNSPECIFIED = 0;
+  // TASK_PHASE_LINT: Runtime.Lint.
+  TASK_PHASE_LINT = 1;
+  // TASK_PHASE_COMPILE: Runtime.Build.
+  TASK_PHASE_COMPILE = 2;
+  // TASK_PHASE_TEST: Runtime.Test with a named suite.
+  TASK_PHASE_TEST = 3;
+  // TASK_PHASE_AUDIT: Builder.Audit.
+  TASK_PHASE_AUDIT = 4;
+  // TASK_PHASE_SBOM: Builder.SBOM.
+  TASK_PHASE_SBOM = 5;
+  // TASK_PHASE_ARTIFACT_BUILD: Builder.Build.
+  TASK_PHASE_ARTIFACT_BUILD = 6;
+  // TASK_PHASE_SYNC: Builder.Sync.
+  TASK_PHASE_SYNC = 7;
+  // TASK_PHASE_SOURCE_PACKAGE: Builder.Package.
+  TASK_PHASE_SOURCE_PACKAGE = 8;
+}
+
+// EffectiveInputKind is part of the provider-neutral effective-input contract.
+enum EffectiveInputKind {
+  // EFFECTIVE_INPUT_KIND_UNSPECIFIED: No input kind declared.
+  EFFECTIVE_INPUT_KIND_UNSPECIFIED = 0;
+  // EFFECTIVE_INPUT_KIND_SOURCE: Source consumed by the task.
+  EFFECTIVE_INPUT_KIND_SOURCE = 1;
+  // EFFECTIVE_INPUT_KIND_CONFIGURATION: Shared or runtime configuration.
+  EFFECTIVE_INPUT_KIND_CONFIGURATION = 2;
+  // EFFECTIVE_INPUT_KIND_TOOLCHAIN: Resolved compiler, runner, platform or toolchain.
+  EFFECTIVE_INPUT_KIND_TOOLCHAIN = 3;
+  // EFFECTIVE_INPUT_KIND_PLUGIN: Resolved agent or plugin implementation.
+  EFFECTIVE_INPUT_KIND_PLUGIN = 4;
+  // EFFECTIVE_INPUT_KIND_LIBRARY: Consumed library content.
+  EFFECTIVE_INPUT_KIND_LIBRARY = 5;
+  // EFFECTIVE_INPUT_KIND_GENERATED_CONTRACT: Generated API or schema content.
+  EFFECTIVE_INPUT_KIND_GENERATED_CONTRACT = 6;
+  // EFFECTIVE_INPUT_KIND_ARTIFACT: Artifact prerequisite, independent of live startup.
+  EFFECTIVE_INPUT_KIND_ARTIFACT = 7;
+  // EFFECTIVE_INPUT_KIND_VALIDATION: Required validation result.
+  EFFECTIVE_INPUT_KIND_VALIDATION = 8;
+  // EFFECTIVE_INPUT_KIND_SERVICE_IMPLEMENTATION: Implementation of a service exercised by integration tests.
+  EFFECTIVE_INPUT_KIND_SERVICE_IMPLEMENTATION = 9;
+  // EFFECTIVE_INPUT_KIND_FIXTURE: Selected fixture content.
+  EFFECTIVE_INPUT_KIND_FIXTURE = 10;
+  // EFFECTIVE_INPUT_KIND_ENVIRONMENT: Effective environment input.
+  EFFECTIVE_INPUT_KIND_ENVIRONMENT = 11;
+  // EFFECTIVE_INPUT_KIND_GENERATOR: Resolved generation tool and its configuration.
+  EFFECTIVE_INPUT_KIND_GENERATOR = 12;
+  // EFFECTIVE_INPUT_KIND_LOCKFILE: Resolved dependency lockfile.
+  EFFECTIVE_INPUT_KIND_LOCKFILE = 13;
+  // EFFECTIVE_INPUT_KIND_EXTERNAL: External input with an explicit versioned identity.
+  EFFECTIVE_INPUT_KIND_EXTERNAL = 14;
+}
+
+// EffectiveIdentityKind is part of the provider-neutral effective-input contract.
+enum EffectiveIdentityKind {
+  // EFFECTIVE_IDENTITY_KIND_UNSPECIFIED: Unresolved input; never eligible for result reuse.
+  EFFECTIVE_IDENTITY_KIND_UNSPECIFIED = 0;
+  // EFFECTIVE_IDENTITY_KIND_SHA256: SHA-256 of non-sensitive content.
+  EFFECTIVE_IDENTITY_KIND_SHA256 = 1;
+  // EFFECTIVE_IDENTITY_KIND_HMAC_SHA256: Keyed SHA-256; namespace identifies protection key scope and version.
+  EFFECTIVE_IDENTITY_KIND_HMAC_SHA256 = 2;
+  // EFFECTIVE_IDENTITY_KIND_VERSIONED: Immutable external identity in an explicitly versioned namespace.
+  EFFECTIVE_IDENTITY_KIND_VERSIONED = 3;
+}
+
+// TaskKey is a stable identity independent of input discovery.
+message TaskKey {
+  // phase identifies the operation.
+  TaskPhase phase = 1;
+  // suite is required for TEST and empty for all other phases.
+  string suite = 2;
+}
+
+// EffectiveIdentity transports identities, never secret values.
+message EffectiveIdentity {
+  // kind specifies the identity algorithm.
+  EffectiveIdentityKind kind = 1;
+  // namespace scopes an immutable external version or protection key version.
+  string namespace = 2;
+  // digest is a hexadecimal digest, or an opaque immutable external identity.
+  string digest = 3;
+}
+
+// EffectiveInput is one resolved input or dependency edge, not a filename rule.
+message EffectiveInput {
+  // kind describes how the task consumes this input.
+  EffectiveInputKind kind = 1;
+  // owner is the stable workspace resource identity, including for shared inputs.
+  string owner = 2;
+  // name is a logical input name; paths use canonical workspace-relative slashes.
+  string name = 3;
+  // identity includes effective content, not merely a declared version constraint.
+  EffectiveIdentity identity = 4;
+  // sensitive requires HMAC_SHA256 or an unresolved identity; never a plain hash.
+  bool sensitive = 5;
+  // path marks a filesystem input. Declarations include consumed symlink targets
+  // as separate inputs; mode and link identity describe the link itself.
+  bool path = 6;
+  // mode is the Git-style file mode for filesystem inputs, zero otherwise.
+  uint32 mode = 7;
+}
+
+// TaskInputs describes one task, including inputs outside its source directory.
+message TaskInputs {
+  // task refers to an independently advertised phase or named test suite.
+  TaskKey task = 1;
+  // complete attests that discovery covered every effective input. False forces
+  // conservative selection and disables result reuse for this task.
+  bool complete = 2;
+  // inputs includes fixtures, effective environment, resolved agent/toolchain,
+  // lockfiles and dependency identities consumed by this specific task.
+  repeated EffectiveInput inputs = 3;
+  // runtime_services are stable resource identities needed only for execution.
+  // Integration coverage additionally declares SERVICE_IMPLEMENTATION inputs.
+  repeated string runtime_services = 4;
+}
+
+// GetEffectiveInputsRequest requests discovery against one immutable snapshot.
+message GetEffectiveInputsRequest {
+  // schema_version is the contract version understood by the caller (currently 1).
+  uint32 schema_version = 1;
+  // snapshot is an opaque identity binding source, dependency graph and context.
+  string snapshot = 2;
+  // revision is a source revision to inspect, empty for the current worktree.
+  string revision = 3;
+  // context supplies resolved execution inputs without transporting raw secrets.
+  repeated EffectiveInput context = 4;
+}
+
+// GetEffectiveInputsResponse is a snapshot-bound declaration. Missing tasks are
+// incomplete, never permission to remove required validation from a plan.
+message GetEffectiveInputsResponse {
+  // schema_version is the version actually produced, currently 1.
+  uint32 schema_version = 1;
+  // snapshot must echo the requested snapshot after discovery succeeds.
+  string snapshot = 2;
+  // tasks declares effective inputs separately for each supported phase/suite.
+  repeated TaskInputs tasks = 3;
+}

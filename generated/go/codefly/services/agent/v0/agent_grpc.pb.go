@@ -20,6 +20,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Agent_GetEffectiveInputs_FullMethodName  = "/codefly.services.agent.v0.Agent/GetEffectiveInputs"
 	Agent_GetAgentInformation_FullMethodName = "/codefly.services.agent.v0.Agent/GetAgentInformation"
 	Agent_ListCommands_FullMethodName        = "/codefly.services.agent.v0.Agent/ListCommands"
 	Agent_RunPluginCommand_FullMethodName    = "/codefly.services.agent.v0.Agent/RunPluginCommand"
@@ -31,6 +32,8 @@ const (
 //
 // Agent exposes plugin identity, metadata, and plugin-defined commands.
 type AgentClient interface {
+	// GetEffectiveInputs discovers task-specific consumption without executing tasks.
+	GetEffectiveInputs(ctx context.Context, in *GetEffectiveInputsRequest, opts ...grpc.CallOption) (*GetEffectiveInputsResponse, error)
 	// GetAgentInformation returns the agent manifest, capabilities, and configuration docs.
 	GetAgentInformation(ctx context.Context, in *AgentInformationRequest, opts ...grpc.CallOption) (*AgentInformation, error)
 	// ListCommands returns the commands this plugin agent provides.
@@ -45,6 +48,16 @@ type agentClient struct {
 
 func NewAgentClient(cc grpc.ClientConnInterface) AgentClient {
 	return &agentClient{cc}
+}
+
+func (c *agentClient) GetEffectiveInputs(ctx context.Context, in *GetEffectiveInputsRequest, opts ...grpc.CallOption) (*GetEffectiveInputsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetEffectiveInputsResponse)
+	err := c.cc.Invoke(ctx, Agent_GetEffectiveInputs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *agentClient) GetAgentInformation(ctx context.Context, in *AgentInformationRequest, opts ...grpc.CallOption) (*AgentInformation, error) {
@@ -83,6 +96,8 @@ func (c *agentClient) RunPluginCommand(ctx context.Context, in *RunPluginCommand
 //
 // Agent exposes plugin identity, metadata, and plugin-defined commands.
 type AgentServer interface {
+	// GetEffectiveInputs discovers task-specific consumption without executing tasks.
+	GetEffectiveInputs(context.Context, *GetEffectiveInputsRequest) (*GetEffectiveInputsResponse, error)
 	// GetAgentInformation returns the agent manifest, capabilities, and configuration docs.
 	GetAgentInformation(context.Context, *AgentInformationRequest) (*AgentInformation, error)
 	// ListCommands returns the commands this plugin agent provides.
@@ -99,6 +114,9 @@ type AgentServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAgentServer struct{}
 
+func (UnimplementedAgentServer) GetEffectiveInputs(context.Context, *GetEffectiveInputsRequest) (*GetEffectiveInputsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetEffectiveInputs not implemented")
+}
 func (UnimplementedAgentServer) GetAgentInformation(context.Context, *AgentInformationRequest) (*AgentInformation, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAgentInformation not implemented")
 }
@@ -127,6 +145,24 @@ func RegisterAgentServer(s grpc.ServiceRegistrar, srv AgentServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Agent_ServiceDesc, srv)
+}
+
+func _Agent_GetEffectiveInputs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEffectiveInputsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).GetEffectiveInputs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_GetEffectiveInputs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).GetEffectiveInputs(ctx, req.(*GetEffectiveInputsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Agent_GetAgentInformation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -190,6 +226,10 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "codefly.services.agent.v0.Agent",
 	HandlerType: (*AgentServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetEffectiveInputs",
+			Handler:    _Agent_GetEffectiveInputs_Handler,
+		},
 		{
 			MethodName: "GetAgentInformation",
 			Handler:    _Agent_GetAgentInformation_Handler,

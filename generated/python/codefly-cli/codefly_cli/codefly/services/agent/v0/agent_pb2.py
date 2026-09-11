@@ -22,52 +22,77 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
+from codefly.base.v0 import failure_pb2 as codefly_dot_base_dot_v0_dot_failure__pb2
+from codefly.services.agent.v0 import inputs_pb2 as codefly_dot_services_dot_agent_dot_v0_dot_inputs__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%codefly/services/agent/v0/agent.proto\x12\x19\x63odefly.services.agent.v0\"\x98\x01\n\x08Language\x12<\n\x04type\x18\x01 \x01(\x0e\x32(.codefly.services.agent.v0.Language.TypeR\x04type\"N\n\x04Type\x12\x06\n\x02GO\x10\x00\x12\n\n\x06PYTHON\x10\x01\x12\x0e\n\nJAVASCRIPT\x10\x02\x12\x0e\n\nTYPESCRIPT\x10\x03\x12\x08\n\x04RUBY\x10\x04\x12\x08\n\x04RUST\x10\x05\"d\n\x08Protocol\x12<\n\x04type\x18\x01 \x01(\x0e\x32(.codefly.services.agent.v0.Protocol.TypeR\x04type\"\x1a\n\x04Type\x12\x08\n\x04HTTP\x10\x00\x12\x08\n\x04GRPC\x10\x01\"\x8b\x01\n\nCapability\x12>\n\x04type\x18\x01 \x01(\x0e\x32*.codefly.services.agent.v0.Capability.TypeR\x04type\"=\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x0b\n\x07\x42UILDER\x10\x01\x12\x0b\n\x07RUNTIME\x10\x02\x12\x0e\n\nHOT_RELOAD\x10\x03\"\xed\x01\n\x07Runtime\x12;\n\x04type\x18\x01 \x01(\x0e\x32\'.codefly.services.agent.v0.Runtime.TypeR\x04type\x12\x18\n\x07version\x18\x02 \x01(\tR\x07version\"\x8a\x01\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x06\n\x02GO\x10\x01\x12\x07\n\x03NPM\x10\x02\x12\n\n\x06PYTHON\x10\x03\x12\x11\n\rPYTHON_POETRY\x10\x04\x12\x08\n\x04RUBY\x10\x05\x12\x0c\n\x08RUBY_GEM\x10\x06\x12\x0f\n\x0bRUBY_BUNDLE\x10\x07\x12\x07\n\x03NIX\x10\x08\x12\x08\n\x04RUST\x10\t\x12\t\n\x05\x43\x41RGO\x10\n\"U\n\x1d\x43onfigurationValueInformation\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\"\xa2\x01\n\x18\x43onfigurationValueDetail\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12P\n\x06\x66ields\x18\x03 \x03(\x0b\x32\x38.codefly.services.agent.v0.ConfigurationValueInformationR\x06\x66ields\"\x82\x01\n\x0e\x41gentTechnique\x12\x0e\n\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x03 \x01(\tR\x0b\x64\x65scription\x12\x12\n\x04tags\x18\x04 \x03(\tR\x04tags\x12\x16\n\x06prompt\x18\x05 \x01(\tR\x06prompt\"\x88\x04\n\x10\x41gentInformation\x12U\n\x14runtime_requirements\x18\x01 \x03(\x0b\x32\".codefly.services.agent.v0.RuntimeR\x13runtimeRequirements\x12I\n\x0c\x63\x61pabilities\x18\x02 \x03(\x0b\x32%.codefly.services.agent.v0.CapabilityR\x0c\x63\x61pabilities\x12\x41\n\tprotocols\x18\x03 \x03(\x0b\x32#.codefly.services.agent.v0.ProtocolR\tprotocols\x12\x41\n\tlanguages\x18\x04 \x03(\x0b\x32#.codefly.services.agent.v0.LanguageR\tlanguages\x12\x17\n\x07read_me\x18\x05 \x01(\tR\x06readMe\x12h\n\x15\x63onfiguration_details\x18\x06 \x03(\x0b\x32\x33.codefly.services.agent.v0.ConfigurationValueDetailR\x14\x63onfigurationDetails\x12I\n\ntechniques\x18\x07 \x03(\x0b\x32).codefly.services.agent.v0.AgentTechniqueR\ntechniques\"\x19\n\x17\x41gentInformationRequest\"\xec\x01\n\x11\x43ommandDefinition\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12\x14\n\x05usage\x18\x03 \x01(\tR\x05usage\x12\x18\n\x07\x61liases\x18\x04 \x03(\tR\x07\x61liases\x12\x12\n\x04tags\x18\x05 \x03(\tR\x04tags\x12\x16\n\x06plugin\x18\x06 \x01(\tR\x06plugin\x12 \n\x0b\x64\x65structive\x18\x07 \x01(\x08R\x0b\x64\x65structive\x12#\n\rneeds_gateway\x18\x08 \x01(\x08R\x0cneedsGateway\"\x15\n\x13ListCommandsRequest\"`\n\x14ListCommandsResponse\x12H\n\x08\x63ommands\x18\x01 \x03(\x0b\x32,.codefly.services.agent.v0.CommandDefinitionR\x08\x63ommands\"G\n\x17RunPluginCommandRequest\x12\x18\n\x07\x63ommand\x18\x01 \x01(\tR\x07\x63ommand\x12\x12\n\x04\x61rgs\x18\x02 \x03(\tR\x04\x61rgs\"b\n\x18RunPluginCommandResponse\x12\x18\n\x07success\x18\x01 \x01(\x08R\x07success\x12\x16\n\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n\x05\x65rror\x18\x03 \x01(\tR\x05\x65rror2\xf3\x02\n\x05\x41gent\x12x\n\x13GetAgentInformation\x12\x32.codefly.services.agent.v0.AgentInformationRequest\x1a+.codefly.services.agent.v0.AgentInformation\"\x00\x12q\n\x0cListCommands\x12..codefly.services.agent.v0.ListCommandsRequest\x1a/.codefly.services.agent.v0.ListCommandsResponse\"\x00\x12}\n\x10RunPluginCommand\x12\x32.codefly.services.agent.v0.RunPluginCommandRequest\x1a\x33.codefly.services.agent.v0.RunPluginCommandResponse\"\x00\x42\xf7\x01\n\x1d\x63om.codefly.services.agent.v0B\nAgentProtoP\x01ZBgithub.com/codefly-dev/core/generated/go/codefly/services/agent/v0\xa2\x02\x04\x43SAV\xaa\x02\x19\x43odefly.Services.Agent.V0\xca\x02\x19\x43odefly\\Services\\Agent\\V0\xe2\x02%Codefly\\Services\\Agent\\V0\\GPBMetadata\xea\x02\x1c\x43odefly::Services::Agent::V0b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n%codefly/services/agent/v0/agent.proto\x12\x19\x63odefly.services.agent.v0\x1a\x1d\x63odefly/base/v0/failure.proto\x1a&codefly/services/agent/v0/inputs.proto\"\xa3\x01\n\x08Language\x12<\n\x04type\x18\x01 \x01(\x0e\x32(.codefly.services.agent.v0.Language.TypeR\x04type\"Y\n\x04Type\x12\x06\n\x02GO\x10\x00\x12\n\n\x06PYTHON\x10\x01\x12\x0e\n\nJAVASCRIPT\x10\x02\x12\x0e\n\nTYPESCRIPT\x10\x03\x12\x08\n\x04RUBY\x10\x04\x12\x08\n\x04RUST\x10\x05\x12\t\n\x05SWIFT\x10\x06\"d\n\x08Protocol\x12<\n\x04type\x18\x01 \x01(\x0e\x32(.codefly.services.agent.v0.Protocol.TypeR\x04type\"\x1a\n\x04Type\x12\x08\n\x04HTTP\x10\x00\x12\x08\n\x04GRPC\x10\x01\"\xa3\x01\n\nCapability\x12>\n\x04type\x18\x01 \x01(\x0e\x32*.codefly.services.agent.v0.Capability.TypeR\x04type\"U\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x0b\n\x07\x42UILDER\x10\x01\x12\x0b\n\x07RUNTIME\x10\x02\x12\x0e\n\nHOT_RELOAD\x10\x03\x12\x16\n\x12\x45XECUTION_EXPORTER\x10\x04\"\x95\x01\n\x1dValidationOperationCapability\x12\x1c\n\tsupported\x18\x01 \x01(\x08R\tsupported\x12\x42\n\x06scopes\x18\x02 \x03(\x0e\x32*.codefly.services.agent.v0.ValidationScopeR\x06scopesJ\x04\x08\x03\x10\x04R\x0csupports_fix\"\xa6\x01\n\x13TestSuiteCapability\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12V\n\x0f\x64\x65pendency_mode\x18\x02 \x01(\x0e\x32-.codefly.services.agent.v0.TestDependencyModeR\x0e\x64\x65pendencyMode\x12#\n\rdefault_suite\x18\x03 \x01(\x08R\x0c\x64\x65\x66\x61ultSuite\"\xc4\x01\n\x18TestValidationCapability\x12\x1c\n\tsupported\x18\x01 \x01(\x08R\tsupported\x12\x42\n\x06scopes\x18\x02 \x03(\x0e\x32*.codefly.services.agent.v0.ValidationScopeR\x06scopes\x12\x46\n\x06suites\x18\x03 \x03(\x0b\x32..codefly.services.agent.v0.TestSuiteCapabilityR\x06suites\"\xb1\x05\n\x16ValidationCapabilities\x12L\n\x04lint\x18\x01 \x01(\x0b\x32\x38.codefly.services.agent.v0.ValidationOperationCapabilityR\x04lint\x12R\n\x07\x63ompile\x18\x02 \x01(\x0b\x32\x38.codefly.services.agent.v0.ValidationOperationCapabilityR\x07\x63ompile\x12G\n\x04test\x18\x03 \x01(\x0b\x32\x33.codefly.services.agent.v0.TestValidationCapabilityR\x04test\x12N\n\x05\x61udit\x18\x04 \x01(\x0b\x32\x38.codefly.services.agent.v0.ValidationOperationCapabilityR\x05\x61udit\x12_\n\x0e\x61rtifact_build\x18\x05 \x01(\x0b\x32\x38.codefly.services.agent.v0.ValidationOperationCapabilityR\rartifactBuild\x12L\n\x04sbom\x18\x06 \x01(\x0b\x32\x38.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sbom\x12L\n\x04sync\x18\x07 \x01(\x0b\x32\x38.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sync\x12_\n\x0esource_package\x18\x08 \x01(\x0b\x32\x38.codefly.services.agent.v0.ValidationOperationCapabilityR\rsourcePackage\"\xf1\x01\n\x07Runtime\x12;\n\x04type\x18\x01 \x01(\x0e\x32\'.codefly.services.agent.v0.Runtime.TypeR\x04type\x12\x18\n\x07version\x18\x02 \x01(\tR\x07version\"\x8a\x01\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x06\n\x02GO\x10\x01\x12\x07\n\x03NPM\x10\x02\x12\n\n\x06PYTHON\x10\x03\x12\x11\n\rPYTHON_POETRY\x10\x04\x12\x08\n\x04RUBY\x10\x05\x12\x0c\n\x08RUBY_GEM\x10\x06\x12\x0f\n\x0bRUBY_BUNDLE\x10\x07\x12\x07\n\x03NIX\x10\x08\x12\x08\n\x04RUST\x10\t\x12\t\n\x05\x43\x41RGO\x10\n:\x02\x18\x01\"{\n\x07\x42\x61\x63kend\x12;\n\x04type\x18\x01 \x01(\x0e\x32\'.codefly.services.agent.v0.Backend.TypeR\x04type\"3\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\x00\x12\t\n\x05LOCAL\x10\x01\x12\x07\n\x03NIX\x10\x02\x12\n\n\x06\x44OCKER\x10\x03\"\xf3\x01\n\tToolchain\x12=\n\x04type\x18\x01 \x01(\x0e\x32).codefly.services.agent.v0.Toolchain.TypeR\x04type\x12\x18\n\x07version\x18\x02 \x01(\tR\x07version\"\x8c\x01\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x06\n\x02GO\x10\x01\x12\x07\n\x03NPM\x10\x02\x12\n\n\x06PYTHON\x10\x03\x12\x11\n\rPYTHON_POETRY\x10\x04\x12\x08\n\x04RUBY\x10\x05\x12\x0c\n\x08RUBY_GEM\x10\x06\x12\x0f\n\x0bRUBY_BUNDLE\x10\x07\x12\x08\n\x04RUST\x10\x08\x12\t\n\x05\x43\x41RGO\x10\t\x12\t\n\x05SWIFT\x10\n\"U\n\x1d\x43onfigurationValueInformation\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\"\xa2\x01\n\x18\x43onfigurationValueDetail\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12P\n\x06\x66ields\x18\x03 \x03(\x0b\x32\x38.codefly.services.agent.v0.ConfigurationValueInformationR\x06\x66ields\"\x82\x01\n\x0e\x41gentTechnique\x12\x0e\n\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x03 \x01(\tR\x0b\x64\x65scription\x12\x12\n\x04tags\x18\x04 \x03(\tR\x04tags\x12\x16\n\x06prompt\x18\x05 \x01(\tR\x06prompt\"\xb4\x06\n\x10\x41gentInformation\x12Y\n\x14runtime_requirements\x18\x01 \x03(\x0b\x32\".codefly.services.agent.v0.RuntimeB\x02\x18\x01R\x13runtimeRequirements\x12I\n\x0c\x63\x61pabilities\x18\x02 \x03(\x0b\x32%.codefly.services.agent.v0.CapabilityR\x0c\x63\x61pabilities\x12\x41\n\tprotocols\x18\x03 \x03(\x0b\x32#.codefly.services.agent.v0.ProtocolR\tprotocols\x12\x41\n\tlanguages\x18\x04 \x03(\x0b\x32#.codefly.services.agent.v0.LanguageR\tlanguages\x12\x17\n\x07read_me\x18\x05 \x01(\tR\x06readMe\x12h\n\x15\x63onfiguration_details\x18\x06 \x03(\x0b\x32\x33.codefly.services.agent.v0.ConfigurationValueDetailR\x14\x63onfigurationDetails\x12I\n\ntechniques\x18\x07 \x03(\x0b\x32).codefly.services.agent.v0.AgentTechniqueR\ntechniques\x12Q\n\x12supported_backends\x18\x08 \x03(\x0b\x32\".codefly.services.agent.v0.BackendR\x11supportedBackends\x12\x44\n\ntoolchains\x18\t \x03(\x0b\x32$.codefly.services.agent.v0.ToolchainR\ntoolchains\x12Q\n\nvalidation\x18\n \x01(\x0b\x32\x31.codefly.services.agent.v0.ValidationCapabilitiesR\nvalidation\x12:\n\x19\x65\x66\x66\x65\x63tive_inputs_versions\x18\x0b \x03(\rR\x17\x65\x66\x66\x65\x63tiveInputsVersions\"\x19\n\x17\x41gentInformationRequest\"\xec\x01\n\x11\x43ommandDefinition\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12\x14\n\x05usage\x18\x03 \x01(\tR\x05usage\x12\x18\n\x07\x61liases\x18\x04 \x03(\tR\x07\x61liases\x12\x12\n\x04tags\x18\x05 \x03(\tR\x04tags\x12\x16\n\x06plugin\x18\x06 \x01(\tR\x06plugin\x12 \n\x0b\x64\x65structive\x18\x07 \x01(\x08R\x0b\x64\x65structive\x12#\n\rneeds_gateway\x18\x08 \x01(\x08R\x0cneedsGateway\"\x15\n\x13ListCommandsRequest\"`\n\x14ListCommandsResponse\x12H\n\x08\x63ommands\x18\x01 \x03(\x0b\x32,.codefly.services.agent.v0.CommandDefinitionR\x08\x63ommands\"G\n\x17RunPluginCommandRequest\x12\x18\n\x07\x63ommand\x18\x01 \x01(\tR\x07\x63ommand\x12\x12\n\x04\x61rgs\x18\x02 \x03(\tR\x04\x61rgs\"\x96\x01\n\x18RunPluginCommandResponse\x12\x18\n\x07success\x18\x01 \x01(\x08R\x07success\x12\x16\n\x06output\x18\x02 \x01(\tR\x06output\x12\x14\n\x05\x65rror\x18\x03 \x01(\tR\x05\x65rror\x12\x32\n\x07\x66\x61ilure\x18\x04 \x01(\x0b\x32\x18.codefly.base.v0.FailureR\x07\x66\x61ilure*\xa7\x01\n\x0fValidationScope\x12 \n\x1cVALIDATION_SCOPE_UNSPECIFIED\x10\x00\x12\x1e\n\x1aVALIDATION_SCOPE_WORKSPACE\x10\x01\x12\x1c\n\x18VALIDATION_SCOPE_PACKAGE\x10\x02\x12\x19\n\x15VALIDATION_SCOPE_FILE\x10\x03\x12\x19\n\x15VALIDATION_SCOPE_CASE\x10\x04*\xac\x01\n\x12TestDependencyMode\x12$\n TEST_DEPENDENCY_MODE_UNSPECIFIED\x10\x00\x12\x1d\n\x19TEST_DEPENDENCY_MODE_NONE\x10\x01\x12+\n\'TEST_DEPENDENCY_MODE_START_DEPENDENCIES\x10\x02\x12$\n TEST_DEPENDENCY_MODE_START_STACK\x10\x03\x32\xf9\x03\n\x05\x41gent\x12\x83\x01\n\x12GetEffectiveInputs\x12\x34.codefly.services.agent.v0.GetEffectiveInputsRequest\x1a\x35.codefly.services.agent.v0.GetEffectiveInputsResponse\"\x00\x12x\n\x13GetAgentInformation\x12\x32.codefly.services.agent.v0.AgentInformationRequest\x1a+.codefly.services.agent.v0.AgentInformation\"\x00\x12q\n\x0cListCommands\x12..codefly.services.agent.v0.ListCommandsRequest\x1a/.codefly.services.agent.v0.ListCommandsResponse\"\x00\x12}\n\x10RunPluginCommand\x12\x32.codefly.services.agent.v0.RunPluginCommandRequest\x1a\x33.codefly.services.agent.v0.RunPluginCommandResponse\"\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'codefly.services.agent.v0.agent_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
-  _globals['DESCRIPTOR']._loaded_options = None
-  _globals['DESCRIPTOR']._serialized_options = b'\n\035com.codefly.services.agent.v0B\nAgentProtoP\001ZBgithub.com/codefly-dev/core/generated/go/codefly/services/agent/v0\242\002\004CSAV\252\002\031Codefly.Services.Agent.V0\312\002\031Codefly\\Services\\Agent\\V0\342\002%Codefly\\Services\\Agent\\V0\\GPBMetadata\352\002\034Codefly::Services::Agent::V0'
-  _globals['_LANGUAGE']._serialized_start=69
-  _globals['_LANGUAGE']._serialized_end=221
-  _globals['_LANGUAGE_TYPE']._serialized_start=143
-  _globals['_LANGUAGE_TYPE']._serialized_end=221
-  _globals['_PROTOCOL']._serialized_start=223
-  _globals['_PROTOCOL']._serialized_end=323
-  _globals['_PROTOCOL_TYPE']._serialized_start=297
-  _globals['_PROTOCOL_TYPE']._serialized_end=323
-  _globals['_CAPABILITY']._serialized_start=326
-  _globals['_CAPABILITY']._serialized_end=465
-  _globals['_CAPABILITY_TYPE']._serialized_start=404
-  _globals['_CAPABILITY_TYPE']._serialized_end=465
-  _globals['_RUNTIME']._serialized_start=468
-  _globals['_RUNTIME']._serialized_end=705
-  _globals['_RUNTIME_TYPE']._serialized_start=567
-  _globals['_RUNTIME_TYPE']._serialized_end=705
-  _globals['_CONFIGURATIONVALUEINFORMATION']._serialized_start=707
-  _globals['_CONFIGURATIONVALUEINFORMATION']._serialized_end=792
-  _globals['_CONFIGURATIONVALUEDETAIL']._serialized_start=795
-  _globals['_CONFIGURATIONVALUEDETAIL']._serialized_end=957
-  _globals['_AGENTTECHNIQUE']._serialized_start=960
-  _globals['_AGENTTECHNIQUE']._serialized_end=1090
-  _globals['_AGENTINFORMATION']._serialized_start=1093
-  _globals['_AGENTINFORMATION']._serialized_end=1613
-  _globals['_AGENTINFORMATIONREQUEST']._serialized_start=1615
-  _globals['_AGENTINFORMATIONREQUEST']._serialized_end=1640
-  _globals['_COMMANDDEFINITION']._serialized_start=1643
-  _globals['_COMMANDDEFINITION']._serialized_end=1879
-  _globals['_LISTCOMMANDSREQUEST']._serialized_start=1881
-  _globals['_LISTCOMMANDSREQUEST']._serialized_end=1902
-  _globals['_LISTCOMMANDSRESPONSE']._serialized_start=1904
-  _globals['_LISTCOMMANDSRESPONSE']._serialized_end=2000
-  _globals['_RUNPLUGINCOMMANDREQUEST']._serialized_start=2002
-  _globals['_RUNPLUGINCOMMANDREQUEST']._serialized_end=2073
-  _globals['_RUNPLUGINCOMMANDRESPONSE']._serialized_start=2075
-  _globals['_RUNPLUGINCOMMANDRESPONSE']._serialized_end=2173
-  _globals['_AGENT']._serialized_start=2176
-  _globals['_AGENT']._serialized_end=2547
+  DESCRIPTOR._loaded_options = None
+  _globals['_RUNTIME']._loaded_options = None
+  _globals['_RUNTIME']._serialized_options = b'\030\001'
+  _globals['_AGENTINFORMATION'].fields_by_name['runtime_requirements']._loaded_options = None
+  _globals['_AGENTINFORMATION'].fields_by_name['runtime_requirements']._serialized_options = b'\030\001'
+  _globals['_VALIDATIONSCOPE']._serialized_start=4222
+  _globals['_VALIDATIONSCOPE']._serialized_end=4389
+  _globals['_TESTDEPENDENCYMODE']._serialized_start=4392
+  _globals['_TESTDEPENDENCYMODE']._serialized_end=4564
+  _globals['_LANGUAGE']._serialized_start=140
+  _globals['_LANGUAGE']._serialized_end=303
+  _globals['_LANGUAGE_TYPE']._serialized_start=214
+  _globals['_LANGUAGE_TYPE']._serialized_end=303
+  _globals['_PROTOCOL']._serialized_start=305
+  _globals['_PROTOCOL']._serialized_end=405
+  _globals['_PROTOCOL_TYPE']._serialized_start=379
+  _globals['_PROTOCOL_TYPE']._serialized_end=405
+  _globals['_CAPABILITY']._serialized_start=408
+  _globals['_CAPABILITY']._serialized_end=571
+  _globals['_CAPABILITY_TYPE']._serialized_start=486
+  _globals['_CAPABILITY_TYPE']._serialized_end=571
+  _globals['_VALIDATIONOPERATIONCAPABILITY']._serialized_start=574
+  _globals['_VALIDATIONOPERATIONCAPABILITY']._serialized_end=723
+  _globals['_TESTSUITECAPABILITY']._serialized_start=726
+  _globals['_TESTSUITECAPABILITY']._serialized_end=892
+  _globals['_TESTVALIDATIONCAPABILITY']._serialized_start=895
+  _globals['_TESTVALIDATIONCAPABILITY']._serialized_end=1091
+  _globals['_VALIDATIONCAPABILITIES']._serialized_start=1094
+  _globals['_VALIDATIONCAPABILITIES']._serialized_end=1783
+  _globals['_RUNTIME']._serialized_start=1786
+  _globals['_RUNTIME']._serialized_end=2027
+  _globals['_RUNTIME_TYPE']._serialized_start=1885
+  _globals['_RUNTIME_TYPE']._serialized_end=2023
+  _globals['_BACKEND']._serialized_start=2029
+  _globals['_BACKEND']._serialized_end=2152
+  _globals['_BACKEND_TYPE']._serialized_start=2101
+  _globals['_BACKEND_TYPE']._serialized_end=2152
+  _globals['_TOOLCHAIN']._serialized_start=2155
+  _globals['_TOOLCHAIN']._serialized_end=2398
+  _globals['_TOOLCHAIN_TYPE']._serialized_start=2258
+  _globals['_TOOLCHAIN_TYPE']._serialized_end=2398
+  _globals['_CONFIGURATIONVALUEINFORMATION']._serialized_start=2400
+  _globals['_CONFIGURATIONVALUEINFORMATION']._serialized_end=2485
+  _globals['_CONFIGURATIONVALUEDETAIL']._serialized_start=2488
+  _globals['_CONFIGURATIONVALUEDETAIL']._serialized_end=2650
+  _globals['_AGENTTECHNIQUE']._serialized_start=2653
+  _globals['_AGENTTECHNIQUE']._serialized_end=2783
+  _globals['_AGENTINFORMATION']._serialized_start=2786
+  _globals['_AGENTINFORMATION']._serialized_end=3606
+  _globals['_AGENTINFORMATIONREQUEST']._serialized_start=3608
+  _globals['_AGENTINFORMATIONREQUEST']._serialized_end=3633
+  _globals['_COMMANDDEFINITION']._serialized_start=3636
+  _globals['_COMMANDDEFINITION']._serialized_end=3872
+  _globals['_LISTCOMMANDSREQUEST']._serialized_start=3874
+  _globals['_LISTCOMMANDSREQUEST']._serialized_end=3895
+  _globals['_LISTCOMMANDSRESPONSE']._serialized_start=3897
+  _globals['_LISTCOMMANDSRESPONSE']._serialized_end=3993
+  _globals['_RUNPLUGINCOMMANDREQUEST']._serialized_start=3995
+  _globals['_RUNPLUGINCOMMANDREQUEST']._serialized_end=4066
+  _globals['_RUNPLUGINCOMMANDRESPONSE']._serialized_start=4069
+  _globals['_RUNPLUGINCOMMANDRESPONSE']._serialized_end=4219
+  _globals['_AGENT']._serialized_start=4567
+  _globals['_AGENT']._serialized_end=5072
 # @@protoc_insertion_point(module_scope)

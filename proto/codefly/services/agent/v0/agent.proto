@@ -3,6 +3,7 @@ syntax = "proto3";
 package codefly.services.agent.v0;
 
 import "codefly/base/v0/failure.proto";
+import "codefly/services/agent/v0/inputs.proto";
 
 /*
 Agent
@@ -149,6 +150,41 @@ message ValidationCapabilities {
   ValidationOperationCapability source_package = 8;
 }
 
+// Runtime preserves the published runtime-requirement wire and SDK types.
+// New advertisements use Backend and Toolchain independently.
+message Runtime {
+  option deprecated = true;
+  // Type preserves the original runtime-requirement numbers.
+  enum Type {
+    // UNKNOWN is an unspecified requirement.
+    UNKNOWN = 0;
+    // GO requires Go.
+    GO = 1;
+    // NPM requires Node/npm.
+    NPM = 2;
+    // PYTHON requires Python.
+    PYTHON = 3;
+    // PYTHON_POETRY requires Poetry.
+    PYTHON_POETRY = 4;
+    // RUBY requires Ruby.
+    RUBY = 5;
+    // RUBY_GEM requires RubyGems.
+    RUBY_GEM = 6;
+    // RUBY_BUNDLE requires Bundler.
+    RUBY_BUNDLE = 7;
+    // NIX requires Nix.
+    NIX = 8;
+    // RUST requires Rust.
+    RUST = 9;
+    // CARGO requires Cargo.
+    CARGO = 10;
+  }
+  // type identifies the original runtime requirement.
+  Type type = 1;
+  // version is the required runtime version.
+  string version = 2;
+}
+
 // Backend describes an execution environment a service can run in. It is
 // orthogonal to Toolchain: a backend is HOW the service runs (native process,
 // nix shell, container), a toolchain is WHAT the host needs for LOCAL mode.
@@ -235,8 +271,9 @@ message AgentTechnique {
 
 // AgentInformation is the manifest and documentation surface returned by an agent.
 message AgentInformation {
-  reserved 1;                          // was `runtime_requirements` (Runtime); split into supported_backends + toolchains
-  reserved "runtime_requirements";
+  // runtime_requirements preserves existing SDK construction and wire decoding.
+  // New agents use supported_backends and toolchains instead.
+  repeated Runtime runtime_requirements = 1 [deprecated = true];
   // capabilities describes which optional protocol features are supported.
   repeated Capability capabilities = 2;
   // protocols are endpoint protocols the agent can expose.
@@ -264,6 +301,9 @@ message AgentInformation {
   // validation is the authoritative validation contract for new agents. It is
   // absent for legacy agents, which keeps compatibility RPC probing explicit.
   ValidationCapabilities validation = 10;
+  // effective_inputs_versions lists supported discovery schemas; absent means
+  // conservative service selection and no persistent result reuse.
+  repeated uint32 effective_inputs_versions = 11;
 }
 
 // AgentInformationRequest asks an agent to describe its capabilities and settings.
@@ -326,6 +366,9 @@ message RunPluginCommandResponse {
 
 // Agent exposes plugin identity, metadata, and plugin-defined commands.
 service Agent {
+  // GetEffectiveInputs discovers task-specific consumption without executing tasks.
+  rpc GetEffectiveInputs(GetEffectiveInputsRequest) returns (GetEffectiveInputsResponse) {}
+
   // GetAgentInformation returns the agent manifest, capabilities, and configuration docs.
   rpc GetAgentInformation(AgentInformationRequest) returns (AgentInformation) {}
 

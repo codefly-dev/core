@@ -44,3 +44,13 @@ func TestAdvertisementSupportsExecutionExporterOnlyPlugin(t *testing.T) {
 		t.Fatalf("capability = %v, want EXECUTION_EXPORTER", got)
 	}
 }
+
+func TestAdvertisementEffectiveInputs(t *testing.T) {
+	if got := (Advertisement{}).Build().GetEffectiveInputsVersions(); len(got) != 0 {
+		t.Fatal("legacy agent advertised input discovery")
+	}
+	info := (Advertisement{EffectiveInputsVersions: []uint32{1}}).Build()
+	if got := info.GetEffectiveInputsVersions(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("discovery versions: %v", got)
+	}
+}
