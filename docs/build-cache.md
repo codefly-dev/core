@@ -134,3 +134,17 @@ Both fixtures hit the dependency-install cache on source and application-argumen
 edits, rebuilt it for lockfile/base changes, and produced the expected changed
 outputs. These are conformance measurements, not a speedup claim; startup and
 host load affect wall time.
+
+### In-agent executor selection
+
+`DockerBuildContext.buildx_builder` carries the caller's Buildx builder name
+through Go and Rust in-agent builds, including Go services with a custom context
+root. It is passed as `--builder` on that build only; the selected global builder
+and process environment are unchanged. The caller provisions its builder before
+issuing Build. Registry exports require a container-driver builder or a Docker
+driver configured with the containerd image store.
+
+Successful in-agent responses acknowledge the selection in
+`BuildResponse.buildx_builder`. `BuilderAgent.Build` rejects an absent or different
+acknowledgement when a builder was requested. Recipe responses need no executor
+acknowledgement because the caller executes the plan itself.

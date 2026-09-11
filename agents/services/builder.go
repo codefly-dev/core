@@ -39,5 +39,8 @@ func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, o
 	if err == nil && cache != nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildPlan() == nil && resp.GetCacheContractVersion() != dockerhelpers.CacheContractVersion {
 		return nil, fmt.Errorf("builder agent did not acknowledge build cache contract %s; upgrade the agent or remove cache options", dockerhelpers.CacheContractVersion)
 	}
+	if selected := req.GetBuildContext().GetDockerBuildContext().GetBuildxBuilder(); selected != "" && err == nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildPlan() == nil && resp.GetBuildxBuilder() != selected {
+		return nil, fmt.Errorf("builder agent did not acknowledge requested Buildx builder %q; upgrade the agent", selected)
+	}
 	return resp, err
 }

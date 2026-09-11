@@ -42,9 +42,10 @@ type BuilderConfiguration struct {
 	Destination *resources.DockerImage
 	// Platform is the target build platform (e.g. "linux/amd64"). Empty means
 	// BuildPlatformEnvironmentVariable, then DefaultBuildPlatform.
-	Platform string
-	Cache    *builderv0.BuildCacheOptions
-	Output   io.Writer
+	Platform      string
+	BuildxBuilder string
+	Cache         *builderv0.BuildCacheOptions
+	Output        io.Writer
 }
 
 type Builder struct {
@@ -62,12 +63,13 @@ type buildBackend interface {
 }
 
 type backendBuildRequest struct {
-	Platform   string
-	Dockerfile string
-	Tag        string
-	Context    string
-	Output     io.Writer
-	Cache      *builderv0.BuildCacheOptions
+	Platform      string
+	BuildxBuilder string
+	Dockerfile    string
+	Tag           string
+	Context       string
+	Output        io.Writer
+	Cache         *builderv0.BuildCacheOptions
 }
 
 func IsValidDockerImageName(_ string) bool {
@@ -126,12 +128,13 @@ func (builder *Builder) build(ctx context.Context, platform string, prepared *Pr
 	tag := builder.Destination.FullName()
 
 	if err := builder.backend.Build(ctx, backendBuildRequest{
-		Platform:   platform,
-		Cache:      builder.Cache,
-		Dockerfile: prepared.Dockerfile,
-		Tag:        tag,
-		Context:    prepared.Root,
-		Output:     builder.Output,
+		Platform:      platform,
+		BuildxBuilder: builder.BuildxBuilder,
+		Cache:         builder.Cache,
+		Dockerfile:    prepared.Dockerfile,
+		Tag:           tag,
+		Context:       prepared.Root,
+		Output:        builder.Output,
 	}); err != nil {
 		return err
 	}
@@ -212,6 +215,9 @@ func (dockerCLIBackend) Build(ctx context.Context, req backendBuildRequest) erro
 		"--progress", "plain",
 		"-f", req.Dockerfile,
 		"-t", req.Tag,
+	}
+	if req.BuildxBuilder != "" {
+		args = append(args, "--builder", req.BuildxBuilder)
 	}
 	args = append(args, cacheArgs...)
 	args = append(args, req.Context)

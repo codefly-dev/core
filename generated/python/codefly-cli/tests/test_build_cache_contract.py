@@ -15,3 +15,15 @@ def test_cache_policy_round_trip_remains_caller_owned():
     assert "cache" not in docker_pb2.DockerBuildRecipe.DESCRIPTOR.fields_by_name
     response = builder_pb2.BuildResponse(cache_contract_version="registry-v1")
     assert response.cache_contract_version == "registry-v1"
+
+
+def test_buildx_selection_round_trip():
+    request = builder_pb2.BuildRequest(
+        build_context=builder_pb2.BuildContext(
+            docker_build_context=docker_pb2.DockerBuildContext(buildx_builder="selected")
+        )
+    )
+    restored = builder_pb2.BuildRequest.FromString(request.SerializeToString())
+    assert restored.build_context.docker_build_context.buildx_builder == "selected"
+    response = builder_pb2.BuildResponse(buildx_builder="selected")
+    assert builder_pb2.BuildResponse.FromString(response.SerializeToString()).buildx_builder == "selected"

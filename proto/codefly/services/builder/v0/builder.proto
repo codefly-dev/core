@@ -306,6 +306,8 @@ message BuildResponse {
   BuildResult result = 2;
   // cache_contract_version acknowledges applied cache semantics; absent on older agents.
   string cache_contract_version = 3;
+  // buildx_builder acknowledges the executor used for an in-agent image build.
+  string buildx_builder = 4;
 }
 
 /*

@@ -2122,8 +2122,10 @@ type BuildResponse struct {
 	Result *BuildResult `protobuf:"bytes,2,opt,name=result,proto3" json:"result,omitempty"`
 	// cache_contract_version acknowledges applied cache semantics; absent on older agents.
 	CacheContractVersion string `protobuf:"bytes,3,opt,name=cache_contract_version,json=cacheContractVersion,proto3" json:"cache_contract_version,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// buildx_builder acknowledges the executor used for an in-agent image build.
+	BuildxBuilder string `protobuf:"bytes,4,opt,name=buildx_builder,json=buildxBuilder,proto3" json:"buildx_builder,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuildResponse) Reset() {
@@ -2173,6 +2175,13 @@ func (x *BuildResponse) GetResult() *BuildResult {
 func (x *BuildResponse) GetCacheContractVersion() string {
 	if x != nil {
 		return x.CacheContractVersion
+	}
+	return ""
+}
+
+func (x *BuildResponse) GetBuildxBuilder() string {
+	if x != nil {
+		return x.BuildxBuilder
 	}
 	return ""
 }
@@ -3974,11 +3983,12 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSUCCESS\x10\x01\x12\t\n" +
 	"\x05ERROR\x10\x02\x12\b\n" +
-	"\x04NOOP\x10\x03\"\xc7\x01\n" +
+	"\x04NOOP\x10\x03\"\xee\x01\n" +
 	"\rBuildResponse\x12>\n" +
 	"\x05state\x18\x01 \x01(\v2(.codefly.services.builder.v0.BuildStatusR\x05state\x12@\n" +
 	"\x06result\x18\x02 \x01(\v2(.codefly.services.builder.v0.BuildResultR\x06result\x124\n" +
-	"\x16cache_contract_version\x18\x03 \x01(\tR\x14cacheContractVersion\"\xf4\x03\n" +
+	"\x16cache_contract_version\x18\x03 \x01(\tR\x14cacheContractVersion\x12%\n" +
+	"\x0ebuildx_builder\x18\x04 \x01(\tR\rbuildxBuilder\"\xf4\x03\n" +
 	"\x11DeploymentRequest\x12>\n" +
 	"\venvironment\x18\x01 \x01(\v2\x1c.codefly.base.v0.EnvironmentR\venvironment\x12G\n" +
 	"\n" +

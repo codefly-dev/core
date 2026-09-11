@@ -10,6 +10,8 @@ message DockerBuildContext {
   string image_digest = 2;
   // cache configures optional external layer reuse, never artifact or test reuse.
   BuildCacheOptions cache = 3;
+  // buildx_builder selects the caller-owned Buildx executor for in-agent builds.
+  string buildx_builder = 4;
 }
 
 // DockerBuildResult captures Docker image references produced by a build.

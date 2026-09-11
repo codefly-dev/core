@@ -30,7 +30,9 @@ type DockerBuildContext struct {
 	// image_digest is the immutable sha256 manifest digest used for promotable output.
 	ImageDigest string `protobuf:"bytes,2,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
 	// cache configures optional external layer reuse, never artifact or test reuse.
-	Cache         *BuildCacheOptions `protobuf:"bytes,3,opt,name=cache,proto3" json:"cache,omitempty"`
+	Cache *BuildCacheOptions `protobuf:"bytes,3,opt,name=cache,proto3" json:"cache,omitempty"`
+	// buildx_builder selects the caller-owned Buildx executor for in-agent builds.
+	BuildxBuilder string `protobuf:"bytes,4,opt,name=buildx_builder,json=buildxBuilder,proto3" json:"buildx_builder,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -84,6 +86,13 @@ func (x *DockerBuildContext) GetCache() *BuildCacheOptions {
 		return x.Cache
 	}
 	return nil
+}
+
+func (x *DockerBuildContext) GetBuildxBuilder() string {
+	if x != nil {
+		return x.BuildxBuilder
+	}
+	return ""
 }
 
 // DockerBuildResult captures Docker image references produced by a build.
@@ -477,11 +486,12 @@ var File_codefly_services_builder_v0_docker_proto protoreflect.FileDescriptor
 
 const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\n" +
-	"(codefly/services/builder/v0/docker.proto\x12\x1bcodefly.services.builder.v0\"\xaa\x01\n" +
+	"(codefly/services/builder/v0/docker.proto\x12\x1bcodefly.services.builder.v0\"\xd1\x01\n" +
 	"\x12DockerBuildContext\x12+\n" +
 	"\x11docker_repository\x18\x01 \x01(\tR\x10dockerRepository\x12!\n" +
 	"\fimage_digest\x18\x02 \x01(\tR\vimageDigest\x12D\n" +
-	"\x05cache\x18\x03 \x01(\v2..codefly.services.builder.v0.BuildCacheOptionsR\x05cache\"+\n" +
+	"\x05cache\x18\x03 \x01(\v2..codefly.services.builder.v0.BuildCacheOptionsR\x05cache\x12%\n" +
+	"\x0ebuildx_builder\x18\x04 \x01(\tR\rbuildxBuilder\"+\n" +
 	"\x11DockerBuildResult\x12\x16\n" +
 	"\x06images\x18\x01 \x03(\tR\x06images\"L\n" +
 	"\n" +
