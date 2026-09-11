@@ -1,10 +1,22 @@
-version: v1
+# version v2, for one reason: it takes include_imports per plugin.
+#
+# protoc-gen-es imports a file it was not asked to generate by package only for
+# the well-known types, which it publishes as @bufbuild/protobuf/wkt; every
+# other import it names by a path relative to the file it emits, so the bindings
+# need those files generated alongside them. buf's --include-imports selects the
+# same set, but it is a command-line flag and applies to every plugin in the
+# run — and the facade plugin cannot read such a request: a CodeGeneratorRequest
+# carries no is_import, so a dependency declaring a service is indistinguishable
+# from one of ours and gets a facade of its own. Per plugin, only the bindings
+# see the imports.
+version: v2
 plugins:
-  # The companion's own protoc-gen-es, not buf.build/bufbuild/es over the
-  # network. The image bakes one version, pinned from source and held to the
-  # ecosystem runtime by companion_plugins_test.go; a remote plugin carries a
-  # second pin that nothing keeps in step, so the bindings a consumer generates
-  # and the @bufbuild/protobuf it runs them against drift apart.
+  # The companion's own protoc-gen-es (v2's `local:`, v1's `name: es`), not
+  # buf.build/bufbuild/es over the network. The image bakes one version, pinned
+  # from source and held to the ecosystem runtime by companion_plugins_test.go;
+  # a remote plugin carries a second pin that nothing keeps in step, so the
+  # bindings a consumer generates and the @bufbuild/protobuf it runs them
+  # against drift apart.
   #
   # It is also what makes the image's import markers mean anything on the
   # descriptor-set path. A contract is a plain FileDescriptorSet, so the markers
@@ -12,11 +24,15 @@ plugins:
   # remote execution generated those files regardless; the local plugin honours
   # them. (Markers that come from a real buf module — the Sources path — were
   # honoured either way.) See MarkForeignImports.
-  - name: es
+  - local: protoc-gen-es
     out: {{.Destination}}
     opt: target=ts
+    # Off on the descriptor-set path: that image carries its foreign files
+    # already marked as imports, and re-targeting them would put a second
+    # Timestamp next to the consumer's runtime one.
+    include_imports: {{.IncludeImports}}
 {{- if .Facade }}
-  - name: codefly-facade-ts
+  - local: protoc-gen-codefly-facade-ts
     out: {{.Destination}}
     # The facade reads the whole descriptor (grouping services by package,
     # validating services=), so buf must run it once over every file — not with

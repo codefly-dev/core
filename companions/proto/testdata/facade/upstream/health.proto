@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package acme.health.v1;
+
+import "grpc/health/v1/health.proto";
+
+// Imports a dependency that declares a service of its own, and picks a package
+// whose facade module name collides with it: both acme.health.v1 and
+// grpc.health.v1 reduce to "health". The library owns only this file.
+
+message PingRequest {
+  string id = 1;
+}
+
+service HealthService {
+  rpc Ping(PingRequest) returns (grpc.health.v1.HealthCheckResponse);
+}

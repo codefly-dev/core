@@ -322,3 +322,89 @@ func copyTree(src, dst string) error {
 		return os.WriteFile(target, body, info.Mode())
 	})
 }
+
+// TestFacadeTypeScriptIgnoresDependencyServices covers what asking buf for the
+// imports does to the facade plugin. Those files land in file_to_generate
+// alongside the module's own, and a CodeGeneratorRequest carries no is_import,
+// so a dependency that declares a service is indistinguishable from one of
+// ours: it gets a facade of its own, and its package joins the module's in the
+// count that decides whether the caller's Module override is honoured.
+//
+// The fixture imports grpc/health/v1/health.proto — a dependency with a
+// service whose module name collides with the fixture's own — so both halves
+// fail when the imports reach this plugin: the collision aborts it outright,
+// and short of that the Module override is silently replaced by the name
+// derived from the proto package.
+func TestFacadeTypeScriptIgnoresDependencyServices(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	testutil.RequireProtoImage(t, ctx)
+
+	dest := t.TempDir()
+	require.NoError(t, proto.GenerateClient(ctx, proto.ClientRequest{
+		Language:    languages.TYPESCRIPT,
+		Destination: dest,
+		Module:      "rest",
+		Facade:      true,
+		Sources: []proto.Source{
+			{Path: "acme/health/v1/health.proto", Content: fixture(t, "upstream/health.proto")},
+		},
+	}), "a dependency service must not collide with the module's own facade")
+
+	body, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash("acme/health/v1/rest_facade.ts")))
+	require.NoError(t, err, "the Module override names the facade; a second package in the run silently drops it")
+	require.Contains(t, string(body), "export const rest")
+
+	_, err = os.Stat(filepath.Join(dest, filepath.FromSlash("grpc/health/v1/health_facade.ts")))
+	require.True(t, os.IsNotExist(err), "a facade for someone else's service must not ship in the library")
+
+	// The bindings are still owed: only the facade is kept away from the
+	// imports, not the generator that has to resolve them.
+	require.FileExists(t, filepath.Join(dest, filepath.FromSlash("grpc/health/v1/health_pb.ts")))
+
+	tsc(t, ctx, dest)
+}
+
+// TestTypeScriptReclaimsDroppedDependencyTrees covers the other half of asking
+// buf for the imports: which trees the destination is allowed to keep.
+//
+// removeForeignOutput reclaims a fixed pair of roots, which was the whole set a
+// run could write. It no longer is — the run writes a tree per imported
+// namespace — so a contract that drops an import used to leave that tree in the
+// library forever, shipping bindings from a generator the run no longer invokes.
+func TestTypeScriptReclaimsDroppedDependencyTrees(t *testing.T) {
+	wool.SetGlobalLogLevel(wool.DEBUG)
+	ctx := context.Background()
+	testutil.RequireProtoImage(t, ctx)
+
+	dest := t.TempDir()
+	const ownPath = "acme/health/v1/health.proto"
+	require.NoError(t, proto.GenerateClient(ctx, proto.ClientRequest{
+		Language:    languages.TYPESCRIPT,
+		Destination: dest,
+		Module:      "rest",
+		Sources:     []proto.Source{{Path: ownPath, Content: fixture(t, "upstream/health.proto")}},
+	}))
+	require.FileExists(t, filepath.Join(dest, filepath.FromSlash("grpc/health/v1/health_pb.ts")))
+
+	// Same contract, with the dependency dropped.
+	const standalone = `syntax = "proto3";
+
+package acme.health.v1;
+
+message PingRequest {
+  string id = 1;
+}
+`
+	require.NoError(t, proto.GenerateClient(ctx, proto.ClientRequest{
+		Language:    languages.TYPESCRIPT,
+		Destination: dest,
+		Module:      "rest",
+		Sources:     []proto.Source{{Path: ownPath, Content: []byte(standalone)}},
+	}))
+
+	_, err := os.Stat(filepath.Join(dest, "grpc"))
+	require.True(t, os.IsNotExist(err), "a namespace the contract stopped importing must be reclaimed")
+	require.FileExists(t, filepath.Join(dest, filepath.FromSlash("acme/health/v1/health_pb.ts")),
+		"the run's own output must survive the reclaim")
+}
