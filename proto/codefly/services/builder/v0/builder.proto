@@ -734,6 +734,17 @@ message ConfigureResponse {
   string effective_yaml = 2;
 }
 
+// BuildCapabilitiesRequest queries execution support without running a build.
+message BuildCapabilitiesRequest {}
+
+// BuildCapabilitiesResponse advertises guarantees of the agent's Build implementation.
+message BuildCapabilitiesResponse {
+  // buildx_selection means every in-agent build honors DockerBuildContext.buildx_builder.
+  // Recipe-only agents may also advertise this because the caller owns execution.
+  // Agents must opt in explicitly; upgrading the transport alone is insufficient.
+  bool buildx_selection = 1;
+}
+
 // Builder is responsible for:
 // - creation
 // - Docker build
@@ -758,6 +769,9 @@ service Builder {
 
   // Build creates the deployable service artifact, usually a container image.
   rpc Build (BuildRequest) returns (BuildResponse) {}
+
+  // BuildCapabilities is read-only and must not prepare inputs or execute builds.
+  rpc BuildCapabilities (BuildCapabilitiesRequest) returns (BuildCapabilitiesResponse) {}
   // Deploy emits or applies deployment artifacts for the target environment.
   rpc Deploy (DeploymentRequest) returns (DeploymentResponse) {}
 

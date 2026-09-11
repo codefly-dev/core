@@ -3,14 +3,17 @@ package services
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/credentials/insecure"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 type cacheBuilderClient struct {
@@ -63,6 +66,27 @@ func TestRecipeAgentsDoNotAcknowledgeCallerOwnedCacheExecution(t *testing.T) {
 	require.ErrorContains(t, err, "upgrade the agent")
 }
 
+type buildxTestServer struct {
+	*DefaultBuilder
+	capabilities    *builderv0.BuildCapabilitiesResponse
+	capabilityError error
+	acknowledgement string
+	buildCalls      atomic.Int32
+}
+
+func (s *buildxTestServer) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
+	return s.capabilities, s.capabilityError
+}
+
+func (s *buildxTestServer) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+	s.buildCalls.Add(1)
+	resp, err := s.DefaultBuilder.Build(ctx, req)
+	if resp != nil {
+		resp.BuildxBuilder = s.acknowledgement
+	}
+	return resp, err
+}
+
 func TestBuildxSelectionRequiresExecutorAcknowledgementOverGRPC(t *testing.T) {
 	for _, recipe := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recipe=%t", recipe), func(t *testing.T) {
@@ -71,7 +95,10 @@ func TestBuildxSelectionRequiresExecutorAcknowledgementOverGRPC(t *testing.T) {
 				wrapper.BuildResult = &builderv0.BuildResult{Kind: &builderv0.BuildResult_DockerBuildPlan{DockerBuildPlan: &builderv0.DockerBuildPlan{}}}
 			}
 			server := grpc.NewServer()
-			builderv0.RegisterBuilderServer(server, NewDefaultBuilder(wrapper))
+			builderv0.RegisterBuilderServer(server, &buildxTestServer{
+				DefaultBuilder: NewDefaultBuilder(wrapper),
+				capabilities:   &builderv0.BuildCapabilitiesResponse{BuildxSelection: true},
+			})
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			go func() { _ = server.Serve(listener) }()
@@ -91,6 +118,76 @@ func TestBuildxSelectionRequiresExecutorAcknowledgementOverGRPC(t *testing.T) {
 			} else {
 				require.ErrorContains(t, err, "did not acknowledge requested Buildx builder")
 			}
+		})
+	}
+}
+
+func TestBuildxCapabilitiesCheckedBeforeBuildOverGRPC(t *testing.T) {
+	// Merely embedding the updated Core server must never advertise support.
+	_, err := NewDefaultBuilder(&BuilderWrapper{}).BuildCapabilities(t.Context(), &builderv0.BuildCapabilitiesRequest{})
+	require.Equal(t, codes.Unimplemented, status.Code(err))
+	for _, tc := range []struct {
+		name       string
+		legacy     bool
+		supported  bool
+		probeError error
+		ack        string
+		wantCalls  int32
+		wantError  string
+	}{
+		{name: "old wire service", legacy: true, wantError: "before execution"},
+		{name: "unsupported", wantError: "refusing to execute"},
+		{name: "unimplemented default", probeError: status.Error(codes.Unimplemented, "not implemented"), wantError: "before execution"},
+		{name: "unavailable", probeError: status.Error(codes.Unavailable, "offline"), wantError: "before execution"},
+		{name: "supported", supported: true, ack: "selected", wantCalls: 1},
+		{name: "mismatched acknowledgement", supported: true, ack: "other", wantCalls: 1, wantError: "did not acknowledge"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			implementation := &buildxTestServer{
+				DefaultBuilder:  NewDefaultBuilder(&BuilderWrapper{Base: &Base{loaded: true}}),
+				capabilities:    &builderv0.BuildCapabilitiesResponse{BuildxSelection: tc.supported},
+				capabilityError: tc.probeError,
+				acknowledgement: tc.ack,
+			}
+			server := grpc.NewServer()
+			if tc.legacy {
+				// Match an older binary's wire service: the probe RPC does not exist.
+				descriptor := builderv0.Builder_ServiceDesc
+				descriptor.Methods = nil
+				for _, method := range builderv0.Builder_ServiceDesc.Methods {
+					if method.MethodName != "BuildCapabilities" {
+						descriptor.Methods = append(descriptor.Methods, method)
+					}
+				}
+				server.RegisterService(&descriptor, implementation)
+			} else {
+				builderv0.RegisterBuilderServer(server, implementation)
+			}
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			go func() { _ = server.Serve(listener) }()
+			t.Cleanup(server.Stop)
+			conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, conn.Close()) })
+			client := NewBuilderAgentClient(conn)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			request := &builderv0.BuildRequest{BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{BuildxBuilder: "selected"}}}}
+			// A recipe request is not proof that an old agent will avoid execution.
+			request.OutputDirectory = t.TempDir()
+			_, err = client.Build(ctx, request)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantError)
+			}
+			require.Equal(t, tc.wantCalls, implementation.buildCalls.Load())
+			// No selection retains compatibility and never requires the probe.
+			request.GetBuildContext().GetDockerBuildContext().BuildxBuilder = ""
+			_, err = client.Build(ctx, request)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantCalls+1, implementation.buildCalls.Load())
 		})
 	}
 }

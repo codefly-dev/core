@@ -39,6 +39,10 @@ func (builder *legacyGoCacheBuilder) Build(ctx context.Context, request *builder
 	return BuildGoDocker(ctx, builder.wrapper, request, builder.location, &builders.Dependencies{}, cacheBuilderTemplates, "", "", func(options *DockerTemplating) { options.ContextRoot = builder.root })
 }
 
+func (*legacyGoCacheBuilder) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
+	return &builderv0.BuildCapabilitiesResponse{BuildxSelection: true}, nil
+}
+
 func TestCustomContextBuildUsesRequestedBuildxAndExportsCache(t *testing.T) {
 	if os.Getenv("CODEFLY_TEST_REGISTRY_CACHE") != "1" {
 		t.Skip("set CODEFLY_TEST_REGISTRY_CACHE=1 to build against a disposable registry")

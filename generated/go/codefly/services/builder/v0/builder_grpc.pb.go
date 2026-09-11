@@ -21,19 +21,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Builder_Load_FullMethodName        = "/codefly.services.builder.v0.Builder/Load"
-	Builder_Init_FullMethodName        = "/codefly.services.builder.v0.Builder/Init"
-	Builder_Create_FullMethodName      = "/codefly.services.builder.v0.Builder/Create"
-	Builder_Update_FullMethodName      = "/codefly.services.builder.v0.Builder/Update"
-	Builder_Sync_FullMethodName        = "/codefly.services.builder.v0.Builder/Sync"
-	Builder_Build_FullMethodName       = "/codefly.services.builder.v0.Builder/Build"
-	Builder_Deploy_FullMethodName      = "/codefly.services.builder.v0.Builder/Deploy"
-	Builder_Audit_FullMethodName       = "/codefly.services.builder.v0.Builder/Audit"
-	Builder_SBOM_FullMethodName        = "/codefly.services.builder.v0.Builder/SBOM"
-	Builder_Package_FullMethodName     = "/codefly.services.builder.v0.Builder/Package"
-	Builder_Upgrade_FullMethodName     = "/codefly.services.builder.v0.Builder/Upgrade"
-	Builder_Configure_FullMethodName   = "/codefly.services.builder.v0.Builder/Configure"
-	Builder_Communicate_FullMethodName = "/codefly.services.builder.v0.Builder/Communicate"
+	Builder_Load_FullMethodName              = "/codefly.services.builder.v0.Builder/Load"
+	Builder_Init_FullMethodName              = "/codefly.services.builder.v0.Builder/Init"
+	Builder_Create_FullMethodName            = "/codefly.services.builder.v0.Builder/Create"
+	Builder_Update_FullMethodName            = "/codefly.services.builder.v0.Builder/Update"
+	Builder_Sync_FullMethodName              = "/codefly.services.builder.v0.Builder/Sync"
+	Builder_Build_FullMethodName             = "/codefly.services.builder.v0.Builder/Build"
+	Builder_BuildCapabilities_FullMethodName = "/codefly.services.builder.v0.Builder/BuildCapabilities"
+	Builder_Deploy_FullMethodName            = "/codefly.services.builder.v0.Builder/Deploy"
+	Builder_Audit_FullMethodName             = "/codefly.services.builder.v0.Builder/Audit"
+	Builder_SBOM_FullMethodName              = "/codefly.services.builder.v0.Builder/SBOM"
+	Builder_Package_FullMethodName           = "/codefly.services.builder.v0.Builder/Package"
+	Builder_Upgrade_FullMethodName           = "/codefly.services.builder.v0.Builder/Upgrade"
+	Builder_Configure_FullMethodName         = "/codefly.services.builder.v0.Builder/Configure"
+	Builder_Communicate_FullMethodName       = "/codefly.services.builder.v0.Builder/Communicate"
 )
 
 // BuilderClient is the client API for Builder service.
@@ -59,6 +60,8 @@ type BuilderClient interface {
 	Sync(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error)
 	// Build creates the deployable service artifact, usually a container image.
 	Build(ctx context.Context, in *BuildRequest, opts ...grpc.CallOption) (*BuildResponse, error)
+	// BuildCapabilities is read-only and must not prepare inputs or execute builds.
+	BuildCapabilities(ctx context.Context, in *BuildCapabilitiesRequest, opts ...grpc.CallOption) (*BuildCapabilitiesResponse, error)
 	// Deploy emits or applies deployment artifacts for the target environment.
 	Deploy(ctx context.Context, in *DeploymentRequest, opts ...grpc.CallOption) (*DeploymentResponse, error)
 	// Audit runs dependency and image vulnerability checks.
@@ -143,6 +146,16 @@ func (c *builderClient) Build(ctx context.Context, in *BuildRequest, opts ...grp
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BuildResponse)
 	err := c.cc.Invoke(ctx, Builder_Build_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *builderClient) BuildCapabilities(ctx context.Context, in *BuildCapabilitiesRequest, opts ...grpc.CallOption) (*BuildCapabilitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BuildCapabilitiesResponse)
+	err := c.cc.Invoke(ctx, Builder_BuildCapabilities_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -245,6 +258,8 @@ type BuilderServer interface {
 	Sync(context.Context, *SyncRequest) (*SyncResponse, error)
 	// Build creates the deployable service artifact, usually a container image.
 	Build(context.Context, *BuildRequest) (*BuildResponse, error)
+	// BuildCapabilities is read-only and must not prepare inputs or execute builds.
+	BuildCapabilities(context.Context, *BuildCapabilitiesRequest) (*BuildCapabilitiesResponse, error)
 	// Deploy emits or applies deployment artifacts for the target environment.
 	Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error)
 	// Audit runs dependency and image vulnerability checks.
@@ -292,6 +307,9 @@ func (UnimplementedBuilderServer) Sync(context.Context, *SyncRequest) (*SyncResp
 }
 func (UnimplementedBuilderServer) Build(context.Context, *BuildRequest) (*BuildResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Build not implemented")
+}
+func (UnimplementedBuilderServer) BuildCapabilities(context.Context, *BuildCapabilitiesRequest) (*BuildCapabilitiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BuildCapabilities not implemented")
 }
 func (UnimplementedBuilderServer) Deploy(context.Context, *DeploymentRequest) (*DeploymentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Deploy not implemented")
@@ -443,6 +461,24 @@ func _Builder_Build_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Builder_BuildCapabilities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BuildCapabilitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BuilderServer).BuildCapabilities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Builder_BuildCapabilities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BuilderServer).BuildCapabilities(ctx, req.(*BuildCapabilitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Builder_Deploy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeploymentRequest)
 	if err := dec(in); err != nil {
@@ -588,6 +624,10 @@ var Builder_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Build",
 			Handler:    _Builder_Build_Handler,
+		},
+		{
+			MethodName: "BuildCapabilities",
+			Handler:    _Builder_BuildCapabilities_Handler,
 		},
 		{
 			MethodName: "Deploy",
