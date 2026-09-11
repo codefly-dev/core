@@ -3,6 +3,7 @@ syntax = "proto3";
 package codefly.services.agent.v0;
 
 import "codefly/base/v0/failure.proto";
+import "codefly/services/agent/v0/inputs.proto";
 
 /*
 Agent
@@ -264,6 +265,9 @@ message AgentInformation {
   // validation is the authoritative validation contract for new agents. It is
   // absent for legacy agents, which keeps compatibility RPC probing explicit.
   ValidationCapabilities validation = 10;
+  // effective_inputs_versions lists supported discovery schemas; absent means
+  // conservative service selection and no persistent result reuse.
+  repeated uint32 effective_inputs_versions = 11;
 }
 
 // AgentInformationRequest asks an agent to describe its capabilities and settings.
@@ -326,6 +330,9 @@ message RunPluginCommandResponse {
 
 // Agent exposes plugin identity, metadata, and plugin-defined commands.
 service Agent {
+  // GetEffectiveInputs discovers task-specific consumption without executing tasks.
+  rpc GetEffectiveInputs(GetEffectiveInputsRequest) returns (GetEffectiveInputsResponse) {}
+
   // GetAgentInformation returns the agent manifest, capabilities, and configuration docs.
   rpc GetAgentInformation(AgentInformationRequest) returns (AgentInformation) {}
 

@@ -34,6 +34,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// AgentGetEffectiveInputsProcedure is the fully-qualified name of the Agent's GetEffectiveInputs
+	// RPC.
+	AgentGetEffectiveInputsProcedure = "/codefly.services.agent.v0.Agent/GetEffectiveInputs"
 	// AgentGetAgentInformationProcedure is the fully-qualified name of the Agent's GetAgentInformation
 	// RPC.
 	AgentGetAgentInformationProcedure = "/codefly.services.agent.v0.Agent/GetAgentInformation"
@@ -45,6 +48,8 @@ const (
 
 // AgentClient is a client for the codefly.services.agent.v0.Agent service.
 type AgentClient interface {
+	// GetEffectiveInputs discovers task-specific consumption without executing tasks.
+	GetEffectiveInputs(context.Context, *connect.Request[v0.GetEffectiveInputsRequest]) (*connect.Response[v0.GetEffectiveInputsResponse], error)
 	// GetAgentInformation returns the agent manifest, capabilities, and configuration docs.
 	GetAgentInformation(context.Context, *connect.Request[v0.AgentInformationRequest]) (*connect.Response[v0.AgentInformation], error)
 	// ListCommands returns the commands this plugin agent provides.
@@ -64,6 +69,12 @@ func NewAgentClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 	baseURL = strings.TrimRight(baseURL, "/")
 	agentMethods := v0.File_codefly_services_agent_v0_agent_proto.Services().ByName("Agent").Methods()
 	return &agentClient{
+		getEffectiveInputs: connect.NewClient[v0.GetEffectiveInputsRequest, v0.GetEffectiveInputsResponse](
+			httpClient,
+			baseURL+AgentGetEffectiveInputsProcedure,
+			connect.WithSchema(agentMethods.ByName("GetEffectiveInputs")),
+			connect.WithClientOptions(opts...),
+		),
 		getAgentInformation: connect.NewClient[v0.AgentInformationRequest, v0.AgentInformation](
 			httpClient,
 			baseURL+AgentGetAgentInformationProcedure,
@@ -87,9 +98,15 @@ func NewAgentClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 
 // agentClient implements AgentClient.
 type agentClient struct {
+	getEffectiveInputs  *connect.Client[v0.GetEffectiveInputsRequest, v0.GetEffectiveInputsResponse]
 	getAgentInformation *connect.Client[v0.AgentInformationRequest, v0.AgentInformation]
 	listCommands        *connect.Client[v0.ListCommandsRequest, v0.ListCommandsResponse]
 	runPluginCommand    *connect.Client[v0.RunPluginCommandRequest, v0.RunPluginCommandResponse]
+}
+
+// GetEffectiveInputs calls codefly.services.agent.v0.Agent.GetEffectiveInputs.
+func (c *agentClient) GetEffectiveInputs(ctx context.Context, req *connect.Request[v0.GetEffectiveInputsRequest]) (*connect.Response[v0.GetEffectiveInputsResponse], error) {
+	return c.getEffectiveInputs.CallUnary(ctx, req)
 }
 
 // GetAgentInformation calls codefly.services.agent.v0.Agent.GetAgentInformation.
@@ -109,6 +126,8 @@ func (c *agentClient) RunPluginCommand(ctx context.Context, req *connect.Request
 
 // AgentHandler is an implementation of the codefly.services.agent.v0.Agent service.
 type AgentHandler interface {
+	// GetEffectiveInputs discovers task-specific consumption without executing tasks.
+	GetEffectiveInputs(context.Context, *connect.Request[v0.GetEffectiveInputsRequest]) (*connect.Response[v0.GetEffectiveInputsResponse], error)
 	// GetAgentInformation returns the agent manifest, capabilities, and configuration docs.
 	GetAgentInformation(context.Context, *connect.Request[v0.AgentInformationRequest]) (*connect.Response[v0.AgentInformation], error)
 	// ListCommands returns the commands this plugin agent provides.
@@ -124,6 +143,12 @@ type AgentHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewAgentHandler(svc AgentHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	agentMethods := v0.File_codefly_services_agent_v0_agent_proto.Services().ByName("Agent").Methods()
+	agentGetEffectiveInputsHandler := connect.NewUnaryHandler(
+		AgentGetEffectiveInputsProcedure,
+		svc.GetEffectiveInputs,
+		connect.WithSchema(agentMethods.ByName("GetEffectiveInputs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentGetAgentInformationHandler := connect.NewUnaryHandler(
 		AgentGetAgentInformationProcedure,
 		svc.GetAgentInformation,
@@ -144,6 +169,8 @@ func NewAgentHandler(svc AgentHandler, opts ...connect.HandlerOption) (string, h
 	)
 	return "/codefly.services.agent.v0.Agent/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case AgentGetEffectiveInputsProcedure:
+			agentGetEffectiveInputsHandler.ServeHTTP(w, r)
 		case AgentGetAgentInformationProcedure:
 			agentGetAgentInformationHandler.ServeHTTP(w, r)
 		case AgentListCommandsProcedure:
@@ -158,6 +185,10 @@ func NewAgentHandler(svc AgentHandler, opts ...connect.HandlerOption) (string, h
 
 // UnimplementedAgentHandler returns CodeUnimplemented from all methods.
 type UnimplementedAgentHandler struct{}
+
+func (UnimplementedAgentHandler) GetEffectiveInputs(context.Context, *connect.Request[v0.GetEffectiveInputsRequest]) (*connect.Response[v0.GetEffectiveInputsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.agent.v0.Agent.GetEffectiveInputs is not implemented"))
+}
 
 func (UnimplementedAgentHandler) GetAgentInformation(context.Context, *connect.Request[v0.AgentInformationRequest]) (*connect.Response[v0.AgentInformation], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.agent.v0.Agent.GetAgentInformation is not implemented"))

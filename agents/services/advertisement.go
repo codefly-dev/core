@@ -40,6 +40,8 @@ type Advertisement struct {
 	// legacy agent that has not migrated; an explicit empty message advertises
 	// that no validation operations are supported.
 	Validation *agentv0.ValidationCapabilities
+	// EffectiveInputsVersions advertises implemented discovery schemas.
+	EffectiveInputsVersions []uint32
 }
 
 // Build assembles the AgentInformation, applying the common defaults.
@@ -63,13 +65,14 @@ func (a Advertisement) Build() *agentv0.AgentInformation {
 	}
 
 	info := &agentv0.AgentInformation{
-		SupportedBackends:    a.Backends.ResolveBackends(),
-		Capabilities:         caps,
-		ReadMe:               a.ReadMe,
-		ConfigurationDetails: a.Config,
-		Techniques:           a.Techniques,
-		Protocols:            []*agentv0.Protocol{},
-		Validation:           a.Validation,
+		SupportedBackends:       a.Backends.ResolveBackends(),
+		Capabilities:            caps,
+		ReadMe:                  a.ReadMe,
+		ConfigurationDetails:    a.Config,
+		Techniques:              a.Techniques,
+		Protocols:               []*agentv0.Protocol{},
+		Validation:              a.Validation,
+		EffectiveInputsVersions: a.EffectiveInputsVersions,
 	}
 	for _, t := range a.Toolchains {
 		info.Toolchains = append(info.Toolchains, &agentv0.Toolchain{Type: t})

@@ -1235,9 +1235,12 @@ type AgentInformation struct {
 	Toolchains []*Toolchain `protobuf:"bytes,9,rep,name=toolchains,proto3" json:"toolchains,omitempty"`
 	// validation is the authoritative validation contract for new agents. It is
 	// absent for legacy agents, which keeps compatibility RPC probing explicit.
-	Validation    *ValidationCapabilities `protobuf:"bytes,10,opt,name=validation,proto3" json:"validation,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Validation *ValidationCapabilities `protobuf:"bytes,10,opt,name=validation,proto3" json:"validation,omitempty"`
+	// effective_inputs_versions lists supported discovery schemas; absent means
+	// conservative service selection and no persistent result reuse.
+	EffectiveInputsVersions []uint32 `protobuf:"varint,11,rep,packed,name=effective_inputs_versions,json=effectiveInputsVersions,proto3" json:"effective_inputs_versions,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *AgentInformation) Reset() {
@@ -1329,6 +1332,13 @@ func (x *AgentInformation) GetToolchains() []*Toolchain {
 func (x *AgentInformation) GetValidation() *ValidationCapabilities {
 	if x != nil {
 		return x.Validation
+	}
+	return nil
+}
+
+func (x *AgentInformation) GetEffectiveInputsVersions() []uint32 {
+	if x != nil {
+		return x.EffectiveInputsVersions
 	}
 	return nil
 }
@@ -1695,7 +1705,7 @@ var File_codefly_services_agent_v0_agent_proto protoreflect.FileDescriptor
 
 const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\n" +
-	"%codefly/services/agent/v0/agent.proto\x12\x19codefly.services.agent.v0\x1a\x1dcodefly/base/v0/failure.proto\"\xa3\x01\n" +
+	"%codefly/services/agent/v0/agent.proto\x12\x19codefly.services.agent.v0\x1a\x1dcodefly/base/v0/failure.proto\x1a&codefly/services/agent/v0/inputs.proto\"\xa3\x01\n" +
 	"\bLanguage\x12<\n" +
 	"\x04type\x18\x01 \x01(\x0e2(.codefly.services.agent.v0.Language.TypeR\x04type\"Y\n" +
 	"\x04Type\x12\x06\n" +
@@ -1781,7 +1791,7 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
 	"\x04tags\x18\x04 \x03(\tR\x04tags\x12\x16\n" +
-	"\x06prompt\x18\x05 \x01(\tR\x06prompt\"\xb9\x05\n" +
+	"\x06prompt\x18\x05 \x01(\tR\x06prompt\"\xf5\x05\n" +
 	"\x10AgentInformation\x12I\n" +
 	"\fcapabilities\x18\x02 \x03(\v2%.codefly.services.agent.v0.CapabilityR\fcapabilities\x12A\n" +
 	"\tprotocols\x18\x03 \x03(\v2#.codefly.services.agent.v0.ProtocolR\tprotocols\x12A\n" +
@@ -1798,7 +1808,8 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\n" +
 	"validation\x18\n" +
 	" \x01(\v21.codefly.services.agent.v0.ValidationCapabilitiesR\n" +
-	"validationJ\x04\b\x01\x10\x02R\x14runtime_requirements\"\x19\n" +
+	"validation\x12:\n" +
+	"\x19effective_inputs_versions\x18\v \x03(\rR\x17effectiveInputsVersionsJ\x04\b\x01\x10\x02R\x14runtime_requirements\"\x19\n" +
 	"\x17AgentInformationRequest\"\xec\x01\n" +
 	"\x11CommandDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
@@ -1830,8 +1841,9 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	" TEST_DEPENDENCY_MODE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19TEST_DEPENDENCY_MODE_NONE\x10\x01\x12+\n" +
 	"'TEST_DEPENDENCY_MODE_START_DEPENDENCIES\x10\x02\x12$\n" +
-	" TEST_DEPENDENCY_MODE_START_STACK\x10\x032\xf3\x02\n" +
-	"\x05Agent\x12x\n" +
+	" TEST_DEPENDENCY_MODE_START_STACK\x10\x032\xf9\x03\n" +
+	"\x05Agent\x12\x83\x01\n" +
+	"\x12GetEffectiveInputs\x124.codefly.services.agent.v0.GetEffectiveInputsRequest\x1a5.codefly.services.agent.v0.GetEffectiveInputsResponse\"\x00\x12x\n" +
 	"\x13GetAgentInformation\x122.codefly.services.agent.v0.AgentInformationRequest\x1a+.codefly.services.agent.v0.AgentInformation\"\x00\x12q\n" +
 	"\fListCommands\x12..codefly.services.agent.v0.ListCommandsRequest\x1a/.codefly.services.agent.v0.ListCommandsResponse\"\x00\x12}\n" +
 	"\x10RunPluginCommand\x122.codefly.services.agent.v0.RunPluginCommandRequest\x1a3.codefly.services.agent.v0.RunPluginCommandResponse\"\x00B\xf7\x01\n" +
@@ -1880,6 +1892,8 @@ var file_codefly_services_agent_v0_agent_proto_goTypes = []any{
 	(*RunPluginCommandRequest)(nil),       // 24: codefly.services.agent.v0.RunPluginCommandRequest
 	(*RunPluginCommandResponse)(nil),      // 25: codefly.services.agent.v0.RunPluginCommandResponse
 	(*v0.Failure)(nil),                    // 26: codefly.base.v0.Failure
+	(*GetEffectiveInputsRequest)(nil),     // 27: codefly.services.agent.v0.GetEffectiveInputsRequest
+	(*GetEffectiveInputsResponse)(nil),    // 28: codefly.services.agent.v0.GetEffectiveInputsResponse
 }
 var file_codefly_services_agent_v0_agent_proto_depIdxs = []int32{
 	2,  // 0: codefly.services.agent.v0.Language.type:type_name -> codefly.services.agent.v0.Language.Type
@@ -1910,14 +1924,16 @@ var file_codefly_services_agent_v0_agent_proto_depIdxs = []int32{
 	13, // 25: codefly.services.agent.v0.AgentInformation.validation:type_name -> codefly.services.agent.v0.ValidationCapabilities
 	21, // 26: codefly.services.agent.v0.ListCommandsResponse.commands:type_name -> codefly.services.agent.v0.CommandDefinition
 	26, // 27: codefly.services.agent.v0.RunPluginCommandResponse.failure:type_name -> codefly.base.v0.Failure
-	20, // 28: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
-	22, // 29: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
-	24, // 30: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
-	19, // 31: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
-	23, // 32: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
-	25, // 33: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
-	31, // [31:34] is the sub-list for method output_type
-	28, // [28:31] is the sub-list for method input_type
+	27, // 28: codefly.services.agent.v0.Agent.GetEffectiveInputs:input_type -> codefly.services.agent.v0.GetEffectiveInputsRequest
+	20, // 29: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
+	22, // 30: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
+	24, // 31: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
+	28, // 32: codefly.services.agent.v0.Agent.GetEffectiveInputs:output_type -> codefly.services.agent.v0.GetEffectiveInputsResponse
+	19, // 33: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
+	23, // 34: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
+	25, // 35: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
+	32, // [32:36] is the sub-list for method output_type
+	28, // [28:32] is the sub-list for method input_type
 	28, // [28:28] is the sub-list for extension type_name
 	28, // [28:28] is the sub-list for extension extendee
 	0,  // [0:28] is the sub-list for field type_name
@@ -1928,6 +1944,7 @@ func file_codefly_services_agent_v0_agent_proto_init() {
 	if File_codefly_services_agent_v0_agent_proto != nil {
 		return
 	}
+	file_codefly_services_agent_v0_inputs_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
