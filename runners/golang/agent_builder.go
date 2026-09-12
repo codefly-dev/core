@@ -10,7 +10,6 @@ import (
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -41,7 +40,7 @@ type DockerEnv struct {
 
 // BuildGoDocker emits a Docker build recipe for a Go service.
 func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest, location string,
+	req *builderv0.BuildRequest, _ string,
 	requirements *builders.Dependencies, builderFS embed.FS,
 	goVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
 
@@ -76,9 +75,7 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 		return builder.BuildError(fmt.Errorf("custom Docker context root %q is not supported by image recipes", docker.ContextRoot))
 	}
 
-	_ = shared.DeleteFile(ctx, location+"/builder/Dockerfile")
-
-	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS))
+	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS).WithDestination("%s", req.GetOutputDirectory()))
 	if err != nil {
 		return builder.BuildError(err)
 	}

@@ -10,7 +10,6 @@ import (
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -36,7 +35,7 @@ type DockerEnv struct {
 
 // BuildRustDocker emits a Docker build recipe for a Rust service.
 func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest, location string,
+	req *builderv0.BuildRequest, _ string,
 	requirements *builders.Dependencies, builderFS embed.FS,
 	rustVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
 
@@ -67,9 +66,7 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 		opt(&docker)
 	}
 
-	_ = shared.DeleteFile(ctx, location+"/builder/Dockerfile")
-
-	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS))
+	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS).WithDestination("%s", req.GetOutputDirectory()))
 	if err != nil {
 		return builder.BuildError(err)
 	}

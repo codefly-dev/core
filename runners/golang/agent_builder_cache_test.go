@@ -51,7 +51,7 @@ func TestImageRecipeOverGRPC(t *testing.T) {
 	}
 	for _, language := range []string{"go", "rust"} {
 		for _, selection := range []string{"explicit", "cache"} {
-			for _, scenario := range []string{"recipe", "missing-output", "relative-output", "custom-context"} {
+			for _, scenario := range []string{"recipe", "empty-destination", "stale-destination", "missing-output", "relative-output", "custom-context"} {
 				if language == "rust" && scenario == "custom-context" {
 					continue
 				}
@@ -78,6 +78,12 @@ func TestImageRecipeOverGRPC(t *testing.T) {
 					request := &builderv0.BuildRequest{OutputDirectory: output, BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: dockerContext}}}
 					expectedError := ""
 					switch scenario {
+					case "empty-destination", "stale-destination":
+						request.OutputDirectory = filepath.Join(t.TempDir(), "recipes")
+						if scenario == "stale-destination" {
+							require.NoError(t, os.MkdirAll(request.OutputDirectory, 0o755))
+							require.NoError(t, os.WriteFile(filepath.Join(request.OutputDirectory, "Dockerfile"), []byte("FROM stale-image\n"), 0o644))
+						}
 					case "missing-output":
 						request.OutputDirectory = ""
 						expectedError = "output_directory is required"
@@ -117,7 +123,15 @@ func TestImageRecipeOverGRPC(t *testing.T) {
 					require.Equal(t, builderv0.BuildStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 					plan := response.GetResult().GetDockerBuildPlan()
 					require.NotNil(t, plan)
-					require.NoError(t, services.VerifyDockerBuildPlan(output, plan))
+					require.NoError(t, services.VerifyDockerBuildPlan(request.OutputDirectory, plan))
+					fresh, readErr := os.ReadFile(filepath.Join(request.OutputDirectory, "Dockerfile"))
+					require.NoError(t, readErr)
+					require.Equal(t, "FROM scratch\nCOPY app /app\n", string(fresh))
+					if request.OutputDirectory != output {
+						original, readErr := os.ReadFile(dockerfile)
+						require.NoError(t, readErr)
+						require.Equal(t, "original recipe", string(original))
+					}
 					require.Len(t, plan.GetRecipes(), 1)
 					require.Equal(t, "app:test", plan.GetRecipes()[0].GetImage())
 					require.Equal(t, services.RecipeBuildPlatforms(), plan.GetRecipes()[0].GetPlatforms())
