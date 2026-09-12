@@ -62,8 +62,8 @@ func TestEphemeralContainersFlag(t *testing.T) {
 	// in-process flag off, a marker equal to our parent's PID still counts.
 	ephemeralContainers.Store(false)
 	_ = os.Setenv(EphemeralContainersEnvironment, strconv.Itoa(os.Getppid()))
-	if !EphemeralContainers() {
-		t.Fatal("agent process did not inherit the ephemeral environment marker from its live parent")
+	if EphemeralContainers() != (os.Getppid() > 0) {
+		t.Fatal("only a real parent may supply an inherited ephemeral marker")
 	}
 
 	// A stale marker naming some unrelated process is deliberately ignored, so

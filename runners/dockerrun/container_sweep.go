@@ -13,26 +13,6 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
-// Container orphan sweep — the Docker-mode analog of ReapStaleProcessGroups.
-//
-// Native/Nix modes track orphans via pgid files under ~/.codefly/runs/.
-// Docker containers can't participate in pgid tracking — process groups
-// are namespaced inside the container, so from the host they look like
-// a single daemon-managed resource. Instead we label every codefly-owned
-// container with the spawning CLI's PID (LabelCodeflySession) at create
-// time; on the next `codefly run` startup, this sweep lists all such
-// containers and removes the ones whose owning CLI is dead.
-//
-// This is the adapted Ryuk pattern: same labeled-cleanup idea, but no
-// sidecar process. Ryuk earns its keep in parallel test runs (it also
-// handles the "many CLIs" case via a socket heartbeat); for codefly's
-// single-machine CLI, startup sweep is sufficient and matches the
-// existing orphan-reap posture.
-
-// ReapStaleContainers lists all containers carrying LabelCodeflyOwner
-// and removes the ones whose LabelCodeflySession PID is no longer alive.
-// Best-effort: a single failed remove is logged and the sweep continues.
-// Safe to call when Docker isn't running — returns nil (just no sweep).
 // shouldReapContainer decides whether a codefly-owned container is garbage to
 // remove. The rules, in order:
 //
@@ -69,7 +49,14 @@ func shouldReapContainer(state string, ownerAlive, ephemeral, ledgered bool) boo
 	return true
 }
 
-func ReapStaleContainers(ctx context.Context) error {
+// ReapStaleContainers recovers containers labeled for this exact scope. Recovery
+// across scopes belongs to ReapDisposableContainers, which is authorized by the
+// durable namespace label rather than by a naming-scope prefix.
+// Legacy containers without scope labels require explicit owner recovery.
+func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) error {
+	if scope.id == "" {
+		return fmt.Errorf("container recovery scope is unresolved")
+	}
 	w := wool.Get(ctx).In("base.ReapStaleContainers")
 
 	cli, _, err := newDockerClient()
@@ -96,34 +83,24 @@ func ReapStaleContainers(ctx context.Context) error {
 	containers, err := cli.ContainerList(listCtx, container.ListOptions{
 		All: true,
 		Filters: filters.NewArgs(
-			filters.Arg("label", LabelCodeflyOwner+"=true"),
+			filters.Arg("label", LabelCodeflyOwner+"="+labelTrue),
+			filters.Arg("label", LabelCodeflyRecoveryScope+"="+scope.id),
 		),
 	})
 	if err != nil {
 		return fmt.Errorf("cannot list codefly containers: %w", err)
 	}
-
 	reaped := 0
 	for _, c := range containers {
-		sessionStr := c.Labels[LabelCodeflySession]
-		if sessionStr == "" {
-			continue // older unlabeled container — don't touch
-		}
-		pid, err := strconv.Atoi(sessionStr)
-		if err != nil || pid <= 0 {
-			continue // malformed label — conservative: leave it
-		}
-		ephemeral := c.Labels[LabelCodeflyEphemeral] == "true"
-		ledgered := c.Labels[LabelCodeflyInvocation] != ""
-		if !shouldReapContainer(c.State, base.IsProcessAlive(pid), ephemeral, ledgered) {
+		if !staleContainerInScope(c, scope) {
 			continue
 		}
 
-		w.Warn("reaping orphaned stopped container",
+		w.Warn("reaping orphaned container in recovery scope",
 			wool.Field("container", c.ID[:12]),
 			wool.Field("name", c.Labels[LabelCodeflyName]),
 			wool.Field("state", c.State),
-			wool.Field("session_pid", pid))
+			wool.Field("session_pid", c.Labels[LabelCodeflySession]))
 
 		// Short bounded context per remove — one unresponsive container
 		// shouldn't stall the whole sweep.
@@ -140,4 +117,26 @@ func ReapStaleContainers(ctx context.Context) error {
 		w.Info("reaped stale containers", wool.Field("count", reaped))
 	}
 	return nil
+}
+
+func staleContainerInScope(c container.Summary, scope ContainerRecoveryScope) bool {
+	if scope.id == "" || c.Labels[LabelCodeflyOwner] != labelTrue || c.Labels[LabelCodeflyRecoveryScope] != scope.id {
+		return false
+	}
+	// A namespace label naming another host's home/workspace is never ours, and
+	// neither is one we cannot verify because this host has no durable identity.
+	// A container created before the label existed carries none at all: Docker
+	// cannot add a label to a container that already exists, so refusing those
+	// would strand every pre-upgrade container forever. For them the exact scope
+	// hash — home, workspace and naming scope — remains the authority it was.
+	if namespace := c.Labels[LabelCodeflyRecoveryNamespace]; namespace != scope.namespace && namespace != "" {
+		return false
+	}
+	pid, err := strconv.Atoi(c.Labels[LabelCodeflySession])
+	// IsProcessAlive intentionally rejects system PIDs. That is not evidence
+	// that PID 1 is dead: an agent/library caller may be its namespace's init.
+	if err != nil || pid <= 1 {
+		return false
+	}
+	return shouldReapContainer(c.State, base.IsProcessAlive(pid), c.Labels[LabelCodeflyEphemeral] == labelTrue, c.Labels[LabelCodeflyInvocation] != "")
 }

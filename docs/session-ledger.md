@@ -290,3 +290,96 @@ records are neither parsed nor quarantined by it, and the `v1` reader ignores
 `v2`. A release that must reconcile both registers both readers. Records are
 decoded with unknown fields rejected, so an additive field is a schema bump, not
 a silent forward-compatibility trick.
+
+## Startup container recovery scope
+
+The legacy PID-based startup sweep requires a `codefly.recovery-scope`
+label before checking owner liveness. The label hashes canonical Codefly home,
+workspace path and resolved naming scope. A different home, workspace or scope
+cannot claim a container, even when its creator PID is gone. Containers without
+this label, or with missing/malformed owner PIDs, require explicit owner recovery;
+startup does not infer ownership from container names.
+
+The CLI sets the scope after resolving its run environment and before spawning
+agents. `SetContainerRecoveryScope` projects a PID-bound process marker to direct
+children; Docker environments built against this Core version emit the label.
+Children retain their launch-time parent identity, so reparenting after a CLI
+crash does not discard recovery or ephemeral labels. A nonempty invalid marker
+refuses container creation instead of silently creating an unowned container.
+Older agents do not emit it and their containers remain outside startup cleanup.
+No automatic relabeling or migration of retained containers occurs.
+
+Name-based lookup requires the same exact recovery scope before adoption,
+replacement or shutdown. A scoped caller cannot claim an unscoped container, and
+an unscoped caller cannot claim a scoped one. A mismatch is an error requiring
+explicit owner recovery, even when runtime configurations match. Each Docker
+environment retains its scope from first use so another flow changing the process
+marker cannot redirect its cleanup. Cross-scope recovery authorizes orphan
+sweeping only; it never authorizes adopting another invocation's container.
+
+The agent's `GetAgentInformation` response includes the
+`codefly-container-recovery-scope` gRPC header with the validated inherited scope.
+The CLI must require this acknowledgement before Docker provisioning. The
+startup parent identity is retained after reparenting so a CLI crash cannot make
+an already-spawned agent create unlabeled containers or lose its ephemeral intent.
+
+Containers also carry `codefly.recovery-namespace`, a hash of the stable caller
+host identity and canonical home/workspace, without the invocation's naming
+scope. The host identity prevents local PID checks from claiming another host's
+containers on a shared Docker daemon. On Linux it requires a persistent machine
+ID, never a boot ID that would strand containers after reboot, and it includes
+the caller's PID namespace so a PID number from one namespace is never read as
+liveness evidence in another.
+
+That PID namespace is a same-namespace proof, not a durable name: the kernel
+recycles nsfs inodes, so sequential containers can reuse one and concurrent
+containers never share one. Both directions err toward retention, so a mismatch
+only ever declines to reap — but cross-scope recovery between concurrent
+containerized runs on a shared daemon is consequently unavailable.
+
+A host that cannot prove a durable identity resolves a scope with no namespace.
+Cross-scope recovery is then unavailable and `ReapDisposableContainers` says so,
+while the exact-scope sweep continues unchanged; resolution never fails for this
+reason, because the common Linux container base images provide no machine ID at
+all. A namespace that is present and different is a foreign host and is never
+eligible for any sweep or for reuse.
+
+The namespace lets `ReapDisposableContainers` recover explicitly ephemeral
+containers after an SDK/test invocation dies, even when the next invocation has a
+fresh scope. It needs no SDK session metadata and survives a successor that
+picked an entirely unrelated scope. It checks the original agent PID and
+preserves live owners, stateful containers, and session-ledger containers. No
+on-disk registry or inference from names is needed; failed removals leave the
+labels available for retry.
+
+Containers created before the namespace label existed carry only the exact
+scope. Docker cannot add a label to a container that already exists, so the
+exact-scope sweep and reuse both continue to accept a missing namespace label —
+refusing it would strand every pre-upgrade container permanently and refuse to
+reuse retained databases. Cross-scope authority is withheld from them, since
+outside the exact scope the hash proves nothing about home, workspace or host.
+
+The process marker is tagged with its field layout (`pid:v2:scope:namespace`). A
+marker written before the tag existed is honored only for the exact scope, and
+one carrying untagged trailing fields is refused: two revisions gave the field
+after the scope different meanings, and a reader that guesses wrong stamps a
+container with ownership no sweep can match.
+
+The exact-scope sweep no longer delegates across naming scopes. That authority
+belongs solely to `ReapDisposableContainers` and the durable namespace, which
+subsumes what a naming-scope prefix could ever authorize: the CLI runs both
+sweeps, so a prefix-scoped delegation could only ever remove containers the
+namespace sweep had already collected.
+
+Provisioning checks ownership before reusing, replacing, starting or following
+logs from an existing container. It refuses foreign/unverified ownership and
+cross-agent adoption of ephemeral containers: Docker labels are immutable, so
+adoption would leave the old creator recorded and let recovery delete a live
+adopter's container. Stateful reuse within the same verified scope remains valid.
+
+Within the same scope, live owners and running stateful containers are retained.
+Stopped containers and running ephemeral containers with dead owners can be
+removed, without requesting volume removal. Containers carrying an invocation
+label always remain owned by session-ledger recovery, including when stopped.
+The scope is an isolation boundary between cooperating local runs, not protection
+against a user with direct Docker-daemon access.

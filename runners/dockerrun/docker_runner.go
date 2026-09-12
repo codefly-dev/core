@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/codefly-dev/core/resources"
@@ -102,6 +103,9 @@ type DockerEnvironment struct {
 	// session-ledger invocation, so a later recovery pass can prove ownership
 	// from Docker's own state rather than from a name or an owner PID.
 	invocation string
+	// Recovery ownership is fixed on first use. A later flow changing the
+	// process marker must not redirect this environment's lookup or shutdown.
+	recoveryScope *ContainerRecoveryScope
 }
 
 var _ base.RunnerEnvironment = &DockerEnvironment{}
@@ -206,7 +210,11 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot check if container is present")
 	}
+	owned := !exists
 	defer func() {
+		if !owned {
+			return
+		}
 		logContext := context.Background()
 		err := docker.GetLogs(logContext)
 		if err != nil {
@@ -219,6 +227,10 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		if inspectErr != nil {
 			return w.Wrapf(inspectErr, "cannot inspect existing container")
 		}
+		if ownershipErr := validateContainerRecoveryReuse(inspect.Config, containerConfig); ownershipErr != nil {
+			return w.Wrapf(ownershipErr, "cannot reuse container %s; recover its owner explicitly before retrying", docker.instance.ID)
+		}
+		owned = true
 		actualFingerprint := ""
 		if inspect.Config != nil && inspect.Config.Labels != nil {
 			actualFingerprint = inspect.Config.Labels[LabelCodeflyConfig]
@@ -370,11 +382,14 @@ func (docker *DockerEnvironment) createAndStartContainer(
 		// bounded ctx in case the caller's is already cancelled.
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer rmCancel()
-		if rmErr := docker.client.ContainerRemove(rmCtx, resp.ID, container.RemoveOptions{Force: true}); rmErr != nil {
+		if rmErr := docker.client.ContainerRemove(rmCtx, resp.ID, container.RemoveOptions{Force: true}); rmErr != nil && !errdefs.IsNotFound(rmErr) {
 			w.Warn("cannot remove container after failed start",
 				wool.Field("id", resp.ID), wool.ErrField(rmErr))
+			// Keep the acquired ID so Shutdown can retry this generation's
+			// cleanup without looking up a possible successor by name.
+		} else {
+			docker.instance = nil
 		}
-		docker.instance = nil
 		if hint := emulationFailureHint(docker.platform); hint != "" {
 			return w.Wrapf(err, "cannot start container (%s)", hint)
 		}
@@ -392,7 +407,19 @@ func (docker *DockerEnvironment) createAndStartContainer(
 // GetContainer distinguish a reusable container from stale runtime state
 // without storing secret environment values in Docker labels.
 func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*container.Config, *container.HostConfig, error) {
+	scope, err := docker.containerRecoveryScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	containerConfig := docker.createContainerConfig(ctx)
+	if scope.id != "" {
+		containerConfig.Labels[LabelCodeflyRecoveryScope] = scope.id
+		// The durable host/home/workspace namespace is what lets a successor run
+		// recover this container after choosing an entirely fresh naming scope.
+		if scope.namespace != "" {
+			containerConfig.Labels[LabelCodeflyRecoveryNamespace] = scope.namespace
+		}
+	}
 	hostConfig := docker.createHostConfig(ctx)
 	fingerprint, err := containerConfigFingerprint(containerConfig, hostConfig)
 	if err != nil {
@@ -403,6 +430,20 @@ func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*
 	}
 	containerConfig.Labels[LabelCodeflyConfig] = fingerprint
 	return containerConfig, hostConfig, nil
+}
+
+func (docker *DockerEnvironment) containerRecoveryScope() (ContainerRecoveryScope, error) {
+	docker.mu.Lock()
+	defer docker.mu.Unlock()
+	if docker.recoveryScope != nil {
+		return *docker.recoveryScope, nil
+	}
+	scope, err := inheritedContainerRecoveryScope()
+	if err != nil {
+		return ContainerRecoveryScope{}, err
+	}
+	docker.recoveryScope = &scope
+	return scope, nil
 }
 
 type containerPortBindingFingerprint struct {
@@ -534,6 +575,7 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 // containers and their spawning CLI. These are set on every container
 // created via DockerEnvironment and consumed by ReapStaleContainers.
 const (
+	labelTrue             = "true"
 	LabelCodeflyOwner     = "codefly.owner"     // always "true"
 	LabelCodeflySession   = "codefly.session"   // PID of the spawning CLI
 	LabelCodeflyName      = "codefly.name"      // container's logical name
@@ -551,7 +593,7 @@ const (
 	//
 	// Its value is the PID of the process that enabled ephemeral mode, not a
 	// bare flag. EphemeralContainers honors an inherited marker only when it
-	// names the reader's live parent — scoping propagation to a genuine spawn
+	// names the reader's launch-time parent — scoping propagation to a genuine spawn
 	// (one hop, CLI → agent) and ignoring a stale value left in an interactive
 	// shell or CI environment. That matters because the marker decides whether
 	// running containers are reaped mid-run: a stale ambient value must never
@@ -586,14 +628,14 @@ func SetEphemeralContainers(v bool) {
 
 // EphemeralContainers reports whether this process spawns ephemeral containers.
 // It is true when this process enabled the mode in-process, or when it inherited
-// the marker from its live parent (the process that spawned it). An inherited
-// marker that does not name the current parent is stale and deliberately ignored.
+// the marker from its launching parent. Reparenting after a CLI crash must not
+// turn a disposable container into a retained stateful container.
 func EphemeralContainers() bool {
 	if ephemeralContainers.Load() {
 		return true
 	}
 	marker := os.Getenv(EphemeralContainersEnvironment)
-	return marker != "" && marker == strconv.Itoa(os.Getppid())
+	return containerRecoveryParentPID > 0 && marker == strconv.Itoa(containerRecoveryParentPID)
 }
 
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {
@@ -810,6 +852,10 @@ func (docker *DockerEnvironment) WithDir(dir string) {
 
 func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, error) {
 	w := wool.Get(ctx).In("Docker.IsContainerPresent")
+	scope, err := docker.containerRecoveryScope()
+	if err != nil {
+		return false, err
+	}
 	// List all containers
 	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
@@ -822,6 +868,10 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 		c := containers[i]
 		for _, name := range c.Names {
 			if name == "/"+docker.name {
+				if c.Labels[LabelCodeflyRecoveryScope] != scope.id ||
+					(scope.id != "" && c.Labels[LabelCodeflyOwner] != labelTrue) {
+					return false, fmt.Errorf("container %s belongs to a different or unresolved recovery scope; refusing adoption or replacement", docker.name)
+				}
 				docker.instance = &DockerContainerInstance{
 					ID: c.ID,
 				}
@@ -839,9 +889,8 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 // sees a generic "not ready" timeout). Returns "" on any error so
 // callers can safely append without conditional logic.
 func (docker *DockerEnvironment) TailLogs(ctx context.Context, lines int) string {
-	// instance is nil exactly on the failed-container-start path — which is the
-	// path that calls TailLogs to enrich the error. Without this guard the
-	// deref panicked instead of returning the (empty) logs it promises.
+	// Successful rollback after failed startup clears the instance. If
+	// rollback failed, keep using the retained ID to enrich the startup error.
 	if docker.instance == nil || docker.instance.ID == "" {
 		return ""
 	}
@@ -1028,11 +1077,8 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 	// when reader was already nil (e.g. GetLogs nil'd it but the goroutine is
 	// still finishing) so we never leave a forwarder running past Shutdown.
 	docker.forwarderWG.Wait()
-	exists, err := docker.IsContainerPresent(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot check if container is running")
-	}
-	if exists {
+	// Teardown owns the acquired generation, never a successor with the same name.
+	if docker.instance != nil && docker.instance.ID != "" {
 		// Try graceful Stop first. If it fails (docker daemon unreachable,
 		// container already gone, etc.), log and continue — Remove with
 		// Force=true below will finish the job, but we prefer the in-
@@ -1041,7 +1087,7 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 		if err := docker.Stop(ctx); err != nil {
 			w.Warn("stop failed; falling back to force remove", wool.ErrField(err))
 		}
-		if err := docker.remove(); err != nil {
+		if err := docker.remove(); err != nil && !errdefs.IsNotFound(err) {
 			return w.Wrapf(err, "cannot remove container")
 		}
 	}

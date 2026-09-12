@@ -10,6 +10,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -268,11 +269,7 @@ func joinFeatures(features []string) string {
 func DestroyRustRuntime(ctx context.Context, runtimeCtx *basev0.RuntimeContext, runtimeImage *resources.DockerImage, cacheLocation, workspacePath, relativeSource, uniqueName string) error {
 	_ = shared.EmptyDir(ctx, cacheLocation)
 	if runtimeCtx.Kind == resources.RuntimeContextContainer {
-		dockerEnv, err := NewDockerRustRunner(ctx, runtimeImage, workspacePath, relativeSource, uniqueName)
-		if err != nil {
-			return err
-		}
-		return dockerEnv.Shutdown(ctx)
+		return dockerrun.ShutdownNamedContainer(ctx, "rust-"+uniqueName)
 	}
 	return nil
 }
