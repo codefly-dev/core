@@ -23,7 +23,7 @@ const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v2"
 
 // ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
 // contract: when set, the destination must be an absolute path the caller owns.
-// Empty is valid and selects the legacy in-agent build. A relative path is
+// Empty is valid for requests that do not build an image. A relative path is
 // rejected with a clear error rather than silently resolved against whatever
 // working directory the agent happens to run in — the agent and the caller would
 // otherwise resolve it against different directories and the recipe handshake
@@ -82,12 +82,8 @@ func RecipeBuildPlatforms() []string {
 	return []string{"linux/amd64", "linux/arm64"}
 }
 
-// BuildPlanRequested reports whether the caller (the CLI) owns the build for this
-// request — a non-empty BuildRequest.output_directory means the runner should emit
-// a recipe into that directory instead of building the image in-process. This is
-// the single negotiation point every language runner checks, so the recipe path is
-// language-agnostic: Go, Rust, Python, Node — any agent built on the shared builder
-// switches to CLI-owned builds by consulting this and nothing else.
+// BuildPlanRequested reports whether a request supplies a recipe destination.
+// Image-building runners must reject requests without one before preparation.
 func BuildPlanRequested(req *builderv0.BuildRequest) bool {
 	return req.GetOutputDirectory() != ""
 }

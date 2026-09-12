@@ -1884,8 +1884,8 @@ type BuildRequest struct {
 	// build_context is the container build context supplied to the builder.
 	BuildContext *BuildContext `protobuf:"bytes,1,opt,name=build_context,json=buildContext,proto3" json:"build_context,omitempty"`
 	// output_directory is an absolute destination owned by the caller where the
-	// builder writes reproducible build recipes. Empty means the builder does not
-	// emit recipes and performs the legacy in-agent build.
+	// builder writes reproducible build recipes. Required for application image
+	// builds; managed-image and runtime-only agents may omit it.
 	OutputDirectory string `protobuf:"bytes,2,opt,name=output_directory,json=outputDirectory,proto3" json:"output_directory,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache

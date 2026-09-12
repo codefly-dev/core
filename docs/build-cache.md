@@ -2,8 +2,7 @@
 
 Core supports the `registry-v1` cache contract through
 `DockerBuildContext.cache`. This is optional layer reuse: every build still
-executes BuildKit, verifies the requested architecture on the in-agent path,
-and produces its own image. Cache references never substitute for artifact
+executes BuildKit in the CLI and produces its own image. Cache references never substitute for artifact
 manifest digests, recipe verification, tests, or release authorization.
 
 A caller can supply this protobuf JSON fragment in its Docker build context:
@@ -49,13 +48,9 @@ build instead of claiming publication succeeded.
 
 ## Integration through Codefly
 
-The Go and Rust shared in-agent builders forward cache policy to Buildx.
-`SingleImageBuildResponse` returns only recipes. Recipe agents need not claim
-cache execution: the CLI validates their plan and applies its own policy.
-`BuilderAgent.Build` requires `registry-v1` acknowledgement for successful
-in-agent image results when cache was requested, rejecting legacy agents that
-silently ignore it. Generated gRPC clients used directly must enforce the same
-result-kind distinction.
+The Go and Rust shared runners return only recipes through
+`SingleImageBuildResponse`. The CLI validates their plan and applies its own
+cache policy when executing Buildx.
 
 CLI recipe executors should verify the recipe tree as usual, then append
 `docker.CacheArguments(callerCache, recipe.Platforms)` to their existing Buildx
@@ -135,27 +130,19 @@ edits, rebuilt it for lockfile/base changes, and produced the expected changed
 outputs. These are conformance measurements, not a speedup claim; startup and
 host load affect wall time.
 
-### In-agent executor selection
+### CLI executor selection
 
-`DockerBuildContext.buildx_builder` carries the caller's Buildx builder name
-through Go and Rust in-agent builds, including Go services with a custom context
-root. It is passed as `--builder` on that build only; the selected global builder
-and process environment are unchanged. The caller provisions its builder before
-issuing Build. Registry exports require a container-driver builder or a Docker
-driver configured with the containerd image store.
+The CLI alone builds and publishes application images. Shared Go and Rust
+runners require an absolute `output_directory` and return a DockerBuildPlan.
+Missing destinations fail before template preparation. Go custom/workspace-root
+contexts are rejected before preparation because the single-image recipe cannot
+represent them. Managed images and runtime-only agents remain no-build.
 
-Before dispatching a Build with an explicit selection, `BuilderAgent.Build`
-calls the read-only `BuildCapabilities` RPC and requires `buildx_selection=true`.
-Older agents, unsupported agents, and failed probes are rejected before Build
-can transfer source, change image tags, or export cache. This also applies when
-`output_directory` requests a recipe: an older agent can fall back to executing
-the build. Requests without explicit selection do not require the probe.
-
-Agents must explicitly implement the capability RPC after verifying that every
-in-agent path honors selection (for example, through the updated `BuildGoDocker`
-or `BuildRustDocker` helper). Recipe-only agents may opt in as well. The default
-server leaves the RPC unimplemented so a custom Build cannot accidentally claim
-support just by updating Core:
+`DockerBuildContext.buildx_builder` identifies the builder the CLI selected,
+including selection for registry cache exports. The agent does not invoke it.
+Before dispatching an explicit selection, `BuilderAgent.Build` requires the
+read-only `BuildCapabilities` RPC to report `buildx_selection=true`. Recipe-only
+agents should implement this capability after verifying their Build path:
 
 ```go
 func (*Builder) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
@@ -163,7 +150,6 @@ func (*Builder) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesR
 }
 ```
 
-Successful in-agent responses additionally acknowledge the selection in
-`BuildResponse.buildx_builder`. `BuilderAgent.Build` rejects an absent or different
-acknowledgement when a builder was requested. Recipe responses need no executor
-acknowledgement because the caller executes the plan itself.
+Recipe responses need no executor acknowledgement because the CLI executes the
+plan itself. The Docker execution and registry-cache helpers remain available
+for the CLI executor; service agents must not call them to build images.

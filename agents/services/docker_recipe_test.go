@@ -64,10 +64,10 @@ func TestBuildDockerBuildPlanInventoriesRecipeTree(t *testing.T) {
 }
 
 func TestValidateBuildRequestOutputDirectory(t *testing.T) {
-	// A nil request carries no directory and selects the legacy in-agent build.
+	// A nil request carries no directory and requires no recipe destination.
 	require.NoError(t, ValidateBuildRequestOutputDirectory(nil))
 
-	// Empty selects the legacy in-agent build and is valid.
+	// Empty requires no recipe destination and is valid.
 	require.NoError(t, ValidateBuildRequestOutputDirectory(&builderv0.BuildRequest{}))
 
 	// An absolute destination honors the contract.
@@ -104,7 +104,7 @@ func TestDockerBuildRequestEnforcesAbsoluteOutputDirectory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
-	// An empty output_directory (legacy in-agent build) passes through.
+	// No-build requests may omit output_directory.
 	got, err = wrapper.DockerBuildRequest(context.Background(), &builderv0.BuildRequest{BuildContext: dockerContext})
 	require.NoError(t, err)
 	require.NotNil(t, got)

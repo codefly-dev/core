@@ -4,7 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -12,7 +12,6 @@ import (
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -31,7 +30,7 @@ type DockerTemplating struct {
 	SourceDir   string // e.g. "code/cmd/server" — the Go main package location
 	ModuleRoot  string // e.g. "code" — where go.mod lives
 	BuildTarget string // e.g. "./cmd/server" — package to build (relative to ModuleRoot)
-	ContextRoot string // optional exact Docker context root; defaults to the service directory
+	ContextRoot string // non-empty custom contexts are rejected before preparation
 	Workspace   bool   // template hint for workspace-aware source copying
 }
 
@@ -41,13 +40,17 @@ type DockerEnv struct {
 	Value string
 }
 
-// BuildGoDocker generates templates and builds a Docker image for a Go service.
+// BuildGoDocker emits a Docker build recipe for a Go service.
 func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest, location string,
+	req *builderv0.BuildRequest, _ string,
 	requirements *builders.Dependencies, builderFS embed.FS,
 	goVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
 
 	w := wool.Get(ctx).In("golang.BuildGoDocker")
+
+	if !services.BuildPlanRequested(req) {
+		return builder.BuildError(fmt.Errorf("BuildRequest.output_directory is required for image recipes"))
+	}
 
 	dockerRequest, err := builder.DockerBuildRequest(ctx, req)
 	if err != nil {
@@ -55,7 +58,7 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 	}
 
 	image := builder.DockerImage(dockerRequest)
-	w.Debug("building docker image", wool.Field("image", image.FullName()))
+	w.Debug("preparing docker image recipe", wool.Field("image", image.FullName()))
 
 	if !dockerhelpers.IsValidDockerImageName(image.Name) {
 		return builder.BuildError(fmt.Errorf("invalid docker image name: %s", image.Name))
@@ -70,87 +73,20 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 		opt(&docker)
 	}
 
-	_ = shared.DeleteFile(ctx, location+"/builder/Dockerfile")
+	if docker.ContextRoot != "" {
+		return builder.BuildError(fmt.Errorf("custom Docker context root %q is not supported by image recipes", docker.ContextRoot))
+	}
 
-	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS))
+	if err = os.Remove(filepath.Join(req.GetOutputDirectory(), "Dockerfile")); err != nil && !os.IsNotExist(err) {
+		return builder.BuildError(err)
+	}
+
+	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS).WithDestination("%s", req.GetOutputDirectory()))
 	if err != nil {
 		return builder.BuildError(err)
 	}
 
-	// When the caller owns the build (output_directory set), emit the recipe and
-	// let the caller run docker buildx instead of building the image in-process.
-	// A custom ContextRoot builds from a directory other than the service dir, so
-	// the "context is the service directory" recipe model does not hold — fall
-	// through to the in-process build, and the caller uses its legacy push path.
-	if services.BuildPlanRequested(req) {
-		if docker.ContextRoot == "" {
-			return builder.SingleImageBuildResponse(req, image.FullName())
-		}
-		// The caller asked for a recipe but a custom ContextRoot forces the legacy
-		// in-process build; surface it so a caller expecting a plan isn't left
-		// wondering why it got a DockerBuildResult instead.
-		w.Warn("recipe emission requested but skipped: service uses a custom Docker context root; building in-process",
-			wool.Field("context_root", docker.ContextRoot))
-	}
-
-	configuration, err := goDockerBuilderConfiguration(location, image, w, docker)
-	if err != nil {
-		return builder.BuildError(err)
-	}
-	configuration.Cache = dockerRequest.GetCache()
-	configuration.BuildxBuilder = dockerRequest.GetBuildxBuilder()
-	b, err := dockerhelpers.NewBuilder(configuration)
-	if err != nil {
-		return builder.BuildError(err)
-	}
-	_, err = b.Build(ctx)
-	if err != nil {
-		return builder.BuildError(err)
-	}
-	builder.WithDockerImages(image)
-	resp, err := builder.BuildResponse()
-	if resp != nil {
-		resp.BuildxBuilder = dockerRequest.GetBuildxBuilder()
-	}
-	if resp != nil && dockerRequest.GetCache() != nil {
-		resp.CacheContractVersion = dockerhelpers.CacheContractVersion
-	}
-	return resp, err
-}
-
-func goDockerBuilderConfiguration(
-	location string,
-	image *resources.DockerImage,
-	output io.Writer,
-	docker DockerTemplating,
-) (dockerhelpers.BuilderConfiguration, error) {
-	contextRoot := docker.ContextRoot
-	if contextRoot == "" {
-		contextRoot = location
-	}
-	resolvedRoot, err := filepath.EvalSymlinks(contextRoot)
-	if err != nil {
-		return dockerhelpers.BuilderConfiguration{}, fmt.Errorf("resolve Docker context root: %w", err)
-	}
-	resolvedLocation, err := filepath.EvalSymlinks(location)
-	if err != nil {
-		return dockerhelpers.BuilderConfiguration{}, fmt.Errorf("resolve service directory: %w", err)
-	}
-	relative, err := filepath.Rel(resolvedRoot, resolvedLocation)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return dockerhelpers.BuilderConfiguration{}, fmt.Errorf(
-			"service directory %q is outside Docker context root %q",
-			resolvedLocation,
-			resolvedRoot,
-		)
-	}
-	return dockerhelpers.BuilderConfiguration{
-		Root:        resolvedRoot,
-		Dockerfile:  filepath.ToSlash(filepath.Join(relative, "builder", "Dockerfile")),
-		Ignorefile:  filepath.ToSlash(filepath.Join(relative, "builder", "dockerignore")),
-		Destination: image,
-		Output:      output,
-	}, nil
+	return builder.SingleImageBuildResponse(req, image.FullName())
 }
 
 // DeployGoKubernetes deploys a Go service to Kubernetes.
