@@ -23,6 +23,8 @@ func TestDisposableRecoveryAcrossScopesPreservesOtherOwnersAndVolumes(t *testing
 	require.NoError(t, err)
 	next, err := NewContainerRecoveryScope(home, workspace, "new-disposable")
 	require.NoError(t, err)
+	foreignHost, err := newContainerRecoveryScope(home, workspace, "old-disposable", "different-host")
+	require.NoError(t, err)
 	foreignHome, err := NewContainerRecoveryScope(t.TempDir(), workspace, "old-disposable")
 	require.NoError(t, err)
 	foreignWorkspace, err := NewContainerRecoveryScope(home, t.TempDir(), "old-disposable")
@@ -45,6 +47,7 @@ func TestDisposableRecoveryAcrossScopesPreservesOtherOwnersAndVolumes(t *testing
 		{name: "stateful", scope: old, keep: true},
 		{name: "ledger", scope: old, ephemeral: true, ledgered: true, keep: true},
 		{name: "live agent", scope: old, ephemeral: true, live: true, keep: true},
+		{name: "foreign host", scope: foreignHost, ephemeral: true, keep: true},
 		{name: "foreign home", scope: foreignHome, ephemeral: true, keep: true},
 		{name: "foreign workspace", scope: foreignWorkspace, ephemeral: true, keep: true},
 		{name: "another ephemeral scope", scope: unregistered, ephemeral: true},

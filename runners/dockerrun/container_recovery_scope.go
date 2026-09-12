@@ -42,6 +42,17 @@ type ContainerRecoveryScope struct {
 }
 
 func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRecoveryScope, error) {
+	hostID, err := containerRecoveryHostID()
+	if err != nil {
+		return ContainerRecoveryScope{}, fmt.Errorf("resolve container recovery host: %w", err)
+	}
+	return newContainerRecoveryScope(home, workspace, namingScope, hostID)
+}
+
+func newContainerRecoveryScope(home, workspace, namingScope, hostID string) (ContainerRecoveryScope, error) {
+	if hostID == "" {
+		return ContainerRecoveryScope{}, fmt.Errorf("container recovery requires a stable host identity")
+	}
 	paths := []string{home, workspace}
 	for i, path := range paths {
 		if path == "" {
@@ -56,7 +67,7 @@ func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRe
 			return ContainerRecoveryScope{}, err
 		}
 	}
-	root, _ := json.Marshal(paths)
+	root, _ := json.Marshal([]string{hostID, paths[0], paths[1]})
 	namespace := sha256.Sum256(root)
 	data, _ := json.Marshal(append(paths, namingScope))
 	sum := sha256.Sum256(data)

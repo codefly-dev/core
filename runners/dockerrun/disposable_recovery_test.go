@@ -18,6 +18,8 @@ func TestDisposableRecoveryUsesDurableNamespaceAndEphemeralOwnership(t *testing.
 	require.NoError(t, err)
 	require.NotEqual(t, previous.id, next.id)
 	require.Equal(t, previous.namespace, next.namespace)
+	foreignHost, err := newContainerRecoveryScope(home, workspace, "previous", "different-host")
+	require.NoError(t, err)
 	foreignHome, err := NewContainerRecoveryScope(t.TempDir(), workspace, "previous")
 	require.NoError(t, err)
 	foreignWorkspace, err := NewContainerRecoveryScope(home, t.TempDir(), "previous")
@@ -33,6 +35,7 @@ func TestDisposableRecoveryUsesDurableNamespaceAndEphemeralOwnership(t *testing.
 		{"previous stateful", previous, false, false, false, false},
 		{"live owner", previous, true, false, true, false},
 		{"ledger", previous, true, true, false, false},
+		{"foreign host", foreignHost, true, false, false, false},
 		{"foreign home", foreignHome, true, false, false, false},
 		{"foreign workspace", foreignWorkspace, true, false, false, false},
 		{"legacy exact scope only", ContainerRecoveryScope{id: previous.id}, true, false, false, false},

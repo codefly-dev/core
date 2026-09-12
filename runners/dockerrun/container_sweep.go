@@ -52,7 +52,7 @@ func shouldReapContainer(state string, ownerAlive, ephemeral, ledgered bool) boo
 // ReapStaleContainers only recovers containers labeled for this exact scope.
 // Legacy containers without scope labels require explicit owner recovery.
 func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) error {
-	if scope.id == "" {
+	if scope.id == "" || scope.namespace == "" {
 		return fmt.Errorf("container recovery scope is unresolved")
 	}
 	w := wool.Get(ctx).In("base.ReapStaleContainers")
@@ -119,7 +119,7 @@ func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) erro
 }
 
 func staleContainerInScope(c container.Summary, scope ContainerRecoveryScope) bool {
-	if scope.id == "" || c.Labels[LabelCodeflyOwner] != labelTrue || c.Labels[LabelCodeflyRecoveryScope] != scope.id {
+	if scope.id == "" || scope.namespace == "" || c.Labels[LabelCodeflyOwner] != labelTrue || c.Labels[LabelCodeflyRecoveryScope] != scope.id || c.Labels[LabelCodeflyRecoveryNamespace] != scope.namespace {
 		return false
 	}
 	pid, err := strconv.Atoi(c.Labels[LabelCodeflySession])

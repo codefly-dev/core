@@ -290,6 +290,7 @@ func TestReapStaleContainersKeepsLedgeredContainers(t *testing.T) {
 		labels[LabelCodeflyOwner] = "true"
 		labels[LabelCodeflySession] = deadOwner
 		labels[LabelCodeflyRecoveryScope] = scope.id
+		labels[LabelCodeflyRecoveryNamespace] = scope.namespace
 		labels[LabelCodeflyName] = name
 		_, err := backend.client.ContainerCreate(ctx,
 			&container.Config{Image: "alpine:latest", Labels: labels, Cmd: []string{"true"}},
@@ -349,6 +350,7 @@ func TestReapStaleContainersIsolatesHomeAndScope(t *testing.T) {
 		labels := map[string]string{LabelCodeflyOwner: "true", LabelCodeflySession: tc.pid}
 		if tc.scope.id != "" {
 			labels[LabelCodeflyRecoveryScope] = tc.scope.id
+			labels[LabelCodeflyRecoveryNamespace] = tc.scope.namespace
 		}
 		if tc.ephemeral {
 			labels[LabelCodeflyEphemeral] = "true"
