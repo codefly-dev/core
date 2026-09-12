@@ -21,6 +21,7 @@ type dependabotConfig struct {
 		Groups      map[string]struct {
 			Patterns    []string `yaml:"patterns"`
 			UpdateTypes []string `yaml:"update-types"`
+			AppliesTo   string   `yaml:"applies-to"`
 		} `yaml:"groups"`
 	} `yaml:"updates"`
 }
@@ -149,45 +150,57 @@ func TestDependabotDirectoriesExist(t *testing.T) {
 	}
 }
 
-// open-pull-requests-limit caps open VERSION-update pull requests per entry.
-// With majors sharing a group with minor and patch, one breaking major bump
-// sits red at the cap and Dependabot opens nothing further for that ecosystem
-// -- routine patches included -- until a human closes it.
+// Each ecosystem must be ONE catch-all group that carries NO `update-types:`
+// filter, so a week yields at most one pull request per ecosystem.
 //
-// So majors must be quarantined in their own group, and the limit must leave
-// room for the routine group alongside a stuck major.
-func TestMajorUpdatesAreQuarantinedFromRoutineUpdates(t *testing.T) {
+// The missing filter is load-bearing, not an omission. `update-types:` matches
+// only semver update types, so a Docker base image pinned by digest matches
+// none of them, falls OUT of the group, and Dependabot opens a separate
+// ungrouped pull request for it -- one per directory. Omitting the filter is
+// what makes `patterns: "*"` mean everything, digests included.
+//
+// Majors therefore share the group with minor and patch. That is a deliberate
+// trade: quarantining majors in a second group is a guaranteed extra pull
+// request every time one lands, and the alternative it buys (a stuck major
+// never holding routine updates hostage) is bounded here because Dependabot
+// rebases an existing grouped pull request rather than needing a fresh slot
+// for later bumps. Do not re-split majors without also accepting that cost.
+//
+// Security updates are exempt: they are not capped by open-pull-requests-limit
+// and are declared with `applies-to: security-updates`, so they are ignored
+// here and may be grouped however they like.
+func TestEveryEcosystemIsOneUnfilteredCatchAllGroup(t *testing.T) {
 	cfg, _ := loadDependabot(t)
 
 	for _, u := range cfg.Updates {
 		require.NotEmpty(t, u.Groups, "%s: no groups configured", u.Ecosystem)
 
-		majorGroups, routineGroups := 0, 0
+		versionGroups := 0
 		for name, g := range u.Groups {
-			types := map[string]bool{}
-			for _, ut := range g.UpdateTypes {
-				types[ut] = true
+			if g.AppliesTo == "security-updates" {
+				continue
 			}
-			require.NotEmpty(t, types,
-				"%s group %q lists no update-types, so it silently absorbs every "+
-					"level including major", u.Ecosystem, name)
+			versionGroups++
 
-			if types["major"] {
-				majorGroups++
-				require.Len(t, types, 1,
-					"%s group %q mixes major with %v. One breaking major then "+
-						"blocks every routine update for this ecosystem until a "+
-						"human closes it.", u.Ecosystem, name, g.UpdateTypes)
-			} else {
-				routineGroups++
-			}
+			require.Empty(t, g.UpdateTypes,
+				"%s group %q sets update-types %v. That filter only matches semver "+
+					"update types, so a digest-pinned dependency matches none of them, "+
+					"drops out of the group, and opens its own ungrouped pull request "+
+					"per directory. Drop the filter so `patterns: \"*\"` covers "+
+					"everything.", u.Ecosystem, name, g.UpdateTypes)
+
+			require.Equal(t, []string{"*"}, g.Patterns,
+				"%s group %q must be the catch-all `*` so nothing falls outside it "+
+					"into its own pull request", u.Ecosystem, name)
 		}
 
-		require.Equal(t, 1, majorGroups, "%s: expected exactly one major-only group", u.Ecosystem)
-		require.Equal(t, 1, routineGroups, "%s: expected exactly one minor/patch group", u.Ecosystem)
-		require.GreaterOrEqual(t, u.Limit, majorGroups+routineGroups,
-			"%s: open-pull-requests-limit %d cannot hold both the routine and the "+
-				"major group at once, so a stuck major still blocks patches.",
-			u.Ecosystem, u.Limit)
+		require.Equal(t, 1, versionGroups,
+			"%s: expected exactly one catch-all version-update group; %d of them "+
+				"means at least %d pull requests per ecosystem per week",
+			u.Ecosystem, versionGroups, versionGroups)
+		require.GreaterOrEqual(t, u.Limit, versionGroups,
+			"%s: open-pull-requests-limit %d cannot hold its %d version-update "+
+				"group(s), so Dependabot silently opens nothing",
+			u.Ecosystem, u.Limit, versionGroups)
 	}
 }
