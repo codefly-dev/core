@@ -254,8 +254,8 @@ message BuildRequest {
   // build_context is the container build context supplied to the builder.
   BuildContext build_context = 1;
   // output_directory is an absolute destination owned by the caller where the
-  // builder writes reproducible build recipes. Empty means the builder does not
-  // emit recipes and performs the legacy in-agent build.
+  // builder writes reproducible build recipes. Required for application image
+  // builds; managed-image and runtime-only agents may omit it.
   string output_directory = 2;
 }
 
