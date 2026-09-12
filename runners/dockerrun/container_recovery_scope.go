@@ -94,7 +94,7 @@ func inheritedContainerRecoveryIdentity() (string, string) {
 		return "", ""
 	}
 	pid, err := strconv.Atoi(owner)
-	if err != nil || (pid != os.Getpid() && pid != containerRecoveryParentPID) {
+	if err != nil || pid <= 0 || (pid != os.Getpid() && pid != containerRecoveryParentPID) {
 		return "", ""
 	}
 	id, namespace, hasNamespace := strings.Cut(identity, ":")
