@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,8 @@ func TestRunnableProtoRoundTripsContract(t *testing.T) {
 	require.Equal(t, []string{"pyproject.toml", "uv.lock"}, proto.GetBuildInputs())
 	require.Len(t, proto.GetServiceDependencies(), 1)
 	require.Equal(t, "with-runnables", proto.GetServiceDependencies()[0].GetModule())
+	require.Equal(t, "runtime", proto.GetServiceDependencies()[0].GetKind())
+	require.Equal(t, []string{"tcp"}, proto.GetServiceDependencies()[0].GetEndpoints())
 
 	execution := proto.GetExecution()
 	require.Len(t, execution.GetFacilities(), 2)
@@ -166,42 +169,93 @@ func TestRunnableSaveRoundTrip(t *testing.T) {
 	require.ErrorContains(t, r.SaveToDir(ctx, ""), "directory is empty")
 }
 
-func TestRunnableSaveRefusesIncompleteDeclaration(t *testing.T) {
+func TestProtoRequiresModuleForModulelessDependency(t *testing.T) {
 	ctx := context.Background()
+	dir := t.TempDir()
+	source, err := os.ReadFile(filepath.Join(withRunnables, "runnables/word-count", resources.RunnableConfigurationName))
+	require.NoError(t, err)
+	declaration := map[string]any{}
+	require.NoError(t, yaml.Unmarshal(source, &declaration))
+	delete(declaration["service-dependencies"].([]any)[0].(map[string]any), "module")
+	content, err := yaml.Marshal(declaration)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.RunnableConfigurationName), content, 0o600))
 
-	r, err := resources.NewRunnable(ctx, "fresh")
+	r, err := resources.LoadRunnableFromDir(ctx, dir)
+	require.NoError(t, err)
+	_, err = r.Proto(ctx)
+	require.ErrorContains(t, err, `dependency "store" declares no module`)
+
+	r.SetModule("with-runnables")
+	proto, err := r.Proto(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "with-runnables", proto.GetServiceDependencies()[0].GetModule())
+}
+
+func TestNewRunnableIsCompleteOrNothing(t *testing.T) {
+	ctx := context.Background()
+	agent := &resources.Agent{Kind: resources.RunnableAgent, Name: "python", Version: "0.0.1", Publisher: "codefly.dev"}
+
+	r, err := resources.NewRunnable(ctx, "fresh", agent, "handler.py")
 	require.NoError(t, err)
 	require.Equal(t, resources.RunnableKind, r.Kind)
 	require.Equal(t, resources.RunnableProtocolV1, r.Contract.Protocol)
-	require.ErrorContains(t, r.SaveToDir(ctx, t.TempDir()), "declares no agent")
+	require.NoError(t, r.SaveToDir(ctx, t.TempDir()))
 
+	_, err = resources.NewRunnable(ctx, "fresh", nil, "handler.py")
+	require.ErrorContains(t, err, "declares no agent")
+	_, err = resources.NewRunnable(ctx, "fresh", agent, "")
+	require.ErrorContains(t, err, "handler is required")
 	for _, name := range []string{"", "../escape", "nested/runnable", `nested\runnable`, ".", ".."} {
-		_, err := resources.NewRunnable(ctx, name)
+		_, err := resources.NewRunnable(ctx, name, agent, "handler.py")
 		require.Error(t, err, name)
 	}
+}
+
+func TestLoadRunnableRejectsUnknownKeys(t *testing.T) {
+	ctx := context.Background()
+	source, err := os.ReadFile(filepath.Join(withRunnables, "runnables/word-count", resources.RunnableConfigurationName))
+	require.NoError(t, err)
+	for _, tc := range []struct{ name, from, to, want string }{
+		{"misspelled modifier", "optional: true", "optionnal: true", "field optionnal not found"},
+		{"misspelled section", "cancellation: signal", "cancelation: signal", "field cancelation not found"},
+		{"stray top-level key", "kind: runnable", "kind: runnable\nretries: 3", "field retries not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			content := strings.Replace(string(source), tc.from, tc.to, 1)
+			require.NotEqual(t, string(source), content)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, resources.RunnableConfigurationName), []byte(content), 0o600))
+			_, err := resources.LoadRunnableFromDir(ctx, dir)
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+	// Agent-specific keys under spec stay free-form.
+	dir := t.TempDir()
+	content := strings.Replace(string(source), `python: "3.12"`, "python: \"3.12\"\n  extras: [tls]", 1)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.RunnableConfigurationName), []byte(content), 0o600))
+	r, err := resources.LoadRunnableFromDir(ctx, dir)
+	require.NoError(t, err)
+	require.Equal(t, []any{"tls"}, r.Spec["extras"])
 }
 
 func TestModuleNewRunnableInFlatWorkspace(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	require.NoError(t, os.CopyFS(dir, os.DirFS(withRunnables)))
+	agent := &resources.Agent{Kind: resources.RunnableAgent, Name: "python", Version: "0.0.1", Publisher: "codefly.dev"}
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
 	require.NoError(t, err)
 	mod, err := workspace.LoadModuleFromName(ctx, "with-runnables")
 	require.NoError(t, err)
 
-	r, err := mod.NewRunnable(ctx, "echo")
+	r, err := mod.NewRunnable(ctx, "echo", agent, "handler.py")
 	require.NoError(t, err)
 	require.Equal(t, "with-runnables", r.Module())
-	require.DirExists(t, r.Dir())
-	_, err = mod.NewRunnable(ctx, "echo")
+	require.FileExists(t, filepath.Join(r.Dir(), resources.RunnableConfigurationName))
+	_, err = mod.NewRunnable(ctx, "echo", agent, "handler.py")
 	require.ErrorContains(t, err, "already exists")
-
-	r.Agent = &resources.Agent{Kind: resources.RunnableAgent, Name: "python", Version: "0.0.1", Publisher: "codefly.dev"}
-	r.Entrypoint.Handler = "handler.py"
-	require.NoError(t, r.Save(ctx))
-	require.NoError(t, mod.Save(ctx))
 
 	reloaded, err := resources.LoadWorkspaceFromDir(ctx, dir)
 	require.NoError(t, err)
@@ -210,6 +264,44 @@ func TestModuleNewRunnableInFlatWorkspace(t *testing.T) {
 	echo, err := reloaded.FindRunnableByName(ctx, "echo")
 	require.NoError(t, err)
 	require.Empty(t, echo.Contract.Input.Fields)
+	all, err := reloaded.LoadAllRunnables(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+}
+
+func TestModuleNewRunnableRollsBackOnFailure(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	require.NoError(t, os.CopyFS(dir, os.DirFS(withRunnables)))
+	agent := &resources.Agent{Kind: resources.RunnableAgent, Name: "python", Version: "0.0.1", Publisher: "codefly.dev"}
+	before, err := os.ReadFile(filepath.Join(dir, resources.WorkspaceConfigurationName))
+	require.NoError(t, err)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	mod, err := workspace.LoadModuleFromName(ctx, "with-runnables")
+	require.NoError(t, err)
+
+	// An unsaveable declaration never touches disk or the module.
+	_, err = mod.NewRunnable(ctx, "broken", &resources.Agent{Kind: resources.ServiceAgent, Name: "go", Version: "1.0.0", Publisher: "codefly.dev"}, "handler.py")
+	require.ErrorContains(t, err, "is not \"codefly:runnable\"")
+	require.NoDirExists(t, filepath.Join(dir, "runnables/broken"))
+	require.False(t, mod.ExistsRunnable("broken"))
+
+	// A directory that already exists without a reference is not adopted.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "runnables/stale"), 0o755))
+	_, err = mod.NewRunnable(ctx, "stale", agent, "handler.py")
+	require.ErrorContains(t, err, "already exists without a module reference")
+	require.False(t, mod.ExistsRunnable("stale"))
+
+	after, err := os.ReadFile(filepath.Join(dir, resources.WorkspaceConfigurationName))
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after), "a failed creation must not persist a reference")
+	reloaded, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	all, err := reloaded.LoadAllRunnables(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
 }
 
 func TestRunnableModuleLayoutWithPathOverride(t *testing.T) {

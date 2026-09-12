@@ -60,7 +60,8 @@ func samplePackage(t *testing.T) *basev0.RunnablePackage {
 			{Kind: basev0.RunnableArtifact_IMAGE, Platform: "linux/amd64", Reference: "ghcr.io/example/word-count:0.1.0@" + digestB, Digest: digestB},
 			{Kind: basev0.RunnableArtifact_NATIVE, Platform: "darwin/arm64", Reference: "word-count-0.1.0-darwin-arm64.tar.gz", Digest: digestA, Command: []string{"python", "-m", "codefly_runnable.harness"}},
 		},
-		ServiceDependencies: []*basev0.ServiceReference{{Name: "store", Module: "with-runnables"}},
+		ServiceDependencies:                []*basev0.RunnableDependency{{Name: "store", Module: "with-runnables", Kind: "runtime", Endpoints: []string{"tcp"}}},
+		WorkspaceConfigurationDependencies: []string{"openai", "artifact-store"},
 	}
 }
 
@@ -83,8 +84,10 @@ func TestPreparePackageIsCanonicalAndDeterministic(t *testing.T) {
 	// The same content in another order is the same package.
 	reordered := samplePackage(t)
 	reordered.Artifacts[0], reordered.Artifacts[1] = reordered.Artifacts[1], reordered.Artifacts[0]
-	reordered.ServiceDependencies = append(reordered.ServiceDependencies, &basev0.ServiceReference{Name: "cache", Module: "aaa"})
-	first.ServiceDependencies = append([]*basev0.ServiceReference{{Name: "cache", Module: "aaa"}}, first.ServiceDependencies...)
+	reordered.Execution.Facilities[0], reordered.Execution.Facilities[1] = reordered.Execution.Facilities[1], reordered.Execution.Facilities[0]
+	reordered.WorkspaceConfigurationDependencies = []string{"artifact-store", "openai"}
+	reordered.ServiceDependencies = append(reordered.ServiceDependencies, &basev0.RunnableDependency{Name: "cache", Module: "aaa", Endpoints: []string{"b", "a"}})
+	first.ServiceDependencies = append([]*basev0.RunnableDependency{{Name: "cache", Module: "aaa", Endpoints: []string{"a", "b"}}}, first.ServiceDependencies...)
 	first.Digest = ""
 	second, err := runnable.PreparePackage(reordered)
 	require.NoError(t, err)
@@ -92,6 +95,10 @@ func TestPreparePackageIsCanonicalAndDeterministic(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, second.GetDigest(), third.GetDigest())
 	require.True(t, proto.Equal(second, third))
+
+	// The digest is a property of the canonical form, not of this binary's
+	// wire encoding, and is mixed with its format identifier.
+	require.Equal(t, "64ca051ef0b57bdc8199500653e25d6e0a620c2177aefddf6425c0d5ba6fba83", preparedPackage(t).GetDigest())
 
 	// The input is never mutated, and a supplied digest must match.
 	original := samplePackage(t)
@@ -194,6 +201,13 @@ func TestCompareReleaseIsIdempotentAndConflictsOnChangedContent(t *testing.T) {
 	require.NotErrorIs(t, err, runnable.ErrConflict)
 
 	require.ErrorContains(t, runnable.CompareRelease(samplePackage(t), identical), "existing")
+
+	// Bytes outside the declared schema cannot be silently absorbed into an
+	// identity this version computes.
+	foreign := samplePackage(t)
+	foreign.ProtoReflect().SetUnknown([]byte{0xf8, 0x7f, 0x01})
+	_, err = runnable.PreparePackage(foreign)
+	require.ErrorContains(t, err, "outside its declared schema")
 }
 
 func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifact, facility basev0.RunnableFacility_Kind) *basev0.RunnableBinding {
@@ -204,10 +218,14 @@ func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifac
 		Facility:      &basev0.RunnableFacility{Kind: facility},
 		Artifact:      proto.Clone(artifact).(*basev0.RunnableArtifact),
 		DependencyNetworkMappings: []*basev0.NetworkMapping{{
-			Endpoint:  &basev0.Endpoint{Name: "tcp", Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "module"},
-			Instances: []*basev0.NetworkInstance{{Host: "store.with-runnables.svc", Port: 5432, Address: "store.with-runnables.svc:5432"}},
+			Endpoint: &basev0.Endpoint{Name: "tcp", Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "module"},
+			Instances: []*basev0.NetworkInstance{
+				{Host: "store-1.with-runnables.svc", Port: 5432, Address: "store-1.with-runnables.svc:5432"},
+				{Host: "store-0.with-runnables.svc", Port: 5432, Address: "store-0.with-runnables.svc:5432"},
+			},
 		}},
-		CredentialReferences: []string{"store/password", "artifact-store/token"},
+		CredentialReferences:    []string{"store/password", "artifact-store/token"},
+		ConfigurationReferences: []string{"openai", "artifact-store"},
 	}
 }
 
@@ -219,7 +237,29 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, binding.GetDigest(), 64)
 	require.Equal(t, []string{"artifact-store/token", "store/password"}, binding.GetCredentialReferences())
+	require.Equal(t, []string{"artifact-store", "openai"}, binding.GetConfigurationReferences())
+	require.Equal(t, "store-0.with-runnables.svc:5432", binding.GetDependencyNetworkMappings()[0].GetInstances()[0].GetAddress())
 	require.NoError(t, runnable.VerifyBinding(binding, pkg))
+
+	// Mappings and instances are sets: an installer that emits them in
+	// another order has installed the same thing.
+	shuffled := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
+	shuffled.DependencyNetworkMappings = append(shuffled.DependencyNetworkMappings, &basev0.NetworkMapping{
+		Endpoint: &basev0.Endpoint{Name: "admin", Service: "store", Module: "with-runnables", Api: "http", Visibility: "module"},
+	})
+	ordered := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
+	ordered.DependencyNetworkMappings = append([]*basev0.NetworkMapping{proto.Clone(shuffled.DependencyNetworkMappings[1]).(*basev0.NetworkMapping)}, ordered.DependencyNetworkMappings...)
+	ordered.DependencyNetworkMappings[1].Instances[0], ordered.DependencyNetworkMappings[1].Instances[1] = ordered.DependencyNetworkMappings[1].Instances[1], ordered.DependencyNetworkMappings[1].Instances[0]
+	withoutEndpointPin := samplePackage(t)
+	withoutEndpointPin.ServiceDependencies[0].Endpoints = nil
+	anyEndpoint, err := runnable.PreparePackage(withoutEndpointPin)
+	require.NoError(t, err)
+	shuffled.PackageDigest, ordered.PackageDigest = anyEndpoint.GetDigest(), anyEndpoint.GetDigest()
+	shuffledPrepared, err := runnable.PrepareBinding(shuffled, anyEndpoint)
+	require.NoError(t, err)
+	orderedPrepared, err := runnable.PrepareBinding(ordered, anyEndpoint)
+	require.NoError(t, err)
+	require.Equal(t, shuffledPrepared.GetDigest(), orderedPrepared.GetDigest())
 
 	nativeBinding, err := runnable.PrepareBinding(sampleBinding(pkg, native, basev0.RunnableFacility_NATIVE), pkg)
 	require.NoError(t, err)
@@ -248,6 +288,14 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 		{"native artifact on kubernetes", func(b *basev0.RunnableBinding) { b.Artifact = proto.Clone(native).(*basev0.RunnableArtifact) }, "NATIVE artifact cannot execute on facility KUBERNETES"},
 		{"foreign artifact", func(b *basev0.RunnableBinding) { b.Artifact.Digest = digestC }, "not one of the package artifacts"},
 		{"undeclared dependency", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Endpoint.Service = "cache" }, "does not declare as a dependency"},
+		{"unconsumed endpoint", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Endpoint.Name = "admin" }, "does not consume"},
+		{"missing configuration", func(b *basev0.RunnableBinding) { b.ConfigurationReferences = []string{"openai"} }, "but the package declares"},
+		{"extra configuration", func(b *basev0.RunnableBinding) {
+			b.ConfigurationReferences = append(b.ConfigurationReferences, "stripe")
+		}, "but the package declares"},
+		{"duplicate configuration", func(b *basev0.RunnableBinding) {
+			b.ConfigurationReferences = []string{"openai", "openai", "artifact-store"}
+		}, "declared twice"},
 		{"empty credential reference", func(b *basev0.RunnableBinding) { b.CredentialReferences = []string{" "} }, "cannot be empty"},
 		{"duplicate credential reference", func(b *basev0.RunnableBinding) { b.CredentialReferences = []string{"a", "a"} }, "declared twice"},
 		{"wrong digest", func(b *basev0.RunnableBinding) { b.Digest = strings.Repeat("f", 64) }, "does not match"},

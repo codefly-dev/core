@@ -6,10 +6,9 @@
 package runnable
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -69,7 +68,7 @@ func PreparePackage(pkg *basev0.RunnablePackage) (*basev0.RunnablePackage, error
 		return nil, err
 	}
 	canonicalizePackage(prepared)
-	digest, err := digestOf(prepared)
+	digest, err := digestOf(PackageDigestFormatV1, prepared)
 	if err != nil {
 		return nil, err
 	}
@@ -133,8 +132,8 @@ func PrepareBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackage
 	if err := validateBinding(prepared, pkg); err != nil {
 		return nil, err
 	}
-	slices.Sort(prepared.CredentialReferences)
-	digest, err := digestOf(prepared)
+	canonicalizeBinding(prepared)
+	digest, err := digestOf(BindingDigestFormatV1, prepared)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +190,12 @@ func validatePackage(pkg *basev0.RunnablePackage) error {
 	if err := validateBuild(pkg.GetBuild()); err != nil {
 		return err
 	}
+	if err := validateDependencies(pkg.GetServiceDependencies()); err != nil {
+		return err
+	}
+	if err := validateUniqueNames("workspace configuration dependency", pkg.GetWorkspaceConfigurationDependencies()); err != nil {
+		return err
+	}
 	seen := make(map[string]struct{}, len(pkg.GetArtifacts()))
 	for _, artifact := range pkg.GetArtifacts() {
 		if err := validateArtifact(artifact); err != nil {
@@ -233,13 +238,60 @@ func validateExecution(execution *basev0.RunnableExecution) (map[basev0.Runnable
 	return facilities, nil
 }
 
+func validateDependencies(dependencies []*basev0.RunnableDependency) error {
+	seen := make(map[string]struct{}, len(dependencies))
+	for _, dependency := range dependencies {
+		unique := dependency.GetModule() + "/" + dependency.GetName()
+		if err := resources.DependencyKind(dependency.GetKind()).Validate(); err != nil {
+			return fmt.Errorf("%w: dependency %s: %v", ErrInvalid, unique, err)
+		}
+		if _, exists := seen[unique]; exists {
+			return fmt.Errorf("%w: dependency %s is declared twice", ErrInvalid, unique)
+		}
+		seen[unique] = struct{}{}
+		if err := validateUniqueNames("dependency "+unique+" endpoint", dependency.GetEndpoints()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateUniqueNames(kind string, names []string) error {
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("%w: %s cannot be empty", ErrInvalid, kind)
+		}
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("%w: %s %q is declared twice", ErrInvalid, kind, name)
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
+}
+
 func validateBuild(build *basev0.RunnableBuild) error {
+	if err := validateConfinedPath("handler", build.GetHandler().GetPath()); err != nil {
+		return err
+	}
 	seen := make(map[string]struct{}, len(build.GetInputs()))
 	for _, input := range build.GetInputs() {
+		if err := validateConfinedPath("build input", input.GetPath()); err != nil {
+			return err
+		}
 		if _, exists := seen[input.GetPath()]; exists {
 			return fmt.Errorf("%w: build input %q is pinned twice", ErrInvalid, input.GetPath())
 		}
 		seen[input.GetPath()] = struct{}{}
+	}
+	return nil
+}
+
+// validateConfinedPath applies the declaration's path rule to a path carried
+// on the wire, so a descriptor cannot pin content outside the runnable tree.
+func validateConfinedPath(kind, p string) error {
+	if !filepath.IsLocal(p) || strings.ContainsAny(p, "\x00\\") {
+		return fmt.Errorf("%w: %s path %q must stay within the runnable directory", ErrInvalid, kind, p)
 	}
 	return nil
 }
@@ -290,31 +342,40 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 	if artifactFacility[binding.GetArtifact().GetKind()] != facility {
 		return fmt.Errorf("%w: %s artifact cannot execute on facility %s", ErrInvalid, binding.GetArtifact().GetKind(), facility)
 	}
-	declared := make(map[string]struct{}, len(pkg.GetServiceDependencies()))
+	declared := make(map[string]*basev0.RunnableDependency, len(pkg.GetServiceDependencies()))
 	for _, dependency := range pkg.GetServiceDependencies() {
-		declared[dependency.GetModule()+"/"+dependency.GetName()] = struct{}{}
+		declared[dependency.GetModule()+"/"+dependency.GetName()] = dependency
 	}
 	for _, mapping := range binding.GetDependencyNetworkMappings() {
 		endpoint := mapping.GetEndpoint()
 		unique := endpoint.GetModule() + "/" + endpoint.GetService()
-		if _, ok := declared[unique]; !ok {
+		dependency, ok := declared[unique]
+		if !ok {
 			return fmt.Errorf("%w: binding maps %s, which the package does not declare as a dependency", ErrInvalid, unique)
 		}
+		if len(dependency.GetEndpoints()) > 0 && !slices.Contains(dependency.GetEndpoints(), endpoint.GetName()) {
+			return fmt.Errorf("%w: binding maps endpoint %s/%s, which dependency %s does not consume", ErrInvalid, unique, endpoint.GetName(), unique)
+		}
 	}
-	seen := make(map[string]struct{}, len(binding.GetCredentialReferences()))
-	for _, reference := range binding.GetCredentialReferences() {
-		if strings.TrimSpace(reference) == "" {
-			return fmt.Errorf("%w: credential reference cannot be empty", ErrInvalid)
-		}
-		if _, exists := seen[reference]; exists {
-			return fmt.Errorf("%w: credential reference %q is declared twice", ErrInvalid, reference)
-		}
-		seen[reference] = struct{}{}
+	if err := validateUniqueNames("credential reference", binding.GetCredentialReferences()); err != nil {
+		return err
+	}
+	if err := validateUniqueNames("configuration reference", binding.GetConfigurationReferences()); err != nil {
+		return err
+	}
+	required := slices.Sorted(slices.Values(pkg.GetWorkspaceConfigurationDependencies()))
+	bound := slices.Sorted(slices.Values(binding.GetConfigurationReferences()))
+	if !slices.Equal(required, bound) {
+		return fmt.Errorf("%w: binding resolves configurations %v but the package declares %v", ErrInvalid, bound, required)
 	}
 	return nil
 }
 
 func canonicalizePackage(pkg *basev0.RunnablePackage) {
+	slices.SortFunc(pkg.Execution.Facilities, func(a, b *basev0.RunnableFacility) int {
+		return int(a.GetKind()) - int(b.GetKind())
+	})
+	slices.Sort(pkg.WorkspaceConfigurationDependencies)
 	slices.SortFunc(pkg.Build.Inputs, func(a, b *basev0.RunnableInputDigest) int {
 		return strings.Compare(a.GetPath(), b.GetPath())
 	})
@@ -324,19 +385,34 @@ func canonicalizePackage(pkg *basev0.RunnablePackage) {
 		}
 		return strings.Compare(a.GetPlatform(), b.GetPlatform())
 	})
-	slices.SortFunc(pkg.ServiceDependencies, func(a, b *basev0.ServiceReference) int {
+	slices.SortFunc(pkg.ServiceDependencies, func(a, b *basev0.RunnableDependency) int {
 		if a.GetModule() != b.GetModule() {
 			return strings.Compare(a.GetModule(), b.GetModule())
 		}
 		return strings.Compare(a.GetName(), b.GetName())
 	})
+	for _, dependency := range pkg.ServiceDependencies {
+		slices.Sort(dependency.Endpoints)
+	}
 }
 
-func digestOf(message proto.Message) (string, error) {
-	payload, err := (proto.MarshalOptions{Deterministic: true}).Marshal(message)
-	if err != nil {
-		return "", fmt.Errorf("%w: marshal deterministic bytes: %v", ErrInvalid, err)
+func canonicalizeBinding(binding *basev0.RunnableBinding) {
+	slices.Sort(binding.CredentialReferences)
+	slices.Sort(binding.ConfigurationReferences)
+	slices.SortFunc(binding.DependencyNetworkMappings, func(a, b *basev0.NetworkMapping) int {
+		return strings.Compare(networkMappingKey(a), networkMappingKey(b))
+	})
+	for _, mapping := range binding.DependencyNetworkMappings {
+		slices.SortFunc(mapping.Instances, func(a, b *basev0.NetworkInstance) int {
+			if a.GetAccess().GetKind() != b.GetAccess().GetKind() {
+				return strings.Compare(a.GetAccess().GetKind(), b.GetAccess().GetKind())
+			}
+			return strings.Compare(a.GetAddress(), b.GetAddress())
+		})
 	}
-	sum := sha256.Sum256(payload)
-	return hex.EncodeToString(sum[:]), nil
+}
+
+func networkMappingKey(mapping *basev0.NetworkMapping) string {
+	endpoint := mapping.GetEndpoint()
+	return strings.Join([]string{endpoint.GetModule(), endpoint.GetService(), endpoint.GetName(), endpoint.GetApi()}, "/")
 }

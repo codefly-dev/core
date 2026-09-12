@@ -3,8 +3,8 @@ package codefly.base.v0;
 
 import "buf/validate/validate.proto";
 import "codefly/base/v0/agent.proto";
+import "codefly/base/v0/library.proto";
 import "codefly/base/v0/network.proto";
-import "codefly/base/v0/service.proto";
 import "google/protobuf/duration.proto";
 
 /*
@@ -167,9 +167,27 @@ message Runnable {
   // build_inputs are runnable-relative paths whose content changes the package.
   repeated string build_inputs = 7;
   // service_dependencies are services the invocation may reach.
-  repeated ServiceReference service_dependencies = 8;
+  repeated RunnableDependency service_dependencies = 8;
   // execution declares bounds and effect semantics.
   RunnableExecution execution = 9 [(buf.validate.field).required = true];
+  // library_dependencies are internal libraries the build resolves.
+  repeated LibraryDependency library_dependencies = 10;
+  // workspace_configuration_dependencies name the workspace configurations
+  // the invocation is injected with.
+  repeated string workspace_configuration_dependencies = 11;
+}
+
+// RunnableDependency is one service an invocation may reach, with the same
+// kind and endpoint selection a service dependency declares.
+message RunnableDependency {
+  // name is the depended-on service name.
+  string name = 1 [(buf.validate.field).string.min_len = 2, (buf.validate.field).string.max_len = 50];
+  // module is the depended-on service's module.
+  string module = 2 [(buf.validate.field).string.min_len = 2, (buf.validate.field).string.max_len = 50];
+  // kind is the dependency kind; empty is the legacy untyped edge.
+  string kind = 3;
+  // endpoints are the consumed endpoint names; empty consumes every endpoint.
+  repeated string endpoints = 4;
 }
 
 // RunnableArtifact is one built implementation of a runnable.
@@ -239,10 +257,13 @@ message RunnablePackage {
   // artifacts are the built implementations, sorted by kind then platform.
   repeated RunnableArtifact artifacts = 7 [(buf.validate.field).repeated.min_items = 1];
   // service_dependencies are the services an invocation may reach.
-  repeated ServiceReference service_dependencies = 8;
-  // digest is the sha256 hex of the deterministic descriptor bytes with this
-  // field empty.
-  string digest = 9;
+  repeated RunnableDependency service_dependencies = 8;
+  // workspace_configuration_dependencies name the workspace configurations a
+  // binding must resolve for the invocation.
+  repeated string workspace_configuration_dependencies = 9;
+  // digest is the sha256 hex of the canonical descriptor form with this field
+  // empty.
+  string digest = 10;
 }
 
 // RunnableBinding is the immutable installation of one package on one
@@ -265,7 +286,10 @@ message RunnableBinding {
   // credential_references name credentials the facility resolves at launch.
   // They are references only; a value never appears in a binding.
   repeated string credential_references = 7;
-  // digest is the sha256 hex of the deterministic binding bytes with this
-  // field empty.
-  string digest = 8;
+  // configuration_references name the workspace configurations the facility
+  // resolves at launch, exactly the package's declared set. References only.
+  repeated string configuration_references = 8;
+  // digest is the sha256 hex of the canonical binding form with this field
+  // empty.
+  string digest = 9;
 }

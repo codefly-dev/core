@@ -538,15 +538,15 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 				return w.Wrapf(pathErr, "legacy module contains invalid path data")
 			}
 
-			referenceConflict := hasServiceReferenceConflict(workspace.Services, mod.ServiceReferences) ||
-				hasJobReferenceConflict(workspace.Jobs, mod.JobReferences) ||
-				hasRunnableReferenceConflict(workspace.Runnables, mod.RunnableReferences)
+			referenceConflict := hasReferenceConflict(workspace.Services, mod.ServiceReferences) ||
+				hasReferenceConflict(workspace.Jobs, mod.JobReferences) ||
+				hasReferenceConflict(workspace.Runnables, mod.RunnableReferences)
 			servicesBefore := len(workspace.Services)
 			jobsBefore := len(workspace.Jobs)
 			runnablesBefore := len(workspace.Runnables)
-			workspace.Services = mergeServiceReferences(workspace.Services, mod.ServiceReferences)
-			workspace.Jobs = mergeJobReferences(workspace.Jobs, mod.JobReferences)
-			workspace.Runnables = mergeRunnableReferences(workspace.Runnables, mod.RunnableReferences)
+			workspace.Services = mergeReferences(workspace.Services, mod.ServiceReferences)
+			workspace.Jobs = mergeReferences(workspace.Jobs, mod.JobReferences)
+			workspace.Runnables = mergeReferences(workspace.Runnables, mod.RunnableReferences)
 			if pathErr := workspace.validatePaths(); pathErr != nil {
 				return w.Wrapf(pathErr, "migrated workspace contains invalid path data")
 			}
@@ -594,116 +594,55 @@ func optionalPathValue(path *string) string {
 	return *path
 }
 
-func hasServiceReferenceConflict(current, legacy []*ServiceReference) bool {
+// pathReference is what a module-level reference contributes to the flat
+// migration: its name and where it points.
+type pathReference interface {
+	*ServiceReference | *JobReference | *RunnableReference
+	referenceName() string
+	referencePathOverride() *string
+}
+
+func (ref *ServiceReference) referenceName() string           { return ref.Name }
+func (ref *ServiceReference) referencePathOverride() *string  { return ref.PathOverride }
+func (ref *JobReference) referenceName() string               { return ref.Name }
+func (ref *JobReference) referencePathOverride() *string      { return ref.PathOverride }
+func (ref *RunnableReference) referenceName() string          { return ref.Name }
+func (ref *RunnableReference) referencePathOverride() *string { return ref.PathOverride }
+
+func hasReferenceConflict[T pathReference](current, legacy []T) bool {
 	paths := make(map[string]string, len(current))
 	for _, ref := range current {
 		if ref != nil {
-			paths[ref.Name] = optionalPathValue(ref.PathOverride)
+			paths[ref.referenceName()] = optionalPathValue(ref.referencePathOverride())
 		}
 	}
 	for _, ref := range legacy {
 		if ref == nil {
 			continue
 		}
-		if path, exists := paths[ref.Name]; exists && path != optionalPathValue(ref.PathOverride) {
+		if path, exists := paths[ref.referenceName()]; exists && path != optionalPathValue(ref.referencePathOverride()) {
 			return true
 		}
 	}
 	return false
 }
 
-func hasJobReferenceConflict(current, legacy []*JobReference) bool {
-	paths := make(map[string]string, len(current))
-	for _, ref := range current {
-		if ref != nil {
-			paths[ref.Name] = optionalPathValue(ref.PathOverride)
-		}
-	}
-	for _, ref := range legacy {
-		if ref == nil {
-			continue
-		}
-		if path, exists := paths[ref.Name]; exists && path != optionalPathValue(ref.PathOverride) {
-			return true
-		}
-	}
-	return false
-}
-
-func mergeServiceReferences(current, legacy []*ServiceReference) []*ServiceReference {
+func mergeReferences[T pathReference](current, legacy []T) []T {
 	seen := make(map[string]struct{}, len(current))
 	for _, ref := range current {
 		if ref != nil {
-			seen[ref.Name] = struct{}{}
+			seen[ref.referenceName()] = struct{}{}
 		}
 	}
 	for _, ref := range legacy {
 		if ref == nil {
 			continue
 		}
-		if _, exists := seen[ref.Name]; exists {
+		if _, exists := seen[ref.referenceName()]; exists {
 			continue
 		}
 		current = append(current, ref)
-		seen[ref.Name] = struct{}{}
-	}
-	return current
-}
-
-func mergeJobReferences(current, legacy []*JobReference) []*JobReference {
-	seen := make(map[string]struct{}, len(current))
-	for _, ref := range current {
-		if ref != nil {
-			seen[ref.Name] = struct{}{}
-		}
-	}
-	for _, ref := range legacy {
-		if ref == nil {
-			continue
-		}
-		if _, exists := seen[ref.Name]; exists {
-			continue
-		}
-		current = append(current, ref)
-		seen[ref.Name] = struct{}{}
-	}
-	return current
-}
-
-func hasRunnableReferenceConflict(current, legacy []*RunnableReference) bool {
-	paths := make(map[string]string, len(current))
-	for _, ref := range current {
-		if ref != nil {
-			paths[ref.Name] = optionalPathValue(ref.PathOverride)
-		}
-	}
-	for _, ref := range legacy {
-		if ref == nil {
-			continue
-		}
-		if path, exists := paths[ref.Name]; exists && path != optionalPathValue(ref.PathOverride) {
-			return true
-		}
-	}
-	return false
-}
-
-func mergeRunnableReferences(current, legacy []*RunnableReference) []*RunnableReference {
-	seen := make(map[string]struct{}, len(current))
-	for _, ref := range current {
-		if ref != nil {
-			seen[ref.Name] = struct{}{}
-		}
-	}
-	for _, ref := range legacy {
-		if ref == nil {
-			continue
-		}
-		if _, exists := seen[ref.Name]; exists {
-			continue
-		}
-		current = append(current, ref)
-		seen[ref.Name] = struct{}{}
+		seen[ref.referenceName()] = struct{}{}
 	}
 	return current
 }

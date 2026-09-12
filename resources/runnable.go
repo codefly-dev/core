@@ -1,7 +1,9 @@
 package resources
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -17,6 +19,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
+	"gopkg.in/yaml.v3"
 )
 
 // Runnable declaration constants.
@@ -214,8 +217,6 @@ type Runnable struct {
 	// name and version must be the same package.
 	Version string `yaml:"version"`
 
-	PathOverride *string `yaml:"path,omitempty"`
-
 	Agent *Agent `yaml:"agent"`
 
 	Contract   *RunnableContract   `yaml:"contract"`
@@ -257,30 +258,34 @@ func (r *RunnableIdentity) Unique() string {
 	return path.Join(r.Module, r.Name)
 }
 
-// NewRunnable creates a runnable declaration with a valid, empty contract
-// skeleton: the author fills in the schema, handler and execution bounds.
-func NewRunnable(ctx context.Context, name string) (*Runnable, error) {
+// NewRunnable creates a complete, saveable runnable declaration with an empty
+// contract: the pinned language agent and the handler it will generate are the
+// two facts no default can supply, so a declaration without them is never
+// materialized.
+func NewRunnable(ctx context.Context, name string, agent *Agent, handler string) (*Runnable, error) {
 	w := wool.Get(ctx).In("NewRunnable", wool.NameField(name))
-	if err := validateResourcePathComponent("runnable", name); err != nil {
-		return nil, w.Wrap(err)
-	}
-	return &Runnable{
+	r := &Runnable{
 		Kind:    RunnableKind,
 		Name:    name,
 		Version: "0.0.1",
+		Agent:   agent,
 		Contract: &RunnableContract{
 			Protocol: RunnableProtocolV1,
 			Input:    &RunnableSchema{},
 			Output:   &RunnableSchema{},
 		},
-		Entrypoint: &RunnableEntrypoint{},
+		Entrypoint: &RunnableEntrypoint{Handler: handler},
 		Execution: &RunnableExecution{
 			Facilities:   []RunnableFacility{RunnableFacilityNative},
 			Timeout:      "5m",
 			Cancellation: RunnableCancellationNone,
 			Recovery:     RunnableRecoveryRecompute,
 		},
-	}, nil
+	}
+	if err := r.Validate(); err != nil {
+		return nil, w.Wrap(err)
+	}
+	return r, nil
 }
 
 // Dir returns the runnable directory.
@@ -346,9 +351,6 @@ func (r *Runnable) Validate() error {
 	}
 	if r.Kind != RunnableKind {
 		return fmt.Errorf("runnable %q has kind %q, expected %q", r.Name, r.Kind, RunnableKind)
-	}
-	if err := validateResourcePathOverride("runnable", r.PathOverride); err != nil {
-		return err
 	}
 	if _, err := semver.StrictNewVersion(r.Version); err != nil {
 		return fmt.Errorf("runnable %q version %q is not a strict semantic version: %w", r.Name, r.Version, err)
@@ -535,21 +537,34 @@ func (r *Runnable) Proto(_ context.Context) (*basev0.Runnable, error) {
 		return nil, err
 	}
 	proto := &basev0.Runnable{
-		Name:        r.Name,
-		Description: r.Description,
-		Version:     r.Version,
-		Agent:       agent,
-		Contract:    r.Contract.Proto(),
-		Handler:     r.Entrypoint.Handler,
-		BuildInputs: slices.Clone(r.Entrypoint.Inputs),
-		Execution:   r.Execution.Proto(),
+		Name:                               r.Name,
+		Description:                        r.Description,
+		Version:                            r.Version,
+		Agent:                              agent,
+		Contract:                           r.Contract.Proto(),
+		Handler:                            r.Entrypoint.Handler,
+		BuildInputs:                        slices.Clone(r.Entrypoint.Inputs),
+		Execution:                          r.Execution.Proto(),
+		WorkspaceConfigurationDependencies: slices.Clone(r.WorkspaceConfigurationDependencies),
 	}
 	for _, dep := range r.ServiceDependencies {
 		module := dep.Module
 		if module == "" {
+			if r.module == "" {
+				return nil, fmt.Errorf("runnable %q dependency %q declares no module and the runnable was not loaded through its module; declare module or load it from the module", r.Name, dep.Name)
+			}
 			module = r.module
 		}
-		proto.ServiceDependencies = append(proto.ServiceDependencies, &basev0.ServiceReference{Name: dep.Name, Module: module})
+		wire := &basev0.RunnableDependency{Name: dep.Name, Module: module, Kind: string(dep.Kind)}
+		for _, endpoint := range dep.Endpoints {
+			wire.Endpoints = append(wire.Endpoints, endpoint.Name)
+		}
+		proto.ServiceDependencies = append(proto.ServiceDependencies, wire)
+	}
+	for _, lib := range r.LibraryDependencies {
+		proto.LibraryDependencies = append(proto.LibraryDependencies, &basev0.LibraryDependency{
+			Name: lib.Name, Version: lib.Version, Languages: slices.Clone(lib.Languages),
+		})
 	}
 	if err := Validate(proto); err != nil {
 		return nil, err
@@ -665,12 +680,28 @@ func (e *RunnableExecution) Proto() *basev0.RunnableExecution {
 	return out
 }
 
-// LoadRunnableFromDir loads and validates a runnable from a directory.
+// LoadRunnableFromDir loads and validates a runnable from a directory. The
+// declaration is decoded strictly: a misspelled modifier such as "optionnal"
+// would otherwise load silently as its opposite and be built into a contract
+// the author never wrote.
 func LoadRunnableFromDir(ctx context.Context, dir string) (*Runnable, error) {
 	w := wool.Get(ctx).In("LoadRunnableFromDir", wool.DirField(dir))
-	r, err := LoadFromDir[Runnable](ctx, dir)
+	p, err := Path[Runnable](ctx, dir)
 	if err != nil {
 		return nil, w.Wrap(err)
+	}
+	content, err := os.ReadFile(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, w.Wrap(shared.NewErrorResourceNotFound(TypeName[Runnable](), p))
+	}
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot read %s", p)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	decoder.KnownFields(true)
+	r := &Runnable{}
+	if err := decoder.Decode(r); err != nil {
+		return nil, w.Wrapf(err, "cannot decode %s", p)
 	}
 	if err := r.Validate(); err != nil {
 		return nil, w.Wrap(err)
@@ -761,25 +792,51 @@ func (mod *Module) AddRunnableReference(ctx context.Context, ref *RunnableRefere
 	return nil
 }
 
-// NewRunnable creates a runnable directory in the module and references it.
-// The declaration is returned unsaved: it is incomplete until the author's
-// agent fills the contract, and SaveToDir refuses an incomplete one.
-func (mod *Module) NewRunnable(ctx context.Context, name string) (*Runnable, error) {
+// NewRunnable creates a runnable in the module: the declaration is written
+// first, then referenced, then the module is saved, and any failure rolls the
+// directory and the reference back. The module never persists a reference to
+// a declaration that does not exist on disk.
+func (mod *Module) NewRunnable(ctx context.Context, name string, agent *Agent, handler string) (created *Runnable, result error) {
 	w := wool.Get(ctx).In("Module.NewRunnable", wool.NameField(name))
 	if mod.ExistsRunnable(name) {
 		return nil, w.NewError("runnable %s already exists in module %s", name, mod.Name)
 	}
-	r, err := NewRunnable(ctx, name)
+	r, err := NewRunnable(ctx, name, agent, handler)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 	dir := path.Join(mod.Dir(), "runnables", name)
-	if _, err := shared.CheckDirectoryOrCreate(ctx, dir); err != nil {
-		return nil, w.Wrapf(err, "failed to create runnable directory")
-	}
 	r.dir = dir
 	r.module = mod.Name
+
+	originalReferences := append([]*RunnableReference(nil), mod.RunnableReferences...)
+	createdDir := false
+	defer func() {
+		if result == nil {
+			return
+		}
+		mod.RunnableReferences = originalReferences
+		if createdDir {
+			if removeErr := os.RemoveAll(dir); removeErr != nil {
+				result = errors.Join(result, w.Wrapf(removeErr, "cannot remove partial runnable directory"))
+			}
+		}
+	}()
+
+	createdDir, err = shared.CheckDirectoryOrCreate(ctx, dir)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	if !createdDir {
+		return nil, w.NewError("runnable directory %s already exists without a module reference", dir)
+	}
+	if err := r.Save(ctx); err != nil {
+		return nil, w.Wrap(err)
+	}
 	if err := mod.AddRunnableReference(ctx, &RunnableReference{Name: name}); err != nil {
+		return nil, w.Wrap(err)
+	}
+	if err := mod.Save(ctx); err != nil {
 		return nil, w.Wrap(err)
 	}
 	return r, nil

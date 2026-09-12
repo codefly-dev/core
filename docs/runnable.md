@@ -68,9 +68,10 @@ execution:
   payload:
     max-input-bytes: 65536     # default 1 MiB for both bounds
 service-dependencies:
-  - name: store
+  - name: store            # module defaults to the runnable's own module
     kind: runtime
     endpoints: [{ name: tcp }]
+workspace-configuration-dependencies: [openai]
 ```
 
 Referenced from the owning module (`module.codefly.yaml`, or the flat
@@ -85,11 +86,25 @@ runnables:
     path: work/counter         # relative to the module, or absolute
 ```
 
-Loading rejects, with a message naming the rule: an escaping name or path, a
-non-strict version, a `latest` or unpinned agent, an agent of another kind, an
-unsupported `protocol`, a schema outside the bounded profile, a missing handler,
-an unknown facility, cancellation or recovery, and a missing or non-positive
-timeout. `Save` refuses to write a declaration that would not load.
+Loading is strict and rejects, with a message naming the rule: an unknown key
+anywhere outside `spec` (so a misspelled `optionnal:` cannot load as its
+opposite), an escaping name or path, a non-strict version, a `latest` or
+unpinned agent, an agent of another kind, an unsupported `protocol`, a schema
+outside the bounded profile, a missing handler, an unknown facility,
+cancellation or recovery, and a missing or non-positive timeout. `Save` refuses
+to write a declaration that would not load, and `Module.NewRunnable` writes the
+declaration before it references it, rolling both back on failure, so a module
+never points at a runnable that is not on disk.
+
+Paths are confined lexically (`handler`, `entrypoint.inputs`, and the paths a
+descriptor pins). Whoever reads them — the agent generating the harness, the
+CLI digesting build inputs — must resolve symlinks and refuse a target outside
+the runnable directory before trusting the content; core never opens the files.
+
+A flat workspace whose legacy `module.codefly.yaml` declares `runnables:` is
+migrated by this version. An older `codefly` loading the same workspace
+migrates only services and jobs and deletes the module file, losing the key:
+upgrade every checkout of a workspace before adding runnables to it.
 
 ### Bounded schema profile
 
@@ -103,15 +118,24 @@ key can be written; `codefly.runnable/v1` is the only protocol accepted.
 ## Immutable installation facts
 
 `proto/codefly/base/v0/runnable.proto` carries the wire contracts, generated
-into `generated/go/codefly/base/v0`. The `runnable` Go package validates,
+into `generated/go/codefly/base/v0` (the Python bindings under
+`generated/python` are produced separately from BSR and must be regenerated
+before `runnable-python` consumes them). The `runnable` Go package validates,
 canonicalizes and digests two of them.
 
 **`RunnablePackage`** (`codefly.runnable-package/v1`) is the descriptor of one
 built release: identity, exact agent, contract, execution bounds, pinned build
 inputs (handler, declared inputs, generated harness, toolchain, effective
-configuration) and the built artifacts — a `NATIVE` package with its launch
-command and/or a digest-pinned `IMAGE`, each with its platform. Its `digest` is
-the sha256 of its deterministic bytes. A resolved execution-plan fingerprint
+configuration), typed service dependencies with the endpoints they consume,
+the workspace configurations the invocation needs, and the built artifacts — a
+`NATIVE` package with its launch command and/or a digest-pinned `IMAGE`, each
+with its platform. Its `digest` is the sha256 of a canonical form core owns
+(proto3 JSON with sorted keys, prefixed by a digest-format identifier) — not
+of the wire encoding, which protobuf only keeps stable within one binary. A
+message carrying fields outside the schema it claims is rejected rather than
+hashed with them ignored. Every unordered set (facilities, inputs, artifacts,
+dependencies, endpoints, configurations) is sorted first, so equal content in
+another order is the same release. A resolved execution-plan fingerprint
 (`docs/design/execution-plan.md`) identifies a plan, not bytes; the package
 digest is what proves two builds are the same executable.
 
@@ -124,9 +148,12 @@ and coexists.
 one verified package on one execution facility. It pins the package digest,
 the facility, the artifact selected from that package (a `NATIVE` artifact for
 `native`, an `IMAGE` for `kubernetes`), the reachable addresses of the declared
-service dependencies and the *names* of credentials the facility resolves at
-launch. Coordinates and credential references live here, under deployment
-trust; a value never does, and an invocation payload carries none of them.
+service dependencies (only the endpoints the dependency consumes), the *names*
+of exactly the workspace configurations the package declares, and the *names*
+of credentials the facility resolves at launch. Coordinates, configuration and
+credential references live here, under deployment trust; a value never does,
+and an invocation payload carries none of them. Mappings are sets: an installer
+emitting them in another order has installed the same binding.
 `VerifyBinding` fails against a rebuilt package with the same identity, so an
 existing binding can never be routed to newer bytes.
 
