@@ -54,6 +54,7 @@ type Module struct {
 
 	ServiceReferences     []*ServiceReference     `yaml:"services"`
 	JobReferences         []*JobReference         `yaml:"jobs,omitempty"`
+	RunnableReferences    []*RunnableReference    `yaml:"runnables,omitempty"`
 	ApplicationReferences []*ApplicationReference `yaml:"applications,omitempty"`
 
 	// internal
@@ -348,6 +349,9 @@ func (mod *Module) adoptWorkspaceName(name string) {
 	for _, ref := range mod.JobReferences {
 		ref.Module = name
 	}
+	for _, ref := range mod.RunnableReferences {
+		ref.Module = name
+	}
 }
 
 func (mod *Module) postLoad(ctx context.Context) error {
@@ -358,6 +362,9 @@ func (mod *Module) postLoad(ctx context.Context) error {
 		ref.Module = mod.Name
 	}
 	for _, ref := range mod.JobReferences {
+		ref.Module = mod.Name
+	}
+	for _, ref := range mod.RunnableReferences {
 		ref.Module = mod.Name
 	}
 	// Application references don't need module set since they use ApplicationReference
@@ -398,6 +405,7 @@ func (mod *Module) Save(ctx context.Context) error {
 			ref.Module = ""
 		}
 		mod.flatWorkspace.Services = mod.ServiceReferences
+		mod.flatWorkspace.Runnables = mod.RunnableReferences
 		err := mod.flatWorkspace.Save(ctx)
 		for i, ref := range mod.ServiceReferences {
 			ref.Module = saved[i]
@@ -421,12 +429,20 @@ func (mod *Module) preSave() func() {
 		jobMods[i] = ref.Module
 		ref.Module = ""
 	}
+	runnableMods := make([]string, len(mod.RunnableReferences))
+	for i, ref := range mod.RunnableReferences {
+		runnableMods[i] = ref.Module
+		ref.Module = ""
+	}
 	return func() {
 		for i, ref := range mod.ServiceReferences {
 			ref.Module = svcMods[i]
 		}
 		for i, ref := range mod.JobReferences {
 			ref.Module = jobMods[i]
+		}
+		for i, ref := range mod.RunnableReferences {
+			ref.Module = runnableMods[i]
 		}
 	}
 }

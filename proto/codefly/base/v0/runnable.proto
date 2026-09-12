@@ -1,0 +1,271 @@
+syntax = "proto3";
+package codefly.base.v0;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v0/agent.proto";
+import "codefly/base/v0/network.proto";
+import "codefly/base/v0/service.proto";
+import "google/protobuf/duration.proto";
+
+/*
+Runnable: a packaged implementation of a typed finite operation.
+
+A Runnable declares a contract (typed input and output), the language agent
+that generates its harness and build recipe, its dependencies and its execution
+bounds. Building one yields an immutable RunnablePackage descriptor; installing
+that package on one execution facility yields an immutable RunnableBinding.
+Orchestration adapters translate the binding into their own invocation
+contracts; core never records an invocation, a task or an effect receipt.
+*/
+
+// RunnableReference names a runnable inside a module.
+message RunnableReference {
+  // name is the runnable name.
+  string name = 1 [(buf.validate.field).string.min_len = 2, (buf.validate.field).string.max_len = 50];
+  // module is the Codefly module name that groups runnables.
+  string module = 2 [(buf.validate.field).string.min_len = 2, (buf.validate.field).string.max_len = 50];
+}
+
+// RunnableIdentity is the immutable release identity of a runnable in a workspace.
+message RunnableIdentity {
+  // name is the runnable name.
+  string name = 1 [(buf.validate.field).string.min_len = 2, (buf.validate.field).string.max_len = 50];
+  // module is the Codefly module name that groups runnables.
+  string module = 2 [(buf.validate.field).string.min_len = 2, (buf.validate.field).string.max_len = 50];
+  // workspace is the Codefly workspace name that scopes modules and runnables.
+  string workspace = 3 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 50];
+  // version is the immutable release version, strict semantic version form.
+  string version = 4 [(buf.validate.field).string.min_len = 5, (buf.validate.field).string.max_len = 50];
+}
+
+// RunnableField is one field of the bounded schema profile. The profile is
+// deliberately small: object, array, string, integer and boolean, with explicit
+// optional (key may be absent) versus nullable (value may be null). Enumerations,
+// arbitrary JSON Schema, expressions and coercion are not part of the contract.
+message RunnableField {
+  // Type enumerates the value types of the bounded profile.
+  enum Type {
+    // UNKNOWN is the default value when type is not specified.
+    UNKNOWN = 0;
+    // STRING is a UTF-8 string.
+    STRING = 1;
+    // INTEGER is a 64-bit signed integer.
+    INTEGER = 2;
+    // BOOLEAN is a boolean.
+    BOOLEAN = 3;
+    // OBJECT is a nested object described by fields.
+    OBJECT = 4;
+    // ARRAY is a homogeneous list described by items.
+    ARRAY = 5;
+  }
+  // name is the field name; empty only for an array's items.
+  string name = 1;
+  // type is the value type.
+  Type type = 2;
+  // description explains the field to handler authors.
+  string description = 3;
+  // optional means the key may be absent.
+  bool optional = 4;
+  // nullable means the value may be null.
+  bool nullable = 5;
+  // fields describes an OBJECT field's members.
+  repeated RunnableField fields = 6;
+  // items describes an ARRAY field's elements.
+  RunnableField items = 7;
+}
+
+// RunnableSchema is the typed shape of one invocation payload; the payload is
+// always an object.
+message RunnableSchema {
+  // fields are the object's members.
+  repeated RunnableField fields = 1;
+}
+
+// RunnableContract is the typed finite operation a runnable implements.
+message RunnableContract {
+  // protocol is the invocation protocol between launcher and harness, such as
+  // "codefly.runnable/v1".
+  string protocol = 1 [(buf.validate.field).string.min_len = 1];
+  // input is the invocation input shape.
+  RunnableSchema input = 2;
+  // output is the invocation output shape.
+  RunnableSchema output = 3;
+}
+
+// RunnableFacility is an execution facility an invocation may be bound to.
+message RunnableFacility {
+  // Kind enumerates supported execution facilities.
+  enum Kind {
+    // UNKNOWN is the default value when kind is not specified.
+    UNKNOWN = 0;
+    // NATIVE runs the installed native package as a host process through the
+    // Codefly local launcher.
+    NATIVE = 1;
+    // KUBERNETES runs the digest-pinned image as a finite invocation Job.
+    KUBERNETES = 2;
+  }
+  // kind is the facility.
+  Kind kind = 1;
+}
+
+// RunnableExecution declares the bounds and effect semantics of an invocation.
+message RunnableExecution {
+  // Cancellation enumerates what a launcher may do to a running invocation.
+  enum Cancellation {
+    // CANCELLATION_UNKNOWN is the default value when cancellation is not specified.
+    CANCELLATION_UNKNOWN = 0;
+    // CANCELLATION_NONE means the invocation cannot be interrupted; it runs to
+    // its timeout.
+    CANCELLATION_NONE = 1;
+    // CANCELLATION_SIGNAL means the harness handles an interruption signal and
+    // reports an explicit interrupted outcome.
+    CANCELLATION_SIGNAL = 2;
+  }
+  // Recovery enumerates how an uncertain outcome may be resolved.
+  enum Recovery {
+    // RECOVERY_UNKNOWN is the default value when recovery is not specified.
+    RECOVERY_UNKNOWN = 0;
+    // RECOVERY_RECOMPUTE means the operation is pure: re-running it with the
+    // same input yields the same output and no external effect.
+    RECOVERY_RECOMPUTE = 1;
+    // RECOVERY_RECEIPT means the operation has an external effect and an
+    // uncertain outcome must be resolved by looking up the effect receipt,
+    // never by re-running.
+    RECOVERY_RECEIPT = 2;
+  }
+  // facilities are the execution facilities the runnable may be bound to.
+  repeated RunnableFacility facilities = 1 [(buf.validate.field).repeated.min_items = 1];
+  // timeout bounds one invocation's duration.
+  google.protobuf.Duration timeout = 2 [(buf.validate.field).required = true];
+  // cancellation is the declared interruption capability.
+  Cancellation cancellation = 3;
+  // recovery is the declared effect semantics.
+  Recovery recovery = 4;
+  // max_input_bytes bounds the inline input payload.
+  uint64 max_input_bytes = 5 [(buf.validate.field).uint64.gt = 0];
+  // max_output_bytes bounds the inline output payload.
+  uint64 max_output_bytes = 6 [(buf.validate.field).uint64.gt = 0];
+  // concurrency bounds simultaneous invocations of one worker; 0 means the
+  // facility default.
+  uint32 concurrency = 7;
+}
+
+// Runnable is the declaration read from runnable.codefly.yaml.
+message Runnable {
+  // name is the runnable name.
+  string name = 1 [(buf.validate.field).string.min_len = 2, (buf.validate.field).string.max_len = 50];
+  // description is the human-readable description.
+  string description = 2;
+  // version is the immutable release version.
+  string version = 3 [(buf.validate.field).string.min_len = 5];
+  // agent is the language agent that generates the harness and build recipe.
+  Agent agent = 4 [(buf.validate.field).required = true];
+  // contract is the typed operation.
+  RunnableContract contract = 5 [(buf.validate.field).required = true];
+  // handler is the runnable-relative path of the author entrypoint.
+  string handler = 6 [(buf.validate.field).string.min_len = 1];
+  // build_inputs are runnable-relative paths whose content changes the package.
+  repeated string build_inputs = 7;
+  // service_dependencies are services the invocation may reach.
+  repeated ServiceReference service_dependencies = 8;
+  // execution declares bounds and effect semantics.
+  RunnableExecution execution = 9 [(buf.validate.field).required = true];
+}
+
+// RunnableArtifact is one built implementation of a runnable.
+message RunnableArtifact {
+  // Kind enumerates implementation artifact forms.
+  enum Kind {
+    // UNKNOWN is the default value when kind is not specified.
+    UNKNOWN = 0;
+    // NATIVE is an installed package the local launcher executes as a process.
+    NATIVE = 1;
+    // IMAGE is a digest-pinned container image.
+    IMAGE = 2;
+  }
+  // kind is the artifact form.
+  Kind kind = 1;
+  // platform is the supported platform in "os/arch" form, such as linux/amd64.
+  string platform = 2 [(buf.validate.field).string.min_len = 3];
+  // reference locates the artifact: an archive path for NATIVE, an image
+  // reference for IMAGE.
+  string reference = 3 [(buf.validate.field).string.min_len = 1];
+  // digest is the artifact content digest, formatted as "sha256:<hex>".
+  string digest = 4 [(buf.validate.field).string.pattern = "^sha256:[0-9a-f]{64}$"];
+  // command is the NATIVE launch command, relative to the unpacked package;
+  // an IMAGE carries its entrypoint itself.
+  repeated string command = 5;
+}
+
+// RunnableInputDigest pins one build input.
+message RunnableInputDigest {
+  // path is the runnable-relative path.
+  string path = 1 [(buf.validate.field).string.min_len = 1];
+  // digest is the content digest, formatted as "sha256:<hex>".
+  string digest = 2 [(buf.validate.field).string.pattern = "^sha256:[0-9a-f]{64}$"];
+}
+
+// RunnableBuild pins every input that changes the package bytes. A resolved
+// execution-plan fingerprint is not proof of identical bytes; this is.
+message RunnableBuild {
+  // handler is the digest of the author entrypoint.
+  RunnableInputDigest handler = 1 [(buf.validate.field).required = true];
+  // inputs are the digests of the declared build inputs, sorted by path.
+  repeated RunnableInputDigest inputs = 2;
+  // harness_digest pins the generated harness, formatted as "sha256:<hex>".
+  string harness_digest = 3 [(buf.validate.field).string.pattern = "^sha256:[0-9a-f]{64}$"];
+  // toolchain identifies the exact interpreter or compiler, such as
+  // "python-3.12.4".
+  string toolchain = 4 [(buf.validate.field).string.min_len = 1];
+  // configuration_digest pins the effective output-changing configuration,
+  // formatted as "sha256:<hex>".
+  string configuration_digest = 5 [(buf.validate.field).string.pattern = "^sha256:[0-9a-f]{64}$"];
+}
+
+// RunnablePackage is the immutable descriptor of one built runnable release.
+message RunnablePackage {
+  // schema is the descriptor schema, "codefly.runnable-package/v1".
+  string schema = 1 [(buf.validate.field).string.min_len = 1];
+  // identity is the release identity.
+  RunnableIdentity identity = 2 [(buf.validate.field).required = true];
+  // agent is the exact language agent that built the package.
+  Agent agent = 3 [(buf.validate.field).required = true];
+  // contract is the typed operation the artifacts implement.
+  RunnableContract contract = 4 [(buf.validate.field).required = true];
+  // execution declares bounds and effect semantics.
+  RunnableExecution execution = 5 [(buf.validate.field).required = true];
+  // build pins the inputs the artifacts were built from.
+  RunnableBuild build = 6 [(buf.validate.field).required = true];
+  // artifacts are the built implementations, sorted by kind then platform.
+  repeated RunnableArtifact artifacts = 7 [(buf.validate.field).repeated.min_items = 1];
+  // service_dependencies are the services an invocation may reach.
+  repeated ServiceReference service_dependencies = 8;
+  // digest is the sha256 hex of the deterministic descriptor bytes with this
+  // field empty.
+  string digest = 9;
+}
+
+// RunnableBinding is the immutable installation of one package on one
+// execution facility. Infrastructure coordinates and credential references
+// live here, under deployment trust, never in an invocation payload.
+message RunnableBinding {
+  // schema is the binding schema, "codefly.runnable-binding/v1".
+  string schema = 1 [(buf.validate.field).string.min_len = 1];
+  // identity is the bound release identity.
+  RunnableIdentity identity = 2 [(buf.validate.field).required = true];
+  // package_digest pins the RunnablePackage this binding installs.
+  string package_digest = 3 [(buf.validate.field).string.pattern = "^[0-9a-f]{64}$"];
+  // facility is the execution facility.
+  RunnableFacility facility = 4 [(buf.validate.field).required = true];
+  // artifact is the package artifact selected for the facility.
+  RunnableArtifact artifact = 5 [(buf.validate.field).required = true];
+  // dependency_network_mappings are reachable addresses of the declared
+  // service dependencies from the facility.
+  repeated NetworkMapping dependency_network_mappings = 6;
+  // credential_references name credentials the facility resolves at launch.
+  // They are references only; a value never appears in a binding.
+  repeated string credential_references = 7;
+  // digest is the sha256 hex of the deterministic binding bytes with this
+  // field empty.
+  string digest = 8;
+}

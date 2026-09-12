@@ -117,6 +117,16 @@ func validateJobReferencePath(ref *JobReference) error {
 	return validateResourcePathOverride("job", ref.PathOverride)
 }
 
+func validateRunnableReferencePath(ref *RunnableReference) error {
+	if ref == nil {
+		return fmt.Errorf("runnable reference cannot be nil")
+	}
+	if err := validateResourcePathComponent("runnable", ref.Name); err != nil {
+		return err
+	}
+	return validateResourcePathOverride("runnable", ref.PathOverride)
+}
+
 func (workspace *Workspace) validatePaths() error {
 	if err := validateResourcePathComponent("workspace", workspace.Name); err != nil {
 		return err
@@ -138,6 +148,11 @@ func (workspace *Workspace) validatePaths() error {
 	}
 	for _, ref := range workspace.Jobs {
 		if err := validateJobReferencePath(ref); err != nil {
+			return err
+		}
+	}
+	for _, ref := range workspace.Runnables {
+		if err := validateRunnableReferencePath(ref); err != nil {
 			return err
 		}
 	}
@@ -179,6 +194,11 @@ func (mod *Module) validatePaths() error {
 	}
 	for _, ref := range mod.JobReferences {
 		if err := validateJobReferencePath(ref); err != nil {
+			return err
+		}
+	}
+	for _, ref := range mod.RunnableReferences {
+		if err := validateRunnableReferencePath(ref); err != nil {
 			return err
 		}
 	}
