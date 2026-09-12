@@ -1,12 +1,14 @@
 package dockerrun
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/docker/docker/api/types/container"
@@ -64,6 +66,38 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 	}
 }
 
+func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
+	if os.Getenv("RECOVERY_REPARENT_TEST") == "1" {
+		require.NoError(t, os.WriteFile(os.Getenv("RECOVERY_TEST_READY"), nil, 0600))
+		deadline := time.Now().Add(10 * time.Second)
+		for os.Getppid() == containerRecoveryParentPID && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		require.NotEqual(t, containerRecoveryParentPID, os.Getppid())
+		env := &DockerEnvironment{name: "test", image: &resources.DockerImage{Name: "alpine", Tag: "latest"}}
+		require.NoError(t, json.NewEncoder(os.Stdout).Encode(env.createContainerConfig(t.Context()).Labels))
+		os.Exit(0)
+	}
+	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "orphan")
+	require.NoError(t, err)
+	// The short-lived shell is the real creator. It waits until the agent has
+	// initialized its identity, then exits before the agent creates its config.
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "sh", "-c", `
+export CODEFLY_CONTAINER_RECOVERY_SCOPE="$$:$RECOVERY_TEST_ID"
+"$RECOVERY_TEST_BINARY" -test.run=^TestContainerRecoveryScopeSurvivesParentExit$ &
+while [ ! -f "$RECOVERY_TEST_READY" ]; do sleep 0.01; done
+`)
+	command.Env = append(os.Environ(), "RECOVERY_REPARENT_TEST=1", "RECOVERY_TEST_ID="+scope.id+":"+scope.namespace, "RECOVERY_TEST_BINARY="+os.Args[0], "RECOVERY_TEST_READY="+filepath.Join(t.TempDir(), "ready"))
+	output, err := command.Output()
+	require.NoError(t, err)
+	labels := map[string]string{}
+	require.NoError(t, json.Unmarshal(output, &labels))
+	require.Equal(t, scope.id, labels[LabelCodeflyRecoveryScope])
+	require.Equal(t, scope.namespace, labels[LabelCodeflyRecoveryNamespace])
+}
+
 func TestContainerRecoveryScopeCanonicalPaths(t *testing.T) {
 	root := t.TempDir()
 	home, workspace := filepath.Join(root, "home"), filepath.Join(root, "workspace")
@@ -96,11 +130,13 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 	require.NoError(t, SetContainerRecoveryScope(scope))
 	env := &DockerEnvironment{name: "test", image: &resources.DockerImage{Name: "alpine", Tag: "latest"}}
 	require.Equal(t, scope.id, env.createContainerConfig(t.Context()).Labels[LabelCodeflyRecoveryScope])
-	for _, tc := range []struct{ name, marker, want string }{
-		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id},
-		{"legacy", "", ""},
-		{"stale parent", "999999999:" + scope.id, ""},
-		{"malformed identity", strconv.Itoa(os.Getpid()) + ":bad", ""},
+	for _, tc := range []struct{ name, marker, want, namespace string }{
+		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id, scope.namespace},
+		{"legacy", "", "", ""},
+		{"stale parent", "999999999:" + scope.id, "", ""},
+		{"malformed identity", strconv.Itoa(os.Getpid()) + ":bad", "", ""},
+		{"old CLI exact scope", strconv.Itoa(os.Getpid()) + ":" + scope.id, scope.id, ""},
+		{"malformed namespace", strconv.Itoa(os.Getpid()) + ":" + scope.id + ":bad", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(ContainerRecoveryScopeEnvironment, tc.marker)
@@ -111,6 +147,7 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 			labels := map[string]string{}
 			require.NoError(t, json.Unmarshal(output, &labels))
 			require.Equal(t, tc.want, labels[LabelCodeflyRecoveryScope])
+			require.Equal(t, tc.namespace, labels[LabelCodeflyRecoveryNamespace])
 		})
 	}
 }

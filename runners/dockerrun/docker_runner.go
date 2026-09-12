@@ -519,6 +519,9 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	if scope := inheritedContainerRecoveryScope(); scope != "" {
 		config.Labels[LabelCodeflyRecoveryScope] = scope
 	}
+	if _, namespace := inheritedContainerRecoveryIdentity(); namespace != "" {
+		config.Labels[LabelCodeflyRecoveryNamespace] = namespace
+	}
 	if docker.invocation != "" {
 		config.Labels[LabelCodeflyInvocation] = docker.invocation
 	}
