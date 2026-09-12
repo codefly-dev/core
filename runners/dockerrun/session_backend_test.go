@@ -7,13 +7,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
+	"github.com/docker/docker/errdefs"
 	"github.com/stretchr/testify/require"
 
 	"github.com/codefly-dev/core/resources"
@@ -273,6 +277,8 @@ func dropLease(t *testing.T, store *sessionledger.Store, invocation string) {
 // for a ledgered container: stopping a data container is how the ledger RETAINS
 // it, so sweeping one deletes the database the ledger just promised to keep.
 func TestReapStaleContainersKeepsLedgeredContainers(t *testing.T) {
+	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "ledger-test")
+	require.NoError(t, err)
 	backend := newBackend(t)
 	ctx := context.Background()
 
@@ -284,6 +290,7 @@ func TestReapStaleContainersKeepsLedgeredContainers(t *testing.T) {
 		t.Helper()
 		labels[LabelCodeflyOwner] = "true"
 		labels[LabelCodeflySession] = deadOwner
+		labels[LabelCodeflyRecoveryScope] = scope.id
 		labels[LabelCodeflyName] = name
 		_, err := backend.client.ContainerCreate(ctx,
 			&container.Config{Image: "alpine:latest", Labels: labels, Cmd: []string{"true"}},
@@ -297,10 +304,129 @@ func TestReapStaleContainersKeepsLedgeredContainers(t *testing.T) {
 	create(ledgered, map[string]string{LabelCodeflyInvocation: "0123456789abcdef0123456789abcdef"})
 	create(orphan, map[string]string{})
 
-	require.NoError(t, ReapStaleContainers(ctx))
+	require.NoError(t, ReapStaleContainers(ctx, scope))
 
 	require.True(t, containerExists(t, backend, ContainerName(ledgered)),
 		"a ledgered container must be left to session-ledger recovery, which can read its ownership record")
 	require.False(t, containerExists(t, backend, ContainerName(orphan)),
 		"an unledgered orphan with a dead owner is still swept")
+}
+
+func TestReapStaleContainersIsolatesHomeAndScope(t *testing.T) {
+	backend := newBackend(t)
+	ctx := t.Context()
+	home, workspace := t.TempDir(), t.TempDir()
+	scope, err := NewContainerRecoveryScope(home, workspace, "candidate")
+	require.NoError(t, err)
+	foreignHome, err := NewContainerRecoveryScope(t.TempDir(), workspace, "candidate")
+	require.NoError(t, err)
+	foreignScope, err := NewContainerRecoveryScope(home, workspace, "foreign")
+	require.NoError(t, err)
+	process := exec.Command("true")
+	require.NoError(t, process.Run())
+	deadPID := strconv.Itoa(process.Process.Pid)
+	data := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(data, "retained"), []byte("retained bytes"), 0600))
+	type fixture struct {
+		id   string
+		keep bool
+	}
+	var fixtures []fixture
+	for _, tc := range []struct {
+		name                     string
+		scope                    ContainerRecoveryScope
+		running, ephemeral, keep bool
+		pid                      string
+	}{
+		{"same-stopped", scope, false, false, false, deadPID},
+		{"same-ephemeral", scope, true, true, false, deadPID},
+		{"same-stateful", scope, true, false, true, deadPID},
+		{"same-live-owner", scope, false, true, true, strconv.Itoa(os.Getpid())},
+		{"foreign-home", foreignHome, false, false, true, deadPID},
+		{"foreign-scope", foreignScope, true, true, true, deadPID},
+		{"legacy", ContainerRecoveryScope{}, false, true, true, deadPID},
+		{"missing-pid", scope, false, true, true, ""},
+	} {
+		labels := map[string]string{LabelCodeflyOwner: "true", LabelCodeflySession: tc.pid}
+		if tc.scope.id != "" {
+			labels[LabelCodeflyRecoveryScope] = tc.scope.id
+		}
+		if tc.ephemeral {
+			labels[LabelCodeflyEphemeral] = "true"
+		}
+		created, err := backend.client.ContainerCreate(ctx, &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeBind, Source: data, Target: "/retained", ReadOnly: true}}}, nil, nil, uniqueName(t)+"-"+tc.name)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = backend.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+		})
+		if tc.running {
+			require.NoError(t, backend.client.ContainerStart(ctx, created.ID, container.StartOptions{}))
+		}
+		fixtures = append(fixtures, fixture{created.ID, tc.keep})
+	}
+	require.NoError(t, ReapStaleContainers(ctx, scope))
+	for _, f := range fixtures {
+		_, err := backend.client.ContainerInspect(ctx, f.id)
+		if f.keep {
+			require.NoError(t, err, "foreign, legacy or retained container removed")
+		} else {
+			require.True(t, errdefs.IsNotFound(err), "same-scope orphan was not recovered: %v", err)
+		}
+	}
+	content, err := os.ReadFile(filepath.Join(data, "retained"))
+	require.NoError(t, err)
+	require.Equal(t, "retained bytes", string(content))
+}
+
+func TestReapStaleContainersRecoversDisposableSiblings(t *testing.T) {
+	backend := newBackend(t)
+	ctx := t.Context()
+	home, workspace := t.TempDir(), t.TempDir()
+	old := disposableRecoveryScope(t, home, workspace, "tests", strings.Repeat("a", 32))
+	current := disposableRecoveryScope(t, home, workspace, "tests", strings.Repeat("b", 32))
+	foreign := disposableRecoveryScope(t, t.TempDir(), workspace, "tests", strings.Repeat("c", 32))
+	otherScope := disposableRecoveryScope(t, home, workspace, "other", strings.Repeat("d", 32))
+	otherWorkspace := disposableRecoveryScope(t, home, t.TempDir(), "tests", strings.Repeat("e", 32))
+	process := exec.Command("true")
+	require.NoError(t, process.Run())
+	deadPID := strconv.Itoa(process.Process.Pid)
+	for _, tc := range []struct {
+		name                      string
+		scope                     ContainerRecoveryScope
+		pid                       string
+		ephemeral, ledgered, keep bool
+	}{
+		{"orphan", old, deadPID, true, false, false},
+		{"live", old, strconv.Itoa(os.Getpid()), true, false, true},
+		{"stateful", old, deadPID, false, false, true},
+		{"ledgered", old, deadPID, true, true, true},
+		{"foreign home", foreign, deadPID, true, false, true},
+		{"foreign scope", otherScope, deadPID, true, false, true},
+		{"foreign workspace", otherWorkspace, deadPID, true, false, true},
+		{"missing owner", old, "", true, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			labels := map[string]string{LabelCodeflyOwner: labelTrue, LabelCodeflyRecoveryScope: tc.scope.id, LabelCodeflyRecoveryGroup: tc.scope.group, LabelCodeflySession: tc.pid}
+			if tc.ephemeral {
+				labels[LabelCodeflyEphemeral] = labelTrue
+			}
+			if tc.ledgered {
+				labels[LabelCodeflyInvocation] = "ledger"
+			}
+			created, err := backend.client.ContainerCreate(ctx, &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, nil, nil, nil, "")
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_ = backend.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+			})
+			require.NoError(t, backend.client.ContainerStart(ctx, created.ID, container.StartOptions{}))
+			require.NoError(t, ReapStaleContainers(ctx, current))
+			inspected, err := backend.client.ContainerInspect(ctx, created.ID)
+			if tc.keep {
+				require.NoError(t, err)
+				require.True(t, inspected.State.Running)
+			} else {
+				require.True(t, errdefs.IsNotFound(err), "orphan survived: %v", err)
+			}
+		})
+	}
 }

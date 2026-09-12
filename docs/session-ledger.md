@@ -290,3 +290,44 @@ records are neither parsed nor quarantined by it, and the `v1` reader ignores
 `v2`. A release that must reconcile both registers both readers. Records are
 decoded with unknown fields rejected, so an additive field is a schema bump, not
 a silent forward-compatibility trick.
+
+## Startup container recovery scope
+
+The legacy PID-based startup sweep requires a `codefly.recovery-scope`
+label before checking owner liveness. The label hashes canonical Codefly home,
+workspace path and resolved naming scope. A different home, workspace or scope
+cannot claim a container, even when its creator PID is gone. Containers without
+this label, or with missing/malformed owner PIDs, require explicit owner recovery;
+startup does not infer ownership from container names.
+
+Disposable SDK invocations additionally delegate orphan cleanup through a durable
+`codefly.recovery-group` label. Its identity includes the same canonical home and
+workspace and the caller's naming scope, excluding only the current SDK session's
+verified invocation suffix. This delegation is issued only in ephemeral mode with
+matching session metadata. A later disposable invocation in that group can remove
+dead-owner ephemeral siblings; live owners, stateful siblings and ledgered
+containers remain protected. Ordinary naming scopes never gain this delegation.
+
+The CLI sets the scope after resolving its run environment and before spawning
+agents. `SetContainerRecoveryScope` projects a PID-bound process marker to direct
+children; Docker environments built against this Core version emit the label.
+Children retain their launch-time parent identity, so reparenting after a CLI
+crash does not discard recovery or ephemeral labels. A nonempty invalid marker
+refuses container creation instead of silently creating an unowned container.
+Older agents do not emit it and their containers remain outside startup cleanup.
+No automatic relabeling or migration of retained containers occurs.
+
+Name-based lookup requires the same exact recovery scope before adoption,
+replacement or shutdown. A scoped caller cannot claim an unscoped container, and
+an unscoped caller cannot claim a scoped one. A mismatch is an error requiring
+explicit owner recovery, even when runtime configurations match. Each Docker
+environment retains its scope from first use so another flow changing the process
+marker cannot redirect its cleanup. Recovery groups authorize orphan sweeping
+only; they never authorize adopting another invocation's container.
+
+Within the same scope, live owners and running stateful containers are retained.
+Stopped containers and running ephemeral containers with dead owners can be
+removed, without requesting volume removal. Containers carrying an invocation
+label always remain owned by session-ledger recovery, including when stopped.
+The scope is an isolation boundary between cooperating local runs, not protection
+against a user with direct Docker-daemon access.
