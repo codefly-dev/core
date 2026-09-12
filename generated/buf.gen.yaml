@@ -21,9 +21,3 @@ plugins:
   - name: connect-go
     out: go
     opt: paths=source_relative
-
-  # PYTHON
-  - plugin: buf.build/protocolbuffers/python
-    out: python/codefly-cli/codefly_cli
-  - plugin: buf.build/grpc/python
-    out: python/codefly-cli/codefly_cli

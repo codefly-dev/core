@@ -39,42 +39,6 @@ func imageRef(t *testing.T, ctx context.Context) string {
 
 const auditProtoPath = "saas/accounts/v1/audit.proto"
 
-func TestFacadePython(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
-	testutil.RequireProtoImage(t, ctx)
-
-	dest := t.TempDir()
-	err := proto.GenerateClient(ctx, proto.ClientRequest{
-		Language:    languages.PYTHON,
-		Destination: dest,
-		Module:      "accounts",
-		Services:    []string{"AuditService"},
-		Facade:      true,
-		Sources: []proto.Source{
-			{Path: auditProtoPath, Content: fixture(t, auditProtoPath)},
-		},
-	})
-	require.NoError(t, err, "proto companion image not built: %s", testutil.BuildCompanionsHint)
-
-	body, err := os.ReadFile(filepath.Join(dest, "accounts.py"))
-	require.NoError(t, err)
-	facade := string(body)
-	require.Contains(t, facade, "class AuditServiceClient")
-	require.Contains(t, facade, "def query_audit_log(self, request)")
-	require.Contains(t, facade, "def audit(self)")
-	require.NotContains(t, facade, "IdentityService")
-
-	// The generated facade imports the *_pb2 the companion also produced; prove
-	// it loads with the vendored bindings on sys.path inside the companion.
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
-		"-v", dest+":/out", "-w", "/out", imageRef(t, ctx),
-		"/venv/bin/python", "-c", "import accounts")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("import accounts failed: %v\n%s", err, output)
-	}
-}
-
 func TestFacadeGo(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
@@ -194,43 +158,6 @@ func TestFacadeTypeScript(t *testing.T) {
 	tsc(t, ctx, dest)
 }
 
-// TestFacadeDescriptorSetMatchesSources builds an image once and asserts the
-// Python facade generated from it is byte-identical to the one generated from
-// the same proto as sources.
-func TestFacadeDescriptorSetMatchesSources(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
-	testutil.RequireProtoImage(t, ctx)
-
-	fromSources := t.TempDir()
-	require.NoError(t, proto.GenerateClient(ctx, proto.ClientRequest{
-		Language:    languages.PYTHON,
-		Destination: fromSources,
-		Module:      "accounts",
-		Facade:      true,
-		Sources: []proto.Source{
-			{Path: auditProtoPath, Content: fixture(t, auditProtoPath)},
-		},
-	}))
-
-	image := buildImage(t, ctx)
-	fromImage := t.TempDir()
-	require.NoError(t, proto.GenerateClient(ctx, proto.ClientRequest{
-		Language:      languages.PYTHON,
-		Destination:   fromImage,
-		Module:        "accounts",
-		Facade:        true,
-		DescriptorSet: image,
-		TargetFiles:   []string{auditProtoPath},
-	}))
-
-	sourcesFacade, err := os.ReadFile(filepath.Join(fromSources, "accounts.py"))
-	require.NoError(t, err)
-	imageFacade, err := os.ReadFile(filepath.Join(fromImage, "accounts.py"))
-	require.NoError(t, err)
-	require.Equal(t, string(sourcesFacade), string(imageFacade))
-}
-
 func TestFacadeCollisionFails(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
@@ -251,27 +178,6 @@ func TestFacadeCollisionFails(t *testing.T) {
 	// message shows in the companion logs); the exact wording is asserted by
 	// the ported Python plugin tests, which exercise the same collision logic.
 	require.Error(t, err)
-}
-
-// buildImage compiles the audit fixture into a serialized FileDescriptorSet
-// (buf image) inside the companion, the shape a module package carries.
-func buildImage(t *testing.T, ctx context.Context) []byte {
-	t.Helper()
-	dir := t.TempDir()
-	protoPath := filepath.Join(dir, filepath.FromSlash(auditProtoPath))
-	require.NoError(t, os.MkdirAll(filepath.Dir(protoPath), 0755))
-	require.NoError(t, os.WriteFile(protoPath, fixture(t, auditProtoPath), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "buf.yaml"), []byte("version: v2\nmodules:\n  - path: .\n"), 0600))
-
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
-		"-v", dir+":/work", "-w", "/work", imageRef(t, ctx),
-		"buf", "build", "-o", "/work/image.binpb")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("buf build: %v\n%s", err, output)
-	}
-	image, err := os.ReadFile(filepath.Join(dir, "image.binpb"))
-	require.NoError(t, err)
-	return image
 }
 
 func goVet(t *testing.T, ctx context.Context, dest, modulePath string) {

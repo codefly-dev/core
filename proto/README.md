@@ -25,8 +25,8 @@ That regenerates the Go bindings into `core/generated/go/` (pinned plugin
 versions + goimports → byte-reproducible). Commit the `.proto` change and the
 regenerated code together.
 
-Python bindings (for the CLI) are produced via `generated/buf.gen.yaml` where
-the BSR remote plugins are reachable.
+Only Go bindings live in core. Every other language consumer (for example the
+`runnable-python` agent) generates its own bindings from this directory.
 
 ## BSR
 

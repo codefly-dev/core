@@ -1,0 +1,6 @@
+name: with-runnables
+layout: flat
+services:
+    - name: store
+runnables:
+    - name: word-count

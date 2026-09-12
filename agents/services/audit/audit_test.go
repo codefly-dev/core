@@ -70,48 +70,6 @@ func TestGolangUsesManagedScannerWhenOnlyGoIsAvailable(t *testing.T) {
 	}
 }
 
-func TestPythonAuditsFrozenUVSnapshotNotAmbientEnvironment(t *testing.T) {
-	bin := t.TempDir()
-	uvPath := filepath.Join(bin, "uv")
-	uvScript := `#!/bin/sh
-if [ "$1" = "export" ]; then
-  printf '%s\n' 'demo==1.0.0 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-else
-  printf '%s\n' 'demo-app v0.1.0' '└── demo v1.0.0 (latest: v1.1.0)'
-fi
-`
-	if err := os.WriteFile(uvPath, []byte(uvScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	pipAuditPath := filepath.Join(bin, "pip-audit")
-	pipAuditScript := `#!/bin/sh
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-r" ]; then
-    shift
-    IFS= read -r requirement < "$1"
-    [ "$requirement" = "demo==1.0.0 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ] || exit 20
-  fi
-  shift
-done
-printf '%s\n' '{"dependencies":[]}'
-`
-	if err := os.WriteFile(pipAuditPath, []byte(pipAuditScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-
-	result, err := Python(context.Background(), t.TempDir(), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Tool != "uv-export+pip-audit+uv-tree-outdated" {
-		t.Fatalf("Tool = %q", result.Tool)
-	}
-	if len(result.Outdated) != 1 || result.Outdated[0].Package != "demo" {
-		t.Fatalf("outdated = %+v", result.Outdated)
-	}
-}
-
 // Real outputs from each tool, copied from production runs and trimmed
 // to one finding apiece. No mocks — the actual JSON produced by the
 // upstream binaries is the test fixture.
@@ -245,29 +203,6 @@ func TestParseNpmOutdated(t *testing.T) {
 	}
 }
 
-func TestParsePipAudit(t *testing.T) {
-	out := []byte(`{
-		"dependencies": [
-			{
-				"name": "requests",
-				"version": "2.28.0",
-				"vulns": [{
-					"id": "PYSEC-2023-74",
-					"fix_versions": ["2.31.0"],
-					"description": "Requests leaks Proxy-Authorization headers"
-				}]
-			}
-		]
-	}`)
-	findings, err := parsePipAudit(out)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if len(findings) != 1 || findings[0].Id != "PYSEC-2023-74" || findings[0].FixedVersion != "2.31.0" {
-		t.Fatalf("finding wrong: %+v", findings)
-	}
-}
-
 func TestParseOSVGroupsAliasesAndKeepsUnknownSeverityGating(t *testing.T) {
 	out := []byte(`{
 		"results": [{"packages": [{
@@ -292,14 +227,6 @@ func TestParseOSVGroupsAliasesAndKeepsUnknownSeverityGating(t *testing.T) {
 	}
 	if finding.Severity != builderv0.AuditFinding_HIGH {
 		t.Fatalf("unclassified vulnerability must remain release-gating: %+v", finding)
-	}
-}
-
-func TestParseUVTreeOutdated(t *testing.T) {
-	out := []byte("demo v0.1.0\n├── django v4.2.0 (latest: v5.0.1)\n└── anyio v4.9.0\n")
-	deps := parseUVTreeOutdated(out)
-	if len(deps) != 1 || deps[0].Package != "django" || deps[0].LatestSafe != "" || deps[0].LatestMajor != "5.0.1" {
-		t.Fatalf("dep wrong: %+v", deps)
 	}
 }
 

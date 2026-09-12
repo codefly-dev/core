@@ -52,6 +52,12 @@ const (
 	// dynamically installable and stay out of the application graph; the
 	// solution spec they operate on stays codefly-agnostic.
 	Agent_SOLUTION Agent_Kind = 7
+	// RUNNABLE agents are language agents for typed finite operations: they
+	// scaffold the handler, generate the harness and typed bindings, and emit
+	// the native package and image build recipe. The language is the agent
+	// name (runnable-python, runnable-go); the kind is uniform so consumers
+	// never switch on language.
+	Agent_RUNNABLE Agent_Kind = 8
 )
 
 // Enum value maps for Agent_Kind.
@@ -65,6 +71,7 @@ var (
 		5: "TOOLBOX",
 		6: "PROVIDER",
 		7: "SOLUTION",
+		8: "RUNNABLE",
 	}
 	Agent_Kind_value = map[string]int32{
 		"UNKNOWN":     0,
@@ -75,6 +82,7 @@ var (
 		"TOOLBOX":     5,
 		"PROVIDER":    6,
 		"SOLUTION":    7,
+		"RUNNABLE":    8,
 	}
 )
 
@@ -105,7 +113,7 @@ func (Agent_Kind) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_base_v0_agent_proto_rawDescGZIP(), []int{0, 0}
 }
 
-// Agent identifies the plugin binary that owns a service, job, application, module, toolbox, provider, or solution lifecycle.
+// Agent identifies the plugin binary that owns a service, job, application, module, toolbox, provider, solution, or runnable lifecycle.
 type Agent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// kind identifies which resource family this agent can manage.
@@ -182,12 +190,12 @@ var File_codefly_base_v0_agent_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x1bcodefly/base/v0/agent.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\x8b\x02\n" +
+	"\x1bcodefly/base/v0/agent.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\x99\x02\n" +
 	"\x05Agent\x12/\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1b.codefly.base.v0.Agent.KindR\x04kind\x12\x1d\n" +
 	"\x04name\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x04name\x12'\n" +
 	"\tpublisher\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x182R\tpublisher\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\tR\aversion\"o\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\"}\n" +
 	"\x04Kind\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSERVICE\x10\x01\x12\a\n" +
@@ -197,7 +205,8 @@ const file_codefly_base_v0_agent_proto_rawDesc = "" +
 	"\x06MODULE\x10\x04\x12\v\n" +
 	"\aTOOLBOX\x10\x05\x12\f\n" +
 	"\bPROVIDER\x10\x06\x12\f\n" +
-	"\bSOLUTION\x10\aB\xb9\x01\n" +
+	"\bSOLUTION\x10\a\x12\f\n" +
+	"\bRUNNABLE\x10\bB\xb9\x01\n" +
 	"\x13com.codefly.base.v0B\n" +
 	"AgentProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 

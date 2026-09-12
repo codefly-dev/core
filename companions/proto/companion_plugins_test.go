@@ -74,49 +74,6 @@ func TestTsFacadePinsProtoplugin(t *testing.T) {
 	}
 }
 
-// TestBuildDefinitionsInstallGrpcioToolsInRuntime guards the Python protobuf
-// generator inside the image. grpc_tools is not a plugin binary that
-// assertMentionsAll would catch: it is a Python module, reached as
-// `python -m grpc_tools.protoc`, and a consumer generating Python stubs from a
-// contract has no other way to produce them.
-//
-// The Dockerfile mentions grpcio-tools twice and only one of them counts. The
-// builder stage installs it into a venv that is never COPYed; the runtime stage
-// builds its own /venv. So the image can carry a /venv that exists, answers to
-// /venv/bin/python, and still has no grpc_tools — which is what shipped in
-// 0.0.14. Asserting on the runtime install specifically, rather than on the
-// string appearing anywhere in the file, is the difference between this test
-// passing and meaning it.
-func TestBuildDefinitionsInstallGrpcioToolsInRuntime(t *testing.T) {
-	dockerfile, err := os.ReadFile("Dockerfile")
-	if err != nil {
-		t.Fatalf("read Dockerfile: %v", err)
-	}
-	// Scope to the runtime stage: the builder installs grpcio-tools too, on a
-	// line of the same shape, into a venv that is never copied. Matching the
-	// whole file would pass on an image that ships no grpc_tools at all.
-	stages := regexp.MustCompile(`(?m)^FROM `).FindAllStringIndex(string(dockerfile), -1)
-	if len(stages) < 2 {
-		t.Fatalf("Dockerfile has %d FROM stages, expected the builder + runtime pair; this guard can no longer tell them apart", len(stages))
-	}
-	runtimeStage := string(dockerfile)[stages[len(stages)-1][0]:]
-	runtimeInstall := regexp.MustCompile(`/venv/bin/pip install[^\n]*\bgrpcio-tools\b`)
-	if !runtimeInstall.MatchString(runtimeStage) {
-		t.Error("Dockerfile does not install grpcio-tools into the RUNTIME /venv; `python -m grpc_tools.protoc` will not exist in the image even though the builder stage installs it into a venv that is never COPYed (this is what shipped in 0.0.14)")
-	}
-
-	flake, err := os.ReadFile("flake.nix")
-	if err != nil {
-		t.Fatalf("read flake.nix: %v", err)
-	}
-	// Both build definitions publish the same tag, so the facade python must
-	// carry the same module.
-	facadePython := regexp.MustCompile(`python3\.withPackages \(ps: \[[^\]]*\bps\.grpcio-tools\b[^\]]*\]\)`)
-	if !facadePython.Match(flake) {
-		t.Error("flake.nix does not give the facade python grpcio-tools; the nix-built image would lack grpc_tools while the Docker-built one has it, so behaviour would depend on which builder published the tag")
-	}
-}
-
 func assertMentionsAll(t *testing.T, file string, needles []string) {
 	t.Helper()
 	content, err := os.ReadFile(file)

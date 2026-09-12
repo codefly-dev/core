@@ -133,11 +133,8 @@ symlinks and protected identities. Native consumption checks run with:
 go test ./ciinputs -tags ciinputs_conformance -count=1 -timeout 300s
 ```
 
-Python wire and cross-language identity conformance runs with the SDK dependencies:
-
-```sh
-PYTHONPATH=generated/python/codefly-cli/codefly_cli python3 generated/python/codefly-cli/codefly_cli/tests/test_effective_inputs_contract.py
-```
+Python wire and cross-language identity conformance belongs to the Python
+consumer of these protos, which generates its own bindings from `core/proto/`.
 
 The native checks require Go, Node/npm and npm registry access. They compile/test a
 real Go project using `go list` inputs and embed data, and build a pinned Next.js
