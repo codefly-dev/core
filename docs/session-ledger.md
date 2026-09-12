@@ -310,7 +310,7 @@ The agent's `GetAgentInformation` response includes the
 `codefly-container-recovery-scope` gRPC header with the validated inherited scope.
 The CLI must require this acknowledgement before Docker provisioning. The
 startup parent identity is retained after reparenting so a CLI crash cannot make
-an already-spawned agent create unlabeled containers.
+an already-spawned agent create unlabeled containers or lose its ephemeral intent.
 
 Containers also carry `codefly.recovery-namespace`, a hash of the stable caller
 host identity and canonical home/workspace without the invocation's naming scope.
@@ -325,6 +325,12 @@ It checks the original agent PID and preserves live owners, stateful containers,
 and session-ledger containers. A different home/workspace or a container without
 both ownership labels is never eligible for either sweep. No on-disk registry or inference from
 names is needed; failed removals leave the labels available for retry.
+
+Provisioning checks ownership before reusing, replacing, starting or following
+logs from an existing container. It refuses foreign/unverified ownership and
+cross-agent adoption of ephemeral containers: Docker labels are immutable, so
+adoption would leave the old creator recorded and let recovery delete a live
+adopter's container. Stateful reuse within the same verified scope remains valid.
 
 Within the same scope, live owners and running stateful containers are retained.
 Stopped containers and running ephemeral containers with dead owners can be

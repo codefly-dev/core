@@ -206,7 +206,11 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot check if container is present")
 	}
+	owned := !exists
 	defer func() {
+		if !owned {
+			return
+		}
 		logContext := context.Background()
 		err := docker.GetLogs(logContext)
 		if err != nil {
@@ -219,6 +223,10 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		if inspectErr != nil {
 			return w.Wrapf(inspectErr, "cannot inspect existing container")
 		}
+		if ownershipErr := validateContainerRecoveryReuse(inspect.Config, containerConfig); ownershipErr != nil {
+			return w.Wrapf(ownershipErr, "cannot reuse container %s; recover its owner explicitly before retrying", docker.instance.ID)
+		}
+		owned = true
 		actualFingerprint := ""
 		if inspect.Config != nil && inspect.Config.Labels != nil {
 			actualFingerprint = inspect.Config.Labels[LabelCodeflyConfig]
@@ -593,14 +601,14 @@ func SetEphemeralContainers(v bool) {
 
 // EphemeralContainers reports whether this process spawns ephemeral containers.
 // It is true when this process enabled the mode in-process, or when it inherited
-// the marker from its live parent (the process that spawned it). An inherited
-// marker that does not name the current parent is stale and deliberately ignored.
+// the marker from its startup parent. Reparenting must not turn disposable
+// resources into stateful ones. Descendants still reject a grandparent's marker.
 func EphemeralContainers() bool {
 	if ephemeralContainers.Load() {
 		return true
 	}
 	marker := os.Getenv(EphemeralContainersEnvironment)
-	return marker != "" && marker == strconv.Itoa(os.Getppid())
+	return containerRecoveryParentPID > 0 && marker == strconv.Itoa(containerRecoveryParentPID)
 }
 
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {

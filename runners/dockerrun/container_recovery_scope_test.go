@@ -90,6 +90,7 @@ func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
 	defer cancel()
 	command := exec.CommandContext(ctx, "sh", "-c", `
 export CODEFLY_CONTAINER_RECOVERY_SCOPE="$$:$RECOVERY_TEST_ID"
+export CODEFLY_EPHEMERAL_CONTAINERS="$$"
 "$RECOVERY_TEST_BINARY" -test.run=^TestContainerRecoveryScopeSurvivesParentExit$ &
 while [ ! -f "$RECOVERY_TEST_READY" ]; do sleep 0.01; done
 `)
@@ -100,6 +101,7 @@ while [ ! -f "$RECOVERY_TEST_READY" ]; do sleep 0.01; done
 	require.NoError(t, json.Unmarshal(output, &labels))
 	require.Equal(t, scope.id, labels[LabelCodeflyRecoveryScope])
 	require.Equal(t, scope.namespace, labels[LabelCodeflyRecoveryNamespace])
+	require.Equal(t, labelTrue, labels[LabelCodeflyEphemeral])
 }
 
 func TestContainerRecoveryScopeCanonicalPaths(t *testing.T) {
