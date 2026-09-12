@@ -95,6 +95,7 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 		{name: "missing PID", scope: scope, state: "exited"},
 		{name: "malformed PID", scope: scope, pid: "invalid", state: "exited"},
 		{name: "zero PID", scope: scope, pid: "0", state: "exited"},
+		{name: "init PID", scope: scope, pid: "1", state: "exited", ephemeral: true},
 		{name: "negative PID", scope: scope, pid: "-1", state: "exited"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -190,6 +191,10 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 			require.Equal(t, tc.group, labels[LabelCodeflyRecoveryGroup])
 		})
 	}
+	t.Run("zero owner cannot claim namespace init", func(t *testing.T) {
+		t.Setenv(ContainerRecoveryScopeEnvironment, "0:"+scope.id+":"+scope.namespace)
+		require.Empty(t, InheritedContainerRecoveryScope())
+	})
 }
 
 func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {

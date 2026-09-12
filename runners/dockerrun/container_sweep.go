@@ -150,7 +150,9 @@ func staleContainerInScope(c container.Summary, scope ContainerRecoveryScope) bo
 		return false
 	}
 	pid, err := strconv.Atoi(c.Labels[LabelCodeflySession])
-	if err != nil || pid <= 0 {
+	// IsProcessAlive intentionally rejects system PIDs. That is not evidence
+	// that PID 1 is dead: an agent/library caller may be its namespace's init.
+	if err != nil || pid <= 1 {
 		return false
 	}
 	return shouldReapContainer(c.State, base.IsProcessAlive(pid), c.Labels[LabelCodeflyEphemeral] == labelTrue, c.Labels[LabelCodeflyInvocation] != "")
