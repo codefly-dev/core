@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/codefly-dev/core/resources"
@@ -373,11 +374,14 @@ func (docker *DockerEnvironment) createAndStartContainer(
 		// bounded ctx in case the caller's is already cancelled.
 		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer rmCancel()
-		if rmErr := docker.client.ContainerRemove(rmCtx, resp.ID, container.RemoveOptions{Force: true}); rmErr != nil {
+		if rmErr := docker.client.ContainerRemove(rmCtx, resp.ID, container.RemoveOptions{Force: true}); rmErr != nil && !errdefs.IsNotFound(rmErr) {
 			w.Warn("cannot remove container after failed start",
 				wool.Field("id", resp.ID), wool.ErrField(rmErr))
+			// Keep the acquired ID so Shutdown can retry this generation's
+			// cleanup without looking up a possible successor by name.
+		} else {
+			docker.instance = nil
 		}
-		docker.instance = nil
 		if hint := emulationFailureHint(docker.platform); hint != "" {
 			return w.Wrapf(err, "cannot start container (%s)", hint)
 		}
@@ -875,9 +879,8 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 // sees a generic "not ready" timeout). Returns "" on any error so
 // callers can safely append without conditional logic.
 func (docker *DockerEnvironment) TailLogs(ctx context.Context, lines int) string {
-	// instance is nil exactly on the failed-container-start path — which is the
-	// path that calls TailLogs to enrich the error. Without this guard the
-	// deref panicked instead of returning the (empty) logs it promises.
+	// Successful rollback after failed startup clears the instance. If
+	// rollback failed, keep using the retained ID to enrich the startup error.
 	if docker.instance == nil || docker.instance.ID == "" {
 		return ""
 	}
@@ -1064,11 +1067,8 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 	// when reader was already nil (e.g. GetLogs nil'd it but the goroutine is
 	// still finishing) so we never leave a forwarder running past Shutdown.
 	docker.forwarderWG.Wait()
-	exists, err := docker.IsContainerPresent(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot check if container is running")
-	}
-	if exists {
+	// Teardown owns the acquired generation, never a successor with the same name.
+	if docker.instance != nil && docker.instance.ID != "" {
 		// Try graceful Stop first. If it fails (docker daemon unreachable,
 		// container already gone, etc.), log and continue — Remove with
 		// Force=true below will finish the job, but we prefer the in-
@@ -1077,7 +1077,7 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 		if err := docker.Stop(ctx); err != nil {
 			w.Warn("stop failed; falling back to force remove", wool.ErrField(err))
 		}
-		if err := docker.remove(); err != nil {
+		if err := docker.remove(); err != nil && !errdefs.IsNotFound(err) {
 			return w.Wrapf(err, "cannot remove container")
 		}
 	}

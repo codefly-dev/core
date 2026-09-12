@@ -16,6 +16,7 @@ import (
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 )
@@ -479,11 +480,7 @@ func isPackagePath(s string) bool {
 func DestroyGoRuntime(ctx context.Context, runtimeCtx *basev0.RuntimeContext, runtimeImage *resources.DockerImage, cacheLocation, workspacePath, relativeSource, uniqueName string) error {
 	_ = shared.EmptyDir(ctx, cacheLocation)
 	if runtimeCtx.Kind == resources.RuntimeContextContainer {
-		dockerEnv, err := NewDockerGoRunner(ctx, runtimeImage, workspacePath, relativeSource, uniqueName)
-		if err != nil {
-			return err
-		}
-		return dockerEnv.Shutdown(ctx)
+		return dockerrun.ShutdownNamedContainer(ctx, fmt.Sprintf("goland-%s", uniqueName))
 	}
 	return nil
 }
