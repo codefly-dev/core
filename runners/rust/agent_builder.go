@@ -4,6 +4,8 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
@@ -64,6 +66,10 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 	}
 	for _, opt := range opts {
 		opt(&docker)
+	}
+
+	if err = os.Remove(filepath.Join(req.GetOutputDirectory(), "Dockerfile")); err != nil && !os.IsNotExist(err) {
+		return builder.BuildError(err)
 	}
 
 	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS).WithDestination("%s", req.GetOutputDirectory()))

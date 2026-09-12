@@ -4,6 +4,8 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
@@ -73,6 +75,10 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 
 	if docker.ContextRoot != "" {
 		return builder.BuildError(fmt.Errorf("custom Docker context root %q is not supported by image recipes", docker.ContextRoot))
+	}
+
+	if err = os.Remove(filepath.Join(req.GetOutputDirectory(), "Dockerfile")); err != nil && !os.IsNotExist(err) {
+		return builder.BuildError(err)
 	}
 
 	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS).WithDestination("%s", req.GetOutputDirectory()))

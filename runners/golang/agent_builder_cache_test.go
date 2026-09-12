@@ -51,7 +51,7 @@ func TestImageRecipeOverGRPC(t *testing.T) {
 	}
 	for _, language := range []string{"go", "rust"} {
 		for _, selection := range []string{"explicit", "cache"} {
-			for _, scenario := range []string{"recipe", "empty-destination", "stale-destination", "missing-output", "relative-output", "custom-context"} {
+			for _, scenario := range []string{"recipe", "empty-destination", "stale-destination", "symlink-destination", "missing-output", "relative-output", "custom-context"} {
 				if language == "rust" && scenario == "custom-context" {
 					continue
 				}
@@ -78,11 +78,15 @@ func TestImageRecipeOverGRPC(t *testing.T) {
 					request := &builderv0.BuildRequest{OutputDirectory: output, BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: dockerContext}}}
 					expectedError := ""
 					switch scenario {
-					case "empty-destination", "stale-destination":
+					case "empty-destination", "stale-destination", "symlink-destination":
 						request.OutputDirectory = filepath.Join(t.TempDir(), "recipes")
 						if scenario == "stale-destination" {
 							require.NoError(t, os.MkdirAll(request.OutputDirectory, 0o755))
 							require.NoError(t, os.WriteFile(filepath.Join(request.OutputDirectory, "Dockerfile"), []byte("FROM stale-image\n"), 0o644))
+						}
+						if scenario == "symlink-destination" {
+							require.NoError(t, os.MkdirAll(request.OutputDirectory, 0o755))
+							require.NoError(t, os.Symlink(dockerfile, filepath.Join(request.OutputDirectory, "Dockerfile")))
 						}
 					case "missing-output":
 						request.OutputDirectory = ""
