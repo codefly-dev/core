@@ -34,6 +34,7 @@ Every resource is defined by a YAML file:
 
 ### Resource Model
 - **resources/** — All core types: Workspace, Module, Service, Endpoint, Agent, Organization, Environment. YAML loading, validation, DNS, network instances. This is the most important package.
+- **runnable/** — Validation and content digests for the experimental Runnable's immutable installation facts (`RunnablePackage`, `RunnableBinding`). The declaration (`runnable.codefly.yaml`) lives in `resources/`; see `docs/runnable.md`.
 - **architecture/** — Dependency graph computation across services and modules.
 - **graph/** — Graph data structures used by architecture.
 

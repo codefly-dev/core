@@ -1,0 +1,59 @@
+kind: runnable
+name: word-count
+description: Count the words of a text and report the longest one
+version: 0.1.0
+
+agent:
+  kind: codefly:runnable
+  name: python
+  version: 0.0.1
+  publisher: codefly.dev
+
+contract:
+  protocol: codefly.runnable/v1
+  input:
+    fields:
+      - name: text
+        type: string
+      - name: options
+        type: object
+        optional: true
+        fields:
+          - name: case_sensitive
+            type: boolean
+          - name: stop_words
+            type: array
+            nullable: true
+            items:
+              type: string
+  output:
+    fields:
+      - name: count
+        type: integer
+      - name: longest
+        type: string
+        nullable: true
+
+entrypoint:
+  handler: handler.py
+  inputs:
+    - pyproject.toml
+    - uv.lock
+
+execution:
+  facilities: [native, kubernetes]
+  timeout: 2m
+  cancellation: signal
+  recovery: recompute
+  payload:
+    max-input-bytes: 65536
+
+service-dependencies:
+  - name: store
+    module: with-runnables
+    kind: runtime
+    endpoints:
+      - name: tcp
+
+spec:
+  python: "3.12"

@@ -54,6 +54,7 @@ type Module struct {
 
 	ServiceReferences     []*ServiceReference     `yaml:"services"`
 	JobReferences         []*JobReference         `yaml:"jobs,omitempty"`
+	RunnableReferences    []*RunnableReference    `yaml:"runnables,omitempty"`
 	ApplicationReferences []*ApplicationReference `yaml:"applications,omitempty"`
 
 	// internal
@@ -348,6 +349,9 @@ func (mod *Module) adoptWorkspaceName(name string) {
 	for _, ref := range mod.JobReferences {
 		ref.Module = name
 	}
+	for _, ref := range mod.RunnableReferences {
+		ref.Module = name
+	}
 }
 
 func (mod *Module) postLoad(ctx context.Context) error {
@@ -358,6 +362,9 @@ func (mod *Module) postLoad(ctx context.Context) error {
 		ref.Module = mod.Name
 	}
 	for _, ref := range mod.JobReferences {
+		ref.Module = mod.Name
+	}
+	for _, ref := range mod.RunnableReferences {
 		ref.Module = mod.Name
 	}
 	// Application references don't need module set since they use ApplicationReference
@@ -390,19 +397,18 @@ func (mod *Module) SaveToDir(ctx context.Context, dir string) error {
 
 func (mod *Module) Save(ctx context.Context) error {
 	if mod.flatWorkspace != nil {
-		// Clear internal Module field from refs before persisting, then put it
-		// back — these refs are shared with the workspace's Services slice.
-		saved := make([]string, len(mod.ServiceReferences))
-		for i, ref := range mod.ServiceReferences {
-			saved[i] = ref.Module
-			ref.Module = ""
+		// Publish the new references in memory only after persistence succeeds.
+		// Otherwise a failed creation can roll back the module and its directory
+		// while leaving a dangling reference for a later workspace save.
+		pending := mod.flatWorkspace.Clone()
+		pending.Services = mod.ServiceReferences
+		pending.Runnables = mod.RunnableReferences
+		if err := pending.Save(ctx); err != nil {
+			return err
 		}
-		mod.flatWorkspace.Services = mod.ServiceReferences
-		err := mod.flatWorkspace.Save(ctx)
-		for i, ref := range mod.ServiceReferences {
-			ref.Module = saved[i]
-		}
-		return err
+		mod.flatWorkspace.Services = pending.Services
+		mod.flatWorkspace.Runnables = pending.Runnables
+		return nil
 	}
 	return mod.SaveToDir(ctx, mod.Dir())
 }
@@ -421,12 +427,20 @@ func (mod *Module) preSave() func() {
 		jobMods[i] = ref.Module
 		ref.Module = ""
 	}
+	runnableMods := make([]string, len(mod.RunnableReferences))
+	for i, ref := range mod.RunnableReferences {
+		runnableMods[i] = ref.Module
+		ref.Module = ""
+	}
 	return func() {
 		for i, ref := range mod.ServiceReferences {
 			ref.Module = svcMods[i]
 		}
 		for i, ref := range mod.JobReferences {
 			ref.Module = jobMods[i]
+		}
+		for i, ref := range mod.RunnableReferences {
+			ref.Module = runnableMods[i]
 		}
 	}
 }

@@ -19,6 +19,7 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 	require.Equal(t, int32(5), int32(basev0.Agent_TOOLBOX))
 	require.Equal(t, int32(6), int32(basev0.Agent_PROVIDER))
 	require.Equal(t, int32(7), int32(basev0.Agent_SOLUTION))
+	require.Equal(t, int32(8), int32(basev0.Agent_RUNNABLE))
 	expected := map[basev0.Agent_Kind]struct {
 		resource   string
 		subdir     string
@@ -70,6 +71,14 @@ func TestAgentKindRegistryIsExhaustiveAndFailClosed(t *testing.T) {
 			"codefly:solution", "solutions", "solution",
 			resources.AgentResolutionSupport{
 				Local: resources.AgentResolutionVerifiedArtifact, Nix: resources.AgentResolutionVerifiedArtifact,
+			},
+			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
+		},
+		basev0.Agent_RUNNABLE: {
+			"codefly:runnable", "runnables", "runnable",
+			resources.AgentResolutionSupport{
+				Local: resources.AgentResolutionLocalExecutable, OCI: resources.AgentResolutionBinaryDigest,
+				Nix: resources.AgentResolutionBinaryDigest, GitHub: resources.AgentResolutionGitHubRelease,
 			},
 			resources.AgentOperationSupport{Build: true, List: true, Install: true, Version: true, Publish: true, CI: true, Load: true},
 		},
@@ -140,6 +149,7 @@ func TestAgentPathsUseRegisteredKindSubdirectories(t *testing.T) {
 		{resources.ToolboxAgent, "toolboxes"},
 		{resources.ProviderAgent, "providers"},
 		{resources.SolutionAgent, "solutions"},
+		{resources.RunnableAgent, "runnables"},
 	} {
 		agent := &resources.Agent{Kind: tc.kind, Publisher: "codefly.dev", Name: "same", Version: "1.0.0"}
 		got, err := agent.Path(ctx)
@@ -149,6 +159,28 @@ func TestAgentPathsUseRegisteredKindSubdirectories(t *testing.T) {
 	job := &resources.Agent{Kind: resources.JobAgent, Publisher: "codefly.dev", Name: "job", Version: "1.0.0"}
 	_, err := job.Path(ctx)
 	require.ErrorContains(t, err, "does not support load")
+}
+
+// A runnable agent is identified by kind + language name: the kind is uniform
+// across languages so consumers never switch on it, and the language selects
+// the repository (runnable-python, runnable-go) and executable.
+func TestRunnableAgentKindIsLanguageNeutral(t *testing.T) {
+	registration, err := resources.AgentKindRegistrationFor(resources.RunnableAgent)
+	require.NoError(t, err)
+	require.Equal(t, "runnable-python", registration.GitHubRepository("python"))
+	require.Equal(t, "runnable-go", registration.GitHubRepository("go"))
+	require.Equal(t, "runnable-python", registration.ExecutableName("python"))
+
+	python, err := resources.ParseAgent(context.Background(), resources.RunnableAgent, "codefly.dev/python:0.1.0")
+	require.NoError(t, err)
+	require.True(t, python.IsRunnable())
+	require.False(t, python.IsService())
+	proto, err := python.Proto()
+	require.NoError(t, err)
+	require.Equal(t, basev0.Agent_RUNNABLE, proto.GetKind())
+
+	_, err = resources.LoadAgent(context.Background(), proto, resources.ServiceAgent)
+	require.ErrorContains(t, err, "cannot be used as")
 }
 
 func TestServiceAndProviderSameNameDoNotCollide(t *testing.T) {
