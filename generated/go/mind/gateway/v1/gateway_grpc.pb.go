@@ -9,6 +9,7 @@ package gatewayv1
 import (
 	context "context"
 
+	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -22,6 +23,9 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	Gateway_ListServices_FullMethodName                  = "/mind.gateway.v1.Gateway/ListServices"
 	Gateway_EvaluateStorageCapacity_FullMethodName       = "/mind.gateway.v1.Gateway/EvaluateStorageCapacity"
+	Gateway_CreateWorkspaceCheckpoint_FullMethodName     = "/mind.gateway.v1.Gateway/CreateWorkspaceCheckpoint"
+	Gateway_RestoreWorkspaceCheckpoint_FullMethodName    = "/mind.gateway.v1.Gateway/RestoreWorkspaceCheckpoint"
+	Gateway_ReleaseWorkspaceCheckpoint_FullMethodName    = "/mind.gateway.v1.Gateway/ReleaseWorkspaceCheckpoint"
 	Gateway_ReadFile_FullMethodName                      = "/mind.gateway.v1.Gateway/ReadFile"
 	Gateway_WriteFile_FullMethodName                     = "/mind.gateway.v1.Gateway/WriteFile"
 	Gateway_ListFiles_FullMethodName                     = "/mind.gateway.v1.Gateway/ListFiles"
@@ -94,6 +98,16 @@ type GatewayClient interface {
 	// an observation, not a reservation; no host path or project content crosses
 	// the boundary.
 	EvaluateStorageCapacity(ctx context.Context, in *EvaluateStorageCapacityRequest, opts ...grpc.CallOption) (*EvaluateStorageCapacityResponse, error)
+	// CreateWorkspaceCheckpoint durably preserves the current dirty project
+	// state inside Codefly after a version compare-and-swap and storage
+	// admission. No project bytes or storage paths cross this boundary.
+	CreateWorkspaceCheckpoint(ctx context.Context, in *v0.CreateWorkspaceCheckpointRequest, opts ...grpc.CallOption) (*v0.CreateWorkspaceCheckpointResponse, error)
+	// RestoreWorkspaceCheckpoint atomically restores one lease-bound candidate
+	// when the live workspace still matches the caller's expected version.
+	RestoreWorkspaceCheckpoint(ctx context.Context, in *v0.RestoreWorkspaceCheckpointRequest, opts ...grpc.CallOption) (*v0.RestoreWorkspaceCheckpointResponse, error)
+	// ReleaseWorkspaceCheckpoint idempotently releases retained candidate
+	// storage without accepting a caller-supplied filesystem path.
+	ReleaseWorkspaceCheckpoint(ctx context.Context, in *v0.ReleaseWorkspaceCheckpointRequest, opts ...grpc.CallOption) (*v0.ReleaseWorkspaceCheckpointResponse, error)
 	// ReadFile reads a file from a service's source tree.
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error)
 	// WriteFile writes (creates or overwrites) a file in a service's source tree.
@@ -248,6 +262,36 @@ func (c *gatewayClient) EvaluateStorageCapacity(ctx context.Context, in *Evaluat
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EvaluateStorageCapacityResponse)
 	err := c.cc.Invoke(ctx, Gateway_EvaluateStorageCapacity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) CreateWorkspaceCheckpoint(ctx context.Context, in *v0.CreateWorkspaceCheckpointRequest, opts ...grpc.CallOption) (*v0.CreateWorkspaceCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v0.CreateWorkspaceCheckpointResponse)
+	err := c.cc.Invoke(ctx, Gateway_CreateWorkspaceCheckpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) RestoreWorkspaceCheckpoint(ctx context.Context, in *v0.RestoreWorkspaceCheckpointRequest, opts ...grpc.CallOption) (*v0.RestoreWorkspaceCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v0.RestoreWorkspaceCheckpointResponse)
+	err := c.cc.Invoke(ctx, Gateway_RestoreWorkspaceCheckpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayClient) ReleaseWorkspaceCheckpoint(ctx context.Context, in *v0.ReleaseWorkspaceCheckpointRequest, opts ...grpc.CallOption) (*v0.ReleaseWorkspaceCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v0.ReleaseWorkspaceCheckpointResponse)
+	err := c.cc.Invoke(ctx, Gateway_ReleaseWorkspaceCheckpoint_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -831,6 +875,16 @@ type GatewayServer interface {
 	// an observation, not a reservation; no host path or project content crosses
 	// the boundary.
 	EvaluateStorageCapacity(context.Context, *EvaluateStorageCapacityRequest) (*EvaluateStorageCapacityResponse, error)
+	// CreateWorkspaceCheckpoint durably preserves the current dirty project
+	// state inside Codefly after a version compare-and-swap and storage
+	// admission. No project bytes or storage paths cross this boundary.
+	CreateWorkspaceCheckpoint(context.Context, *v0.CreateWorkspaceCheckpointRequest) (*v0.CreateWorkspaceCheckpointResponse, error)
+	// RestoreWorkspaceCheckpoint atomically restores one lease-bound candidate
+	// when the live workspace still matches the caller's expected version.
+	RestoreWorkspaceCheckpoint(context.Context, *v0.RestoreWorkspaceCheckpointRequest) (*v0.RestoreWorkspaceCheckpointResponse, error)
+	// ReleaseWorkspaceCheckpoint idempotently releases retained candidate
+	// storage without accepting a caller-supplied filesystem path.
+	ReleaseWorkspaceCheckpoint(context.Context, *v0.ReleaseWorkspaceCheckpointRequest) (*v0.ReleaseWorkspaceCheckpointResponse, error)
 	// ReadFile reads a file from a service's source tree.
 	ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error)
 	// WriteFile writes (creates or overwrites) a file in a service's source tree.
@@ -976,6 +1030,15 @@ func (UnimplementedGatewayServer) ListServices(context.Context, *ListServicesReq
 }
 func (UnimplementedGatewayServer) EvaluateStorageCapacity(context.Context, *EvaluateStorageCapacityRequest) (*EvaluateStorageCapacityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EvaluateStorageCapacity not implemented")
+}
+func (UnimplementedGatewayServer) CreateWorkspaceCheckpoint(context.Context, *v0.CreateWorkspaceCheckpointRequest) (*v0.CreateWorkspaceCheckpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateWorkspaceCheckpoint not implemented")
+}
+func (UnimplementedGatewayServer) RestoreWorkspaceCheckpoint(context.Context, *v0.RestoreWorkspaceCheckpointRequest) (*v0.RestoreWorkspaceCheckpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreWorkspaceCheckpoint not implemented")
+}
+func (UnimplementedGatewayServer) ReleaseWorkspaceCheckpoint(context.Context, *v0.ReleaseWorkspaceCheckpointRequest) (*v0.ReleaseWorkspaceCheckpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseWorkspaceCheckpoint not implemented")
 }
 func (UnimplementedGatewayServer) ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReadFile not implemented")
@@ -1195,6 +1258,60 @@ func _Gateway_EvaluateStorageCapacity_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GatewayServer).EvaluateStorageCapacity(ctx, req.(*EvaluateStorageCapacityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_CreateWorkspaceCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(v0.CreateWorkspaceCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).CreateWorkspaceCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_CreateWorkspaceCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).CreateWorkspaceCheckpoint(ctx, req.(*v0.CreateWorkspaceCheckpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_RestoreWorkspaceCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(v0.RestoreWorkspaceCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).RestoreWorkspaceCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_RestoreWorkspaceCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).RestoreWorkspaceCheckpoint(ctx, req.(*v0.RestoreWorkspaceCheckpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Gateway_ReleaseWorkspaceCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(v0.ReleaseWorkspaceCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServer).ReleaseWorkspaceCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Gateway_ReleaseWorkspaceCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServer).ReleaseWorkspaceCheckpoint(ctx, req.(*v0.ReleaseWorkspaceCheckpointRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2185,6 +2302,18 @@ var Gateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EvaluateStorageCapacity",
 			Handler:    _Gateway_EvaluateStorageCapacity_Handler,
+		},
+		{
+			MethodName: "CreateWorkspaceCheckpoint",
+			Handler:    _Gateway_CreateWorkspaceCheckpoint_Handler,
+		},
+		{
+			MethodName: "RestoreWorkspaceCheckpoint",
+			Handler:    _Gateway_RestoreWorkspaceCheckpoint_Handler,
+		},
+		{
+			MethodName: "ReleaseWorkspaceCheckpoint",
+			Handler:    _Gateway_ReleaseWorkspaceCheckpoint_Handler,
 		},
 		{
 			MethodName: "ReadFile",

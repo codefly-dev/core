@@ -11,6 +11,7 @@ import (
 	strings "strings"
 
 	connect "connectrpc.com/connect"
+	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v1 "github.com/codefly-dev/core/generated/go/mind/gateway/v1"
 )
 
@@ -39,6 +40,15 @@ const (
 	// GatewayEvaluateStorageCapacityProcedure is the fully-qualified name of the Gateway's
 	// EvaluateStorageCapacity RPC.
 	GatewayEvaluateStorageCapacityProcedure = "/mind.gateway.v1.Gateway/EvaluateStorageCapacity"
+	// GatewayCreateWorkspaceCheckpointProcedure is the fully-qualified name of the Gateway's
+	// CreateWorkspaceCheckpoint RPC.
+	GatewayCreateWorkspaceCheckpointProcedure = "/mind.gateway.v1.Gateway/CreateWorkspaceCheckpoint"
+	// GatewayRestoreWorkspaceCheckpointProcedure is the fully-qualified name of the Gateway's
+	// RestoreWorkspaceCheckpoint RPC.
+	GatewayRestoreWorkspaceCheckpointProcedure = "/mind.gateway.v1.Gateway/RestoreWorkspaceCheckpoint"
+	// GatewayReleaseWorkspaceCheckpointProcedure is the fully-qualified name of the Gateway's
+	// ReleaseWorkspaceCheckpoint RPC.
+	GatewayReleaseWorkspaceCheckpointProcedure = "/mind.gateway.v1.Gateway/ReleaseWorkspaceCheckpoint"
 	// GatewayReadFileProcedure is the fully-qualified name of the Gateway's ReadFile RPC.
 	GatewayReadFileProcedure = "/mind.gateway.v1.Gateway/ReadFile"
 	// GatewayWriteFileProcedure is the fully-qualified name of the Gateway's WriteFile RPC.
@@ -179,6 +189,16 @@ type GatewayClient interface {
 	// an observation, not a reservation; no host path or project content crosses
 	// the boundary.
 	EvaluateStorageCapacity(context.Context, *connect.Request[v1.EvaluateStorageCapacityRequest]) (*connect.Response[v1.EvaluateStorageCapacityResponse], error)
+	// CreateWorkspaceCheckpoint durably preserves the current dirty project
+	// state inside Codefly after a version compare-and-swap and storage
+	// admission. No project bytes or storage paths cross this boundary.
+	CreateWorkspaceCheckpoint(context.Context, *connect.Request[v0.CreateWorkspaceCheckpointRequest]) (*connect.Response[v0.CreateWorkspaceCheckpointResponse], error)
+	// RestoreWorkspaceCheckpoint atomically restores one lease-bound candidate
+	// when the live workspace still matches the caller's expected version.
+	RestoreWorkspaceCheckpoint(context.Context, *connect.Request[v0.RestoreWorkspaceCheckpointRequest]) (*connect.Response[v0.RestoreWorkspaceCheckpointResponse], error)
+	// ReleaseWorkspaceCheckpoint idempotently releases retained candidate
+	// storage without accepting a caller-supplied filesystem path.
+	ReleaseWorkspaceCheckpoint(context.Context, *connect.Request[v0.ReleaseWorkspaceCheckpointRequest]) (*connect.Response[v0.ReleaseWorkspaceCheckpointResponse], error)
 	// ReadFile reads a file from a service's source tree.
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
 	// WriteFile writes (creates or overwrites) a file in a service's source tree.
@@ -332,6 +352,24 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			httpClient,
 			baseURL+GatewayEvaluateStorageCapacityProcedure,
 			connect.WithSchema(gatewayMethods.ByName("EvaluateStorageCapacity")),
+			connect.WithClientOptions(opts...),
+		),
+		createWorkspaceCheckpoint: connect.NewClient[v0.CreateWorkspaceCheckpointRequest, v0.CreateWorkspaceCheckpointResponse](
+			httpClient,
+			baseURL+GatewayCreateWorkspaceCheckpointProcedure,
+			connect.WithSchema(gatewayMethods.ByName("CreateWorkspaceCheckpoint")),
+			connect.WithClientOptions(opts...),
+		),
+		restoreWorkspaceCheckpoint: connect.NewClient[v0.RestoreWorkspaceCheckpointRequest, v0.RestoreWorkspaceCheckpointResponse](
+			httpClient,
+			baseURL+GatewayRestoreWorkspaceCheckpointProcedure,
+			connect.WithSchema(gatewayMethods.ByName("RestoreWorkspaceCheckpoint")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseWorkspaceCheckpoint: connect.NewClient[v0.ReleaseWorkspaceCheckpointRequest, v0.ReleaseWorkspaceCheckpointResponse](
+			httpClient,
+			baseURL+GatewayReleaseWorkspaceCheckpointProcedure,
+			connect.WithSchema(gatewayMethods.ByName("ReleaseWorkspaceCheckpoint")),
 			connect.WithClientOptions(opts...),
 		),
 		readFile: connect.NewClient[v1.ReadFileRequest, v1.ReadFileResponse](
@@ -671,6 +709,9 @@ func NewGatewayClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 type gatewayClient struct {
 	listServices                  *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
 	evaluateStorageCapacity       *connect.Client[v1.EvaluateStorageCapacityRequest, v1.EvaluateStorageCapacityResponse]
+	createWorkspaceCheckpoint     *connect.Client[v0.CreateWorkspaceCheckpointRequest, v0.CreateWorkspaceCheckpointResponse]
+	restoreWorkspaceCheckpoint    *connect.Client[v0.RestoreWorkspaceCheckpointRequest, v0.RestoreWorkspaceCheckpointResponse]
+	releaseWorkspaceCheckpoint    *connect.Client[v0.ReleaseWorkspaceCheckpointRequest, v0.ReleaseWorkspaceCheckpointResponse]
 	readFile                      *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
 	writeFile                     *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
 	listFiles                     *connect.Client[v1.ListFilesRequest, v1.ListFilesResponse]
@@ -736,6 +777,21 @@ func (c *gatewayClient) ListServices(ctx context.Context, req *connect.Request[v
 // EvaluateStorageCapacity calls mind.gateway.v1.Gateway.EvaluateStorageCapacity.
 func (c *gatewayClient) EvaluateStorageCapacity(ctx context.Context, req *connect.Request[v1.EvaluateStorageCapacityRequest]) (*connect.Response[v1.EvaluateStorageCapacityResponse], error) {
 	return c.evaluateStorageCapacity.CallUnary(ctx, req)
+}
+
+// CreateWorkspaceCheckpoint calls mind.gateway.v1.Gateway.CreateWorkspaceCheckpoint.
+func (c *gatewayClient) CreateWorkspaceCheckpoint(ctx context.Context, req *connect.Request[v0.CreateWorkspaceCheckpointRequest]) (*connect.Response[v0.CreateWorkspaceCheckpointResponse], error) {
+	return c.createWorkspaceCheckpoint.CallUnary(ctx, req)
+}
+
+// RestoreWorkspaceCheckpoint calls mind.gateway.v1.Gateway.RestoreWorkspaceCheckpoint.
+func (c *gatewayClient) RestoreWorkspaceCheckpoint(ctx context.Context, req *connect.Request[v0.RestoreWorkspaceCheckpointRequest]) (*connect.Response[v0.RestoreWorkspaceCheckpointResponse], error) {
+	return c.restoreWorkspaceCheckpoint.CallUnary(ctx, req)
+}
+
+// ReleaseWorkspaceCheckpoint calls mind.gateway.v1.Gateway.ReleaseWorkspaceCheckpoint.
+func (c *gatewayClient) ReleaseWorkspaceCheckpoint(ctx context.Context, req *connect.Request[v0.ReleaseWorkspaceCheckpointRequest]) (*connect.Response[v0.ReleaseWorkspaceCheckpointResponse], error) {
+	return c.releaseWorkspaceCheckpoint.CallUnary(ctx, req)
 }
 
 // ReadFile calls mind.gateway.v1.Gateway.ReadFile.
@@ -1023,6 +1079,16 @@ type GatewayHandler interface {
 	// an observation, not a reservation; no host path or project content crosses
 	// the boundary.
 	EvaluateStorageCapacity(context.Context, *connect.Request[v1.EvaluateStorageCapacityRequest]) (*connect.Response[v1.EvaluateStorageCapacityResponse], error)
+	// CreateWorkspaceCheckpoint durably preserves the current dirty project
+	// state inside Codefly after a version compare-and-swap and storage
+	// admission. No project bytes or storage paths cross this boundary.
+	CreateWorkspaceCheckpoint(context.Context, *connect.Request[v0.CreateWorkspaceCheckpointRequest]) (*connect.Response[v0.CreateWorkspaceCheckpointResponse], error)
+	// RestoreWorkspaceCheckpoint atomically restores one lease-bound candidate
+	// when the live workspace still matches the caller's expected version.
+	RestoreWorkspaceCheckpoint(context.Context, *connect.Request[v0.RestoreWorkspaceCheckpointRequest]) (*connect.Response[v0.RestoreWorkspaceCheckpointResponse], error)
+	// ReleaseWorkspaceCheckpoint idempotently releases retained candidate
+	// storage without accepting a caller-supplied filesystem path.
+	ReleaseWorkspaceCheckpoint(context.Context, *connect.Request[v0.ReleaseWorkspaceCheckpointRequest]) (*connect.Response[v0.ReleaseWorkspaceCheckpointResponse], error)
 	// ReadFile reads a file from a service's source tree.
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
 	// WriteFile writes (creates or overwrites) a file in a service's source tree.
@@ -1172,6 +1238,24 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 		GatewayEvaluateStorageCapacityProcedure,
 		svc.EvaluateStorageCapacity,
 		connect.WithSchema(gatewayMethods.ByName("EvaluateStorageCapacity")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayCreateWorkspaceCheckpointHandler := connect.NewUnaryHandler(
+		GatewayCreateWorkspaceCheckpointProcedure,
+		svc.CreateWorkspaceCheckpoint,
+		connect.WithSchema(gatewayMethods.ByName("CreateWorkspaceCheckpoint")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayRestoreWorkspaceCheckpointHandler := connect.NewUnaryHandler(
+		GatewayRestoreWorkspaceCheckpointProcedure,
+		svc.RestoreWorkspaceCheckpoint,
+		connect.WithSchema(gatewayMethods.ByName("RestoreWorkspaceCheckpoint")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gatewayReleaseWorkspaceCheckpointHandler := connect.NewUnaryHandler(
+		GatewayReleaseWorkspaceCheckpointProcedure,
+		svc.ReleaseWorkspaceCheckpoint,
+		connect.WithSchema(gatewayMethods.ByName("ReleaseWorkspaceCheckpoint")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gatewayReadFileHandler := connect.NewUnaryHandler(
@@ -1510,6 +1594,12 @@ func NewGatewayHandler(svc GatewayHandler, opts ...connect.HandlerOption) (strin
 			gatewayListServicesHandler.ServeHTTP(w, r)
 		case GatewayEvaluateStorageCapacityProcedure:
 			gatewayEvaluateStorageCapacityHandler.ServeHTTP(w, r)
+		case GatewayCreateWorkspaceCheckpointProcedure:
+			gatewayCreateWorkspaceCheckpointHandler.ServeHTTP(w, r)
+		case GatewayRestoreWorkspaceCheckpointProcedure:
+			gatewayRestoreWorkspaceCheckpointHandler.ServeHTTP(w, r)
+		case GatewayReleaseWorkspaceCheckpointProcedure:
+			gatewayReleaseWorkspaceCheckpointHandler.ServeHTTP(w, r)
 		case GatewayReadFileProcedure:
 			gatewayReadFileHandler.ServeHTTP(w, r)
 		case GatewayWriteFileProcedure:
@@ -1635,6 +1725,18 @@ func (UnimplementedGatewayHandler) ListServices(context.Context, *connect.Reques
 
 func (UnimplementedGatewayHandler) EvaluateStorageCapacity(context.Context, *connect.Request[v1.EvaluateStorageCapacityRequest]) (*connect.Response[v1.EvaluateStorageCapacityResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.EvaluateStorageCapacity is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) CreateWorkspaceCheckpoint(context.Context, *connect.Request[v0.CreateWorkspaceCheckpointRequest]) (*connect.Response[v0.CreateWorkspaceCheckpointResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.CreateWorkspaceCheckpoint is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) RestoreWorkspaceCheckpoint(context.Context, *connect.Request[v0.RestoreWorkspaceCheckpointRequest]) (*connect.Response[v0.RestoreWorkspaceCheckpointResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.RestoreWorkspaceCheckpoint is not implemented"))
+}
+
+func (UnimplementedGatewayHandler) ReleaseWorkspaceCheckpoint(context.Context, *connect.Request[v0.ReleaseWorkspaceCheckpointRequest]) (*connect.Response[v0.ReleaseWorkspaceCheckpointResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mind.gateway.v1.Gateway.ReleaseWorkspaceCheckpoint is not implemented"))
 }
 
 func (UnimplementedGatewayHandler) ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error) {

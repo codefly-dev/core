@@ -6,6 +6,7 @@ import "codefly/base/v0/failure.proto";
 import "codefly/base/v0/instruction.proto";
 import "codefly/base/v0/semantic.proto";
 import "codefly/base/v0/storage.proto";
+import "codefly/base/v0/workspace_checkpoint.proto";
 import "codefly/services/builder/v0/builder.proto";
 import "codefly/services/runtime/v0/runtime.proto";
 import "google/protobuf/timestamp.proto";
@@ -33,6 +34,19 @@ service Gateway {
   // an observation, not a reservation; no host path or project content crosses
   // the boundary.
   rpc EvaluateStorageCapacity(EvaluateStorageCapacityRequest) returns (EvaluateStorageCapacityResponse);
+
+  // CreateWorkspaceCheckpoint durably preserves the current dirty project
+  // state inside Codefly after a version compare-and-swap and storage
+  // admission. No project bytes or storage paths cross this boundary.
+  rpc CreateWorkspaceCheckpoint(codefly.base.v0.CreateWorkspaceCheckpointRequest) returns (codefly.base.v0.CreateWorkspaceCheckpointResponse);
+
+  // RestoreWorkspaceCheckpoint atomically restores one lease-bound candidate
+  // when the live workspace still matches the caller's expected version.
+  rpc RestoreWorkspaceCheckpoint(codefly.base.v0.RestoreWorkspaceCheckpointRequest) returns (codefly.base.v0.RestoreWorkspaceCheckpointResponse);
+
+  // ReleaseWorkspaceCheckpoint idempotently releases retained candidate
+  // storage without accepting a caller-supplied filesystem path.
+  rpc ReleaseWorkspaceCheckpoint(codefly.base.v0.ReleaseWorkspaceCheckpointRequest) returns (codefly.base.v0.ReleaseWorkspaceCheckpointResponse);
 
   // ─── File Operations ────────────────────────────────────────
 

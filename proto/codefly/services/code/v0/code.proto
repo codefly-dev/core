@@ -5,6 +5,7 @@ import "codefly/base/v0/failure.proto";
 import "codefly/base/v0/instruction.proto";
 import "codefly/base/v0/semantic.proto";
 import "codefly/base/v0/source.proto";
+import "codefly/base/v0/workspace_checkpoint.proto";
 
 /*
 Code service: provides code-level access to a service's codebase.
@@ -726,6 +727,12 @@ message CodeRequest {
     // against a workspace. Mind never calls os/exec directly; it goes
     // through this RPC so the plugin boundary owns all process spawning.
     ShellExecRequest shell_exec = 37;
+
+    // Workspace checkpoint operations keep dirty project bytes and storage
+    // paths inside the owning Codefly agent.
+    codefly.base.v0.CreateWorkspaceCheckpointRequest create_workspace_checkpoint = 38;
+    codefly.base.v0.RestoreWorkspaceCheckpointRequest restore_workspace_checkpoint = 39;
+    codefly.base.v0.ReleaseWorkspaceCheckpointRequest release_workspace_checkpoint = 40;
   }
 }
 
@@ -784,6 +791,10 @@ message CodeResponse {
 
     // shell_exec returns process exit status and captured streams.
     ShellExecResponse shell_exec = 37;
+
+    codefly.base.v0.CreateWorkspaceCheckpointResponse create_workspace_checkpoint = 38;
+    codefly.base.v0.RestoreWorkspaceCheckpointResponse restore_workspace_checkpoint = 39;
+    codefly.base.v0.ReleaseWorkspaceCheckpointResponse release_workspace_checkpoint = 40;
   }
 }
 
