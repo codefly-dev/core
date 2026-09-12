@@ -304,6 +304,64 @@ func TestModuleNewRunnableRollsBackOnFailure(t *testing.T) {
 	require.Len(t, all, 1)
 }
 
+func TestModuleNewRunnableRollsBackWorkspaceSaveFailure(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	require.NoError(t, os.CopyFS(dir, os.DirFS(withRunnables)))
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	mod, err := workspace.LoadModuleFromName(ctx, "with-runnables")
+	require.NoError(t, err)
+	original := append([]*resources.RunnableReference(nil), workspace.Runnables...)
+
+	// Force a real write failure after the declaration has been saved: an
+	// atomic file rename cannot replace a directory at the destination.
+	config := filepath.Join(dir, resources.WorkspaceConfigurationName)
+	require.NoError(t, os.Rename(config, config+".saved"))
+	require.NoError(t, os.Mkdir(config, 0o755))
+	agent := &resources.Agent{Kind: resources.RunnableAgent, Name: "python", Version: "0.0.1", Publisher: "codefly.dev"}
+	_, err = mod.NewRunnable(ctx, "rollback", agent, "handler.py")
+	require.Error(t, err)
+	require.NoDirExists(t, filepath.Join(dir, "runnables/rollback"))
+	require.Equal(t, original, mod.RunnableReferences)
+	require.Equal(t, original, workspace.Runnables)
+
+	// A subsequent save must not resurrect the rolled-back reference, and
+	// creating the same runnable again must work once persistence recovers.
+	require.NoError(t, os.Remove(config))
+	require.NoError(t, os.Rename(config+".saved", config))
+	require.NoError(t, workspace.Save(ctx))
+	reloaded, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	all, err := reloaded.LoadAllRunnables(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, len(original))
+	_, err = mod.NewRunnable(ctx, "rollback", agent, "handler.py")
+	require.NoError(t, err)
+}
+
+func TestRunnableWireContractRequiresExplicitSchemas(t *testing.T) {
+	for _, missing := range []string{"input", "output"} {
+		t.Run(missing, func(t *testing.T) {
+			contract := &basev0.RunnableContract{
+				Protocol: resources.RunnableProtocolV1,
+				Input:    &basev0.RunnableSchema{},
+				Output:   &basev0.RunnableSchema{},
+			}
+			_, err := resources.RunnableContractFromProto(contract)
+			require.NoError(t, err, "explicitly empty schemas are valid")
+			if missing == "input" {
+				contract.Input = nil
+			} else {
+				contract.Output = nil
+			}
+			_, err = resources.RunnableContractFromProto(contract)
+			require.ErrorContains(t, err, missing+" schema is required")
+			require.Error(t, resources.Validate(contract), "wire validation must also require schema presence")
+		})
+	}
+}
+
 func TestRunnableModuleLayoutWithPathOverride(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

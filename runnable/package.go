@@ -342,20 +342,8 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 	if artifactFacility[binding.GetArtifact().GetKind()] != facility {
 		return fmt.Errorf("%w: %s artifact cannot execute on facility %s", ErrInvalid, binding.GetArtifact().GetKind(), facility)
 	}
-	declared := make(map[string]*basev0.RunnableDependency, len(pkg.GetServiceDependencies()))
-	for _, dependency := range pkg.GetServiceDependencies() {
-		declared[dependency.GetModule()+"/"+dependency.GetName()] = dependency
-	}
-	for _, mapping := range binding.GetDependencyNetworkMappings() {
-		endpoint := mapping.GetEndpoint()
-		unique := endpoint.GetModule() + "/" + endpoint.GetService()
-		dependency, ok := declared[unique]
-		if !ok {
-			return fmt.Errorf("%w: binding maps %s, which the package does not declare as a dependency", ErrInvalid, unique)
-		}
-		if len(dependency.GetEndpoints()) > 0 && !slices.Contains(dependency.GetEndpoints(), endpoint.GetName()) {
-			return fmt.Errorf("%w: binding maps endpoint %s/%s, which dependency %s does not consume", ErrInvalid, unique, endpoint.GetName(), unique)
-		}
+	if err := validateBindingMappings(binding.GetDependencyNetworkMappings(), pkg.GetServiceDependencies()); err != nil {
+		return err
 	}
 	if err := validateUniqueNames("credential reference", binding.GetCredentialReferences()); err != nil {
 		return err
@@ -367,6 +355,81 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 	bound := slices.Sorted(slices.Values(binding.GetConfigurationReferences()))
 	if !slices.Equal(required, bound) {
 		return fmt.Errorf("%w: binding resolves configurations %v but the package declares %v", ErrInvalid, bound, required)
+	}
+	return nil
+}
+
+func validateBindingMappings(mappings []*basev0.NetworkMapping, dependencies []*basev0.RunnableDependency) error {
+	declared := make(map[string]*basev0.RunnableDependency, len(dependencies))
+	for _, dependency := range dependencies {
+		declared[dependency.GetModule()+"/"+dependency.GetName()] = dependency
+	}
+	seen := make(map[string]struct{}, len(mappings))
+	bound := make(map[string]map[string]struct{}, len(dependencies))
+	for _, mapping := range mappings {
+		endpoint := mapping.GetEndpoint()
+		if endpoint == nil {
+			return fmt.Errorf("%w: binding network mapping requires an endpoint", ErrInvalid)
+		}
+		unique := endpoint.GetModule() + "/" + endpoint.GetService()
+		dependency, ok := declared[unique]
+		if !ok {
+			return fmt.Errorf("%w: binding maps %s, which the package does not declare as a dependency", ErrInvalid, unique)
+		}
+		if len(dependency.GetEndpoints()) > 0 && !slices.Contains(dependency.GetEndpoints(), endpoint.GetName()) {
+			return fmt.Errorf("%w: binding maps endpoint %s/%s, which dependency %s does not consume", ErrInvalid, unique, endpoint.GetName(), unique)
+		}
+		key := networkMappingKey(mapping)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%w: binding maps endpoint %s twice; put its instances in one mapping", ErrInvalid, key)
+		}
+		seen[key] = struct{}{}
+		if err := validateNetworkInstances(key, mapping.GetInstances()); err != nil {
+			return err
+		}
+		if bound[unique] == nil {
+			bound[unique] = make(map[string]struct{})
+		}
+		bound[unique][endpoint.GetName()] = struct{}{}
+	}
+	for _, dependency := range dependencies {
+		kind := resources.DependencyKind(dependency.GetKind())
+		// Runtime edges always consume a reachable endpoint. Legacy edges may
+		// instead name endpointless work, and external capabilities may be
+		// configuration-only; require their explicitly consumed endpoints.
+		needsMapping := kind == resources.DependencyKindRuntime ||
+			((kind == resources.DependencyKindLegacy || kind == resources.DependencyKindExternal) && len(dependency.GetEndpoints()) > 0)
+		if !needsMapping {
+			continue
+		}
+		unique := dependency.GetModule() + "/" + dependency.GetName()
+		if len(bound[unique]) == 0 {
+			return fmt.Errorf("%w: binding does not resolve dependency %s", ErrInvalid, unique)
+		}
+		for _, endpoint := range dependency.GetEndpoints() {
+			if _, exists := bound[unique][endpoint]; !exists {
+				return fmt.Errorf("%w: binding does not resolve endpoint %s/%s", ErrInvalid, unique, endpoint)
+			}
+		}
+	}
+	return nil
+}
+
+func validateNetworkInstances(endpoint string, instances []*basev0.NetworkInstance) error {
+	if len(instances) == 0 {
+		return fmt.Errorf("%w: binding endpoint %s requires a network instance", ErrInvalid, endpoint)
+	}
+	type instanceKey struct{ access, address string }
+	seen := make(map[instanceKey]struct{}, len(instances))
+	for _, instance := range instances {
+		if strings.TrimSpace(instance.GetAddress()) == "" {
+			return fmt.Errorf("%w: binding endpoint %s requires a nonempty instance address", ErrInvalid, endpoint)
+		}
+		key := instanceKey{instance.GetAccess().GetKind(), instance.GetAddress()}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%w: binding endpoint %s repeats instance %s for access %q", ErrInvalid, endpoint, key.address, key.access)
+		}
+		seen[key] = struct{}{}
 	}
 	return nil
 }

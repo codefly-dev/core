@@ -1516,11 +1516,11 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\x06OBJECT\x10\x04\x12\t\n" +
 	"\x05ARRAY\x10\x05\"H\n" +
 	"\x0eRunnableSchema\x126\n" +
-	"\x06fields\x18\x01 \x03(\v2\x1e.codefly.base.v0.RunnableFieldR\x06fields\"\xa7\x01\n" +
+	"\x06fields\x18\x01 \x03(\v2\x1e.codefly.base.v0.RunnableFieldR\x06fields\"\xb7\x01\n" +
 	"\x10RunnableContract\x12#\n" +
-	"\bprotocol\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprotocol\x125\n" +
-	"\x05input\x18\x02 \x01(\v2\x1f.codefly.base.v0.RunnableSchemaR\x05input\x127\n" +
-	"\x06output\x18\x03 \x01(\v2\x1f.codefly.base.v0.RunnableSchemaR\x06output\"\x7f\n" +
+	"\bprotocol\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprotocol\x12=\n" +
+	"\x05input\x18\x02 \x01(\v2\x1f.codefly.base.v0.RunnableSchemaB\x06\xbaH\x03\xc8\x01\x01R\x05input\x12?\n" +
+	"\x06output\x18\x03 \x01(\v2\x1f.codefly.base.v0.RunnableSchemaB\x06\xbaH\x03\xc8\x01\x01R\x06output\"\x7f\n" +
 	"\x10RunnableFacility\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.codefly.base.v0.RunnableFacility.KindR\x04kind\"/\n" +
 	"\x04Kind\x12\v\n" +
@@ -1528,14 +1528,14 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\n" +
 	"\x06NATIVE\x10\x01\x12\x0e\n" +
 	"\n" +
-	"KUBERNETES\x10\x02\"\xeb\x04\n" +
+	"KUBERNETES\x10\x02\"\xff\x04\n" +
 	"\x11RunnableExecution\x12K\n" +
 	"\n" +
 	"facilities\x18\x01 \x03(\v2!.codefly.base.v0.RunnableFacilityB\b\xbaH\x05\x92\x01\x02\b\x01R\n" +
 	"facilities\x12;\n" +
-	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationB\x06\xbaH\x03\xc8\x01\x01R\atimeout\x12S\n" +
-	"\fcancellation\x18\x03 \x01(\x0e2/.codefly.base.v0.RunnableExecution.CancellationR\fcancellation\x12G\n" +
-	"\brecovery\x18\x04 \x01(\x0e2+.codefly.base.v0.RunnableExecution.RecoveryR\brecovery\x12/\n" +
+	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationB\x06\xbaH\x03\xc8\x01\x01R\atimeout\x12]\n" +
+	"\fcancellation\x18\x03 \x01(\x0e2/.codefly.base.v0.RunnableExecution.CancellationB\b\xbaH\x05\x82\x01\x02\x10\x01R\fcancellation\x12Q\n" +
+	"\brecovery\x18\x04 \x01(\x0e2+.codefly.base.v0.RunnableExecution.RecoveryB\b\xbaH\x05\x82\x01\x02\x10\x01R\brecovery\x12/\n" +
 	"\x0fmax_input_bytes\x18\x05 \x01(\x04B\a\xbaH\x042\x02 \x00R\rmaxInputBytes\x121\n" +
 	"\x10max_output_bytes\x18\x06 \x01(\x04B\a\xbaH\x042\x02 \x00R\x0emaxOutputBytes\x12 \n" +
 	"\vconcurrency\x18\a \x01(\rR\vconcurrency\"X\n" +

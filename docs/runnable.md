@@ -156,6 +156,21 @@ emitting them in another order has installed the same binding.
 `VerifyBinding` fails against a rebuilt package with the same identity, so an
 existing binding can never be routed to newer bytes.
 
+Binding validation requires every explicitly consumed runtime endpoint and at
+least one mapped endpoint for a runtime dependency with an empty endpoint
+selection. The installer must resolve that empty selection to all the service's
+endpoints: the package alone has no service catalog with which to prove that
+none were omitted. Legacy and external dependencies require mappings for their
+explicitly selected endpoints; an endpointless legacy prerequisite or a
+configuration-only external capability does not require an address. Build,
+schema and completion prerequisites do not require network mappings at launch.
+Each supplied mapping must have an endpoint and nonempty instance addresses.
+Use one mapping per module/service/endpoint/API key and one instance per
+access-kind/address key; duplicate keys are rejected even when other metadata
+differs, so mapping and instance order cannot change the binding digest.
+These checks validate resolved coordinates; installers and launchers still
+own facility compatibility, reachability and the declared readiness predicates.
+
 ## Ownership of what is not here
 
 - **Agents** (`Builder.Build` with an `output_directory` → `DockerBuildPlan`;

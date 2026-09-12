@@ -253,7 +253,8 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	// another order has installed the same thing.
 	shuffled := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
 	shuffled.DependencyNetworkMappings = append(shuffled.DependencyNetworkMappings, &basev0.NetworkMapping{
-		Endpoint: &basev0.Endpoint{Name: "admin", Service: "store", Module: "with-runnables", Api: "http", Visibility: "module"},
+		Endpoint:  &basev0.Endpoint{Name: "admin", Service: "store", Module: "with-runnables", Api: "http", Visibility: "module"},
+		Instances: []*basev0.NetworkInstance{{Address: "http://store-0.with-runnables.svc:8080"}},
 	})
 	ordered := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
 	ordered.DependencyNetworkMappings = append([]*basev0.NetworkMapping{proto.Clone(shuffled.DependencyNetworkMappings[1]).(*basev0.NetworkMapping)}, ordered.DependencyNetworkMappings...)

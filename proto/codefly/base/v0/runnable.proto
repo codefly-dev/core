@@ -87,9 +87,9 @@ message RunnableContract {
   // "codefly.runnable/v1".
   string protocol = 1 [(buf.validate.field).string.min_len = 1];
   // input is the invocation input shape.
-  RunnableSchema input = 2;
+  RunnableSchema input = 2 [(buf.validate.field).required = true];
   // output is the invocation output shape.
-  RunnableSchema output = 3;
+  RunnableSchema output = 3 [(buf.validate.field).required = true];
 }
 
 // RunnableFacility is an execution facility an invocation may be bound to.
@@ -138,9 +138,9 @@ message RunnableExecution {
   // timeout bounds one invocation's duration.
   google.protobuf.Duration timeout = 2 [(buf.validate.field).required = true];
   // cancellation is the declared interruption capability.
-  Cancellation cancellation = 3;
+  Cancellation cancellation = 3 [(buf.validate.field).enum.defined_only = true];
   // recovery is the declared effect semantics.
-  Recovery recovery = 4;
+  Recovery recovery = 4 [(buf.validate.field).enum.defined_only = true];
   // max_input_bytes bounds the inline input payload.
   uint64 max_input_bytes = 5 [(buf.validate.field).uint64.gt = 0];
   // max_output_bytes bounds the inline output payload.

@@ -614,6 +614,12 @@ func RunnableContractFromProto(contract *basev0.RunnableContract) (*RunnableCont
 	if contract == nil {
 		return nil, fmt.Errorf("contract is required")
 	}
+	if contract.GetInput() == nil {
+		return nil, fmt.Errorf("input schema is required")
+	}
+	if contract.GetOutput() == nil {
+		return nil, fmt.Errorf("output schema is required")
+	}
 	out := &RunnableContract{
 		Protocol: contract.GetProtocol(),
 		Input:    &RunnableSchema{Fields: runnableFieldsFromProto(contract.GetInput().GetFields())},
