@@ -295,8 +295,8 @@ a silent forward-compatibility trick.
 
 The legacy PID-based startup sweep requires a `codefly.recovery-scope`
 label before checking owner liveness. The label hashes canonical Codefly home,
-workspace path and resolved naming scope. A different home, workspace or scope
-cannot claim a container, even when its creator PID is gone. Containers without
+workspace path and resolved naming scope. This exact-scope sweep cannot claim
+a different home, workspace or scope, even when its creator PID is gone. Containers without
 this label, or with missing/malformed owner PIDs, require explicit owner recovery;
 startup does not infer ownership from container names.
 
@@ -324,6 +324,23 @@ explicit owner recovery, even when runtime configurations match. Each Docker
 environment retains its scope from first use so another flow changing the process
 marker cannot redirect its cleanup. Recovery groups authorize orphan sweeping
 only; they never authorize adopting another invocation's container.
+
+The agent's `GetAgentInformation` response includes the
+`codefly-container-recovery-scope` gRPC header with the validated inherited scope.
+The CLI must require this acknowledgement before Docker provisioning. The
+startup parent identity is retained after reparenting so a CLI crash cannot make
+an already-spawned agent create unlabeled containers.
+
+Containers also carry `codefly.recovery-namespace`, a hash of the canonical
+home and workspace without the invocation's naming scope. This durable identity
+lets `ReapDisposableContainers` recover explicitly ephemeral containers after
+an SDK/test invocation dies, even when the next invocation has a fresh scope.
+Unlike a recovery group, it needs no session metadata and survives a successor
+that picked an entirely unrelated naming scope. It checks the original agent PID
+and preserves live owners, stateful containers, and session-ledger containers.
+A different home/workspace or a container without both ownership labels is never
+eligible. No on-disk registry or inference from names is needed; failed removals
+leave the labels available for retry.
 
 Within the same scope, live owners and running stateful containers are retained.
 Stopped containers and running ephemeral containers with dead owners can be

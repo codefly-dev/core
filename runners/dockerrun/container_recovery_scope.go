@@ -16,15 +16,35 @@ import (
 
 const LabelCodeflyRecoveryScope = "codefly.recovery-scope"
 const LabelCodeflyRecoveryGroup = "codefly.recovery-group"
+const LabelCodeflyRecoveryNamespace = "codefly.recovery-namespace"
 const ContainerRecoveryScopeEnvironment = "CODEFLY_CONTAINER_RECOVERY_SCOPE"
+
+// ContainerRecoveryScopeHeader acknowledges the ownership identity inherited
+// by an agent. Older agents omit it and cannot promise scoped recovery.
+const ContainerRecoveryScopeHeader = "codefly-container-recovery-scope"
 
 // Capture the launching parent before serving any requests. A parent dying
 // during a request must not revoke the child's already inherited ownership.
 // If it died before initialization, validation fails and creation is refused.
 var containerRecoveryParentPID = os.Getppid()
 
-// ContainerRecoveryScope binds cleanup to a home, workspace and resolved naming scope.
-type ContainerRecoveryScope struct{ id, group string }
+// InheritedContainerRecoveryScope is the validated identity used by container
+// creation and by the agent's read-only gRPC ownership acknowledgement. It is
+// empty unless both the exact scope and the durable namespace are inherited:
+// an older CLI that projects only a scope cannot promise cross-scope recovery.
+func InheritedContainerRecoveryScope() string {
+	scope, err := inheritedContainerRecoveryScope()
+	if err != nil || scope.id == "" || scope.namespace == "" {
+		return ""
+	}
+	return scope.id + ":" + scope.namespace
+}
+
+// ContainerRecoveryScope binds cleanup to a home, workspace and resolved naming
+// scope. group additionally covers the disposable siblings of one SDK
+// invocation, and namespace is the durable canonical home/workspace identity
+// that survives a run choosing an entirely fresh naming scope.
+type ContainerRecoveryScope struct{ id, group, namespace string }
 
 func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRecoveryScope, error) {
 	paths := []string{home, workspace}
@@ -41,7 +61,10 @@ func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRe
 			return ContainerRecoveryScope{}, err
 		}
 	}
-	scope := ContainerRecoveryScope{id: recoveryScopeHash(paths, namingScope)}
+	scope := ContainerRecoveryScope{
+		id:        recoveryScopeHash(paths, namingScope),
+		namespace: recoveryNamespaceHash(paths),
+	}
 	// Only an SDK invocation in disposable mode can delegate recovery across
 	// invocation names. Never infer this from a name suffix alone: a regular
 	// developer scope may happen to have the same spelling.
@@ -68,13 +91,24 @@ func recoveryScopeHash(paths []string, namingScope string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// recoveryNamespaceHash covers every naming scope under one canonical
+// home/workspace pair, so an aborted run's disposable containers stay
+// recoverable by a successor that picked a completely different scope.
+func recoveryNamespaceHash(paths []string) string {
+	data, _ := json.Marshal(paths)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
 // SetContainerRecoveryScope projects ownership to directly spawned agents.
 // Older agents omit the label and are deliberately ineligible for startup cleanup.
 func SetContainerRecoveryScope(scope ContainerRecoveryScope) error {
-	if scope.id == "" {
+	if scope.id == "" || scope.namespace == "" {
 		return fmt.Errorf("container recovery scope is unresolved")
 	}
-	marker := strconv.Itoa(os.Getpid()) + ":" + scope.id
+	// pid:scope:namespace[:group] — group is optional, so it trails the
+	// namespace every resolved scope carries.
+	marker := strconv.Itoa(os.Getpid()) + ":" + scope.id + ":" + scope.namespace
 	if scope.group != "" {
 		marker += ":" + scope.group
 	}
@@ -94,16 +128,24 @@ func inheritedContainerRecoveryScope() (ContainerRecoveryScope, error) {
 	if err != nil || pid <= 1 || (pid != os.Getpid() && pid != containerRecoveryParentPID) {
 		return ContainerRecoveryScope{}, fmt.Errorf("container recovery marker does not belong to this process or its launching parent")
 	}
-	id, group, grouped := strings.Cut(identity, ":")
-	decoded, err := hex.DecodeString(id)
-	if err != nil || len(decoded) != sha256.Size {
+	digests := strings.Split(identity, ":")
+	if len(digests) > 3 {
 		return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery identity")
 	}
-	if grouped {
-		decoded, err = hex.DecodeString(group)
-		if err != nil || len(decoded) != sha256.Size {
-			return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery group")
+	for _, digest := range digests {
+		decoded, decodeErr := hex.DecodeString(digest)
+		if decodeErr != nil || len(decoded) != sha256.Size {
+			return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery identity")
 		}
 	}
-	return ContainerRecoveryScope{id: id, group: group}, nil
+	// An older CLI projects only the exact scope. Preserve its label, but never
+	// acknowledge cross-scope recovery without a validated namespace.
+	scope := ContainerRecoveryScope{id: digests[0]}
+	if len(digests) > 1 {
+		scope.namespace = digests[1]
+	}
+	if len(digests) > 2 {
+		scope.group = digests[2]
+	}
+	return scope, nil
 }

@@ -150,16 +150,22 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 	config, _, err := env.desiredContainerConfigs(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, scope.id, config.Labels[LabelCodeflyRecoveryScope])
+	require.Equal(t, scope.namespace, config.Labels[LabelCodeflyRecoveryNamespace])
 	for _, tc := range []struct {
-		name, marker, want string
-		wantError          bool
+		name, marker, want, namespace, group string
+		wantError                            bool
 	}{
-		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id, false},
-		{"legacy", "", "", false},
-		{"stale parent", "999999999:" + scope.id, "", true},
-		{"malformed identity", strconv.Itoa(os.Getpid()) + ":bad", "", true},
-		{"malformed group", strconv.Itoa(os.Getpid()) + ":" + scope.id + ":bad", "", true},
-		{"malformed marker", "bad", "", true},
+		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id, scope.namespace, scope.group, false},
+		{"legacy", "", "", "", "", false},
+		{"stale parent", "999999999:" + scope.id, "", "", "", true},
+		{"malformed identity", strconv.Itoa(os.Getpid()) + ":bad", "", "", "", true},
+		// An older CLI projects the exact scope alone. It stays labeled, but
+		// without a namespace it never delegates cross-scope recovery.
+		{"old CLI exact scope", strconv.Itoa(os.Getpid()) + ":" + scope.id, scope.id, "", "", false},
+		{"scope and namespace", strconv.Itoa(os.Getpid()) + ":" + scope.id + ":" + scope.namespace, scope.id, scope.namespace, "", false},
+		{"malformed namespace", strconv.Itoa(os.Getpid()) + ":" + scope.id + ":bad", "", "", "", true},
+		{"malformed group", strconv.Itoa(os.Getpid()) + ":" + scope.id + ":" + scope.namespace + ":bad", "", "", "", true},
+		{"malformed marker", "bad", "", "", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(ContainerRecoveryScopeEnvironment, tc.marker)
@@ -175,9 +181,8 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 			labels := map[string]string{}
 			require.NoError(t, json.Unmarshal(output, &labels))
 			require.Equal(t, tc.want, labels[LabelCodeflyRecoveryScope])
-			if tc.want != "" {
-				require.Equal(t, scope.group, labels[LabelCodeflyRecoveryGroup])
-			}
+			require.Equal(t, tc.namespace, labels[LabelCodeflyRecoveryNamespace])
+			require.Equal(t, tc.group, labels[LabelCodeflyRecoveryGroup])
 		})
 	}
 }
@@ -219,5 +224,6 @@ func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
 	require.NoError(t, json.Unmarshal(output, &labels))
 	require.Equal(t, scope.id, labels[LabelCodeflyRecoveryScope])
 	require.Equal(t, scope.group, labels[LabelCodeflyRecoveryGroup])
+	require.Equal(t, scope.namespace, labels[LabelCodeflyRecoveryNamespace])
 	require.Equal(t, labelTrue, labels[LabelCodeflyEphemeral])
 }

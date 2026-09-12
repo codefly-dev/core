@@ -409,6 +409,11 @@ func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*
 		if scope.group != "" {
 			containerConfig.Labels[LabelCodeflyRecoveryGroup] = scope.group
 		}
+		// The durable home/workspace namespace is what lets a successor run
+		// recover this container after choosing an entirely fresh naming scope.
+		if scope.namespace != "" {
+			containerConfig.Labels[LabelCodeflyRecoveryNamespace] = scope.namespace
+		}
 	}
 	hostConfig := docker.createHostConfig(ctx)
 	fingerprint, err := containerConfigFingerprint(containerConfig, hostConfig)
