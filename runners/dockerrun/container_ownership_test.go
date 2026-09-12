@@ -81,7 +81,11 @@ func TestContainerOwnershipGuardsReuseReplacementAndShutdown(t *testing.T) {
 			require.Nil(t, second.instance)
 			// Failed initialization must not let teardown rediscover and delete
 			// the very foreign container that initialization refused to claim.
-			require.ErrorContains(t, second.Shutdown(ctx), "refusing adoption or replacement")
+			// Teardown is now fenced to the generation Init acquired (#462), so a
+			// refused Init leaves nothing to tear down: Shutdown is a silent
+			// no-op rather than a second ownership refusal. The container's
+			// survival is asserted below.
+			require.NoError(t, second.Shutdown(ctx))
 			inspected, err := first.client.ContainerInspect(ctx, originalID)
 			require.NoError(t, err)
 			require.True(t, inspected.State.Running)
