@@ -392,7 +392,17 @@ func (docker *DockerEnvironment) createAndStartContainer(
 // GetContainer distinguish a reusable container from stale runtime state
 // without storing secret environment values in Docker labels.
 func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*container.Config, *container.HostConfig, error) {
+	scope, err := inheritedContainerRecoveryScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	containerConfig := docker.createContainerConfig(ctx)
+	if scope.id != "" {
+		containerConfig.Labels[LabelCodeflyRecoveryScope] = scope.id
+		if scope.group != "" {
+			containerConfig.Labels[LabelCodeflyRecoveryGroup] = scope.group
+		}
+	}
 	hostConfig := docker.createHostConfig(ctx)
 	fingerprint, err := containerConfigFingerprint(containerConfig, hostConfig)
 	if err != nil {
@@ -516,12 +526,6 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	if EphemeralContainers() || docker.ephemeral {
 		config.Labels[LabelCodeflyEphemeral] = "true"
 	}
-	if scope := inheritedContainerRecoveryScope(); scope.id != "" {
-		config.Labels[LabelCodeflyRecoveryScope] = scope.id
-		if scope.group != "" {
-			config.Labels[LabelCodeflyRecoveryGroup] = scope.group
-		}
-	}
 	if docker.invocation != "" {
 		config.Labels[LabelCodeflyInvocation] = docker.invocation
 	}
@@ -593,14 +597,14 @@ func SetEphemeralContainers(v bool) {
 
 // EphemeralContainers reports whether this process spawns ephemeral containers.
 // It is true when this process enabled the mode in-process, or when it inherited
-// the marker from its live parent (the process that spawned it). An inherited
-// marker that does not name the current parent is stale and deliberately ignored.
+// the marker from its launching parent. Reparenting after a CLI crash must not
+// turn a disposable container into a retained stateful container.
 func EphemeralContainers() bool {
 	if ephemeralContainers.Load() {
 		return true
 	}
 	marker := os.Getenv(EphemeralContainersEnvironment)
-	return marker != "" && marker == strconv.Itoa(os.Getppid())
+	return marker != "" && marker == strconv.Itoa(containerRecoveryParentPID)
 }
 
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {

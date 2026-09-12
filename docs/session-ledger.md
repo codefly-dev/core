@@ -311,6 +311,9 @@ containers remain protected. Ordinary naming scopes never gain this delegation.
 The CLI sets the scope after resolving its run environment and before spawning
 agents. `SetContainerRecoveryScope` projects a PID-bound process marker to direct
 children; Docker environments built against this Core version emit the label.
+Children retain their launch-time parent identity, so reparenting after a CLI
+crash does not discard recovery or ephemeral labels. A nonempty invalid marker
+refuses container creation instead of silently creating an unowned container.
 Older agents do not emit it and their containers remain outside startup cleanup.
 No automatic relabeling or migration of retained containers occurs.
 

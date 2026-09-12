@@ -18,6 +18,11 @@ const LabelCodeflyRecoveryScope = "codefly.recovery-scope"
 const LabelCodeflyRecoveryGroup = "codefly.recovery-group"
 const ContainerRecoveryScopeEnvironment = "CODEFLY_CONTAINER_RECOVERY_SCOPE"
 
+// Capture the launching parent before serving any requests. A parent dying
+// during a request must not revoke the child's already inherited ownership.
+// If it died before initialization, validation fails and creation is refused.
+var containerRecoveryParentPID = os.Getppid()
+
 // ContainerRecoveryScope binds cleanup to a home, workspace and resolved naming scope.
 type ContainerRecoveryScope struct{ id, group string }
 
@@ -76,25 +81,29 @@ func SetContainerRecoveryScope(scope ContainerRecoveryScope) error {
 	return os.Setenv(ContainerRecoveryScopeEnvironment, marker)
 }
 
-func inheritedContainerRecoveryScope() ContainerRecoveryScope {
-	owner, identity, ok := strings.Cut(os.Getenv(ContainerRecoveryScopeEnvironment), ":")
+func inheritedContainerRecoveryScope() (ContainerRecoveryScope, error) {
+	marker := os.Getenv(ContainerRecoveryScopeEnvironment)
+	if marker == "" {
+		return ContainerRecoveryScope{}, nil
+	}
+	owner, identity, ok := strings.Cut(marker, ":")
 	if !ok {
-		return ContainerRecoveryScope{}
+		return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery marker")
 	}
 	pid, err := strconv.Atoi(owner)
-	if err != nil || (pid != os.Getpid() && pid != os.Getppid()) {
-		return ContainerRecoveryScope{}
+	if err != nil || pid <= 1 || (pid != os.Getpid() && pid != containerRecoveryParentPID) {
+		return ContainerRecoveryScope{}, fmt.Errorf("container recovery marker does not belong to this process or its launching parent")
 	}
 	id, group, grouped := strings.Cut(identity, ":")
 	decoded, err := hex.DecodeString(id)
 	if err != nil || len(decoded) != sha256.Size {
-		return ContainerRecoveryScope{}
+		return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery identity")
 	}
 	if grouped {
 		decoded, err = hex.DecodeString(group)
 		if err != nil || len(decoded) != sha256.Size {
-			return ContainerRecoveryScope{}
+			return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery group")
 		}
 	}
-	return ContainerRecoveryScope{id: id, group: group}
+	return ContainerRecoveryScope{id: id, group: group}, nil
 }

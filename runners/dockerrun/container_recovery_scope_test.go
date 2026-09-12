@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/sdk/session"
@@ -133,7 +134,11 @@ func TestContainerRecoveryScopeCanonicalPaths(t *testing.T) {
 func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 	if os.Getenv("RECOVERY_SCOPE_AGENT_TEST") == "1" {
 		env := &DockerEnvironment{name: "test", image: &resources.DockerImage{Name: "alpine", Tag: "latest"}}
-		_ = json.NewEncoder(os.Stdout).Encode(env.createContainerConfig(t.Context()).Labels)
+		config, _, err := env.desiredContainerConfigs(t.Context())
+		if err != nil {
+			os.Exit(2)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(config.Labels)
 		os.Exit(0)
 	}
 	t.Setenv(ContainerRecoveryScopeEnvironment, "")
@@ -142,18 +147,30 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 	scope.group = strings.Repeat("c", 64)
 	require.NoError(t, SetContainerRecoveryScope(scope))
 	env := &DockerEnvironment{name: "test", image: &resources.DockerImage{Name: "alpine", Tag: "latest"}}
-	require.Equal(t, scope.id, env.createContainerConfig(t.Context()).Labels[LabelCodeflyRecoveryScope])
-	for _, tc := range []struct{ name, marker, want string }{
-		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id},
-		{"legacy", "", ""},
-		{"stale parent", "999999999:" + scope.id, ""},
-		{"malformed identity", strconv.Itoa(os.Getpid()) + ":bad", ""},
+	config, _, err := env.desiredContainerConfigs(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, scope.id, config.Labels[LabelCodeflyRecoveryScope])
+	for _, tc := range []struct {
+		name, marker, want string
+		wantError          bool
+	}{
+		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id, false},
+		{"legacy", "", "", false},
+		{"stale parent", "999999999:" + scope.id, "", true},
+		{"malformed identity", strconv.Itoa(os.Getpid()) + ":bad", "", true},
+		{"malformed group", strconv.Itoa(os.Getpid()) + ":" + scope.id + ":bad", "", true},
+		{"malformed marker", "bad", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(ContainerRecoveryScopeEnvironment, tc.marker)
 			cmd := exec.Command(os.Args[0], "-test.run=^TestContainerRecoveryScopeAgentProcess$")
 			cmd.Env = append(os.Environ(), "RECOVERY_SCOPE_AGENT_TEST=1")
 			output, err := cmd.Output()
+			if tc.wantError {
+				require.Error(t, err, "invalid ownership must refuse container configuration")
+				require.Empty(t, output)
+				return
+			}
 			require.NoError(t, err)
 			labels := map[string]string{}
 			require.NoError(t, json.Unmarshal(output, &labels))
@@ -163,4 +180,44 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
+	role := os.Getenv("RECOVERY_PARENT_EXIT_ROLE")
+	ready := os.Getenv("RECOVERY_PARENT_EXIT_READY")
+	if role == "parent" {
+		scope, err := inheritedContainerRecoveryScope()
+		require.NoError(t, err)
+		require.NoError(t, SetContainerRecoveryScope(scope))
+		SetEphemeralContainers(true)
+		cmd := exec.Command(os.Args[0], "-test.run=^TestContainerRecoveryScopeSurvivesParentExit$")
+		cmd.Env = append(os.Environ(), "RECOVERY_PARENT_EXIT_ROLE=agent")
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		require.NoError(t, cmd.Start())
+		require.Eventually(t, func() bool { _, err := os.Stat(ready); return err == nil }, 5*time.Second, time.Millisecond)
+		os.Exit(0)
+	}
+	if role == "agent" {
+		require.NoError(t, os.WriteFile(ready, nil, 0600))
+		require.Eventually(t, func() bool { return os.Getppid() != containerRecoveryParentPID }, 5*time.Second, time.Millisecond)
+		env := &DockerEnvironment{image: resources.NewDockerImage("alpine:latest")}
+		config, _, err := env.desiredContainerConfigs(t.Context())
+		require.NoError(t, err)
+		require.NoError(t, json.NewEncoder(os.Stdout).Encode(config.Labels))
+		os.Exit(0)
+	}
+	t.Setenv(ContainerRecoveryScopeEnvironment, "")
+	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "crash")
+	require.NoError(t, err)
+	scope.group = strings.Repeat("a", 64)
+	require.NoError(t, SetContainerRecoveryScope(scope))
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestContainerRecoveryScopeSurvivesParentExit$")
+	cmd.Env = append(os.Environ(), "RECOVERY_PARENT_EXIT_ROLE=parent", "RECOVERY_PARENT_EXIT_READY="+filepath.Join(t.TempDir(), "ready"))
+	output, err := cmd.Output()
+	require.NoError(t, err)
+	labels := map[string]string{}
+	require.NoError(t, json.Unmarshal(output, &labels))
+	require.Equal(t, scope.id, labels[LabelCodeflyRecoveryScope])
+	require.Equal(t, scope.group, labels[LabelCodeflyRecoveryGroup])
+	require.Equal(t, labelTrue, labels[LabelCodeflyEphemeral])
 }
