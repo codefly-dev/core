@@ -102,6 +102,9 @@ type DockerEnvironment struct {
 	// session-ledger invocation, so a later recovery pass can prove ownership
 	// from Docker's own state rather than from a name or an owner PID.
 	invocation string
+	// Recovery ownership is fixed on first use. A later flow changing the
+	// process marker must not redirect this environment's lookup or shutdown.
+	recoveryScope *ContainerRecoveryScope
 }
 
 var _ base.RunnerEnvironment = &DockerEnvironment{}
@@ -392,7 +395,7 @@ func (docker *DockerEnvironment) createAndStartContainer(
 // GetContainer distinguish a reusable container from stale runtime state
 // without storing secret environment values in Docker labels.
 func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*container.Config, *container.HostConfig, error) {
-	scope, err := inheritedContainerRecoveryScope()
+	scope, err := docker.containerRecoveryScope()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -413,6 +416,20 @@ func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*
 	}
 	containerConfig.Labels[LabelCodeflyConfig] = fingerprint
 	return containerConfig, hostConfig, nil
+}
+
+func (docker *DockerEnvironment) containerRecoveryScope() (ContainerRecoveryScope, error) {
+	docker.mu.Lock()
+	defer docker.mu.Unlock()
+	if docker.recoveryScope != nil {
+		return *docker.recoveryScope, nil
+	}
+	scope, err := inheritedContainerRecoveryScope()
+	if err != nil {
+		return ContainerRecoveryScope{}, err
+	}
+	docker.recoveryScope = &scope
+	return scope, nil
 }
 
 type containerPortBindingFingerprint struct {
@@ -821,6 +838,10 @@ func (docker *DockerEnvironment) WithDir(dir string) {
 
 func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, error) {
 	w := wool.Get(ctx).In("Docker.IsContainerPresent")
+	scope, err := docker.containerRecoveryScope()
+	if err != nil {
+		return false, err
+	}
 	// List all containers
 	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
@@ -833,6 +854,10 @@ func (docker *DockerEnvironment) IsContainerPresent(ctx context.Context) (bool, 
 		c := containers[i]
 		for _, name := range c.Names {
 			if name == "/"+docker.name {
+				if c.Labels[LabelCodeflyRecoveryScope] != scope.id ||
+					(scope.id != "" && c.Labels[LabelCodeflyOwner] != labelTrue) {
+					return false, fmt.Errorf("container %s belongs to a different or unresolved recovery scope; refusing adoption or replacement", docker.name)
+				}
 				docker.instance = &DockerContainerInstance{
 					ID: c.ID,
 				}

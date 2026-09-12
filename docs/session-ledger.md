@@ -317,6 +317,14 @@ refuses container creation instead of silently creating an unowned container.
 Older agents do not emit it and their containers remain outside startup cleanup.
 No automatic relabeling or migration of retained containers occurs.
 
+Name-based lookup requires the same exact recovery scope before adoption,
+replacement or shutdown. A scoped caller cannot claim an unscoped container, and
+an unscoped caller cannot claim a scoped one. A mismatch is an error requiring
+explicit owner recovery, even when runtime configurations match. Each Docker
+environment retains its scope from first use so another flow changing the process
+marker cannot redirect its cleanup. Recovery groups authorize orphan sweeping
+only; they never authorize adopting another invocation's container.
+
 Within the same scope, live owners and running stateful containers are retained.
 Stopped containers and running ephemeral containers with dead owners can be
 removed, without requesting volume removal. Containers carrying an invocation
