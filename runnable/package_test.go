@@ -208,6 +208,14 @@ func TestCompareReleaseIsIdempotentAndConflictsOnChangedContent(t *testing.T) {
 	foreign.ProtoReflect().SetUnknown([]byte{0xf8, 0x7f, 0x01})
 	_, err = runnable.PreparePackage(foreign)
 	require.ErrorContains(t, err, "outside its declared schema")
+	nested := samplePackage(t)
+	nested.Build.ProtoReflect().SetUnknown([]byte{0xf8, 0x7f, 0x01})
+	_, err = runnable.PreparePackage(nested)
+	require.ErrorContains(t, err, "outside its declared schema")
+	inList := samplePackage(t)
+	inList.Artifacts[1].ProtoReflect().SetUnknown([]byte{0xf8, 0x7f, 0x01})
+	_, err = runnable.PreparePackage(inList)
+	require.ErrorContains(t, err, "outside its declared schema")
 }
 
 func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifact, facility basev0.RunnableFacility_Kind) *basev0.RunnableBinding {

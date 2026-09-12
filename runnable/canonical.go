@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 const (
@@ -29,7 +30,7 @@ const (
 // outside the schema it claims cannot be canonicalized by this version, and a
 // digest that ignored them would let those bytes change without notice.
 func digestOf(format string, message proto.Message) (string, error) {
-	if unknown := message.ProtoReflect().GetUnknown(); len(unknown) > 0 {
+	if carriesUnknownFields(message.ProtoReflect()) {
 		return "", fmt.Errorf("%w: message carries fields outside its declared schema", ErrInvalid)
 	}
 	encoded, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(message)
@@ -49,4 +50,31 @@ func digestOf(format string, message proto.Message) (string, error) {
 	hash.Write([]byte{0})
 	hash.Write(canonical)
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// carriesUnknownFields walks every nested message, since unknown bytes on a
+// nested message are as invisible to the JSON form as those on the root.
+func carriesUnknownFields(message protoreflect.Message) bool {
+	if len(message.GetUnknown()) > 0 {
+		return true
+	}
+	found := false
+	message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		switch {
+		case field.IsList() && field.Kind() == protoreflect.MessageKind:
+			list := value.List()
+			for i := 0; i < list.Len() && !found; i++ {
+				found = carriesUnknownFields(list.Get(i).Message())
+			}
+		case field.IsMap() && field.MapValue().Kind() == protoreflect.MessageKind:
+			value.Map().Range(func(_ protoreflect.MapKey, entry protoreflect.Value) bool {
+				found = carriesUnknownFields(entry.Message())
+				return !found
+			})
+		case !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind:
+			found = carriesUnknownFields(value.Message())
+		}
+		return !found
+	})
+	return found
 }
