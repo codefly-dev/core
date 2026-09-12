@@ -10,7 +10,10 @@ import (
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/failures"
 	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/wool"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/codefly-dev/core/agents/communicate"
@@ -37,6 +40,9 @@ type Instance struct {
 
 	Agent *services.ServiceAgent
 	Info  *agentv0.AgentInformation
+	// ContainerRecoveryScope is the agent's authenticated gRPC acknowledgement,
+	// not a claim inferred from the CLI's own Core version.
+	ContainerRecoveryScope string
 
 	Builder *BuilderInstance
 	Runtime *RuntimeInstance
@@ -406,13 +412,18 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	}
 	instance.ProcessInfo.AgentPID = agent.ProcessInfo.PID
 
-	info, err := agent.GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+	var headers metadata.MD
+	info, err := agent.GetAgentInformation(ctx, &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get agent information: %v", service.Agent)
 	}
 
 	instance.Capabilities = info.Capabilities
 	instance.Info = info
+	instance.ContainerRecoveryScope, err = acknowledgedContainerRecoveryScope(headers)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot trust container recovery acknowledgement: %v", service.Agent)
+	}
 
 	// Double-check under lock: another goroutine may have loaded the same
 	// identity while we were spawning. Prefer the cached one so callers share
@@ -517,4 +528,20 @@ func UpdateAgent(ctx context.Context, service *resources.Service) (*UpdateInform
 		return nil, w.Wrap(err)
 	}
 	return info, nil
+}
+
+// acknowledgedContainerRecoveryScope reads the agent's ownership
+// acknowledgement. Exactly one value is the contract: silently ignoring a second
+// made an agent that acknowledged two different identities indistinguishable
+// from one that acknowledged none, which is the very condition this header
+// exists to detect before Docker provisioning.
+func acknowledgedContainerRecoveryScope(headers metadata.MD) (string, error) {
+	values := headers.Get(dockerrun.ContainerRecoveryScopeHeader)
+	if len(values) > 1 {
+		return "", fmt.Errorf("agent acknowledged %d container recovery identities: %v", len(values), values)
+	}
+	if len(values) == 0 {
+		return "", nil
+	}
+	return values[0], nil
 }

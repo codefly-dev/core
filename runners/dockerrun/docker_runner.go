@@ -210,7 +210,11 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 	if err != nil {
 		return w.Wrapf(err, "cannot check if container is present")
 	}
+	owned := !exists
 	defer func() {
+		if !owned {
+			return
+		}
 		logContext := context.Background()
 		err := docker.GetLogs(logContext)
 		if err != nil {
@@ -223,6 +227,10 @@ func (docker *DockerEnvironment) GetContainer(ctx context.Context) error {
 		if inspectErr != nil {
 			return w.Wrapf(inspectErr, "cannot inspect existing container")
 		}
+		if ownershipErr := validateContainerRecoveryReuse(inspect.Config, containerConfig); ownershipErr != nil {
+			return w.Wrapf(ownershipErr, "cannot reuse container %s; recover its owner explicitly before retrying", docker.instance.ID)
+		}
+		owned = true
 		actualFingerprint := ""
 		if inspect.Config != nil && inspect.Config.Labels != nil {
 			actualFingerprint = inspect.Config.Labels[LabelCodeflyConfig]
@@ -406,8 +414,10 @@ func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*
 	containerConfig := docker.createContainerConfig(ctx)
 	if scope.id != "" {
 		containerConfig.Labels[LabelCodeflyRecoveryScope] = scope.id
-		if scope.group != "" {
-			containerConfig.Labels[LabelCodeflyRecoveryGroup] = scope.group
+		// The durable host/home/workspace namespace is what lets a successor run
+		// recover this container after choosing an entirely fresh naming scope.
+		if scope.namespace != "" {
+			containerConfig.Labels[LabelCodeflyRecoveryNamespace] = scope.namespace
 		}
 	}
 	hostConfig := docker.createHostConfig(ctx)
@@ -625,7 +635,7 @@ func EphemeralContainers() bool {
 		return true
 	}
 	marker := os.Getenv(EphemeralContainersEnvironment)
-	return marker != "" && marker == strconv.Itoa(containerRecoveryParentPID)
+	return containerRecoveryParentPID > 0 && marker == strconv.Itoa(containerRecoveryParentPID)
 }
 
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {

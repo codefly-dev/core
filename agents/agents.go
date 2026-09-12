@@ -442,6 +442,7 @@ func Serve(reg PluginRegistration) {
 			// insecure default.
 			authUnaryInterceptor(expectedToken),
 			principalUnaryInterceptor(),
+			containerRecoveryInterceptor(),
 			runtimeLoadTracker(&runtimeLoaded),
 			agentRPCInterceptor(),
 		),
