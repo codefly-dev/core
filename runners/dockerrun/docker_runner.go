@@ -516,8 +516,11 @@ func (docker *DockerEnvironment) createContainerConfig(ctx context.Context) *con
 	if EphemeralContainers() || docker.ephemeral {
 		config.Labels[LabelCodeflyEphemeral] = "true"
 	}
-	if scope := inheritedContainerRecoveryScope(); scope != "" {
-		config.Labels[LabelCodeflyRecoveryScope] = scope
+	if scope := inheritedContainerRecoveryScope(); scope.id != "" {
+		config.Labels[LabelCodeflyRecoveryScope] = scope.id
+		if scope.group != "" {
+			config.Labels[LabelCodeflyRecoveryGroup] = scope.group
+		}
 	}
 	if docker.invocation != "" {
 		config.Labels[LabelCodeflyInvocation] = docker.invocation

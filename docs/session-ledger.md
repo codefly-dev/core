@@ -293,12 +293,20 @@ a silent forward-compatibility trick.
 
 ## Startup container recovery scope
 
-The legacy PID-based startup sweep requires an exact `codefly.recovery-scope`
+The legacy PID-based startup sweep requires a `codefly.recovery-scope`
 label before checking owner liveness. The label hashes canonical Codefly home,
 workspace path and resolved naming scope. A different home, workspace or scope
 cannot claim a container, even when its creator PID is gone. Containers without
 this label, or with missing/malformed owner PIDs, require explicit owner recovery;
 startup does not infer ownership from container names.
+
+Disposable SDK invocations additionally delegate orphan cleanup through a durable
+`codefly.recovery-group` label. Its identity includes the same canonical home and
+workspace and the caller's naming scope, excluding only the current SDK session's
+verified invocation suffix. This delegation is issued only in ephemeral mode with
+matching session metadata. A later disposable invocation in that group can remove
+dead-owner ephemeral siblings; live owners, stateful siblings and ledgered
+containers remain protected. Ordinary naming scopes never gain this delegation.
 
 The CLI sets the scope after resolving its run environment and before spawning
 agents. `SetContainerRecoveryScope` projects a PID-bound process marker to direct

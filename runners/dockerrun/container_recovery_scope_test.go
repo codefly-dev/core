@@ -6,12 +6,58 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/sdk/session"
 	"github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/require"
 )
+
+func disposableRecoveryScope(t *testing.T, home, workspace, label, identity string) ContainerRecoveryScope {
+	t.Helper()
+	t.Setenv(EphemeralContainersEnvironment, strconv.Itoa(os.Getppid()))
+	t.Setenv(session.IDEnvironment, identity)
+	t.Setenv(session.SecretEnvironment, "test-secret")
+	invocation := &session.Session{ID: identity}
+	name := invocation.Scope()
+	if label != "" {
+		name = label + "-" + name
+	}
+	scope, err := NewContainerRecoveryScope(home, workspace, name)
+	require.NoError(t, err)
+	require.NotEmpty(t, scope.group)
+	return scope
+}
+
+func TestDisposableRecoveryGroupRequiresInvocationAndMode(t *testing.T) {
+	home, workspace := t.TempDir(), t.TempDir()
+	first := disposableRecoveryScope(t, home, workspace, "tests", strings.Repeat("a", 32))
+	second := disposableRecoveryScope(t, home, workspace, "tests", strings.Repeat("b", 32))
+	require.NotEqual(t, first.id, second.id)
+	require.Equal(t, first.group, second.group)
+	otherLabel := disposableRecoveryScope(t, home, workspace, "other", strings.Repeat("c", 32))
+	require.NotEqual(t, first.group, otherLabel.group)
+	otherHome := disposableRecoveryScope(t, t.TempDir(), workspace, "tests", strings.Repeat("d", 32))
+	require.NotEqual(t, first.group, otherHome.group)
+	otherWorkspace := disposableRecoveryScope(t, home, t.TempDir(), "tests", strings.Repeat("e", 32))
+	require.NotEqual(t, first.group, otherWorkspace.group)
+	for _, tc := range []struct{ name, identity, marker, scope string }{
+		{"reusable", strings.Repeat("a", 32), "", "tests-saaaaaaaaaaaa"},
+		{"not an invocation", "", strconv.Itoa(os.Getppid()), "tests-saaaaaaaaaaaa"},
+		{"malformed invocation", "a", strconv.Itoa(os.Getppid()), "tests-sa"},
+		{"different invocation", strings.Repeat("b", 32), strconv.Itoa(os.Getppid()), "tests-saaaaaaaaaaaa"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(session.IDEnvironment, tc.identity)
+			t.Setenv(EphemeralContainersEnvironment, tc.marker)
+			scope, err := NewContainerRecoveryScope(home, workspace, tc.scope)
+			require.NoError(t, err)
+			require.Empty(t, scope.group)
+		})
+	}
+}
 
 func TestContainerRecoveryScopeIsolation(t *testing.T) {
 	home, workspace := t.TempDir(), t.TempDir()
@@ -93,6 +139,7 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 	t.Setenv(ContainerRecoveryScopeEnvironment, "")
 	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "agent")
 	require.NoError(t, err)
+	scope.group = strings.Repeat("c", 64)
 	require.NoError(t, SetContainerRecoveryScope(scope))
 	env := &DockerEnvironment{name: "test", image: &resources.DockerImage{Name: "alpine", Tag: "latest"}}
 	require.Equal(t, scope.id, env.createContainerConfig(t.Context()).Labels[LabelCodeflyRecoveryScope])
@@ -111,6 +158,9 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 			labels := map[string]string{}
 			require.NoError(t, json.Unmarshal(output, &labels))
 			require.Equal(t, tc.want, labels[LabelCodeflyRecoveryScope])
+			if tc.want != "" {
+				require.Equal(t, scope.group, labels[LabelCodeflyRecoveryGroup])
+			}
 		})
 	}
 }

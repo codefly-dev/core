@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -375,4 +376,57 @@ func TestReapStaleContainersIsolatesHomeAndScope(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(data, "retained"))
 	require.NoError(t, err)
 	require.Equal(t, "retained bytes", string(content))
+}
+
+func TestReapStaleContainersRecoversDisposableSiblings(t *testing.T) {
+	backend := newBackend(t)
+	ctx := t.Context()
+	home, workspace := t.TempDir(), t.TempDir()
+	old := disposableRecoveryScope(t, home, workspace, "tests", strings.Repeat("a", 32))
+	current := disposableRecoveryScope(t, home, workspace, "tests", strings.Repeat("b", 32))
+	foreign := disposableRecoveryScope(t, t.TempDir(), workspace, "tests", strings.Repeat("c", 32))
+	otherScope := disposableRecoveryScope(t, home, workspace, "other", strings.Repeat("d", 32))
+	otherWorkspace := disposableRecoveryScope(t, home, t.TempDir(), "tests", strings.Repeat("e", 32))
+	process := exec.Command("true")
+	require.NoError(t, process.Run())
+	deadPID := strconv.Itoa(process.Process.Pid)
+	for _, tc := range []struct {
+		name                      string
+		scope                     ContainerRecoveryScope
+		pid                       string
+		ephemeral, ledgered, keep bool
+	}{
+		{"orphan", old, deadPID, true, false, false},
+		{"live", old, strconv.Itoa(os.Getpid()), true, false, true},
+		{"stateful", old, deadPID, false, false, true},
+		{"ledgered", old, deadPID, true, true, true},
+		{"foreign home", foreign, deadPID, true, false, true},
+		{"foreign scope", otherScope, deadPID, true, false, true},
+		{"foreign workspace", otherWorkspace, deadPID, true, false, true},
+		{"missing owner", old, "", true, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			labels := map[string]string{LabelCodeflyOwner: labelTrue, LabelCodeflyRecoveryScope: tc.scope.id, LabelCodeflyRecoveryGroup: tc.scope.group, LabelCodeflySession: tc.pid}
+			if tc.ephemeral {
+				labels[LabelCodeflyEphemeral] = labelTrue
+			}
+			if tc.ledgered {
+				labels[LabelCodeflyInvocation] = "ledger"
+			}
+			created, err := backend.client.ContainerCreate(ctx, &container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "300"}, Labels: labels}, nil, nil, nil, "")
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_ = backend.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+			})
+			require.NoError(t, backend.client.ContainerStart(ctx, created.ID, container.StartOptions{}))
+			require.NoError(t, ReapStaleContainers(ctx, current))
+			inspected, err := backend.client.ContainerInspect(ctx, created.ID)
+			if tc.keep {
+				require.NoError(t, err)
+				require.True(t, inspected.State.Running)
+			} else {
+				require.True(t, errdefs.IsNotFound(err), "orphan survived: %v", err)
+			}
+		})
+	}
 }

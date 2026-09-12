@@ -49,7 +49,8 @@ func shouldReapContainer(state string, ownerAlive, ephemeral, ledgered bool) boo
 	return true
 }
 
-// ReapStaleContainers only recovers containers labeled for this exact scope.
+// ReapStaleContainers recovers this exact scope and dead disposable siblings
+// explicitly labeled for the same SDK recovery group.
 // Legacy containers without scope labels require explicit owner recovery.
 func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) error {
 	if scope.id == "" {
@@ -88,6 +89,24 @@ func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) erro
 	if err != nil {
 		return fmt.Errorf("cannot list codefly containers: %w", err)
 	}
+	if scope.group != "" {
+		siblings, listErr := cli.ContainerList(listCtx, container.ListOptions{
+			All: true,
+			Filters: filters.NewArgs(
+				filters.Arg("label", LabelCodeflyOwner+"="+labelTrue),
+				filters.Arg("label", LabelCodeflyRecoveryGroup+"="+scope.group),
+				filters.Arg("label", LabelCodeflyEphemeral+"="+labelTrue),
+			),
+		})
+		if listErr != nil {
+			return fmt.Errorf("cannot list disposable sibling containers: %w", listErr)
+		}
+		for _, sibling := range siblings {
+			if sibling.Labels[LabelCodeflyRecoveryScope] != scope.id {
+				containers = append(containers, sibling)
+			}
+		}
+	}
 
 	reaped := 0
 	for _, c := range containers {
@@ -119,7 +138,11 @@ func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) erro
 }
 
 func staleContainerInScope(c container.Summary, scope ContainerRecoveryScope) bool {
-	if scope.id == "" || c.Labels[LabelCodeflyOwner] != labelTrue || c.Labels[LabelCodeflyRecoveryScope] != scope.id {
+	if scope.id == "" || c.Labels[LabelCodeflyOwner] != labelTrue || c.Labels[LabelCodeflyRecoveryScope] == "" {
+		return false
+	}
+	if c.Labels[LabelCodeflyRecoveryScope] != scope.id &&
+		(scope.group == "" || c.Labels[LabelCodeflyRecoveryGroup] != scope.group || c.Labels[LabelCodeflyEphemeral] != labelTrue) {
 		return false
 	}
 	pid, err := strconv.Atoi(c.Labels[LabelCodeflySession])
