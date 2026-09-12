@@ -42,7 +42,7 @@ func TestLoadRunnable(t *testing.T) {
 
 	require.Equal(t, "handler.py", r.Entrypoint.Handler)
 	require.Equal(t, []string{"pyproject.toml", "uv.lock"}, r.Entrypoint.Inputs)
-	require.FileExists(t, r.HandlerPath())
+	require.Equal(t, filepath.Join(r.Dir(), "handler.py"), r.HandlerPath())
 
 	require.Equal(t, []resources.RunnableFacility{resources.RunnableFacilityNative, resources.RunnableFacilityKubernetes}, r.Execution.Facilities)
 	require.Equal(t, 2*time.Minute, r.Execution.GetTimeout())
