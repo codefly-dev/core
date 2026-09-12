@@ -953,19 +953,18 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// reason + stderr for human readers.
 	killAndDescribe := func(sentinel error, reason string) error {
 		_ = group.Signal(context.Background(), syscall.SIGKILL)
-		_ = cmd.Wait()
-		// Remove the pgid tracking file written right after Start. The reaper
-		// goroutine (which would remove it) is only started on the success
-		// path, so every failure path leaked the file. A stale file can later
-		// make the orphan sweep SIGKILL a recycled, unrelated process group.
-		_ = group.RemoveIfDead()
+		_, teardownErr := waitForAgentProcessGroup(cmd, group)
 		tail := stderrBuf.String()
 		if tail != "" {
-			return w.Wrapf(fmt.Errorf("%w: %s", sentinel, reason),
-				"stderr tail: %s", tail)
+			return errors.Join(
+				w.Wrapf(fmt.Errorf("%w: %s", sentinel, reason), "stderr tail: %s", tail),
+				teardownErr,
+			)
 		}
-		return w.Wrapf(fmt.Errorf("%w: %s", sentinel, reason),
-			"no stderr output captured")
+		return errors.Join(
+			w.Wrapf(fmt.Errorf("%w: %s", sentinel, reason), "no stderr output captured"),
+			teardownErr,
+		)
 	}
 
 	// --- Read handshake with timeout ---
@@ -1077,16 +1076,16 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		defer close(agentConn.done)
 		defer unregisterActive(agentConn)
 		defer agentConn.cleanupRuntimeDir()
-		waitErr := cmd.Wait()
+		waitErr, teardownErr := waitForAgentProcessGroup(cmd, group)
 		// cmd.Wait has returned, so exec's stderr copier is done and no
 		// more writes reach logWriter — safe to close it now. This unblocks
 		// the ForwardLogs goroutine even when the agent crashes and its conn
 		// is abandoned without a Close()/ClearAgents teardown. Idempotent
 		// with Close's own closeLogWriter.
 		agentConn.closeLogWriter()
-		// Drop the registration only if the agent left no descendants behind.
-		if pid > 0 {
-			_ = group.RemoveIfDead()
+		if teardownErr != nil {
+			rw := wool.Get(reaperCtx).In("manager.reaper", wool.Field("pid", pid))
+			rw.Warn("agent process-group teardown failed", wool.Field("error", teardownErr.Error()))
 		}
 		if waitErr != nil {
 			// Log at debug – the consumer will observe errors through the
@@ -1102,6 +1101,13 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 
 	loadSucceeded = true
 	return agentConn, nil
+}
+
+func waitForAgentProcessGroup(cmd *exec.Cmd, group *runnersbase.TrackedProcessGroup) (error, error) {
+	waitErr := cmd.Wait()
+	terminateErr := group.Terminate(context.Background())
+	removeErr := group.RemoveIfDead()
+	return waitErr, errors.Join(terminateErr, removeErr)
 }
 
 // sandboxPathAliases returns both the caller-visible path and its symlink-
