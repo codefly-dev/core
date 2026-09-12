@@ -295,10 +295,10 @@ a silent forward-compatibility trick.
 
 The legacy PID-based startup sweep requires a `codefly.recovery-scope`
 label before checking owner liveness. The label hashes canonical Codefly home,
-workspace path and resolved naming scope. This exact-scope sweep cannot claim
-a different home, workspace or scope, even when its creator PID is gone. Containers without
-this label, or with missing/malformed owner PIDs, require explicit owner recovery;
-startup does not infer ownership from container names.
+workspace path and resolved naming scope. This exact-scope sweep cannot claim a
+different home, workspace or scope, even when its creator PID is gone.
+Containers without this label, or with missing/malformed owner PIDs, require
+explicit owner recovery; startup does not infer ownership from container names.
 
 Disposable SDK invocations additionally delegate orphan cleanup through a durable
 `codefly.recovery-group` label. Its identity includes the same canonical home and
@@ -331,16 +331,22 @@ The CLI must require this acknowledgement before Docker provisioning. The
 startup parent identity is retained after reparenting so a CLI crash cannot make
 an already-spawned agent create unlabeled containers.
 
-Containers also carry `codefly.recovery-namespace`, a hash of the canonical
-home and workspace without the invocation's naming scope. This durable identity
-lets `ReapDisposableContainers` recover explicitly ephemeral containers after
-an SDK/test invocation dies, even when the next invocation has a fresh scope.
-Unlike a recovery group, it needs no session metadata and survives a successor
-that picked an entirely unrelated naming scope. It checks the original agent PID
-and preserves live owners, stateful containers, and session-ledger containers.
-A different home/workspace or a container without both ownership labels is never
-eligible. No on-disk registry or inference from names is needed; failed removals
-leave the labels available for retry.
+Containers also carry `codefly.recovery-namespace`, a hash of the stable caller
+host identity and canonical home/workspace, without the invocation's naming
+scope. The host identity (including the caller's Linux PID namespace) prevents
+local PID checks from claiming another host or PID namespace's containers on a
+shared Docker daemon. Linux requires a persistent machine ID; recovery never
+falls back to a boot ID that would strand containers after reboot.
+
+This durable identity lets `ReapDisposableContainers` recover explicitly
+ephemeral containers after an SDK/test invocation dies, even when the next
+invocation has a fresh scope. Where a recovery group delegates within one SDK
+session's naming scope, the namespace needs no session metadata and survives a
+successor that picked an entirely unrelated scope. It checks the original agent
+PID and preserves live owners, stateful containers, and session-ledger
+containers. A different home/workspace or a container without both ownership
+labels is never eligible for either sweep. No on-disk registry or inference from
+names is needed; failed removals leave the labels available for retry.
 
 Within the same scope, live owners and running stateful containers are retained.
 Stopped containers and running ephemeral containers with dead owners can be

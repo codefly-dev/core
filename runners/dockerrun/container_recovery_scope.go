@@ -47,6 +47,17 @@ func InheritedContainerRecoveryScope() string {
 type ContainerRecoveryScope struct{ id, group, namespace string }
 
 func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRecoveryScope, error) {
+	hostID, err := containerRecoveryHostID()
+	if err != nil {
+		return ContainerRecoveryScope{}, fmt.Errorf("resolve container recovery host: %w", err)
+	}
+	return newContainerRecoveryScope(home, workspace, namingScope, hostID)
+}
+
+func newContainerRecoveryScope(home, workspace, namingScope, hostID string) (ContainerRecoveryScope, error) {
+	if hostID == "" {
+		return ContainerRecoveryScope{}, fmt.Errorf("container recovery requires a stable host identity")
+	}
 	paths := []string{home, workspace}
 	for i, path := range paths {
 		if path == "" {
@@ -63,7 +74,7 @@ func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRe
 	}
 	scope := ContainerRecoveryScope{
 		id:        recoveryScopeHash(paths, namingScope),
-		namespace: recoveryNamespaceHash(paths),
+		namespace: recoveryNamespaceHash(hostID, paths),
 	}
 	// Only an SDK invocation in disposable mode can delegate recovery across
 	// invocation names. Never infer this from a name suffix alone: a regular
@@ -93,9 +104,11 @@ func recoveryScopeHash(paths []string, namingScope string) string {
 
 // recoveryNamespaceHash covers every naming scope under one canonical
 // home/workspace pair, so an aborted run's disposable containers stay
-// recoverable by a successor that picked a completely different scope.
-func recoveryNamespaceHash(paths []string) string {
-	data, _ := json.Marshal(paths)
+// recoverable by a successor that picked a completely different scope. The host
+// identity is part of it: identical paths on a shared Docker daemon do not
+// imply the same owner host, and a foreign host's PIDs are not ours to judge.
+func recoveryNamespaceHash(hostID string, paths []string) string {
+	data, _ := json.Marshal(append([]string{hostID}, paths...))
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }

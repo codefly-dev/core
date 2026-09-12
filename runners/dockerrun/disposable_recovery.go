@@ -54,5 +54,5 @@ func ReapDisposableContainers(ctx context.Context, scope ContainerRecoveryScope)
 func disposableContainerInNamespace(c container.Summary, scope ContainerRecoveryScope) bool {
 	return scope.namespace != "" && c.Labels[LabelCodeflyRecoveryNamespace] == scope.namespace &&
 		c.Labels[LabelCodeflyEphemeral] == labelTrue &&
-		staleContainerInScope(c, ContainerRecoveryScope{id: c.Labels[LabelCodeflyRecoveryScope]})
+		staleContainerInScope(c, ContainerRecoveryScope{id: c.Labels[LabelCodeflyRecoveryScope], namespace: scope.namespace})
 }

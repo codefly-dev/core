@@ -64,6 +64,8 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 	home, workspace := t.TempDir(), t.TempDir()
 	scope, err := NewContainerRecoveryScope(home, workspace, "candidate")
 	require.NoError(t, err)
+	otherHost, err := newContainerRecoveryScope(home, workspace, "candidate", "different-host")
+	require.NoError(t, err)
 	otherHome, err := NewContainerRecoveryScope(t.TempDir(), workspace, "candidate")
 	require.NoError(t, err)
 	otherScope, err := NewContainerRecoveryScope(home, workspace, "foreign")
@@ -85,6 +87,7 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 		{name: "same scope stateful reuse", scope: scope, pid: deadPID, state: "running"},
 		{name: "same scope live owner", scope: scope, pid: strconv.Itoa(os.Getpid()), state: "exited", ephemeral: true},
 		{name: "same scope ledger", scope: scope, pid: deadPID, state: "exited", ledgered: true},
+		{name: "foreign host stopped", scope: otherHost, pid: deadPID, state: "exited", ephemeral: true},
 		{name: "foreign home stopped", scope: otherHome, pid: deadPID, state: "exited"},
 		{name: "foreign scope ephemeral", scope: otherScope, pid: deadPID, state: "running", ephemeral: true},
 		{name: "foreign workspace stopped", scope: otherWorkspace, pid: deadPID, state: "exited"},
@@ -95,7 +98,7 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 		{name: "negative PID", scope: scope, pid: "-1", state: "exited"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			labels := map[string]string{LabelCodeflyOwner: "true", LabelCodeflyRecoveryScope: tc.scope.id, LabelCodeflySession: tc.pid}
+			labels := map[string]string{LabelCodeflyOwner: "true", LabelCodeflyRecoveryScope: tc.scope.id, LabelCodeflyRecoveryNamespace: tc.scope.namespace, LabelCodeflySession: tc.pid}
 			if tc.ephemeral {
 				labels[LabelCodeflyEphemeral] = "true"
 			}
@@ -125,6 +128,8 @@ func TestContainerRecoveryScopeCanonicalPaths(t *testing.T) {
 	require.Equal(t, first, second)
 	_, err = NewContainerRecoveryScope("", workspace, "")
 	require.Error(t, err)
+	_, err = newContainerRecoveryScope(home, workspace, "", "")
+	require.ErrorContains(t, err, "stable host identity")
 	_, err = NewContainerRecoveryScope(filepath.Join(root, "missing"), workspace, "")
 	require.Error(t, err)
 	require.Error(t, SetContainerRecoveryScope(ContainerRecoveryScope{}))

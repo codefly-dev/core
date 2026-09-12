@@ -291,6 +291,7 @@ func TestReapStaleContainersKeepsLedgeredContainers(t *testing.T) {
 		labels[LabelCodeflyOwner] = "true"
 		labels[LabelCodeflySession] = deadOwner
 		labels[LabelCodeflyRecoveryScope] = scope.id
+		labels[LabelCodeflyRecoveryNamespace] = scope.namespace
 		labels[LabelCodeflyName] = name
 		_, err := backend.client.ContainerCreate(ctx,
 			&container.Config{Image: "alpine:latest", Labels: labels, Cmd: []string{"true"}},
@@ -350,6 +351,7 @@ func TestReapStaleContainersIsolatesHomeAndScope(t *testing.T) {
 		labels := map[string]string{LabelCodeflyOwner: "true", LabelCodeflySession: tc.pid}
 		if tc.scope.id != "" {
 			labels[LabelCodeflyRecoveryScope] = tc.scope.id
+			labels[LabelCodeflyRecoveryNamespace] = tc.scope.namespace
 		}
 		if tc.ephemeral {
 			labels[LabelCodeflyEphemeral] = "true"
@@ -406,7 +408,7 @@ func TestReapStaleContainersRecoversDisposableSiblings(t *testing.T) {
 		{"missing owner", old, "", true, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			labels := map[string]string{LabelCodeflyOwner: labelTrue, LabelCodeflyRecoveryScope: tc.scope.id, LabelCodeflyRecoveryGroup: tc.scope.group, LabelCodeflySession: tc.pid}
+			labels := map[string]string{LabelCodeflyOwner: labelTrue, LabelCodeflyRecoveryScope: tc.scope.id, LabelCodeflyRecoveryGroup: tc.scope.group, LabelCodeflyRecoveryNamespace: tc.scope.namespace, LabelCodeflySession: tc.pid}
 			if tc.ephemeral {
 				labels[LabelCodeflyEphemeral] = labelTrue
 			}
