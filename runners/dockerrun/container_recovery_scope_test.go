@@ -11,58 +11,15 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/sdk/session"
 	"github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/require"
 )
 
-func disposableRecoveryScope(t *testing.T, home, workspace, label, identity string) ContainerRecoveryScope {
-	t.Helper()
-	t.Setenv(EphemeralContainersEnvironment, strconv.Itoa(os.Getppid()))
-	t.Setenv(session.IDEnvironment, identity)
-	t.Setenv(session.SecretEnvironment, "test-secret")
-	invocation := &session.Session{ID: identity}
-	name := invocation.Scope()
-	if label != "" {
-		name = label + "-" + name
-	}
-	scope, err := NewContainerRecoveryScope(home, workspace, name)
-	require.NoError(t, err)
-	require.NotEmpty(t, scope.group)
-	return scope
-}
-
-func TestDisposableRecoveryGroupRequiresInvocationAndMode(t *testing.T) {
-	home, workspace := t.TempDir(), t.TempDir()
-	first := disposableRecoveryScope(t, home, workspace, "tests", strings.Repeat("a", 32))
-	second := disposableRecoveryScope(t, home, workspace, "tests", strings.Repeat("b", 32))
-	require.NotEqual(t, first.id, second.id)
-	require.Equal(t, first.group, second.group)
-	otherLabel := disposableRecoveryScope(t, home, workspace, "other", strings.Repeat("c", 32))
-	require.NotEqual(t, first.group, otherLabel.group)
-	otherHome := disposableRecoveryScope(t, t.TempDir(), workspace, "tests", strings.Repeat("d", 32))
-	require.NotEqual(t, first.group, otherHome.group)
-	otherWorkspace := disposableRecoveryScope(t, home, t.TempDir(), "tests", strings.Repeat("e", 32))
-	require.NotEqual(t, first.group, otherWorkspace.group)
-	for _, tc := range []struct{ name, identity, marker, scope string }{
-		{"reusable", strings.Repeat("a", 32), "", "tests-saaaaaaaaaaaa"},
-		{"not an invocation", "", strconv.Itoa(os.Getppid()), "tests-saaaaaaaaaaaa"},
-		{"malformed invocation", "a", strconv.Itoa(os.Getppid()), "tests-sa"},
-		{"different invocation", strings.Repeat("b", 32), strconv.Itoa(os.Getppid()), "tests-saaaaaaaaaaaa"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(session.IDEnvironment, tc.identity)
-			t.Setenv(EphemeralContainersEnvironment, tc.marker)
-			scope, err := NewContainerRecoveryScope(home, workspace, tc.scope)
-			require.NoError(t, err)
-			require.Empty(t, scope.group)
-		})
-	}
-}
-
 func TestContainerRecoveryScopeIsolation(t *testing.T) {
 	home, workspace := t.TempDir(), t.TempDir()
 	scope, err := NewContainerRecoveryScope(home, workspace, "candidate")
+	require.NoError(t, err)
+	otherHost, err := newContainerRecoveryScope(home, workspace, "candidate", "different-host")
 	require.NoError(t, err)
 	otherHome, err := NewContainerRecoveryScope(t.TempDir(), workspace, "candidate")
 	require.NoError(t, err)
@@ -70,6 +27,9 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 	require.NoError(t, err)
 	otherWorkspace, err := NewContainerRecoveryScope(home, t.TempDir(), "candidate")
 	require.NoError(t, err)
+	// Pre-upgrade containers carry the exact scope and no namespace at all.
+	preUpgrade := ContainerRecoveryScope{id: scope.id}
+	preUpgradeForeignScope := ContainerRecoveryScope{id: otherScope.id}
 	child := exec.Command("true")
 	require.NoError(t, child.Run())
 	deadPID := strconv.Itoa(child.Process.Pid)
@@ -85,17 +45,24 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 		{name: "same scope stateful reuse", scope: scope, pid: deadPID, state: "running"},
 		{name: "same scope live owner", scope: scope, pid: strconv.Itoa(os.Getpid()), state: "exited", ephemeral: true},
 		{name: "same scope ledger", scope: scope, pid: deadPID, state: "exited", ledgered: true},
+		{name: "foreign host stopped", scope: otherHost, pid: deadPID, state: "exited", ephemeral: true},
 		{name: "foreign home stopped", scope: otherHome, pid: deadPID, state: "exited"},
 		{name: "foreign scope ephemeral", scope: otherScope, pid: deadPID, state: "running", ephemeral: true},
 		{name: "foreign workspace stopped", scope: otherWorkspace, pid: deadPID, state: "exited"},
 		{name: "legacy no scope", pid: deadPID, state: "exited", ephemeral: true},
+		// Docker cannot add a label to an existing container, so refusing these
+		// would strand every container created before the namespace shipped.
+		{name: "pre-upgrade same scope stopped", scope: preUpgrade, pid: deadPID, state: "exited", want: true},
+		{name: "pre-upgrade same scope ephemeral", scope: preUpgrade, pid: deadPID, state: "running", ephemeral: true, want: true},
+		{name: "pre-upgrade cross scope stays", scope: preUpgradeForeignScope, pid: deadPID, state: "running", ephemeral: true},
 		{name: "missing PID", scope: scope, state: "exited"},
 		{name: "malformed PID", scope: scope, pid: "invalid", state: "exited"},
 		{name: "zero PID", scope: scope, pid: "0", state: "exited"},
+		{name: "init PID", scope: scope, pid: "1", state: "exited", ephemeral: true},
 		{name: "negative PID", scope: scope, pid: "-1", state: "exited"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			labels := map[string]string{LabelCodeflyOwner: "true", LabelCodeflyRecoveryScope: tc.scope.id, LabelCodeflySession: tc.pid}
+			labels := map[string]string{LabelCodeflyOwner: "true", LabelCodeflyRecoveryScope: tc.scope.id, LabelCodeflyRecoveryNamespace: tc.scope.namespace, LabelCodeflySession: tc.pid}
 			if tc.ephemeral {
 				labels[LabelCodeflyEphemeral] = "true"
 			}
@@ -109,6 +76,16 @@ func TestContainerRecoveryScopeIsolation(t *testing.T) {
 			require.False(t, staleContainerInScope(c, scope))
 		})
 	}
+	t.Run("host without durable identity", func(t *testing.T) {
+		degraded := ContainerRecoveryScope{id: scope.id}
+		require.False(t, staleContainerInScope(container.Summary{State: "exited", Labels: map[string]string{
+			LabelCodeflyOwner: "true", LabelCodeflyRecoveryScope: scope.id,
+			LabelCodeflyRecoveryNamespace: scope.namespace, LabelCodeflySession: deadPID,
+		}}, degraded), "a caller that cannot prove a host identity must not reap a container bound to one")
+		require.True(t, staleContainerInScope(container.Summary{State: "exited", Labels: map[string]string{
+			LabelCodeflyOwner: "true", LabelCodeflyRecoveryScope: scope.id, LabelCodeflySession: deadPID,
+		}}, degraded), "exact-scope recovery must survive the loss of a durable host identity")
+	})
 }
 
 func TestContainerRecoveryScopeCanonicalPaths(t *testing.T) {
@@ -125,6 +102,14 @@ func TestContainerRecoveryScopeCanonicalPaths(t *testing.T) {
 	require.Equal(t, first, second)
 	_, err = NewContainerRecoveryScope("", workspace, "")
 	require.Error(t, err)
+	// Every common Linux container base image supplies no machine ID, so an
+	// unidentifiable host must narrow recovery rather than fail to resolve.
+	degraded, err := newContainerRecoveryScope(home, workspace, "", "")
+	require.NoError(t, err)
+	require.Equal(t, first.id, degraded.id)
+	require.Empty(t, degraded.namespace)
+	require.NoError(t, SetContainerRecoveryScope(degraded))
+	require.NoError(t, ReapStaleContainers(t.Context(), degraded))
 	_, err = NewContainerRecoveryScope(filepath.Join(root, "missing"), workspace, "")
 	require.Error(t, err)
 	require.Error(t, SetContainerRecoveryScope(ContainerRecoveryScope{}))
@@ -144,22 +129,38 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 	t.Setenv(ContainerRecoveryScopeEnvironment, "")
 	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "agent")
 	require.NoError(t, err)
-	scope.group = strings.Repeat("c", 64)
 	require.NoError(t, SetContainerRecoveryScope(scope))
 	env := &DockerEnvironment{name: "test", image: &resources.DockerImage{Name: "alpine", Tag: "latest"}}
 	config, _, err := env.desiredContainerConfigs(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, scope.id, config.Labels[LabelCodeflyRecoveryScope])
+	require.Equal(t, scope.namespace, config.Labels[LabelCodeflyRecoveryNamespace])
+	pid := strconv.Itoa(os.Getpid())
+	tagged := func(digests ...string) string {
+		return pid + ":" + containerRecoveryMarkerVersion + ":" + strings.Join(digests, ":")
+	}
 	for _, tc := range []struct {
-		name, marker, want string
-		wantError          bool
+		name, marker, want, namespace string
+		wantError                     bool
 	}{
-		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id, false},
-		{"legacy", "", "", false},
-		{"stale parent", "999999999:" + scope.id, "", true},
-		{"malformed identity", strconv.Itoa(os.Getpid()) + ":bad", "", true},
-		{"malformed group", strconv.Itoa(os.Getpid()) + ":" + scope.id + ":bad", "", true},
-		{"malformed marker", "bad", "", true},
+		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id, scope.namespace, false},
+		{"legacy", "", "", "", false},
+		{"stale parent", "999999999:" + containerRecoveryMarkerVersion + ":" + scope.id + ":" + scope.namespace, "", "", true},
+		{"malformed identity", tagged("bad", scope.namespace), "", "", true},
+		// A revision older than the layout tag projects the exact scope alone. It
+		// stays labeled, but never delegates cross-scope recovery.
+		{"untagged exact scope", pid + ":" + scope.id, scope.id, "", false},
+		// A revision older than the tag also wrote pid:scope:group here. Reading
+		// that group as a namespace stamped the container with ownership no sweep
+		// could ever match, leaking it permanently — refuse instead of guessing.
+		{"untagged trailing field", pid + ":" + scope.id + ":" + strings.Repeat("d", 64), "", "", true},
+		{"scope and namespace", tagged(scope.id, scope.namespace), scope.id, scope.namespace, false},
+		// A host with no durable identity projects an empty namespace field.
+		{"scope without namespace", tagged(scope.id, ""), scope.id, "", false},
+		{"missing namespace field", tagged(scope.id), "", "", true},
+		{"malformed namespace", tagged(scope.id, "bad"), "", "", true},
+		{"trailing field", tagged(scope.id, scope.namespace, strings.Repeat("e", 64)), "", "", true},
+		{"malformed marker", "bad", "", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(ContainerRecoveryScopeEnvironment, tc.marker)
@@ -175,11 +176,21 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 			labels := map[string]string{}
 			require.NoError(t, json.Unmarshal(output, &labels))
 			require.Equal(t, tc.want, labels[LabelCodeflyRecoveryScope])
-			if tc.want != "" {
-				require.Equal(t, scope.group, labels[LabelCodeflyRecoveryGroup])
-			}
+			require.Equal(t, tc.namespace, labels[LabelCodeflyRecoveryNamespace])
 		})
 	}
+	t.Run("zero owner cannot claim namespace init", func(t *testing.T) {
+		t.Setenv(ContainerRecoveryScopeEnvironment, tagged(scope.id, scope.namespace))
+		require.NotEmpty(t, InheritedContainerRecoveryScope())
+		t.Setenv(ContainerRecoveryScopeEnvironment, "0:"+containerRecoveryMarkerVersion+":"+scope.id+":"+scope.namespace)
+		require.Empty(t, InheritedContainerRecoveryScope())
+	})
+	t.Run("acknowledgement echoes an empty namespace", func(t *testing.T) {
+		// A compatible agent on a host with no durable identity must not look
+		// like an agent that failed to understand the marker at all.
+		t.Setenv(ContainerRecoveryScopeEnvironment, tagged(scope.id, ""))
+		require.Equal(t, scope.id+":", InheritedContainerRecoveryScope())
+	})
 }
 
 func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
@@ -209,7 +220,6 @@ func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
 	t.Setenv(ContainerRecoveryScopeEnvironment, "")
 	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "crash")
 	require.NoError(t, err)
-	scope.group = strings.Repeat("a", 64)
 	require.NoError(t, SetContainerRecoveryScope(scope))
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestContainerRecoveryScopeSurvivesParentExit$")
 	cmd.Env = append(os.Environ(), "RECOVERY_PARENT_EXIT_ROLE=parent", "RECOVERY_PARENT_EXIT_READY="+filepath.Join(t.TempDir(), "ready"))
@@ -218,6 +228,6 @@ func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
 	labels := map[string]string{}
 	require.NoError(t, json.Unmarshal(output, &labels))
 	require.Equal(t, scope.id, labels[LabelCodeflyRecoveryScope])
-	require.Equal(t, scope.group, labels[LabelCodeflyRecoveryGroup])
+	require.Equal(t, scope.namespace, labels[LabelCodeflyRecoveryNamespace])
 	require.Equal(t, labelTrue, labels[LabelCodeflyEphemeral])
 }
