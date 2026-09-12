@@ -10,14 +10,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/codefly-dev/core/sdk/session"
 )
 
 const LabelCodeflyRecoveryScope = "codefly.recovery-scope"
-const LabelCodeflyRecoveryGroup = "codefly.recovery-group"
 const LabelCodeflyRecoveryNamespace = "codefly.recovery-namespace"
 const ContainerRecoveryScopeEnvironment = "CODEFLY_CONTAINER_RECOVERY_SCOPE"
+
+// containerRecoveryMarkerVersion tags the marker's field layout. Two Core
+// revisions gave the field after the exact scope different meanings — a
+// recovery group in one, the durable namespace in the other — and a reader that
+// guesses wrong stamps a container with ownership no sweep can ever match,
+// leaking exactly what this recovery exists to collect. An untagged marker is
+// therefore honored only for the one field every revision agreed on.
+const containerRecoveryMarkerVersion = "v2"
 
 // ContainerRecoveryScopeHeader acknowledges the ownership identity inherited
 // by an agent. Older agents omit it and cannot promise scoped recovery.
@@ -29,22 +34,23 @@ const ContainerRecoveryScopeHeader = "codefly-container-recovery-scope"
 var containerRecoveryParentPID = os.Getppid()
 
 // InheritedContainerRecoveryScope is the validated identity used by container
-// creation and by the agent's read-only gRPC ownership acknowledgement. It is
-// empty unless both the exact scope and the durable namespace are inherited:
-// an older CLI that projects only a scope cannot promise cross-scope recovery.
+// creation and by the agent's read-only gRPC ownership acknowledgement. It
+// echoes the complete inherited identity, including an empty namespace when the
+// CLI's host has no durable identity: the caller compares it against what it
+// projected, so conflating "agent did not understand" with "cross-scope recovery
+// is unavailable here" would report a compatible agent as incompatible.
 func InheritedContainerRecoveryScope() string {
 	scope, err := inheritedContainerRecoveryScope()
-	if err != nil || scope.id == "" || scope.namespace == "" {
+	if err != nil || scope.id == "" {
 		return ""
 	}
 	return scope.id + ":" + scope.namespace
 }
 
 // ContainerRecoveryScope binds cleanup to a home, workspace and resolved naming
-// scope. group additionally covers the disposable siblings of one SDK
-// invocation, and namespace is the durable canonical home/workspace identity
-// that survives a run choosing an entirely fresh naming scope.
-type ContainerRecoveryScope struct{ id, group, namespace string }
+// scope; namespace is the durable canonical host/home/workspace identity that
+// survives a run choosing an entirely fresh naming scope.
+type ContainerRecoveryScope struct{ id, namespace string }
 
 func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRecoveryScope, error) {
 	hostID, err := containerRecoveryHostID()
@@ -55,9 +61,6 @@ func NewContainerRecoveryScope(home, workspace, namingScope string) (ContainerRe
 }
 
 func newContainerRecoveryScope(home, workspace, namingScope, hostID string) (ContainerRecoveryScope, error) {
-	if hostID == "" {
-		return ContainerRecoveryScope{}, fmt.Errorf("container recovery requires a stable host identity")
-	}
 	paths := []string{home, workspace}
 	for i, path := range paths {
 		if path == "" {
@@ -72,26 +75,14 @@ func newContainerRecoveryScope(home, workspace, namingScope, hostID string) (Con
 			return ContainerRecoveryScope{}, err
 		}
 	}
-	scope := ContainerRecoveryScope{
-		id:        recoveryScopeHash(paths, namingScope),
-		namespace: recoveryNamespaceHash(hostID, paths),
-	}
-	// Only an SDK invocation in disposable mode can delegate recovery across
-	// invocation names. Never infer this from a name suffix alone: a regular
-	// developer scope may happen to have the same spelling.
-	if EphemeralContainers() {
-		invocation := session.FromEnvironment(os.Environ())
-		if invocation != nil {
-			identity, err := hex.DecodeString(invocation.ID)
-			if err == nil && len(identity) == 16 {
-				suffix := invocation.Scope()
-				if namingScope == suffix {
-					scope.group = recoveryScopeHash(paths, "")
-				} else if prefix, ok := strings.CutSuffix(namingScope, "-"+suffix); ok {
-					scope.group = recoveryScopeHash(paths, prefix)
-				}
-			}
-		}
+	scope := ContainerRecoveryScope{id: recoveryScopeHash(paths, namingScope)}
+	// A host that cannot prove a durable identity gets no namespace, so
+	// cross-scope recovery is unavailable while the exact-scope sweep keeps
+	// working. Refusing to resolve a scope at all would stop every run on a
+	// Linux host without a provisioned machine ID — which is every common
+	// container base image.
+	if hostID != "" {
+		scope.namespace = recoveryNamespaceHash(hostID, paths)
 	}
 	return scope, nil
 }
@@ -116,15 +107,12 @@ func recoveryNamespaceHash(hostID string, paths []string) string {
 // SetContainerRecoveryScope projects ownership to directly spawned agents.
 // Older agents omit the label and are deliberately ineligible for startup cleanup.
 func SetContainerRecoveryScope(scope ContainerRecoveryScope) error {
-	if scope.id == "" || scope.namespace == "" {
+	if scope.id == "" {
 		return fmt.Errorf("container recovery scope is unresolved")
 	}
-	// pid:scope:namespace[:group] — group is optional, so it trails the
-	// namespace every resolved scope carries.
-	marker := strconv.Itoa(os.Getpid()) + ":" + scope.id + ":" + scope.namespace
-	if scope.group != "" {
-		marker += ":" + scope.group
-	}
+	// pid:v2:scope:namespace. The namespace is empty on a host with no durable
+	// identity.
+	marker := strings.Join([]string{strconv.Itoa(os.Getpid()), containerRecoveryMarkerVersion, scope.id, scope.namespace}, ":")
 	return os.Setenv(ContainerRecoveryScopeEnvironment, marker)
 }
 
@@ -141,24 +129,42 @@ func inheritedContainerRecoveryScope() (ContainerRecoveryScope, error) {
 	if err != nil || pid <= 1 || (pid != os.Getpid() && pid != containerRecoveryParentPID) {
 		return ContainerRecoveryScope{}, fmt.Errorf("container recovery marker does not belong to this process or its launching parent")
 	}
-	digests := strings.Split(identity, ":")
-	if len(digests) > 3 {
-		return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery identity")
-	}
-	for _, digest := range digests {
-		decoded, decodeErr := hex.DecodeString(digest)
-		if decodeErr != nil || len(decoded) != sha256.Size {
+	fields := strings.Split(identity, ":")
+	if fields[0] != containerRecoveryMarkerVersion {
+		// A marker written before the layout was tagged. Only the exact scope
+		// had a single agreed meaning across those revisions, so refuse anything
+		// trailing it rather than guess whether it is a group or a namespace.
+		if len(fields) != 1 {
+			return ContainerRecoveryScope{}, fmt.Errorf("untagged container recovery marker carries ambiguous fields")
+		}
+		if err := validRecoveryDigest(fields[0]); err != nil {
 			return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery identity")
 		}
+		return ContainerRecoveryScope{id: fields[0]}, nil
 	}
-	// An older CLI projects only the exact scope. Preserve its label, but never
-	// acknowledge cross-scope recovery without a validated namespace.
+	digests := fields[1:]
+	if len(digests) != 2 {
+		return ContainerRecoveryScope{}, fmt.Errorf("container recovery marker has %d fields, want scope and namespace", len(digests))
+	}
+	if err := validRecoveryDigest(digests[0]); err != nil {
+		return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery identity")
+	}
 	scope := ContainerRecoveryScope{id: digests[0]}
-	if len(digests) > 1 {
+	// The namespace is deliberately optional — a host with no durable identity
+	// projects the exact scope alone — but must be a digest when present.
+	if digests[1] != "" {
+		if err := validRecoveryDigest(digests[1]); err != nil {
+			return ContainerRecoveryScope{}, fmt.Errorf("invalid container recovery namespace")
+		}
 		scope.namespace = digests[1]
 	}
-	if len(digests) > 2 {
-		scope.group = digests[2]
-	}
 	return scope, nil
+}
+
+func validRecoveryDigest(digest string) error {
+	decoded, err := hex.DecodeString(digest)
+	if err != nil || len(decoded) != sha256.Size {
+		return fmt.Errorf("not a sha256 digest")
+	}
+	return nil
 }

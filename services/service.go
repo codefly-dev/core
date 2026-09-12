@@ -420,8 +420,9 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 
 	instance.Capabilities = info.Capabilities
 	instance.Info = info
-	if values := headers.Get(dockerrun.ContainerRecoveryScopeHeader); len(values) == 1 {
-		instance.ContainerRecoveryScope = values[0]
+	instance.ContainerRecoveryScope, err = acknowledgedContainerRecoveryScope(headers)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot trust container recovery acknowledgement: %v", service.Agent)
 	}
 
 	// Double-check under lock: another goroutine may have loaded the same
@@ -527,4 +528,20 @@ func UpdateAgent(ctx context.Context, service *resources.Service) (*UpdateInform
 		return nil, w.Wrap(err)
 	}
 	return info, nil
+}
+
+// acknowledgedContainerRecoveryScope reads the agent's ownership
+// acknowledgement. Exactly one value is the contract: silently ignoring a second
+// made an agent that acknowledged two different identities indistinguishable
+// from one that acknowledged none, which is the very condition this header
+// exists to detect before Docker provisioning.
+func acknowledgedContainerRecoveryScope(headers metadata.MD) (string, error) {
+	values := headers.Get(dockerrun.ContainerRecoveryScopeHeader)
+	if len(values) > 1 {
+		return "", fmt.Errorf("agent acknowledged %d container recovery identities: %v", len(values), values)
+	}
+	if len(values) == 0 {
+		return "", nil
+	}
+	return values[0], nil
 }

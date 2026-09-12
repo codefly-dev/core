@@ -57,4 +57,17 @@ func TestDisposableRecoveryUsesDurableNamespaceAndEphemeralOwnership(t *testing.
 			}
 		})
 	}
+	t.Run("host without durable identity reaps nothing and reports why", func(t *testing.T) {
+		// Resolution now degrades instead of failing, so this sweep has to say it
+		// cannot run rather than return a silent success that reads as "nothing
+		// to collect" while the leak it exists for resumes.
+		degraded := ContainerRecoveryScope{id: previous.id}
+		require.False(t, disposableContainerInNamespace(container.Summary{State: "running", Labels: map[string]string{
+			LabelCodeflyOwner: labelTrue, LabelCodeflyRecoveryScope: previous.id,
+			LabelCodeflyRecoveryNamespace: previous.namespace, LabelCodeflyEphemeral: labelTrue,
+			LabelCodeflySession: strconv.Itoa(owner.Process.Pid),
+		}}, degraded))
+		require.NoError(t, ReapDisposableContainers(t.Context(), degraded))
+		require.Error(t, ReapDisposableContainers(t.Context(), ContainerRecoveryScope{}))
+	})
 }

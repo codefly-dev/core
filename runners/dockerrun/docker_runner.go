@@ -414,10 +414,7 @@ func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*
 	containerConfig := docker.createContainerConfig(ctx)
 	if scope.id != "" {
 		containerConfig.Labels[LabelCodeflyRecoveryScope] = scope.id
-		if scope.group != "" {
-			containerConfig.Labels[LabelCodeflyRecoveryGroup] = scope.group
-		}
-		// The durable home/workspace namespace is what lets a successor run
+		// The durable host/home/workspace namespace is what lets a successor run
 		// recover this container after choosing an entirely fresh naming scope.
 		if scope.namespace != "" {
 			containerConfig.Labels[LabelCodeflyRecoveryNamespace] = scope.namespace
@@ -631,8 +628,8 @@ func SetEphemeralContainers(v bool) {
 
 // EphemeralContainers reports whether this process spawns ephemeral containers.
 // It is true when this process enabled the mode in-process, or when it inherited
-// the marker from its startup parent. Reparenting must not turn disposable
-// resources into stateful ones. Descendants still reject a grandparent's marker.
+// the marker from its launching parent. Reparenting after a CLI crash must not
+// turn a disposable container into a retained stateful container.
 func EphemeralContainers() bool {
 	if ephemeralContainers.Load() {
 		return true

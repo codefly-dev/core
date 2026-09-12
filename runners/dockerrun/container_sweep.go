@@ -49,11 +49,12 @@ func shouldReapContainer(state string, ownerAlive, ephemeral, ledgered bool) boo
 	return true
 }
 
-// ReapStaleContainers recovers this exact scope and dead disposable siblings
-// explicitly labeled for the same SDK recovery group.
+// ReapStaleContainers recovers containers labeled for this exact scope. Recovery
+// across scopes belongs to ReapDisposableContainers, which is authorized by the
+// durable namespace label rather than by a naming-scope prefix.
 // Legacy containers without scope labels require explicit owner recovery.
 func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) error {
-	if scope.id == "" || scope.namespace == "" {
+	if scope.id == "" {
 		return fmt.Errorf("container recovery scope is unresolved")
 	}
 	w := wool.Get(ctx).In("base.ReapStaleContainers")
@@ -89,25 +90,6 @@ func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) erro
 	if err != nil {
 		return fmt.Errorf("cannot list codefly containers: %w", err)
 	}
-	if scope.group != "" {
-		siblings, listErr := cli.ContainerList(listCtx, container.ListOptions{
-			All: true,
-			Filters: filters.NewArgs(
-				filters.Arg("label", LabelCodeflyOwner+"="+labelTrue),
-				filters.Arg("label", LabelCodeflyRecoveryGroup+"="+scope.group),
-				filters.Arg("label", LabelCodeflyEphemeral+"="+labelTrue),
-			),
-		})
-		if listErr != nil {
-			return fmt.Errorf("cannot list disposable sibling containers: %w", listErr)
-		}
-		for _, sibling := range siblings {
-			if sibling.Labels[LabelCodeflyRecoveryScope] != scope.id {
-				containers = append(containers, sibling)
-			}
-		}
-	}
-
 	reaped := 0
 	for _, c := range containers {
 		if !staleContainerInScope(c, scope) {
@@ -138,15 +120,16 @@ func ReapStaleContainers(ctx context.Context, scope ContainerRecoveryScope) erro
 }
 
 func staleContainerInScope(c container.Summary, scope ContainerRecoveryScope) bool {
-	// Both ownership labels are required: the durable namespace proves the
-	// container belongs to this host's home/workspace, and the scope (or the
-	// SDK recovery group) proves it belongs to this run's cleanup authority.
-	if scope.id == "" || scope.namespace == "" || c.Labels[LabelCodeflyOwner] != labelTrue ||
-		c.Labels[LabelCodeflyRecoveryScope] == "" || c.Labels[LabelCodeflyRecoveryNamespace] != scope.namespace {
+	if scope.id == "" || c.Labels[LabelCodeflyOwner] != labelTrue || c.Labels[LabelCodeflyRecoveryScope] != scope.id {
 		return false
 	}
-	if c.Labels[LabelCodeflyRecoveryScope] != scope.id &&
-		(scope.group == "" || c.Labels[LabelCodeflyRecoveryGroup] != scope.group || c.Labels[LabelCodeflyEphemeral] != labelTrue) {
+	// A namespace label naming another host's home/workspace is never ours, and
+	// neither is one we cannot verify because this host has no durable identity.
+	// A container created before the label existed carries none at all: Docker
+	// cannot add a label to a container that already exists, so refusing those
+	// would strand every pre-upgrade container forever. For them the exact scope
+	// hash — home, workspace and naming scope — remains the authority it was.
+	if namespace := c.Labels[LabelCodeflyRecoveryNamespace]; namespace != scope.namespace && namespace != "" {
 		return false
 	}
 	pid, err := strconv.Atoi(c.Labels[LabelCodeflySession])

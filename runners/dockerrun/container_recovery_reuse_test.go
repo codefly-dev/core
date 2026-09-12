@@ -35,7 +35,10 @@ func TestContainerRecoveryRejectsAdoptionBeforeReuseOrReplacement(t *testing.T) 
 		{name: "stateful can survive agent restart"},
 		{name: "foreign cannot reuse", foreign: true, reject: "recover its owner explicitly"},
 		{name: "foreign cannot replace", foreign: true, changed: true, reject: "recover its owner explicitly"},
-		{name: "legacy cannot adopt", legacy: true, reject: "recover its owner explicitly"},
+		// Docker cannot add a namespace label to a container that already exists,
+		// so a pre-upgrade container must stay reusable — refusing it would strand
+		// the retained databases this path exists to preserve across restarts.
+		{name: "pre-upgrade container still reusable", legacy: true},
 		{name: "unscoped cannot adopt", unscoped: true, reject: "refusing adoption or replacement"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
