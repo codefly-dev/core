@@ -118,9 +118,8 @@ key can be written; `codefly.runnable/v1` is the only protocol accepted.
 ## Immutable installation facts
 
 `proto/codefly/base/v0/runnable.proto` carries the wire contracts, generated
-into `generated/go/codefly/base/v0` (the Python bindings under
-`generated/python` are produced separately from BSR and must be regenerated
-before `runnable-python` consumes them). The `runnable` Go package validates,
+into `generated/go/codefly/base/v0`; `runnable-python` generates its own Python
+bindings from the same sources. The `runnable` Go package validates,
 canonicalizes and digests two of them.
 
 **`RunnablePackage`** (`codefly.runnable-package/v1`) is the descriptor of one
