@@ -26,12 +26,12 @@ jobs:
         run: docker pull alpine:latest
         # We use it for tests
       - name: set up
-        uses: actions/setup-go@be3c94b385c4f180051c996d336f57a34c397495 # v3.6.1
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.0"
 
       - name: checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: version/tag drift guard
         # version/info.codefly.yaml is embedded into the binary and gates every
@@ -43,7 +43,7 @@ jobs:
         run: ./scripts/check_version_tag.sh
 
       - name: Cache Go Modules
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         continue-on-error: true
         with:
           path: ~/go/pkg/mod
@@ -88,7 +88,7 @@ jobs:
         # setup-uv is the de-facto standard installer for GH Actions: pinned,
         # deterministic, adds uv to PATH. uv provisions its own Python on
         # demand, so no separate python setup is needed.
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       - name: Install Nix
         # Strict — nix is core to the platform; if it doesn't install,
@@ -187,7 +187,7 @@ jobs:
         # whole job red after build, test, race and coverage have all passed.
         # These alerts are about main's health anyway, so gate them on push.
         if: failure() && github.event_name == 'push'
-        uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           payload: |
             {
@@ -201,7 +201,7 @@ jobs:
         # Dependabot pull request this step would fire on every GREEN run and
         # fail it. See the comment there.
         if: success() && github.event_name == 'push'
-        uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           payload: |
             {
