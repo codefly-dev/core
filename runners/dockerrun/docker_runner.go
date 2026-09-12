@@ -579,7 +579,7 @@ const (
 	//
 	// Its value is the PID of the process that enabled ephemeral mode, not a
 	// bare flag. EphemeralContainers honors an inherited marker only when it
-	// names the reader's live parent — scoping propagation to a genuine spawn
+	// names the reader's launch-time parent — scoping propagation to a genuine spawn
 	// (one hop, CLI → agent) and ignoring a stale value left in an interactive
 	// shell or CI environment. That matters because the marker decides whether
 	// running containers are reaped mid-run: a stale ambient value must never
