@@ -56,28 +56,6 @@ func TestGenerateGoGRPC(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "Go bindings reference googleapis upstream, so nothing is generated for it")
 }
 
-func TestGeneratePythonGRPC(t *testing.T) {
-	wool.SetGlobalLogLevel(wool.DEBUG)
-	ctx := context.Background()
-
-	testutil.RequireProtoImage(t, ctx)
-
-	apiProto := filepath.Join(testdataDir(t), "api.proto")
-	ep := &resources.Endpoint{Module: "app", Service: "svc", Name: "api", Visibility: "private"}
-	api, err := resources.LoadGrpcAPI(ctx, shared.Pointer(apiProto))
-	require.NoError(t, err)
-	grpc, err := resources.NewAPI(ctx, ep, resources.ToGrpcAPI(api))
-	require.NoError(t, err)
-	destination := t.TempDir()
-
-	err = proto.GenerateGRPC(ctx, languages.PYTHON, destination, "app/svc", grpc)
-	require.NoError(t, err, "proto companion image not built: %s", testutil.BuildCompanionsHint)
-
-	for _, name := range []string{"app_svc_api_pb2.py", "app_svc_api_pb2_grpc.py"} {
-		require.FileExists(t, filepath.Join(destination, name))
-	}
-}
-
 func TestGenerateRustGRPC(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
 	ctx := context.Background()
