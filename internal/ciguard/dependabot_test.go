@@ -1,6 +1,7 @@
 package ciguard
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -23,6 +24,11 @@ type dependabotConfig struct {
 			UpdateTypes []string `yaml:"update-types"`
 			AppliesTo   string   `yaml:"applies-to"`
 		} `yaml:"groups"`
+		Ignore []struct {
+			DependencyName string   `yaml:"dependency-name"`
+			UpdateTypes    []string `yaml:"update-types"`
+			Versions       []string `yaml:"versions"`
+		} `yaml:"ignore"`
 	} `yaml:"updates"`
 }
 
@@ -203,4 +209,129 @@ func TestEveryEcosystemIsOneUnfilteredCatchAllGroup(t *testing.T) {
 				"group(s), so Dependabot silently opens nothing",
 			u.Ecosystem, u.Limit, versionGroups)
 	}
+}
+
+// semverUpdateTypes are the only `update-types` values that stay on the
+// version-update side of Dependabot. Anything outside this set in an `ignore`
+// entry risks reaching the security path.
+var semverUpdateTypes = []string{
+	"version-update:semver-major",
+	"version-update:semver-minor",
+	"version-update:semver-patch",
+}
+
+// An `ignore` entry that names a dependency and stops there suppresses that
+// scope's SECURITY updates as well as its routine version bumps. It does so
+// silently: no pull request, no notification, no log anyone reads -- the gap
+// surfaces when an advisory reaches you from somewhere else entirely.
+//
+// `update-types` is the escape hatch, because it applies only to version
+// updates. Listing all three semver types blocks routine bumps exactly as a
+// bare rule would, and leaves the security path open.
+//
+// `versions:` ranges do NOT have that property -- they cover security updates
+// too -- so they are rejected here for the same reason.
+func TestDependabotIgnoresNeverSuppressSecurityUpdates(t *testing.T) {
+	cfg, _ := loadDependabot(t)
+
+	for _, u := range cfg.Updates {
+		for _, ig := range u.Ignore {
+			require.NotEmpty(t, ig.UpdateTypes,
+				"%s ignores %q with no `update-types`. A bare ignore also suppresses "+
+					"security updates for that scope, so an advisory opens no pull "+
+					"request and raises no notification. List the three "+
+					"`version-update:semver-*` types instead: they block routine bumps "+
+					"identically and leave the security path open.",
+				u.Ecosystem, ig.DependencyName)
+
+			require.Empty(t, ig.Versions,
+				"%s ignores %q with a `versions:` range. Unlike `update-types`, a "+
+					"version range applies to security updates too, so it silently "+
+					"blocks advisories. Express the intent with `update-types`.",
+				u.Ecosystem, ig.DependencyName)
+
+			for _, ut := range ig.UpdateTypes {
+				require.Contains(t, semverUpdateTypes, ut,
+					"%s ignores %q with update-type %q, which is not one of the three "+
+						"`version-update:semver-*` types and so is not confined to the "+
+						"version-update side", u.Ecosystem, ig.DependencyName, ut)
+			}
+		}
+	}
+}
+
+// The protobuf-es version is pinned in four places that must move together,
+// and only one of them -- companions/proto/facades/ts/package.json -- is a
+// manifest Dependabot reads. The `@bufbuild/*` ignore is what stops it
+// re-proposing the lone bump that lands red on the lockstep guards in
+// companions/proto, which is exactly what #447 did.
+//
+// Two properties have to hold. The ignore must block every semver type, or
+// whichever one it omits comes back weekly. And because `ignore` applies to the
+// whole entry rather than to a single directory, its reach must stay confined
+// to the manifest that actually carries the coupled pin: a @bufbuild
+// dependency added to any other covered directory would be frozen silently,
+// with nothing anywhere reporting it.
+func TestBufbuildIgnoreBlocksEverySemverTypeAndReachesOnlyTheFacade(t *testing.T) {
+	cfg, root := loadDependabot(t)
+
+	const coupledManifest = "/companions/proto/facades/ts"
+
+	var ignored bool
+	for _, u := range cfg.Updates {
+		if u.Ecosystem != "npm" {
+			continue
+		}
+		for _, ig := range u.Ignore {
+			if ig.DependencyName != "@bufbuild/*" {
+				continue
+			}
+			ignored = true
+			require.ElementsMatch(t, semverUpdateTypes, ig.UpdateTypes,
+				"the @bufbuild ignore must block all three semver types; whichever it "+
+					"omits is re-proposed weekly and lands red on the companions/proto "+
+					"lockstep guards (see #481)")
+		}
+
+		for _, dir := range u.Directories {
+			if dir == coupledManifest {
+				continue
+			}
+			for name := range npmDependencies(t, root, dir) {
+				require.False(t, strings.HasPrefix(name, "@bufbuild/"),
+					"%s declares %q, but the npm entry's `@bufbuild/*` ignore covers the "+
+						"whole entry, so that dependency would never be updated and "+
+						"nothing would report it. Give this directory its own dependabot "+
+						"entry, or drop the dependency.", dir, name)
+			}
+		}
+	}
+
+	require.True(t, ignored,
+		"the npm entry no longer ignores `@bufbuild/*`, so Dependabot resumes "+
+			"proposing the protobuf-es pins one at a time while three of the four "+
+			"coupled pins stay put (see #481)")
+}
+
+// npmDependencies returns every dependency a manifest declares, runtime and
+// dev alike: an ignore rule does not distinguish between them.
+func npmDependencies(t *testing.T, root, dir string) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(dir, "/")), "package.json"))
+	require.NoError(t, err)
+
+	var pkg struct {
+		Dependencies    map[string]string `json:"dependencies"`
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &pkg))
+
+	out := map[string]string{}
+	for name, version := range pkg.Dependencies {
+		out[name] = version
+	}
+	for name, version := range pkg.DevDependencies {
+		out[name] = version
+	}
+	return out
 }
