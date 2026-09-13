@@ -322,6 +322,66 @@ func TestReadinessOverrunIsAttributedToTheStalledDependency(t *testing.T) {
 	}
 }
 
+// TestFailedDependencyIsNotWaitedOut covers the verdict a budget cannot
+// change. A dependency the flow reports as failed will not become ready, so
+// spending the remaining budget on it both delays the answer and reports a
+// hard failure as a timeout. The generous budget here is the assertion: the
+// call has to return long before it expires.
+func TestFailedDependencyIsNotWaitedOut(t *testing.T) {
+	binary := buildControlServer(t)
+	enterSessionWorkspace(t)
+	t.Setenv("CODEFLY_BINARY", binary)
+	t.Setenv("FAKE_CONTROL_RECORD_DIR", t.TempDir())
+	t.Setenv("FAKE_CONTROL_MODE", "failed-dependency")
+
+	started := time.Now()
+	_, err := WithDependencies(context.Background(), WithTimeout(30*time.Second))
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("WithDependencies() accepted a flow with a failed dependency")
+	}
+	var failure *ReadinessFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("WithDependencies() error = %v, want a *ReadinessFailure rather than a timeout", err)
+	}
+	if elapsed > 15*time.Second {
+		t.Fatalf("a failed dependency was waited on for %s of a 30s budget", elapsed)
+	}
+	if len(failure.Services) != 1 || failure.Services[0].GetService() != "app/api" {
+		t.Fatalf("Services = %v, want only the dependency that failed", failure.Services)
+	}
+	if !strings.Contains(err.Error(), "app/api failed") || !strings.Contains(err.Error(), "exited with code 1") {
+		t.Fatalf("WithDependencies() error = %v, want it to name the failure and its diagnosis", err)
+	}
+}
+
+// TestLegacyFlowStatusStillReportsTheAggregateVerdict pins the degraded path
+// on purpose rather than leaving it to whichever fixture happens to be stale:
+// an orchestrator that reports no per-service entries must still produce the
+// flow-wide verdict, with nothing invented to fill the gap.
+func TestLegacyFlowStatusStillReportsTheAggregateVerdict(t *testing.T) {
+	binary := buildControlServer(t)
+	enterSessionWorkspace(t)
+	t.Setenv("CODEFLY_BINARY", binary)
+	t.Setenv("FAKE_CONTROL_RECORD_DIR", t.TempDir())
+	t.Setenv("FAKE_CONTROL_MODE", "legacy-flow")
+
+	_, err := WithDependencies(context.Background(), WithTimeout(5*time.Second))
+	if err == nil {
+		t.Fatal("WithDependencies() accepted a flow that never became ready")
+	}
+	var overrun *ReadinessTimeout
+	if !errors.As(err, &overrun) {
+		t.Fatalf("WithDependencies() error = %v, want a *ReadinessTimeout", err)
+	}
+	if len(overrun.Pending()) != 0 {
+		t.Fatalf("Pending() = %v, want nothing attributed when the flow reported no entries", overrun.Pending())
+	}
+	if got := err.Error(); got != "timeout waiting for flow to be ready after 5s" {
+		t.Fatalf("error = %q, want the unadorned flow-wide message", got)
+	}
+}
+
 // testSessionDirectory is the directory these tests anchor a session to. They
 // predate WithDirectory and were written against the process working
 // directory, which enterSessionWorkspace moves into a real workspace.

@@ -15,6 +15,10 @@
 //	"hang-handshake" serve health as SERVING, then never answer the handshake
 //	"stalled-dependency" handshake correctly, then report a flow that never
 //	               becomes ready, naming the dependency that is holding it up
+//	"failed-dependency" report a dependency that has failed outright, which a
+//	               caller must not wait out
+//	"legacy-flow"  report a bare unready verdict with no per-service entries,
+//	               like an orchestrator predating per-service status
 package main
 
 import (
@@ -73,6 +77,8 @@ func main() {
 		capability:  mode != "no-capability",
 		record:      recordPath(socket),
 		stalledFlow: mode == "stalled-dependency",
+		failedFlow:  mode == "failed-dependency",
+		legacyFlow:  mode == "legacy-flow",
 		startedAt:   time.Now(),
 	}
 	// Identity first, so a test running two independent driver processes can
@@ -131,6 +137,8 @@ type controlServer struct {
 	capability  bool
 	record      string
 	stalledFlow bool
+	failedFlow  bool
+	legacyFlow  bool
 	startedAt   time.Time
 }
 
@@ -174,6 +182,24 @@ func (s *controlServer) Ping(context.Context, *emptypb.Empty) (*emptypb.Empty, e
 
 func (s *controlServer) GetFlowStatus(context.Context, *emptypb.Empty) (*v0.FlowStatus, error) {
 	s.note("GetFlowStatus")
+	if s.legacyFlow {
+		return &v0.FlowStatus{}, nil
+	}
+	if s.failedFlow {
+		return &v0.FlowStatus{Services: []*v0.ServiceReadiness{
+			{
+				Service:   "app/api",
+				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED,
+				EnteredAt: timestamppb.New(s.startedAt),
+				Message:   "exited with code 1",
+			},
+			{
+				Service:   "infra/postgres",
+				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING,
+				EnteredAt: timestamppb.New(s.startedAt),
+			},
+		}}, nil
+	}
 	if s.stalledFlow {
 		return &v0.FlowStatus{Services: []*v0.ServiceReadiness{
 			{

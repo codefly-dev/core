@@ -140,11 +140,25 @@ env, err := sdk.WithDependencies(ctx, sdk.WithTimeout(2*time.Minute))
 var overrun *sdk.ReadinessTimeout
 if errors.As(err, &overrun) {
     for _, service := range overrun.Pending() {
-        t.Logf("%s stalled in %s since %s",
-            service.GetService(), service.GetLifecycle(), service.GetEnteredAt().AsTime())
+        // An absent entered_at is not an absent time: GetEnteredAt() returns
+        // nil and AsTime() renders it as the Unix epoch, so check before use.
+        since := "an unreported time"
+        if at := service.GetEnteredAt(); at != nil {
+            since = at.AsTime().String()
+        }
+        t.Logf("%s stalled in %s since %s", service.GetService(), service.GetLifecycle(), since)
     }
 }
 ```
+
+A dependency the flow declares it cannot start is not a timeout, and waiting
+out the budget cannot change that verdict. `WaitForReady` returns a
+`*sdk.ReadinessFailure` as soon as one is reported, so a suite fails in seconds
+on a broken dependency instead of spending its whole readiness budget first.
+
+Stage durations on both errors are measured as of the moment the wait ended, so
+an error logged after teardown still reports the elapsed time that actually
+belonged to the wait.
 
 `env.Readiness()` returns the same view for a live session, as of its last poll.
 
