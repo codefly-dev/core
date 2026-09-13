@@ -10,7 +10,6 @@ import (
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -34,14 +33,17 @@ type DockerEnv struct {
 	Value string
 }
 
-// BuildRustDocker generates templates and builds a Docker image for a Rust
-// service. Mirrors golang.BuildGoDocker.
+// BuildRustDocker emits a Docker build recipe for a Rust service.
 func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest, location string,
+	req *builderv0.BuildRequest,
 	requirements *builders.Dependencies, builderFS embed.FS,
 	rustVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
 
 	w := wool.Get(ctx).In("rust.BuildRustDocker")
+
+	if !services.BuildPlanRequested(req) {
+		return builder.BuildError(fmt.Errorf("BuildRequest.output_directory is required for image recipes"))
+	}
 
 	dockerRequest, err := builder.DockerBuildRequest(ctx, req)
 	if err != nil {
@@ -49,7 +51,7 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 	}
 
 	image := builder.DockerImage(dockerRequest)
-	w.Debug("building docker image", wool.Field("image", image.FullName()))
+	w.Debug("preparing docker image recipe", wool.Field("image", image.FullName()))
 
 	if !dockerhelpers.IsValidDockerImageName(image.Name) {
 		return builder.BuildError(fmt.Errorf("invalid docker image name: %s", image.Name))
@@ -64,44 +66,17 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 		opt(&docker)
 	}
 
-	_ = shared.DeleteFile(ctx, location+"/builder/Dockerfile")
-
-	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS))
+	emitted, err := services.PrepareRecipeDestination(builderFS, req.GetOutputDirectory())
 	if err != nil {
 		return builder.BuildError(err)
 	}
 
-	// When the caller owns the build (output_directory set), emit the recipe and
-	// let the caller run docker buildx instead of building the image in-process.
-	if services.BuildPlanRequested(req) {
-		return builder.SingleImageBuildResponse(req, image.FullName())
+	err = builder.Templates(ctx, docker, services.WithBuilder(builderFS).WithDestination("%s", req.GetOutputDirectory()))
+	if err != nil {
+		return builder.BuildError(err)
 	}
 
-	b, err := dockerhelpers.NewBuilder(dockerhelpers.BuilderConfiguration{
-		Root:          location,
-		Cache:         dockerRequest.GetCache(),
-		BuildxBuilder: dockerRequest.GetBuildxBuilder(),
-		Dockerfile:    "builder/Dockerfile",
-		Ignorefile:    "builder/dockerignore",
-		Destination:   image,
-		Output:        w,
-	})
-	if err != nil {
-		return builder.BuildError(err)
-	}
-	_, err = b.Build(ctx)
-	if err != nil {
-		return builder.BuildError(err)
-	}
-	builder.WithDockerImages(image)
-	resp, err := builder.BuildResponse()
-	if resp != nil {
-		resp.BuildxBuilder = dockerRequest.GetBuildxBuilder()
-	}
-	if resp != nil && dockerRequest.GetCache() != nil {
-		resp.CacheContractVersion = dockerhelpers.CacheContractVersion
-	}
-	return resp, err
+	return builder.SingleImageBuildResponse(req, image.FullName(), emitted)
 }
 
 // DeployRustKubernetes deploys a Rust service to Kubernetes. Identical in

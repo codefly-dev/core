@@ -9,23 +9,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func writeRecipeTree(t *testing.T, withIgnore bool) string {
+// writeRecipeTree returns the output_directory and the emitted path set a runner
+// would have gotten back from PrepareRecipeDestination for this template set.
+func writeRecipeTree(t *testing.T, withIgnore bool) (string, []string) {
 	t.Helper()
 	// dir is the output_directory the caller (the CLI) passes: the service's
 	// committed builder/ recipe directory, with the Dockerfile — and the optional
 	// dockerignore — directly inside it, exactly as the runner renders them there.
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM alpine\nCOPY . .\n"), 0o644))
+	emitted := []string{"Dockerfile"}
 	if withIgnore {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "dockerignore"), []byte("code/node_modules\n"), 0o644))
+		emitted = append(emitted, "dockerignore")
 	}
-	return dir
+	return dir, emitted
 }
 
 func TestSingleImageBuildPlanConventionalLayout(t *testing.T) {
-	dir := writeRecipeTree(t, true)
+	dir, emitted := writeRecipeTree(t, true)
 
-	plan, err := SingleImageBuildPlan(dir, "repo/app:v1", RecipeBuildPlatforms())
+	plan, err := SingleImageBuildPlan(dir, "repo/app:v1", RecipeBuildPlatforms(), emitted)
 	require.NoError(t, err)
 	require.Len(t, plan.GetRecipes(), 1)
 
@@ -42,9 +46,9 @@ func TestSingleImageBuildPlanConventionalLayout(t *testing.T) {
 }
 
 func TestSingleImageBuildPlanOmitsAbsentDockerignore(t *testing.T) {
-	dir := writeRecipeTree(t, false)
+	dir, emitted := writeRecipeTree(t, false)
 
-	plan, err := SingleImageBuildPlan(dir, "repo/app:v1", RecipeBuildPlatforms())
+	plan, err := SingleImageBuildPlan(dir, "repo/app:v1", RecipeBuildPlatforms(), emitted)
 	require.NoError(t, err)
 	require.Equal(t, "", plan.GetRecipes()[0].GetDockerignore())
 	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
@@ -64,12 +68,12 @@ func TestBuildPlanRequested(t *testing.T) {
 // language runner returns SingleImageBuildResponse and gets the same DockerBuildPlan
 // result, verifiable against the caller's tree.
 func TestSingleImageBuildResponseEmitsPlan(t *testing.T) {
-	dir := writeRecipeTree(t, true)
+	dir, emitted := writeRecipeTree(t, true)
 	base := &Base{loaded: true}
 	wrapper := &BuilderWrapper{Base: base}
 	base.Builder = wrapper // WithBuildPlan records onto s.Builder, as production wires it.
 
-	resp, err := wrapper.SingleImageBuildResponse(&builderv0.BuildRequest{OutputDirectory: dir}, "repo/app:v1")
+	resp, err := wrapper.SingleImageBuildResponse(&builderv0.BuildRequest{OutputDirectory: dir}, "repo/app:v1", emitted)
 	require.NoError(t, err)
 	require.Equal(t, builderv0.BuildStatus_SUCCESS, resp.GetState().GetState())
 
@@ -81,16 +85,16 @@ func TestSingleImageBuildResponseEmitsPlan(t *testing.T) {
 }
 
 func TestSingleImageBuildResponseLeavesCacheExecutionWithCaller(t *testing.T) {
-	dir := writeRecipeTree(t, true)
+	dir, emitted := writeRecipeTree(t, true)
 	base := &Base{loaded: true}
 	wrapper := &BuilderWrapper{Base: base}
 	base.Builder = wrapper
 	req := &builderv0.BuildRequest{OutputDirectory: dir}
-	cold, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1")
+	cold, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1", emitted)
 	require.NoError(t, err)
 	cache := &builderv0.BuildCacheOptions{Backend: "registry", Scope: "workspace/service/app", Imports: []string{"ghcr.io/org/cache"}}
 	req.BuildContext = &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: &builderv0.DockerBuildContext{Cache: cache}}}
-	warm, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1")
+	warm, err := wrapper.SingleImageBuildResponse(req, "repo/app:v1", emitted)
 	require.NoError(t, err)
 	require.Empty(t, warm.CacheContractVersion)
 	require.Equal(t, cold.GetResult().GetDockerBuildPlan().Digest, warm.GetResult().GetDockerBuildPlan().Digest)

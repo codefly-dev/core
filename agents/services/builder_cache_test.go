@@ -51,8 +51,8 @@ func TestBuildCacheRequiresAgentAcknowledgement(t *testing.T) {
 }
 
 func TestRecipeAgentsDoNotAcknowledgeCallerOwnedCacheExecution(t *testing.T) {
-	directory := writeRecipeTree(t, true)
-	plan, err := SingleImageBuildPlan(directory, "repo/app:v1", RecipeBuildPlatforms())
+	directory, emitted := writeRecipeTree(t, true)
+	plan, err := SingleImageBuildPlan(directory, "repo/app:v1", RecipeBuildPlatforms(), emitted)
 	require.NoError(t, err)
 	client := &cacheBuilderClient{plan: plan}
 	agent := &BuilderAgent{BuilderClient: client}

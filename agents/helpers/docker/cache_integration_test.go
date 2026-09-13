@@ -129,7 +129,12 @@ func TestLanguageRegistryCacheAcrossCleanBuilders(t *testing.T) {
 			for i := first; i <= last; i++ {
 				builderName := fmt.Sprintf("%s-%d", name, i)
 				run("buildx", "create", "--name", builderName, "--driver", "docker-container", "--driver-opt", "network="+name, "--buildkitd-config", config)
-				t.Setenv("BUILDX_BUILDER", builderName)
+				// Point the ambient selection at a builder that does not exist and pass
+				// the real one explicitly, so this run proves BuilderConfiguration.
+				// BuildxBuilder actually reaches docker buildx against a live registry.
+				// Falling back to the ambient builder would fail outright rather than
+				// quietly exporting cache from the wrong one.
+				t.Setenv("BUILDX_BUILDER", "must-not-use-ambient-builder")
 				t.Cleanup(func() {
 					out, err := exec.Command("docker", "buildx", "rm", builderName).CombinedOutput()
 					require.NoError(t, err, "%s", out)
@@ -165,7 +170,7 @@ func TestLanguageRegistryCacheAcrossCleanBuilders(t *testing.T) {
 					out, err := exec.Command("docker", "image", "rm", tag).CombinedOutput()
 					require.NoError(t, err, "%s", out)
 				})
-				builder, err := NewBuilder(BuilderConfiguration{Root: root, Dockerfile: "Dockerfile", Destination: resources.NewDockerImage(tag), Output: &output, Platform: "linux/amd64", Cache: policy})
+				builder, err := NewBuilder(BuilderConfiguration{Root: root, Dockerfile: "Dockerfile", Destination: resources.NewDockerImage(tag), Output: &output, Platform: "linux/amd64", Cache: policy, BuildxBuilder: builderName})
 				require.NoError(t, err)
 				result, err := builder.Build(ctx)
 				require.NoError(t, err, "%s", output.String())
