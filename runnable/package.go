@@ -58,12 +58,17 @@ var artifactFacility = map[basev0.RunnableArtifact_Kind]basev0.RunnableFacility_
 	basev0.RunnableArtifact_IMAGE:  basev0.RunnableFacility_KUBERNETES,
 }
 
-// signalableFacilities are the dispatch forms whose execution a launcher owns
-// and can therefore interrupt. Nothing signals a method running inside a
-// process its owner operates, or a function its provider runs.
-var signalableFacilities = map[basev0.RunnableFacility_Kind]struct{}{
-	basev0.RunnableFacility_NATIVE:     {},
-	basev0.RunnableFacility_KUBERNETES: {},
+// declaredFacilities spells the wire facilities the way the declaration does,
+// so the descriptor applies the one capability table in resources rather than
+// a second copy that can drift from it.
+func declaredFacilities(execution *basev0.RunnableExecution) []resources.RunnableFacility {
+	spelled := make([]resources.RunnableFacility, 0, len(execution.GetFacilities()))
+	for _, facility := range execution.GetFacilities() {
+		if spelling, known := resources.RunnableFacilityOf(facility.GetKind()); known {
+			spelled = append(spelled, spelling)
+		}
+	}
+	return spelled
 }
 
 // PreparePackage clones pkg, validates it, canonicalizes its sets and
@@ -143,21 +148,33 @@ func CompareBinding(existing, incoming *basev0.RunnableBinding, pkg *basev0.Runn
 	if err := VerifyBinding(incoming, pkg); err != nil {
 		return fmt.Errorf("incoming: %w", err)
 	}
-	if !proto.Equal(existing.GetIdentity(), incoming.GetIdentity()) {
-		return fmt.Errorf("%w: bindings install different releases", ErrInvalid)
-	}
+	// Both bindings verified against pkg, so validateBinding has already tied
+	// each identity to that one release; comparing them again would test a
+	// state neither argument can be in.
 	if existing.GetFacility().GetKind() != incoming.GetFacility().GetKind() ||
 		existing.GetTarget().GetEnvironment() != incoming.GetTarget().GetEnvironment() ||
-		existing.GetTarget().GetRevision() != incoming.GetTarget().GetRevision() {
+		existing.GetTarget().GetRevision() != incoming.GetTarget().GetRevision() ||
+		existing.GetArtifact().GetPlatform() != incoming.GetArtifact().GetPlatform() {
 		return fmt.Errorf("%w: bindings install onto different targets", ErrInvalid)
 	}
 	if existing.GetDigest() != incoming.GetDigest() {
-		return fmt.Errorf("%w: release %s/%s@%s is already installed on %s revision %s of %s with digest %s; incoming digest is %s",
+		return fmt.Errorf("%w: release %s/%s@%s is already installed on %s%s revision %s of %s with digest %s; incoming digest is %s",
 			ErrConflict, existing.GetIdentity().GetModule(), existing.GetIdentity().GetName(),
-			existing.GetIdentity().GetVersion(), existing.GetFacility().GetKind(), existing.GetTarget().GetRevision(),
-			existing.GetTarget().GetEnvironment(), existing.GetDigest(), incoming.GetDigest())
+			existing.GetIdentity().GetVersion(), existing.GetFacility().GetKind(), platformSuffix(existing),
+			existing.GetTarget().GetRevision(), existing.GetTarget().GetEnvironment(),
+			existing.GetDigest(), incoming.GetDigest())
 	}
 	return nil
+}
+
+// platformSuffix names the artifact platform in a conflict message, because
+// two platforms of one release install side by side and a message that hid
+// which one was already there would be unactionable.
+func platformSuffix(binding *basev0.RunnableBinding) string {
+	if platform := binding.GetArtifact().GetPlatform(); platform != "" {
+		return " " + platform
+	}
+	return ""
 }
 
 // PrepareBinding clones binding, validates it against the verified package it
@@ -230,6 +247,14 @@ func validatePackage(pkg *basev0.RunnablePackage) error {
 	facilities, err := validateExecution(pkg.GetExecution())
 	if err != nil {
 		return err
+	}
+	protocol, err := resources.RunnableFacilityProtocol(declaredFacilities(pkg.GetExecution()))
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if pkg.GetContract().GetProtocol() != protocol {
+		return fmt.Errorf("%w: contract protocol %q does not reach the declared facilities, which are invoked over %q",
+			ErrInvalid, pkg.GetContract().GetProtocol(), protocol)
 	}
 	if err := validatePackageBuild(pkg); err != nil {
 		return err
@@ -349,13 +374,26 @@ func validateExecution(execution *basev0.RunnableExecution) (map[basev0.Runnable
 	if execution.GetRecovery() == basev0.RunnableExecution_RECOVERY_UNKNOWN {
 		return nil, fmt.Errorf("%w: execution recovery is required", ErrInvalid)
 	}
-	if execution.GetCancellation() == basev0.RunnableExecution_CANCELLATION_SIGNAL {
-		for _, facility := range execution.GetFacilities() {
-			if _, signalable := signalableFacilities[facility.GetKind()]; !signalable {
-				return nil, fmt.Errorf("%w: facility %s cannot honor cancellation %s: nothing signals a method its owner runs inside its own process, or a function its provider runs",
-					ErrInvalid, facility.GetKind(), execution.GetCancellation())
-			}
+	launched := false
+	for _, facility := range declaredFacilities(execution) {
+		capabilities, _ := facility.Capabilities()
+		if capabilities.Launched {
+			launched = true
+			continue
 		}
+		if execution.GetCancellation() == basev0.RunnableExecution_CANCELLATION_SIGNAL {
+			return nil, fmt.Errorf("%w: facility %s cannot honor cancellation %s: nothing signals a method its owner runs inside its own process, or a function its provider runs",
+				ErrInvalid, facility, execution.GetCancellation())
+		}
+	}
+	// A log bound describes what a launcher captures. Requiring one where no
+	// launcher exists would put a number in the descriptor that describes
+	// nobody's behavior.
+	if launched && execution.GetMaxLogBytes() == 0 {
+		return nil, fmt.Errorf("%w: execution max_log_bytes must be positive when a facility is launched", ErrInvalid)
+	}
+	if !launched && execution.GetMaxLogBytes() != 0 {
+		return nil, fmt.Errorf("%w: execution sets max_log_bytes but no declared facility has a launcher capturing streams", ErrInvalid)
 	}
 	return facilities, nil
 }
@@ -531,9 +569,8 @@ func validateTarget(binding *basev0.RunnableBinding) error {
 		if facility != basev0.RunnableFacility_NATIVE {
 			return fmt.Errorf("%w: facility %s does not dispatch to a host target", ErrInvalid, facility)
 		}
-		installPath := coordinates.Host.GetInstallPath()
-		if !strings.HasPrefix(installPath, "/") || strings.ContainsRune(installPath, 0) {
-			return fmt.Errorf("%w: host install path %q must be absolute", ErrInvalid, installPath)
+		if err := validateInstallPath(coordinates.Host.GetInstallPath(), binding.GetArtifact().GetPlatform()); err != nil {
+			return err
 		}
 	case *basev0.RunnableTarget_Cluster:
 		if facility != basev0.RunnableFacility_KUBERNETES {
@@ -556,6 +593,37 @@ func validateTarget(binding *basev0.RunnableBinding) error {
 		return fmt.Errorf("%w: binding carries no target coordinates for facility %s", ErrInvalid, facility)
 	}
 	return nil
+}
+
+// validateInstallPath checks absoluteness the way the artifact's own platform
+// spells it. A windows package is installed under a drive or UNC root, so a
+// bare leading-slash rule would let one be built and never bound.
+func validateInstallPath(installPath, platform string) error {
+	if strings.ContainsRune(installPath, 0) {
+		return fmt.Errorf("%w: host install path %q must not contain NUL", ErrInvalid, installPath)
+	}
+	operatingSystem, _, _ := strings.Cut(platform, "/")
+	if operatingSystem == "windows" {
+		if !windowsAbsolute(installPath) {
+			return fmt.Errorf("%w: host install path %q must be absolute on %s", ErrInvalid, installPath, platform)
+		}
+		return nil
+	}
+	if !strings.HasPrefix(installPath, "/") {
+		return fmt.Errorf("%w: host install path %q must be absolute", ErrInvalid, installPath)
+	}
+	return nil
+}
+
+func windowsAbsolute(installPath string) bool {
+	if strings.HasPrefix(installPath, `\\`) {
+		return true
+	}
+	if len(installPath) < 3 || installPath[1] != ':' || (installPath[2] != '\\' && installPath[2] != '/') {
+		return false
+	}
+	drive := installPath[0]
+	return (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')
 }
 
 func validateServiceTarget(target *basev0.RunnableServiceTarget, operation *basev0.RunnableServiceOperation) error {
@@ -684,8 +752,21 @@ func canonicalizeBinding(binding *basev0.RunnableBinding) {
 	})
 	for _, mapping := range binding.DependencyNetworkMappings {
 		sortNetworkInstances(mapping)
+		stripEndpointSchema(mapping)
 	}
 	sortNetworkInstances(binding.GetTarget().GetService().GetEndpoint())
+	stripEndpointSchema(binding.GetTarget().GetService().GetEndpoint())
+}
+
+// stripEndpointSchema drops an endpoint's published API description from a
+// binding. It carries raw .proto source or a serialized OpenAPI document,
+// which changes every time the owner regenerates; leaving it in would make an
+// installation whose coordinates never moved digest differently and read as a
+// conflict. A binding records where an endpoint is, not what it publishes.
+func stripEndpointSchema(mapping *basev0.NetworkMapping) {
+	if mapping.GetEndpoint() != nil {
+		mapping.Endpoint.ApiDetails = nil
+	}
 }
 
 func sortNetworkInstances(mapping *basev0.NetworkMapping) {

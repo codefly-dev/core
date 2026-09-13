@@ -301,8 +301,10 @@ message RunnableExecution {
   uint32 concurrency = 7;
   // max_log_bytes bounds the diagnostics a launcher captures from each log
   // stream. Exceeding it truncates the stream and never changes the outcome,
-  // unlike max_output_bytes, whose payload is completion data.
-  uint64 max_log_bytes = 8 [(buf.validate.field).uint64.gt = 0];
+  // unlike max_output_bytes, whose payload is completion data. It is set only
+  // when a declared facility is launched: nothing captures streams from a
+  // method its owner runs, so a bound there would describe no one's behavior.
+  uint64 max_log_bytes = 8;
 }
 
 // Runnable is the declaration read from runnable.codefly.yaml.
@@ -317,8 +319,10 @@ message Runnable {
   Agent agent = 4 [(buf.validate.field).required = true];
   // contract is the typed operation.
   RunnableContract contract = 5 [(buf.validate.field).required = true];
-  // handler is the runnable-relative path of the author entrypoint.
-  string handler = 6 [(buf.validate.field).string.min_len = 1];
+  // handler is the runnable-relative path of the author entrypoint. It is
+  // empty when no declared facility builds an artifact from this directory:
+  // a method the owner service already publishes is built by that owner.
+  string handler = 6;
   // build_inputs are runnable-relative paths whose content changes the package.
   repeated string build_inputs = 7;
   // service_dependencies are services the invocation may reach.

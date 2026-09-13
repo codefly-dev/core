@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -269,6 +270,8 @@ func ownerHandlerPackage(t *testing.T) *basev0.RunnablePackage {
 	pkg := samplePackage(t)
 	pkg.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_SERVICE}}
 	pkg.Execution.Cancellation = basev0.RunnableExecution_CANCELLATION_NONE
+	pkg.Execution.MaxLogBytes = 0
+	pkg.Contract.Protocol = resources.RunnableServiceProtocolV1
 	pkg.Artifacts = nil
 	pkg.Build = nil
 	pkg.ServiceOperations = []*basev0.RunnableServiceOperation{sampleServiceOperation()}
@@ -280,6 +283,8 @@ func functionPackage(t *testing.T) *basev0.RunnablePackage {
 	pkg := samplePackage(t)
 	pkg.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_FUNCTION}}
 	pkg.Execution.Cancellation = basev0.RunnableExecution_CANCELLATION_NONE
+	pkg.Execution.MaxLogBytes = 0
+	pkg.Contract.Protocol = resources.RunnableFunctionProtocolV1
 	pkg.Artifacts = nil
 	pkg.Build = nil
 	pkg.Functions = []*basev0.RunnableFunction{{Provider: "aws.lambda", Entrypoint: "handler.handle"}}
@@ -472,6 +477,8 @@ func TestOwnerHandlerInstallsWithoutAnExecutablePackage(t *testing.T) {
 		}, "declares no implementation"},
 		{"operation without its facility", func(p *basev0.RunnablePackage) {
 			p.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_NATIVE}}
+			p.Contract.Protocol = resources.RunnableProtocolV1
+			p.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
 		}, "needs facility SERVICE"},
 		{"unsupported adaptation", func(p *basev0.RunnablePackage) {
 			p.ServiceOperations[0].Adaptation = basev0.RunnableServiceOperation_ADAPTATION_UNKNOWN
@@ -539,6 +546,8 @@ func TestRemoteFunctionIsDeclaredAndTargetedWithoutProvisioning(t *testing.T) {
 
 	undeclared := functionPackage(t)
 	undeclared.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_NATIVE}}
+	undeclared.Contract.Protocol = resources.RunnableProtocolV1
+	undeclared.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
 	_, err = runnable.PreparePackage(undeclared)
 	require.ErrorContains(t, err, "needs facility FUNCTION")
 }
@@ -572,7 +581,7 @@ func TestCompareBindingIsIdempotentAndConflictsOnChangedInstallation(t *testing.
 	})
 	err := runnable.CompareBinding(existing, changed, pkg)
 	require.ErrorIs(t, err, runnable.ErrConflict)
-	require.ErrorContains(t, err, "is already installed on KUBERNETES revision install-7 of local")
+	require.ErrorContains(t, err, "is already installed on KUBERNETES linux/amd64 revision install-7 of local")
 
 	// Another environment, or a re-provisioned target, is a separate
 	// installation that coexists rather than a conflicting one.
@@ -593,4 +602,157 @@ func TestCompareBindingIsIdempotentAndConflictsOnChangedInstallation(t *testing.
 	otherBinding, err := runnable.PrepareBinding(sampleBinding(otherRelease, otherRelease.GetArtifacts()[1], basev0.RunnableFacility_KUBERNETES), otherRelease)
 	require.NoError(t, err)
 	require.ErrorContains(t, runnable.CompareBinding(existing, otherBinding, pkg), "incoming")
+}
+
+func TestDispatchFormsMustAgreeOnTheInvocationProtocol(t *testing.T) {
+	// The launcher framing and an owner's own endpoint are different
+	// transports, so one contract cannot name both.
+	mixed := samplePackage(t)
+	mixed.Execution.Facilities = append(mixed.Execution.Facilities, &basev0.RunnableFacility{Kind: basev0.RunnableFacility_SERVICE})
+	mixed.Execution.Cancellation = basev0.RunnableExecution_CANCELLATION_NONE
+	mixed.ServiceOperations = []*basev0.RunnableServiceOperation{sampleServiceOperation()}
+	_, err := runnable.PreparePackage(mixed)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "cannot be one release")
+
+	// A service-backed release claiming the launcher/harness framing asserts
+	// an invocation document and a result file that nothing writes.
+	wrongProtocol := ownerHandlerPackage(t)
+	wrongProtocol.Contract.Protocol = resources.RunnableProtocolV1
+	_, err = runnable.PreparePackage(wrongProtocol)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "does not reach the declared facilities")
+
+	require.Equal(t, resources.RunnableProtocolV1, preparedPackage(t).GetContract().GetProtocol())
+
+	launcherless := ownerHandlerPackage(t)
+	launcherless.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
+	_, err = runnable.PreparePackage(launcherless)
+	require.ErrorContains(t, err, "no declared facility has a launcher capturing streams")
+}
+
+func TestTwoPlatformsOfOneReleaseInstallSideBySide(t *testing.T) {
+	multi := samplePackage(t)
+	multi.Artifacts = append(multi.Artifacts, &basev0.RunnableArtifact{
+		Kind: basev0.RunnableArtifact_IMAGE, Platform: "linux/arm64",
+		Reference: "ghcr.io/example/word-count:0.1.0@" + digestC, Digest: digestC,
+	})
+	pkg, err := runnable.PreparePackage(multi)
+	require.NoError(t, err)
+	var amd64, arm64 *basev0.RunnableArtifact
+	for _, artifact := range pkg.GetArtifacts() {
+		switch artifact.GetPlatform() {
+		case "linux/amd64":
+			amd64 = artifact
+		case "linux/arm64":
+			arm64 = artifact
+		}
+	}
+	require.NotNil(t, amd64)
+	require.NotNil(t, arm64)
+
+	install := func(artifact *basev0.RunnableArtifact) *basev0.RunnableBinding {
+		prepared, err := runnable.PrepareBinding(sampleBinding(pkg, artifact, basev0.RunnableFacility_KUBERNETES), pkg)
+		require.NoError(t, err)
+		return prepared
+	}
+
+	// One cluster, one namespace, one revision, two architectures: a mixed-arch
+	// cluster needs both, and neither replaces the other.
+	err = runnable.CompareBinding(install(amd64), install(arm64), pkg)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.NotErrorIs(t, err, runnable.ErrConflict)
+	require.ErrorContains(t, err, "different targets")
+
+	changed := sampleBinding(pkg, amd64, basev0.RunnableFacility_KUBERNETES)
+	changed.Target.GetCluster().ServiceAccount = "invoker"
+	changedPrepared, err := runnable.PrepareBinding(changed, pkg)
+	require.NoError(t, err)
+	err = runnable.CompareBinding(install(amd64), changedPrepared, pkg)
+	require.ErrorIs(t, err, runnable.ErrConflict)
+	require.ErrorContains(t, err, "linux/amd64")
+}
+
+func TestRegeneratedEndpointSchemaDoesNotChangeAnInstallation(t *testing.T) {
+	pkg := preparedPackage(t)
+	image := pkg.GetArtifacts()[1]
+	plain, err := runnable.PrepareBinding(sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES), pkg)
+	require.NoError(t, err)
+
+	regenerated := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
+	regenerated.DependencyNetworkMappings[0].Endpoint.ApiDetails = &basev0.API{
+		Value: &basev0.API_Grpc{Grpc: &basev0.GrpcAPI{
+			Service: "store", Module: "with-runnables",
+			Proto: []byte("syntax = \"proto3\"; // regenerated, same addresses"),
+		}},
+	}
+	prepared, err := runnable.PrepareBinding(regenerated, pkg)
+	require.NoError(t, err)
+
+	// Regenerating the owner's protos moves no address, so this is the same
+	// installation and reinstalling it is idempotent, not a conflict.
+	require.Nil(t, prepared.GetDependencyNetworkMappings()[0].GetEndpoint().GetApiDetails())
+	require.Equal(t, plain.GetDigest(), prepared.GetDigest())
+	require.NoError(t, runnable.CompareBinding(plain, prepared, pkg))
+}
+
+func TestInstallPathIsAbsoluteForTheArtifactsOwnPlatform(t *testing.T) {
+	windows := samplePackage(t)
+	windows.Artifacts = append(windows.Artifacts, &basev0.RunnableArtifact{
+		Kind: basev0.RunnableArtifact_NATIVE, Platform: "windows/amd64",
+		Reference: "word-count-0.1.0-windows-amd64.zip", Digest: digestC,
+		Command: []string{"python", "-m", "codefly_runnable.harness"},
+	})
+	pkg, err := runnable.PreparePackage(windows)
+	require.NoError(t, err)
+	var artifact *basev0.RunnableArtifact
+	for _, candidate := range pkg.GetArtifacts() {
+		if candidate.GetPlatform() == "windows/amd64" {
+			artifact = candidate
+		}
+	}
+	require.NotNil(t, artifact)
+
+	bind := func(installPath string) error {
+		b := sampleBinding(pkg, artifact, basev0.RunnableFacility_NATIVE)
+		b.Target.GetHost().InstallPath = installPath
+		_, err := runnable.PrepareBinding(b, pkg)
+		return err
+	}
+	// A windows package is installed under a drive or UNC root; a leading-slash
+	// rule would let one be built and never bound.
+	require.NoError(t, bind(`C:\codefly\word-count`))
+	require.NoError(t, bind(`\\build\codefly\word-count`))
+	require.ErrorContains(t, bind("/opt/codefly/word-count"), "must be absolute on windows/amd64")
+	require.ErrorContains(t, bind(`codefly\word-count`), "must be absolute on windows/amd64")
+}
+
+func TestArtifactKeepsItsFieldNumberOnTheWire(t *testing.T) {
+	pkg := preparedPackage(t)
+	binding, err := runnable.PrepareBinding(sampleBinding(pkg, pkg.GetArtifacts()[1], basev0.RunnableFacility_KUBERNETES), pkg)
+	require.NoError(t, err)
+	encoded, err := proto.Marshal(binding)
+	require.NoError(t, err)
+
+	// Moving artifact into the implementation oneof must not move it on the
+	// wire: bytes written before the oneof existed still decode as this field.
+	var carried []byte
+	for rest := encoded; len(rest) > 0; {
+		number, kind, tagLen := protowire.ConsumeTag(rest)
+		require.Positive(t, tagLen)
+		rest = rest[tagLen:]
+		valueLen := protowire.ConsumeFieldValue(number, kind, rest)
+		require.Positive(t, valueLen)
+		if number == 5 {
+			require.Equal(t, protowire.BytesType, kind)
+			carried = rest[:valueLen]
+		}
+		rest = rest[valueLen:]
+	}
+	require.NotNil(t, carried)
+	payload, consumed := protowire.ConsumeBytes(carried)
+	require.Positive(t, consumed)
+	decoded := &basev0.RunnableArtifact{}
+	require.NoError(t, proto.Unmarshal(payload, decoded))
+	require.True(t, proto.Equal(binding.GetArtifact(), decoded))
 }

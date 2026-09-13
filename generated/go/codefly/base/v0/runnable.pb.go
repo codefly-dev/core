@@ -1418,7 +1418,9 @@ type RunnableExecution struct {
 	Concurrency uint32 `protobuf:"varint,7,opt,name=concurrency,proto3" json:"concurrency,omitempty"`
 	// max_log_bytes bounds the diagnostics a launcher captures from each log
 	// stream. Exceeding it truncates the stream and never changes the outcome,
-	// unlike max_output_bytes, whose payload is completion data.
+	// unlike max_output_bytes, whose payload is completion data. It is set only
+	// when a declared facility is launched: nothing captures streams from a
+	// method its owner runs, so a bound there would describe no one's behavior.
 	MaxLogBytes   uint64 `protobuf:"varint,8,opt,name=max_log_bytes,json=maxLogBytes,proto3" json:"max_log_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1523,7 +1525,9 @@ type Runnable struct {
 	Agent *Agent `protobuf:"bytes,4,opt,name=agent,proto3" json:"agent,omitempty"`
 	// contract is the typed operation.
 	Contract *RunnableContract `protobuf:"bytes,5,opt,name=contract,proto3" json:"contract,omitempty"`
-	// handler is the runnable-relative path of the author entrypoint.
+	// handler is the runnable-relative path of the author entrypoint. It is
+	// empty when no declared facility builds an artifact from this directory:
+	// a method the owner service already publishes is built by that owner.
 	Handler string `protobuf:"bytes,6,opt,name=handler,proto3" json:"handler,omitempty"`
 	// build_inputs are runnable-relative paths whose content changes the package.
 	BuildInputs []string `protobuf:"bytes,7,rep,name=build_inputs,json=buildInputs,proto3" json:"build_inputs,omitempty"`
@@ -2383,7 +2387,7 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\acluster\x18\x05 \x01(\v2&.codefly.base.v0.RunnableClusterTargetH\x00R\acluster\x12B\n" +
 	"\aservice\x18\x06 \x01(\v2&.codefly.base.v0.RunnableServiceTargetH\x00R\aservice\x12E\n" +
 	"\bfunction\x18\a \x01(\v2'.codefly.base.v0.RunnableFunctionTargetH\x00R\bfunctionB\r\n" +
-	"\vcoordinates\"\xac\x05\n" +
+	"\vcoordinates\"\xa3\x05\n" +
 	"\x11RunnableExecution\x12K\n" +
 	"\n" +
 	"facilities\x18\x01 \x03(\v2!.codefly.base.v0.RunnableFacilityB\b\xbaH\x05\x92\x01\x02\b\x01R\n" +
@@ -2393,8 +2397,8 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\brecovery\x18\x04 \x01(\x0e2+.codefly.base.v0.RunnableExecution.RecoveryB\b\xbaH\x05\x82\x01\x02\x10\x01R\brecovery\x12/\n" +
 	"\x0fmax_input_bytes\x18\x05 \x01(\x04B\a\xbaH\x042\x02 \x00R\rmaxInputBytes\x121\n" +
 	"\x10max_output_bytes\x18\x06 \x01(\x04B\a\xbaH\x042\x02 \x00R\x0emaxOutputBytes\x12 \n" +
-	"\vconcurrency\x18\a \x01(\rR\vconcurrency\x12+\n" +
-	"\rmax_log_bytes\x18\b \x01(\x04B\a\xbaH\x042\x02 \x00R\vmaxLogBytes\"X\n" +
+	"\vconcurrency\x18\a \x01(\rR\vconcurrency\x12\"\n" +
+	"\rmax_log_bytes\x18\b \x01(\x04R\vmaxLogBytes\"X\n" +
 	"\fCancellation\x12\x18\n" +
 	"\x14CANCELLATION_UNKNOWN\x10\x00\x12\x15\n" +
 	"\x11CANCELLATION_NONE\x10\x01\x12\x17\n" +
@@ -2402,14 +2406,14 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\bRecovery\x12\x14\n" +
 	"\x10RECOVERY_UNKNOWN\x10\x00\x12\x16\n" +
 	"\x12RECOVERY_RECOMPUTE\x10\x01\x12\x14\n" +
-	"\x10RECOVERY_RECEIPT\x10\x02\"\xfc\x04\n" +
+	"\x10RECOVERY_RECEIPT\x10\x02\"\xf3\x04\n" +
 	"\bRunnable\x12\x1d\n" +
 	"\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12!\n" +
 	"\aversion\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x05R\aversion\x124\n" +
 	"\x05agent\x18\x04 \x01(\v2\x16.codefly.base.v0.AgentB\x06\xbaH\x03\xc8\x01\x01R\x05agent\x12E\n" +
-	"\bcontract\x18\x05 \x01(\v2!.codefly.base.v0.RunnableContractB\x06\xbaH\x03\xc8\x01\x01R\bcontract\x12!\n" +
-	"\ahandler\x18\x06 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\ahandler\x12!\n" +
+	"\bcontract\x18\x05 \x01(\v2!.codefly.base.v0.RunnableContractB\x06\xbaH\x03\xc8\x01\x01R\bcontract\x12\x18\n" +
+	"\ahandler\x18\x06 \x01(\tR\ahandler\x12!\n" +
 	"\fbuild_inputs\x18\a \x03(\tR\vbuildInputs\x12V\n" +
 	"\x14service_dependencies\x18\b \x03(\v2#.codefly.base.v0.RunnableDependencyR\x13serviceDependencies\x12H\n" +
 	"\texecution\x18\t \x01(\v2\".codefly.base.v0.RunnableExecutionB\x06\xbaH\x03\xc8\x01\x01R\texecution\x12U\n" +

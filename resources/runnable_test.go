@@ -473,10 +473,28 @@ func TestRunnableValidationRejectsIncompleteContracts(t *testing.T) {
 		{"escaping input", func(d map[string]any) { d["entrypoint"].(map[string]any)["inputs"] = []any{"/etc/passwd"} }, "must stay within the resource directory"},
 		{"no execution", func(d map[string]any) { delete(d, "execution") }, "execution is required"},
 		{"no facilities", func(d map[string]any) { execution(d)["facilities"] = []any{} }, "at least one facility"},
-		{"unknown facility", func(d map[string]any) { execution(d)["facilities"] = []any{"nomad"} }, `facility "nomad" is not supported: expected one of`},
+		{"unknown facility", func(d map[string]any) { execution(d)["facilities"] = []any{"lambda"} }, `facility "lambda" is not supported`},
 		{"signal cancellation a facility cannot honor", func(d map[string]any) {
 			execution(d)["facilities"] = []any{"service"}
 		}, "cannot honor cancellation"},
+		{"forms reached over different protocols", func(d map[string]any) {
+			execution(d)["facilities"] = []any{"native", "service"}
+			execution(d)["cancellation"] = "none"
+		}, "cannot be one release"},
+		{"protocol that does not reach the facilities", func(d map[string]any) {
+			execution(d)["facilities"] = []any{"service"}
+			execution(d)["cancellation"] = "none"
+		}, "does not reach the declared facilities"},
+		{"entrypoint where nothing is built", func(d map[string]any) {
+			execution(d)["facilities"] = []any{"service"}
+			execution(d)["cancellation"] = "none"
+			contract(d)["protocol"] = "codefly.runnable.service/v1"
+		}, "no author entrypoint to name"},
+		{"log bound with no launcher to capture streams", func(d map[string]any) {
+			execution(d)["facilities"] = []any{"service"}
+			execution(d)["cancellation"] = "none"
+			execution(d)["logs"] = map[string]any{"max-bytes": 1024}
+		}, "logs bound is only meaningful"},
 		{"no timeout", func(d map[string]any) { delete(execution(d), "timeout") }, "timeout is required"},
 		{"bad timeout", func(d map[string]any) { execution(d)["timeout"] = "soon" }, "not a duration"},
 		{"zero timeout", func(d map[string]any) { execution(d)["timeout"] = "0s" }, "must be positive"},
@@ -574,4 +592,33 @@ func TestRunnableIdentityKeepsHostPathsOut(t *testing.T) {
 	require.ElementsMatch(t, []string{"name", "module", "workspace", "version"}, names)
 
 	require.Equal(t, identity, resources.RunnableIdentityFromProto(proto))
+}
+
+func TestServiceBackedRunnableDeclaresNoEntrypoint(t *testing.T) {
+	ctx := context.Background()
+	source, err := os.ReadFile(filepath.Join(withRunnables, "runnables/word-count", resources.RunnableConfigurationName))
+	require.NoError(t, err)
+	declaration := map[string]any{}
+	require.NoError(t, yaml.Unmarshal(source, &declaration))
+	execution := declaration["execution"].(map[string]any)
+	execution["facilities"] = []any{"service"}
+	execution["cancellation"] = "none"
+	declaration["contract"].(map[string]any)["protocol"] = resources.RunnableServiceProtocolV1
+	delete(declaration, "entrypoint")
+	content, err := yaml.Marshal(declaration)
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.RunnableConfigurationName), content, 0o600))
+
+	r, err := resources.LoadRunnableFromDir(ctx, dir)
+	require.NoError(t, err)
+	require.False(t, r.Execution.Launched())
+	require.Empty(t, r.HandlerPath())
+
+	// Nothing downstream can mistake the owner's own method for a package
+	// built here: there is no handler to digest and no launcher log bound.
+	wire, err := r.Proto(ctx)
+	require.NoError(t, err)
+	require.Empty(t, wire.GetHandler())
+	require.Zero(t, wire.GetExecution().GetMaxLogBytes())
 }
