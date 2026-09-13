@@ -297,22 +297,23 @@ func TestProcessEnvironmentReadableMatchesReality(t *testing.T) {
 		<-waited
 	})
 
-	// The credential read races the child's exec: Darwin can fail the
-	// procargs read outright for a process that is mid-exec. The capability
-	// under test is stable, the read is not, so poll for a clean one.
+	// The credential read races the child's exec: Darwin fails the procargs
+	// read outright for a process that is mid-exec, while Linux reports
+	// success with no match until the exec'd image installs its environment.
+	// The capability under test is stable, the read is not, so poll for the
+	// credential itself and let the bound elapsing be the "not readable"
+	// verdict.
 	var value string
 	var readErr error
-	if !waitFor(5*time.Second, func() bool {
+	readable := waitFor(5*time.Second, func() bool {
 		value, readErr = readProcessGroupAuthentication(group.PGID())
-		return readErr == nil
-	}) {
-		t.Fatalf("readProcessGroupAuthentication: %v", readErr)
-	}
-	readable := value == group.record.Authentication
+		return value == group.record.Authentication
+	})
 	if readable != processEnvironmentReadable() {
-		t.Errorf("processEnvironmentReadable() = %t but a credentialed child's environment %s",
+		t.Errorf("processEnvironmentReadable() = %t but a credentialed child's environment %s (last read %q, error %v)",
 			processEnvironmentReadable(),
-			map[bool]string{true: "was readable", false: "was not readable"}[readable])
+			map[bool]string{true: "was readable", false: "was not readable"}[readable],
+			value, readErr)
 	}
 }
 
