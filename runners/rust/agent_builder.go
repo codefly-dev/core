@@ -4,8 +4,6 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
@@ -37,7 +35,7 @@ type DockerEnv struct {
 
 // BuildRustDocker emits a Docker build recipe for a Rust service.
 func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest, _ string,
+	req *builderv0.BuildRequest,
 	requirements *builders.Dependencies, builderFS embed.FS,
 	rustVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
 
@@ -68,7 +66,8 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 		opt(&docker)
 	}
 
-	if err = os.Remove(filepath.Join(req.GetOutputDirectory(), "Dockerfile")); err != nil && !os.IsNotExist(err) {
+	emitted, err := services.PrepareRecipeDestination(builderFS, req.GetOutputDirectory())
+	if err != nil {
 		return builder.BuildError(err)
 	}
 
@@ -77,7 +76,7 @@ func BuildRustDocker(ctx context.Context, builder *services.BuilderWrapper,
 		return builder.BuildError(err)
 	}
 
-	return builder.SingleImageBuildResponse(req, image.FullName())
+	return builder.SingleImageBuildResponse(req, image.FullName(), emitted)
 }
 
 // DeployRustKubernetes deploys a Rust service to Kubernetes. Identical in

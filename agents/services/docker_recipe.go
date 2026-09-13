@@ -5,10 +5,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/codefly-dev/core/templates"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
@@ -18,8 +22,11 @@ import (
 // the aggregate-digest algorithm changes, so a digest produced by an older core
 // is reported as a contract mismatch (a clear, actionable error) rather than as
 // a digest mismatch (indistinguishable from tampering). v2 covers the recipes
-// and per-file mode in the digest; v1 covered only file paths and content.
-const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v2"
+// and per-file mode in the digest; v1 covered only file paths and content. v3
+// scopes the inventory to the files the plan declares rather than to whatever
+// happens to sit in the destination directory, so unrelated content in a
+// committed recipe directory can neither perturb the digest nor fail the build.
+const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v3"
 
 // ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
 // contract: when set, the destination must be an absolute path the caller owns.
@@ -44,6 +51,83 @@ func ValidateBuildRequestOutputDirectory(req *builderv0.BuildRequest) error {
 	return nil
 }
 
+// BuilderTemplateRoot is the subtree of an agent's embedded template filesystem
+// that WithBuilder renders. PrepareRecipeDestination and WithBuilder must agree
+// on it, or the prepared path set would not match the rendered one.
+const BuilderTemplateRoot = "templates/builder"
+
+// PrepareRecipeDestination unlinks every path the builder template set is about
+// to render into outputDirectory and returns that path set, destination-relative
+// and sorted.
+//
+// It must run before the templates are rendered. The template writer opens each
+// destination with os.OpenFile(O_WRONLY|O_CREATE|O_TRUNC) and tests existence
+// with os.Stat, and both follow symlinks: rendering over a symlinked destination
+// truncates the symlink's target, which can sit anywhere on disk. Because
+// output_directory is the service's committed builder/ directory, a symlink
+// there is ordinary repository content, not an attack precondition. Unlinking
+// first (os.Remove never follows the final component) makes every render land
+// on a fresh regular file inside the caller-owned directory.
+//
+// Inventorying the returned set rather than walking the destination is what
+// keeps a plan's digest a function of the recipe: unrelated files in a committed
+// directory — editor backups, .DS_Store, a symlink to shared config — are
+// neither hashed nor rejected, because none of them is a file this build wrote.
+func PrepareRecipeDestination(builderFS fs.FS, outputDirectory string) ([]string, error) {
+	var emitted []string
+	namer := templates.CutTemplateSuffix{}
+	err := fs.WalkDir(builderFS, BuilderTemplateRoot, func(entry string, info fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			return nil
+		}
+		// fs.WalkDir always yields slash-separated paths, so the template-relative
+		// name is derived with path, not filepath, and converted once on the way to
+		// the destination below.
+		relative, found := strings.CutPrefix(entry, BuilderTemplateRoot+"/")
+		if !found {
+			return fmt.Errorf("template entry %q is outside %q", entry, BuilderTemplateRoot)
+		}
+		name := namer.NewName(path.Clean(relative))
+		emitted = append(emitted, name)
+		if removeErr := os.Remove(filepath.Join(outputDirectory, filepath.FromSlash(name))); removeErr != nil && !os.IsNotExist(removeErr) {
+			return fmt.Errorf("cannot replace recipe file %q: %w", name, removeErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("prepare recipe destination: %w", err)
+	}
+	if len(emitted) == 0 {
+		return nil, fmt.Errorf("builder template set %q is empty; nothing to emit", BuilderTemplateRoot)
+	}
+	sort.Strings(emitted)
+	return emitted, nil
+}
+
+// BuildEmittedDockerBuildPlan builds a plan whose inventory is exactly the files
+// this build emitted — the set PrepareRecipeDestination returned — instead of
+// whatever the destination directory currently holds. Use it from any runner
+// that renders a known template set; BuildDockerBuildPlan remains for callers
+// that assemble a destination tree by other means and want all of it covered.
+func BuildEmittedDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRecipe, emitted []string) (*builderv0.DockerBuildPlan, error) {
+	files, err := inventoryRecipePaths(destination, emitted)
+	if err != nil {
+		return nil, fmt.Errorf("inventory recipe files: %w", err)
+	}
+	if err := validateRecipes(destination, recipes, files); err != nil {
+		return nil, err
+	}
+	return &builderv0.DockerBuildPlan{
+		Recipes:         recipes,
+		Files:           files,
+		Digest:          aggregateRecipeDigest(recipes, files),
+		ContractVersion: DockerBuildRecipeContractVersion,
+	}, nil
+}
+
 // BuildDockerBuildPlan inventories the recipe tree an agent wrote to destination
 // and returns a build plan: the ordered recipes plus the canonical sorted file
 // inventory with per-file sha256 digests and an aggregate digest that is a
@@ -52,6 +136,13 @@ func ValidateBuildRequestOutputDirectory(req *builderv0.BuildRequest) error {
 // returned, so a plan that passes is buildable. The caller (the CLI) verifies the
 // on-disk tree against the plan before running docker buildx, so the recipe is a
 // durable, first-class artifact rather than an image built inside the agent.
+//
+// This inventories everything under destination, including entries the caller did
+// not write, and rejects any symlink it finds. That is the right contract for a
+// caller that assembles the whole destination itself and is claiming all of it —
+// there, an unexpected entry is drift. A caller that renders a known template set
+// into a directory it shares with the repository should use
+// BuildEmittedDockerBuildPlan instead, which claims only the files it wrote.
 func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRecipe) (*builderv0.DockerBuildPlan, error) {
 	files, err := inventoryRecipeFiles(destination)
 	if err != nil {
@@ -98,14 +189,20 @@ func BuildPlanRequested(req *builderv0.BuildRequest) bool {
 // caller requested recipe emission (a non-empty BuildRequest.output_directory)
 // instead of building the image in-process, so the build recipe becomes a durable
 // artifact the caller builds.
-func SingleImageBuildPlan(outputDirectory, image string, platforms []string) (*builderv0.DockerBuildPlan, error) {
+//
+// emitted is the path set this build rendered, from PrepareRecipeDestination. The
+// recipe references a dockerignore only when that set contains one. Probing the
+// destination for a dockerignore instead would adopt a stale file: the executor
+// copies the referenced ignore to the path buildx discovers and applies it, so an
+// ignore left behind by an older template set would silently keep files out of
+// the image with no error and no diff.
+func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emitted []string) (*builderv0.DockerBuildPlan, error) {
 	dockerignore := ""
-	// Lstat, not Stat: inventoryRecipeFiles rejects symlinks outright, so a
-	// symlinked dockerignore that Stat would follow-and-accept must not enter the
-	// recipe — it would hard-fail the inventory with an error unrelated to the
-	// dockerignore reference.
-	if info, err := os.Lstat(filepath.Join(outputDirectory, "dockerignore")); err == nil && info.Mode().IsRegular() {
-		dockerignore = "dockerignore"
+	for _, name := range emitted {
+		if name == "dockerignore" {
+			dockerignore = "dockerignore"
+			break
+		}
 	}
 	recipe := &builderv0.DockerBuildRecipe{
 		Name:         "app",
@@ -115,15 +212,67 @@ func SingleImageBuildPlan(outputDirectory, image string, platforms []string) (*b
 		Image:        image,
 		Platforms:    platforms,
 	}
-	return BuildDockerBuildPlan(outputDirectory, []*builderv0.DockerBuildRecipe{recipe})
+	return BuildEmittedDockerBuildPlan(outputDirectory, []*builderv0.DockerBuildRecipe{recipe}, emitted)
 }
 
-// VerifyDockerBuildPlan re-inventories the recipe tree at destination and checks
-// it against plan. The caller (the CLI) runs this before docker buildx so it
+// inventoryRecipePaths inventories exactly the destination-relative paths given,
+// in canonical sorted order. Each path must be relative, stay inside destination,
+// and resolve to a regular file. Symlinks are rejected by Lstat rather than
+// followed: fileDigest would otherwise hash an out-of-tree target and buildx
+// would read it, so containment is enforced on the real file type, not only on
+// the lexical path.
+func inventoryRecipePaths(destination string, paths []string) ([]*builderv0.RecipeFile, error) {
+	files := make([]*builderv0.RecipeFile, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, raw := range paths {
+		relative, err := recipeRelPath(destination, raw)
+		if err != nil {
+			return nil, fmt.Errorf("recipe file %q: %w", raw, err)
+		}
+		if _, duplicate := seen[relative]; duplicate {
+			return nil, fmt.Errorf("recipe file %q is listed more than once", relative)
+		}
+		seen[relative] = struct{}{}
+		full := filepath.Join(destination, filepath.FromSlash(relative))
+		info, err := os.Lstat(full)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("recipe file %q is a symlink; symlinks are not permitted in the recipe tree", relative)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("recipe file %q is not a regular file", relative)
+		}
+		digest, err := fileDigest(full)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, &builderv0.RecipeFile{
+			Path:   relative,
+			Digest: digest,
+			Mode:   uint32(info.Mode().Perm()),
+		})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].GetPath() < files[j].GetPath() })
+	return files, nil
+}
+
+// VerifyDockerBuildPlan re-inventories the files the plan declares and checks
+// them against plan. The caller (the CLI) runs this before docker buildx so it
 // never builds from a tree that drifted from the inventory the agent validated,
 // and never builds recipes whose metadata (image, args, paths) was tampered with
 // after the plan was emitted: the digest covers the recipes as well as the files,
 // and every recipe is re-validated to reference real, contained tree entries.
+//
+// It re-hashes exactly plan.files rather than re-walking destination. Walking
+// would make verification depend on content the plan never claimed: because
+// output_directory is the service's committed builder/ directory, an unrelated
+// file added there after emission would change the aggregate digest, and an
+// unrelated symlink would abort the build with an error naming a file that has
+// nothing to do with the image. A path the plan declares but that is now missing,
+// modified, re-moded, or replaced by a symlink is still caught, which is the
+// drift this guard exists to detect.
 func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) error {
 	if plan == nil {
 		return fmt.Errorf("build plan is nil")
@@ -131,9 +280,13 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 	if plan.GetContractVersion() != DockerBuildRecipeContractVersion {
 		return fmt.Errorf("build plan contract %q, expected %q", plan.GetContractVersion(), DockerBuildRecipeContractVersion)
 	}
-	files, err := inventoryRecipeFiles(destination)
+	declared := make([]string, 0, len(plan.GetFiles()))
+	for _, file := range plan.GetFiles() {
+		declared = append(declared, file.GetPath())
+	}
+	files, err := inventoryRecipePaths(destination, declared)
 	if err != nil {
-		return fmt.Errorf("inventory recipe tree: %w", err)
+		return fmt.Errorf("inventory recipe files: %w", err)
 	}
 	if err := validateRecipes(destination, plan.GetRecipes(), files); err != nil {
 		return err
@@ -145,12 +298,20 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 }
 
 // validateRecipes checks that every recipe carries a non-empty name that is
-// unique within the service, and references paths that are relative, contained
-// within destination, and present in the inventoried tree: the Dockerfile and
-// (optional) dockerignore must be files in the inventory, and the context must
-// be an existing directory. A plan that passes this is buildable by docker
-// buildx and cannot point the build context or Dockerfile outside the
-// caller-owned output directory.
+// unique within the service, and references paths that are relative and stay
+// inside the root they are resolved against: the Dockerfile and (optional)
+// dockerignore must be files in the inventory, so they cannot point buildx -f at
+// anything outside the caller-owned output directory.
+//
+// The context is checked lexically only. dockerfile and dockerignore are
+// output_directory-relative, but context is resolved by the executor against the
+// SERVICE directory — that is what makes "." mean "build the service" while the
+// Dockerfile lives in the service's builder/ subdirectory. destination is
+// therefore the wrong root to resolve the context against, and statting it here
+// proved nothing: it accepted "." because output_directory trivially exists, and
+// it rejected a perfectly valid context such as "code" whenever the service had
+// no builder/code directory. Existence and containment of the context belong to
+// the executor, which is the only party that knows the service directory.
 func validateRecipes(destination string, recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile) error {
 	inventory := make(map[string]struct{}, len(files))
 	for _, file := range files {
@@ -173,16 +334,8 @@ func validateRecipes(destination string, recipes []*builderv0.DockerBuildRecipe,
 		if _, ok := inventory[dockerfile]; !ok {
 			return fmt.Errorf("recipe %q dockerfile %q is not present in the recipe tree", recipe.GetName(), recipe.GetDockerfile())
 		}
-		context, err := recipeRelPath(destination, recipe.GetContext())
-		if err != nil {
+		if _, err := recipeRelPath(destination, recipe.GetContext()); err != nil {
 			return fmt.Errorf("recipe %q context: %w", recipe.GetName(), err)
-		}
-		info, statErr := os.Stat(filepath.Join(destination, filepath.FromSlash(context)))
-		if statErr != nil {
-			return fmt.Errorf("recipe %q context %q: %w", recipe.GetName(), recipe.GetContext(), statErr)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("recipe %q context %q is not a directory", recipe.GetName(), recipe.GetContext())
 		}
 		if ignore := recipe.GetDockerignore(); ignore != "" {
 			dockerignore, err := recipeRelPath(destination, ignore)

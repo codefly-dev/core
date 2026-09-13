@@ -4,8 +4,6 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
@@ -31,7 +29,7 @@ type DockerTemplating struct {
 	ModuleRoot  string // e.g. "code" — where go.mod lives
 	BuildTarget string // e.g. "./cmd/server" — package to build (relative to ModuleRoot)
 	ContextRoot string // non-empty custom contexts are rejected before preparation
-	Workspace   bool   // template hint for workspace-aware source copying
+	Workspace   bool   // workspace-root source copying; rejected before preparation
 }
 
 // DockerEnv is a key-value pair for Docker environment variables.
@@ -42,7 +40,7 @@ type DockerEnv struct {
 
 // BuildGoDocker emits a Docker build recipe for a Go service.
 func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
-	req *builderv0.BuildRequest, _ string,
+	req *builderv0.BuildRequest,
 	requirements *builders.Dependencies, builderFS embed.FS,
 	goVersion, alpineVersion string, opts ...func(*DockerTemplating)) (*builderv0.BuildResponse, error) {
 
@@ -73,11 +71,23 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 		opt(&docker)
 	}
 
+	// ContextRoot and Workspace express one requirement — build from a directory
+	// above the service — and agents set them together. Rejecting only ContextRoot
+	// would let Workspace through, and a workspace template renders COPY paths
+	// relative to the workspace root while the recipe pins the context to the
+	// service directory: the build would then fail inside the CLI's buildx run
+	// with an opaque "COPY failed: file not found" instead of here, where the
+	// error can name the unsupported setting.
 	if docker.ContextRoot != "" {
 		return builder.BuildError(fmt.Errorf("custom Docker context root %q is not supported by image recipes", docker.ContextRoot))
 	}
 
-	if err = os.Remove(filepath.Join(req.GetOutputDirectory(), "Dockerfile")); err != nil && !os.IsNotExist(err) {
+	if docker.Workspace {
+		return builder.BuildError(fmt.Errorf("workspace-root Docker contexts are not supported by image recipes"))
+	}
+
+	emitted, err := services.PrepareRecipeDestination(builderFS, req.GetOutputDirectory())
+	if err != nil {
 		return builder.BuildError(err)
 	}
 
@@ -86,7 +96,7 @@ func BuildGoDocker(ctx context.Context, builder *services.BuilderWrapper,
 		return builder.BuildError(err)
 	}
 
-	return builder.SingleImageBuildResponse(req, image.FullName())
+	return builder.SingleImageBuildResponse(req, image.FullName(), emitted)
 }
 
 // DeployGoKubernetes deploys a Go service to Kubernetes.

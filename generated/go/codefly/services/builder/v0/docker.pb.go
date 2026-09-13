@@ -218,7 +218,12 @@ type DockerBuildRecipe struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// dockerfile is the output_directory-relative path to the Dockerfile.
 	Dockerfile string `protobuf:"bytes,2,opt,name=dockerfile,proto3" json:"dockerfile,omitempty"`
-	// context is the build-context directory the Dockerfile is evaluated against.
+	// context is the build-context directory the Dockerfile is evaluated against,
+	// relative to the SERVICE directory — not to output_directory, which the
+	// dockerfile and dockerignore paths are relative to. "." therefore means "build
+	// the service" while the Dockerfile itself lives in the service's builder/
+	// subdirectory. The executor resolves it and is the party that enforces it
+	// stays inside the service.
 	Context string `protobuf:"bytes,3,opt,name=context,proto3" json:"context,omitempty"`
 	// dockerignore is the optional output_directory-relative ignore file.
 	Dockerignore string `protobuf:"bytes,4,opt,name=dockerignore,proto3" json:"dockerignore,omitempty"`
@@ -329,7 +334,10 @@ type DockerBuildPlan struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// recipes is the ordered set of image build recipes for the service.
 	Recipes []*DockerBuildRecipe `protobuf:"bytes,1,rep,name=recipes,proto3" json:"recipes,omitempty"`
-	// files is the canonical, sorted inventory of recipe files with digests.
+	// files is the canonical, sorted inventory of the files the emitting build
+	// wrote, with digests. It is not an inventory of everything in
+	// output_directory: that directory is the service's committed builder/, so
+	// unrelated content there must neither perturb the digest nor fail the build.
 	Files []*RecipeFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
 	// digest is the aggregate content digest over files, formatted as
 	// "sha256:<hex>". Identical recipe trees yield an identical digest.

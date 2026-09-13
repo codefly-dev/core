@@ -134,9 +134,29 @@ host load affect wall time.
 
 The CLI alone builds and publishes application images. Shared Go and Rust
 runners require an absolute `output_directory` and return a DockerBuildPlan.
-Missing destinations fail before template preparation. Go custom/workspace-root
-contexts are rejected before preparation because the single-image recipe cannot
-represent them. Managed images and runtime-only agents remain no-build.
+Missing destinations fail before template preparation. Go custom context roots
+and workspace-root contexts are both rejected before preparation because the
+single-image recipe cannot represent them — `Workspace` carries the same
+requirement as `ContextRoot`, so rejecting only one would defer the failure to
+an opaque `COPY` error inside the executor. Managed images and runtime-only
+agents remain no-build.
+
+`output_directory` is the service's committed `builder/` directory, so it holds
+whatever the repository and the developer's OS put there. A plan therefore
+inventories only the files the emitting build wrote — the set
+`PrepareRecipeDestination` returns — and `VerifyDockerBuildPlan` re-hashes
+exactly those paths. Unrelated content cannot perturb the digest or fail the
+build, while drift in a declared file (content, mode, replacement by a symlink,
+removal) is still rejected. Because that directory is committed, every emitted
+path is unlinked before rendering: the template writer opens destinations with
+`O_CREATE|O_TRUNC` and would otherwise write *through* a symlink to a file
+outside the caller-owned directory.
+
+Recipe path bases differ and the distinction is load-bearing: `dockerfile` and
+`dockerignore` are relative to `output_directory`, while `context` is relative
+to the **service** directory, which is why `"."` means "build the service". Core
+checks the context lexically only; the executor resolves it and enforces
+containment, because only the executor knows the service directory.
 
 `DockerBuildContext.buildx_builder` identifies the builder the CLI selected,
 including selection for registry cache exports. The agent does not invoke it.
