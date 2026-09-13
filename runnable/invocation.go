@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -55,9 +56,12 @@ type Observation struct {
 	// StartedAt and EndedAt bracket the process.
 	StartedAt time.Time
 	EndedAt   time.Time
-	// Result is the document found at the result path, nil when nothing is
-	// there. The harness renames its document into place, so a document that
-	// exists is a complete one.
+	// ResultPresent says a document was found at the result path. It is
+	// separate from Result because Go routinely turns a nil slice into an empty
+	// one, and "no result" and "an empty result" are different outcomes.
+	ResultPresent bool
+	// Result is that document. The harness renames it into place, so a document
+	// that exists is a complete one.
 	Result []byte
 	// ExitCode is the process exit status, meaningful when Signal is empty.
 	ExitCode int32
@@ -116,7 +120,12 @@ func InvocationEnvironment(inv *basev0.RunnableInvocation, invocationPath, resul
 // every launcher draws that line in the same place.
 func ParseResult(document []byte, inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage) (*basev0.RunnableResult, error) {
 	result := &basev0.RunnableResult{}
-	if err := (protojson.UnmarshalOptions{}).Unmarshal(document, result); err != nil {
+	// A field this core does not know belongs to a harness generated from newer
+	// sources. Rejecting it would turn every invocation of that runnable into an
+	// uncertain outcome, recomputing pure work and re-reconciling effectful work
+	// that in fact completed. Unknown fields are dropped here, unlike on the
+	// installation facts, whose digest would silently stop covering them.
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(document, result); err != nil {
 		return nil, fmt.Errorf("%w: result is not a %s document: %v", ErrInvalid, ProtocolV1, err)
 	}
 	if err := validateResult(result, inv, pkg); err != nil {
@@ -143,9 +152,8 @@ func Complete(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, obser
 	if err != nil {
 		return nil, err
 	}
-	if observed.Ended == EndedOnCancel && pkg.GetExecution().GetCancellation() != basev0.RunnableExecution_CANCELLATION_SIGNAL {
-		return nil, fmt.Errorf("%w: package declares cancellation %s, so a launcher must not interrupt it",
-			ErrInvalid, pkg.GetExecution().GetCancellation())
+	if err := validateObservation(observed); err != nil {
+		return nil, err
 	}
 	completion := &basev0.RunnableCompletion{
 		Protocol:     prepared.GetProtocol(),
@@ -160,14 +168,13 @@ func Complete(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, obser
 			Stderr: &basev0.RunnableLogStream{Bytes: observed.Stderr.Bytes, Truncated: observed.Stderr.Truncated},
 		},
 	}
-	result, resultErr := parseObservedResult(observed.Result, prepared, pkg)
+	result, resultErr := parseObservedResult(observed, prepared, pkg)
 	switch {
 	case result != nil:
 		completion.Result = result
-		if result.GetStatus() == basev0.RunnableResult_SUCCEEDED {
-			completion.Outcome = basev0.RunnableCompletion_SUCCEEDED
-		} else {
-			completion.Outcome = basev0.RunnableCompletion_FAILED
+		completion.Outcome = reportedOutcome[result.GetStatus()]
+		if completion.Outcome == basev0.RunnableCompletion_CANCELED {
+			completion.Message = "the harness reported that an interruption stopped it"
 		}
 	case observed.Ended == EndedOnDeadline:
 		completion.Outcome = basev0.RunnableCompletion_TIMED_OUT
@@ -185,7 +192,20 @@ func Complete(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage, obser
 		completion.Outcome = basev0.RunnableCompletion_MISSING_OUTPUT
 		completion.Message = "the process exited successfully without writing a result document"
 	}
+	if observed.Ended == EndedOnCancel && pkg.GetExecution().GetCancellation() != basev0.RunnableExecution_CANCELLATION_SIGNAL {
+		completion.Message = strings.TrimSpace(fmt.Sprintf("the launcher interrupted an invocation whose package declares cancellation %s. %s",
+			pkg.GetExecution().GetCancellation(), completion.GetMessage()))
+	}
 	return completion, nil
+}
+
+// reportedOutcome maps what a harness reported to the outcome it means. An
+// interruption the harness handled is the same uncertain end as one the
+// launcher had to force.
+var reportedOutcome = map[basev0.RunnableResult_Status]basev0.RunnableCompletion_Outcome{
+	basev0.RunnableResult_SUCCEEDED:   basev0.RunnableCompletion_SUCCEEDED,
+	basev0.RunnableResult_FAILED:      basev0.RunnableCompletion_FAILED,
+	basev0.RunnableResult_INTERRUPTED: basev0.RunnableCompletion_CANCELED,
 }
 
 // OutcomeIsCertain says whether the outcome proves what happened to the
@@ -197,11 +217,28 @@ func OutcomeIsCertain(outcome basev0.RunnableCompletion_Outcome) bool {
 	return outcome == basev0.RunnableCompletion_SUCCEEDED || outcome == basev0.RunnableCompletion_FAILED
 }
 
-func parseObservedResult(document []byte, inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage) (*basev0.RunnableResult, error) {
-	if document == nil {
+func parseObservedResult(observed Observation, inv *basev0.RunnableInvocation, pkg *basev0.RunnablePackage) (*basev0.RunnableResult, error) {
+	if !observed.ResultPresent {
 		return nil, nil
 	}
-	return ParseResult(document, inv, pkg)
+	return ParseResult(observed.Result, inv, pkg)
+}
+
+// validateObservation rejects process facts a completion cannot be built from.
+// A zero time satisfies the wire contract's "required" and would be persisted
+// as year one, and an end before a start describes no process at all.
+func validateObservation(observed Observation) error {
+	if observed.StartedAt.IsZero() || observed.EndedAt.IsZero() {
+		return fmt.Errorf("%w: observation must bracket the process with a start and an end", ErrInvalid)
+	}
+	if observed.EndedAt.Before(observed.StartedAt) {
+		return fmt.Errorf("%w: observation ends at %s, before it starts at %s",
+			ErrInvalid, observed.EndedAt.Format(time.RFC3339), observed.StartedAt.Format(time.RFC3339))
+	}
+	if !observed.ResultPresent && len(observed.Result) > 0 {
+		return fmt.Errorf("%w: observation carries a result document but does not report one as present", ErrInvalid)
+	}
+	return nil
 }
 
 func crashMessage(observed Observation) string {
@@ -221,17 +258,18 @@ func validateInvocation(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePack
 	if !proto.Equal(inv.GetRunnable(), pkg.GetIdentity()) {
 		return fmt.Errorf("%w: invocation names another release than the package it runs", ErrInvalid)
 	}
-	if !inv.GetDeadline().AsTime().After(inv.GetIssuedAt().AsTime()) {
+	budget := inv.GetDeadline().AsTime().Sub(inv.GetIssuedAt().AsTime())
+	if budget <= 0 {
 		return fmt.Errorf("%w: invocation deadline is not after the instant it was issued", ErrInvalid)
 	}
-	needsEffect := pkg.GetExecution().GetRecovery() == basev0.RunnableExecution_RECOVERY_RECEIPT
-	if needsEffect && inv.GetEffectId() == "" {
+	// The declared timeout bounds one invocation's duration. A launcher
+	// computing a deadline of its own may shorten that, never overrule it.
+	if declared := pkg.GetExecution().GetTimeout().AsDuration(); budget > declared {
+		return fmt.Errorf("%w: invocation allows %s but the package declares a timeout of %s", ErrInvalid, budget, declared)
+	}
+	if pkg.GetExecution().GetRecovery() == basev0.RunnableExecution_RECOVERY_RECEIPT && inv.GetEffectId() == "" {
 		return fmt.Errorf("%w: package declares %s, so the invocation must carry the effect identity an uncertain outcome is resolved with",
 			ErrInvalid, basev0.RunnableExecution_RECOVERY_RECEIPT)
-	}
-	if !needsEffect && inv.GetEffectId() != "" {
-		return fmt.Errorf("%w: package declares %s, which has no effect to look up, so the invocation must carry no effect identity",
-			ErrInvalid, pkg.GetExecution().GetRecovery())
 	}
 	return validatePayload("input", inv.GetInput(), pkg.GetExecution().GetMaxInputBytes())
 }
@@ -258,6 +296,11 @@ func validateResult(result *basev0.RunnableResult, inv *basev0.RunnableInvocatio
 		}
 		if result.GetError().GetCode() == "" {
 			return fmt.Errorf("%w: a failed result requires the handler's failure code", ErrInvalid)
+		}
+		return nil
+	case basev0.RunnableResult_INTERRUPTED:
+		if len(result.GetOutput()) > 0 {
+			return fmt.Errorf("%w: an interrupted result carries no output", ErrInvalid)
 		}
 		return nil
 	default:

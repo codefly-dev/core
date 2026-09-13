@@ -238,16 +238,24 @@ ends means no result at all. `runnable.InvocationEnvironment` builds the three
 variables and `runnable.EncodeInvocation` the document, so a launcher does not
 restate either.
 
+One process runs one invocation: the paths name a single invocation and a
+single result, and there is no way to hand a second invocation to a process
+already running. `execution.concurrency` therefore bounds how many such
+processes a facility runs at once, not a pool inside one of them.
+
 **Identity and deadline.** An invocation carries the release it invokes, an
 `invocation_id` for this one process, an `intent_id` stable across attempts of
-the caller's logical operation, and — only when the package declares
-`recovery: receipt` — the `effect_id` an uncertain outcome is resolved by. A
-`recompute` package must carry none: an operation with nothing to look up and
-one with an effect to look up are different policies, not a field a caller may
-set either way. `issued_at` and `deadline` travel together so a harness
-budgeting its own work measures the remaining time as `deadline - issued_at`
-from the moment it reads the document, unaffected by an offset between the two
-clocks.
+the caller's logical operation, and the `effect_id` an uncertain outcome is
+resolved by. A `recovery: receipt` package requires that effect identity; a
+`recompute` one may still carry it, because a caller with a single identity
+scheme for all of its work should not have to branch on the target package's
+recovery policy before filling a field, and nothing looks it up there.
+`issued_at` and `deadline` travel together so a harness budgeting its own work
+measures the remaining time as `deadline - issued_at` from the moment it reads
+the document, unaffected by an offset between the two clocks. That budget may
+not exceed the package's declared `timeout`, which bounds one invocation's
+duration: a launcher computing a deadline of its own may shorten it, never
+overrule the author.
 
 **Payload versus logs.** The input and output payloads are each one UTF-8 JSON
 object, bounded by `max_input_bytes` and `max_output_bytes`. They are carried
@@ -263,11 +271,17 @@ result invalid. Core frames and bounds the payloads and proves they are objects;
 the harness type-checks them against the bindings generated from the contract.
 
 **Outcomes.** A harness reports only what it observed of itself: `SUCCEEDED`
-with output, or `FAILED` with a typed handler error in the operation's own
-vocabulary. Every other way an invocation ends is the launcher's judgement
-about a process that left no result, and `runnable.Complete` makes it, so a
-timeout, a crash and a harness that never wrote its result mean the same thing
-everywhere:
+with output, `FAILED` with a typed handler error in the operation's own
+vocabulary, or `INTERRUPTED` when it handled a signal and stopped. A package
+declaring `cancellation: signal` promises exactly that third report, and
+without a status for it such a harness would have to claim a failure it did
+not have — which a caller reads as proof the effect did not happen. `FAILED`
+carries that weight too: it says the handler completed without its effect, so
+a handler abandoning a half-applied one owes an `INTERRUPTED` or a crash.
+
+Every other way an invocation ends is the launcher's judgement about a process
+that left no result, and `runnable.Complete` makes it, so a timeout, a crash
+and a harness that never wrote its result mean the same thing everywhere:
 
 | Outcome | What the launcher saw |
 | --- | --- |
@@ -277,18 +291,21 @@ everywhere:
 | `MISSING_OUTPUT` | a process that exited successfully without writing a result |
 | `CRASHED` | a non-zero exit or a signal, with no result |
 | `TIMED_OUT` | the deadline passed and the launcher ended the process |
-| `CANCELED` | the launcher interrupted the process at the caller's request |
+| `CANCELED` | the harness reported `INTERRUPTED`, or the launcher interrupted the process at the caller's request |
 
 The precedence is: a valid result for this invocation first, so an outcome the
 harness already proved is never discarded because the launcher also ended the
 process; then the launcher ending it, which explains the process better than
 the exit status its own kill produced; then an invalid document; then a
 non-zero exit or signal; then nothing at all. Only a package declaring
-`cancellation: signal` may be interrupted — `runnable.Complete` rejects a
-cancellation of one declaring `none` rather than recording it. `SUCCEEDED` and
-`FAILED` prove what happened to the effect; `runnable.OutcomeIsCertain` says
-so, and every other outcome leaves it unproven for the package's `recovery`
-policy to resolve. Core neither retries nor recovers.
+`cancellation: signal` may be interrupted by a launcher; a launcher that
+interrupts one declaring `none` has broken the contract, and the completion
+records that in its `message` rather than being withheld — the invocation
+ended, and discarding the record of how would throw away an effect's only
+evidence. `SUCCEEDED` and `FAILED` prove what happened to the effect;
+`runnable.OutcomeIsCertain` says so, and every other outcome — `CANCELED`
+included, however the interruption was reported — leaves it unproven for the
+package's `recovery` policy to resolve. Core neither retries nor recovers.
 
 ## Ownership of what is not here
 

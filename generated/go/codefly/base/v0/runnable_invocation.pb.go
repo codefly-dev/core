@@ -33,8 +33,16 @@ const (
 	RunnableResult_UNKNOWN RunnableResult_Status = 0
 	// SUCCEEDED means the handler returned output matching the contract.
 	RunnableResult_SUCCEEDED RunnableResult_Status = 1
-	// FAILED means the handler ran and reported a typed failure.
+	// FAILED means the handler ran and reported a typed failure. It says the
+	// handler completed without its effect, which a caller reading the outcome
+	// as certain relies on: a handler that abandons a half-applied effect owes
+	// an INTERRUPTED or a crash, never a FAILED.
 	RunnableResult_FAILED RunnableResult_Status = 2
+	// INTERRUPTED means the harness handled an interruption signal and stopped.
+	// A package declaring CANCELLATION_SIGNAL promises exactly this report, and
+	// without it such a harness would have to claim a failure it did not have:
+	// the effect is left unproven, not disproven.
+	RunnableResult_INTERRUPTED RunnableResult_Status = 3
 )
 
 // Enum value maps for RunnableResult_Status.
@@ -43,11 +51,13 @@ var (
 		0: "UNKNOWN",
 		1: "SUCCEEDED",
 		2: "FAILED",
+		3: "INTERRUPTED",
 	}
 	RunnableResult_Status_value = map[string]int32{
-		"UNKNOWN":   0,
-		"SUCCEEDED": 1,
-		"FAILED":    2,
+		"UNKNOWN":     0,
+		"SUCCEEDED":   1,
+		"FAILED":      2,
+		"INTERRUPTED": 3,
 	}
 )
 
@@ -103,9 +113,13 @@ const (
 	RunnableCompletion_CRASHED RunnableCompletion_Outcome = 5
 	// TIMED_OUT means the deadline passed and the launcher ended the process.
 	RunnableCompletion_TIMED_OUT RunnableCompletion_Outcome = 6
-	// CANCELED means the launcher interrupted the process at the caller's
-	// request. Only a package declaring CANCELLATION_SIGNAL may be
-	// interrupted; one declaring CANCELLATION_NONE runs to its deadline.
+	// CANCELED means the invocation was interrupted: the launcher acted on the
+	// caller's request, or the harness reported INTERRUPTED. Only a package
+	// declaring CANCELLATION_SIGNAL may be interrupted by a launcher; one
+	// declaring CANCELLATION_NONE runs to its deadline. A launcher that
+	// interrupts one anyway has broken the contract, and the completion says so
+	// in message rather than being withheld — the invocation ended, and
+	// discarding the record of how would lose an effect's only evidence.
 	RunnableCompletion_CANCELED RunnableCompletion_Outcome = 7
 )
 
@@ -179,15 +193,20 @@ type RunnableInvocation struct {
 	IntentId string `protobuf:"bytes,4,opt,name=intent_id,json=intentId,proto3" json:"intent_id,omitempty"`
 	// effect_id is the idempotency key of the external effect. It is required
 	// when the package declares RECOVERY_RECEIPT, whose uncertain outcome is
-	// resolved by looking the effect up, and empty when it declares
-	// RECOVERY_RECOMPUTE, which has no effect to look up.
+	// resolved by looking the effect up. A caller with one identity scheme for
+	// all of its work may carry it on a RECOVERY_RECOMPUTE invocation too, where
+	// it is the caller's own identity and nothing looks it up: making a field
+	// forbidden by the target package's recovery policy would force every caller
+	// to branch on that policy before filling it.
 	EffectId string `protobuf:"bytes,5,opt,name=effect_id,json=effectId,proto3" json:"effect_id,omitempty"`
 	// issued_at is when the launcher wrote this document.
 	IssuedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=issued_at,json=issuedAt,proto3" json:"issued_at,omitempty"`
-	// deadline is when the launcher stops waiting. A harness budgeting its own
-	// work measures deadline minus issued_at from the moment it reads this
-	// document, so an offset between the two clocks neither shortens nor
-	// extends the budget.
+	// deadline is when the launcher stops waiting, at most issued_at plus the
+	// package's declared execution timeout: that timeout bounds one invocation's
+	// duration, so a launcher computing a deadline of its own may shorten it but
+	// never overrule the author. A harness budgeting its own work measures
+	// deadline minus issued_at from the moment it reads this document, so an
+	// offset between the two clocks neither shortens nor extends the budget.
 	Deadline *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=deadline,proto3" json:"deadline,omitempty"`
 	// input is one UTF-8 JSON object matching the contract's input schema,
 	// bounded by RunnableExecution.max_input_bytes. Bytes rather than a
@@ -344,9 +363,10 @@ func (x *RunnableError) GetMessage() string {
 }
 
 // RunnableResult is the document a harness writes. A harness reports only what
-// it observed of itself: the handler produced output, or the handler ran and
-// failed. Every other way an invocation can end is a judgement about a process
-// that left no result, which only the launcher is in a position to make.
+// it observed of itself: the handler produced output, the handler ran and
+// failed, or an interruption stopped it. Every other way an invocation can end
+// is a judgement about a process that left no result, which only the launcher
+// is in a position to make.
 type RunnableResult struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// protocol is the framing this document is written in.
@@ -360,7 +380,8 @@ type RunnableResult struct {
 	// contract's output schema, bounded by RunnableExecution.max_output_bytes
 	// and base64-encoded by a proto3 JSON encoder like the invocation input.
 	Output []byte `protobuf:"bytes,4,opt,name=output,proto3" json:"output,omitempty"`
-	// error is the FAILED cause.
+	// error is the FAILED cause, and optionally what an INTERRUPTED harness was
+	// doing when the signal arrived.
 	Error         *RunnableError `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -562,7 +583,8 @@ type RunnableCompletion struct {
 	ExitCode int32 `protobuf:"varint,6,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
 	// signal names the signal the process died on, empty when it exited.
 	Signal string `protobuf:"bytes,7,opt,name=signal,proto3" json:"signal,omitempty"`
-	// message explains an outcome that carries no result.
+	// message explains an outcome that carries no result, and records a launcher
+	// breaking the package's declared cancellation policy whatever the outcome.
 	Message string `protobuf:"bytes,8,opt,name=message,proto3" json:"message,omitempty"`
 	// started_at is when the launcher started the process.
 	StartedAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
@@ -700,19 +722,20 @@ const file_codefly_base_v0_runnable_invocation_proto_rawDesc = "" +
 	"\rRunnableError\x12\x1e\n" +
 	"\x04code\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xb0\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xc1\x02\n" +
 	"\x0eRunnableResult\x12#\n" +
 	"\bprotocol\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprotocol\x12/\n" +
 	"\rinvocation_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\finvocationId\x12H\n" +
 	"\x06status\x18\x03 \x01(\x0e2&.codefly.base.v0.RunnableResult.StatusB\b\xbaH\x05\x82\x01\x02\x10\x01R\x06status\x12\x16\n" +
 	"\x06output\x18\x04 \x01(\fR\x06output\x124\n" +
-	"\x05error\x18\x05 \x01(\v2\x1e.codefly.base.v0.RunnableErrorR\x05error\"0\n" +
+	"\x05error\x18\x05 \x01(\v2\x1e.codefly.base.v0.RunnableErrorR\x05error\"A\n" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\r\n" +
 	"\tSUCCEEDED\x10\x01\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x02\"G\n" +
+	"\x06FAILED\x10\x02\x12\x0f\n" +
+	"\vINTERRUPTED\x10\x03\"G\n" +
 	"\x11RunnableLogStream\x12\x14\n" +
 	"\x05bytes\x18\x01 \x01(\x04R\x05bytes\x12\x1c\n" +
 	"\ttruncated\x18\x02 \x01(\bR\ttruncated\"\x86\x01\n" +

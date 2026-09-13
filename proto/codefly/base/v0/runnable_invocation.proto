@@ -28,6 +28,11 @@ the process ends means no result at all.
 Standard output and standard error are logs. They never carry completion data:
 a harness that printed its output would be indistinguishable from a library
 that printed a warning.
+
+One process runs one invocation: the paths name a single invocation and a
+single result. RunnableExecution.concurrency therefore bounds how many such
+processes a facility runs at once, not a pool inside one of them; there is no
+way to hand a second invocation to a process already running.
 */
 
 // RunnableInvocation is the document a launcher hands a harness. Unlike a
@@ -48,15 +53,20 @@ message RunnableInvocation {
   string intent_id = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
   // effect_id is the idempotency key of the external effect. It is required
   // when the package declares RECOVERY_RECEIPT, whose uncertain outcome is
-  // resolved by looking the effect up, and empty when it declares
-  // RECOVERY_RECOMPUTE, which has no effect to look up.
+  // resolved by looking the effect up. A caller with one identity scheme for
+  // all of its work may carry it on a RECOVERY_RECOMPUTE invocation too, where
+  // it is the caller's own identity and nothing looks it up: making a field
+  // forbidden by the target package's recovery policy would force every caller
+  // to branch on that policy before filling it.
   string effect_id = 5 [(buf.validate.field).string.max_len = 128];
   // issued_at is when the launcher wrote this document.
   google.protobuf.Timestamp issued_at = 6 [(buf.validate.field).required = true];
-  // deadline is when the launcher stops waiting. A harness budgeting its own
-  // work measures deadline minus issued_at from the moment it reads this
-  // document, so an offset between the two clocks neither shortens nor
-  // extends the budget.
+  // deadline is when the launcher stops waiting, at most issued_at plus the
+  // package's declared execution timeout: that timeout bounds one invocation's
+  // duration, so a launcher computing a deadline of its own may shorten it but
+  // never overrule the author. A harness budgeting its own work measures
+  // deadline minus issued_at from the moment it reads this document, so an
+  // offset between the two clocks neither shortens nor extends the budget.
   google.protobuf.Timestamp deadline = 7 [(buf.validate.field).required = true];
   // input is one UTF-8 JSON object matching the contract's input schema,
   // bounded by RunnableExecution.max_input_bytes. Bytes rather than a
@@ -78,9 +88,10 @@ message RunnableError {
 }
 
 // RunnableResult is the document a harness writes. A harness reports only what
-// it observed of itself: the handler produced output, or the handler ran and
-// failed. Every other way an invocation can end is a judgement about a process
-// that left no result, which only the launcher is in a position to make.
+// it observed of itself: the handler produced output, the handler ran and
+// failed, or an interruption stopped it. Every other way an invocation can end
+// is a judgement about a process that left no result, which only the launcher
+// is in a position to make.
 message RunnableResult {
   // Status enumerates what a harness can report about its own invocation.
   enum Status {
@@ -89,8 +100,16 @@ message RunnableResult {
     UNKNOWN = 0;
     // SUCCEEDED means the handler returned output matching the contract.
     SUCCEEDED = 1;
-    // FAILED means the handler ran and reported a typed failure.
+    // FAILED means the handler ran and reported a typed failure. It says the
+    // handler completed without its effect, which a caller reading the outcome
+    // as certain relies on: a handler that abandons a half-applied effect owes
+    // an INTERRUPTED or a crash, never a FAILED.
     FAILED = 2;
+    // INTERRUPTED means the harness handled an interruption signal and stopped.
+    // A package declaring CANCELLATION_SIGNAL promises exactly this report, and
+    // without it such a harness would have to claim a failure it did not have:
+    // the effect is left unproven, not disproven.
+    INTERRUPTED = 3;
   }
   // protocol is the framing this document is written in.
   string protocol = 1 [(buf.validate.field).string.min_len = 1];
@@ -103,7 +122,8 @@ message RunnableResult {
   // contract's output schema, bounded by RunnableExecution.max_output_bytes
   // and base64-encoded by a proto3 JSON encoder like the invocation input.
   bytes output = 4;
-  // error is the FAILED cause.
+  // error is the FAILED cause, and optionally what an INTERRUPTED harness was
+  // doing when the signal arrived.
   RunnableError error = 5;
 }
 
@@ -174,9 +194,13 @@ message RunnableCompletion {
     CRASHED = 5;
     // TIMED_OUT means the deadline passed and the launcher ended the process.
     TIMED_OUT = 6;
-    // CANCELED means the launcher interrupted the process at the caller's
-    // request. Only a package declaring CANCELLATION_SIGNAL may be
-    // interrupted; one declaring CANCELLATION_NONE runs to its deadline.
+    // CANCELED means the invocation was interrupted: the launcher acted on the
+    // caller's request, or the harness reported INTERRUPTED. Only a package
+    // declaring CANCELLATION_SIGNAL may be interrupted by a launcher; one
+    // declaring CANCELLATION_NONE runs to its deadline. A launcher that
+    // interrupts one anyway has broken the contract, and the completion says so
+    // in message rather than being withheld — the invocation ended, and
+    // discarding the record of how would lose an effect's only evidence.
     CANCELED = 7;
   }
   // protocol is the framing the invocation used.
@@ -193,7 +217,8 @@ message RunnableCompletion {
   int32 exit_code = 6;
   // signal names the signal the process died on, empty when it exited.
   string signal = 7;
-  // message explains an outcome that carries no result.
+  // message explains an outcome that carries no result, and records a launcher
+  // breaking the package's declared cancellation policy whatever the outcome.
   string message = 8;
   // started_at is when the launcher started the process.
   google.protobuf.Timestamp started_at = 9 [(buf.validate.field).required = true];
