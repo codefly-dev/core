@@ -9,3 +9,13 @@ lint:
     - COMMENTS
   except:
     - PACKAGE_SAME_GO_PACKAGE
+breaking:
+  # PACKAGE, not buf's FILE default. Consumers reach these schemas over the
+  # wire or through the generated Go package, and neither notices which .proto
+  # file a message is declared in — so FILE's per-file deletion rules reject
+  # moving a message between files in the same package, a change that is
+  # byte-identical on the wire and exports the identical Go symbol. PACKAGE
+  # keeps every rule that protects both surfaces (field/enum-value deletion,
+  # type and cardinality changes, rpc deletion) and drops the file coupling.
+  use:
+    - PACKAGE

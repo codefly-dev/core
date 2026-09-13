@@ -40,5 +40,13 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
 - This is pre-customer: breaking changes are normal and compatibility shims are
   not carried. Update core source/bindings and every aggregate-workspace
   consumer together so the workspace and released artifact set stay atomic.
+- CI runs `buf breaking` against `main` under the `PACKAGE` rules, so a removal
+  or a type change is caught while moving a message between files in the same
+  package is not. Run the same check before pushing:
+
+  ```bash
+  git fetch origin main
+  cd proto && buf breaking --against "../.git#ref=origin/main,subdir=proto"
+  ```
 - `buf lint` before committing.
 - Validation uses CEL via protovalidate (field constraints in the `.proto`s).
