@@ -62,23 +62,28 @@ Six places, and they must agree:
 | location | what it pins | guarded by a test? |
 |---|---|---|
 | `companions/proto/facades/ts/package.json` | `@bufbuild/protoplugin` | yes |
+| `companions/proto/facades/ts/package-lock.json` | the resolved `protoplugin` + `protobuf` closure | yes |
 | `companions/proto/Dockerfile:85` | `@bufbuild/protoc-gen-es@` installed via npm | yes |
 | `companions/proto/flake.nix:51` | `protocGenEsVersion`, built from source | yes |
-| `companions/proto/facades/ts/package-lock.json` | the resolved `protoplugin` + `protobuf` closure | **no** |
 | `companions/proto/flake.nix:59` | `hash` — the protobuf-es source tarball | **no** |
 | `companions/proto/flake.nix:61` | `npmDepsHash` — its npm dependency closure | **no** |
 
 `protocGenEsRuntimeVersion` in `companions/proto/companion_plugins_test.go`
-holds the first three to one version, and this runbook's decision heading is
-checked against that same constant — so those four cannot silently diverge.
+holds the first four to one version, and this runbook's decision heading is
+checked against that same constant — so those five cannot silently diverge. The
+lockfile is guarded specifically because `npm ci` installs from it and ignores
+what `package.json` asks for; a disagreement between the two would otherwise
+surface only once the image was built.
 
-The bottom three are unguarded, and each fails differently. The lockfile is the
-dangerous one: nothing reads it, so a `package.json` and lockfile that disagree
-pass every test in this repository and only surface when `npm ci` installs a
-version the guards never saw. The two Nix hashes are self-announcing by
-comparison — a stale one fails the Nix build loudly rather than shipping.
+The two Nix hashes stay unguarded, and cannot usefully be checked statically —
+nothing can confirm a content hash without fetching the content. They are
+self-announcing in exchange: a stale one fails the Nix build loudly rather than
+shipping something wrong.
 
-Line numbers above are a convenience and will rot; nothing verifies them.
+The line numbers above are verified as well. `TestRunbookCitationsPointAtWhatTheyName`
+checks that each cited line still contains what this table says it does, so an
+edit that shifts one fails there rather than quietly misdirecting the next
+reader.
 
 ## The procedure
 
@@ -91,8 +96,10 @@ This is one deliberate pull request, not a find-and-replace.
 2. Set the three readable version pins (`facades/ts/package.json`, the
    `Dockerfile` npm line, `flake.nix`'s `protocGenEsVersion`) plus
    `protocGenEsRuntimeVersion`. Then regenerate the lockfile with `npm install`
-   in `companions/proto/facades/ts` — never hand-edit it, it carries upstream
-   integrity hashes, and nothing in this repository would catch a wrong one.
+   in `companions/proto/facades/ts` — never hand-edit it. The guard above
+   catches a lockfile whose *version* disagrees, but it cannot check an
+   integrity hash, and a hand-written one is wrong in a way only `npm ci`
+   discovers.
 3. **Recompute the two Nix hashes.** Both change with the revision, and a stale
    one fails the build rather than silently passing. Requires `nix`:
 
