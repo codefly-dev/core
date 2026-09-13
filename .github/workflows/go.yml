@@ -32,15 +32,48 @@ jobs:
 
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The proto breaking-change guard below diffs against main, read out
+          # of this checkout's own .git. The default fetch-depth of 1 leaves no
+          # main to resolve, so the baseline has to be fetched here rather than
+          # in that step.
+          fetch-depth: 0
 
       - name: version/tag drift guard
         # version/info.codefly.yaml is embedded into the binary and gates every
         # package install through composition's minimum-codefly-version check,
         # but no test reads it — so it has silently rotted (0.3.8 while v0.3.18
         # shipped; 0.3.20 while v0.3.24 shipped). Fail here instead of at a
-        # user's install. Reads tag names via ls-remote, so the shallow
-        # checkout above is fine.
+        # user's install. Reads tag names via ls-remote, so it does not care
+        # how much history the checkout above fetched.
         run: ./scripts/check_version_tag.sh
+
+      - name: set up buf
+        uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+        with:
+          # The action's own version and the buf it installs move independently
+          # — left unset this installs buf 1.50.0, the action's default, not the
+          # latest. Pin it so the gate below is reproducible. Dependabot's
+          # github-actions updater moves the SHA above but not this input, so
+          # bump it by hand when buf matters.
+          version: 1.73.0
+          github_token: ${{ github.token }}
+
+      - name: proto breaking-change guard
+        # proto/ is the schema source of truth for the whole ecosystem, and
+        # nothing in CI read it — a wire-breaking edit and its regenerated
+        # bindings were verified only on the contributor's machine.
+        #
+        # The baseline is origin/main, NOT main: for both event types
+        # actions/checkout leaves HEAD detached with no local branch, so
+        # `#branch=main` fails to resolve ("couldn't find remote ref main")
+        # even though it works on a developer checkout that has one.
+        #
+        # Breaking the wire is still allowed — this is pre-customer and
+        # proto/README.md says so — but it now has to be a deliberate act with
+        # consumers updated alongside, instead of a silent one.
+        working-directory: proto
+        run: buf breaking --against "../.git#ref=origin/main,subdir=proto"
 
       - name: Cache Go Modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
