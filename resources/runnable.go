@@ -258,6 +258,72 @@ func (r *RunnableIdentity) Unique() string {
 	return path.Join(r.Module, r.Name)
 }
 
+// Proto returns the validated wire identity.
+func (r *RunnableIdentity) Proto() (*basev0.RunnableIdentity, error) {
+	proto := &basev0.RunnableIdentity{
+		Name:      r.Name,
+		Module:    r.Module,
+		Workspace: r.Workspace,
+		Version:   r.Version,
+	}
+	if err := Validate(proto); err != nil {
+		return nil, err
+	}
+	return proto, nil
+}
+
+// RunnableIdentityFromProto reads a wire identity.
+func RunnableIdentityFromProto(proto *basev0.RunnableIdentity) *RunnableIdentity {
+	return &RunnableIdentity{
+		Name:      proto.Name,
+		Module:    proto.Module,
+		Workspace: proto.Workspace,
+		Version:   proto.Version,
+	}
+}
+
+// RunnableLocation is the runnable an agent is asked to load together with
+// where its declaration is on this host. The paths are not part of
+// RunnableIdentity: the identity is digested into the immutable package, so a
+// checkout-dependent path would give one release a different digest per
+// machine.
+type RunnableLocation struct {
+	Identity            *RunnableIdentity
+	WorkspacePath       string
+	RelativeToWorkspace string
+}
+
+// Dir returns the absolute runnable directory.
+func (l *RunnableLocation) Dir() string {
+	return filepath.Join(l.WorkspacePath, l.RelativeToWorkspace)
+}
+
+// Proto returns the validated wire location.
+func (l *RunnableLocation) Proto() (*basev0.RunnableLocation, error) {
+	identity, err := l.Identity.Proto()
+	if err != nil {
+		return nil, err
+	}
+	proto := &basev0.RunnableLocation{
+		Identity:            identity,
+		WorkspacePath:       l.WorkspacePath,
+		RelativeToWorkspace: l.RelativeToWorkspace,
+	}
+	if err := Validate(proto); err != nil {
+		return nil, err
+	}
+	return proto, nil
+}
+
+// RunnableLocationFromProto reads a wire location.
+func RunnableLocationFromProto(proto *basev0.RunnableLocation) *RunnableLocation {
+	return &RunnableLocation{
+		Identity:            RunnableIdentityFromProto(proto.Identity),
+		WorkspacePath:       proto.WorkspacePath,
+		RelativeToWorkspace: proto.RelativeToWorkspace,
+	}
+}
+
 // NewRunnable creates a complete, saveable runnable declaration with an empty
 // contract: the pinned language agent and the handler it will generate are the
 // two facts no default can supply, so a declaration without them is never
@@ -849,6 +915,23 @@ func (mod *Module) NewRunnable(ctx context.Context, name string, agent *Agent, h
 }
 
 // Workspace runnable management
+
+// RunnableLocationOf resolves the agent load target for a loaded runnable:
+// its release identity, stamped with this workspace, and where the declaration
+// sits under the workspace root.
+func (workspace *Workspace) RunnableLocationOf(r *Runnable) (*RunnableLocation, error) {
+	relative, err := filepath.Rel(workspace.Dir(), r.Dir())
+	if err != nil {
+		return nil, err
+	}
+	identity := r.Identity()
+	identity.Workspace = workspace.Name
+	return &RunnableLocation{
+		Identity:            identity,
+		WorkspacePath:       workspace.Dir(),
+		RelativeToWorkspace: relative,
+	}, nil
+}
 
 // LoadRunnableFromUnique loads a runnable by module/name.
 func (workspace *Workspace) LoadRunnableFromUnique(ctx context.Context, unique string) (*Runnable, error) {

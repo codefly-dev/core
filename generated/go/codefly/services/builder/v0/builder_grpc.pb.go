@@ -21,20 +21,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Builder_Load_FullMethodName              = "/codefly.services.builder.v0.Builder/Load"
-	Builder_Init_FullMethodName              = "/codefly.services.builder.v0.Builder/Init"
-	Builder_Create_FullMethodName            = "/codefly.services.builder.v0.Builder/Create"
-	Builder_Update_FullMethodName            = "/codefly.services.builder.v0.Builder/Update"
-	Builder_Sync_FullMethodName              = "/codefly.services.builder.v0.Builder/Sync"
-	Builder_Build_FullMethodName             = "/codefly.services.builder.v0.Builder/Build"
-	Builder_BuildCapabilities_FullMethodName = "/codefly.services.builder.v0.Builder/BuildCapabilities"
-	Builder_Deploy_FullMethodName            = "/codefly.services.builder.v0.Builder/Deploy"
-	Builder_Audit_FullMethodName             = "/codefly.services.builder.v0.Builder/Audit"
-	Builder_SBOM_FullMethodName              = "/codefly.services.builder.v0.Builder/SBOM"
-	Builder_Package_FullMethodName           = "/codefly.services.builder.v0.Builder/Package"
-	Builder_Upgrade_FullMethodName           = "/codefly.services.builder.v0.Builder/Upgrade"
-	Builder_Configure_FullMethodName         = "/codefly.services.builder.v0.Builder/Configure"
-	Builder_Communicate_FullMethodName       = "/codefly.services.builder.v0.Builder/Communicate"
+	Builder_Load_FullMethodName                = "/codefly.services.builder.v0.Builder/Load"
+	Builder_Init_FullMethodName                = "/codefly.services.builder.v0.Builder/Init"
+	Builder_Create_FullMethodName              = "/codefly.services.builder.v0.Builder/Create"
+	Builder_Update_FullMethodName              = "/codefly.services.builder.v0.Builder/Update"
+	Builder_Sync_FullMethodName                = "/codefly.services.builder.v0.Builder/Sync"
+	Builder_Build_FullMethodName               = "/codefly.services.builder.v0.Builder/Build"
+	Builder_BuildCapabilities_FullMethodName   = "/codefly.services.builder.v0.Builder/BuildCapabilities"
+	Builder_Deploy_FullMethodName              = "/codefly.services.builder.v0.Builder/Deploy"
+	Builder_Audit_FullMethodName               = "/codefly.services.builder.v0.Builder/Audit"
+	Builder_SBOM_FullMethodName                = "/codefly.services.builder.v0.Builder/SBOM"
+	Builder_Package_FullMethodName             = "/codefly.services.builder.v0.Builder/Package"
+	Builder_RunnableBuildInputs_FullMethodName = "/codefly.services.builder.v0.Builder/RunnableBuildInputs"
+	Builder_Upgrade_FullMethodName             = "/codefly.services.builder.v0.Builder/Upgrade"
+	Builder_Configure_FullMethodName           = "/codefly.services.builder.v0.Builder/Configure"
+	Builder_Communicate_FullMethodName         = "/codefly.services.builder.v0.Builder/Communicate"
 )
 
 // BuilderClient is the client API for Builder service.
@@ -70,6 +71,9 @@ type BuilderClient interface {
 	SBOM(ctx context.Context, in *SBOMRequest, opts ...grpc.CallOption) (*SBOMResponse, error)
 	// Package emits portable source release artifacts through the owning plugin.
 	Package(ctx context.Context, in *PackageRequest, opts ...grpc.CallOption) (*PackageResponse, error)
+	// RunnableBuildInputs generates the harness and reports the build inputs of
+	// the loaded runnable.
+	RunnableBuildInputs(ctx context.Context, in *RunnableBuildInputsRequest, opts ...grpc.CallOption) (*RunnableBuildInputsResponse, error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(ctx context.Context, in *UpgradeRequest, opts ...grpc.CallOption) (*UpgradeResponse, error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -202,6 +206,16 @@ func (c *builderClient) Package(ctx context.Context, in *PackageRequest, opts ..
 	return out, nil
 }
 
+func (c *builderClient) RunnableBuildInputs(ctx context.Context, in *RunnableBuildInputsRequest, opts ...grpc.CallOption) (*RunnableBuildInputsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunnableBuildInputsResponse)
+	err := c.cc.Invoke(ctx, Builder_RunnableBuildInputs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *builderClient) Upgrade(ctx context.Context, in *UpgradeRequest, opts ...grpc.CallOption) (*UpgradeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpgradeResponse)
@@ -268,6 +282,9 @@ type BuilderServer interface {
 	SBOM(context.Context, *SBOMRequest) (*SBOMResponse, error)
 	// Package emits portable source release artifacts through the owning plugin.
 	Package(context.Context, *PackageRequest) (*PackageResponse, error)
+	// RunnableBuildInputs generates the harness and reports the build inputs of
+	// the loaded runnable.
+	RunnableBuildInputs(context.Context, *RunnableBuildInputsRequest) (*RunnableBuildInputsResponse, error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *UpgradeRequest) (*UpgradeResponse, error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -322,6 +339,9 @@ func (UnimplementedBuilderServer) SBOM(context.Context, *SBOMRequest) (*SBOMResp
 }
 func (UnimplementedBuilderServer) Package(context.Context, *PackageRequest) (*PackageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Package not implemented")
+}
+func (UnimplementedBuilderServer) RunnableBuildInputs(context.Context, *RunnableBuildInputsRequest) (*RunnableBuildInputsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RunnableBuildInputs not implemented")
 }
 func (UnimplementedBuilderServer) Upgrade(context.Context, *UpgradeRequest) (*UpgradeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Upgrade not implemented")
@@ -551,6 +571,24 @@ func _Builder_Package_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Builder_RunnableBuildInputs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunnableBuildInputsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BuilderServer).RunnableBuildInputs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Builder_RunnableBuildInputs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BuilderServer).RunnableBuildInputs(ctx, req.(*RunnableBuildInputsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Builder_Upgrade_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpgradeRequest)
 	if err := dec(in); err != nil {
@@ -644,6 +682,10 @@ var Builder_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Package",
 			Handler:    _Builder_Package_Handler,
+		},
+		{
+			MethodName: "RunnableBuildInputs",
+			Handler:    _Builder_RunnableBuildInputs_Handler,
 		},
 		{
 			MethodName: "Upgrade",

@@ -86,7 +86,7 @@ func (x RunnableField_Type) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunnableField_Type.Descriptor instead.
 func (RunnableField_Type) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{2, 0}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{3, 0}
 }
 
 // Kind enumerates supported execution facilities.
@@ -140,7 +140,7 @@ func (x RunnableFacility_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunnableFacility_Kind.Descriptor instead.
 func (RunnableFacility_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{5, 0}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{6, 0}
 }
 
 // Cancellation enumerates what a launcher may do to a running invocation.
@@ -195,7 +195,7 @@ func (x RunnableExecution_Cancellation) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunnableExecution_Cancellation.Descriptor instead.
 func (RunnableExecution_Cancellation) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{6, 0}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{7, 0}
 }
 
 // Recovery enumerates how an uncertain outcome may be resolved.
@@ -251,7 +251,7 @@ func (x RunnableExecution_Recovery) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunnableExecution_Recovery.Descriptor instead.
 func (RunnableExecution_Recovery) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{6, 1}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{7, 1}
 }
 
 // Kind enumerates implementation artifact forms.
@@ -304,7 +304,7 @@ func (x RunnableArtifact_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunnableArtifact_Kind.Descriptor instead.
 func (RunnableArtifact_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{9, 0}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{10, 0}
 }
 
 // RunnableReference names a runnable inside a module.
@@ -435,6 +435,74 @@ func (x *RunnableIdentity) GetVersion() string {
 	return ""
 }
 
+// RunnableLocation tells a runnable agent which declaration to load and where
+// it is on the host. The host paths are deliberately not fields of
+// RunnableIdentity: the identity is part of the canonical form a package
+// digest is taken over, and a checkout-dependent path would give the same
+// release a different digest on every machine.
+type RunnableLocation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// identity is the release the agent loads.
+	Identity *RunnableIdentity `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	// workspace_path is the absolute path to the workspace root.
+	WorkspacePath string `protobuf:"bytes,2,opt,name=workspace_path,json=workspacePath,proto3" json:"workspace_path,omitempty"`
+	// relative_to_workspace is the runnable directory relative to that root.
+	RelativeToWorkspace string `protobuf:"bytes,3,opt,name=relative_to_workspace,json=relativeToWorkspace,proto3" json:"relative_to_workspace,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *RunnableLocation) Reset() {
+	*x = RunnableLocation{}
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunnableLocation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunnableLocation) ProtoMessage() {}
+
+func (x *RunnableLocation) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunnableLocation.ProtoReflect.Descriptor instead.
+func (*RunnableLocation) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RunnableLocation) GetIdentity() *RunnableIdentity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *RunnableLocation) GetWorkspacePath() string {
+	if x != nil {
+		return x.WorkspacePath
+	}
+	return ""
+}
+
+func (x *RunnableLocation) GetRelativeToWorkspace() string {
+	if x != nil {
+		return x.RelativeToWorkspace
+	}
+	return ""
+}
+
 // RunnableField is one field of the bounded schema profile. The profile is
 // deliberately small: object, array, string, integer and boolean, with explicit
 // optional (key may be absent) versus nullable (value may be null). Enumerations,
@@ -461,7 +529,7 @@ type RunnableField struct {
 
 func (x *RunnableField) Reset() {
 	*x = RunnableField{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -473,7 +541,7 @@ func (x *RunnableField) String() string {
 func (*RunnableField) ProtoMessage() {}
 
 func (x *RunnableField) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -486,7 +554,7 @@ func (x *RunnableField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableField.ProtoReflect.Descriptor instead.
 func (*RunnableField) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{2}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RunnableField) GetName() string {
@@ -550,7 +618,7 @@ type RunnableSchema struct {
 
 func (x *RunnableSchema) Reset() {
 	*x = RunnableSchema{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -562,7 +630,7 @@ func (x *RunnableSchema) String() string {
 func (*RunnableSchema) ProtoMessage() {}
 
 func (x *RunnableSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -575,7 +643,7 @@ func (x *RunnableSchema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableSchema.ProtoReflect.Descriptor instead.
 func (*RunnableSchema) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{3}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RunnableSchema) GetFields() []*RunnableField {
@@ -601,7 +669,7 @@ type RunnableContract struct {
 
 func (x *RunnableContract) Reset() {
 	*x = RunnableContract{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -613,7 +681,7 @@ func (x *RunnableContract) String() string {
 func (*RunnableContract) ProtoMessage() {}
 
 func (x *RunnableContract) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -626,7 +694,7 @@ func (x *RunnableContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableContract.ProtoReflect.Descriptor instead.
 func (*RunnableContract) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{4}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RunnableContract) GetProtocol() string {
@@ -661,7 +729,7 @@ type RunnableFacility struct {
 
 func (x *RunnableFacility) Reset() {
 	*x = RunnableFacility{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[5]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -673,7 +741,7 @@ func (x *RunnableFacility) String() string {
 func (*RunnableFacility) ProtoMessage() {}
 
 func (x *RunnableFacility) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[5]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -686,7 +754,7 @@ func (x *RunnableFacility) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableFacility.ProtoReflect.Descriptor instead.
 func (*RunnableFacility) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{5}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RunnableFacility) GetKind() RunnableFacility_Kind {
@@ -720,7 +788,7 @@ type RunnableExecution struct {
 
 func (x *RunnableExecution) Reset() {
 	*x = RunnableExecution{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[6]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -732,7 +800,7 @@ func (x *RunnableExecution) String() string {
 func (*RunnableExecution) ProtoMessage() {}
 
 func (x *RunnableExecution) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[6]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -745,7 +813,7 @@ func (x *RunnableExecution) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableExecution.ProtoReflect.Descriptor instead.
 func (*RunnableExecution) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{6}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RunnableExecution) GetFacilities() []*RunnableFacility {
@@ -829,7 +897,7 @@ type Runnable struct {
 
 func (x *Runnable) Reset() {
 	*x = Runnable{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[7]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -841,7 +909,7 @@ func (x *Runnable) String() string {
 func (*Runnable) ProtoMessage() {}
 
 func (x *Runnable) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[7]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -854,7 +922,7 @@ func (x *Runnable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Runnable.ProtoReflect.Descriptor instead.
 func (*Runnable) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{7}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Runnable) GetName() string {
@@ -952,7 +1020,7 @@ type RunnableDependency struct {
 
 func (x *RunnableDependency) Reset() {
 	*x = RunnableDependency{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[8]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -964,7 +1032,7 @@ func (x *RunnableDependency) String() string {
 func (*RunnableDependency) ProtoMessage() {}
 
 func (x *RunnableDependency) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[8]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -977,7 +1045,7 @@ func (x *RunnableDependency) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableDependency.ProtoReflect.Descriptor instead.
 func (*RunnableDependency) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{8}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RunnableDependency) GetName() string {
@@ -1029,7 +1097,7 @@ type RunnableArtifact struct {
 
 func (x *RunnableArtifact) Reset() {
 	*x = RunnableArtifact{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[9]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1041,7 +1109,7 @@ func (x *RunnableArtifact) String() string {
 func (*RunnableArtifact) ProtoMessage() {}
 
 func (x *RunnableArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[9]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1054,7 +1122,7 @@ func (x *RunnableArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableArtifact.ProtoReflect.Descriptor instead.
 func (*RunnableArtifact) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{9}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RunnableArtifact) GetKind() RunnableArtifact_Kind {
@@ -1105,7 +1173,7 @@ type RunnableInputDigest struct {
 
 func (x *RunnableInputDigest) Reset() {
 	*x = RunnableInputDigest{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[10]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1117,7 +1185,7 @@ func (x *RunnableInputDigest) String() string {
 func (*RunnableInputDigest) ProtoMessage() {}
 
 func (x *RunnableInputDigest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[10]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1130,7 +1198,7 @@ func (x *RunnableInputDigest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableInputDigest.ProtoReflect.Descriptor instead.
 func (*RunnableInputDigest) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{10}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RunnableInputDigest) GetPath() string {
@@ -1169,7 +1237,7 @@ type RunnableBuild struct {
 
 func (x *RunnableBuild) Reset() {
 	*x = RunnableBuild{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[11]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1181,7 +1249,7 @@ func (x *RunnableBuild) String() string {
 func (*RunnableBuild) ProtoMessage() {}
 
 func (x *RunnableBuild) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[11]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1194,7 +1262,7 @@ func (x *RunnableBuild) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableBuild.ProtoReflect.Descriptor instead.
 func (*RunnableBuild) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{11}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RunnableBuild) GetHandler() *RunnableInputDigest {
@@ -1263,7 +1331,7 @@ type RunnablePackage struct {
 
 func (x *RunnablePackage) Reset() {
 	*x = RunnablePackage{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[12]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1275,7 +1343,7 @@ func (x *RunnablePackage) String() string {
 func (*RunnablePackage) ProtoMessage() {}
 
 func (x *RunnablePackage) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[12]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1288,7 +1356,7 @@ func (x *RunnablePackage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnablePackage.ProtoReflect.Descriptor instead.
 func (*RunnablePackage) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{12}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RunnablePackage) GetSchema() string {
@@ -1394,7 +1462,7 @@ type RunnableBinding struct {
 
 func (x *RunnableBinding) Reset() {
 	*x = RunnableBinding{}
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[13]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1406,7 +1474,7 @@ func (x *RunnableBinding) String() string {
 func (*RunnableBinding) ProtoMessage() {}
 
 func (x *RunnableBinding) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_proto_msgTypes[13]
+	mi := &file_codefly_base_v0_runnable_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1419,7 +1487,7 @@ func (x *RunnableBinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableBinding.ProtoReflect.Descriptor instead.
 func (*RunnableBinding) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{13}
+	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RunnableBinding) GetSchema() string {
@@ -1497,7 +1565,11 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x04name\x12!\n" +
 	"\x06module\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x06module\x12'\n" +
 	"\tworkspace\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x03\x182R\tworkspace\x12#\n" +
-	"\aversion\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x05\x182R\aversion\"\xf6\x02\n" +
+	"\aversion\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x05\x182R\aversion\"\xc6\x01\n" +
+	"\x10RunnableLocation\x12E\n" +
+	"\bidentity\x18\x01 \x01(\v2!.codefly.base.v0.RunnableIdentityB\x06\xbaH\x03\xc8\x01\x01R\bidentity\x12.\n" +
+	"\x0eworkspace_path\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\rworkspacePath\x12;\n" +
+	"\x15relative_to_workspace\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x13relativeToWorkspace\"\xf6\x02\n" +
 	"\rRunnableField\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x127\n" +
 	"\x04type\x18\x02 \x01(\x0e2#.codefly.base.v0.RunnableField.TypeR\x04type\x12 \n" +
@@ -1622,7 +1694,7 @@ func file_codefly_base_v0_runnable_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_base_v0_runnable_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_codefly_base_v0_runnable_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_codefly_base_v0_runnable_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_codefly_base_v0_runnable_proto_goTypes = []any{
 	(RunnableField_Type)(0),             // 0: codefly.base.v0.RunnableField.Type
 	(RunnableFacility_Kind)(0),          // 1: codefly.base.v0.RunnableFacility.Kind
@@ -1631,59 +1703,61 @@ var file_codefly_base_v0_runnable_proto_goTypes = []any{
 	(RunnableArtifact_Kind)(0),          // 4: codefly.base.v0.RunnableArtifact.Kind
 	(*RunnableReference)(nil),           // 5: codefly.base.v0.RunnableReference
 	(*RunnableIdentity)(nil),            // 6: codefly.base.v0.RunnableIdentity
-	(*RunnableField)(nil),               // 7: codefly.base.v0.RunnableField
-	(*RunnableSchema)(nil),              // 8: codefly.base.v0.RunnableSchema
-	(*RunnableContract)(nil),            // 9: codefly.base.v0.RunnableContract
-	(*RunnableFacility)(nil),            // 10: codefly.base.v0.RunnableFacility
-	(*RunnableExecution)(nil),           // 11: codefly.base.v0.RunnableExecution
-	(*Runnable)(nil),                    // 12: codefly.base.v0.Runnable
-	(*RunnableDependency)(nil),          // 13: codefly.base.v0.RunnableDependency
-	(*RunnableArtifact)(nil),            // 14: codefly.base.v0.RunnableArtifact
-	(*RunnableInputDigest)(nil),         // 15: codefly.base.v0.RunnableInputDigest
-	(*RunnableBuild)(nil),               // 16: codefly.base.v0.RunnableBuild
-	(*RunnablePackage)(nil),             // 17: codefly.base.v0.RunnablePackage
-	(*RunnableBinding)(nil),             // 18: codefly.base.v0.RunnableBinding
-	(*durationpb.Duration)(nil),         // 19: google.protobuf.Duration
-	(*Agent)(nil),                       // 20: codefly.base.v0.Agent
-	(*LibraryDependency)(nil),           // 21: codefly.base.v0.LibraryDependency
-	(*NetworkMapping)(nil),              // 22: codefly.base.v0.NetworkMapping
+	(*RunnableLocation)(nil),            // 7: codefly.base.v0.RunnableLocation
+	(*RunnableField)(nil),               // 8: codefly.base.v0.RunnableField
+	(*RunnableSchema)(nil),              // 9: codefly.base.v0.RunnableSchema
+	(*RunnableContract)(nil),            // 10: codefly.base.v0.RunnableContract
+	(*RunnableFacility)(nil),            // 11: codefly.base.v0.RunnableFacility
+	(*RunnableExecution)(nil),           // 12: codefly.base.v0.RunnableExecution
+	(*Runnable)(nil),                    // 13: codefly.base.v0.Runnable
+	(*RunnableDependency)(nil),          // 14: codefly.base.v0.RunnableDependency
+	(*RunnableArtifact)(nil),            // 15: codefly.base.v0.RunnableArtifact
+	(*RunnableInputDigest)(nil),         // 16: codefly.base.v0.RunnableInputDigest
+	(*RunnableBuild)(nil),               // 17: codefly.base.v0.RunnableBuild
+	(*RunnablePackage)(nil),             // 18: codefly.base.v0.RunnablePackage
+	(*RunnableBinding)(nil),             // 19: codefly.base.v0.RunnableBinding
+	(*durationpb.Duration)(nil),         // 20: google.protobuf.Duration
+	(*Agent)(nil),                       // 21: codefly.base.v0.Agent
+	(*LibraryDependency)(nil),           // 22: codefly.base.v0.LibraryDependency
+	(*NetworkMapping)(nil),              // 23: codefly.base.v0.NetworkMapping
 }
 var file_codefly_base_v0_runnable_proto_depIdxs = []int32{
-	0,  // 0: codefly.base.v0.RunnableField.type:type_name -> codefly.base.v0.RunnableField.Type
-	7,  // 1: codefly.base.v0.RunnableField.fields:type_name -> codefly.base.v0.RunnableField
-	7,  // 2: codefly.base.v0.RunnableField.items:type_name -> codefly.base.v0.RunnableField
-	7,  // 3: codefly.base.v0.RunnableSchema.fields:type_name -> codefly.base.v0.RunnableField
-	8,  // 4: codefly.base.v0.RunnableContract.input:type_name -> codefly.base.v0.RunnableSchema
-	8,  // 5: codefly.base.v0.RunnableContract.output:type_name -> codefly.base.v0.RunnableSchema
-	1,  // 6: codefly.base.v0.RunnableFacility.kind:type_name -> codefly.base.v0.RunnableFacility.Kind
-	10, // 7: codefly.base.v0.RunnableExecution.facilities:type_name -> codefly.base.v0.RunnableFacility
-	19, // 8: codefly.base.v0.RunnableExecution.timeout:type_name -> google.protobuf.Duration
-	2,  // 9: codefly.base.v0.RunnableExecution.cancellation:type_name -> codefly.base.v0.RunnableExecution.Cancellation
-	3,  // 10: codefly.base.v0.RunnableExecution.recovery:type_name -> codefly.base.v0.RunnableExecution.Recovery
-	20, // 11: codefly.base.v0.Runnable.agent:type_name -> codefly.base.v0.Agent
-	9,  // 12: codefly.base.v0.Runnable.contract:type_name -> codefly.base.v0.RunnableContract
-	13, // 13: codefly.base.v0.Runnable.service_dependencies:type_name -> codefly.base.v0.RunnableDependency
-	11, // 14: codefly.base.v0.Runnable.execution:type_name -> codefly.base.v0.RunnableExecution
-	21, // 15: codefly.base.v0.Runnable.library_dependencies:type_name -> codefly.base.v0.LibraryDependency
-	4,  // 16: codefly.base.v0.RunnableArtifact.kind:type_name -> codefly.base.v0.RunnableArtifact.Kind
-	15, // 17: codefly.base.v0.RunnableBuild.handler:type_name -> codefly.base.v0.RunnableInputDigest
-	15, // 18: codefly.base.v0.RunnableBuild.inputs:type_name -> codefly.base.v0.RunnableInputDigest
-	6,  // 19: codefly.base.v0.RunnablePackage.identity:type_name -> codefly.base.v0.RunnableIdentity
-	20, // 20: codefly.base.v0.RunnablePackage.agent:type_name -> codefly.base.v0.Agent
-	9,  // 21: codefly.base.v0.RunnablePackage.contract:type_name -> codefly.base.v0.RunnableContract
-	11, // 22: codefly.base.v0.RunnablePackage.execution:type_name -> codefly.base.v0.RunnableExecution
-	16, // 23: codefly.base.v0.RunnablePackage.build:type_name -> codefly.base.v0.RunnableBuild
-	14, // 24: codefly.base.v0.RunnablePackage.artifacts:type_name -> codefly.base.v0.RunnableArtifact
-	13, // 25: codefly.base.v0.RunnablePackage.service_dependencies:type_name -> codefly.base.v0.RunnableDependency
-	6,  // 26: codefly.base.v0.RunnableBinding.identity:type_name -> codefly.base.v0.RunnableIdentity
-	10, // 27: codefly.base.v0.RunnableBinding.facility:type_name -> codefly.base.v0.RunnableFacility
-	14, // 28: codefly.base.v0.RunnableBinding.artifact:type_name -> codefly.base.v0.RunnableArtifact
-	22, // 29: codefly.base.v0.RunnableBinding.dependency_network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	30, // [30:30] is the sub-list for method output_type
-	30, // [30:30] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	6,  // 0: codefly.base.v0.RunnableLocation.identity:type_name -> codefly.base.v0.RunnableIdentity
+	0,  // 1: codefly.base.v0.RunnableField.type:type_name -> codefly.base.v0.RunnableField.Type
+	8,  // 2: codefly.base.v0.RunnableField.fields:type_name -> codefly.base.v0.RunnableField
+	8,  // 3: codefly.base.v0.RunnableField.items:type_name -> codefly.base.v0.RunnableField
+	8,  // 4: codefly.base.v0.RunnableSchema.fields:type_name -> codefly.base.v0.RunnableField
+	9,  // 5: codefly.base.v0.RunnableContract.input:type_name -> codefly.base.v0.RunnableSchema
+	9,  // 6: codefly.base.v0.RunnableContract.output:type_name -> codefly.base.v0.RunnableSchema
+	1,  // 7: codefly.base.v0.RunnableFacility.kind:type_name -> codefly.base.v0.RunnableFacility.Kind
+	11, // 8: codefly.base.v0.RunnableExecution.facilities:type_name -> codefly.base.v0.RunnableFacility
+	20, // 9: codefly.base.v0.RunnableExecution.timeout:type_name -> google.protobuf.Duration
+	2,  // 10: codefly.base.v0.RunnableExecution.cancellation:type_name -> codefly.base.v0.RunnableExecution.Cancellation
+	3,  // 11: codefly.base.v0.RunnableExecution.recovery:type_name -> codefly.base.v0.RunnableExecution.Recovery
+	21, // 12: codefly.base.v0.Runnable.agent:type_name -> codefly.base.v0.Agent
+	10, // 13: codefly.base.v0.Runnable.contract:type_name -> codefly.base.v0.RunnableContract
+	14, // 14: codefly.base.v0.Runnable.service_dependencies:type_name -> codefly.base.v0.RunnableDependency
+	12, // 15: codefly.base.v0.Runnable.execution:type_name -> codefly.base.v0.RunnableExecution
+	22, // 16: codefly.base.v0.Runnable.library_dependencies:type_name -> codefly.base.v0.LibraryDependency
+	4,  // 17: codefly.base.v0.RunnableArtifact.kind:type_name -> codefly.base.v0.RunnableArtifact.Kind
+	16, // 18: codefly.base.v0.RunnableBuild.handler:type_name -> codefly.base.v0.RunnableInputDigest
+	16, // 19: codefly.base.v0.RunnableBuild.inputs:type_name -> codefly.base.v0.RunnableInputDigest
+	6,  // 20: codefly.base.v0.RunnablePackage.identity:type_name -> codefly.base.v0.RunnableIdentity
+	21, // 21: codefly.base.v0.RunnablePackage.agent:type_name -> codefly.base.v0.Agent
+	10, // 22: codefly.base.v0.RunnablePackage.contract:type_name -> codefly.base.v0.RunnableContract
+	12, // 23: codefly.base.v0.RunnablePackage.execution:type_name -> codefly.base.v0.RunnableExecution
+	17, // 24: codefly.base.v0.RunnablePackage.build:type_name -> codefly.base.v0.RunnableBuild
+	15, // 25: codefly.base.v0.RunnablePackage.artifacts:type_name -> codefly.base.v0.RunnableArtifact
+	14, // 26: codefly.base.v0.RunnablePackage.service_dependencies:type_name -> codefly.base.v0.RunnableDependency
+	6,  // 27: codefly.base.v0.RunnableBinding.identity:type_name -> codefly.base.v0.RunnableIdentity
+	11, // 28: codefly.base.v0.RunnableBinding.facility:type_name -> codefly.base.v0.RunnableFacility
+	15, // 29: codefly.base.v0.RunnableBinding.artifact:type_name -> codefly.base.v0.RunnableArtifact
+	23, // 30: codefly.base.v0.RunnableBinding.dependency_network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_runnable_proto_init() }
@@ -1700,7 +1774,7 @@ func file_codefly_base_v0_runnable_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_runnable_proto_rawDesc), len(file_codefly_base_v0_runnable_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   14,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

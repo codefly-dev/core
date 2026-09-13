@@ -58,6 +58,9 @@ const (
 	BuilderSBOMProcedure = "/codefly.services.builder.v0.Builder/SBOM"
 	// BuilderPackageProcedure is the fully-qualified name of the Builder's Package RPC.
 	BuilderPackageProcedure = "/codefly.services.builder.v0.Builder/Package"
+	// BuilderRunnableBuildInputsProcedure is the fully-qualified name of the Builder's
+	// RunnableBuildInputs RPC.
+	BuilderRunnableBuildInputsProcedure = "/codefly.services.builder.v0.Builder/RunnableBuildInputs"
 	// BuilderUpgradeProcedure is the fully-qualified name of the Builder's Upgrade RPC.
 	BuilderUpgradeProcedure = "/codefly.services.builder.v0.Builder/Upgrade"
 	// BuilderConfigureProcedure is the fully-qualified name of the Builder's Configure RPC.
@@ -90,6 +93,9 @@ type BuilderClient interface {
 	SBOM(context.Context, *connect.Request[v0.SBOMRequest]) (*connect.Response[v0.SBOMResponse], error)
 	// Package emits portable source release artifacts through the owning plugin.
 	Package(context.Context, *connect.Request[v0.PackageRequest]) (*connect.Response[v0.PackageResponse], error)
+	// RunnableBuildInputs generates the harness and reports the build inputs of
+	// the loaded runnable.
+	RunnableBuildInputs(context.Context, *connect.Request[v0.RunnableBuildInputsRequest]) (*connect.Response[v0.RunnableBuildInputsResponse], error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -181,6 +187,12 @@ func NewBuilderClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(builderMethods.ByName("Package")),
 			connect.WithClientOptions(opts...),
 		),
+		runnableBuildInputs: connect.NewClient[v0.RunnableBuildInputsRequest, v0.RunnableBuildInputsResponse](
+			httpClient,
+			baseURL+BuilderRunnableBuildInputsProcedure,
+			connect.WithSchema(builderMethods.ByName("RunnableBuildInputs")),
+			connect.WithClientOptions(opts...),
+		),
 		upgrade: connect.NewClient[v0.UpgradeRequest, v0.UpgradeResponse](
 			httpClient,
 			baseURL+BuilderUpgradeProcedure,
@@ -204,20 +216,21 @@ func NewBuilderClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 
 // builderClient implements BuilderClient.
 type builderClient struct {
-	load              *connect.Client[v0.LoadRequest, v0.LoadResponse]
-	init              *connect.Client[v0.InitRequest, v0.InitResponse]
-	create            *connect.Client[v0.CreateRequest, v0.CreateResponse]
-	update            *connect.Client[v0.UpdateRequest, v0.UpdateResponse]
-	sync              *connect.Client[v0.SyncRequest, v0.SyncResponse]
-	build             *connect.Client[v0.BuildRequest, v0.BuildResponse]
-	buildCapabilities *connect.Client[v0.BuildCapabilitiesRequest, v0.BuildCapabilitiesResponse]
-	deploy            *connect.Client[v0.DeploymentRequest, v0.DeploymentResponse]
-	audit             *connect.Client[v0.AuditRequest, v0.AuditResponse]
-	sBOM              *connect.Client[v0.SBOMRequest, v0.SBOMResponse]
-	_package          *connect.Client[v0.PackageRequest, v0.PackageResponse]
-	upgrade           *connect.Client[v0.UpgradeRequest, v0.UpgradeResponse]
-	configure         *connect.Client[v0.ConfigureRequest, v0.ConfigureResponse]
-	communicate       *connect.Client[v01.Answer, v01.Question]
+	load                *connect.Client[v0.LoadRequest, v0.LoadResponse]
+	init                *connect.Client[v0.InitRequest, v0.InitResponse]
+	create              *connect.Client[v0.CreateRequest, v0.CreateResponse]
+	update              *connect.Client[v0.UpdateRequest, v0.UpdateResponse]
+	sync                *connect.Client[v0.SyncRequest, v0.SyncResponse]
+	build               *connect.Client[v0.BuildRequest, v0.BuildResponse]
+	buildCapabilities   *connect.Client[v0.BuildCapabilitiesRequest, v0.BuildCapabilitiesResponse]
+	deploy              *connect.Client[v0.DeploymentRequest, v0.DeploymentResponse]
+	audit               *connect.Client[v0.AuditRequest, v0.AuditResponse]
+	sBOM                *connect.Client[v0.SBOMRequest, v0.SBOMResponse]
+	_package            *connect.Client[v0.PackageRequest, v0.PackageResponse]
+	runnableBuildInputs *connect.Client[v0.RunnableBuildInputsRequest, v0.RunnableBuildInputsResponse]
+	upgrade             *connect.Client[v0.UpgradeRequest, v0.UpgradeResponse]
+	configure           *connect.Client[v0.ConfigureRequest, v0.ConfigureResponse]
+	communicate         *connect.Client[v01.Answer, v01.Question]
 }
 
 // Load calls codefly.services.builder.v0.Builder.Load.
@@ -275,6 +288,11 @@ func (c *builderClient) Package(ctx context.Context, req *connect.Request[v0.Pac
 	return c._package.CallUnary(ctx, req)
 }
 
+// RunnableBuildInputs calls codefly.services.builder.v0.Builder.RunnableBuildInputs.
+func (c *builderClient) RunnableBuildInputs(ctx context.Context, req *connect.Request[v0.RunnableBuildInputsRequest]) (*connect.Response[v0.RunnableBuildInputsResponse], error) {
+	return c.runnableBuildInputs.CallUnary(ctx, req)
+}
+
 // Upgrade calls codefly.services.builder.v0.Builder.Upgrade.
 func (c *builderClient) Upgrade(ctx context.Context, req *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error) {
 	return c.upgrade.CallUnary(ctx, req)
@@ -314,6 +332,9 @@ type BuilderHandler interface {
 	SBOM(context.Context, *connect.Request[v0.SBOMRequest]) (*connect.Response[v0.SBOMResponse], error)
 	// Package emits portable source release artifacts through the owning plugin.
 	Package(context.Context, *connect.Request[v0.PackageRequest]) (*connect.Response[v0.PackageResponse], error)
+	// RunnableBuildInputs generates the harness and reports the build inputs of
+	// the loaded runnable.
+	RunnableBuildInputs(context.Context, *connect.Request[v0.RunnableBuildInputsRequest]) (*connect.Response[v0.RunnableBuildInputsResponse], error)
 	// Upgrade applies or previews dependency version bumps.
 	Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error)
 	// Configure applies structured config changes to the service and PERSISTS them
@@ -401,6 +422,12 @@ func NewBuilderHandler(svc BuilderHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(builderMethods.ByName("Package")),
 		connect.WithHandlerOptions(opts...),
 	)
+	builderRunnableBuildInputsHandler := connect.NewUnaryHandler(
+		BuilderRunnableBuildInputsProcedure,
+		svc.RunnableBuildInputs,
+		connect.WithSchema(builderMethods.ByName("RunnableBuildInputs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	builderUpgradeHandler := connect.NewUnaryHandler(
 		BuilderUpgradeProcedure,
 		svc.Upgrade,
@@ -443,6 +470,8 @@ func NewBuilderHandler(svc BuilderHandler, opts ...connect.HandlerOption) (strin
 			builderSBOMHandler.ServeHTTP(w, r)
 		case BuilderPackageProcedure:
 			builderPackageHandler.ServeHTTP(w, r)
+		case BuilderRunnableBuildInputsProcedure:
+			builderRunnableBuildInputsHandler.ServeHTTP(w, r)
 		case BuilderUpgradeProcedure:
 			builderUpgradeHandler.ServeHTTP(w, r)
 		case BuilderConfigureProcedure:
@@ -500,6 +529,10 @@ func (UnimplementedBuilderHandler) SBOM(context.Context, *connect.Request[v0.SBO
 
 func (UnimplementedBuilderHandler) Package(context.Context, *connect.Request[v0.PackageRequest]) (*connect.Response[v0.PackageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.builder.v0.Builder.Package is not implemented"))
+}
+
+func (UnimplementedBuilderHandler) RunnableBuildInputs(context.Context, *connect.Request[v0.RunnableBuildInputsRequest]) (*connect.Response[v0.RunnableBuildInputsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codefly.services.builder.v0.Builder.RunnableBuildInputs is not implemented"))
 }
 
 func (UnimplementedBuilderHandler) Upgrade(context.Context, *connect.Request[v0.UpgradeRequest]) (*connect.Response[v0.UpgradeResponse], error) {

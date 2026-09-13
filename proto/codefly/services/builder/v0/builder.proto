@@ -5,6 +5,7 @@ package codefly.services.builder.v0;
 import "codefly/base/v0/service.proto";
 import "codefly/base/v0/failure.proto";
 import "codefly/base/v0/network.proto";
+import "codefly/base/v0/runnable.proto";
 import "codefly/base/v0/endpoint.proto";
 import "codefly/base/v0/environment.proto";
 import "codefly/base/v0/configuration.proto";
@@ -48,6 +49,11 @@ message LoadRequest {
 
   // sync_mode configures interactive synchronization behavior.
   SyncMode sync_mode = 5;
+
+  // runnable is the runnable a RUNNABLE-kind agent loads, set instead of
+  // identity. The kind of the agent the caller started decides which of the
+  // two is populated, so no consumer switches on the agent's language.
+  codefly.base.v0.RunnableLocation runnable = 6;
 
 }
 
@@ -615,6 +621,57 @@ message PackageResponse {
 
 /*
 
+RunnableBuildInputs — generate the harness and report everything the loaded
+runnable's package bytes depend on. The agent is the only side that can pin the
+harness it just generated and the toolchain it resolved, and it is the side
+that knows which declared inputs it actually consumed, so it returns the whole
+RunnableBuild rather than half of one. Without it no RunnablePackage descriptor
+can be assembled. Artifacts stay with the existing operations: Build emits the
+image recipe the CLI builds, Package emits the native artifact.
+
+*/
+
+// RunnableBuildInputsRequest asks the agent to generate the harness and report
+// what the package bytes depend on.
+message RunnableBuildInputsRequest {
+  // output_directory is an absolute destination owned by the caller where the
+  // agent writes the generated harness.
+  string output_directory = 1;
+}
+
+// RunnableBuildInputsStatus reports whether the agent could report build inputs.
+message RunnableBuildInputsStatus {
+  // Status enumerates lifecycle status values.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified.
+    UNKNOWN = 0;
+    // SUCCESS means the agent reported every build input.
+    SUCCESS = 1;
+    // ERROR means the operation failed and message carries diagnostics.
+    ERROR = 2;
+    // UNSUPPORTED means this agent does not implement runnables.
+    UNSUPPORTED = 3;
+  }
+  // state is the machine-readable lifecycle state.
+  Status state = 1;
+  // message is a human-readable status or diagnostic summary.
+  string message = 2;
+  // failure is the universal structured cause when state is ERROR or UNSUPPORTED.
+  codefly.base.v0.Failure failure = 3;
+}
+
+// RunnableBuildInputsResponse returns the pinned build inputs of the loaded
+// runnable.
+message RunnableBuildInputsResponse {
+  // state reports successful, unsupported, or failed reporting.
+  RunnableBuildInputsStatus state = 1;
+  // build pins the handler, declared inputs, generated harness, toolchain and
+  // effective configuration the artifacts are built from.
+  codefly.base.v0.RunnableBuild build = 2;
+}
+
+/*
+
 Upgrade — apply dependency bumps. Defaults to patch+minor (semver-safe).
 include_major opts in to breaking bumps. dry_run reports the changes
 without writing the lockfile.
@@ -781,6 +838,9 @@ service Builder {
   rpc SBOM (SBOMRequest) returns (SBOMResponse) {}
   // Package emits portable source release artifacts through the owning plugin.
   rpc Package (PackageRequest) returns (PackageResponse) {}
+  // RunnableBuildInputs generates the harness and reports the build inputs of
+  // the loaded runnable.
+  rpc RunnableBuildInputs (RunnableBuildInputsRequest) returns (RunnableBuildInputsResponse) {}
   // Upgrade applies or previews dependency version bumps.
   rpc Upgrade (UpgradeRequest) returns (UpgradeResponse) {}
 
