@@ -1,4 +1,4 @@
-FROM alpine:3.21.3
+FROM alpine:3.24.1
 
 # Base dev toolbox shared across every codefly-built image. Language
 # companions either FROM this image directly (when alpine suffices) or
