@@ -3269,7 +3269,13 @@ type PackageArtifact struct {
 	// sha256 is the lowercase hexadecimal content digest.
 	Sha256 string `protobuf:"bytes,4,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	// media_type identifies the artifact representation.
-	MediaType     string `protobuf:"bytes,5,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
+	MediaType string `protobuf:"bytes,5,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
+	// command is how the artifact is launched, relative to its unpacked root.
+	// Only the agent knows it: deriving it from the toolchain or from a
+	// template name is the language-specific shortcut a runnable's NATIVE
+	// artifact exists to avoid. Empty when the artifact carries its own
+	// entrypoint or is not launched at all.
+	Command       []string `protobuf:"bytes,6,rep,name=command,proto3" json:"command,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3337,6 +3343,13 @@ func (x *PackageArtifact) GetMediaType() string {
 		return x.MediaType
 	}
 	return ""
+}
+
+func (x *PackageArtifact) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
 }
 
 // PackageStatus reports whether portable packaging completed.
@@ -4408,14 +4421,15 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\x10output_directory\x18\x02 \x01(\tR\x0foutputDirectory\x12#\n" +
 	"\rartifact_name\x18\x03 \x01(\tR\fartifactName\x12!\n" +
 	"\finclude_sbom\x18\x04 \x01(\bR\vincludeSbom\x12E\n" +
-	"\asubject\x18\x05 \x01(\v2+.codefly.services.builder.v0.PackageSubjectR\asubject\"\xac\x02\n" +
+	"\asubject\x18\x05 \x01(\v2+.codefly.services.builder.v0.PackageSubjectR\asubject\"\xc6\x02\n" +
 	"\x0fPackageArtifact\x12E\n" +
 	"\x04kind\x18\x01 \x01(\x0e21.codefly.services.builder.v0.PackageArtifact.KindR\x04kind\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12B\n" +
 	"\x06target\x18\x03 \x01(\v2*.codefly.services.builder.v0.PackageTargetR\x06target\x12\x16\n" +
 	"\x06sha256\x18\x04 \x01(\tR\x06sha256\x12\x1d\n" +
 	"\n" +
-	"media_type\x18\x05 \x01(\tR\tmediaType\"C\n" +
+	"media_type\x18\x05 \x01(\tR\tmediaType\x12\x18\n" +
+	"\acommand\x18\x06 \x03(\tR\acommand\"C\n" +
 	"\x04Kind\x12\x14\n" +
 	"\x10KIND_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +

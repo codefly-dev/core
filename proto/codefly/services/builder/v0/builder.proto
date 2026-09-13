@@ -588,6 +588,12 @@ message PackageArtifact {
   string sha256 = 4;
   // media_type identifies the artifact representation.
   string media_type = 5;
+  // command is how the artifact is launched, relative to its unpacked root.
+  // Only the agent knows it: deriving it from the toolchain or from a
+  // template name is the language-specific shortcut a runnable's NATIVE
+  // artifact exists to avoid. Empty when the artifact carries its own
+  // entrypoint or is not launched at all.
+  repeated string command = 6;
 }
 
 // PackageStatus reports whether portable packaging completed.

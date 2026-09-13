@@ -25,6 +25,9 @@ const (
 	PackageSchemaV1 = "codefly.runnable-package/v1"
 	// BindingSchemaV1 is the only binding schema this package accepts.
 	BindingSchemaV1 = "codefly.runnable-binding/v1"
+	// ProtocolV1 is the launcher/harness invocation framing this package
+	// implements, and the only protocol a loaded contract may name.
+	ProtocolV1 = resources.RunnableProtocolV1
 )
 
 var (

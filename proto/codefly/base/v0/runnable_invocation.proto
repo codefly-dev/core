@@ -1,0 +1,204 @@
+syntax = "proto3";
+package codefly.base.v0;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v0/runnable.proto";
+import "google/protobuf/timestamp.proto";
+
+/*
+codefly.runnable/v1 — the framing between a launcher and a generated harness.
+
+A launcher starts the bound artifact's command once per invocation. Three
+environment variables and two documents are the whole seam:
+
+  CODEFLY__RUNNABLE_PROTOCOL    the protocol name, so a harness refuses a
+                                launcher it does not implement
+  CODEFLY__RUNNABLE_INVOCATION  absolute path of the RunnableInvocation
+                                document the launcher wrote before starting
+  CODEFLY__RUNNABLE_RESULT      absolute path the harness writes its
+                                RunnableResult document to
+
+Both documents are proto3 JSON spelled with these field names, so a harness
+generating bindings from these same sources reads and writes them without a
+hand-written spelling of the framing. The harness writes its result to a
+temporary file in the result path's directory and renames it onto the result
+path: a launcher never reads a half-written document, and no file there when
+the process ends means no result at all.
+
+Standard output and standard error are logs. They never carry completion data:
+a harness that printed its output would be indistinguishable from a library
+that printed a warning.
+*/
+
+// RunnableInvocation is the document a launcher hands a harness. Unlike a
+// package or a binding it is not content-addressed: it names one run of an
+// already-installed binding rather than an immutable installation fact.
+message RunnableInvocation {
+  // protocol is the framing this document is written in, matching the
+  // package contract's protocol.
+  string protocol = 1 [(buf.validate.field).string.min_len = 1];
+  // runnable is the release being invoked. A harness handed another release's
+  // invocation refuses it instead of running foreign input.
+  RunnableIdentity runnable = 2 [(buf.validate.field).required = true];
+  // invocation_id identifies this one run of the process.
+  string invocation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // intent_id is the caller's logical operation, stable across attempts. Core
+  // never decides that another attempt happens; it carries the identity that
+  // makes attempts of one intent recognizable to whoever does.
+  string intent_id = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // effect_id is the idempotency key of the external effect. It is required
+  // when the package declares RECOVERY_RECEIPT, whose uncertain outcome is
+  // resolved by looking the effect up, and empty when it declares
+  // RECOVERY_RECOMPUTE, which has no effect to look up.
+  string effect_id = 5 [(buf.validate.field).string.max_len = 128];
+  // issued_at is when the launcher wrote this document.
+  google.protobuf.Timestamp issued_at = 6 [(buf.validate.field).required = true];
+  // deadline is when the launcher stops waiting. A harness budgeting its own
+  // work measures deadline minus issued_at from the moment it reads this
+  // document, so an offset between the two clocks neither shortens nor
+  // extends the budget.
+  google.protobuf.Timestamp deadline = 7 [(buf.validate.field).required = true];
+  // input is one UTF-8 JSON object matching the contract's input schema,
+  // bounded by RunnableExecution.max_input_bytes. Bytes rather than a
+  // structured value because proto3 JSON maps every number to a double while
+  // the bounded profile has a 64-bit integer, and because the bound must
+  // apply to exactly the document that was bounded. A proto3 JSON encoder
+  // base64-encodes this field; the bound is on the decoded document.
+  bytes input = 8 [(buf.validate.field).bytes.min_len = 1];
+}
+
+// RunnableError is a handler's own typed failure. The code is the operation's
+// vocabulary rather than Codefly's: a runnable that could not charge a card
+// says so in its own terms, and core never reinterprets it.
+message RunnableError {
+  // code is a stable, operation-defined failure code.
+  string code = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // message explains the failure to a human.
+  string message = 2;
+}
+
+// RunnableResult is the document a harness writes. A harness reports only what
+// it observed of itself: the handler produced output, or the handler ran and
+// failed. Every other way an invocation can end is a judgement about a process
+// that left no result, which only the launcher is in a position to make.
+message RunnableResult {
+  // Status enumerates what a harness can report about its own invocation.
+  enum Status {
+    // UNKNOWN is the default value when status is not specified; a result
+    // carrying it is not a valid result.
+    UNKNOWN = 0;
+    // SUCCEEDED means the handler returned output matching the contract.
+    SUCCEEDED = 1;
+    // FAILED means the handler ran and reported a typed failure.
+    FAILED = 2;
+  }
+  // protocol is the framing this document is written in.
+  string protocol = 1 [(buf.validate.field).string.min_len = 1];
+  // invocation_id echoes the invocation. A launcher reading another
+  // invocation's id has found a stale document, not this run's result.
+  string invocation_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // status is what the harness observed.
+  Status status = 3 [(buf.validate.field).enum.defined_only = true];
+  // output is the SUCCEEDED payload: one UTF-8 JSON object matching the
+  // contract's output schema, bounded by RunnableExecution.max_output_bytes
+  // and base64-encoded by a proto3 JSON encoder like the invocation input.
+  bytes output = 4;
+  // error is the FAILED cause.
+  RunnableError error = 5;
+}
+
+// RunnableLogStream records what one log stream produced. The bytes stay
+// wherever the launcher put them; a completion carries bounded metadata, never
+// process output.
+message RunnableLogStream {
+  // bytes is how much the launcher captured, at most max_log_bytes.
+  uint64 bytes = 1;
+  // truncated means the stream produced more than the bound allowed.
+  bool truncated = 2;
+}
+
+// RunnableLogs separates diagnostics from completion data. Exceeding the log
+// bound truncates the stream and never changes the outcome, while exceeding
+// the output bound makes the result invalid.
+message RunnableLogs {
+  // stdout is the standard output stream.
+  RunnableLogStream stdout = 1;
+  // stderr is the standard error stream.
+  RunnableLogStream stderr = 2;
+}
+
+/*
+
+RunnableCompletion — the launcher's typed record of one invocation.
+
+The outcomes are distinct because a caller does different things with them: a
+FAILED operation ran and reported why, a MISSING_OUTPUT process did not honor
+the protocol, and a TIMED_OUT one may or may not have had its effect. Only
+SUCCEEDED and FAILED prove what happened; every other outcome leaves the effect
+unproven and is resolved the way the package's recovery policy says.
+
+A launcher classifies by this precedence, highest first:
+
+  1. a valid result for this invocation, so an outcome the harness already
+     proved is never discarded because the launcher also ended the process;
+  2. the launcher ending the process — TIMED_OUT or CANCELED explain it better
+     than the exit status the kill produced;
+  3. a result document that is not this invocation's valid result;
+  4. a non-zero exit or a signal;
+  5. nothing at all from a process that exited successfully.
+
+*/
+
+// RunnableCompletion is produced by the launcher, never by the harness.
+message RunnableCompletion {
+  // Outcome enumerates the distinct ways one invocation ends.
+  enum Outcome {
+    // UNKNOWN is the default value when outcome is not specified.
+    UNKNOWN = 0;
+    // SUCCEEDED means a valid result reported handler output.
+    SUCCEEDED = 1;
+    // FAILED means a valid result reported a typed handler failure. The
+    // operation ran: this is a completion, not a launcher error.
+    FAILED = 2;
+    // INVALID_OUTPUT means a result document exists but is not this
+    // invocation's valid result: malformed, another invocation's, missing its
+    // payload, or over max_output_bytes. A process that exits zero and writes
+    // such a document lands here, because the exit status is not the
+    // completion.
+    INVALID_OUTPUT = 3;
+    // MISSING_OUTPUT means the process exited successfully without writing a
+    // result at all.
+    MISSING_OUTPUT = 4;
+    // CRASHED means the process exited non-zero or died on a signal and left
+    // no result.
+    CRASHED = 5;
+    // TIMED_OUT means the deadline passed and the launcher ended the process.
+    TIMED_OUT = 6;
+    // CANCELED means the launcher interrupted the process at the caller's
+    // request. Only a package declaring CANCELLATION_SIGNAL may be
+    // interrupted; one declaring CANCELLATION_NONE runs to its deadline.
+    CANCELED = 7;
+  }
+  // protocol is the framing the invocation used.
+  string protocol = 1 [(buf.validate.field).string.min_len = 1];
+  // runnable is the invoked release.
+  RunnableIdentity runnable = 2 [(buf.validate.field).required = true];
+  // invocation_id is the invocation this completes.
+  string invocation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // outcome is the typed terminal state.
+  Outcome outcome = 4 [(buf.validate.field).enum.defined_only = true];
+  // result is the harness document, present for exactly SUCCEEDED and FAILED.
+  RunnableResult result = 5;
+  // exit_code is the process exit status, meaningful when signal is empty.
+  int32 exit_code = 6;
+  // signal names the signal the process died on, empty when it exited.
+  string signal = 7;
+  // message explains an outcome that carries no result.
+  string message = 8;
+  // started_at is when the launcher started the process.
+  google.protobuf.Timestamp started_at = 9 [(buf.validate.field).required = true];
+  // ended_at is when the process ended.
+  google.protobuf.Timestamp ended_at = 10 [(buf.validate.field).required = true];
+  // logs record what the two log streams produced.
+  RunnableLogs logs = 11;
+}

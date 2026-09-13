@@ -781,7 +781,11 @@ type RunnableExecution struct {
 	MaxOutputBytes uint64 `protobuf:"varint,6,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
 	// concurrency bounds simultaneous invocations of one worker; 0 means the
 	// facility default.
-	Concurrency   uint32 `protobuf:"varint,7,opt,name=concurrency,proto3" json:"concurrency,omitempty"`
+	Concurrency uint32 `protobuf:"varint,7,opt,name=concurrency,proto3" json:"concurrency,omitempty"`
+	// max_log_bytes bounds the diagnostics a launcher captures from each log
+	// stream. Exceeding it truncates the stream and never changes the outcome,
+	// unlike max_output_bytes, whose payload is completion data.
+	MaxLogBytes   uint64 `protobuf:"varint,8,opt,name=max_log_bytes,json=maxLogBytes,proto3" json:"max_log_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -861,6 +865,13 @@ func (x *RunnableExecution) GetMaxOutputBytes() uint64 {
 func (x *RunnableExecution) GetConcurrency() uint32 {
 	if x != nil {
 		return x.Concurrency
+	}
+	return 0
+}
+
+func (x *RunnableExecution) GetMaxLogBytes() uint64 {
+	if x != nil {
+		return x.MaxLogBytes
 	}
 	return 0
 }
@@ -1600,7 +1611,7 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\n" +
 	"\x06NATIVE\x10\x01\x12\x0e\n" +
 	"\n" +
-	"KUBERNETES\x10\x02\"\xff\x04\n" +
+	"KUBERNETES\x10\x02\"\xac\x05\n" +
 	"\x11RunnableExecution\x12K\n" +
 	"\n" +
 	"facilities\x18\x01 \x03(\v2!.codefly.base.v0.RunnableFacilityB\b\xbaH\x05\x92\x01\x02\b\x01R\n" +
@@ -1610,7 +1621,8 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\brecovery\x18\x04 \x01(\x0e2+.codefly.base.v0.RunnableExecution.RecoveryB\b\xbaH\x05\x82\x01\x02\x10\x01R\brecovery\x12/\n" +
 	"\x0fmax_input_bytes\x18\x05 \x01(\x04B\a\xbaH\x042\x02 \x00R\rmaxInputBytes\x121\n" +
 	"\x10max_output_bytes\x18\x06 \x01(\x04B\a\xbaH\x042\x02 \x00R\x0emaxOutputBytes\x12 \n" +
-	"\vconcurrency\x18\a \x01(\rR\vconcurrency\"X\n" +
+	"\vconcurrency\x18\a \x01(\rR\vconcurrency\x12+\n" +
+	"\rmax_log_bytes\x18\b \x01(\x04B\a\xbaH\x042\x02 \x00R\vmaxLogBytes\"X\n" +
 	"\fCancellation\x12\x18\n" +
 	"\x14CANCELLATION_UNKNOWN\x10\x00\x12\x15\n" +
 	"\x11CANCELLATION_NONE\x10\x01\x12\x17\n" +
