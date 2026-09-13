@@ -40,17 +40,13 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
 - This is pre-customer: breaking changes are normal and compatibility shims are
   not carried. Update core source/bindings and every aggregate-workspace
   consumer together so the workspace and released artifact set stay atomic.
-- CI runs `buf breaking` against `main`, so a wire break is a deliberate step
-  rather than a silent one. Run the same check before pushing:
+- CI runs `buf breaking` against `main` under the `PACKAGE` rules, so a removal
+  or a type change is caught while moving a message between files in the same
+  package is not. Run the same check before pushing:
 
   ```bash
   git fetch origin main
   cd proto && buf breaking --against "../.git#ref=origin/main,subdir=proto"
   ```
-
-  To land an intentional break, list the file under `breaking.ignore` in
-  `buf.yaml` in that PR, then drop the entry in a follow-up — once the new
-  shape is on `main` it is the baseline and the exception only hides the next
-  break.
 - `buf lint` before committing.
 - Validation uses CEL via protovalidate (field constraints in the `.proto`s).
