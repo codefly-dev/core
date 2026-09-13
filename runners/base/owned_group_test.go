@@ -297,12 +297,13 @@ func TestProcessEnvironmentReadableMatchesReality(t *testing.T) {
 		<-waited
 	})
 
-	// The credential read races the child's exec: Darwin fails the procargs
-	// read outright for a process that is mid-exec, while Linux reports
-	// success with no match until the exec'd image installs its environment.
-	// The capability under test is stable, the read is not, so poll for the
-	// credential itself and let the bound elapsing be the "not readable"
-	// verdict.
+	// The credential read races the child's exec. The credential is in the
+	// environment from the gate shell onward and is inherited across each
+	// exec, so a read only comes up empty inside the execve window itself:
+	// there Darwin can fail the procargs read outright and Linux can report
+	// success with no match. The capability under test is stable, the read is
+	// not, so poll for the credential itself and let the bound elapsing be
+	// the "not readable" verdict.
 	var value string
 	var readErr error
 	readable := waitFor(5*time.Second, func() bool {
