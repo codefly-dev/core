@@ -171,6 +171,41 @@ differs, so mapping and instance order cannot change the binding digest.
 These checks validate resolved coordinates; installers and launchers still
 own facility compatibility, reachability and the declared readiness predicates.
 
+## Agent protocol
+
+A runnable agent is an ordinary codefly agent of a uniform kind
+(`codefly:runnable`, `Agent_RUNNABLE`): the language is the agent *name*
+(`runnable-python`, `runnable-go`), so discovery, download and install resolve
+through the same registration every other agent kind uses and no consumer
+switches on language.
+
+It is started and driven through the existing `Builder` service, extended in
+two places and nowhere else:
+
+- **`LoadRequest.runnable`** (`RunnableLocation`) is set instead of
+  `LoadRequest.identity`, which names a service a runnable does not have. Which
+  of the two is populated follows from the kind of agent the caller started.
+  `RunnableLocation` pairs the release identity with `workspace_path` and
+  `relative_to_workspace`. Those host paths are deliberately *not* fields of
+  `RunnableIdentity`: the identity is part of the canonical form the package
+  digest is taken over, so a checkout-dependent path would give one release a
+  different digest on every machine. `Workspace.RunnableLocationOf` builds the
+  pair and stamps the workspace name, the one part of the identity a runnable
+  cannot know about itself.
+- **`Builder.RunnableBuildInputs`** generates the harness into a caller-owned
+  directory and returns the `RunnableBuild` for the loaded runnable: the
+  handler and declared-input digests, the generated harness digest, the exact
+  toolchain and the effective configuration digest. Only the agent can pin the
+  harness it just generated and the toolchain it resolved, so it returns the
+  whole message; the CLI assembles the `RunnablePackage` from the declaration,
+  this build and the artifacts.
+
+Artifacts need no new RPC. `Builder.Build` with an `output_directory` already
+returns a `DockerBuildPlan` for the CLI to build (core#461), and
+`Builder.Package` already emits native artifacts with their digests. The
+`Runtime` service is not extended: a runnable has no agent-run process, because
+the CLI owns the launcher.
+
 ## Ownership of what is not here
 
 - **Agents** (`Builder.Build` with an `output_directory` → `DockerBuildPlan`;

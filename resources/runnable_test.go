@@ -480,3 +480,72 @@ func TestExistingWorkspacesIgnoreRunnables(t *testing.T) {
 		require.Empty(t, all, fixture)
 	}
 }
+
+func TestRunnableLocation(t *testing.T) {
+	ctx := context.Background()
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, withRunnables)
+	require.NoError(t, err)
+
+	r, err := workspace.FindRunnableByName(ctx, "word-count")
+	require.NoError(t, err)
+
+	location, err := workspace.RunnableLocationOf(r)
+	require.NoError(t, err)
+	require.Equal(t, "runnables/word-count", location.RelativeToWorkspace)
+	require.Equal(t, workspace.Dir(), location.WorkspacePath)
+	require.Equal(t, r.Dir(), location.Dir())
+
+	// The workspace is the one thing a runnable cannot know about itself, so
+	// only the workspace can complete the wire identity.
+	require.Empty(t, r.Identity().Workspace)
+	require.Equal(t, workspace.Name, location.Identity.Workspace)
+
+	proto, err := location.Proto()
+	require.NoError(t, err)
+	require.Equal(t, "word-count", proto.Identity.Name)
+	require.Equal(t, "with-runnables", proto.Identity.Module)
+	require.Equal(t, "0.1.0", proto.Identity.Version)
+
+	back := resources.RunnableLocationFromProto(proto)
+	require.Equal(t, location, back)
+}
+
+func TestRunnableLocationRejectsIncompleteIdentity(t *testing.T) {
+	ctx := context.Background()
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, withRunnables)
+	require.NoError(t, err)
+
+	r, err := workspace.FindRunnableByName(ctx, "word-count")
+	require.NoError(t, err)
+
+	location, err := workspace.RunnableLocationOf(r)
+	require.NoError(t, err)
+
+	location.Identity.Workspace = ""
+	_, err = location.Proto()
+	require.Error(t, err)
+}
+
+func TestRunnableIdentityKeepsHostPathsOut(t *testing.T) {
+	identity := &resources.RunnableIdentity{
+		Name:      "word-count",
+		Module:    "with-runnables",
+		Workspace: "with-runnables",
+		Version:   "0.1.0",
+	}
+	proto, err := identity.Proto()
+	require.NoError(t, err)
+
+	// The identity is digested into the immutable package, so it must carry
+	// nothing that differs between two checkouts of the same release.
+	fields := proto.ProtoReflect().Descriptor().Fields()
+	var names []string
+	for i := 0; i < fields.Len(); i++ {
+		names = append(names, string(fields.Get(i).Name()))
+	}
+	require.ElementsMatch(t, []string{"name", "module", "workspace", "version"}, names)
+
+	require.Equal(t, identity, resources.RunnableIdentityFromProto(proto))
+}

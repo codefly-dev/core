@@ -38,6 +38,20 @@ message RunnableIdentity {
   string version = 4 [(buf.validate.field).string.min_len = 5, (buf.validate.field).string.max_len = 50];
 }
 
+// RunnableLocation tells a runnable agent which declaration to load and where
+// it is on the host. The host paths are deliberately not fields of
+// RunnableIdentity: the identity is part of the canonical form a package
+// digest is taken over, and a checkout-dependent path would give the same
+// release a different digest on every machine.
+message RunnableLocation {
+  // identity is the release the agent loads.
+  RunnableIdentity identity = 1 [(buf.validate.field).required = true];
+  // workspace_path is the absolute path to the workspace root.
+  string workspace_path = 2 [(buf.validate.field).string.min_len = 1];
+  // relative_to_workspace is the runnable directory relative to that root.
+  string relative_to_workspace = 3 [(buf.validate.field).string.min_len = 1];
+}
+
 // RunnableField is one field of the bounded schema profile. The profile is
 // deliberately small: object, array, string, integer and boolean, with explicit
 // optional (key may be absent) versus nullable (value may be null). Enumerations,
