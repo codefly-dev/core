@@ -28,49 +28,84 @@ func repoRoot(t *testing.T) string {
 	return dir
 }
 
-type workflow struct {
-	On   any `yaml:"on"`
-	Jobs map[string]struct {
-		Steps []struct {
-			Name string            `yaml:"name"`
-			Uses string            `yaml:"uses"`
-			If   string            `yaml:"if"`
-			Env  map[string]string `yaml:"env"`
-			With map[string]any    `yaml:"with"`
-		} `yaml:"steps"`
-	} `yaml:"jobs"`
+type workflowStep struct {
+	Name string            `yaml:"name"`
+	Uses string            `yaml:"uses"`
+	If   string            `yaml:"if"`
+	Env  map[string]string `yaml:"env"`
+	With map[string]any    `yaml:"with"`
 }
 
+type workflowJob struct {
+	Name     string    `yaml:"name"`
+	If       string    `yaml:"if"`
+	Needs    yaml.Node `yaml:"needs"`
+	Strategy struct {
+		// Held as a node so the axes keep their DECLARATION ORDER, which is
+		// the order GitHub joins matrix values into a check name.
+		Matrix yaml.Node `yaml:"matrix"`
+	} `yaml:"strategy"`
+	Steps []workflowStep `yaml:"steps"`
+}
+
+// `on:` is held as a node rather than `any` so one parse serves both the
+// trigger NAMES and the per-trigger filters (branches, paths, types) that
+// decide whether a check is safe to require.
+type workflow struct {
+	On   yaml.Node              `yaml:"on"`
+	Jobs map[string]workflowJob `yaml:"jobs"`
+}
+
+// GitHub reads both extensions. Globbing only `*.yml` would exempt a workflow
+// added as `*.yaml` from every check here — including the derivation that
+// decides which status checks are safe to require on `main`.
 func workflowFiles(t *testing.T) []string {
 	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(repoRoot(t), ".github", "workflows", "*.yml"))
-	require.NoError(t, err)
+	dir := filepath.Join(repoRoot(t), ".github", "workflows")
+	var paths []string
+	for _, ext := range []string{"*.yml", "*.yaml"} {
+		matched, err := filepath.Glob(filepath.Join(dir, ext))
+		require.NoError(t, err)
+		paths = append(paths, matched...)
+	}
 	require.NotEmpty(t, paths, "no workflows found")
 	return paths
 }
 
 // triggers normalises the `on:` key, which YAML may present as a string, a
 // list, or a map depending on how the workflow is written.
-func triggers(on any) []string {
-	switch v := on.(type) {
-	case string:
-		return []string{v}
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, e := range v {
-			if s, ok := e.(string); ok {
-				out = append(out, s)
-			}
+func triggers(on yaml.Node) []string {
+	switch on.Kind {
+	case yaml.ScalarNode:
+		return []string{on.Value}
+	case yaml.SequenceNode:
+		out := make([]string, 0, len(on.Content))
+		for _, entry := range on.Content {
+			out = append(out, entry.Value)
 		}
 		return out
-	case map[string]any:
-		out := make([]string, 0, len(v))
-		for k := range v {
-			out = append(out, k)
+	case yaml.MappingNode:
+		out := make([]string, 0, len(on.Content)/2)
+		for i := 0; i+1 < len(on.Content); i += 2 {
+			out = append(out, on.Content[i].Value)
 		}
 		return out
 	}
 	return nil
+}
+
+// triggerNode returns the configuration node for one trigger, when the `on:`
+// key is written in mapping form and carries one.
+func triggerNode(on yaml.Node, name string) (yaml.Node, bool) {
+	if on.Kind != yaml.MappingNode {
+		return yaml.Node{}, false
+	}
+	for i := 0; i+1 < len(on.Content); i += 2 {
+		if on.Content[i].Value == name {
+			return *on.Content[i+1], true
+		}
+	}
+	return yaml.Node{}, false
 }
 
 var secretRef = regexp.MustCompile(`secrets\.([A-Za-z_][A-Za-z0-9_]*)`)

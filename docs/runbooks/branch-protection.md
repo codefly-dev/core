@@ -129,8 +129,24 @@ conclude the set is wrong.
 
 ## Keeping the set honest
 
-`internal/ciguard/branchprotection_test.go` derives this set from the workflows
-and pins it. Add a `paths:` filter, a job-level `if:`, or a run-time matrix to a
-gating workflow and that test fails, because the protection settings would then
-be requiring a name that may never report. When it fails, update the settings
-too — they live on GitHub, and nothing else will notice.
+`internal/ciguard/branchprotection_test.go` derives this set from the workflows,
+pins it, and checks the payload above against it. It fails in both directions,
+and both are your job to resolve in the pull request that causes them:
+
+- **A check leaves the set** — you added a `paths:` filter, a job-level `if:`, a
+  `types:` without `opened`/`synchronize`, or a run-time matrix. Protection is
+  now requiring a name that may never report, which blocks every merge.
+- **A check joins the set** — you added a job that runs on every pull request.
+  Protection does not cover it yet.
+
+Either way, update `requiredChecks`, the payload above, **and** the repository
+settings in the same change. The settings are not in this repository, so nothing
+else will notice; the failure lands on `main` only if the change merges without
+protection turned on.
+
+One shape to know when adding a **matrix** job: GitHub appends the matrix values
+to the check name, so an unnamed `lint` job really reports as `lint (1.27)`. The
+derivation refuses to guess those names and leaves the job out. Give the job an
+explicit `name:` that interpolates every matrix axis — the way
+`build-cache.yml` writes `Registry cache cold (${{ matrix.language }})` — and it
+becomes requirable.
