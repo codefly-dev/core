@@ -51,11 +51,13 @@ func ExpectedFromBuildResult(service string, result *builderv0.DockerBuildResult
 // against: the expectation comes from the build the service itself declares, so
 // no list of known services has to be kept in sync with the fleet.
 func ValidateCoverage(expected []*builderv0.ImageSubject, resp *builderv0.SBOMResponse) error {
-	if resp.GetScope() != builderv0.SBOMScope_SBOM_SCOPE_IMAGE {
-		return fmt.Errorf("response scope is %s: a source inventory is not image coverage", resp.GetScope())
-	}
+	// State is checked before scope: a failed response carries the real cause in
+	// its message, and reporting it as a scope problem would hide that.
 	if state := resp.GetState().GetState(); state != builderv0.SBOMStatus_COMPLETE {
 		return fmt.Errorf("image SBOM is %s: %s", state, resp.GetState().GetMessage())
+	}
+	if resp.GetScope() != builderv0.SBOMScope_SBOM_SCOPE_IMAGE {
+		return fmt.Errorf("response scope is %s: a source inventory is not image coverage", resp.GetScope())
 	}
 	if len(expected) == 0 {
 		if resp.GetNoImageReason() == builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
@@ -75,7 +77,11 @@ func ValidateCoverage(expected []*builderv0.ImageSubject, resp *builderv0.SBOMRe
 			return err
 		}
 		for _, subject := range evidence.GetSubjects() {
-			covered[subjectKey(subject)] = evidence
+			key := subjectKey(subject)
+			if previous, ok := covered[key]; ok && previous.GetDigest() != evidence.GetDigest() {
+				return fmt.Errorf("%s has conflicting evidence: digests %s and %s", subjectLabel(subject), previous.GetDigest(), evidence.GetDigest())
+			}
+			covered[key] = evidence
 		}
 	}
 	var missing []string

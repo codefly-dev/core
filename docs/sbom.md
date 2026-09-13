@@ -71,7 +71,19 @@ the child's digest.
 A multi-platform image with no requested platform is an error rather than an
 arbitrary default pick. Buildx attestation manifests declare `unknown/unknown`
 and are not scan subjects, so a single-platform buildx image still resolves
-without an explicit platform.
+without an explicit platform; an index that carries nothing but attestations is
+rejected rather than scanned as an index.
+
+A manifest descriptor for a single image carries no platform field, so when one
+is requested and the registry does not state it the platform is confirmed
+against the image config. It is never taken from the request itself: evidence
+must not assert a platform nothing verified.
+
+Resolving a tag, or selecting one platform's child manifest, queries the
+registry through `docker`. A reference that is already digest-pinned and asks
+for no particular platform needs no resolution and is scanned with `syft`
+alone, so a host without `docker` still works for fully pinned references;
+anything else fails with an explicit, actionable error.
 
 `SourceDockerDaemon` scans an image held by the local Docker daemon. It is the
 supported path for an image a build produced with `--load` and never pushed,

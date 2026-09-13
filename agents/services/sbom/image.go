@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
+
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 )
 
@@ -68,7 +70,17 @@ func Image(ctx context.Context, req ImageRequest) (*ImageResult, error) {
 
 func resolveImage(ctx context.Context, req ImageRequest) (string, string, error) {
 	if req.Source == SourceDockerDaemon {
-		return inspectDaemonImage(ctx, req.Reference)
+		return inspectDaemonImage(ctx, req)
+	}
+	pinned := referenceDigest(req.Reference)
+	if !dockerAvailable() {
+		// Resolving a tag, or choosing one platform's child manifest, needs a
+		// registry client. A fully pinned reference is still scannable by syft
+		// alone, so that case must not require docker.
+		if pinned == "" || req.Platform != "" {
+			return "", "", fmt.Errorf("%w: resolving %s needs docker to query the registry; pin the reference to a digest and omit the platform to scan with syft alone", ErrUnsupported, req.Reference)
+		}
+		return pinned, "", nil
 	}
 	raw, err := runCommand(ctx, "docker", "buildx", "imagetools", "inspect", req.Reference, "--format", "{{json .Manifest}}")
 	if err != nil {
@@ -78,21 +90,80 @@ func resolveImage(ctx context.Context, req ImageRequest) (string, string, error)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve registry digest for %s: %w", req.Reference, err)
 	}
+	if req.Platform != "" && platform == "" {
+		// A single manifest descriptor carries no platform field, so the
+		// registry has not confirmed the caller's request. Read the image
+		// config instead of labelling the evidence on trust.
+		if err := verifyConfigPlatform(ctx, pinnedReference(req.Reference, digest), req.Platform); err != nil {
+			return "", "", err
+		}
+		platform = req.Platform
+	}
 	return digest, platform, nil
+}
+
+func dockerAvailable() bool {
+	_, err := exec.LookPath("docker")
+	return err == nil
 }
 
 // inspectDaemonImage reports the local image ID, which is the only immutable
 // identity an image that was never pushed has.
-func inspectDaemonImage(ctx context.Context, reference string) (string, string, error) {
-	raw, err := runCommand(ctx, "docker", "image", "inspect", reference, "--format", "{{.Id}} {{.Os}}/{{.Architecture}}")
+func inspectDaemonImage(ctx context.Context, req ImageRequest) (string, string, error) {
+	raw, err := runCommand(ctx, "docker", "image", "inspect", req.Reference, "--format", "{{.Id}} {{.Os}}/{{.Architecture}}")
 	if err != nil {
-		return "", "", fmt.Errorf("resolve local image %s: %w", reference, err)
+		return "", "", fmt.Errorf("resolve local image %s: %w", req.Reference, err)
 	}
+	return daemonIdentity(raw, req.Reference, req.Platform)
+}
+
+// daemonIdentity parses docker's identity line and refuses an image whose
+// platform is not the one that was asked for. The local daemon holds one
+// platform per reference, so a mismatch means the wrong image would be scanned.
+func daemonIdentity(raw []byte, reference, want string) (string, string, error) {
 	fields := strings.Fields(string(raw))
 	if len(fields) != 2 || !strings.HasPrefix(fields[0], "sha256:") {
 		return "", "", fmt.Errorf("local image %s reported no usable image ID", reference)
 	}
+	if want != "" && fields[1] != want {
+		return "", "", fmt.Errorf("local image %s is %s, not the requested platform %s", reference, fields[1], want)
+	}
 	return fields[0], fields[1], nil
+}
+
+// verifyConfigPlatform reads the image config to confirm a platform the
+// manifest descriptor did not state.
+func verifyConfigPlatform(ctx context.Context, reference, want string) error {
+	raw, err := runCommand(ctx, "docker", "buildx", "imagetools", "inspect", reference, "--format", "{{json .Image}}")
+	if err != nil {
+		return fmt.Errorf("verify platform of %s: %w", reference, err)
+	}
+	got, err := configPlatform(raw, want)
+	if err != nil {
+		return fmt.Errorf("verify platform of %s: %w", reference, err)
+	}
+	if got != want {
+		return fmt.Errorf("image %s is %s, not the requested platform %s", reference, got, want)
+	}
+	return nil
+}
+
+// configPlatform reads os/architecture from an image config. buildx emits a
+// bare config for a single-platform reference and a map keyed by "os/arch" for
+// a multi-platform one.
+func configPlatform(data []byte, want string) (string, error) {
+	var single manifestPlatform
+	if err := json.Unmarshal(data, &single); err == nil && single.String() != "" {
+		return single.String(), nil
+	}
+	byPlatform := map[string]manifestPlatform{}
+	if err := json.Unmarshal(data, &byPlatform); err != nil {
+		return "", fmt.Errorf("parse image config: %w", err)
+	}
+	if entry, ok := byPlatform[want]; ok && entry.String() != "" {
+		return entry.String(), nil
+	}
+	return "", fmt.Errorf("image config declares no platform %s", want)
 }
 
 type manifestDescriptor struct {
@@ -149,6 +220,11 @@ func selectManifestDigest(data []byte, platform string) (string, string, error) 
 		}
 		return "", "", fmt.Errorf("image ships no manifest for platform %s", platform)
 	}
+	if len(descriptor.Manifests) > 0 {
+		// An index whose every child is an attestation has nothing scannable.
+		// Falling through would bind evidence to the index digest itself.
+		return "", "", fmt.Errorf("image index lists no shipped platform manifest")
+	}
 	if descriptor.Digest == "" {
 		return "", "", fmt.Errorf("image manifest carries no digest")
 	}
@@ -156,9 +232,8 @@ func selectManifestDigest(data []byte, platform string) (string, string, error) 
 	if platform != "" && resolved != "" && resolved != platform {
 		return "", "", fmt.Errorf("image platform %s does not match requested platform %s", resolved, platform)
 	}
-	if resolved == "" {
-		resolved = platform
-	}
+	// An unstated platform stays unstated. The caller confirms it against the
+	// image config rather than having its own request echoed back as evidence.
 	return descriptor.Digest, resolved, nil
 }
 
@@ -199,10 +274,13 @@ func pinnedReference(reference, digest string) string {
 // bindImageDigest makes the scanned digest part of the document itself, so an
 // exported CycloneDX artifact still names the image it describes.
 func bindImageDigest(base *Result, digest string) (*Result, error) {
-	root := base.Bom.GetMetadata().GetComponent()
-	if root == nil {
+	source := base.Bom.GetMetadata().GetComponent()
+	if source == nil {
 		return nil, fmt.Errorf("image SBOM has no root component")
 	}
+	// Clone rather than mutate: the caller still owns base, and appending a
+	// hash to its root twice would silently change the document digest.
+	root := proto.Clone(source).(*agentv0.Component)
 	root.Type = agentv0.ComponentType_CONTAINER
 	root.Hashes = append(root.Hashes, &agentv0.Hash{
 		Algorithm: "SHA-256",

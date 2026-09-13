@@ -86,6 +86,28 @@ func TestValidateCoverageRejectsAFailedScan(t *testing.T) {
 	require.ErrorContains(t, ValidateCoverage(expected, resp), "syft exited 1")
 }
 
+// A failed response with no scope set must still report its own cause. Checking
+// scope first turned every real scan failure into "not image coverage" and left
+// the actual diagnostic unread in the message.
+func TestValidateCoverageReportsTheCauseWhenScopeIsUnset(t *testing.T) {
+	expected := []*builderv0.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
+	resp := &builderv0.SBOMResponse{
+		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: "syft exited 1: no space left on device"},
+	}
+	err := ValidateCoverage(expected, resp)
+	require.ErrorContains(t, err, "no space left on device")
+	require.NotContains(t, err.Error(), "not image coverage")
+}
+
+func TestValidateCoverageRejectsConflictingEvidenceForOneSubject(t *testing.T) {
+	want := &builderv0.ImageSubject{Reference: "ghcr.io/codefly-dev/app:1.0", Platform: "linux/amd64", Role: "app", Service: "svc"}
+	resp := imageResponse(
+		imageEvidence("sha256:first", "linux/amd64", want),
+		imageEvidence("sha256:second", "linux/amd64", want),
+	)
+	require.ErrorContains(t, ValidateCoverage([]*builderv0.ImageSubject{want}, resp), "conflicting evidence")
+}
+
 func TestValidateCoverageRejectsEmptyCoverageWithoutAReason(t *testing.T) {
 	require.ErrorContains(t, ValidateCoverage(nil, imageResponse()), "must declare a no-image reason")
 }

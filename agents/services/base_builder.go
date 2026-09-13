@@ -393,6 +393,16 @@ func (s *BuilderWrapper) SBOMError(err error) (*builderv0.SBOMResponse, error) {
 	}, nil
 }
 
+// SBOMImageError reports a failed image inventory. It carries image scope so a
+// caller can tell which request failed instead of reading the absent scope as a
+// source inventory.
+func (s *BuilderWrapper) SBOMImageError(err error) (*builderv0.SBOMResponse, error) {
+	return &builderv0.SBOMResponse{
+		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sbom", err, err.Error())},
+		Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
+	}, nil
+}
+
 // SBOMUnsupported reports that this plugin has no authoritative generator.
 func (s *BuilderWrapper) SBOMUnsupported(message string) (*builderv0.SBOMResponse, error) {
 	return &builderv0.SBOMResponse{
@@ -424,7 +434,7 @@ func (s *BuilderWrapper) SBOMImageResponse(images []*builderv0.ImageSBOM) (*buil
 // distinct from SBOMUnsupported, which means this agent has no implementation.
 func (s *BuilderWrapper) SBOMNoImage(reason builderv0.NoImageReason, message string) (*builderv0.SBOMResponse, error) {
 	if reason == builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
-		return s.SBOMError(fmt.Errorf("a no-image SBOM response requires an explicit reason"))
+		return s.SBOMImageError(fmt.Errorf("a no-image SBOM response requires an explicit reason"))
 	}
 	return &builderv0.SBOMResponse{
 		State:         &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE, Message: message},
@@ -466,10 +476,10 @@ func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.I
 			Source:    source,
 		})
 		if err != nil {
-			return s.SBOMError(err)
+			return s.SBOMImageError(err)
 		}
 		if want := subject.GetDigest(); want != "" && want != result.Digest {
-			return s.SBOMError(fmt.Errorf("image %s resolved to digest %s, not the requested %s", subject.GetReference(), result.Digest, want))
+			return s.SBOMImageError(fmt.Errorf("image %s resolved to digest %s, not the requested %s", subject.GetReference(), result.Digest, want))
 		}
 		key := result.Digest + "|" + result.Platform
 		if existing, ok := index[key]; ok {
