@@ -43,6 +43,26 @@ updates:
       npm:
         patterns:
           - '*'
+    ignore:
+      # The protobuf-es family is pinned in four places that must move
+      # together — facades/ts/package.json, the Dockerfile's protoc-gen-es,
+      # protocGenEsRuntimeVersion in companion_plugins_test.go, and flake.nix
+      # (plus its two vendored Nix hashes). Dependabot sees only the first, so
+      # a bump it opens alone lands red on the lockstep guards, as #447 did.
+      # Grouping does not help: a group bundles updates into one pull request,
+      # it does not hold a pin to versions in files Dependabot cannot read.
+      # These bump by hand, across all four, or not at all.
+      #
+      # The three semver types are listed explicitly rather than left as a bare
+      # `dependency-name`. A bare ignore would also suppress SECURITY updates
+      # for the scope; `update-types` applies only to version updates, so a
+      # protobuf-es advisory still opens a pull request. A `versions:` range
+      # would not have that property — it covers security updates too.
+      - dependency-name: '@bufbuild/*'
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
   - package-ecosystem: pip
     directory: /generated/python/codefly-cli
     schedule:
