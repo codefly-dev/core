@@ -57,11 +57,11 @@ contract:
     fields:
       - name: count
         type: integer
-entrypoint:
+entrypoint:                    # launched facilities only; see below
   handler: handler.py          # the author entrypoint
   inputs: [pyproject.toml, uv.lock]   # everything else whose content changes the package
 execution:
-  facilities: [native, kubernetes]
+  facilities: [native, kubernetes]   # native | kubernetes | service | function
   timeout: 2m
   cancellation: signal         # none | signal
   recovery: recompute          # recompute | receipt
@@ -128,9 +128,10 @@ canonicalizes and digests two of them.
 built release: identity, exact agent, contract, execution bounds, pinned build
 inputs (handler, declared inputs, generated harness, toolchain, effective
 configuration), typed service dependencies with the endpoints they consume,
-the workspace configurations the invocation needs, and the built artifacts — a
-`NATIVE` package with its launch command and/or a digest-pinned `IMAGE`, each
-with its platform. Its `digest` is the sha256 of a canonical form core owns
+the workspace configurations the invocation needs, and the implementations of
+the operation: built artifacts (a `NATIVE` package with its launch command
+and/or a digest-pinned `IMAGE`, each with its platform), owner service methods
+and remote functions. Its `digest` is the sha256 of a canonical form core owns
 (proto3 JSON with sorted keys, prefixed by a digest-format identifier) — not
 of the wire encoding, which protobuf only keeps stable within one binary. A
 message carrying fields outside the schema it claims is rejected rather than
@@ -147,8 +148,8 @@ and coexists.
 
 **`RunnableBinding`** (`codefly.runnable-binding/v1`) is the installation of
 one verified package on one execution facility. It pins the package digest,
-the facility, the artifact selected from that package (a `NATIVE` artifact for
-`native`, an `IMAGE` for `kubernetes`), the reachable addresses of the declared
+the facility, the implementation selected from that package, the coordinates of
+the executor it dispatches to, the reachable addresses of the declared
 service dependencies (only the endpoints the dependency consumes), the *names*
 of exactly the workspace configurations the package declares, and the *names*
 of credentials the facility resolves at launch. Coordinates, configuration and
@@ -157,6 +158,142 @@ and an invocation payload carries none of them. Mappings are sets: an installer
 emitting them in another order has installed the same binding.
 `VerifyBinding` fails against a rebuilt package with the same identity, so an
 existing binding can never be routed to newer bytes.
+
+### Operation, implementation, binding, availability
+
+Four things the contract keeps apart:
+
+| | What it is | Where it lives |
+| --- | --- | --- |
+| Operation | the immutable callable identity, its typed contract, dependencies, bounds and effect semantics | `runnable.codefly.yaml`; a package's identity, contract and execution |
+| Implementation | one way that operation is actually carried out | a package's artifacts, service operations and functions |
+| Binding | a trusted installation selecting one implementation, one target and the references it resolves | `RunnableBinding` |
+| Availability | whether an installed target can run it right now | nowhere in core; an orchestrator observes it |
+
+Availability is not registration: a binding stays installed while its executor
+is down, scaled to zero or being replaced, and core records no readiness for
+it. A binding is not a readiness signal either (`docs/readiness.md`).
+
+`execution.facilities` names *dispatch forms*, not locations, and calling an
+operation does not inherently start a process:
+
+| Facility | The implementation it dispatches | Invocation protocol | Its target coordinates |
+| --- | --- | --- | --- |
+| `native` | a `NATIVE` artifact: an installed package the launcher starts | `codefly.runnable/v1` | `host`: the launcher, and the directory the package was unpacked into, absolute as the artifact's own platform spells it |
+| `kubernetes` | an `IMAGE` artifact, run as a finite invocation Job | `codefly.runnable/v1` | `cluster`: kubeconfig context, namespace, optional service account |
+| `service` | a method an owner service already publishes | `codefly.runnable.service/v1` | `service`: the resolved mapping of the endpoint it is published on |
+| `function` | a provider-managed remote function | `codefly.runnable.function/v1` | `function`: provider, region and the deployed resource |
+
+One owner may publish the same contract over shared code both as a service
+method and as a runnable operation. That is what the `service` form is for: it
+installs *without an executable package*, and such a release carries no
+`build`, because no harness, toolchain or configuration digest was produced for
+it — the owner's own service agent built the service. Inventing them to fill a
+required field would assert a package nobody built, so a package with no
+artifact must omit `build` and a package with one must pin it. Core never loads
+owner code and never decides which process the owner runs the method in.
+
+A `service` implementation preserves what the owner already publishes — the
+service, endpoint, method name and the identities of the request and response
+messages — alongside the `adaptation` that maps a bounded payload onto them.
+Bounded JSON is the only accepted adaptation. The bounded schema profile does
+not cover arbitrary protobuf, streaming or dynamic values, and a method whose
+messages fall outside it is rejected rather than coerced: reusing an owner's
+schema is a claim that has to be stated, not inferred from shapes that happen
+to line up.
+
+The service, module and endpoint names it points at carry `Endpoint`'s own
+naming rules, and so do a `service-dependencies` entry's `name`, `module` and
+`endpoints`. Both are matched against a real `Endpoint` before anything can be
+bound, so a coordinate that no endpoint could spell — two characters long, an
+underscore, a leading hyphen — would be a release that validates and can never
+be installed. The rules are enforced from one place and pinned by a test that
+requires both sides to accept exactly the same names.
+
+A `function` implementation names only what a build knows, the provider and the
+handler entrypoint. Provisioning the function, calling the provider SDK and
+carrying its completion back belong to the adapter that owns the provider.
+
+**A form decides what the rest of the declaration may say**, and every rule
+below is enforced when the declaration loads and again on the package, so a
+descriptor assembled by a CLI cannot assert what an author could not write.
+
+`contract.protocol` names how the operation is reached, so it follows from the
+facilities. `codefly.runnable/v1` is the launcher/harness seam — three
+environment variables, an invocation document and a result file — and it is
+the wrong answer for a method reached over the owner's endpoint or a function
+reached over the provider's transport, which is why each of those has its own
+protocol. Facilities whose protocols differ cannot share one release: a
+contract cannot name two transports, and a consumer choosing a transport from
+the protocol would have nothing to choose. `native` and `kubernetes` share
+`codefly.runnable/v1`, so one release still covers both.
+
+`entrypoint` is a launched-facility fact. A method an owner already publishes
+is built by that owner's service agent, so there is no author entrypoint in
+the runnable directory and none may be declared; requiring one would make the
+author name a file that nothing reads and no build ever digests, which is the
+same fabrication the missing `build` avoids on the package.
+
+`logs.max-bytes` bounds what a launcher captures from a process's streams.
+Where no facility is launched nothing captures anything, so declaring a bound
+there is rejected and the wire form carries none, rather than stating a number
+that describes nobody's behavior.
+
+`cancellation: signal` promises a harness that reports `INTERRUPTED` when it is
+signalled, which needs a launcher that owns the execution. It is refused for
+`service` and `function`. The refusal is deliberately whole-declaration rather
+than per-binding: cancellation is a promise the *operation* makes to its
+callers, so a release may not honor it on one facility and quietly not on
+another.
+
+### The execution target
+
+Every binding carries the coordinates of the executor it dispatches to, as a
+versioned `RunnableTarget` (`codefly.runnable-target/v1`): the Codefly
+environment the installation is scoped to, the immutable `revision` of the
+installed target, and one coordinates variant that must match the facility.
+Stating them once, here, is what keeps them out of an invocation payload and
+out of `dependency_network_mappings` — those address what an invocation
+reaches, this addresses what executes it. The variant is also what holds the
+dispatch forms apart structurally: a method running inside a process its owner
+operates has neither a launcher nor an install root, so it cannot be written as
+a `native` binding.
+
+The cluster spelling follows the existing Kubernetes deployment inputs
+(`codefly.services.builder.v0.KubernetesDeployment`), which the target does not
+import: that message carries manifest-generation inputs, not dispatch
+coordinates. A service target reuses `NetworkMapping`, the resolved address
+contract dependencies already use, and must address exactly the endpoint the
+selected method is published on.
+
+Implementation and target are both part of the binding digest, and
+`runnable.CompareBinding(existing, incoming, pkg)` is the installation rule
+beside `CompareRelease`: an installation is identified by its release, its
+facility, and its target's environment and revision. Same identity and same
+digest is idempotent (`nil`); same identity and a different digest is
+`ErrConflict`. A second environment, or a re-provisioned target carrying a new
+revision, is a separate installation that coexists — so replacing an executor
+never reroutes an existing binding onto it, and a task keeps the release and
+implementation it selected.
+
+### Wire compatibility
+
+The changes above are additive on the wire. `RunnableBinding.artifact` keeps
+field 5 and moved into an `implementation` oneof, so an executable-package
+binding encodes exactly as it did before the other forms existed; Go callers
+set `Implementation` rather than `Artifact`. `RunnablePackage.build` and
+`artifacts` dropped their required and non-empty constraints, because a release
+with no artifact has neither, and the Go validation states the pairing instead.
+`Runnable.handler` and `RunnableExecution.max_log_bytes` dropped theirs for the
+same reason: both are launched-facility facts, and the Go validation now
+requires each exactly where its form provides it. A binding also no longer
+carries an endpoint's `api_details`: that field holds raw `.proto` source or a
+serialized OpenAPI document and changes whenever the owner regenerates, which
+would make an installation whose coordinates never moved digest differently and
+read as a conflict.
+The `SERVICE` and `FUNCTION` facilities, the implementation messages and
+`RunnableTarget` are new. The target carries its own `schema`, so a later shape
+is a new schema rather than a reinterpretation of these coordinates.
 
 Binding validation requires every explicitly consumed runtime endpoint and at
 least one mapped endpoint for a runtime dependency with an empty endpoint

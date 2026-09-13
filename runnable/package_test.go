@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -87,8 +89,8 @@ func TestPreparePackageIsCanonicalAndDeterministic(t *testing.T) {
 	reordered.Artifacts[0], reordered.Artifacts[1] = reordered.Artifacts[1], reordered.Artifacts[0]
 	reordered.Execution.Facilities[0], reordered.Execution.Facilities[1] = reordered.Execution.Facilities[1], reordered.Execution.Facilities[0]
 	reordered.WorkspaceConfigurationDependencies = []string{"artifact-store", "openai"}
-	reordered.ServiceDependencies = append(reordered.ServiceDependencies, &basev0.RunnableDependency{Name: "cache", Module: "aaa", Endpoints: []string{"b", "a"}})
-	first.ServiceDependencies = append([]*basev0.RunnableDependency{{Name: "cache", Module: "aaa", Endpoints: []string{"a", "b"}}}, first.ServiceDependencies...)
+	reordered.ServiceDependencies = append(reordered.ServiceDependencies, &basev0.RunnableDependency{Name: "cache", Module: "aaa", Endpoints: []string{"bbb", "aaa"}})
+	first.ServiceDependencies = append([]*basev0.RunnableDependency{{Name: "cache", Module: "aaa", Endpoints: []string{"aaa", "bbb"}}}, first.ServiceDependencies...)
 	first.Digest = ""
 	second, err := runnable.PreparePackage(reordered)
 	require.NoError(t, err)
@@ -155,7 +157,7 @@ func TestPreparePackageRejectsIncompleteDescriptors(t *testing.T) {
 		{"unpinned handler", func(p *basev0.RunnablePackage) { p.Build.Handler.Digest = "sha256:short" }, "digest"},
 		{"duplicate input", func(p *basev0.RunnablePackage) { p.Build.Inputs[1].Path = "uv.lock" }, "pinned twice"},
 		{"no toolchain", func(p *basev0.RunnablePackage) { p.Build.Toolchain = "" }, "toolchain"},
-		{"no artifacts", func(p *basev0.RunnablePackage) { p.Artifacts = nil }, "artifacts"},
+		{"no implementation", func(p *basev0.RunnablePackage) { p.Artifacts, p.Build = nil, nil }, "declares no implementation"},
 		{"bad platform", func(p *basev0.RunnablePackage) { p.Artifacts[0].Platform = "linux" }, "must be os/arch"},
 		{"native without command", func(p *basev0.RunnablePackage) { p.Artifacts[1].Command = nil }, "declares no launch command"},
 		{"image with command", func(p *basev0.RunnablePackage) { p.Artifacts[0].Command = []string{"python"} }, "must not declare a launch command"},
@@ -220,13 +222,82 @@ func TestCompareReleaseIsIdempotentAndConflictsOnChangedContent(t *testing.T) {
 	require.ErrorContains(t, err, "outside its declared schema")
 }
 
+func sampleTarget(facility basev0.RunnableFacility_Kind) *basev0.RunnableTarget {
+	target := &basev0.RunnableTarget{Schema: runnable.TargetSchemaV1, Environment: "local", Revision: "install-7"}
+	switch facility {
+	case basev0.RunnableFacility_NATIVE:
+		target.Coordinates = &basev0.RunnableTarget_Host{Host: &basev0.RunnableHostTarget{
+			Launcher:    "launcher-0",
+			InstallPath: "/opt/codefly/runnables/word-count-0.1.0",
+		}}
+	case basev0.RunnableFacility_KUBERNETES:
+		target.Coordinates = &basev0.RunnableTarget_Cluster{Cluster: &basev0.RunnableClusterTarget{
+			Context:   "k3d-qualification",
+			Namespace: "runnables",
+		}}
+	case basev0.RunnableFacility_SERVICE:
+		target.Coordinates = &basev0.RunnableTarget_Service{Service: &basev0.RunnableServiceTarget{
+			Endpoint: &basev0.NetworkMapping{
+				Endpoint:  &basev0.Endpoint{Name: "grpc", Service: "store", Module: "with-runnables", Api: "grpc", Visibility: "module"},
+				Instances: []*basev0.NetworkInstance{{Address: "store-0.with-runnables.svc:9090"}},
+			},
+		}}
+	case basev0.RunnableFacility_FUNCTION:
+		target.Coordinates = &basev0.RunnableTarget_Function{Function: &basev0.RunnableFunctionTarget{
+			Provider: "aws.lambda",
+			Region:   "us-east-1",
+			Resource: "word-count",
+		}}
+	}
+	return target
+}
+
+func sampleServiceOperation() *basev0.RunnableServiceOperation {
+	return &basev0.RunnableServiceOperation{
+		Name:          "store",
+		Module:        "with-runnables",
+		Endpoint:      "grpc",
+		Operation:     "CountWords",
+		InputMessage:  "with_runnables.store.v1.CountWordsRequest",
+		OutputMessage: "with_runnables.store.v1.CountWordsResponse",
+		Adaptation:    basev0.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1,
+	}
+}
+
+// ownerHandlerPackage is a release whose operation is a method the owner's
+// service already publishes: nothing was built for it, so it pins no build.
+func ownerHandlerPackage(t *testing.T) *basev0.RunnablePackage {
+	t.Helper()
+	pkg := samplePackage(t)
+	pkg.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_SERVICE}}
+	pkg.Execution.Cancellation = basev0.RunnableExecution_CANCELLATION_NONE
+	pkg.Execution.MaxLogBytes = 0
+	pkg.Contract.Protocol = resources.RunnableServiceProtocolV1
+	pkg.Artifacts = nil
+	pkg.Build = nil
+	pkg.ServiceOperations = []*basev0.RunnableServiceOperation{sampleServiceOperation()}
+	return pkg
+}
+
+func functionPackage(t *testing.T) *basev0.RunnablePackage {
+	t.Helper()
+	pkg := samplePackage(t)
+	pkg.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_FUNCTION}}
+	pkg.Execution.Cancellation = basev0.RunnableExecution_CANCELLATION_NONE
+	pkg.Execution.MaxLogBytes = 0
+	pkg.Contract.Protocol = resources.RunnableFunctionProtocolV1
+	pkg.Artifacts = nil
+	pkg.Build = nil
+	pkg.Functions = []*basev0.RunnableFunction{{Provider: "aws.lambda", Entrypoint: "handler.handle"}}
+	return pkg
+}
+
 func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifact, facility basev0.RunnableFacility_Kind) *basev0.RunnableBinding {
-	return &basev0.RunnableBinding{
+	binding := &basev0.RunnableBinding{
 		Schema:        runnable.BindingSchemaV1,
 		Identity:      proto.Clone(pkg.GetIdentity()).(*basev0.RunnableIdentity),
 		PackageDigest: pkg.GetDigest(),
 		Facility:      &basev0.RunnableFacility{Kind: facility},
-		Artifact:      proto.Clone(artifact).(*basev0.RunnableArtifact),
 		DependencyNetworkMappings: []*basev0.NetworkMapping{{
 			Endpoint: &basev0.Endpoint{Name: "tcp", Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "module"},
 			Instances: []*basev0.NetworkInstance{
@@ -236,7 +307,12 @@ func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifac
 		}},
 		CredentialReferences:    []string{"store/password", "artifact-store/token"},
 		ConfigurationReferences: []string{"openai", "artifact-store"},
+		Target:                  sampleTarget(facility),
 	}
+	if artifact != nil {
+		binding.Implementation = &basev0.RunnableBinding_Artifact{Artifact: proto.Clone(artifact).(*basev0.RunnableArtifact)}
+	}
+	return binding
 }
 
 func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
@@ -276,6 +352,35 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, binding.GetDigest(), nativeBinding.GetDigest())
 
+	// The executor is part of the installation: one package installed onto two
+	// namespaces is two bindings, not one routed by something outside them.
+	elsewhere := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
+	elsewhere.Target.GetCluster().Namespace = "runnables-staging"
+	elsewherePrepared, err := runnable.PrepareBinding(elsewhere, pkg)
+	require.NoError(t, err)
+	require.NotEqual(t, binding.GetDigest(), elsewherePrepared.GetDigest())
+
+	// A re-provisioned executor is a new revision, and so a new installation
+	// rather than the same one silently pointing somewhere else.
+	reprovisioned := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
+	reprovisioned.Target.Revision = "install-8"
+	reprovisionedPrepared, err := runnable.PrepareBinding(reprovisioned, pkg)
+	require.NoError(t, err)
+	require.NotEqual(t, binding.GetDigest(), reprovisionedPrepared.GetDigest())
+
+	// A native binding names a launcher and the absolute directory its
+	// artifact was unpacked into; an in-process handler has neither, so it
+	// cannot be installed as one.
+	relativeInstall := sampleBinding(pkg, native, basev0.RunnableFacility_NATIVE)
+	relativeInstall.Target.GetHost().InstallPath = "opt/codefly/word-count"
+	_, err = runnable.PrepareBinding(relativeInstall, pkg)
+	require.ErrorContains(t, err, "must be absolute")
+
+	clusterOnNative := sampleBinding(pkg, native, basev0.RunnableFacility_NATIVE)
+	clusterOnNative.Target = sampleTarget(basev0.RunnableFacility_KUBERNETES)
+	_, err = runnable.PrepareBinding(clusterOnNative, pkg)
+	require.ErrorContains(t, err, "facility NATIVE does not dispatch to a cluster target")
+
 	// A binding is tied to the exact package bytes it installed: a rebuilt
 	// release with the same identity does not verify against it.
 	changed := samplePackage(t)
@@ -296,8 +401,10 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	}{
 		{"unknown schema", func(b *basev0.RunnableBinding) { b.Schema = "codefly.runnable-binding/v0" }, "not supported"},
 		{"other release", func(b *basev0.RunnableBinding) { b.Identity.Version = "0.2.0" }, "does not match the package release identity"},
-		{"native artifact on kubernetes", func(b *basev0.RunnableBinding) { b.Artifact = proto.Clone(native).(*basev0.RunnableArtifact) }, "NATIVE artifact cannot execute on facility KUBERNETES"},
-		{"foreign artifact", func(b *basev0.RunnableBinding) { b.Artifact.Digest = digestC }, "not one of the package artifacts"},
+		{"native artifact on kubernetes", func(b *basev0.RunnableBinding) {
+			b.Implementation = &basev0.RunnableBinding_Artifact{Artifact: proto.Clone(native).(*basev0.RunnableArtifact)}
+		}, "NATIVE artifact cannot execute on facility KUBERNETES"},
+		{"foreign artifact", func(b *basev0.RunnableBinding) { b.GetArtifact().Digest = digestC }, "not one of the package artifacts"},
 		{"undeclared dependency", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Endpoint.Service = "cache" }, "does not declare as a dependency"},
 		{"unconsumed endpoint", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Endpoint.Name = "admin" }, "does not consume"},
 		{"missing configuration", func(b *basev0.RunnableBinding) { b.ConfigurationReferences = []string{"openai"} }, "but the package declares"},
@@ -310,6 +417,21 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 		{"empty credential reference", func(b *basev0.RunnableBinding) { b.CredentialReferences = []string{" "} }, "cannot be empty"},
 		{"duplicate credential reference", func(b *basev0.RunnableBinding) { b.CredentialReferences = []string{"a", "a"} }, "declared twice"},
 		{"wrong digest", func(b *basev0.RunnableBinding) { b.Digest = strings.Repeat("f", 64) }, "does not match"},
+		{"no target", func(b *basev0.RunnableBinding) { b.Target = nil }, "target"},
+		{"unknown target schema", func(b *basev0.RunnableBinding) {
+			b.Target.Schema = "codefly.runnable-target/v0"
+		}, "target schema"},
+		{"no environment", func(b *basev0.RunnableBinding) { b.Target.Environment = "" }, "environment"},
+		{"no coordinates", func(b *basev0.RunnableBinding) { b.Target.Coordinates = nil }, "carries no target coordinates"},
+		{"host target on kubernetes", func(b *basev0.RunnableBinding) {
+			b.Target = sampleTarget(basev0.RunnableFacility_NATIVE)
+		}, "facility KUBERNETES does not dispatch to a host target"},
+		{"no namespace", func(b *basev0.RunnableBinding) { b.Target.GetCluster().Namespace = "" }, "namespace"},
+		{"no revision", func(b *basev0.RunnableBinding) { b.Target.Revision = "" }, "revision"},
+		{"no implementation", func(b *basev0.RunnableBinding) { b.Implementation = nil }, "selects no implementation"},
+		{"service operation on kubernetes", func(b *basev0.RunnableBinding) {
+			b.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+		}, "a service operation cannot execute on facility KUBERNETES"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -328,4 +450,367 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	require.NoError(t, err)
 	_, err = runnable.PrepareBinding(sampleBinding(nativeOnlyPkg, image, basev0.RunnableFacility_KUBERNETES), nativeOnlyPkg)
 	require.ErrorContains(t, err, "does not allow execution facility KUBERNETES")
+}
+
+func TestOwnerHandlerInstallsWithoutAnExecutablePackage(t *testing.T) {
+	pkg, err := runnable.PreparePackage(ownerHandlerPackage(t))
+	require.NoError(t, err)
+	require.Nil(t, pkg.GetBuild())
+	require.NoError(t, runnable.VerifyPackage(pkg))
+
+	binding := sampleBinding(pkg, nil, basev0.RunnableFacility_SERVICE)
+	binding.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+	installed, err := runnable.PrepareBinding(binding, pkg)
+	require.NoError(t, err)
+	require.NoError(t, runnable.VerifyBinding(installed, pkg))
+	require.Equal(t, "CountWords", installed.GetServiceOperation().GetOperation())
+
+	packages := []struct {
+		name   string
+		mutate func(p *basev0.RunnablePackage)
+		want   string
+	}{
+		{"build without artifacts", func(p *basev0.RunnablePackage) {
+			p.Build = samplePackage(t).GetBuild()
+		}, "pins build inputs it did not produce"},
+		{"no implementation at all", func(p *basev0.RunnablePackage) {
+			p.ServiceOperations = nil
+		}, "declares no implementation"},
+		{"operation without its facility", func(p *basev0.RunnablePackage) {
+			p.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_NATIVE}}
+			p.Contract.Protocol = resources.RunnableProtocolV1
+			p.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
+		}, "needs facility SERVICE"},
+		{"unsupported adaptation", func(p *basev0.RunnablePackage) {
+			p.ServiceOperations[0].Adaptation = basev0.RunnableServiceOperation_ADAPTATION_UNKNOWN
+		}, "does not cover arbitrary protobuf, streaming or dynamic values"},
+		{"duplicate operation", func(p *basev0.RunnablePackage) {
+			p.ServiceOperations = append(p.ServiceOperations, sampleServiceOperation())
+		}, "declared twice"},
+	}
+	for _, tc := range packages {
+		t.Run(tc.name, func(t *testing.T) {
+			p := ownerHandlerPackage(t)
+			tc.mutate(p)
+			_, err := runnable.PreparePackage(p)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+
+	bindings := []struct {
+		name   string
+		mutate func(b *basev0.RunnableBinding)
+		want   string
+	}{
+		{"operation the release does not publish", func(b *basev0.RunnableBinding) {
+			b.GetServiceOperation().Operation = "CountCharacters"
+		}, "not one of the package service operations"},
+		{"target addressing another endpoint", func(b *basev0.RunnableBinding) {
+			b.Target.GetService().GetEndpoint().GetEndpoint().Name = "http"
+		}, "not the with-runnables/store/grpc endpoint the selected operation is published on"},
+		{"target without an address", func(b *basev0.RunnableBinding) {
+			b.Target.GetService().GetEndpoint().Instances = nil
+		}, "requires a network instance"},
+		{"host target for an owner handler", func(b *basev0.RunnableBinding) {
+			b.Target = sampleTarget(basev0.RunnableFacility_NATIVE)
+		}, "facility SERVICE does not dispatch to a host target"},
+	}
+	for _, tc := range bindings {
+		t.Run(tc.name, func(t *testing.T) {
+			b := sampleBinding(pkg, nil, basev0.RunnableFacility_SERVICE)
+			b.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+			tc.mutate(b)
+			_, err := runnable.PrepareBinding(b, pkg)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestRemoteFunctionIsDeclaredAndTargetedWithoutProvisioning(t *testing.T) {
+	pkg, err := runnable.PreparePackage(functionPackage(t))
+	require.NoError(t, err)
+
+	binding := sampleBinding(pkg, nil, basev0.RunnableFacility_FUNCTION)
+	binding.Implementation = &basev0.RunnableBinding_Function{Function: &basev0.RunnableFunction{Provider: "aws.lambda", Entrypoint: "handler.handle"}}
+	installed, err := runnable.PrepareBinding(binding, pkg)
+	require.NoError(t, err)
+	require.NoError(t, runnable.VerifyBinding(installed, pkg))
+	require.Equal(t, "us-east-1", installed.GetTarget().GetFunction().GetRegion())
+
+	otherProvider := sampleBinding(pkg, nil, basev0.RunnableFacility_FUNCTION)
+	otherProvider.Implementation = &basev0.RunnableBinding_Function{Function: &basev0.RunnableFunction{Provider: "aws.lambda", Entrypoint: "handler.handle"}}
+	otherProvider.Target.GetFunction().Provider = "gcp.functions"
+	_, err = runnable.PrepareBinding(otherProvider, pkg)
+	require.ErrorContains(t, err, `function target is on provider "gcp.functions"`)
+
+	undeclared := functionPackage(t)
+	undeclared.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_NATIVE}}
+	undeclared.Contract.Protocol = resources.RunnableProtocolV1
+	undeclared.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
+	_, err = runnable.PreparePackage(undeclared)
+	require.ErrorContains(t, err, "needs facility FUNCTION")
+}
+
+func TestSignalCancellationNeedsAFacilityALauncherOwns(t *testing.T) {
+	// A harness promises an INTERRUPTED report only where something can signal
+	// it; an owner's own process and a provider's function cannot be.
+	for _, pkg := range []*basev0.RunnablePackage{ownerHandlerPackage(t), functionPackage(t)} {
+		pkg.Execution.Cancellation = basev0.RunnableExecution_CANCELLATION_SIGNAL
+		_, err := runnable.PreparePackage(pkg)
+		require.ErrorIs(t, err, runnable.ErrInvalid)
+		require.ErrorContains(t, err, "cannot honor cancellation CANCELLATION_SIGNAL")
+	}
+}
+
+func TestCompareBindingIsIdempotentAndConflictsOnChangedInstallation(t *testing.T) {
+	pkg := preparedPackage(t)
+	image := pkg.GetArtifacts()[1]
+	install := func(mutate func(b *basev0.RunnableBinding)) *basev0.RunnableBinding {
+		b := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
+		mutate(b)
+		prepared, err := runnable.PrepareBinding(b, pkg)
+		require.NoError(t, err)
+		return prepared
+	}
+	existing := install(func(*basev0.RunnableBinding) {})
+	require.NoError(t, runnable.CompareBinding(existing, install(func(*basev0.RunnableBinding) {}), pkg))
+
+	changed := install(func(b *basev0.RunnableBinding) {
+		b.Target.GetCluster().ServiceAccount = "invoker"
+	})
+	err := runnable.CompareBinding(existing, changed, pkg)
+	require.ErrorIs(t, err, runnable.ErrConflict)
+	require.ErrorContains(t, err, "is already installed on KUBERNETES linux/amd64 revision install-7 of local")
+
+	// Another environment, or a re-provisioned target, is a separate
+	// installation that coexists rather than a conflicting one.
+	for _, coexisting := range []*basev0.RunnableBinding{
+		install(func(b *basev0.RunnableBinding) { b.Target.Environment = "staging" }),
+		install(func(b *basev0.RunnableBinding) { b.Target.Revision = "install-8" }),
+	} {
+		err = runnable.CompareBinding(existing, coexisting, pkg)
+		require.ErrorIs(t, err, runnable.ErrInvalid)
+		require.NotErrorIs(t, err, runnable.ErrConflict)
+		require.ErrorContains(t, err, "different targets")
+	}
+
+	other := samplePackage(t)
+	other.Identity.Version = "0.2.0"
+	otherRelease, err := runnable.PreparePackage(other)
+	require.NoError(t, err)
+	otherBinding, err := runnable.PrepareBinding(sampleBinding(otherRelease, otherRelease.GetArtifacts()[1], basev0.RunnableFacility_KUBERNETES), otherRelease)
+	require.NoError(t, err)
+	require.ErrorContains(t, runnable.CompareBinding(existing, otherBinding, pkg), "incoming")
+}
+
+func TestDispatchFormsMustAgreeOnTheInvocationProtocol(t *testing.T) {
+	// The launcher framing and an owner's own endpoint are different
+	// transports, so one contract cannot name both.
+	mixed := samplePackage(t)
+	mixed.Execution.Facilities = append(mixed.Execution.Facilities, &basev0.RunnableFacility{Kind: basev0.RunnableFacility_SERVICE})
+	mixed.Execution.Cancellation = basev0.RunnableExecution_CANCELLATION_NONE
+	mixed.ServiceOperations = []*basev0.RunnableServiceOperation{sampleServiceOperation()}
+	_, err := runnable.PreparePackage(mixed)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "cannot be one release")
+
+	// A service-backed release claiming the launcher/harness framing asserts
+	// an invocation document and a result file that nothing writes.
+	wrongProtocol := ownerHandlerPackage(t)
+	wrongProtocol.Contract.Protocol = resources.RunnableProtocolV1
+	_, err = runnable.PreparePackage(wrongProtocol)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "does not reach the declared facilities")
+
+	require.Equal(t, resources.RunnableProtocolV1, preparedPackage(t).GetContract().GetProtocol())
+
+	launcherless := ownerHandlerPackage(t)
+	launcherless.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
+	_, err = runnable.PreparePackage(launcherless)
+	require.ErrorContains(t, err, "no declared facility has a launcher capturing streams")
+}
+
+func TestTwoPlatformsOfOneReleaseInstallSideBySide(t *testing.T) {
+	multi := samplePackage(t)
+	multi.Artifacts = append(multi.Artifacts, &basev0.RunnableArtifact{
+		Kind: basev0.RunnableArtifact_IMAGE, Platform: "linux/arm64",
+		Reference: "ghcr.io/example/word-count:0.1.0@" + digestC, Digest: digestC,
+	})
+	pkg, err := runnable.PreparePackage(multi)
+	require.NoError(t, err)
+	var amd64, arm64 *basev0.RunnableArtifact
+	for _, artifact := range pkg.GetArtifacts() {
+		switch artifact.GetPlatform() {
+		case "linux/amd64":
+			amd64 = artifact
+		case "linux/arm64":
+			arm64 = artifact
+		}
+	}
+	require.NotNil(t, amd64)
+	require.NotNil(t, arm64)
+
+	install := func(artifact *basev0.RunnableArtifact) *basev0.RunnableBinding {
+		prepared, err := runnable.PrepareBinding(sampleBinding(pkg, artifact, basev0.RunnableFacility_KUBERNETES), pkg)
+		require.NoError(t, err)
+		return prepared
+	}
+
+	// One cluster, one namespace, one revision, two architectures: a mixed-arch
+	// cluster needs both, and neither replaces the other.
+	err = runnable.CompareBinding(install(amd64), install(arm64), pkg)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.NotErrorIs(t, err, runnable.ErrConflict)
+	require.ErrorContains(t, err, "different targets")
+
+	changed := sampleBinding(pkg, amd64, basev0.RunnableFacility_KUBERNETES)
+	changed.Target.GetCluster().ServiceAccount = "invoker"
+	changedPrepared, err := runnable.PrepareBinding(changed, pkg)
+	require.NoError(t, err)
+	err = runnable.CompareBinding(install(amd64), changedPrepared, pkg)
+	require.ErrorIs(t, err, runnable.ErrConflict)
+	require.ErrorContains(t, err, "linux/amd64")
+}
+
+func TestRegeneratedEndpointSchemaDoesNotChangeAnInstallation(t *testing.T) {
+	pkg := preparedPackage(t)
+	image := pkg.GetArtifacts()[1]
+	plain, err := runnable.PrepareBinding(sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES), pkg)
+	require.NoError(t, err)
+
+	regenerated := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
+	regenerated.DependencyNetworkMappings[0].Endpoint.ApiDetails = &basev0.API{
+		Value: &basev0.API_Grpc{Grpc: &basev0.GrpcAPI{
+			Service: "store", Module: "with-runnables",
+			Proto: []byte("syntax = \"proto3\"; // regenerated, same addresses"),
+		}},
+	}
+	prepared, err := runnable.PrepareBinding(regenerated, pkg)
+	require.NoError(t, err)
+
+	// Regenerating the owner's protos moves no address, so this is the same
+	// installation and reinstalling it is idempotent, not a conflict.
+	require.Nil(t, prepared.GetDependencyNetworkMappings()[0].GetEndpoint().GetApiDetails())
+	require.Equal(t, plain.GetDigest(), prepared.GetDigest())
+	require.NoError(t, runnable.CompareBinding(plain, prepared, pkg))
+}
+
+func TestInstallPathIsAbsoluteForTheArtifactsOwnPlatform(t *testing.T) {
+	windows := samplePackage(t)
+	windows.Artifacts = append(windows.Artifacts, &basev0.RunnableArtifact{
+		Kind: basev0.RunnableArtifact_NATIVE, Platform: "windows/amd64",
+		Reference: "word-count-0.1.0-windows-amd64.zip", Digest: digestC,
+		Command: []string{"python", "-m", "codefly_runnable.harness"},
+	})
+	pkg, err := runnable.PreparePackage(windows)
+	require.NoError(t, err)
+	var artifact *basev0.RunnableArtifact
+	for _, candidate := range pkg.GetArtifacts() {
+		if candidate.GetPlatform() == "windows/amd64" {
+			artifact = candidate
+		}
+	}
+	require.NotNil(t, artifact)
+
+	bind := func(installPath string) error {
+		b := sampleBinding(pkg, artifact, basev0.RunnableFacility_NATIVE)
+		b.Target.GetHost().InstallPath = installPath
+		_, err := runnable.PrepareBinding(b, pkg)
+		return err
+	}
+	// A windows package is installed under a drive or UNC root; a leading-slash
+	// rule would let one be built and never bound.
+	require.NoError(t, bind(`C:\codefly\word-count`))
+	require.NoError(t, bind(`\\build\codefly\word-count`))
+	require.ErrorContains(t, bind("/opt/codefly/word-count"), "must be absolute on windows/amd64")
+	require.ErrorContains(t, bind(`codefly\word-count`), "must be absolute on windows/amd64")
+}
+
+func TestArtifactKeepsItsFieldNumberOnTheWire(t *testing.T) {
+	pkg := preparedPackage(t)
+	binding, err := runnable.PrepareBinding(sampleBinding(pkg, pkg.GetArtifacts()[1], basev0.RunnableFacility_KUBERNETES), pkg)
+	require.NoError(t, err)
+	encoded, err := proto.Marshal(binding)
+	require.NoError(t, err)
+
+	// Moving artifact into the implementation oneof must not move it on the
+	// wire: bytes written before the oneof existed still decode as this field.
+	var carried []byte
+	for rest := encoded; len(rest) > 0; {
+		number, kind, tagLen := protowire.ConsumeTag(rest)
+		require.Positive(t, tagLen)
+		rest = rest[tagLen:]
+		valueLen := protowire.ConsumeFieldValue(number, kind, rest)
+		require.Positive(t, valueLen)
+		if number == 5 {
+			require.Equal(t, protowire.BytesType, kind)
+			carried = rest[:valueLen]
+		}
+		rest = rest[valueLen:]
+	}
+	require.NotNil(t, carried)
+	payload, consumed := protowire.ConsumeBytes(carried)
+	require.Positive(t, consumed)
+	decoded := &basev0.RunnableArtifact{}
+	require.NoError(t, proto.Unmarshal(payload, decoded))
+	require.True(t, proto.Equal(binding.GetArtifact(), decoded))
+}
+
+func serviceOperationNamed(name, module, endpoint string) *basev0.RunnableServiceOperation {
+	operation := sampleServiceOperation()
+	operation.Name, operation.Module, operation.Endpoint = name, module, endpoint
+	return operation
+}
+
+func TestEndpointCoordinatesCanAlwaysNameARealEndpoint(t *testing.T) {
+	validator, err := protovalidate.New()
+	require.NoError(t, err)
+	accepted := func(message proto.Message) bool { return validator.Validate(message) == nil }
+
+	// Every coordinate a dependency or a service operation carries is matched
+	// against an Endpoint before it can be bound, so a value one side accepts
+	// and the other rejects is a release that validates and can never be
+	// installed. The rules are not restated here: each candidate must be
+	// accepted on both sides or on neither, so the two cannot drift apart.
+	candidates := []string{
+		"tcp", "grpc", "store", "cache", "with-runnables",
+		"ab", "a", "", "UPPER", "-lead", "trail-", "a--b",
+		"has_underscore", "has.dot",
+		strings.Repeat("x", 21), strings.Repeat("x", 26),
+	}
+	agreedAccepted, agreedRejected := 0, 0
+	for _, candidate := range candidates {
+		t.Run("service/"+candidate, func(t *testing.T) {
+			endpoint := accepted(&basev0.Endpoint{Name: "tcp", Service: candidate, Module: "with-runnables", Api: "tcp", Visibility: "module"})
+			if endpoint {
+				agreedAccepted++
+			} else {
+				agreedRejected++
+			}
+			require.Equal(t, endpoint, accepted(&basev0.RunnableDependency{
+				Name: candidate, Module: "with-runnables", Kind: "runtime", Endpoints: []string{"tcp"},
+			}), "dependency service %q", candidate)
+			require.Equal(t, endpoint, accepted(serviceOperationNamed(candidate, "with-runnables", "grpc")), "operation service %q", candidate)
+		})
+		t.Run("module/"+candidate, func(t *testing.T) {
+			endpoint := accepted(&basev0.Endpoint{Name: "tcp", Service: "store", Module: candidate, Api: "tcp", Visibility: "module"})
+			require.Equal(t, endpoint, accepted(&basev0.RunnableDependency{
+				Name: "store", Module: candidate, Kind: "runtime", Endpoints: []string{"tcp"},
+			}), "dependency module %q", candidate)
+			require.Equal(t, endpoint, accepted(serviceOperationNamed("store", candidate, "grpc")), "operation module %q", candidate)
+		})
+		t.Run("endpoint/"+candidate, func(t *testing.T) {
+			endpoint := accepted(&basev0.Endpoint{Name: candidate, Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "module"})
+			require.Equal(t, endpoint, accepted(&basev0.RunnableDependency{
+				Name: "store", Module: "with-runnables", Kind: "runtime", Endpoints: []string{candidate},
+			}), "dependency endpoint %q", candidate)
+			require.Equal(t, endpoint, accepted(serviceOperationNamed("store", "with-runnables", candidate)), "operation endpoint %q", candidate)
+		})
+	}
+	// Agreement is only evidence if the candidates actually disagree somewhere:
+	// a list of uniformly valid names would pass with no constraint at all.
+	require.Positive(t, agreedAccepted)
+	require.Positive(t, agreedRejected)
 }

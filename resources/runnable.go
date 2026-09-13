@@ -31,6 +31,13 @@ const (
 	// generated harness: bounded JSON in, bounded JSON out, logs kept apart from
 	// completion data.
 	RunnableProtocolV1 = "codefly.runnable/v1"
+	// RunnableServiceProtocolV1 reaches an operation as a method the owner
+	// service already publishes. There is no launcher, no harness and no
+	// result document: the owner's endpoint carries the call.
+	RunnableServiceProtocolV1 = "codefly.runnable.service/v1"
+	// RunnableFunctionProtocolV1 reaches an operation through a provider's
+	// function transport, which the provider's adapter owns end to end.
+	RunnableFunctionProtocolV1 = "codefly.runnable.function/v1"
 
 	// DefaultRunnablePayloadBytes bounds an inline invocation payload when the
 	// declaration does not. Larger data travels as owner-authorized references.
@@ -48,7 +55,7 @@ const (
 // parsed: the harness a language agent generates and the launcher the CLI runs
 // must agree on the same seam.
 func RunnableProtocols() []string {
-	return []string{RunnableProtocolV1}
+	return []string{RunnableProtocolV1, RunnableServiceProtocolV1, RunnableFunctionProtocolV1}
 }
 
 // RunnableFieldType is the YAML spelling of one bounded-profile value type.
@@ -115,20 +122,96 @@ type RunnableEntrypoint struct {
 // RunnableFacility is the YAML spelling of an execution facility.
 type RunnableFacility string
 
-// Execution facilities a runnable may be bound to.
+// Execution facilities a runnable may be bound to. They are dispatch forms,
+// not locations: calling an operation does not inherently start a process.
 const (
 	RunnableFacilityNative     RunnableFacility = "native"
 	RunnableFacilityKubernetes RunnableFacility = "kubernetes"
+	RunnableFacilityService    RunnableFacility = "service"
+	RunnableFacilityFunction   RunnableFacility = "function"
 )
 
 // RunnableFacilities are every execution facility a runnable may declare.
 func RunnableFacilities() []RunnableFacility {
-	return []RunnableFacility{RunnableFacilityNative, RunnableFacilityKubernetes}
+	return []RunnableFacility{RunnableFacilityNative, RunnableFacilityKubernetes, RunnableFacilityService, RunnableFacilityFunction}
 }
 
-var runnableFacilityProto = map[RunnableFacility]basev0.RunnableFacility_Kind{
-	RunnableFacilityNative:     basev0.RunnableFacility_NATIVE,
-	RunnableFacilityKubernetes: basev0.RunnableFacility_KUBERNETES,
+// RunnableFacilityCapabilities are the facts about a dispatch form that the
+// declaration, the package descriptor and the binding all have to agree on.
+// They live in one table so a new form cannot be taught to one of them and
+// silently not the others.
+type RunnableFacilityCapabilities struct {
+	// Kind is the wire spelling of the form.
+	Kind basev0.RunnableFacility_Kind
+	// Protocol is the invocation protocol that reaches an implementation of
+	// this form.
+	Protocol string
+	// Launched means a launcher starts an artifact a build produced and owns
+	// the resulting execution: it can capture its streams and signal it.
+	Launched bool
+}
+
+var runnableFacilityTable = map[RunnableFacility]RunnableFacilityCapabilities{
+	RunnableFacilityNative:     {Kind: basev0.RunnableFacility_NATIVE, Protocol: RunnableProtocolV1, Launched: true},
+	RunnableFacilityKubernetes: {Kind: basev0.RunnableFacility_KUBERNETES, Protocol: RunnableProtocolV1, Launched: true},
+	RunnableFacilityService:    {Kind: basev0.RunnableFacility_SERVICE, Protocol: RunnableServiceProtocolV1},
+	RunnableFacilityFunction:   {Kind: basev0.RunnableFacility_FUNCTION, Protocol: RunnableFunctionProtocolV1},
+}
+
+// Capabilities returns the dispatch form's shared facts.
+func (f RunnableFacility) Capabilities() (RunnableFacilityCapabilities, bool) {
+	capabilities, known := runnableFacilityTable[f]
+	return capabilities, known
+}
+
+// RunnableFacilityOf maps a wire facility back to its declaration spelling.
+func RunnableFacilityOf(kind basev0.RunnableFacility_Kind) (RunnableFacility, bool) {
+	for _, facility := range RunnableFacilities() {
+		if runnableFacilityTable[facility].Kind == kind {
+			return facility, true
+		}
+	}
+	return "", false
+}
+
+// RunnableFacilityProtocol returns the one invocation protocol every facility
+// in the set uses. Forms reached over different protocols cannot share a
+// release: one contract cannot name two transports, and a consumer choosing a
+// transport from the protocol would have nothing to choose.
+func RunnableFacilityProtocol(facilities []RunnableFacility) (string, error) {
+	protocol := ""
+	var named RunnableFacility
+	for _, facility := range facilities {
+		capabilities, known := runnableFacilityTable[facility]
+		if !known {
+			continue
+		}
+		if protocol == "" {
+			protocol, named = capabilities.Protocol, facility
+			continue
+		}
+		if capabilities.Protocol != protocol {
+			return "", fmt.Errorf("facilities %q and %q are reached over different invocation protocols (%s and %s), so they cannot be one release",
+				named, facility, protocol, capabilities.Protocol)
+		}
+	}
+	return protocol, nil
+}
+
+// Launched reports whether any declared facility runs an artifact whose
+// execution a launcher owns.
+func (e *RunnableExecution) Launched() bool {
+	for _, facility := range e.Facilities {
+		if runnableFacilityTable[facility].Launched {
+			return true
+		}
+	}
+	return false
+}
+
+// Protocol returns the invocation protocol every declared facility uses.
+func (e *RunnableExecution) Protocol() (string, error) {
+	return RunnableFacilityProtocol(e.Facilities)
 }
 
 // RunnableCancellation is the YAML spelling of the declared interruption
@@ -409,8 +492,12 @@ func (r *Runnable) Identity() *RunnableIdentity {
 	return &RunnableIdentity{Name: r.Name, Module: r.module, Version: r.Version}
 }
 
-// HandlerPath returns the absolute path of the author entrypoint.
+// HandlerPath returns the absolute path of the author entrypoint, empty when
+// the runnable declares no launched facility and therefore has none.
 func (r *Runnable) HandlerPath() string {
+	if r.Entrypoint == nil {
+		return ""
+	}
 	return filepath.Join(r.dir, r.Entrypoint.Handler)
 }
 
@@ -455,11 +542,26 @@ func (r *Runnable) Validate() error {
 	if err := r.Contract.Validate(); err != nil {
 		return fmt.Errorf("runnable %q contract: %w", r.Name, err)
 	}
-	if err := r.Entrypoint.Validate(); err != nil {
-		return fmt.Errorf("runnable %q entrypoint: %w", r.Name, err)
-	}
 	if err := r.Execution.Validate(); err != nil {
 		return fmt.Errorf("runnable %q execution: %w", r.Name, err)
+	}
+	protocol, err := r.Execution.Protocol()
+	if err != nil {
+		return fmt.Errorf("runnable %q execution: %w", r.Name, err)
+	}
+	if r.Contract.Protocol != protocol {
+		return fmt.Errorf("runnable %q contract: protocol %q does not reach the declared facilities, which are invoked over %q", r.Name, r.Contract.Protocol, protocol)
+	}
+	// Only a launched form has an author entrypoint in the runnable directory.
+	// A method its owner already publishes is built by that owner's service
+	// agent, so demanding a handler here would make the author name a file
+	// that nothing reads and no build ever digests.
+	if r.Execution.Launched() {
+		if err := r.Entrypoint.Validate(); err != nil {
+			return fmt.Errorf("runnable %q entrypoint: %w", r.Name, err)
+		}
+	} else if r.Entrypoint != nil {
+		return fmt.Errorf("runnable %q entrypoint: no declared facility builds an artifact from this directory, so there is no author entrypoint to name", r.Name)
 	}
 	for _, dep := range r.ServiceDependencies {
 		if dep == nil {
@@ -579,7 +681,7 @@ func (e *RunnableExecution) Validate() error {
 	}
 	seen := make(map[RunnableFacility]struct{}, len(e.Facilities))
 	for _, facility := range e.Facilities {
-		if _, ok := runnableFacilityProto[facility]; !ok {
+		if _, ok := runnableFacilityTable[facility]; !ok {
 			return fmt.Errorf("facility %q is not supported: expected one of %s", facility, joinRunnableFacilities())
 		}
 		if _, exists := seen[facility]; exists {
@@ -602,6 +704,16 @@ func (e *RunnableExecution) Validate() error {
 	}
 	if _, ok := runnableRecoveryProto[e.Recovery]; !ok {
 		return fmt.Errorf("recovery %q is not supported: expected %q or %q", e.Recovery, RunnableRecoveryRecompute, RunnableRecoveryReceipt)
+	}
+	if e.Cancellation == RunnableCancellationSignal {
+		for _, facility := range e.Facilities {
+			if !runnableFacilityTable[facility].Launched {
+				return fmt.Errorf("facility %q cannot honor cancellation %q: nothing signals a method its owner runs inside its own process, or a function its provider runs", facility, e.Cancellation)
+			}
+		}
+	}
+	if e.Logs != nil && !e.Launched() {
+		return fmt.Errorf("logs bound is only meaningful where a launcher captures the streams, and no declared facility does")
 	}
 	return nil
 }
@@ -630,10 +742,12 @@ func (r *Runnable) Proto(_ context.Context) (*basev0.Runnable, error) {
 		Version:                            r.Version,
 		Agent:                              agent,
 		Contract:                           r.Contract.Proto(),
-		Handler:                            r.Entrypoint.Handler,
-		BuildInputs:                        slices.Clone(r.Entrypoint.Inputs),
 		Execution:                          r.Execution.Proto(),
 		WorkspaceConfigurationDependencies: slices.Clone(r.WorkspaceConfigurationDependencies),
+	}
+	if r.Entrypoint != nil {
+		proto.Handler = r.Entrypoint.Handler
+		proto.BuildInputs = slices.Clone(r.Entrypoint.Inputs)
 	}
 	for _, dep := range r.ServiceDependencies {
 		module := dep.Module
@@ -766,11 +880,13 @@ func (e *RunnableExecution) Proto() *basev0.RunnableExecution {
 		Recovery:       runnableRecoveryProto[e.Recovery],
 		MaxInputBytes:  e.MaxInputBytes(),
 		MaxOutputBytes: e.MaxOutputBytes(),
-		MaxLogBytes:    e.MaxLogBytes(),
 		Concurrency:    e.Concurrency,
 	}
+	if e.Launched() {
+		out.MaxLogBytes = e.MaxLogBytes()
+	}
 	for _, facility := range e.Facilities {
-		out.Facilities = append(out.Facilities, &basev0.RunnableFacility{Kind: runnableFacilityProto[facility]})
+		out.Facilities = append(out.Facilities, &basev0.RunnableFacility{Kind: runnableFacilityTable[facility].Kind})
 	}
 	return out
 }
