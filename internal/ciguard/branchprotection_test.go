@@ -34,6 +34,7 @@ import (
 // docs/runbooks/branch-protection.md tells an operator to apply.
 var requiredChecks = []string{
 	"Build",
+	"Proto",
 	"Registry cache clean runner (go)",
 	"Registry cache clean runner (next)",
 	"Registry cache cold (go)",
