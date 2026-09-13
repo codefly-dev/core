@@ -17,6 +17,12 @@ image the agents pull. `companion_plugins_test.go` keeps the two definitions
 pinned to the same tool versions. Publishing is
 [`docs/runbooks/publish-companions.md`](../../docs/runbooks/publish-companions.md).
 
+`protoc-gen-es` is the one tool version this repository does not get to choose
+on its own — it has to match the `@bufbuild/protobuf` runtime consumers pin, or
+their committed `*_pb.ts` drift. The current pin, why it is where it is, and how
+to move it are
+[`docs/runbooks/bump-protobuf-es.md`](../../docs/runbooks/bump-protobuf-es.md).
+
 ### Nix (preferred locally — reproducible, layered cache)
 
 ```sh
