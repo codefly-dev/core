@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -88,8 +89,8 @@ func TestPreparePackageIsCanonicalAndDeterministic(t *testing.T) {
 	reordered.Artifacts[0], reordered.Artifacts[1] = reordered.Artifacts[1], reordered.Artifacts[0]
 	reordered.Execution.Facilities[0], reordered.Execution.Facilities[1] = reordered.Execution.Facilities[1], reordered.Execution.Facilities[0]
 	reordered.WorkspaceConfigurationDependencies = []string{"artifact-store", "openai"}
-	reordered.ServiceDependencies = append(reordered.ServiceDependencies, &basev0.RunnableDependency{Name: "cache", Module: "aaa", Endpoints: []string{"b", "a"}})
-	first.ServiceDependencies = append([]*basev0.RunnableDependency{{Name: "cache", Module: "aaa", Endpoints: []string{"a", "b"}}}, first.ServiceDependencies...)
+	reordered.ServiceDependencies = append(reordered.ServiceDependencies, &basev0.RunnableDependency{Name: "cache", Module: "aaa", Endpoints: []string{"bbb", "aaa"}})
+	first.ServiceDependencies = append([]*basev0.RunnableDependency{{Name: "cache", Module: "aaa", Endpoints: []string{"aaa", "bbb"}}}, first.ServiceDependencies...)
 	first.Digest = ""
 	second, err := runnable.PreparePackage(reordered)
 	require.NoError(t, err)
@@ -755,4 +756,61 @@ func TestArtifactKeepsItsFieldNumberOnTheWire(t *testing.T) {
 	decoded := &basev0.RunnableArtifact{}
 	require.NoError(t, proto.Unmarshal(payload, decoded))
 	require.True(t, proto.Equal(binding.GetArtifact(), decoded))
+}
+
+func serviceOperationNamed(name, module, endpoint string) *basev0.RunnableServiceOperation {
+	operation := sampleServiceOperation()
+	operation.Name, operation.Module, operation.Endpoint = name, module, endpoint
+	return operation
+}
+
+func TestEndpointCoordinatesCanAlwaysNameARealEndpoint(t *testing.T) {
+	validator, err := protovalidate.New()
+	require.NoError(t, err)
+	accepted := func(message proto.Message) bool { return validator.Validate(message) == nil }
+
+	// Every coordinate a dependency or a service operation carries is matched
+	// against an Endpoint before it can be bound, so a value one side accepts
+	// and the other rejects is a release that validates and can never be
+	// installed. The rules are not restated here: each candidate must be
+	// accepted on both sides or on neither, so the two cannot drift apart.
+	candidates := []string{
+		"tcp", "grpc", "store", "cache", "with-runnables",
+		"ab", "a", "", "UPPER", "-lead", "trail-", "a--b",
+		"has_underscore", "has.dot",
+		strings.Repeat("x", 21), strings.Repeat("x", 26),
+	}
+	agreedAccepted, agreedRejected := 0, 0
+	for _, candidate := range candidates {
+		t.Run("service/"+candidate, func(t *testing.T) {
+			endpoint := accepted(&basev0.Endpoint{Name: "tcp", Service: candidate, Module: "with-runnables", Api: "tcp", Visibility: "module"})
+			if endpoint {
+				agreedAccepted++
+			} else {
+				agreedRejected++
+			}
+			require.Equal(t, endpoint, accepted(&basev0.RunnableDependency{
+				Name: candidate, Module: "with-runnables", Kind: "runtime", Endpoints: []string{"tcp"},
+			}), "dependency service %q", candidate)
+			require.Equal(t, endpoint, accepted(serviceOperationNamed(candidate, "with-runnables", "grpc")), "operation service %q", candidate)
+		})
+		t.Run("module/"+candidate, func(t *testing.T) {
+			endpoint := accepted(&basev0.Endpoint{Name: "tcp", Service: "store", Module: candidate, Api: "tcp", Visibility: "module"})
+			require.Equal(t, endpoint, accepted(&basev0.RunnableDependency{
+				Name: "store", Module: candidate, Kind: "runtime", Endpoints: []string{"tcp"},
+			}), "dependency module %q", candidate)
+			require.Equal(t, endpoint, accepted(serviceOperationNamed("store", candidate, "grpc")), "operation module %q", candidate)
+		})
+		t.Run("endpoint/"+candidate, func(t *testing.T) {
+			endpoint := accepted(&basev0.Endpoint{Name: candidate, Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "module"})
+			require.Equal(t, endpoint, accepted(&basev0.RunnableDependency{
+				Name: "store", Module: "with-runnables", Kind: "runtime", Endpoints: []string{candidate},
+			}), "dependency endpoint %q", candidate)
+			require.Equal(t, endpoint, accepted(serviceOperationNamed("store", "with-runnables", candidate)), "operation endpoint %q", candidate)
+		})
+	}
+	// Agreement is only evidence if the candidates actually disagree somewhere:
+	// a list of uniformly valid names would pass with no constraint at all.
+	require.Positive(t, agreedAccepted)
+	require.Positive(t, agreedRejected)
 }

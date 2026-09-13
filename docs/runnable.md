@@ -202,6 +202,14 @@ messages fall outside it is rejected rather than coerced: reusing an owner's
 schema is a claim that has to be stated, not inferred from shapes that happen
 to line up.
 
+The service, module and endpoint names it points at carry `Endpoint`'s own
+naming rules, and so do a `service-dependencies` entry's `name`, `module` and
+`endpoints`. Both are matched against a real `Endpoint` before anything can be
+bound, so a coordinate that no endpoint could spell — two characters long, an
+underscore, a leading hyphen — would be a release that validates and can never
+be installed. The rules are enforced from one place and pinned by a test that
+requires both sides to accept exactly the same names.
+
 A `function` implementation names only what a build knows, the provider and the
 handler entrypoint. Provisioning the function, calling the provider SDK and
 carrying its completion back belong to the adapter that owns the provider.

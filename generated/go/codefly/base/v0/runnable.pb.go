@@ -838,11 +838,16 @@ func (x *RunnableFacility) GetKind() RunnableFacility_Kind {
 // never decides where the owner runs it.
 type RunnableServiceOperation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// name is the owner service that publishes the method.
+	// name, module and endpoint locate the published method, and a binding's
+	// service target must equal the Endpoint carrying those same coordinates.
+	// They therefore carry Endpoint's own naming rules: a value this accepted
+	// but no Endpoint could spell would be an operation that validates and can
+	// never be bound.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// module is that service's module.
+	// module is that service's module, named as Endpoint.module is.
 	Module string `protobuf:"bytes,2,opt,name=module,proto3" json:"module,omitempty"`
-	// endpoint is the service endpoint name the method is reached on.
+	// endpoint is the service endpoint the method is reached on, named as
+	// Endpoint.name is.
 	Endpoint string `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	// operation is the method name the service publishes, preserved as the
 	// owner spells it so the operation stays recognizably the owner's own.
@@ -1655,13 +1660,17 @@ func (x *Runnable) GetWorkspaceConfigurationDependencies() []string {
 // kind and endpoint selection a service dependency declares.
 type RunnableDependency struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// name is the depended-on service name.
+	// name and module name the service a binding resolves against an Endpoint,
+	// so they carry Endpoint's own naming rules: a dependency this accepted but
+	// no Endpoint could spell could never be resolved, and a runtime edge that
+	// cannot be resolved is a package no binding can install.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// module is the depended-on service's module.
+	// module is the depended-on service's module, named as Endpoint.module is.
 	Module string `protobuf:"bytes,2,opt,name=module,proto3" json:"module,omitempty"`
 	// kind is the dependency kind; empty is the legacy untyped edge.
 	Kind string `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
-	// endpoints are the consumed endpoint names; empty consumes every endpoint.
+	// endpoints are the consumed endpoint names, each named as Endpoint.name
+	// is; empty consumes every endpoint.
 	Endpoints     []string `protobuf:"bytes,4,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2346,11 +2355,11 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\n" +
 	"KUBERNETES\x10\x02\x12\v\n" +
 	"\aSERVICE\x10\x03\x12\f\n" +
-	"\bFUNCTION\x10\x04\"\xac\x03\n" +
-	"\x18RunnableServiceOperation\x12\x1d\n" +
-	"\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x04name\x12!\n" +
-	"\x06module\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x06module\x12#\n" +
-	"\bendpoint\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bendpoint\x12%\n" +
+	"\bFUNCTION\x10\x04\"\xe4\x03\n" +
+	"\x18RunnableServiceOperation\x122\n" +
+	"\x04name\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x04name\x126\n" +
+	"\x06module\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x06module\x121\n" +
+	"\bendpoint\x18\x03 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\bendpoint\x12%\n" +
 	"\toperation\x18\x04 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\toperation\x12,\n" +
 	"\rinput_message\x18\x05 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\finputMessage\x12.\n" +
 	"\x0eoutput_message\x18\x06 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\routputMessage\x12^\n" +
@@ -2419,12 +2428,12 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\texecution\x18\t \x01(\v2\".codefly.base.v0.RunnableExecutionB\x06\xbaH\x03\xc8\x01\x01R\texecution\x12U\n" +
 	"\x14library_dependencies\x18\n" +
 	" \x03(\v2\".codefly.base.v0.LibraryDependencyR\x13libraryDependencies\x12P\n" +
-	"$workspace_configuration_dependencies\x18\v \x03(\tR\"workspaceConfigurationDependencies\"\x88\x01\n" +
-	"\x12RunnableDependency\x12\x1d\n" +
-	"\x04name\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x04name\x12!\n" +
-	"\x06module\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x182R\x06module\x12\x12\n" +
-	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x1c\n" +
-	"\tendpoints\x18\x04 \x03(\tR\tendpoints\"\x96\x02\n" +
+	"$workspace_configuration_dependencies\x18\v \x03(\tR\"workspaceConfigurationDependencies\"\xce\x01\n" +
+	"\x12RunnableDependency\x122\n" +
+	"\x04name\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x04name\x126\n" +
+	"\x06module\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x06module\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x128\n" +
+	"\tendpoints\x18\x04 \x03(\tB\x1a\xbaH\x17\x92\x01\x14\"\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\tendpoints\"\x96\x02\n" +
 	"\x10RunnableArtifact\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.codefly.base.v0.RunnableArtifact.KindR\x04kind\x12#\n" +
 	"\bplatform\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x03R\bplatform\x12%\n" +
