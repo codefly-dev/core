@@ -65,10 +65,16 @@ type Dependencies struct {
 	// one. Guarded by mu.
 	startDone <-chan struct{}
 
-	// mu guards the lazily resolved identity and the resolved environment.
+	// mu guards the lazily resolved identity, the resolved environment and the
+	// last readiness snapshot.
 	mu          sync.Mutex
 	identity    *resolvedIdentity
 	environment *sessionEnvironment
+
+	// readiness is the per-service view the CLI reported on the most recent
+	// poll, kept so a caller can attribute a readiness overrun to a dependency
+	// after WaitForReady has returned.
+	readiness []*v0.ServiceReadiness
 
 	// owned records the variables this session installed into os.Environ.
 	// It is guarded by globalEnvironment.mu, the same lock that serializes
@@ -1098,18 +1104,104 @@ func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 		status, err := l.cli.GetFlowStatus(readyCtx, &emptypb.Empty{})
 		if err != nil {
 			if readyCtx.Err() != nil {
-				return fmt.Errorf("timeout waiting for flow to be ready after %s", opt.Timeout)
+				return l.readinessTimeout(opt.Timeout)
 			}
 			return err
 		}
-		if status.Ready {
+		l.recordReadiness(status.GetServices())
+		if status.GetReady() {
 			return nil
 		}
 		select {
 		case <-readyCtx.Done():
-			return fmt.Errorf("timeout waiting for flow to be ready after %s", opt.Timeout)
+			return l.readinessTimeout(opt.Timeout)
 		case <-time.After(500 * time.Millisecond):
 		}
+	}
+}
+
+// Readiness returns the per-service view the CLI reported on the most recent
+// readiness poll. It is empty when the flow reported none, which is what an
+// orchestrator predating per-service status sends.
+func (l *Dependencies) Readiness() []*v0.ServiceReadiness {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.readiness)
+}
+
+func (l *Dependencies) recordReadiness(services []*v0.ServiceReadiness) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.readiness = services
+}
+
+func (l *Dependencies) readinessTimeout(timeout time.Duration) error {
+	return &ReadinessTimeout{Timeout: timeout, Services: l.Readiness()}
+}
+
+// ReadinessTimeout reports a flow that did not become ready within its budget.
+// It carries the last per-service view so a caller can charge the overrun to
+// the dependency that was still starting rather than to the flow as a whole.
+type ReadinessTimeout struct {
+	Timeout  time.Duration
+	Services []*v0.ServiceReadiness
+}
+
+// Pending returns the services that had not reached ready when the budget ran
+// out: the ones the overrun is attributable to.
+func (e *ReadinessTimeout) Pending() []*v0.ServiceReadiness {
+	var pending []*v0.ServiceReadiness
+	for _, service := range e.Services {
+		if service.GetLifecycle() != v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY {
+			pending = append(pending, service)
+		}
+	}
+	return pending
+}
+
+func (e *ReadinessTimeout) Error() string {
+	message := fmt.Sprintf("timeout waiting for flow to be ready after %s", e.Timeout)
+	pending := e.Pending()
+	if len(pending) == 0 {
+		return message
+	}
+	stalled := make([]string, 0, len(pending))
+	for _, service := range pending {
+		stalled = append(stalled, describeStage(service))
+	}
+	return fmt.Sprintf("%s: %s", message, strings.Join(stalled, ", "))
+}
+
+// describeStage names one dependency, the stage it is stuck in, and how long
+// it has been there. The elapsed time is charged to the stage rather than to
+// the whole wait, which is what separates a slow image pull from a slow boot.
+func describeStage(service *v0.ServiceReadiness) string {
+	description := fmt.Sprintf("%s %s", service.GetService(), lifecycleLabel(service.GetLifecycle()))
+	// A nil timestamp reads as the Unix epoch rather than as absent, so it is
+	// checked here instead of through IsValid.
+	if entered := service.GetEnteredAt(); entered != nil {
+		description = fmt.Sprintf("%s for %s", description, time.Since(entered.AsTime()).Truncate(time.Millisecond))
+	}
+	if detail := service.GetMessage(); detail != "" {
+		description = fmt.Sprintf("%s (%s)", description, detail)
+	}
+	return description
+}
+
+func lifecycleLabel(lifecycle v0.ServiceLifecycle) string {
+	switch lifecycle {
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING:
+		return "pending"
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE:
+		return "acquiring image"
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING:
+		return "starting"
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY:
+		return "ready"
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED:
+		return "failed"
+	default:
+		return "not ready"
 	}
 }
 

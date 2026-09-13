@@ -3,6 +3,7 @@ package sdk
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
 	"github.com/codefly-dev/core/sdk/session"
 )
 
@@ -286,6 +288,38 @@ func TestHandshakeReportsVersionSkewAsAnUpgrade(t *testing.T) {
 
 func TestHandshakeRequiresTheIsolationCapability(t *testing.T) {
 	runFailingSession(t, "no-capability", 30*time.Second, session.IsolatedControlSocketCapability)
+}
+
+// TestReadinessOverrunIsAttributedToTheStalledDependency drives the whole wait
+// against a flow that never becomes ready, which is the shape a consumer hits
+// when one dependency's image pull overruns the suite's readiness budget. The
+// failure has to reach the caller as a per-service view, not as a flow-wide
+// string it would have to parse.
+func TestReadinessOverrunIsAttributedToTheStalledDependency(t *testing.T) {
+	binary := buildControlServer(t)
+	enterSessionWorkspace(t)
+	t.Setenv("CODEFLY_BINARY", binary)
+	t.Setenv("FAKE_CONTROL_RECORD_DIR", t.TempDir())
+	t.Setenv("FAKE_CONTROL_MODE", "stalled-dependency")
+
+	_, err := WithDependencies(context.Background(), WithTimeout(5*time.Second))
+	if err == nil {
+		t.Fatal("WithDependencies() accepted a flow that never became ready")
+	}
+	var overrun *ReadinessTimeout
+	if !errors.As(err, &overrun) {
+		t.Fatalf("WithDependencies() error = %v, want a *ReadinessTimeout the caller can inspect", err)
+	}
+	pending := overrun.Pending()
+	if len(pending) != 2 || pending[0].GetService() != "infra/postgres" {
+		t.Fatalf("Pending() = %v, want the dependencies the CLI reported as unready", pending)
+	}
+	if got := pending[0].GetLifecycle(); got != v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE {
+		t.Fatalf("stalled dependency lifecycle = %s, want the image acquisition stage", got)
+	}
+	if !strings.Contains(err.Error(), "infra/postgres acquiring image") {
+		t.Fatalf("WithDependencies() error = %v, want it to name the stalled dependency", err)
+	}
 }
 
 // testSessionDirectory is the directory these tests anchor a session to. They

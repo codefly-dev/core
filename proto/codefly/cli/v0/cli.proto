@@ -5,6 +5,7 @@ package codefly.cli.v0;
 import "codefly/base/v0/network.proto";
 import "codefly/base/v0/workspace.proto";
 import "codefly/base/v0/configuration.proto";
+import "codefly/base/v0/readiness.proto";
 
 import "codefly/services/agent/v0/agent.proto";
 
@@ -13,6 +14,7 @@ import "codefly/observability/v0/dependencies.proto";
 import "codefly/observability/v0/logs.proto";
 
 import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
 import "google/api/annotations.proto";
 
 
@@ -132,10 +134,60 @@ message SessionHandshakeResponse {
   repeated string capabilities = 4;
 }
 
+// ServiceLifecycle names the stage a dependency has reached on its way to
+// ready. Acquiring an image is a stage of its own because it stalls for
+// reasons that have nothing to do with booting — a cold registry, a rebuild —
+// and a caller reporting a readiness overrun has to say which one it waited
+// on.
+enum ServiceLifecycle {
+  // SERVICE_LIFECYCLE_UNSPECIFIED is the default when the stage is unreported,
+  // which is what an orchestrator predating per-service status sends.
+  SERVICE_LIFECYCLE_UNSPECIFIED = 0;
+  // SERVICE_LIFECYCLE_PENDING means the service is planned but not started,
+  // usually because a dependency of its own is still starting.
+  SERVICE_LIFECYCLE_PENDING = 1;
+  // SERVICE_LIFECYCLE_ACQUIRING_IMAGE means an image is being pulled or built.
+  SERVICE_LIFECYCLE_ACQUIRING_IMAGE = 2;
+  // SERVICE_LIFECYCLE_STARTING means the workload was launched and its
+  // readiness predicate does not hold yet.
+  SERVICE_LIFECYCLE_STARTING = 3;
+  // SERVICE_LIFECYCLE_READY means the declared readiness predicate holds.
+  SERVICE_LIFECYCLE_READY = 4;
+  // SERVICE_LIFECYCLE_FAILED means the service will not become ready without
+  // intervention, so a caller waiting on it should stop rather than spend the
+  // rest of its budget.
+  SERVICE_LIFECYCLE_FAILED = 5;
+}
+
+// ServiceReadiness is one dependency's contribution to flow readiness, named
+// so that a caller whose flow overran its budget can charge the wait to a
+// service instead of reporting an aggregate.
+message ServiceReadiness {
+  // service is the module/service unique of the dependency.
+  string service = 1;
+  // lifecycle is the stage the service has reached. It is the whole truth
+  // about whether this service is ready: there is no separate ready flag to
+  // contradict it.
+  ServiceLifecycle lifecycle = 2;
+  // entered_at is when the service entered lifecycle, so a caller charges
+  // elapsed time to the stage that actually consumed it rather than to the
+  // resolution of its own poll loop.
+  google.protobuf.Timestamp entered_at = 3;
+  // health is the last readiness evaluation, which names the predicate that
+  // has not held yet. Absent for a service that has not been probed.
+  codefly.base.v0.HealthReport health = 4;
+  // message carries diagnostics for the current stage, such as the image being
+  // pulled or why a start failed.
+  string message = 5;
+}
+
 // FlowStatus reports whether the current orchestration flow is ready.
 message FlowStatus {
   // ready is true when the flow or service has reached an operable state.
   bool ready = 1;
+  // services is the per-dependency view behind ready. An orchestrator that
+  // reports nothing here leaves a caller with the aggregate verdict alone.
+  repeated ServiceReadiness services = 2;
 }
 
 // StopFlowRequest asks the CLI to stop the active orchestration flow.
