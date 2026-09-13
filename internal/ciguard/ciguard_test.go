@@ -219,6 +219,18 @@ func TestSlackNotificationsDeclareAWebhookType(t *testing.T) {
 						"so it first fails on main -- and a red run there also "+
 						"stops version-tag.yml from cutting a release tag.",
 					filepath.Base(path), jobName, step.Name, step.With["webhook-type"])
+
+				// The same throw-before-send failure, one field over. The URL
+				// resolves from the `webhook` input or SLACK_WEBHOOK_URL, so a
+				// step carrying a type but no source is red on main for a
+				// reason no pull request run would have surfaced either.
+				require.True(t,
+					step.With["webhook"] != nil || step.Env["SLACK_WEBHOOK_URL"] != "",
+					"%s: job %q step %q declares a webhook-type but supplies no "+
+						"webhook URL, through either the `webhook` input or "+
+						"SLACK_WEBHOOK_URL in `env:`. The action fails the step "+
+						"before sending anything.",
+					filepath.Base(path), jobName, step.Name)
 			}
 		}
 	}
