@@ -31,7 +31,8 @@ func TestMyService(t *testing.T) {
    the socket path and the session credentials in the child's environment
 3. Waits for the child to bind the socket, then makes it prove it owns the
    session (`SessionHandshake`)
-4. Waits for all services to be ready (`GetFlowStatus`)
+4. Waits for all services to be ready (`GetFlowStatus`), tracking which
+   dependency is still starting (see [Readiness Attribution](#readiness-attribution))
 5. Extracts network mappings and configurations from the CLI
 6. Resolves them into the session's environment, and injects it into the calling
    process unless the session is command-scoped (see below)
@@ -119,6 +120,51 @@ deps, _ := cli.WithDependencies(ctx,
     cli.WithSilence("store/redis"),   // suppress logs for specific services
 )
 ```
+
+## Readiness Attribution
+
+`GetFlowStatus` reports a per-service view alongside the flow-wide verdict, so a
+caller that overruns its readiness budget can name the dependency it waited on
+instead of reporting an aggregate. Each entry carries the service unique, the
+stage it reached (`ServiceLifecycle`), when it entered that stage, and its last
+`HealthReport` — the failing predicate included, as described in
+[Declared Readiness](readiness.md).
+
+Acquiring an image is a stage of its own. A cold registry pull and a slow boot
+overrun for unrelated reasons, and a suite that records setup timing has to tell
+them apart.
+
+```go
+env, err := sdk.WithDependencies(ctx, sdk.WithTimeout(2*time.Minute))
+
+var overrun *sdk.ReadinessTimeout
+if errors.As(err, &overrun) {
+    for _, service := range overrun.Pending() {
+        // An absent entered_at is not an absent time: GetEnteredAt() returns
+        // nil and AsTime() renders it as the Unix epoch, so check before use.
+        since := "an unreported time"
+        if at := service.GetEnteredAt(); at != nil {
+            since = at.AsTime().String()
+        }
+        t.Logf("%s stalled in %s since %s", service.GetService(), service.GetLifecycle(), since)
+    }
+}
+```
+
+A dependency the flow declares it cannot start is not a timeout, and waiting
+out the budget cannot change that verdict. `WaitForReady` returns a
+`*sdk.ReadinessFailure` as soon as one is reported, so a suite fails in seconds
+on a broken dependency instead of spending its whole readiness budget first.
+
+Stage durations on both errors are measured as of the moment the wait ended, so
+an error logged after teardown still reports the elapsed time that actually
+belonged to the wait.
+
+`env.Readiness()` returns the same view for a live session, as of its last poll.
+
+An orchestrator that reports no per-service entries leaves both empty and the
+flow-wide verdict unchanged, so an older CLI keeps working — it just cannot be
+asked which dependency stalled.
 
 ## Session Isolation
 

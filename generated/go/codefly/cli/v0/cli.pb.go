@@ -18,6 +18,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -26,6 +27,80 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// ServiceLifecycle names the stage a dependency has reached on its way to
+// ready. Acquiring an image is a stage of its own because it stalls for
+// reasons that have nothing to do with booting — a cold registry, a rebuild —
+// and a caller reporting a readiness overrun has to say which one it waited
+// on.
+type ServiceLifecycle int32
+
+const (
+	// SERVICE_LIFECYCLE_UNSPECIFIED is the default when the stage is unreported,
+	// which is what an orchestrator predating per-service status sends.
+	ServiceLifecycle_SERVICE_LIFECYCLE_UNSPECIFIED ServiceLifecycle = 0
+	// SERVICE_LIFECYCLE_PENDING means the service is planned but not started,
+	// usually because a dependency of its own is still starting.
+	ServiceLifecycle_SERVICE_LIFECYCLE_PENDING ServiceLifecycle = 1
+	// SERVICE_LIFECYCLE_ACQUIRING_IMAGE means an image is being pulled or built.
+	ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE ServiceLifecycle = 2
+	// SERVICE_LIFECYCLE_STARTING means the workload was launched and its
+	// readiness predicate does not hold yet.
+	ServiceLifecycle_SERVICE_LIFECYCLE_STARTING ServiceLifecycle = 3
+	// SERVICE_LIFECYCLE_READY means the declared readiness predicate holds.
+	ServiceLifecycle_SERVICE_LIFECYCLE_READY ServiceLifecycle = 4
+	// SERVICE_LIFECYCLE_FAILED means the service will not become ready without
+	// intervention, so a caller waiting on it should stop rather than spend the
+	// rest of its budget.
+	ServiceLifecycle_SERVICE_LIFECYCLE_FAILED ServiceLifecycle = 5
+)
+
+// Enum value maps for ServiceLifecycle.
+var (
+	ServiceLifecycle_name = map[int32]string{
+		0: "SERVICE_LIFECYCLE_UNSPECIFIED",
+		1: "SERVICE_LIFECYCLE_PENDING",
+		2: "SERVICE_LIFECYCLE_ACQUIRING_IMAGE",
+		3: "SERVICE_LIFECYCLE_STARTING",
+		4: "SERVICE_LIFECYCLE_READY",
+		5: "SERVICE_LIFECYCLE_FAILED",
+	}
+	ServiceLifecycle_value = map[string]int32{
+		"SERVICE_LIFECYCLE_UNSPECIFIED":     0,
+		"SERVICE_LIFECYCLE_PENDING":         1,
+		"SERVICE_LIFECYCLE_ACQUIRING_IMAGE": 2,
+		"SERVICE_LIFECYCLE_STARTING":        3,
+		"SERVICE_LIFECYCLE_READY":           4,
+		"SERVICE_LIFECYCLE_FAILED":          5,
+	}
+)
+
+func (x ServiceLifecycle) Enum() *ServiceLifecycle {
+	p := new(ServiceLifecycle)
+	*p = x
+	return p
+}
+
+func (x ServiceLifecycle) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ServiceLifecycle) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_cli_v0_cli_proto_enumTypes[0].Descriptor()
+}
+
+func (ServiceLifecycle) Type() protoreflect.EnumType {
+	return &file_codefly_cli_v0_cli_proto_enumTypes[0]
+}
+
+func (x ServiceLifecycle) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ServiceLifecycle.Descriptor instead.
+func (ServiceLifecycle) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{0}
+}
 
 // GetAgentInformationRequest identifies an installed agent to inspect.
 type GetAgentInformationRequest struct {
@@ -746,18 +821,111 @@ func (x *SessionHandshakeResponse) GetCapabilities() []string {
 	return nil
 }
 
+// ServiceReadiness is one dependency's contribution to flow readiness, named
+// so that a caller whose flow overran its budget can charge the wait to a
+// service instead of reporting an aggregate.
+type ServiceReadiness struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the module/service unique of the dependency.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// lifecycle is the stage the service has reached. It is the whole truth
+	// about whether this service is ready: there is no separate ready flag to
+	// contradict it.
+	Lifecycle ServiceLifecycle `protobuf:"varint,2,opt,name=lifecycle,proto3,enum=codefly.cli.v0.ServiceLifecycle" json:"lifecycle,omitempty"`
+	// entered_at is when the service entered lifecycle, so a caller charges
+	// elapsed time to the stage that actually consumed it rather than to the
+	// resolution of its own poll loop.
+	EnteredAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=entered_at,json=enteredAt,proto3" json:"entered_at,omitempty"`
+	// health is the last readiness evaluation, which names the predicate that
+	// has not held yet. Absent for a service that has not been probed.
+	Health *v01.HealthReport `protobuf:"bytes,4,opt,name=health,proto3" json:"health,omitempty"`
+	// message carries diagnostics for the current stage, such as the image being
+	// pulled or why a start failed.
+	Message       string `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceReadiness) Reset() {
+	*x = ServiceReadiness{}
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceReadiness) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceReadiness) ProtoMessage() {}
+
+func (x *ServiceReadiness) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceReadiness.ProtoReflect.Descriptor instead.
+func (*ServiceReadiness) Descriptor() ([]byte, []int) {
+	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ServiceReadiness) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *ServiceReadiness) GetLifecycle() ServiceLifecycle {
+	if x != nil {
+		return x.Lifecycle
+	}
+	return ServiceLifecycle_SERVICE_LIFECYCLE_UNSPECIFIED
+}
+
+func (x *ServiceReadiness) GetEnteredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EnteredAt
+	}
+	return nil
+}
+
+func (x *ServiceReadiness) GetHealth() *v01.HealthReport {
+	if x != nil {
+		return x.Health
+	}
+	return nil
+}
+
+func (x *ServiceReadiness) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 // FlowStatus reports whether the current orchestration flow is ready.
 type FlowStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ready is true when the flow or service has reached an operable state.
-	Ready         bool `protobuf:"varint,1,opt,name=ready,proto3" json:"ready,omitempty"`
+	Ready bool `protobuf:"varint,1,opt,name=ready,proto3" json:"ready,omitempty"`
+	// services is the per-dependency view behind ready. An orchestrator that
+	// reports nothing here leaves a caller with the aggregate verdict alone.
+	Services      []*ServiceReadiness `protobuf:"bytes,2,rep,name=services,proto3" json:"services,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowStatus) Reset() {
 	*x = FlowStatus{}
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[13]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -769,7 +937,7 @@ func (x *FlowStatus) String() string {
 func (*FlowStatus) ProtoMessage() {}
 
 func (x *FlowStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[13]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -782,7 +950,7 @@ func (x *FlowStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowStatus.ProtoReflect.Descriptor instead.
 func (*FlowStatus) Descriptor() ([]byte, []int) {
-	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{13}
+	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *FlowStatus) GetReady() bool {
@@ -790,6 +958,13 @@ func (x *FlowStatus) GetReady() bool {
 		return x.Ready
 	}
 	return false
+}
+
+func (x *FlowStatus) GetServices() []*ServiceReadiness {
+	if x != nil {
+		return x.Services
+	}
+	return nil
 }
 
 // StopFlowRequest asks the CLI to stop the active orchestration flow.
@@ -801,7 +976,7 @@ type StopFlowRequest struct {
 
 func (x *StopFlowRequest) Reset() {
 	*x = StopFlowRequest{}
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[14]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -813,7 +988,7 @@ func (x *StopFlowRequest) String() string {
 func (*StopFlowRequest) ProtoMessage() {}
 
 func (x *StopFlowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[14]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -826,7 +1001,7 @@ func (x *StopFlowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopFlowRequest.ProtoReflect.Descriptor instead.
 func (*StopFlowRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{14}
+	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{15}
 }
 
 // StopFlowResponse acknowledges that the active flow stop request was accepted.
@@ -838,7 +1013,7 @@ type StopFlowResponse struct {
 
 func (x *StopFlowResponse) Reset() {
 	*x = StopFlowResponse{}
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[15]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -850,7 +1025,7 @@ func (x *StopFlowResponse) String() string {
 func (*StopFlowResponse) ProtoMessage() {}
 
 func (x *StopFlowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[15]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -863,7 +1038,7 @@ func (x *StopFlowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopFlowResponse.ProtoReflect.Descriptor instead.
 func (*StopFlowResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{15}
+	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{16}
 }
 
 // DestroyFlowRequest asks the CLI to destroy resources owned by the active flow.
@@ -875,7 +1050,7 @@ type DestroyFlowRequest struct {
 
 func (x *DestroyFlowRequest) Reset() {
 	*x = DestroyFlowRequest{}
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[16]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -887,7 +1062,7 @@ func (x *DestroyFlowRequest) String() string {
 func (*DestroyFlowRequest) ProtoMessage() {}
 
 func (x *DestroyFlowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[16]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -900,7 +1075,7 @@ func (x *DestroyFlowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyFlowRequest.ProtoReflect.Descriptor instead.
 func (*DestroyFlowRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{16}
+	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{17}
 }
 
 // DestroyFlowResponse acknowledges that destroy flow cleanup was requested.
@@ -912,7 +1087,7 @@ type DestroyFlowResponse struct {
 
 func (x *DestroyFlowResponse) Reset() {
 	*x = DestroyFlowResponse{}
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[17]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -924,7 +1099,7 @@ func (x *DestroyFlowResponse) String() string {
 func (*DestroyFlowResponse) ProtoMessage() {}
 
 func (x *DestroyFlowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_cli_v0_cli_proto_msgTypes[17]
+	mi := &file_codefly_cli_v0_cli_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -937,14 +1112,14 @@ func (x *DestroyFlowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyFlowResponse.ProtoReflect.Descriptor instead.
 func (*DestroyFlowResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{17}
+	return file_codefly_cli_v0_cli_proto_rawDescGZIP(), []int{18}
 }
 
 var File_codefly_cli_v0_cli_proto protoreflect.FileDescriptor
 
 const file_codefly_cli_v0_cli_proto_rawDesc = "" +
 	"\n" +
-	"\x18codefly/cli/v0/cli.proto\x12\x0ecodefly.cli.v0\x1a\x1dcodefly/base/v0/network.proto\x1a\x1fcodefly/base/v0/workspace.proto\x1a#codefly/base/v0/configuration.proto\x1a%codefly/services/agent/v0/agent.proto\x1a(codefly/observability/v0/inventory.proto\x1a+codefly/observability/v0/dependencies.proto\x1a#codefly/observability/v0/logs.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/api/annotations.proto\"2\n" +
+	"\x18codefly/cli/v0/cli.proto\x12\x0ecodefly.cli.v0\x1a\x1dcodefly/base/v0/network.proto\x1a\x1fcodefly/base/v0/workspace.proto\x1a#codefly/base/v0/configuration.proto\x1a\x1fcodefly/base/v0/readiness.proto\x1a%codefly/services/agent/v0/agent.proto\x1a(codefly/observability/v0/inventory.proto\x1a+codefly/observability/v0/dependencies.proto\x1a#codefly/observability/v0/logs.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"2\n" +
 	"\x1aGetAgentInformationRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\"U\n" +
 	"\x12MultiGraphResponse\x12?\n" +
@@ -985,14 +1160,29 @@ const file_codefly_cli_v0_cli_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x14\n" +
 	"\x05proof\x18\x02 \x01(\tR\x05proof\x12)\n" +
 	"\x10protocol_version\x18\x03 \x01(\rR\x0fprotocolVersion\x12\"\n" +
-	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\"\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\xf8\x01\n" +
+	"\x10ServiceReadiness\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12>\n" +
+	"\tlifecycle\x18\x02 \x01(\x0e2 .codefly.cli.v0.ServiceLifecycleR\tlifecycle\x129\n" +
+	"\n" +
+	"entered_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tenteredAt\x125\n" +
+	"\x06health\x18\x04 \x01(\v2\x1d.codefly.base.v0.HealthReportR\x06health\x12\x18\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\"`\n" +
 	"\n" +
 	"FlowStatus\x12\x14\n" +
-	"\x05ready\x18\x01 \x01(\bR\x05ready\"\x11\n" +
+	"\x05ready\x18\x01 \x01(\bR\x05ready\x12<\n" +
+	"\bservices\x18\x02 \x03(\v2 .codefly.cli.v0.ServiceReadinessR\bservices\"\x11\n" +
 	"\x0fStopFlowRequest\"\x12\n" +
 	"\x10StopFlowResponse\"\x14\n" +
 	"\x12DestroyFlowRequest\"\x15\n" +
-	"\x13DestroyFlowResponse2\xc9\x11\n" +
+	"\x13DestroyFlowResponse*\xd6\x01\n" +
+	"\x10ServiceLifecycle\x12!\n" +
+	"\x1dSERVICE_LIFECYCLE_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19SERVICE_LIFECYCLE_PENDING\x10\x01\x12%\n" +
+	"!SERVICE_LIFECYCLE_ACQUIRING_IMAGE\x10\x02\x12\x1e\n" +
+	"\x1aSERVICE_LIFECYCLE_STARTING\x10\x03\x12\x1b\n" +
+	"\x17SERVICE_LIFECYCLE_READY\x10\x04\x12\x1c\n" +
+	"\x18SERVICE_LIFECYCLE_FAILED\x10\x052\xc9\x11\n" +
 	"\x03CLI\x12E\n" +
 	"\x04Ping\x12\x16.google.protobuf.Empty\x1a\x16.google.protobuf.Empty\"\r\x82\xd3\xe4\x93\x02\a\x12\x05/ping\x12g\n" +
 	"\x10SessionHandshake\x12'.codefly.cli.v0.SessionHandshakeRequest\x1a(.codefly.cli.v0.SessionHandshakeResponse\"\x00\x12\x92\x01\n" +
@@ -1025,80 +1215,89 @@ func file_codefly_cli_v0_cli_proto_rawDescGZIP() []byte {
 	return file_codefly_cli_v0_cli_proto_rawDescData
 }
 
-var file_codefly_cli_v0_cli_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_codefly_cli_v0_cli_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_codefly_cli_v0_cli_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_codefly_cli_v0_cli_proto_goTypes = []any{
-	(*GetAgentInformationRequest)(nil), // 0: codefly.cli.v0.GetAgentInformationRequest
-	(*MultiGraphResponse)(nil),         // 1: codefly.cli.v0.MultiGraphResponse
-	(*ActiveResponse)(nil),             // 2: codefly.cli.v0.ActiveResponse
-	(*RunningInformation)(nil),         // 3: codefly.cli.v0.RunningInformation
-	(*GetAddressRequest)(nil),          // 4: codefly.cli.v0.GetAddressRequest
-	(*GetAddressResponse)(nil),         // 5: codefly.cli.v0.GetAddressResponse
-	(*GetNetworkMappingsRequest)(nil),  // 6: codefly.cli.v0.GetNetworkMappingsRequest
-	(*GetNetworkMappingsResponse)(nil), // 7: codefly.cli.v0.GetNetworkMappingsResponse
-	(*GetConfigurationRequest)(nil),    // 8: codefly.cli.v0.GetConfigurationRequest
-	(*GetConfigurationResponse)(nil),   // 9: codefly.cli.v0.GetConfigurationResponse
-	(*GetConfigurationsResponse)(nil),  // 10: codefly.cli.v0.GetConfigurationsResponse
-	(*SessionHandshakeRequest)(nil),    // 11: codefly.cli.v0.SessionHandshakeRequest
-	(*SessionHandshakeResponse)(nil),   // 12: codefly.cli.v0.SessionHandshakeResponse
-	(*FlowStatus)(nil),                 // 13: codefly.cli.v0.FlowStatus
-	(*StopFlowRequest)(nil),            // 14: codefly.cli.v0.StopFlowRequest
-	(*StopFlowResponse)(nil),           // 15: codefly.cli.v0.StopFlowResponse
-	(*DestroyFlowRequest)(nil),         // 16: codefly.cli.v0.DestroyFlowRequest
-	(*DestroyFlowResponse)(nil),        // 17: codefly.cli.v0.DestroyFlowResponse
-	(*v0.GraphResponse)(nil),           // 18: codefly.observability.v0.GraphResponse
-	(*v01.NetworkMapping)(nil),         // 19: codefly.base.v0.NetworkMapping
-	(*v01.Configuration)(nil),          // 20: codefly.base.v0.Configuration
-	(*emptypb.Empty)(nil),              // 21: google.protobuf.Empty
-	(*v0.LogRequest)(nil),              // 22: codefly.observability.v0.LogRequest
-	(*v02.AgentInformation)(nil),       // 23: codefly.services.agent.v0.AgentInformation
-	(*v01.Workspace)(nil),              // 24: codefly.base.v0.Workspace
-	(*v0.Log)(nil),                     // 25: codefly.observability.v0.Log
-	(*v0.LogResponse)(nil),             // 26: codefly.observability.v0.LogResponse
+	(ServiceLifecycle)(0),              // 0: codefly.cli.v0.ServiceLifecycle
+	(*GetAgentInformationRequest)(nil), // 1: codefly.cli.v0.GetAgentInformationRequest
+	(*MultiGraphResponse)(nil),         // 2: codefly.cli.v0.MultiGraphResponse
+	(*ActiveResponse)(nil),             // 3: codefly.cli.v0.ActiveResponse
+	(*RunningInformation)(nil),         // 4: codefly.cli.v0.RunningInformation
+	(*GetAddressRequest)(nil),          // 5: codefly.cli.v0.GetAddressRequest
+	(*GetAddressResponse)(nil),         // 6: codefly.cli.v0.GetAddressResponse
+	(*GetNetworkMappingsRequest)(nil),  // 7: codefly.cli.v0.GetNetworkMappingsRequest
+	(*GetNetworkMappingsResponse)(nil), // 8: codefly.cli.v0.GetNetworkMappingsResponse
+	(*GetConfigurationRequest)(nil),    // 9: codefly.cli.v0.GetConfigurationRequest
+	(*GetConfigurationResponse)(nil),   // 10: codefly.cli.v0.GetConfigurationResponse
+	(*GetConfigurationsResponse)(nil),  // 11: codefly.cli.v0.GetConfigurationsResponse
+	(*SessionHandshakeRequest)(nil),    // 12: codefly.cli.v0.SessionHandshakeRequest
+	(*SessionHandshakeResponse)(nil),   // 13: codefly.cli.v0.SessionHandshakeResponse
+	(*ServiceReadiness)(nil),           // 14: codefly.cli.v0.ServiceReadiness
+	(*FlowStatus)(nil),                 // 15: codefly.cli.v0.FlowStatus
+	(*StopFlowRequest)(nil),            // 16: codefly.cli.v0.StopFlowRequest
+	(*StopFlowResponse)(nil),           // 17: codefly.cli.v0.StopFlowResponse
+	(*DestroyFlowRequest)(nil),         // 18: codefly.cli.v0.DestroyFlowRequest
+	(*DestroyFlowResponse)(nil),        // 19: codefly.cli.v0.DestroyFlowResponse
+	(*v0.GraphResponse)(nil),           // 20: codefly.observability.v0.GraphResponse
+	(*v01.NetworkMapping)(nil),         // 21: codefly.base.v0.NetworkMapping
+	(*v01.Configuration)(nil),          // 22: codefly.base.v0.Configuration
+	(*timestamppb.Timestamp)(nil),      // 23: google.protobuf.Timestamp
+	(*v01.HealthReport)(nil),           // 24: codefly.base.v0.HealthReport
+	(*emptypb.Empty)(nil),              // 25: google.protobuf.Empty
+	(*v0.LogRequest)(nil),              // 26: codefly.observability.v0.LogRequest
+	(*v02.AgentInformation)(nil),       // 27: codefly.services.agent.v0.AgentInformation
+	(*v01.Workspace)(nil),              // 28: codefly.base.v0.Workspace
+	(*v0.Log)(nil),                     // 29: codefly.observability.v0.Log
+	(*v0.LogResponse)(nil),             // 30: codefly.observability.v0.LogResponse
 }
 var file_codefly_cli_v0_cli_proto_depIdxs = []int32{
-	18, // 0: codefly.cli.v0.MultiGraphResponse.graphs:type_name -> codefly.observability.v0.GraphResponse
-	19, // 1: codefly.cli.v0.GetNetworkMappingsResponse.network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	20, // 2: codefly.cli.v0.GetConfigurationResponse.configuration:type_name -> codefly.base.v0.Configuration
-	20, // 3: codefly.cli.v0.GetConfigurationsResponse.configurations:type_name -> codefly.base.v0.Configuration
-	21, // 4: codefly.cli.v0.CLI.Ping:input_type -> google.protobuf.Empty
-	11, // 5: codefly.cli.v0.CLI.SessionHandshake:input_type -> codefly.cli.v0.SessionHandshakeRequest
-	0,  // 6: codefly.cli.v0.CLI.GetAgentInformation:input_type -> codefly.cli.v0.GetAgentInformationRequest
-	21, // 7: codefly.cli.v0.CLI.GetWorkspaceInventory:input_type -> google.protobuf.Empty
-	21, // 8: codefly.cli.v0.CLI.GetWorkspaceServiceDependencyGraph:input_type -> google.protobuf.Empty
-	21, // 9: codefly.cli.v0.CLI.GetWorkspacePublicModulesDependencyGraph:input_type -> google.protobuf.Empty
-	21, // 10: codefly.cli.v0.CLI.GetActive:input_type -> google.protobuf.Empty
-	4,  // 11: codefly.cli.v0.CLI.GetAddresses:input_type -> codefly.cli.v0.GetAddressRequest
-	8,  // 12: codefly.cli.v0.CLI.GetConfiguration:input_type -> codefly.cli.v0.GetConfigurationRequest
-	8,  // 13: codefly.cli.v0.CLI.GetDependenciesConfigurations:input_type -> codefly.cli.v0.GetConfigurationRequest
-	6,  // 14: codefly.cli.v0.CLI.GetDependenciesNetworkMappings:input_type -> codefly.cli.v0.GetNetworkMappingsRequest
-	8,  // 15: codefly.cli.v0.CLI.GetRuntimeConfigurations:input_type -> codefly.cli.v0.GetConfigurationRequest
-	21, // 16: codefly.cli.v0.CLI.Logs:input_type -> google.protobuf.Empty
-	22, // 17: codefly.cli.v0.CLI.ActiveLogHistory:input_type -> codefly.observability.v0.LogRequest
-	21, // 18: codefly.cli.v0.CLI.GetFlowStatus:input_type -> google.protobuf.Empty
-	14, // 19: codefly.cli.v0.CLI.StopFlow:input_type -> codefly.cli.v0.StopFlowRequest
-	16, // 20: codefly.cli.v0.CLI.DestroyFlow:input_type -> codefly.cli.v0.DestroyFlowRequest
-	21, // 21: codefly.cli.v0.CLI.Ping:output_type -> google.protobuf.Empty
-	12, // 22: codefly.cli.v0.CLI.SessionHandshake:output_type -> codefly.cli.v0.SessionHandshakeResponse
-	23, // 23: codefly.cli.v0.CLI.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
-	24, // 24: codefly.cli.v0.CLI.GetWorkspaceInventory:output_type -> codefly.base.v0.Workspace
-	18, // 25: codefly.cli.v0.CLI.GetWorkspaceServiceDependencyGraph:output_type -> codefly.observability.v0.GraphResponse
-	1,  // 26: codefly.cli.v0.CLI.GetWorkspacePublicModulesDependencyGraph:output_type -> codefly.cli.v0.MultiGraphResponse
-	2,  // 27: codefly.cli.v0.CLI.GetActive:output_type -> codefly.cli.v0.ActiveResponse
-	5,  // 28: codefly.cli.v0.CLI.GetAddresses:output_type -> codefly.cli.v0.GetAddressResponse
-	9,  // 29: codefly.cli.v0.CLI.GetConfiguration:output_type -> codefly.cli.v0.GetConfigurationResponse
-	10, // 30: codefly.cli.v0.CLI.GetDependenciesConfigurations:output_type -> codefly.cli.v0.GetConfigurationsResponse
-	7,  // 31: codefly.cli.v0.CLI.GetDependenciesNetworkMappings:output_type -> codefly.cli.v0.GetNetworkMappingsResponse
-	10, // 32: codefly.cli.v0.CLI.GetRuntimeConfigurations:output_type -> codefly.cli.v0.GetConfigurationsResponse
-	25, // 33: codefly.cli.v0.CLI.Logs:output_type -> codefly.observability.v0.Log
-	26, // 34: codefly.cli.v0.CLI.ActiveLogHistory:output_type -> codefly.observability.v0.LogResponse
-	13, // 35: codefly.cli.v0.CLI.GetFlowStatus:output_type -> codefly.cli.v0.FlowStatus
-	15, // 36: codefly.cli.v0.CLI.StopFlow:output_type -> codefly.cli.v0.StopFlowResponse
-	17, // 37: codefly.cli.v0.CLI.DestroyFlow:output_type -> codefly.cli.v0.DestroyFlowResponse
-	21, // [21:38] is the sub-list for method output_type
-	4,  // [4:21] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	20, // 0: codefly.cli.v0.MultiGraphResponse.graphs:type_name -> codefly.observability.v0.GraphResponse
+	21, // 1: codefly.cli.v0.GetNetworkMappingsResponse.network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	22, // 2: codefly.cli.v0.GetConfigurationResponse.configuration:type_name -> codefly.base.v0.Configuration
+	22, // 3: codefly.cli.v0.GetConfigurationsResponse.configurations:type_name -> codefly.base.v0.Configuration
+	0,  // 4: codefly.cli.v0.ServiceReadiness.lifecycle:type_name -> codefly.cli.v0.ServiceLifecycle
+	23, // 5: codefly.cli.v0.ServiceReadiness.entered_at:type_name -> google.protobuf.Timestamp
+	24, // 6: codefly.cli.v0.ServiceReadiness.health:type_name -> codefly.base.v0.HealthReport
+	14, // 7: codefly.cli.v0.FlowStatus.services:type_name -> codefly.cli.v0.ServiceReadiness
+	25, // 8: codefly.cli.v0.CLI.Ping:input_type -> google.protobuf.Empty
+	12, // 9: codefly.cli.v0.CLI.SessionHandshake:input_type -> codefly.cli.v0.SessionHandshakeRequest
+	1,  // 10: codefly.cli.v0.CLI.GetAgentInformation:input_type -> codefly.cli.v0.GetAgentInformationRequest
+	25, // 11: codefly.cli.v0.CLI.GetWorkspaceInventory:input_type -> google.protobuf.Empty
+	25, // 12: codefly.cli.v0.CLI.GetWorkspaceServiceDependencyGraph:input_type -> google.protobuf.Empty
+	25, // 13: codefly.cli.v0.CLI.GetWorkspacePublicModulesDependencyGraph:input_type -> google.protobuf.Empty
+	25, // 14: codefly.cli.v0.CLI.GetActive:input_type -> google.protobuf.Empty
+	5,  // 15: codefly.cli.v0.CLI.GetAddresses:input_type -> codefly.cli.v0.GetAddressRequest
+	9,  // 16: codefly.cli.v0.CLI.GetConfiguration:input_type -> codefly.cli.v0.GetConfigurationRequest
+	9,  // 17: codefly.cli.v0.CLI.GetDependenciesConfigurations:input_type -> codefly.cli.v0.GetConfigurationRequest
+	7,  // 18: codefly.cli.v0.CLI.GetDependenciesNetworkMappings:input_type -> codefly.cli.v0.GetNetworkMappingsRequest
+	9,  // 19: codefly.cli.v0.CLI.GetRuntimeConfigurations:input_type -> codefly.cli.v0.GetConfigurationRequest
+	25, // 20: codefly.cli.v0.CLI.Logs:input_type -> google.protobuf.Empty
+	26, // 21: codefly.cli.v0.CLI.ActiveLogHistory:input_type -> codefly.observability.v0.LogRequest
+	25, // 22: codefly.cli.v0.CLI.GetFlowStatus:input_type -> google.protobuf.Empty
+	16, // 23: codefly.cli.v0.CLI.StopFlow:input_type -> codefly.cli.v0.StopFlowRequest
+	18, // 24: codefly.cli.v0.CLI.DestroyFlow:input_type -> codefly.cli.v0.DestroyFlowRequest
+	25, // 25: codefly.cli.v0.CLI.Ping:output_type -> google.protobuf.Empty
+	13, // 26: codefly.cli.v0.CLI.SessionHandshake:output_type -> codefly.cli.v0.SessionHandshakeResponse
+	27, // 27: codefly.cli.v0.CLI.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
+	28, // 28: codefly.cli.v0.CLI.GetWorkspaceInventory:output_type -> codefly.base.v0.Workspace
+	20, // 29: codefly.cli.v0.CLI.GetWorkspaceServiceDependencyGraph:output_type -> codefly.observability.v0.GraphResponse
+	2,  // 30: codefly.cli.v0.CLI.GetWorkspacePublicModulesDependencyGraph:output_type -> codefly.cli.v0.MultiGraphResponse
+	3,  // 31: codefly.cli.v0.CLI.GetActive:output_type -> codefly.cli.v0.ActiveResponse
+	6,  // 32: codefly.cli.v0.CLI.GetAddresses:output_type -> codefly.cli.v0.GetAddressResponse
+	10, // 33: codefly.cli.v0.CLI.GetConfiguration:output_type -> codefly.cli.v0.GetConfigurationResponse
+	11, // 34: codefly.cli.v0.CLI.GetDependenciesConfigurations:output_type -> codefly.cli.v0.GetConfigurationsResponse
+	8,  // 35: codefly.cli.v0.CLI.GetDependenciesNetworkMappings:output_type -> codefly.cli.v0.GetNetworkMappingsResponse
+	11, // 36: codefly.cli.v0.CLI.GetRuntimeConfigurations:output_type -> codefly.cli.v0.GetConfigurationsResponse
+	29, // 37: codefly.cli.v0.CLI.Logs:output_type -> codefly.observability.v0.Log
+	30, // 38: codefly.cli.v0.CLI.ActiveLogHistory:output_type -> codefly.observability.v0.LogResponse
+	15, // 39: codefly.cli.v0.CLI.GetFlowStatus:output_type -> codefly.cli.v0.FlowStatus
+	17, // 40: codefly.cli.v0.CLI.StopFlow:output_type -> codefly.cli.v0.StopFlowResponse
+	19, // 41: codefly.cli.v0.CLI.DestroyFlow:output_type -> codefly.cli.v0.DestroyFlowResponse
+	25, // [25:42] is the sub-list for method output_type
+	8,  // [8:25] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codefly_cli_v0_cli_proto_init() }
@@ -1111,13 +1310,14 @@ func file_codefly_cli_v0_cli_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_cli_v0_cli_proto_rawDesc), len(file_codefly_cli_v0_cli_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   18,
+			NumEnums:      1,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_codefly_cli_v0_cli_proto_goTypes,
 		DependencyIndexes: file_codefly_cli_v0_cli_proto_depIdxs,
+		EnumInfos:         file_codefly_cli_v0_cli_proto_enumTypes,
 		MessageInfos:      file_codefly_cli_v0_cli_proto_msgTypes,
 	}.Build()
 	File_codefly_cli_v0_cli_proto = out.File

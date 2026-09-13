@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
 	"github.com/codefly-dev/core/resources"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // TestWithDependencies_KillsProcessGroupOnCancellation verifies that when a
@@ -65,6 +67,96 @@ func TestWithDependencies_KillsProcessGroupOnCancellation(t *testing.T) {
 	}
 	if !waitFor(3*time.Second, func() bool { return !pidAlive(childPID) }) {
 		t.Errorf("child %d still alive after WithDependencies error — process group leaked", childPID)
+	}
+}
+
+// TestReadinessTimeoutNamesTheStalledDependency covers what the aggregate
+// verdict cannot answer: a flow that overran its budget has to say which
+// dependency it waited on, and whether that dependency was still acquiring an
+// image or already starting.
+func TestReadinessTimeoutNamesTheStalledDependency(t *testing.T) {
+	err := &ReadinessTimeout{
+		Timeout: 25 * time.Second,
+		Services: []*v0.ServiceReadiness{
+			{
+				Service:   "infra/postgres",
+				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
+				EnteredAt: timestamppb.New(time.Now().Add(-30 * time.Second)),
+				Message:   "pulling postgres:16",
+			},
+			{Service: "store/redis", Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY},
+			{Service: "app/api", Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING},
+		},
+	}
+
+	pending := err.Pending()
+	if len(pending) != 2 || pending[0].GetService() != "infra/postgres" || pending[1].GetService() != "app/api" {
+		t.Fatalf("Pending() = %v, want only the dependencies that never became ready", pending)
+	}
+
+	message := err.Error()
+	for _, want := range []string{
+		"timeout waiting for flow to be ready after 25s",
+		"infra/postgres acquiring image for 30",
+		"(pulling postgres:16)",
+		"app/api pending",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("Error() = %q, want it to mention %q", message, want)
+		}
+	}
+	if strings.Contains(message, "store/redis") {
+		t.Fatalf("Error() = %q, charged the overrun to a dependency that was ready", message)
+	}
+	// A dependency that reported no entry time has no elapsed time to charge.
+	// An absent timestamp reads as the Unix epoch unless it is guarded, which
+	// would attribute decades to a service that just started.
+	if strings.Contains(message, "app/api pending for") {
+		t.Fatalf("Error() = %q, invented an elapsed time for an unstamped stage", message)
+	}
+}
+
+// TestReadinessTimeoutElapsedIsFixedAtTheTimeout pins the elapsed time to the
+// moment the wait ended. A caller typically tears the flow down before it logs
+// the failure, and teardown takes seconds — measuring at rendering time would
+// charge those seconds to the dependency and corrupt the very timing record
+// this attribution exists to produce.
+func TestReadinessTimeoutElapsedIsFixedAtTheTimeout(t *testing.T) {
+	deps := &Dependencies{}
+	deps.recordReadiness([]*v0.ServiceReadiness{{
+		Service:   "infra/postgres",
+		Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
+		EnteredAt: timestamppb.New(time.Now().Add(-10 * time.Second)),
+	}})
+	err := deps.readinessTimeout(10 * time.Second)
+
+	atTimeout := err.Error()
+	if !strings.Contains(atTimeout, "infra/postgres acquiring image for 10") {
+		t.Fatalf("Error() = %q, want the elapsed image acquisition", atTimeout)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if later := err.Error(); later != atTimeout {
+		t.Fatalf("the same error rendered %q at the timeout and %q later: elapsed time drifts with the clock", atTimeout, later)
+	}
+}
+
+// TestReadinessSnapshotDoesNotAliasTheSessionState covers the handout: entries
+// are copied out, so a caller that annotates what it was given cannot reach
+// back into the snapshot the session keeps.
+func TestReadinessSnapshotDoesNotAliasTheSessionState(t *testing.T) {
+	deps := &Dependencies{}
+	deps.recordReadiness([]*v0.ServiceReadiness{{
+		Service:   "infra/postgres",
+		Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING,
+	}})
+
+	handed := deps.Readiness()
+	handed[0].Service = "rewritten"
+	handed[0].Lifecycle = v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY
+
+	if got := deps.Readiness(); got[0].GetService() != "infra/postgres" ||
+		got[0].GetLifecycle() != v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING {
+		t.Fatalf("session snapshot = %v, want it untouched by an edit to the returned copy", got[0])
 	}
 }
 

@@ -13,6 +13,12 @@
 //	"wrong-version" answer a correct proof under a different protocol version
 //	"no-capability" answer correctly but advertise no isolation capability
 //	"hang-handshake" serve health as SERVING, then never answer the handshake
+//	"stalled-dependency" handshake correctly, then report a flow that never
+//	               becomes ready, naming the dependency that is holding it up
+//	"failed-dependency" report a dependency that has failed outright, which a
+//	               caller must not wait out
+//	"legacy-flow"  report a bare unready verdict with no per-service entries,
+//	               like an orchestrator predating per-service status
 package main
 
 import (
@@ -29,6 +35,7 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func main() {
@@ -63,12 +70,16 @@ func main() {
 	}
 
 	server := &controlServer{
-		owner:      owner,
-		stall:      mode == "hang-handshake",
-		handshake:  mode != "no-handshake",
-		version:    handshakeVersion(mode),
-		capability: mode != "no-capability",
-		record:     recordPath(socket),
+		owner:       owner,
+		stall:       mode == "hang-handshake",
+		handshake:   mode != "no-handshake",
+		version:     handshakeVersion(mode),
+		capability:  mode != "no-capability",
+		record:      recordPath(socket),
+		stalledFlow: mode == "stalled-dependency",
+		failedFlow:  mode == "failed-dependency",
+		legacyFlow:  mode == "legacy-flow",
+		startedAt:   time.Now(),
 	}
 	// Identity first, so a test running two independent driver processes can
 	// compare what each child was actually handed without reaching into the
@@ -119,12 +130,16 @@ func handshakeVersion(mode string) uint32 {
 
 type controlServer struct {
 	v0.UnimplementedCLIServer
-	owner      *session.Session
-	handshake  bool
-	stall      bool
-	version    uint32
-	capability bool
-	record     string
+	owner       *session.Session
+	handshake   bool
+	stall       bool
+	version     uint32
+	capability  bool
+	record      string
+	stalledFlow bool
+	failedFlow  bool
+	legacyFlow  bool
+	startedAt   time.Time
 }
 
 func (s *controlServer) note(name string) {
@@ -167,7 +182,49 @@ func (s *controlServer) Ping(context.Context, *emptypb.Empty) (*emptypb.Empty, e
 
 func (s *controlServer) GetFlowStatus(context.Context, *emptypb.Empty) (*v0.FlowStatus, error) {
 	s.note("GetFlowStatus")
-	return &v0.FlowStatus{Ready: true}, nil
+	if s.legacyFlow {
+		return &v0.FlowStatus{}, nil
+	}
+	if s.failedFlow {
+		return &v0.FlowStatus{Services: []*v0.ServiceReadiness{
+			{
+				Service:   "app/api",
+				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED,
+				EnteredAt: timestamppb.New(s.startedAt),
+				Message:   "exited with code 1",
+			},
+			{
+				Service:   "infra/postgres",
+				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING,
+				EnteredAt: timestamppb.New(s.startedAt),
+			},
+		}}, nil
+	}
+	if s.stalledFlow {
+		return &v0.FlowStatus{Services: []*v0.ServiceReadiness{
+			{
+				Service:   "infra/postgres",
+				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE,
+				EnteredAt: timestamppb.New(s.startedAt),
+				Message:   "pulling postgres:16",
+			},
+			{
+				Service:   "app/api",
+				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING,
+				EnteredAt: timestamppb.New(s.startedAt),
+			},
+		}}, nil
+	}
+	return &v0.FlowStatus{
+		Ready: true,
+		Services: []*v0.ServiceReadiness{
+			{
+				Service:   "infra/postgres",
+				Lifecycle: v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY,
+				EnteredAt: timestamppb.New(s.startedAt),
+			},
+		},
+	}, nil
 }
 
 func (s *controlServer) GetDependenciesNetworkMappings(context.Context, *v0.GetNetworkMappingsRequest) (*v0.GetNetworkMappingsResponse, error) {

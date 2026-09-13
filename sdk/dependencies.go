@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -65,10 +66,16 @@ type Dependencies struct {
 	// one. Guarded by mu.
 	startDone <-chan struct{}
 
-	// mu guards the lazily resolved identity and the resolved environment.
+	// mu guards the lazily resolved identity, the resolved environment and the
+	// last readiness snapshot.
 	mu          sync.Mutex
 	identity    *resolvedIdentity
 	environment *sessionEnvironment
+
+	// readiness is the per-service view the CLI reported on the most recent
+	// poll, kept so a caller can attribute a readiness overrun to a dependency
+	// after WaitForReady has returned.
+	readiness []*v0.ServiceReadiness
 
 	// owned records the variables this session installed into os.Environ.
 	// It is guarded by globalEnvironment.mu, the same lock that serializes
@@ -1098,18 +1105,167 @@ func (l *Dependencies) WaitForReady(ctx context.Context, opt *Option) error {
 		status, err := l.cli.GetFlowStatus(readyCtx, &emptypb.Empty{})
 		if err != nil {
 			if readyCtx.Err() != nil {
-				return fmt.Errorf("timeout waiting for flow to be ready after %s", opt.Timeout)
+				return l.readinessTimeout(opt.Timeout)
 			}
 			return err
 		}
-		if status.Ready {
+		l.recordReadiness(status.GetServices())
+		if status.GetReady() {
 			return nil
+		}
+		// A failed dependency will not become ready without intervention, so
+		// spending the rest of the budget on it only delays the verdict and
+		// reports it as a timeout rather than as the failure it is.
+		if failed := failedServices(status.GetServices()); len(failed) > 0 {
+			return &ReadinessFailure{Services: failed, observedAt: time.Now()}
 		}
 		select {
 		case <-readyCtx.Done():
-			return fmt.Errorf("timeout waiting for flow to be ready after %s", opt.Timeout)
+			return l.readinessTimeout(opt.Timeout)
 		case <-time.After(500 * time.Millisecond):
 		}
+	}
+}
+
+// Readiness returns the per-service view the CLI reported on the most recent
+// readiness poll. It is empty when the flow reported none, which is what an
+// orchestrator predating per-service status sends.
+func (l *Dependencies) Readiness() []*v0.ServiceReadiness {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	// The entries are copied, not just the slice holding them: a caller that
+	// edits what it was handed must not reach the snapshot this session keeps,
+	// nor the copy an already-returned error carries.
+	snapshot := make([]*v0.ServiceReadiness, 0, len(l.readiness))
+	for _, service := range l.readiness {
+		snapshot = append(snapshot, proto.Clone(service).(*v0.ServiceReadiness))
+	}
+	return snapshot
+}
+
+func (l *Dependencies) recordReadiness(services []*v0.ServiceReadiness) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.readiness = services
+}
+
+func (l *Dependencies) readinessTimeout(timeout time.Duration) error {
+	return &ReadinessTimeout{Timeout: timeout, Services: l.Readiness(), observedAt: time.Now()}
+}
+
+// ReadinessTimeout reports a flow that did not become ready within its budget.
+// It carries the last per-service view so a caller can charge the overrun to
+// the dependency that was still starting rather than to the flow as a whole.
+type ReadinessTimeout struct {
+	Timeout  time.Duration
+	Services []*v0.ServiceReadiness
+
+	// observedAt is when the budget ran out. Stage durations are measured
+	// against it rather than against the clock at rendering time: a caller
+	// that tears the flow down before logging would otherwise read back an
+	// elapsed time inflated by its own teardown.
+	observedAt time.Time
+}
+
+// Pending returns the services that had not reached ready when the budget ran
+// out: the ones the overrun is attributable to. A service that reported a hard
+// failure never appears here, because WaitForReady stops at that point and
+// returns a ReadinessFailure instead of waiting out the budget.
+func (e *ReadinessTimeout) Pending() []*v0.ServiceReadiness {
+	var pending []*v0.ServiceReadiness
+	for _, service := range e.Services {
+		if service.GetLifecycle() != v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY {
+			pending = append(pending, service)
+		}
+	}
+	return pending
+}
+
+func (e *ReadinessTimeout) Error() string {
+	message := fmt.Sprintf("timeout waiting for flow to be ready after %s", e.Timeout)
+	pending := e.Pending()
+	if len(pending) == 0 {
+		return message
+	}
+	return fmt.Sprintf("%s: %s", message, describeStages(pending, reference(e.observedAt)))
+}
+
+// ReadinessFailure reports a dependency the flow declared it cannot start.
+// Waiting out the rest of the budget cannot change that verdict, so it is
+// returned as soon as the flow reports one — and as a failure rather than as
+// the timeout it would otherwise be mistaken for.
+type ReadinessFailure struct {
+	// Services holds only the dependencies that failed.
+	Services []*v0.ServiceReadiness
+
+	// observedAt is when the failure was read, for the same reason
+	// ReadinessTimeout carries one.
+	observedAt time.Time
+}
+
+func (e *ReadinessFailure) Error() string {
+	return fmt.Sprintf("dependency failed to start: %s", describeStages(e.Services, reference(e.observedAt)))
+}
+
+func failedServices(services []*v0.ServiceReadiness) []*v0.ServiceReadiness {
+	var failed []*v0.ServiceReadiness
+	for _, service := range services {
+		if service.GetLifecycle() == v0.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED {
+			failed = append(failed, service)
+		}
+	}
+	return failed
+}
+
+// reference is the instant stage durations are measured against. A zero stamp
+// belongs to a value built outside WaitForReady, where the current clock is
+// the only reference there is.
+func reference(observed time.Time) time.Time {
+	if observed.IsZero() {
+		return time.Now()
+	}
+	return observed
+}
+
+func describeStages(services []*v0.ServiceReadiness, at time.Time) string {
+	described := make([]string, 0, len(services))
+	for _, service := range services {
+		described = append(described, describeStage(service, at))
+	}
+	return strings.Join(described, ", ")
+}
+
+// describeStage names one dependency, the stage it is stuck in, and how long
+// it had been there as of at. The elapsed time is charged to the stage rather
+// than to the whole wait, which is what separates a slow image pull from a
+// slow boot.
+func describeStage(service *v0.ServiceReadiness, at time.Time) string {
+	description := fmt.Sprintf("%s %s", service.GetService(), lifecycleLabel(service.GetLifecycle()))
+	// A nil timestamp reads as the Unix epoch rather than as absent, so it is
+	// checked here instead of through IsValid.
+	if entered := service.GetEnteredAt(); entered != nil {
+		description = fmt.Sprintf("%s for %s", description, at.Sub(entered.AsTime()).Truncate(time.Millisecond))
+	}
+	if detail := service.GetMessage(); detail != "" {
+		description = fmt.Sprintf("%s (%s)", description, detail)
+	}
+	return description
+}
+
+func lifecycleLabel(lifecycle v0.ServiceLifecycle) string {
+	switch lifecycle {
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_PENDING:
+		return "pending"
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_ACQUIRING_IMAGE:
+		return "acquiring image"
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_STARTING:
+		return "starting"
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_READY:
+		return "ready"
+	case v0.ServiceLifecycle_SERVICE_LIFECYCLE_FAILED:
+		return "failed"
+	default:
+		return "not ready"
 	}
 }
 
