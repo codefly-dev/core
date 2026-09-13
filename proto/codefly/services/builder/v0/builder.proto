@@ -480,11 +480,82 @@ not shell out to language tools or attempt to infer dependency semantics.
 
 */
 
+// SBOMScope selects which subject class an SBOM covers. Source inventories and
+// image inventories are separate evidence: a lockfile SBOM says nothing about
+// the OS packages in a shipped image, so neither substitutes for the other.
+enum SBOMScope {
+  // SBOM_SCOPE_UNSPECIFIED means source, preserving callers written before
+  // image scope existed.
+  SBOM_SCOPE_UNSPECIFIED = 0;
+  // SBOM_SCOPE_SOURCE inventories the loaded service source and lockfiles.
+  SBOM_SCOPE_SOURCE = 1;
+  // SBOM_SCOPE_IMAGE inventories the contents of built runtime images.
+  SBOM_SCOPE_IMAGE = 2;
+}
+
+// NoImageReason explains why a service legitimately ships no image. It is the
+// only way a COMPLETE image-scope response may carry no inventories, and it is
+// distinct from UNSUPPORTED, which means the agent has no implementation.
+enum NoImageReason {
+  // NO_IMAGE_REASON_UNSPECIFIED does not authorize an empty COMPLETE response.
+  NO_IMAGE_REASON_UNSPECIFIED = 0;
+  // NO_IMAGE_REASON_NO_IMAGE means the agent emits no image at all, such as a
+  // passive toolbox or a source-only generator.
+  NO_IMAGE_REASON_NO_IMAGE = 1;
+  // NO_IMAGE_REASON_EXTERNALLY_MANAGED means the service runs images owned by
+  // an external provider, so their contents are not this agent's evidence.
+  NO_IMAGE_REASON_EXTERNALLY_MANAGED = 2;
+}
+
+// ImageSubject names one service-owned image that image evidence must cover.
+message ImageSubject {
+  // reference is the image reference, digest pinned whenever it is known.
+  string reference = 1;
+  // digest is the immutable manifest digest, formatted as "sha256:<hex>". For
+  // an image built locally and never pushed it is the local image ID, which is
+  // the only immutable identity such an image has.
+  string digest = 2;
+  // platform is the OCI platform this subject covers, in "os/arch" form. Each
+  // shipped platform of a multi-architecture image is its own subject.
+  string platform = 3;
+  // role is the image's purpose within the service, such as "runtime", "init",
+  // "migration", or "sidecar". It matches the build recipe name when one exists.
+  string role = 4;
+  // service is the Codefly service identity the image belongs to, so evidence
+  // deduplicated by digest still reports every service it covers.
+  string service = 5;
+}
+
+// ImageSBOM is one image inventory bound to the exact digest and platform that
+// was scanned.
+message ImageSBOM {
+  // digest is the immutable digest actually scanned, formatted as "sha256:<hex>".
+  string digest = 1;
+  // platform is the OCI platform the inventory covers, in "os/arch" form.
+  string platform = 2;
+  // subjects are every service-owned image this single scan satisfies. One
+  // digest is scanned and reported once, listing each subject it covers, so
+  // deduplication never drops a service association.
+  repeated ImageSubject subjects = 3;
+  // bom is the CycloneDX inventory of OS packages and installed application
+  // dependencies found in the image.
+  codefly.services.agent.v0.Bom bom = 4;
+  // tool identifies the scanner that produced the inventory.
+  string tool = 5;
+  // sha256 is the lowercase digest of the deterministic protobuf document.
+  string sha256 = 6;
+}
+
 // SBOMRequest asks the builder agent to inventory the loaded service source.
 message SBOMRequest {
   // include_dev_dependencies includes development/test-only dependencies when
   // the ecosystem lockfile distinguishes them.
   bool include_dev_dependencies = 1;
+  // scope selects source or image inventory. Unspecified means source.
+  SBOMScope scope = 2;
+  // subjects are the images the caller requires evidence for when scope is
+  // SBOM_SCOPE_IMAGE. Empty asks the agent to enumerate its own images.
+  repeated ImageSubject subjects = 3;
 }
 
 // SBOMStatus reports whether the inventory completed.
@@ -521,6 +592,15 @@ message SBOMResponse {
   string language = 4;
   // sha256 is the lowercase digest of the deterministic protobuf document.
   string sha256 = 5;
+  // images are per-image inventories, present only when scope is
+  // SBOM_SCOPE_IMAGE. Each entry is bound to the digest it was scanned from.
+  repeated ImageSBOM images = 6;
+  // scope echoes the subject class this response covers, so a caller can never
+  // mistake a source inventory for image coverage.
+  SBOMScope scope = 7;
+  // no_image_reason is required when an image-scope response is COMPLETE and
+  // carries no inventories. Without it such a response is not valid coverage.
+  NoImageReason no_image_reason = 8;
 }
 
 /*

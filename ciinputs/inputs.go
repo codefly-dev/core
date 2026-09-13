@@ -320,6 +320,7 @@ func Required(v *agent.ValidationCapabilities) ([]Key, error) {
 		{agent.TaskPhase_TASK_PHASE_COMPILE, v.Compile},
 		{agent.TaskPhase_TASK_PHASE_AUDIT, v.Audit},
 		{agent.TaskPhase_TASK_PHASE_SBOM, v.Sbom},
+		{agent.TaskPhase_TASK_PHASE_IMAGE_SBOM, v.ImageSbom},
 		{agent.TaskPhase_TASK_PHASE_ARTIFACT_BUILD, v.ArtifactBuild},
 		{agent.TaskPhase_TASK_PHASE_SYNC, v.Sync},
 		{agent.TaskPhase_TASK_PHASE_SOURCE_PACKAGE, v.SourcePackage},

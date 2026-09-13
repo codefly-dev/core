@@ -148,6 +148,10 @@ message ValidationCapabilities {
   // source_package describes Builder.Package, which emits portable release
   // artifacts from the loaded source resource without deployment semantics.
   ValidationOperationCapability source_package = 8;
+  // image_sbom describes Builder.SBOM under SBOM_SCOPE_IMAGE. It is advertised
+  // separately from sbom because a source inventory proves nothing about the
+  // contents of a shipped image, so one capability cannot stand for both.
+  ValidationOperationCapability image_sbom = 9;
 }
 
 // Runtime preserves the published runtime-requirement wire and SDK types.

@@ -377,6 +377,7 @@ func (s *BuilderWrapper) AuditContainer(ctx context.Context, req *builderv0.Audi
 func (s *BuilderWrapper) SBOMResponse(bom *agentv0.Bom, tool, language, sha256 string) (*builderv0.SBOMResponse, error) {
 	return &builderv0.SBOMResponse{
 		State:    &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE},
+		Scope:    builderv0.SBOMScope_SBOM_SCOPE_SOURCE,
 		Bom:      bom,
 		Tool:     tool,
 		Language: language,
@@ -389,6 +390,16 @@ func (s *BuilderWrapper) SBOMResponse(bom *agentv0.Bom, tool, language, sha256 s
 func (s *BuilderWrapper) SBOMError(err error) (*builderv0.SBOMResponse, error) {
 	return &builderv0.SBOMResponse{
 		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sbom", err, err.Error())},
+	}, nil
+}
+
+// SBOMImageError reports a failed image inventory. It carries image scope so a
+// caller can tell which request failed instead of reading the absent scope as a
+// source inventory.
+func (s *BuilderWrapper) SBOMImageError(err error) (*builderv0.SBOMResponse, error) {
+	return &builderv0.SBOMResponse{
+		State: &builderv0.SBOMStatus{State: builderv0.SBOMStatus_ERROR, Message: err.Error(), Failure: operationFailure("builder.sbom", err, err.Error())},
+		Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
 	}, nil
 }
 
@@ -406,6 +417,87 @@ func (s *BuilderWrapper) SBOMContainer(ctx context.Context, image string) (*buil
 		return s.SBOMError(err)
 	}
 	return s.SBOMResponse(result.Bom, result.Tool, result.Language, result.SHA256)
+}
+
+// SBOMImageResponse builds a complete image-scope response from evidence that
+// is already bound to the digest each image was scanned from.
+func (s *BuilderWrapper) SBOMImageResponse(images []*builderv0.ImageSBOM) (*builderv0.SBOMResponse, error) {
+	return &builderv0.SBOMResponse{
+		State:  &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE},
+		Scope:  builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
+		Images: images,
+	}, nil
+}
+
+// SBOMNoImage reports that the service legitimately ships no image. It is the
+// only complete image-scope response carrying no inventories, and it is
+// distinct from SBOMUnsupported, which means this agent has no implementation.
+func (s *BuilderWrapper) SBOMNoImage(reason builderv0.NoImageReason, message string) (*builderv0.SBOMResponse, error) {
+	if reason == builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
+		return s.SBOMImageError(fmt.Errorf("a no-image SBOM response requires an explicit reason"))
+	}
+	return &builderv0.SBOMResponse{
+		State:         &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE, Message: message},
+		Scope:         builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
+		NoImageReason: reason,
+	}, nil
+}
+
+// SBOMImageSubjectsRequired reports that the caller owns this service's image
+// build, so the agent has no digest of its own to inventory. The service does
+// ship an image, which is why this is a precondition failure rather than
+// unsupported or a no-image reason.
+func (s *BuilderWrapper) SBOMImageSubjectsRequired() (*builderv0.SBOMResponse, error) {
+	message := "this agent does not build its own images; supply image subjects resolved from the build"
+	return &builderv0.SBOMResponse{
+		State: &builderv0.SBOMStatus{
+			State:   builderv0.SBOMStatus_ERROR,
+			Message: message,
+			Failure: failures.New(basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, "builder.sbom", message),
+		},
+		Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
+	}, nil
+}
+
+// SBOMImages is the shared implementation for agents that inventory their own
+// images. Identical digests are scanned once and reported once, retaining every
+// subject they cover, and any failed scan fails the whole response rather than
+// returning partial coverage.
+func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.ImageSubject, source servicesbom.ImageSource) (*builderv0.SBOMResponse, error) {
+	if len(subjects) == 0 {
+		return s.SBOMImageSubjectsRequired()
+	}
+	var images []*builderv0.ImageSBOM
+	index := map[string]*builderv0.ImageSBOM{}
+	for _, subject := range subjects {
+		result, err := servicesbom.Image(ctx, servicesbom.ImageRequest{
+			Reference: subject.GetReference(),
+			Platform:  subject.GetPlatform(),
+			Source:    source,
+		})
+		if err != nil {
+			return s.SBOMImageError(err)
+		}
+		if want := subject.GetDigest(); want != "" && want != result.Digest {
+			return s.SBOMImageError(fmt.Errorf("image %s resolved to digest %s, not the requested %s", subject.GetReference(), result.Digest, want))
+		}
+		key := result.Digest + "|" + result.Platform
+		if existing, ok := index[key]; ok {
+			existing.Subjects = append(existing.Subjects, subject)
+			continue
+		}
+		evidence := &builderv0.ImageSBOM{
+			Digest:   result.Digest,
+			Platform: result.Platform,
+			Subjects: []*builderv0.ImageSubject{subject},
+			Bom:      result.Bom,
+			Tool:     result.Tool,
+			Sha256:   result.SHA256,
+		}
+		index[key] = evidence
+		images = append(images, evidence)
+	}
+	return s.SBOMImageResponse(images)
 }
 
 // PackageResponse builds a successful portable-package response.

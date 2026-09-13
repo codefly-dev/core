@@ -44,6 +44,12 @@ func Container(ctx context.Context, image string) (*Result, error) {
 }
 
 func managedSyftArgs(image string) []string {
+	return managedSyftArgsFor("registry:" + image)
+}
+
+// managedSyftArgsFor is the single definition of the managed scanner's
+// hardening, shared by every scan target.
+func managedSyftArgsFor(target string) []string {
 	return []string{
 		"run", "--rm", "--network", "bridge", "--read-only", "--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
@@ -54,7 +60,7 @@ func managedSyftArgs(image string) []string {
 		// Point HOME at the writable tmpfs so syft's cache lands there instead
 		// of failing to create /.cache/syft on the read-only root filesystem.
 		"--env", "HOME=/tmp",
-		SyftImage, "registry:" + image, "-o", "cyclonedx-json@1.5",
+		SyftImage, target, "-o", "cyclonedx-json@1.5",
 	}
 }
 

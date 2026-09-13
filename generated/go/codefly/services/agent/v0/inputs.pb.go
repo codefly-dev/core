@@ -44,6 +44,8 @@ const (
 	TaskPhase_TASK_PHASE_SYNC TaskPhase = 7
 	// TASK_PHASE_SOURCE_PACKAGE: Builder.Package.
 	TaskPhase_TASK_PHASE_SOURCE_PACKAGE TaskPhase = 8
+	// TASK_PHASE_IMAGE_SBOM: Builder.SBOM under SBOM_SCOPE_IMAGE.
+	TaskPhase_TASK_PHASE_IMAGE_SBOM TaskPhase = 9
 )
 
 // Enum value maps for TaskPhase.
@@ -58,6 +60,7 @@ var (
 		6: "TASK_PHASE_ARTIFACT_BUILD",
 		7: "TASK_PHASE_SYNC",
 		8: "TASK_PHASE_SOURCE_PACKAGE",
+		9: "TASK_PHASE_IMAGE_SBOM",
 	}
 	TaskPhase_value = map[string]int32{
 		"TASK_PHASE_UNSPECIFIED":    0,
@@ -69,6 +72,7 @@ var (
 		"TASK_PHASE_ARTIFACT_BUILD": 6,
 		"TASK_PHASE_SYNC":           7,
 		"TASK_PHASE_SOURCE_PACKAGE": 8,
+		"TASK_PHASE_IMAGE_SBOM":     9,
 	}
 )
 
@@ -725,7 +729,7 @@ const file_codefly_services_agent_v0_inputs_proto_rawDesc = "" +
 	"\x1aGetEffectiveInputsResponse\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x1a\n" +
 	"\bsnapshot\x18\x02 \x01(\tR\bsnapshot\x12;\n" +
-	"\x05tasks\x18\x03 \x03(\v2%.codefly.services.agent.v0.TaskInputsR\x05tasks*\xe7\x01\n" +
+	"\x05tasks\x18\x03 \x03(\v2%.codefly.services.agent.v0.TaskInputsR\x05tasks*\x82\x02\n" +
 	"\tTaskPhase\x12\x1a\n" +
 	"\x16TASK_PHASE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fTASK_PHASE_LINT\x10\x01\x12\x16\n" +
@@ -735,7 +739,8 @@ const file_codefly_services_agent_v0_inputs_proto_rawDesc = "" +
 	"\x0fTASK_PHASE_SBOM\x10\x05\x12\x1d\n" +
 	"\x19TASK_PHASE_ARTIFACT_BUILD\x10\x06\x12\x13\n" +
 	"\x0fTASK_PHASE_SYNC\x10\a\x12\x1d\n" +
-	"\x19TASK_PHASE_SOURCE_PACKAGE\x10\b*\xc2\x04\n" +
+	"\x19TASK_PHASE_SOURCE_PACKAGE\x10\b\x12\x19\n" +
+	"\x15TASK_PHASE_IMAGE_SBOM\x10\t*\xc2\x04\n" +
 	"\x12EffectiveInputKind\x12$\n" +
 	" EFFECTIVE_INPUT_KIND_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bEFFECTIVE_INPUT_KIND_SOURCE\x10\x01\x12&\n" +
