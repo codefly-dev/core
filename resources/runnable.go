@@ -35,6 +35,12 @@ const (
 	// DefaultRunnablePayloadBytes bounds an inline invocation payload when the
 	// declaration does not. Larger data travels as owner-authorized references.
 	DefaultRunnablePayloadBytes uint64 = 1 << 20
+
+	// DefaultRunnableLogBytes bounds captured diagnostics when the declaration
+	// does not. It is looser than the payload bound because logs are the one
+	// stream a handler author cannot size in advance, and because exceeding it
+	// truncates rather than failing the invocation.
+	DefaultRunnableLogBytes uint64 = 4 << 20
 )
 
 // RunnableProtocols are the invocation protocols this core understands. A
@@ -165,6 +171,13 @@ type RunnablePayload struct {
 	MaxOutputBytes uint64 `yaml:"max-output-bytes,omitempty"`
 }
 
+// RunnableLogs bounds the diagnostics a launcher captures. Logs are not
+// payload: they are truncated at the bound, while an output payload over its
+// bound is an invalid result.
+type RunnableLogs struct {
+	MaxBytes uint64 `yaml:"max-bytes,omitempty"`
+}
+
 // RunnableExecution declares where a runnable may run and within which
 // bounds. Unlike JobExecution there is no schedule and no retry count: a
 // runnable is invoked by a caller under that caller's attempt policy, and its
@@ -176,6 +189,7 @@ type RunnableExecution struct {
 	Recovery     RunnableRecovery     `yaml:"recovery"`
 	Concurrency  uint32               `yaml:"concurrency,omitempty"`
 	Payload      *RunnablePayload     `yaml:"payload,omitempty"`
+	Logs         *RunnableLogs        `yaml:"logs,omitempty"`
 }
 
 // GetTimeout returns the declared timeout. Validate guarantees it parses.
@@ -198,6 +212,14 @@ func (e *RunnableExecution) MaxOutputBytes() uint64 {
 		return e.Payload.MaxOutputBytes
 	}
 	return DefaultRunnablePayloadBytes
+}
+
+// MaxLogBytes returns the declared or default per-stream log bound.
+func (e *RunnableExecution) MaxLogBytes() uint64 {
+	if e.Logs != nil && e.Logs.MaxBytes > 0 {
+		return e.Logs.MaxBytes
+	}
+	return DefaultRunnableLogBytes
 }
 
 // Runnable is a packaged implementation of a typed finite operation. It is
@@ -735,8 +757,8 @@ func runnableFieldTypeFromProto(t basev0.RunnableField_Type) RunnableFieldType {
 	return RunnableFieldType(strings.ToLower(t.String()))
 }
 
-// Proto converts the execution declaration to its wire form, with payload
-// defaults applied. Validate the execution first.
+// Proto converts the execution declaration to its wire form, with payload and
+// log defaults applied. Validate the execution first.
 func (e *RunnableExecution) Proto() *basev0.RunnableExecution {
 	out := &basev0.RunnableExecution{
 		Timeout:        durationpb.New(e.GetTimeout()),
@@ -744,6 +766,7 @@ func (e *RunnableExecution) Proto() *basev0.RunnableExecution {
 		Recovery:       runnableRecoveryProto[e.Recovery],
 		MaxInputBytes:  e.MaxInputBytes(),
 		MaxOutputBytes: e.MaxOutputBytes(),
+		MaxLogBytes:    e.MaxLogBytes(),
 		Concurrency:    e.Concurrency,
 	}
 	for _, facility := range e.Facilities {

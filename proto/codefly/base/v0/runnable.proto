@@ -162,6 +162,10 @@ message RunnableExecution {
   // concurrency bounds simultaneous invocations of one worker; 0 means the
   // facility default.
   uint32 concurrency = 7;
+  // max_log_bytes bounds the diagnostics a launcher captures from each log
+  // stream. Exceeding it truncates the stream and never changes the outcome,
+  // unlike max_output_bytes, whose payload is completion data.
+  uint64 max_log_bytes = 8 [(buf.validate.field).uint64.gt = 0];
 }
 
 // Runnable is the declaration read from runnable.codefly.yaml.

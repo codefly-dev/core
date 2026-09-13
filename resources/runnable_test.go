@@ -50,6 +50,7 @@ func TestLoadRunnable(t *testing.T) {
 	require.Equal(t, resources.RunnableRecoveryRecompute, r.Execution.Recovery)
 	require.Equal(t, uint64(65536), r.Execution.MaxInputBytes())
 	require.Equal(t, resources.DefaultRunnablePayloadBytes, r.Execution.MaxOutputBytes())
+	require.Equal(t, resources.DefaultRunnableLogBytes, r.Execution.MaxLogBytes())
 
 	require.Len(t, r.ServiceDependencies, 1)
 	require.Equal(t, resources.DependencyKindRuntime, r.ServiceDependencies[0].Kind)
@@ -129,6 +130,7 @@ func TestRunnableProtoRoundTripsContract(t *testing.T) {
 	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, execution.GetRecovery())
 	require.Equal(t, uint64(65536), execution.GetMaxInputBytes())
 	require.Equal(t, resources.DefaultRunnablePayloadBytes, execution.GetMaxOutputBytes())
+	require.Equal(t, resources.DefaultRunnableLogBytes, execution.GetMaxLogBytes())
 
 	contract := proto.GetContract()
 	require.Equal(t, basev0.RunnableField_OBJECT, contract.GetInput().GetFields()[1].GetType())
@@ -142,6 +144,27 @@ func TestRunnableProtoRoundTripsContract(t *testing.T) {
 	contract.GetOutput().GetFields()[0].Type = basev0.RunnableField_UNKNOWN
 	_, err = resources.RunnableContractFromProto(contract)
 	require.ErrorContains(t, err, "outside the bounded profile")
+}
+
+func TestRunnableLogBoundIsDeclaredOrDefaulted(t *testing.T) {
+	ctx := context.Background()
+
+	r, err := resources.LoadRunnableFromDir(ctx, filepath.Join(withRunnables, "runnables/word-count"))
+	require.NoError(t, err)
+	r.SetModule("with-runnables")
+
+	r.Execution.Logs = &resources.RunnableLogs{MaxBytes: 8192}
+	require.Equal(t, uint64(8192), r.Execution.MaxLogBytes())
+
+	dir := t.TempDir()
+	require.NoError(t, r.SaveToDir(ctx, dir))
+	reloaded, err := resources.LoadRunnableFromDir(ctx, dir)
+	require.NoError(t, err)
+	require.Equal(t, uint64(8192), reloaded.Execution.MaxLogBytes())
+
+	p, err := reloaded.Proto(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(8192), p.GetExecution().GetMaxLogBytes())
 }
 
 func TestRunnableSaveRoundTrip(t *testing.T) {

@@ -45,6 +45,7 @@ func samplePackage(t *testing.T) *basev0.RunnablePackage {
 			Recovery:       basev0.RunnableExecution_RECOVERY_RECOMPUTE,
 			MaxInputBytes:  65536,
 			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
+			MaxLogBytes:    resources.DefaultRunnableLogBytes,
 		},
 		Build: &basev0.RunnableBuild{
 			Handler: &basev0.RunnableInputDigest{Path: "handler.py", Digest: digestA},
@@ -98,7 +99,7 @@ func TestPreparePackageIsCanonicalAndDeterministic(t *testing.T) {
 
 	// The digest is a property of the canonical form, not of this binary's
 	// wire encoding, and is mixed with its format identifier.
-	require.Equal(t, "64ca051ef0b57bdc8199500653e25d6e0a620c2177aefddf6425c0d5ba6fba83", preparedPackage(t).GetDigest())
+	require.Equal(t, "10f2057841e8a0a2056cd9c7ea6107cea302c2845953dc766586aa3c873eb38c", preparedPackage(t).GetDigest())
 
 	// The input is never mutated, and a supplied digest must match.
 	original := samplePackage(t)
@@ -149,6 +150,7 @@ func TestPreparePackageRejectsIncompleteDescriptors(t *testing.T) {
 		}, "cancellation is required"},
 		{"no recovery", func(p *basev0.RunnablePackage) { p.Execution.Recovery = basev0.RunnableExecution_RECOVERY_UNKNOWN }, "recovery is required"},
 		{"zero payload bound", func(p *basev0.RunnablePackage) { p.Execution.MaxInputBytes = 0 }, "max_input_bytes"},
+		{"zero log bound", func(p *basev0.RunnablePackage) { p.Execution.MaxLogBytes = 0 }, "max_log_bytes"},
 		{"no build", func(p *basev0.RunnablePackage) { p.Build = nil }, "build"},
 		{"unpinned handler", func(p *basev0.RunnablePackage) { p.Build.Handler.Digest = "sha256:short" }, "digest"},
 		{"duplicate input", func(p *basev0.RunnablePackage) { p.Build.Inputs[1].Path = "uv.lock" }, "pinned twice"},

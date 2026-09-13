@@ -67,6 +67,8 @@ execution:
   recovery: recompute          # recompute | receipt
   payload:
     max-input-bytes: 65536     # default 1 MiB for both bounds
+  logs:
+    max-bytes: 1048576         # default 4 MiB per stream; over it, logs truncate
 service-dependencies:
   - name: store            # module defaults to the runnable's own module
     kind: runtime
@@ -202,9 +204,108 @@ two places and nowhere else:
 
 Artifacts need no new RPC. `Builder.Build` with an `output_directory` already
 returns a `DockerBuildPlan` for the CLI to build (core#461), and
-`Builder.Package` already emits native artifacts with their digests. The
-`Runtime` service is not extended: a runnable has no agent-run process, because
-the CLI owns the launcher.
+`Builder.Package` emits native artifacts with their digests and, in
+`PackageArtifact.command`, how each one is launched. That command is the last
+build fact only the agent holds: deriving it from the toolchain or from a
+template name is exactly the language-specific shortcut a uniform agent kind
+exists to avoid. With the build inputs and the command, the CLI has every field
+a `RunnablePackage` and its `NATIVE` `RunnableArtifact` require. The `Runtime`
+service is not extended: a runnable has no agent-run process, because the CLI
+owns the launcher.
+
+## Invocation framing
+
+`codefly.runnable/v1` is the seam between a launcher and a generated harness.
+The CLI is the only launcher core ships, but a harness in `runnable-python`
+has to agree with it byte for byte, so the framing is frozen here rather than
+guessed twice. `proto/codefly/base/v0/runnable_invocation.proto` carries it and
+the `runnable` Go package implements the launcher's half.
+
+The whole seam is three environment variables and two documents:
+
+| Variable | Meaning |
+| --- | --- |
+| `CODEFLY__RUNNABLE_PROTOCOL` | the protocol name, so a harness refuses a launcher it does not implement |
+| `CODEFLY__RUNNABLE_INVOCATION` | absolute path of the `RunnableInvocation` the launcher wrote before starting the process |
+| `CODEFLY__RUNNABLE_RESULT` | absolute path the harness writes its `RunnableResult` to |
+
+Both documents are proto3 JSON spelled with the proto field names, so a
+harness generating bindings from the same sources needs no hand-written
+spelling of the framing. The harness writes its result to a temporary file in
+the result path's directory and renames it onto the result path: a launcher
+never reads a half-written document, and nothing at that path when the process
+ends means no result at all. `runnable.InvocationEnvironment` builds the three
+variables and `runnable.EncodeInvocation` the document, so a launcher does not
+restate either.
+
+One process runs one invocation: the paths name a single invocation and a
+single result, and there is no way to hand a second invocation to a process
+already running. `execution.concurrency` therefore bounds how many such
+processes a facility runs at once, not a pool inside one of them.
+
+**Identity and deadline.** An invocation carries the release it invokes, an
+`invocation_id` for this one process, an `intent_id` stable across attempts of
+the caller's logical operation, and the `effect_id` an uncertain outcome is
+resolved by. A `recovery: receipt` package requires that effect identity; a
+`recompute` one may still carry it, because a caller with a single identity
+scheme for all of its work should not have to branch on the target package's
+recovery policy before filling a field, and nothing looks it up there.
+`issued_at` and `deadline` travel together so a harness budgeting its own work
+measures the remaining time as `deadline - issued_at` from the moment it reads
+the document, unaffected by an offset between the two clocks. That budget may
+not exceed the package's declared `timeout`, which bounds one invocation's
+duration: a launcher computing a deadline of its own may shorten it, never
+overrule the author.
+
+**Payload versus logs.** The input and output payloads are each one UTF-8 JSON
+object, bounded by `max_input_bytes` and `max_output_bytes`. They are carried
+as bytes rather than as a structured value because proto3 JSON maps every
+number to a double while the bounded profile has a 64-bit integer, and because
+the bound must apply to exactly the document that was bounded; a proto3 JSON
+encoder base64-encodes them, and the bound is on the decoded document. Standard
+output and standard error are logs and never carry completion data — a harness
+that printed its output would be indistinguishable from a library that printed
+a warning. `max_log_bytes` bounds each captured stream; exceeding it truncates
+and never changes the outcome, while an output payload over its bound makes the
+result invalid. Core frames and bounds the payloads and proves they are objects;
+the harness type-checks them against the bindings generated from the contract.
+
+**Outcomes.** A harness reports only what it observed of itself: `SUCCEEDED`
+with output, `FAILED` with a typed handler error in the operation's own
+vocabulary, or `INTERRUPTED` when it handled a signal and stopped. A package
+declaring `cancellation: signal` promises exactly that third report, and
+without a status for it such a harness would have to claim a failure it did
+not have — which a caller reads as proof the effect did not happen. `FAILED`
+carries that weight too: it says the handler completed without its effect, so
+a handler abandoning a half-applied one owes an `INTERRUPTED` or a crash.
+
+Every other way an invocation ends is the launcher's judgement about a process
+that left no result, and `runnable.Complete` makes it, so a timeout, a crash
+and a harness that never wrote its result mean the same thing everywhere:
+
+| Outcome | What the launcher saw |
+| --- | --- |
+| `SUCCEEDED` | a valid result reporting output |
+| `FAILED` | a valid result reporting a typed handler failure — the operation ran |
+| `INVALID_OUTPUT` | a result document that is malformed, another invocation's, missing its payload or over the output bound, including from a process that exited zero |
+| `MISSING_OUTPUT` | a process that exited successfully without writing a result |
+| `CRASHED` | a non-zero exit or a signal, with no result |
+| `TIMED_OUT` | the deadline passed and the launcher ended the process |
+| `CANCELED` | the harness reported `INTERRUPTED`, or the launcher interrupted the process at the caller's request |
+
+The precedence is: a valid result for this invocation first, so an outcome the
+harness already proved is never discarded because the launcher also ended the
+process; then the launcher ending it, which explains the process better than
+the exit status its own kill produced; then an invalid document; then a
+non-zero exit or signal; then nothing at all. Only a package declaring
+`cancellation: signal` may be interrupted by a launcher; a launcher that
+interrupts one declaring `none` has broken the contract, and the completion
+records that in its `message` rather than being withheld — the invocation
+ended, and discarding the record of how would throw away an effect's only
+evidence. `SUCCEEDED` and `FAILED` prove what happened to the effect;
+`runnable.OutcomeIsCertain` says so, and every other outcome — `CANCELED`
+included, however the interruption was reported — leaves it unproven for the
+package's `recovery` policy to resolve. Core neither retries nor recovers.
 
 ## Ownership of what is not here
 
@@ -213,8 +314,9 @@ the CLI owns the launcher.
   builds and publishes images (core#461) and assembles the descriptor; no
   agent builds an image.
 - **CLI** owns the launcher: it executes the bound artifact's command with the
-  resolved configuration, delivers bounded input, captures typed output apart
-  from logs and reports malformed or missing output, non-zero exit and
-  interruption as distinct outcomes, without retrying.
+  resolved configuration and the framing above, captures the streams and reads
+  the result document. The rules it applies to them — what a valid result is,
+  and which outcome each way of ending maps to — are core's, so the CLI
+  implements the process, not the contract.
 - **Orchestration** owns registration, activation, tasks, attempts and
   receipts, translating the binding into its own compute contract.
