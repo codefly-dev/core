@@ -897,6 +897,10 @@ type ValidationCapabilities struct {
 	// source_package describes Builder.Package, which emits portable release
 	// artifacts from the loaded source resource without deployment semantics.
 	SourcePackage *ValidationOperationCapability `protobuf:"bytes,8,opt,name=source_package,json=sourcePackage,proto3" json:"source_package,omitempty"`
+	// image_sbom describes Builder.SBOM under SBOM_SCOPE_IMAGE. It is advertised
+	// separately from sbom because a source inventory proves nothing about the
+	// contents of a shipped image, so one capability cannot stand for both.
+	ImageSbom     *ValidationOperationCapability `protobuf:"bytes,9,opt,name=image_sbom,json=imageSbom,proto3" json:"image_sbom,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -983,6 +987,13 @@ func (x *ValidationCapabilities) GetSync() *ValidationOperationCapability {
 func (x *ValidationCapabilities) GetSourcePackage() *ValidationOperationCapability {
 	if x != nil {
 		return x.SourcePackage
+	}
+	return nil
+}
+
+func (x *ValidationCapabilities) GetImageSbom() *ValidationOperationCapability {
+	if x != nil {
+		return x.ImageSbom
 	}
 	return nil
 }
@@ -1900,7 +1911,7 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x18TestValidationCapability\x12\x1c\n" +
 	"\tsupported\x18\x01 \x01(\bR\tsupported\x12B\n" +
 	"\x06scopes\x18\x02 \x03(\x0e2*.codefly.services.agent.v0.ValidationScopeR\x06scopes\x12F\n" +
-	"\x06suites\x18\x03 \x03(\v2..codefly.services.agent.v0.TestSuiteCapabilityR\x06suites\"\xb1\x05\n" +
+	"\x06suites\x18\x03 \x03(\v2..codefly.services.agent.v0.TestSuiteCapabilityR\x06suites\"\x8a\x06\n" +
 	"\x16ValidationCapabilities\x12L\n" +
 	"\x04lint\x18\x01 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04lint\x12R\n" +
 	"\acompile\x18\x02 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\acompile\x12G\n" +
@@ -1909,7 +1920,9 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x0eartifact_build\x18\x05 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\rartifactBuild\x12L\n" +
 	"\x04sbom\x18\x06 \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sbom\x12L\n" +
 	"\x04sync\x18\a \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\x04sync\x12_\n" +
-	"\x0esource_package\x18\b \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\rsourcePackage\"\xf1\x01\n" +
+	"\x0esource_package\x18\b \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\rsourcePackage\x12W\n" +
+	"\n" +
+	"image_sbom\x18\t \x01(\v28.codefly.services.agent.v0.ValidationOperationCapabilityR\timageSbom\"\xf1\x01\n" +
 	"\aRuntime\x12;\n" +
 	"\x04type\x18\x01 \x01(\x0e2'.codefly.services.agent.v0.Runtime.TypeR\x04type\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\"\x8a\x01\n" +
@@ -2087,34 +2100,35 @@ var file_codefly_services_agent_v0_agent_proto_depIdxs = []int32{
 	11, // 12: codefly.services.agent.v0.ValidationCapabilities.sbom:type_name -> codefly.services.agent.v0.ValidationOperationCapability
 	11, // 13: codefly.services.agent.v0.ValidationCapabilities.sync:type_name -> codefly.services.agent.v0.ValidationOperationCapability
 	11, // 14: codefly.services.agent.v0.ValidationCapabilities.source_package:type_name -> codefly.services.agent.v0.ValidationOperationCapability
-	5,  // 15: codefly.services.agent.v0.Runtime.type:type_name -> codefly.services.agent.v0.Runtime.Type
-	6,  // 16: codefly.services.agent.v0.Backend.type:type_name -> codefly.services.agent.v0.Backend.Type
-	7,  // 17: codefly.services.agent.v0.Toolchain.type:type_name -> codefly.services.agent.v0.Toolchain.Type
-	18, // 18: codefly.services.agent.v0.ConfigurationValueDetail.fields:type_name -> codefly.services.agent.v0.ConfigurationValueInformation
-	15, // 19: codefly.services.agent.v0.AgentInformation.runtime_requirements:type_name -> codefly.services.agent.v0.Runtime
-	10, // 20: codefly.services.agent.v0.AgentInformation.capabilities:type_name -> codefly.services.agent.v0.Capability
-	9,  // 21: codefly.services.agent.v0.AgentInformation.protocols:type_name -> codefly.services.agent.v0.Protocol
-	8,  // 22: codefly.services.agent.v0.AgentInformation.languages:type_name -> codefly.services.agent.v0.Language
-	19, // 23: codefly.services.agent.v0.AgentInformation.configuration_details:type_name -> codefly.services.agent.v0.ConfigurationValueDetail
-	20, // 24: codefly.services.agent.v0.AgentInformation.techniques:type_name -> codefly.services.agent.v0.AgentTechnique
-	16, // 25: codefly.services.agent.v0.AgentInformation.supported_backends:type_name -> codefly.services.agent.v0.Backend
-	17, // 26: codefly.services.agent.v0.AgentInformation.toolchains:type_name -> codefly.services.agent.v0.Toolchain
-	14, // 27: codefly.services.agent.v0.AgentInformation.validation:type_name -> codefly.services.agent.v0.ValidationCapabilities
-	23, // 28: codefly.services.agent.v0.ListCommandsResponse.commands:type_name -> codefly.services.agent.v0.CommandDefinition
-	28, // 29: codefly.services.agent.v0.RunPluginCommandResponse.failure:type_name -> codefly.base.v0.Failure
-	29, // 30: codefly.services.agent.v0.Agent.GetEffectiveInputs:input_type -> codefly.services.agent.v0.GetEffectiveInputsRequest
-	22, // 31: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
-	24, // 32: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
-	26, // 33: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
-	30, // 34: codefly.services.agent.v0.Agent.GetEffectiveInputs:output_type -> codefly.services.agent.v0.GetEffectiveInputsResponse
-	21, // 35: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
-	25, // 36: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
-	27, // 37: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
-	34, // [34:38] is the sub-list for method output_type
-	30, // [30:34] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	11, // 15: codefly.services.agent.v0.ValidationCapabilities.image_sbom:type_name -> codefly.services.agent.v0.ValidationOperationCapability
+	5,  // 16: codefly.services.agent.v0.Runtime.type:type_name -> codefly.services.agent.v0.Runtime.Type
+	6,  // 17: codefly.services.agent.v0.Backend.type:type_name -> codefly.services.agent.v0.Backend.Type
+	7,  // 18: codefly.services.agent.v0.Toolchain.type:type_name -> codefly.services.agent.v0.Toolchain.Type
+	18, // 19: codefly.services.agent.v0.ConfigurationValueDetail.fields:type_name -> codefly.services.agent.v0.ConfigurationValueInformation
+	15, // 20: codefly.services.agent.v0.AgentInformation.runtime_requirements:type_name -> codefly.services.agent.v0.Runtime
+	10, // 21: codefly.services.agent.v0.AgentInformation.capabilities:type_name -> codefly.services.agent.v0.Capability
+	9,  // 22: codefly.services.agent.v0.AgentInformation.protocols:type_name -> codefly.services.agent.v0.Protocol
+	8,  // 23: codefly.services.agent.v0.AgentInformation.languages:type_name -> codefly.services.agent.v0.Language
+	19, // 24: codefly.services.agent.v0.AgentInformation.configuration_details:type_name -> codefly.services.agent.v0.ConfigurationValueDetail
+	20, // 25: codefly.services.agent.v0.AgentInformation.techniques:type_name -> codefly.services.agent.v0.AgentTechnique
+	16, // 26: codefly.services.agent.v0.AgentInformation.supported_backends:type_name -> codefly.services.agent.v0.Backend
+	17, // 27: codefly.services.agent.v0.AgentInformation.toolchains:type_name -> codefly.services.agent.v0.Toolchain
+	14, // 28: codefly.services.agent.v0.AgentInformation.validation:type_name -> codefly.services.agent.v0.ValidationCapabilities
+	23, // 29: codefly.services.agent.v0.ListCommandsResponse.commands:type_name -> codefly.services.agent.v0.CommandDefinition
+	28, // 30: codefly.services.agent.v0.RunPluginCommandResponse.failure:type_name -> codefly.base.v0.Failure
+	29, // 31: codefly.services.agent.v0.Agent.GetEffectiveInputs:input_type -> codefly.services.agent.v0.GetEffectiveInputsRequest
+	22, // 32: codefly.services.agent.v0.Agent.GetAgentInformation:input_type -> codefly.services.agent.v0.AgentInformationRequest
+	24, // 33: codefly.services.agent.v0.Agent.ListCommands:input_type -> codefly.services.agent.v0.ListCommandsRequest
+	26, // 34: codefly.services.agent.v0.Agent.RunPluginCommand:input_type -> codefly.services.agent.v0.RunPluginCommandRequest
+	30, // 35: codefly.services.agent.v0.Agent.GetEffectiveInputs:output_type -> codefly.services.agent.v0.GetEffectiveInputsResponse
+	21, // 36: codefly.services.agent.v0.Agent.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
+	25, // 37: codefly.services.agent.v0.Agent.ListCommands:output_type -> codefly.services.agent.v0.ListCommandsResponse
+	27, // 38: codefly.services.agent.v0.Agent.RunPluginCommand:output_type -> codefly.services.agent.v0.RunPluginCommandResponse
+	35, // [35:39] is the sub-list for method output_type
+	31, // [31:35] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_agent_v0_agent_proto_init() }

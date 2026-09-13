@@ -22,6 +22,8 @@ enum TaskPhase {
   TASK_PHASE_SYNC = 7;
   // TASK_PHASE_SOURCE_PACKAGE: Builder.Package.
   TASK_PHASE_SOURCE_PACKAGE = 8;
+  // TASK_PHASE_IMAGE_SBOM: Builder.SBOM under SBOM_SCOPE_IMAGE.
+  TASK_PHASE_IMAGE_SBOM = 9;
 }
 
 // EffectiveInputKind is part of the provider-neutral effective-input contract.
