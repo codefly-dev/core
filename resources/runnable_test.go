@@ -473,7 +473,10 @@ func TestRunnableValidationRejectsIncompleteContracts(t *testing.T) {
 		{"escaping input", func(d map[string]any) { d["entrypoint"].(map[string]any)["inputs"] = []any{"/etc/passwd"} }, "must stay within the resource directory"},
 		{"no execution", func(d map[string]any) { delete(d, "execution") }, "execution is required"},
 		{"no facilities", func(d map[string]any) { execution(d)["facilities"] = []any{} }, "at least one facility"},
-		{"unknown facility", func(d map[string]any) { execution(d)["facilities"] = []any{"lambda"} }, `facility "lambda" is not supported`},
+		{"unknown facility", func(d map[string]any) { execution(d)["facilities"] = []any{"nomad"} }, `facility "nomad" is not supported: expected one of`},
+		{"signal cancellation a facility cannot honor", func(d map[string]any) {
+			execution(d)["facilities"] = []any{"service"}
+		}, "cannot honor cancellation"},
 		{"no timeout", func(d map[string]any) { delete(execution(d), "timeout") }, "timeout is required"},
 		{"bad timeout", func(d map[string]any) { execution(d)["timeout"] = "soon" }, "not a duration"},
 		{"zero timeout", func(d map[string]any) { execution(d)["timeout"] = "0s" }, "must be positive"},

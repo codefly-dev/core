@@ -25,6 +25,8 @@ const (
 	PackageSchemaV1 = "codefly.runnable-package/v1"
 	// BindingSchemaV1 is the only binding schema this package accepts.
 	BindingSchemaV1 = "codefly.runnable-binding/v1"
+	// TargetSchemaV1 is the only execution-target schema this package accepts.
+	TargetSchemaV1 = "codefly.runnable-target/v1"
 	// ProtocolV1 is the launcher/harness invocation framing this package
 	// implements, and the only protocol a loaded contract may name.
 	ProtocolV1 = resources.RunnableProtocolV1
@@ -54,6 +56,14 @@ func init() {
 var artifactFacility = map[basev0.RunnableArtifact_Kind]basev0.RunnableFacility_Kind{
 	basev0.RunnableArtifact_NATIVE: basev0.RunnableFacility_NATIVE,
 	basev0.RunnableArtifact_IMAGE:  basev0.RunnableFacility_KUBERNETES,
+}
+
+// signalableFacilities are the dispatch forms whose execution a launcher owns
+// and can therefore interrupt. Nothing signals a method running inside a
+// process its owner operates, or a function its provider runs.
+var signalableFacilities = map[basev0.RunnableFacility_Kind]struct{}{
+	basev0.RunnableFacility_NATIVE:     {},
+	basev0.RunnableFacility_KUBERNETES: {},
 }
 
 // PreparePackage clones pkg, validates it, canonicalizes its sets and
@@ -115,6 +125,37 @@ func CompareRelease(existing, incoming *basev0.RunnablePackage) error {
 		return fmt.Errorf("%w: release %s/%s@%s is already registered with digest %s; incoming digest is %s",
 			ErrConflict, existing.GetIdentity().GetModule(), existing.GetIdentity().GetName(),
 			existing.GetIdentity().GetVersion(), existing.GetDigest(), incoming.GetDigest())
+	}
+	return nil
+}
+
+// CompareBinding decides what installing incoming means next to existing, both
+// verified bindings of pkg: nil is an identical, idempotent installation, and
+// ErrConflict is a changed implementation or target under the same release and
+// the same target identity. An installation is identified by its release, its
+// facility and the environment and revision of the target it was installed
+// onto, so a second environment or a re-provisioned target coexists instead of
+// replacing what is already installed.
+func CompareBinding(existing, incoming *basev0.RunnableBinding, pkg *basev0.RunnablePackage) error {
+	if err := VerifyBinding(existing, pkg); err != nil {
+		return fmt.Errorf("existing: %w", err)
+	}
+	if err := VerifyBinding(incoming, pkg); err != nil {
+		return fmt.Errorf("incoming: %w", err)
+	}
+	if !proto.Equal(existing.GetIdentity(), incoming.GetIdentity()) {
+		return fmt.Errorf("%w: bindings install different releases", ErrInvalid)
+	}
+	if existing.GetFacility().GetKind() != incoming.GetFacility().GetKind() ||
+		existing.GetTarget().GetEnvironment() != incoming.GetTarget().GetEnvironment() ||
+		existing.GetTarget().GetRevision() != incoming.GetTarget().GetRevision() {
+		return fmt.Errorf("%w: bindings install onto different targets", ErrInvalid)
+	}
+	if existing.GetDigest() != incoming.GetDigest() {
+		return fmt.Errorf("%w: release %s/%s@%s is already installed on %s revision %s of %s with digest %s; incoming digest is %s",
+			ErrConflict, existing.GetIdentity().GetModule(), existing.GetIdentity().GetName(),
+			existing.GetIdentity().GetVersion(), existing.GetFacility().GetKind(), existing.GetTarget().GetRevision(),
+			existing.GetTarget().GetEnvironment(), existing.GetDigest(), incoming.GetDigest())
 	}
 	return nil
 }
@@ -190,7 +231,7 @@ func validatePackage(pkg *basev0.RunnablePackage) error {
 	if err != nil {
 		return err
 	}
-	if err := validateBuild(pkg.GetBuild()); err != nil {
+	if err := validatePackageBuild(pkg); err != nil {
 		return err
 	}
 	if err := validateDependencies(pkg.GetServiceDependencies()); err != nil {
@@ -214,7 +255,77 @@ func validatePackage(pkg *basev0.RunnablePackage) error {
 				ErrInvalid, artifact.GetKind(), artifact.GetPlatform(), artifactFacility[artifact.GetKind()])
 		}
 	}
+	if err := validateServiceOperations(pkg.GetServiceOperations(), facilities); err != nil {
+		return err
+	}
+	if err := validateFunctions(pkg.GetFunctions(), facilities); err != nil {
+		return err
+	}
+	if len(pkg.GetArtifacts())+len(pkg.GetServiceOperations())+len(pkg.GetFunctions()) == 0 {
+		return fmt.Errorf("%w: package declares no implementation of its operation", ErrInvalid)
+	}
 	return nil
+}
+
+// validatePackageBuild ties the pinned build inputs to there being built bytes
+// to pin. An owner handler is built by the owner's own service agent, so a
+// release that ships one has no harness, toolchain or configuration digest of
+// its own, and inventing them would assert a package nobody produced.
+func validatePackageBuild(pkg *basev0.RunnablePackage) error {
+	if len(pkg.GetArtifacts()) == 0 {
+		if pkg.GetBuild() != nil {
+			return fmt.Errorf("%w: package with no artifact pins build inputs it did not produce", ErrInvalid)
+		}
+		return nil
+	}
+	if pkg.GetBuild() == nil {
+		return fmt.Errorf("%w: package with an artifact must pin the build inputs it was built from", ErrInvalid)
+	}
+	return validateBuild(pkg.GetBuild())
+}
+
+func validateServiceOperations(operations []*basev0.RunnableServiceOperation, facilities map[basev0.RunnableFacility_Kind]struct{}) error {
+	seen := make(map[string]struct{}, len(operations))
+	for _, operation := range operations {
+		key := serviceOperationKey(operation)
+		if operation.GetAdaptation() != basev0.RunnableServiceOperation_ADAPTATION_BOUNDED_JSON_V1 {
+			return fmt.Errorf("%w: service operation %s adaptation %s is not supported: the bounded profile does not cover arbitrary protobuf, streaming or dynamic values, and core will not coerce them into it",
+				ErrInvalid, key, operation.GetAdaptation())
+		}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%w: service operation %s is declared twice", ErrInvalid, key)
+		}
+		seen[key] = struct{}{}
+		if _, allowed := facilities[basev0.RunnableFacility_SERVICE]; !allowed {
+			return fmt.Errorf("%w: service operation %s needs facility %s, which the package does not declare",
+				ErrInvalid, key, basev0.RunnableFacility_SERVICE)
+		}
+	}
+	return nil
+}
+
+func validateFunctions(functions []*basev0.RunnableFunction, facilities map[basev0.RunnableFacility_Kind]struct{}) error {
+	seen := make(map[string]struct{}, len(functions))
+	for _, function := range functions {
+		key := functionKey(function)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%w: function %s is declared twice", ErrInvalid, key)
+		}
+		seen[key] = struct{}{}
+		if _, allowed := facilities[basev0.RunnableFacility_FUNCTION]; !allowed {
+			return fmt.Errorf("%w: function %s needs facility %s, which the package does not declare",
+				ErrInvalid, key, basev0.RunnableFacility_FUNCTION)
+		}
+	}
+	return nil
+}
+
+func serviceOperationKey(operation *basev0.RunnableServiceOperation) string {
+	return strings.Join([]string{operation.GetModule(), operation.GetName(), operation.GetEndpoint(), operation.GetOperation()}, "/")
+}
+
+func functionKey(function *basev0.RunnableFunction) string {
+	return function.GetProvider() + "/" + function.GetEntrypoint()
 }
 
 func validateExecution(execution *basev0.RunnableExecution) (map[basev0.RunnableFacility_Kind]struct{}, error) {
@@ -237,6 +348,14 @@ func validateExecution(execution *basev0.RunnableExecution) (map[basev0.Runnable
 	}
 	if execution.GetRecovery() == basev0.RunnableExecution_RECOVERY_UNKNOWN {
 		return nil, fmt.Errorf("%w: execution recovery is required", ErrInvalid)
+	}
+	if execution.GetCancellation() == basev0.RunnableExecution_CANCELLATION_SIGNAL {
+		for _, facility := range execution.GetFacilities() {
+			if _, signalable := signalableFacilities[facility.GetKind()]; !signalable {
+				return nil, fmt.Errorf("%w: facility %s cannot honor cancellation %s: nothing signals a method its owner runs inside its own process, or a function its provider runs",
+					ErrInvalid, facility.GetKind(), execution.GetCancellation())
+			}
+		}
 	}
 	return facilities, nil
 }
@@ -339,11 +458,11 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 	if !slices.ContainsFunc(pkg.GetExecution().GetFacilities(), func(f *basev0.RunnableFacility) bool { return f.GetKind() == facility }) {
 		return fmt.Errorf("%w: package does not allow execution facility %s", ErrInvalid, facility)
 	}
-	if !slices.ContainsFunc(pkg.GetArtifacts(), func(a *basev0.RunnableArtifact) bool { return proto.Equal(a, binding.GetArtifact()) }) {
-		return fmt.Errorf("%w: binding artifact is not one of the package artifacts", ErrInvalid)
+	if err := validateImplementation(binding, pkg); err != nil {
+		return err
 	}
-	if artifactFacility[binding.GetArtifact().GetKind()] != facility {
-		return fmt.Errorf("%w: %s artifact cannot execute on facility %s", ErrInvalid, binding.GetArtifact().GetKind(), facility)
+	if err := validateTarget(binding); err != nil {
+		return err
 	}
 	if err := validateBindingMappings(binding.GetDependencyNetworkMappings(), pkg.GetServiceDependencies()); err != nil {
 		return err
@@ -360,6 +479,93 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 		return fmt.Errorf("%w: binding resolves configurations %v but the package declares %v", ErrInvalid, bound, required)
 	}
 	return nil
+}
+
+// validateImplementation checks that the installation selected one of the
+// implementations the release actually declares, in the form its facility
+// dispatches. Keeping the forms apart here is what stops an owner handler
+// from being installed as though a native package had been built for it.
+func validateImplementation(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackage) error {
+	facility := binding.GetFacility().GetKind()
+	switch implementation := binding.GetImplementation().(type) {
+	case *basev0.RunnableBinding_Artifact:
+		if !slices.ContainsFunc(pkg.GetArtifacts(), func(a *basev0.RunnableArtifact) bool { return proto.Equal(a, implementation.Artifact) }) {
+			return fmt.Errorf("%w: binding artifact is not one of the package artifacts", ErrInvalid)
+		}
+		if artifactFacility[implementation.Artifact.GetKind()] != facility {
+			return fmt.Errorf("%w: %s artifact cannot execute on facility %s", ErrInvalid, implementation.Artifact.GetKind(), facility)
+		}
+	case *basev0.RunnableBinding_ServiceOperation:
+		if facility != basev0.RunnableFacility_SERVICE {
+			return fmt.Errorf("%w: a service operation cannot execute on facility %s", ErrInvalid, facility)
+		}
+		if !slices.ContainsFunc(pkg.GetServiceOperations(), func(o *basev0.RunnableServiceOperation) bool {
+			return proto.Equal(o, implementation.ServiceOperation)
+		}) {
+			return fmt.Errorf("%w: binding service operation is not one of the package service operations", ErrInvalid)
+		}
+	case *basev0.RunnableBinding_Function:
+		if facility != basev0.RunnableFacility_FUNCTION {
+			return fmt.Errorf("%w: a remote function cannot execute on facility %s", ErrInvalid, facility)
+		}
+		if !slices.ContainsFunc(pkg.GetFunctions(), func(f *basev0.RunnableFunction) bool { return proto.Equal(f, implementation.Function) }) {
+			return fmt.Errorf("%w: binding function is not one of the package functions", ErrInvalid)
+		}
+	default:
+		return fmt.Errorf("%w: binding selects no implementation for facility %s", ErrInvalid, facility)
+	}
+	return nil
+}
+
+// validateTarget checks the coordinates an adapter dispatches to. The variant
+// is what keeps the dispatch forms apart: a NATIVE binding names a launcher
+// and the directory its artifact was unpacked into, and an owner handler
+// running inside a service its owner already operates has neither.
+func validateTarget(binding *basev0.RunnableBinding) error {
+	target, facility := binding.GetTarget(), binding.GetFacility().GetKind()
+	if target.GetSchema() != TargetSchemaV1 {
+		return fmt.Errorf("%w: target schema %q is not supported; expected %s", ErrInvalid, target.GetSchema(), TargetSchemaV1)
+	}
+	switch coordinates := target.GetCoordinates().(type) {
+	case *basev0.RunnableTarget_Host:
+		if facility != basev0.RunnableFacility_NATIVE {
+			return fmt.Errorf("%w: facility %s does not dispatch to a host target", ErrInvalid, facility)
+		}
+		installPath := coordinates.Host.GetInstallPath()
+		if !strings.HasPrefix(installPath, "/") || strings.ContainsRune(installPath, 0) {
+			return fmt.Errorf("%w: host install path %q must be absolute", ErrInvalid, installPath)
+		}
+	case *basev0.RunnableTarget_Cluster:
+		if facility != basev0.RunnableFacility_KUBERNETES {
+			return fmt.Errorf("%w: facility %s does not dispatch to a cluster target", ErrInvalid, facility)
+		}
+	case *basev0.RunnableTarget_Service:
+		if facility != basev0.RunnableFacility_SERVICE {
+			return fmt.Errorf("%w: facility %s does not dispatch to a service target", ErrInvalid, facility)
+		}
+		return validateServiceTarget(coordinates.Service, binding.GetServiceOperation())
+	case *basev0.RunnableTarget_Function:
+		if facility != basev0.RunnableFacility_FUNCTION {
+			return fmt.Errorf("%w: facility %s does not dispatch to a function target", ErrInvalid, facility)
+		}
+		if coordinates.Function.GetProvider() != binding.GetFunction().GetProvider() {
+			return fmt.Errorf("%w: function target is on provider %q but the selected implementation is for %q",
+				ErrInvalid, coordinates.Function.GetProvider(), binding.GetFunction().GetProvider())
+		}
+	default:
+		return fmt.Errorf("%w: binding carries no target coordinates for facility %s", ErrInvalid, facility)
+	}
+	return nil
+}
+
+func validateServiceTarget(target *basev0.RunnableServiceTarget, operation *basev0.RunnableServiceOperation) error {
+	endpoint := target.GetEndpoint().GetEndpoint()
+	if endpoint.GetModule() != operation.GetModule() || endpoint.GetService() != operation.GetName() || endpoint.GetName() != operation.GetEndpoint() {
+		return fmt.Errorf("%w: service target addresses %s/%s/%s, not the %s/%s/%s endpoint the selected operation is published on",
+			ErrInvalid, endpoint.GetModule(), endpoint.GetService(), endpoint.GetName(),
+			operation.GetModule(), operation.GetName(), operation.GetEndpoint())
+	}
+	return validateNetworkInstances(networkMappingKey(target.GetEndpoint()), target.GetEndpoint().GetInstances())
 }
 
 func validateBindingMappings(mappings []*basev0.NetworkMapping, dependencies []*basev0.RunnableDependency) error {
@@ -442,8 +648,16 @@ func canonicalizePackage(pkg *basev0.RunnablePackage) {
 		return int(a.GetKind()) - int(b.GetKind())
 	})
 	slices.Sort(pkg.WorkspaceConfigurationDependencies)
-	slices.SortFunc(pkg.Build.Inputs, func(a, b *basev0.RunnableInputDigest) int {
-		return strings.Compare(a.GetPath(), b.GetPath())
+	if pkg.Build != nil {
+		slices.SortFunc(pkg.Build.Inputs, func(a, b *basev0.RunnableInputDigest) int {
+			return strings.Compare(a.GetPath(), b.GetPath())
+		})
+	}
+	slices.SortFunc(pkg.ServiceOperations, func(a, b *basev0.RunnableServiceOperation) int {
+		return strings.Compare(serviceOperationKey(a), serviceOperationKey(b))
+	})
+	slices.SortFunc(pkg.Functions, func(a, b *basev0.RunnableFunction) int {
+		return strings.Compare(functionKey(a), functionKey(b))
 	})
 	slices.SortFunc(pkg.Artifacts, func(a, b *basev0.RunnableArtifact) int {
 		if a.GetKind() != b.GetKind() {
@@ -469,13 +683,21 @@ func canonicalizeBinding(binding *basev0.RunnableBinding) {
 		return strings.Compare(networkMappingKey(a), networkMappingKey(b))
 	})
 	for _, mapping := range binding.DependencyNetworkMappings {
-		slices.SortFunc(mapping.Instances, func(a, b *basev0.NetworkInstance) int {
-			if a.GetAccess().GetKind() != b.GetAccess().GetKind() {
-				return strings.Compare(a.GetAccess().GetKind(), b.GetAccess().GetKind())
-			}
-			return strings.Compare(a.GetAddress(), b.GetAddress())
-		})
+		sortNetworkInstances(mapping)
 	}
+	sortNetworkInstances(binding.GetTarget().GetService().GetEndpoint())
+}
+
+func sortNetworkInstances(mapping *basev0.NetworkMapping) {
+	if mapping == nil {
+		return
+	}
+	slices.SortFunc(mapping.Instances, func(a, b *basev0.NetworkInstance) int {
+		if a.GetAccess().GetKind() != b.GetAccess().GetKind() {
+			return strings.Compare(a.GetAccess().GetKind(), b.GetAccess().GetKind())
+		}
+		return strings.Compare(a.GetAddress(), b.GetAddress())
+	})
 }
 
 func networkMappingKey(mapping *basev0.NetworkMapping) string {

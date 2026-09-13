@@ -115,20 +115,25 @@ type RunnableEntrypoint struct {
 // RunnableFacility is the YAML spelling of an execution facility.
 type RunnableFacility string
 
-// Execution facilities a runnable may be bound to.
+// Execution facilities a runnable may be bound to. They are dispatch forms,
+// not locations: calling an operation does not inherently start a process.
 const (
 	RunnableFacilityNative     RunnableFacility = "native"
 	RunnableFacilityKubernetes RunnableFacility = "kubernetes"
+	RunnableFacilityService    RunnableFacility = "service"
+	RunnableFacilityFunction   RunnableFacility = "function"
 )
 
 // RunnableFacilities are every execution facility a runnable may declare.
 func RunnableFacilities() []RunnableFacility {
-	return []RunnableFacility{RunnableFacilityNative, RunnableFacilityKubernetes}
+	return []RunnableFacility{RunnableFacilityNative, RunnableFacilityKubernetes, RunnableFacilityService, RunnableFacilityFunction}
 }
 
 var runnableFacilityProto = map[RunnableFacility]basev0.RunnableFacility_Kind{
 	RunnableFacilityNative:     basev0.RunnableFacility_NATIVE,
 	RunnableFacilityKubernetes: basev0.RunnableFacility_KUBERNETES,
+	RunnableFacilityService:    basev0.RunnableFacility_SERVICE,
+	RunnableFacilityFunction:   basev0.RunnableFacility_FUNCTION,
 }
 
 // RunnableCancellation is the YAML spelling of the declared interruption
@@ -602,6 +607,13 @@ func (e *RunnableExecution) Validate() error {
 	}
 	if _, ok := runnableRecoveryProto[e.Recovery]; !ok {
 		return fmt.Errorf("recovery %q is not supported: expected %q or %q", e.Recovery, RunnableRecoveryRecompute, RunnableRecoveryReceipt)
+	}
+	if e.Cancellation == RunnableCancellationSignal {
+		for _, facility := range e.Facilities {
+			if facility == RunnableFacilityService || facility == RunnableFacilityFunction {
+				return fmt.Errorf("facility %q cannot honor cancellation %q: nothing signals a method its owner runs inside its own process, or a function its provider runs", facility, e.Cancellation)
+			}
+		}
 	}
 	return nil
 }
