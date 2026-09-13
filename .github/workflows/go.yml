@@ -249,6 +249,10 @@ jobs:
         if: failure() && github.event_name == 'push'
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
+          # The action resolves the webhook URL from SLACK_WEBHOOK_URL below,
+          # but reads the type from this input alone -- there is no environment
+          # fallback for it -- and throws before sending when it is absent.
+          webhook-type: incoming-webhook
           payload: |
             {
               "text": "Build Failed in ${{ github.repository }} on ${{ github.ref }}. See GitHub Actions for more details."
@@ -263,6 +267,8 @@ jobs:
         if: success() && github.event_name == 'push'
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
+          # See the failure notification above.
+          webhook-type: incoming-webhook
           payload: |
             {
               "text": "Build Succeeded in ${{ github.repository }} on ${{ github.ref }}. Great job!"

@@ -140,8 +140,23 @@ func TestPullRequestWorkflowsDoNotRequireActionsSecrets(t *testing.T) {
 
 		for jobName, job := range wf.Jobs {
 			for _, step := range job.Steps {
-				var refs []string
+				values := make([]string, 0, len(step.Env)+len(step.With))
 				for _, value := range step.Env {
+					values = append(values, value)
+				}
+				// A secret reaches a step just as well as an action input --
+				// `with: webhook: ${{ secrets.SLACK_WEBHOOK_URL }}` is the form
+				// slack-github-action's own README shows -- and is just as
+				// empty on a Dependabot pull request. Scanning only `env:`
+				// would let that spelling through unnoticed.
+				for _, value := range step.With {
+					if s, ok := value.(string); ok {
+						values = append(values, s)
+					}
+				}
+
+				var refs []string
+				for _, value := range values {
 					for _, m := range secretRef.FindAllStringSubmatch(value, -1) {
 						if m[1] != "GITHUB_TOKEN" {
 							refs = append(refs, m[1])
@@ -161,6 +176,53 @@ func TestPullRequestWorkflowsDoNotRequireActionsSecrets(t *testing.T) {
 			}
 		}
 	}
+}
+
+// validWebhookTypes are the only values slack-github-action accepts.
+var validWebhookTypes = []any{"incoming-webhook", "webhook-trigger"}
+
+// A step gated to `github.event_name == 'push'` never runs on a pull request,
+// so no pull request can catch a misconfiguration inside it: the first run that
+// executes the step is the merge to main. The Slack notifications are the only
+// steps in that position, which is exactly how a major bump of the action
+// slipped through green and then turned every push to main red on the
+// notification alone -- long after build, test, race and coverage had passed.
+//
+// The blast radius is wider than a missing message: version-tag.yml gates on
+// this workflow concluding `success`, so while the notification fails no
+// release tag can be cut at all.
+//
+// The action resolves the webhook URL from either the `webhook` input or
+// SLACK_WEBHOOK_URL in the environment, but reads the type from `webhook-type`
+// alone and throws before sending when it is absent.
+func TestSlackNotificationsDeclareAWebhookType(t *testing.T) {
+	checked := 0
+	for _, path := range workflowFiles(t) {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		var wf workflow
+		require.NoError(t, yaml.Unmarshal(raw, &wf), path)
+
+		for jobName, job := range wf.Jobs {
+			for _, step := range job.Steps {
+				if !strings.HasPrefix(step.Uses, "slackapi/slack-github-action@") {
+					continue
+				}
+				checked++
+				require.Contains(t, validWebhookTypes, step.With["webhook-type"],
+					"%s: job %q step %q posts to a Slack webhook but its "+
+						"webhook-type is %v. The action fails the step with "+
+						"`Missing input! The webhook type must be "+
+						"'incoming-webhook' or 'webhook-trigger'` before it sends "+
+						"anything. Nothing on a pull request exercises this step, "+
+						"so it first fails on main -- and a red run there also "+
+						"stops version-tag.yml from cutting a release tag.",
+					filepath.Base(path), jobName, step.Name, step.With["webhook-type"])
+			}
+		}
+	}
+	require.NotZero(t, checked, "found no Slack notification steps to check")
 }
 
 var pinnedUse = regexp.MustCompile(`^([^@\s]+)@([0-9a-f]{40})\s*#\s*(\S+)\s*$`)
