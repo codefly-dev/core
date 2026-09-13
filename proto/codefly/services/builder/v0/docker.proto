@@ -62,6 +62,27 @@ message DockerBuildRecipe {
   string target = 8;
 }
 
+// RecipeInventoryScope states what a plan's file inventory claims to cover, so
+// the verifier knows what "complete" means for that plan. Without it the
+// verifier has to guess, and the two answers are not interchangeable: guessing
+// EMITTED for a TREE plan stops detecting files ADDED to a build context after
+// emission, and guessing TREE for an EMITTED plan fails a build over unrelated
+// content in the service's committed builder/ directory.
+enum RecipeInventoryScope {
+  // RECIPE_INVENTORY_SCOPE_UNSPECIFIED does not authorize verification; a plan
+  // that omits the scope is rejected rather than verified under a default.
+  RECIPE_INVENTORY_SCOPE_UNSPECIFIED = 0;
+  // RECIPE_INVENTORY_SCOPE_EMITTED claims only the files the emitting build
+  // wrote. Other entries under output_directory are outside the claim and are
+  // neither digested nor rejected.
+  RECIPE_INVENTORY_SCOPE_EMITTED = 1;
+  // RECIPE_INVENTORY_SCOPE_TREE claims every file under output_directory. The
+  // emitter assembled the whole destination — typically because it copied the
+  // build context there and a recipe builds "." — so an entry the inventory does
+  // not list is drift in the emitter's own output and fails verification.
+  RECIPE_INVENTORY_SCOPE_TREE = 2;
+}
+
 // DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
 // output_directory. The caller owns running docker buildx from the recipes, so
 // the recipes are a durable, first-class artifact rather than an image built
@@ -79,6 +100,10 @@ message DockerBuildPlan {
   string digest = 3;
   // contract_version identifies the recipe contract the caller validates.
   string contract_version = 4;
+  // scope states what the files inventory covers. It is part of the aggregate
+  // digest, so a plan cannot be downgraded to a weaker verification by
+  // rewriting this field.
+  RecipeInventoryScope scope = 5;
 }
 
 // BuildCacheOptions is caller-owned transport policy. Registry credentials are

@@ -142,12 +142,22 @@ an opaque `COPY` error inside the executor. Managed images and runtime-only
 agents remain no-build.
 
 `output_directory` is the service's committed `builder/` directory, so it holds
-whatever the repository and the developer's OS put there. A plan therefore
-inventories only the files the emitting build wrote — the set
-`PrepareRecipeDestination` returns — and `VerifyDockerBuildPlan` re-hashes
-exactly those paths. Unrelated content cannot perturb the digest or fail the
-build, while drift in a declared file (content, mode, replacement by a symlink,
-removal) is still rejected. Because that directory is committed, every emitted
+whatever the repository and the developer's OS put there. A plan from the shared
+runners therefore inventories only the files the emitting build wrote — the set
+`PrepareRecipeDestination` returns — and declares
+`RECIPE_INVENTORY_SCOPE_EMITTED`. `VerifyDockerBuildPlan` re-hashes exactly those
+paths: unrelated content cannot perturb the digest or fail the build, while drift
+in a declared file (content, mode, replacement by a symlink, removal) is still
+rejected.
+
+An agent that assembles the whole destination itself — copying its build context
+there and building `"."`, as the Go agent does — calls `BuildDockerBuildPlan` and
+declares `RECIPE_INVENTORY_SCOPE_TREE` instead. There the inventory covers every
+file, and verification re-walks the destination, because a file *added* after
+emission is an injected build input that buildx would copy into the image. The
+scope is part of the aggregate digest, so a plan cannot be rewritten to the
+weaker check, and a plan declaring no scope is rejected rather than verified
+under a default. Because that directory is committed, every emitted
 path is unlinked before rendering: the template writer opens destinations with
 `O_CREATE|O_TRUNC` and would otherwise write *through* a symlink to a file
 outside the caller-owned directory.

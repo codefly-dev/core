@@ -23,9 +23,10 @@ import (
 // is reported as a contract mismatch (a clear, actionable error) rather than as
 // a digest mismatch (indistinguishable from tampering). v2 covers the recipes
 // and per-file mode in the digest; v1 covered only file paths and content. v3
-// scopes the inventory to the files the plan declares rather than to whatever
-// happens to sit in the destination directory, so unrelated content in a
-// committed recipe directory can neither perturb the digest nor fail the build.
+// makes each plan declare what its inventory covers (RecipeInventoryScope) and
+// digests that declaration, so a plan rendered into a directory shared with the
+// repository is not failed by unrelated content while a plan covering a whole
+// assembled build context still rejects files added to it.
 const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v3"
 
 // ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
@@ -123,8 +124,9 @@ func BuildEmittedDockerBuildPlan(destination string, recipes []*builderv0.Docker
 	return &builderv0.DockerBuildPlan{
 		Recipes:         recipes,
 		Files:           files,
-		Digest:          aggregateRecipeDigest(recipes, files),
+		Digest:          aggregateRecipeDigest(recipes, files, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED),
 		ContractVersion: DockerBuildRecipeContractVersion,
+		Scope:           builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED,
 	}, nil
 }
 
@@ -154,8 +156,9 @@ func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRe
 	return &builderv0.DockerBuildPlan{
 		Recipes:         recipes,
 		Files:           files,
-		Digest:          aggregateRecipeDigest(recipes, files),
+		Digest:          aggregateRecipeDigest(recipes, files, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE),
 		ContractVersion: DockerBuildRecipeContractVersion,
+		Scope:           builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE,
 	}, nil
 }
 
@@ -258,21 +261,31 @@ func inventoryRecipePaths(destination string, paths []string) ([]*builderv0.Reci
 	return files, nil
 }
 
-// VerifyDockerBuildPlan re-inventories the files the plan declares and checks
-// them against plan. The caller (the CLI) runs this before docker buildx so it
-// never builds from a tree that drifted from the inventory the agent validated,
-// and never builds recipes whose metadata (image, args, paths) was tampered with
-// after the plan was emitted: the digest covers the recipes as well as the files,
-// and every recipe is re-validated to reference real, contained tree entries.
+// VerifyDockerBuildPlan re-inventories a plan's files and checks them against
+// plan. The caller (the CLI) runs this before docker buildx so it never builds
+// from a tree that drifted from the inventory the agent validated, and never
+// builds recipes whose metadata (image, args, paths) was tampered with after the
+// plan was emitted: the digest covers the recipes as well as the files, and every
+// recipe is re-validated to reference real, contained tree entries.
 //
-// It re-hashes exactly plan.files rather than re-walking destination. Walking
-// would make verification depend on content the plan never claimed: because
-// output_directory is the service's committed builder/ directory, an unrelated
-// file added there after emission would change the aggregate digest, and an
-// unrelated symlink would abort the build with an error naming a file that has
-// nothing to do with the image. A path the plan declares but that is now missing,
-// modified, re-moded, or replaced by a symlink is still caught, which is the
-// drift this guard exists to detect.
+// How much of destination counts as "the plan's files" is the plan's own
+// declaration, not a guess here, because the two possible answers are not
+// interchangeable:
+//
+//   - TREE: re-walk destination and compare the whole inventory. The emitter
+//     assembled the entire destination — service agents copy the build context
+//     there and build "." — so a file ADDED after emission is a build input that
+//     would be baked into the image, and must fail verification.
+//   - EMITTED: re-hash exactly the declared paths. The emitter rendered a known
+//     template set into the service's committed builder/ directory, which it
+//     shares with the repository, so unrelated content there is outside the claim
+//     and must neither move the digest nor abort the build.
+//
+// Verifying a TREE plan as if it were EMITTED silently stops detecting injected
+// build-context files; verifying an EMITTED plan as if it were TREE fails builds
+// over an editor backup. A plan that declares no scope is rejected rather than
+// verified under a default, and the scope is covered by the digest so it cannot
+// be rewritten to weaken the check.
 func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) error {
 	if plan == nil {
 		return fmt.Errorf("build plan is nil")
@@ -280,18 +293,29 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 	if plan.GetContractVersion() != DockerBuildRecipeContractVersion {
 		return fmt.Errorf("build plan contract %q, expected %q", plan.GetContractVersion(), DockerBuildRecipeContractVersion)
 	}
-	declared := make([]string, 0, len(plan.GetFiles()))
-	for _, file := range plan.GetFiles() {
-		declared = append(declared, file.GetPath())
+
+	var files []*builderv0.RecipeFile
+	var err error
+	switch scope := plan.GetScope(); scope {
+	case builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE:
+		files, err = inventoryRecipeFiles(destination)
+	case builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED:
+		declared := make([]string, 0, len(plan.GetFiles()))
+		for _, file := range plan.GetFiles() {
+			declared = append(declared, file.GetPath())
+		}
+		files, err = inventoryRecipePaths(destination, declared)
+	default:
+		return fmt.Errorf("build plan declares no inventory scope (%s); it cannot be verified", scope)
 	}
-	files, err := inventoryRecipePaths(destination, declared)
 	if err != nil {
 		return fmt.Errorf("inventory recipe files: %w", err)
 	}
+
 	if err := validateRecipes(destination, plan.GetRecipes(), files); err != nil {
 		return err
 	}
-	if digest := aggregateRecipeDigest(plan.GetRecipes(), files); digest != plan.GetDigest() {
+	if digest := aggregateRecipeDigest(plan.GetRecipes(), files, plan.GetScope()); digest != plan.GetDigest() {
 		return fmt.Errorf("recipe tree digest %s does not match plan digest %s", digest, plan.GetDigest())
 	}
 	return nil
@@ -443,8 +467,13 @@ func fileDigest(path string) (string, error) {
 // permission bits are covered too, so flipping a file's executable bit — which
 // buildx carries into the image — is detected even when its content is
 // unchanged.
-func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile) string {
+func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope) string {
 	hasher := sha256.New()
+	// The scope decides how strictly the inventory is verified, so it is covered
+	// here: rewriting a TREE plan's scope to EMITTED would otherwise silently stop
+	// added files from being detected without disturbing the digest.
+	hashField(hasher, "scope")
+	hashField(hasher, scope.String())
 	hashField(hasher, "recipes")
 	hashCount(hasher, len(recipes))
 	for _, recipe := range recipes {
