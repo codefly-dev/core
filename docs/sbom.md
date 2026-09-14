@@ -36,7 +36,12 @@ platform's child manifest, which is never the index digest the caller holds, so
 comparing them would reject honest evidence. An image that was only **loaded
 into the daemon** has no registry manifest to reference, so it keeps the tag the
 daemon knows and pins its `digest` field to the local image ID, which is the
-identity such a scan binds to.
+identity such a scan binds to. For a local subject that pin is required, not
+a convention: the daemon resolves whatever reference it is handed to its own
+image ID, so a local subject pinned only in its reference leaves no field
+holding the identity that was asked for — the scan succeeds and binds
+evidence to the ID the daemon returned. `RequirePinned` refuses one, which
+rejects it both in the shared agent implementation and in `ValidateCoverage`.
 
 `source` says which of those two cases applies, and nothing else can: a local
 image ID and a registry manifest digest are both `sha256:<hex>`, and an image
@@ -131,6 +136,11 @@ result, err := sbom.Image(ctx, sbom.ImageRequest{
 })
 ```
 
+`ImageRequest.Source` is the scanner's own argument, one image at a time; it is
+not a second way to choose a source for a request. An agent serving image scope
+takes it from the subject through `sbom.SourceOf`, which is what
+`BuilderWrapper.SBOMImages` does.
+
 A tag is resolved to a digest and the scan re-pins to that digest, so evidence
 cannot drift between resolution and inventory. Passing a manifest-list
 reference with a platform resolves the child manifest and binds the evidence to
@@ -157,8 +167,8 @@ anything else fails with an explicit, actionable error.
 supported path for an image a build produced with `--load` and never pushed,
 whose only immutable identity is its local image ID. It requires an installed
 `syft`: the managed containerized scanner runs without the Docker socket by
-design and cannot reach the daemon. `sbom.SourceOf` maps a subject's selector to
-it, and `sbom.SourceKind` maps back for a caller deriving subjects of its own.
+design and cannot reach the daemon. `sbom.SourceOf` maps a subject's selector
+to it.
 
 `sbom.Container` predates this contract and is unchanged. It scans a registry
 image without resolving or binding a digest, so it does not satisfy image

@@ -39,9 +39,9 @@ func SourceOf(subject *builderv0.ImageSubject) ImageSource {
 	return SourceRegistry
 }
 
-// SourceKind is the wire selector for a scanner source, so a caller that
+// sourceKind is the wire selector for a scanner source, so a caller that
 // resolved an image from its own build states on the subject what it resolved.
-func SourceKind(source ImageSource) builderv0.ImageSourceKind {
+func sourceKind(source ImageSource) builderv0.ImageSourceKind {
 	if source == SourceDockerDaemon {
 		return builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON
 	}

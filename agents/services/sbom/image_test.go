@@ -211,6 +211,6 @@ func TestSourceOfDefaultsToRegistry(t *testing.T) {
 	require.Equal(t, SourceRegistry, SourceOf(&builderv0.ImageSubject{Source: builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY}))
 	require.Equal(t, SourceDockerDaemon, SourceOf(&builderv0.ImageSubject{Source: builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON}))
 
-	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY, SourceKind(SourceRegistry))
-	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON, SourceKind(SourceDockerDaemon))
+	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY, sourceKind(SourceRegistry))
+	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON, sourceKind(SourceDockerDaemon))
 }

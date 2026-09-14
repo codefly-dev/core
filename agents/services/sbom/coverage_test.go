@@ -116,6 +116,37 @@ func TestExpectedFromBuildPlanStampsEachRecipeWithItsOwnSource(t *testing.T) {
 	require.NoError(t, ValidateCoverage("svc", expected, resp))
 }
 
+// The daemon resolves whatever reference it is handed to its own image ID, so a
+// local subject pinned only in its reference has nothing left holding the
+// identity that was asked for: the scan below bound evidence to sha256:localid
+// while the reference named sha256:manifest, and coverage passed because
+// subjectKey strips the digest and the empty digest field skipped the compare.
+func TestValidateCoverageRefusesALocalSubjectPinnedOnlyInItsReference(t *testing.T) {
+	want := &builderv0.ImageSubject{
+		Reference: "ghcr.io/codefly-dev/app@sha256:manifest",
+		Role:      "app",
+		Service:   "svc",
+		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON,
+	}
+
+	resp := imageResponse(imageEvidence("sha256:localid", "", want))
+	require.ErrorContains(t, ValidateCoverage("svc", []*builderv0.ImageSubject{want}, resp), "pins no sha256 digest field")
+}
+
+// The same reference pin remains valid for a registry subject, where the scan
+// resolves out of the pinned image rather than being compared against it.
+func TestValidateCoverageStillAcceptsAReferencePinnedRegistrySubject(t *testing.T) {
+	want := &builderv0.ImageSubject{
+		Reference: "ghcr.io/codefly-dev/app@sha256:index",
+		Role:      "app",
+		Service:   "svc",
+		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY,
+	}
+
+	resp := imageResponse(imageEvidence("sha256:child", "", want))
+	require.NoError(t, ValidateCoverage("svc", []*builderv0.ImageSubject{want}, resp))
+}
+
 // A recipe names a tag, so a platform the build reported no digest for cannot
 // become a subject: the scan it asks for would bind evidence to whatever the
 // registry currently serves under that tag.

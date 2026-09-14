@@ -106,14 +106,14 @@ func TestSBOMImagesReachesEachSubjectWhereItSaysItLives(t *testing.T) {
 	wrapper := &BuilderWrapper{}
 	digest := "sha256:2a1f0c8d4e6b7a9c3d5e1f0a2b4c6d8e0f1a3b5c7d9e1f0a2b4c6d8e0f1a3b5c"
 	pushed := &builderv0.ImageSubject{
-		Reference: "unreachable.invalid/codefly/app@" + digest,
+		Reference: "localhost:1/codefly/app@" + digest,
 		Platform:  "linux/amd64",
 		Role:      "app",
 		Service:   "svc",
 		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY,
 	}
 	loaded := &builderv0.ImageSubject{
-		Reference: "unreachable.invalid/codefly/migration:1.0",
+		Reference: "localhost:1/codefly/migration:1.0",
 		Digest:    digest,
 		Role:      "migration",
 		Service:   "svc",
@@ -122,10 +122,29 @@ func TestSBOMImagesReachesEachSubjectWhereItSaysItLives(t *testing.T) {
 
 	daemonFirst, err := wrapper.SBOMImages(context.Background(), []*builderv0.ImageSubject{loaded, pushed})
 	require.NoError(t, err)
-	require.Contains(t, daemonFirst.GetState().GetMessage(), "resolve local image unreachable.invalid/codefly/migration:1.0")
+	require.Contains(t, daemonFirst.GetState().GetMessage(), "resolve local image localhost:1/codefly/migration:1.0")
 
 	registryFirst, err := wrapper.SBOMImages(context.Background(), []*builderv0.ImageSubject{pushed, loaded})
 	require.NoError(t, err)
 	require.Contains(t, registryFirst.GetState().GetMessage(), "registry")
 	require.NotContains(t, registryFirst.GetState().GetMessage(), "resolve local image")
+}
+
+// A local subject pinned only in its reference is refused before anything is
+// scanned: the daemon would resolve that reference to its own image ID and bind
+// evidence to it, leaving no field holding the identity that was requested.
+func TestSBOMImagesRefusesALocalSubjectPinnedOnlyInItsReference(t *testing.T) {
+	wrapper := &BuilderWrapper{}
+	subjects := []*builderv0.ImageSubject{{
+		Reference: "localhost:1/codefly/app@sha256:2a1f0c8d4e6b7a9c3d5e1f0a2b4c6d8e0f1a3b5c7d9e1f0a2b4c6d8e0f1a3b5c",
+		Role:      "app",
+		Service:   "svc",
+		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON,
+	}}
+
+	resp, err := wrapper.SBOMImages(context.Background(), subjects)
+	require.NoError(t, err)
+	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
+	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
+	require.Contains(t, resp.GetState().GetMessage(), "pins no sha256 digest field")
 }
