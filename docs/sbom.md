@@ -92,8 +92,8 @@ subjects they serve evidence like any other agent.
 ## Stock images
 
 A service that deploys a vendor image it did not build still ships that image.
-Subjects are derived from recipes, so no derivation can see such an image and
-the caller asks with an empty expectation — which is not evidence that the
+No recipe describes such an image, so a caller that does not know its
+reference asks with an empty expectation — which is not evidence that the
 service ships nothing. A stock-image agent knows its image reference before any
 build, so it enumerates that image and returns real evidence for it. Evidence
 carried against an empty expectation is validated like any other and counts as
@@ -112,7 +112,8 @@ not.
 
 A hybrid service — a vendor image plus its own init or migration recipe — owes
 evidence for both. The recipe-derived subjects cover only the images it builds,
-so the stock image has to be enumerated alongside them.
+so the stock image has to be enumerated alongside them, or named with
+`ExpectedFromImageReference` and appended to them.
 
 Pin the reference, not the subject's `digest` field. `sbom.Image` resolves a
 pinned `repo@sha256:...` reference for the requested platform and binds evidence
@@ -190,6 +191,43 @@ names a tag, so those digests are the only thing binding a subject to the image
 that was actually built; a recipe whose build reported none is an error rather
 than a subject nothing can verify. `ExpectedFromBuildResult` does the same for
 an agent-owned build, whose result already names its images.
+
+`ExpectedFromImageReference` derives the expectation for an image the agent
+names itself: one a service publishes from its own release pipeline, or a vendor
+image it pins and deploys. Neither is described by a recipe or named by a build
+result, so the reference the service ships is what the subjects come from, and
+each shipped platform becomes one subject of the given role:
+
+```go
+expected, err := sbom.ExpectedFromImageReference(sbom.PublishedImage{
+    Service:   service,
+    Role:      "runtime",
+    Reference: "ghcr.io/codefly-dev/gateway@sha256:...",
+    Platforms: []string{"linux/amd64", "linux/arm64"},
+})
+```
+
+Unlike the two build-derived expectations, this one is asserted by the caller
+rather than read off something the service declared: nothing in the resource
+model names a published image or the platforms it ships, so a caller that adds
+`linux/arm64` without updating its expectation measures the new platform against
+nothing. The service must be named — `ValidateCoverage` consults the service it
+is given only for enumerated evidence, trusting an expectation to carry its own
+identity, so a subject naming none matches evidence belonging to any service.
+
+The reference has to be digest-pinned, and it is what carries the pin: each
+platform's scan resolves a child manifest out of it, exactly as for a pushed
+image a recipe built. Send those subjects as the request's `subjects` and
+validate against the same list. Asked with empty subjects an agent enumerates
+its own, whose role it picks for itself, and a subject matches evidence by
+service, role, platform and repository together — so deriving here while
+enumerating there describes one image under two keys and reports real coverage
+as missing.
+
+Deriving this expectation is worth more than letting the agent enumerate. An
+empty expectation accepts enumerated evidence one inventory at a time, so a
+multi-architecture image that answers for a single platform reads as covered;
+measured against the platforms the service ships, the missing one is named.
 
 `ValidateCoverage` is the single check every agent is measured against. It
 rejects a source inventory, a non-complete response, evidence that is not bound
