@@ -328,6 +328,34 @@ func TestRequiredInventory(t *testing.T) {
 	}
 }
 
+func TestRequiredCoversEveryCapability(t *testing.T) {
+	op := &agent.ValidationOperationCapability{Supported: true}
+	v := &agent.ValidationCapabilities{
+		Lint: op, Compile: op, Audit: op, Sbom: op, ImageSbom: op,
+		ArtifactBuild: op, Sync: op, SourcePackage: op,
+		Test: &agent.TestValidationCapability{Supported: true, Suites: []*agent.TestSuiteCapability{{Name: "unit"}}},
+	}
+	keys, err := Required(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	phases := map[agent.TaskPhase]bool{}
+	for _, key := range keys {
+		if !validKey(key) {
+			t.Fatalf("Required emits a key Evaluate rejects: %+v", key)
+		}
+		phases[key.Phase] = true
+	}
+	if advertised := v.ProtoReflect().Descriptor().Fields().Len(); len(phases) != advertised {
+		t.Fatalf("advertised %d capabilities, scheduled %d phases", advertised, len(phases))
+	}
+	image := Key{Phase: agent.TaskPhase_TASK_PHASE_IMAGE_SBOM}
+	got := evaluate(t, response(declaration(image)), image)
+	if len(got) != 1 || got[0].Conservative || !got[0].CacheEligible {
+		t.Fatalf("image SBOM declaration not honored: %+v", got)
+	}
+}
+
 func TestPreviousAdvertisementSchema(t *testing.T) {
 	descriptor := protodesc.ToFileDescriptorProto(agent.File_codefly_services_agent_v0_agent_proto)
 	for _, message := range descriptor.MessageType {

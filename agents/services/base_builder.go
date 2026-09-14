@@ -470,6 +470,9 @@ func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.I
 	var images []*builderv0.ImageSBOM
 	index := map[string]*builderv0.ImageSBOM{}
 	for _, subject := range subjects {
+		if err := servicesbom.RequirePinned(subject); err != nil {
+			return s.SBOMImageError(err)
+		}
 		result, err := servicesbom.Image(ctx, servicesbom.ImageRequest{
 			Reference: subject.GetReference(),
 			Platform:  subject.GetPlatform(),

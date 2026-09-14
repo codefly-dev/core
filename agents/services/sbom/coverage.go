@@ -8,10 +8,30 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
 
+// ResolvedImage is one image a completed build produced: the recipe that built
+// it, the platform it ships, and the immutable identity it resolved to. Source
+// states what that identity is, because the two are not interchangeable: a
+// registry digest names a manifest, while an image only loaded into the daemon
+// has nothing but a local image ID.
+type ResolvedImage struct {
+	Recipe   string
+	Platform string
+	Digest   string
+	Source   ImageSource
+}
+
 // ExpectedFromBuildPlan derives the image subjects a caller-owned build
 // produces. Each recipe contributes one subject per shipped platform, so a
 // multi-architecture recipe is not satisfied by evidence for a single platform.
-func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan) []*builderv0.ImageSubject {
+//
+// A recipe names a tag, so what the caller resolved from its build is what pins
+// each subject. Without it a subject names a floating tag and its evidence
+// describes whatever that tag happens to serve.
+func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan, resolved []ResolvedImage) ([]*builderv0.ImageSubject, error) {
+	built := make(map[string]ResolvedImage, len(resolved))
+	for _, image := range resolved {
+		built[image.Recipe+"|"+image.Platform] = image
+	}
 	var subjects []*builderv0.ImageSubject
 	for _, recipe := range plan.GetRecipes() {
 		platforms := recipe.GetPlatforms()
@@ -19,16 +39,38 @@ func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan) []*b
 			platforms = []string{""}
 		}
 		for _, platform := range platforms {
-			subjects = append(subjects, &builderv0.ImageSubject{
-				Reference: recipe.GetImage(),
-				Digest:    referenceDigest(recipe.GetImage()),
-				Platform:  platform,
-				Role:      recipe.GetName(),
-				Service:   service,
-			})
+			image := built[recipe.GetName()+"|"+platform]
+			if !strings.HasPrefix(image.Digest, "sha256:") {
+				where := fmt.Sprintf("%s image %s", recipe.GetName(), recipe.GetImage())
+				if platform != "" {
+					where += " on " + platform
+				}
+				return nil, fmt.Errorf("the build resolved no digest for %s: a subject carrying only a tag binds evidence to whatever that tag serves, not to the image that was built", where)
+			}
+			subject := &builderv0.ImageSubject{
+				Platform: platform,
+				Role:     recipe.GetName(),
+				Service:  service,
+			}
+			if image.Source == SourceDockerDaemon {
+				// A never-pushed image has no registry manifest to reference, so
+				// the daemon keeps the tag it knows and the local image ID is the
+				// identity a scan of it binds evidence to.
+				subject.Reference = recipe.GetImage()
+				subject.Digest = image.Digest
+			} else {
+				// Pinning the reference makes the scan resolve out of the image
+				// the build produced, so evidence is derived from that identity
+				// rather than compared against it. Comparing would reject honest
+				// evidence: resolving a pushed image yields the digest of one
+				// platform's child manifest, never the index digest the caller
+				// holds.
+				subject.Reference = pinnedReference(recipe.GetImage(), image.Digest)
+			}
+			subjects = append(subjects, subject)
 		}
 	}
-	return subjects
+	return subjects, nil
 }
 
 // ExpectedFromBuildResult derives the image subjects an agent-owned build
@@ -91,6 +133,14 @@ func ValidateCoverage(service string, expected []*builderv0.ImageSubject, resp *
 				return fmt.Errorf("%s has conflicting evidence: digests %s and %s", subjectLabel(subject), previous.GetDigest(), evidence.GetDigest())
 			}
 			covered[key] = evidence
+		}
+	}
+	// Well-formedness of the expectation is settled before any of it is matched,
+	// so a malformed subject is reported as itself rather than as whatever
+	// mismatch another subject happens to produce first.
+	for _, want := range expected {
+		if err := RequirePinned(want); err != nil {
+			return err
 		}
 	}
 	var missing []string
@@ -164,6 +214,17 @@ func ValidateNoImageReason(reason builderv0.NoImageReason, message string) error
 	default:
 		return fmt.Errorf("no-image reason %s is not one this contract defines", reason)
 	}
+}
+
+// RequirePinned rejects a subject that names no immutable image, either in its
+// digest field or in its reference. A scan of a floating tag inventories
+// whatever the registry serves at that moment, so reporting it as coverage
+// asserts something about an image nobody checked was the one built.
+func RequirePinned(subject *builderv0.ImageSubject) error {
+	if strings.HasPrefix(subject.GetDigest(), "sha256:") || strings.HasPrefix(referenceDigest(subject.GetReference()), "sha256:") {
+		return nil
+	}
+	return fmt.Errorf("%s is not pinned to a sha256 digest: evidence for a floating tag is not coverage of the image that was built", subjectLabel(subject))
 }
 
 func validateEvidence(evidence *builderv0.ImageSBOM) error {
