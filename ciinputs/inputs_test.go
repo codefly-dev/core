@@ -221,6 +221,36 @@ func TestRejectMalformedDeclarations(t *testing.T) {
 	}
 }
 
+func TestNewerPhaseKeepsDiscovery(t *testing.T) {
+	values := agent.TaskPhase(0).Descriptor().Values()
+	future := Key{Phase: agent.TaskPhase(values.Get(values.Len()-1).Number() + 1)}
+	req := &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "snapshot"}
+	wire, err := proto.Marshal(response(declaration(build), declaration(future)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	received := &agent.GetEffectiveInputsResponse{}
+	if err := proto.Unmarshal(wire, received); err != nil {
+		t.Fatal(err)
+	}
+	if unknown(received.ProtoReflect()) {
+		t.Fatal("newer phase arrived as an unknown field")
+	}
+	got, err := Evaluate(received, req, []Key{build})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Key != build || got[0].Conservative || !got[0].CacheEligible {
+		t.Fatalf("newer agent's phase cost the caller discovery: %+v", got)
+	}
+	if len(Changed(evaluate(t, response(declaration(build)), build), got)) != 0 {
+		t.Fatal("ignored declaration perturbed task identity")
+	}
+	if _, err := Evaluate(response(declaration(build), declaration(unit)), req, []Key{build}); err == nil {
+		t.Fatal("accepted a representable but unrequested declaration")
+	}
+}
+
 func TestProtectedInputs(t *testing.T) {
 	key := []byte(strings.Repeat("k", 32))
 	a, err := Protect(key, "workspace-key/v1", []byte("shared secret"))

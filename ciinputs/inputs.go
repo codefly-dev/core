@@ -98,6 +98,11 @@ func Evaluate(response *agent.GetEffectiveInputsResponse, req *agent.GetEffectiv
 		}
 		for _, declaration := range response.Tasks {
 			key := Key{declaration.GetTask().GetPhase(), declaration.GetTask().GetSuite()}
+			// A phase this binary cannot name belongs to a newer agent and can
+			// never be required here, so only that declaration is dropped.
+			if !representable(key.Phase) {
+				continue
+			}
 			if declaration == nil || !validKey(key) || declarations[key] != nil || !inventory[key] {
 				return nil, fmt.Errorf("invalid, duplicate or unrequested task declaration")
 			}
@@ -147,6 +152,10 @@ func Evaluate(response *agent.GetEffectiveInputsResponse, req *agent.GetEffectiv
 
 func validKey(k Key) bool {
 	return k.Phase >= agent.TaskPhase_TASK_PHASE_LINT && k.Phase <= agent.TaskPhase_TASK_PHASE_SOURCE_PACKAGE && ((k.Phase == agent.TaskPhase_TASK_PHASE_TEST) == (k.Suite != ""))
+}
+
+func representable(p agent.TaskPhase) bool {
+	return p.Descriptor().Values().ByNumber(protoreflect.EnumNumber(p)) != nil
 }
 
 func unknown(m protoreflect.Message) bool {
