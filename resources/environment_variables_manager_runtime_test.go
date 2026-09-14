@@ -42,3 +42,35 @@ func TestEnvironmentVariableManagerExplicitFixtureOverridesEnvironmentFixture(t 
 	require.Contains(t, EnvironmentVariableAsStrings(variables), "CODEFLY__FIXTURE=invocation-fixture")
 	require.NotContains(t, EnvironmentVariableAsStrings(variables), "CODEFLY__FIXTURE=workspace-fixture")
 }
+
+func TestEnvironmentVariableManagerSetFixtureNeitherClearsNorOverrides(t *testing.T) {
+	holder := NewEnvironmentVariableManager()
+	holder.SetFixture("invocation-fixture")
+
+	holder.SetFixture("")
+	holder.SetFixture("weaker-source")
+
+	variables, err := holder.getBase()
+	require.NoError(t, err)
+	require.Contains(t, EnvironmentVariableAsStrings(variables), "CODEFLY__FIXTURE=invocation-fixture")
+}
+
+// The manager outlives an invocation whenever an agent process is reused, so
+// the authoritative source has to be able to select a different fixture, or
+// none at all.
+func TestEnvironmentVariableManagerResetFixtureReplacesAndClears(t *testing.T) {
+	holder := NewEnvironmentVariableManager()
+	holder.ResetFixture("first-invocation")
+	holder.ResetFixture("second-invocation")
+
+	variables, err := holder.getBase()
+	require.NoError(t, err)
+	require.Contains(t, EnvironmentVariableAsStrings(variables), "CODEFLY__FIXTURE=second-invocation")
+	require.NotContains(t, EnvironmentVariableAsStrings(variables), "CODEFLY__FIXTURE=first-invocation")
+
+	holder.ResetFixture("")
+
+	variables, err = holder.getBase()
+	require.NoError(t, err)
+	require.NotContains(t, EnvironmentVariableAsStrings(variables), "CODEFLY__FIXTURE=second-invocation")
+}

@@ -49,8 +49,6 @@ type RuntimeWrapper struct {
 	generation uint64
 	health     *basev0.HealthReport
 
-	fixture string
-
 	sync.RWMutex
 }
 
@@ -460,26 +458,30 @@ func (s *RuntimeWrapper) SetEnvironment(environment *basev0.Environment) {
 
 // ── Fixture ───────────────────────────────────────────────
 
-// SetFixture records the invocation's fixture selection and exposes it to the
-// service process as CODEFLY__FIXTURE. The first non-empty selection wins, so
-// an agent can call it from both Init and Start: Init is the selection that
-// reaches a service under test, which a test policy may replace Start for with
-// a barrier or skip entirely, while Start still carries it for an agent host
-// that does not populate Init.
-func (s *RuntimeWrapper) SetFixture(fixture string) {
-	s.Lock()
-	defer s.Unlock()
-	if fixture == "" || s.fixture != "" {
+// The fixture selection is held by the environment manager rather than by this
+// wrapper. Load replaces that manager while the wrapper, built once per agent
+// process, survives every invocation the process serves — so a selection
+// remembered here would outlive the environment it was meant to stamp.
+
+// SetFixtureFromInit records the invocation's fixture selection, carried by
+// InitRequest, and exposes it to the service process as CODEFLY__FIXTURE. Init
+// is authoritative and replaces any previous selection, including with none: an
+// agent process reused for a second invocation must not serve the first one's
+// fixture.
+func (s *RuntimeWrapper) SetFixtureFromInit(fixture string) {
+	if s == nil || s.Base == nil || s.EnvironmentVariables == nil {
 		return
 	}
-	s.fixture = fixture
-	s.EnvironmentVariables.SetFixture(fixture)
+	s.EnvironmentVariables.ResetFixture(fixture)
 }
 
-// Fixture returns the selection recorded for this invocation, for an agent that
-// seeds fixture data itself rather than through the service environment.
-func (s *RuntimeWrapper) Fixture() string {
-	s.RLock()
-	defer s.RUnlock()
-	return s.fixture
+// SetFixtureFromStart records a selection carried by StartRequest, for a host
+// that does not populate InitRequest.fixture. It neither clears nor overrides
+// what Init recorded, because the Start that reaches a service under test is
+// often a policy barrier carrying no selection of its own.
+func (s *RuntimeWrapper) SetFixtureFromStart(fixture string) {
+	if s == nil || s.Base == nil || s.EnvironmentVariables == nil {
+		return
+	}
+	s.EnvironmentVariables.SetFixture(fixture)
 }
