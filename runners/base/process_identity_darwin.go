@@ -183,8 +183,9 @@ func openProcessSignalHandle(expected processIdentity) (processSignalHandle, err
 }
 
 // darwinSignalAttempts bounds the re-resolution in Signal. Every retry is
-// caused by one exec the target ran underneath us, and a starting process
-// execs a small, finite number of times.
+// caused by one exec the target ran underneath us, or by a read that raced
+// that same exec, and a starting process execs a small, finite number of
+// times.
 const darwinSignalAttempts = 8
 
 // Signal delivers to the exact process birth this handle names.
@@ -193,37 +194,51 @@ const darwinSignalAttempts = 8
 // token minted before the target execs names an incarnation that no longer
 // exists and the kernel rejects the delivery with ESRCH. A caller cannot tell
 // that apart from the process having exited, so it moves on and a live process
-// survives a pass that reported no failure. The version is therefore re-read
-// and the birth re-verified for every attempt, and a rejection is retried
-// rather than reported: a process that really is gone is caught by the
-// identity read at the top of the loop.
+// survives a pass that reported no failure. The birth is therefore re-verified
+// for every attempt and the version read immediately before delivery, leaving
+// no room for an exec to land between the two.
+//
+// Everything the exec window itself produces — a rejected token, a read that
+// raced the exec — is retried rather than reported, because that window is
+// exactly when these reads are unstable; the last failure is reported only
+// once the attempts are spent.
+//
+// A member that is gone, or that is no longer the birth we were told to
+// signal, is reported as ESRCH. That is a statement about this one member and
+// callers read it as "nothing to do here". It must never be
+// errProcessGroupIdentityChanged: that is a verdict on the whole group, and
+// terminateGroup abandons the escalation when it sees one.
 func (handle *darwinProcessSignalHandle) Signal(signal syscall.Signal) error {
+	var last error
 	for range darwinSignalAttempts {
-		unique, err := readDarwinProcessUniqueInfo(handle.identity.pid)
-		if errors.Is(err, errProcessNotFound) {
-			return syscall.ESRCH
-		}
-		if err != nil {
-			return err
-		}
 		current, err := inspectProcess(handle.identity.pid)
 		if errors.Is(err, errProcessNotFound) {
 			return syscall.ESRCH
 		}
 		if err != nil {
-			return err
+			last = err
+			continue
 		}
 		if current.pgid != handle.identity.pgid || !current.matches(handle.identity.recorded()) {
-			return errProcessGroupIdentityChanged
+			return syscall.ESRCH
+		}
+		unique, err := readDarwinProcessUniqueInfo(handle.identity.pid)
+		if errors.Is(err, errProcessNotFound) {
+			return syscall.ESRCH
+		}
+		if err != nil {
+			last = err
+			continue
 		}
 		err = signalProcessBirth(handle.identity.pid, unique.PIDVersion, signal)
 		if errors.Is(err, syscall.ESRCH) {
+			last = err
 			continue
 		}
 		return err
 	}
-	return fmt.Errorf("deliver signal %d to process %d: process execed on every attempt",
-		signal, handle.identity.pid)
+	return fmt.Errorf("deliver signal %d to process %d: %d attempts exhausted: %w",
+		signal, handle.identity.pid, darwinSignalAttempts, last)
 }
 
 func signalProcessBirth(pid int, version int32, signal syscall.Signal) error {

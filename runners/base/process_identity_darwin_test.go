@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -151,6 +152,81 @@ func TestDarwinSignalHandleDeliversAcrossExec(t *testing.T) {
 	case <-reaped:
 	case <-time.After(10 * time.Second):
 		t.Errorf("process %d survived a SIGKILL its handle reported as delivered", identity.pid)
+	}
+}
+
+// TestDarwinSignalHandleReportsAForeignMemberAsESRCH pins how far a
+// member-level identity failure is allowed to travel. Such a member must not be
+// signalled — but saying so with errProcessGroupIdentityChanged makes it a
+// verdict on the whole group: signalProcessIdentities passes it up, the record
+// helper in terminateGroup reads it as "provably not ours" and abandons the
+// SIGKILL escalation, and Terminate turns it into a nil return. One member that
+// left the group between enumeration and delivery would then strand every other
+// member behind a successful-looking teardown.
+func TestDarwinSignalHandleReportsAForeignMemberAsESRCH(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exec sleep 300")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	reaped := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(reaped) }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-reaped:
+		case <-time.After(10 * time.Second):
+			t.Error("helper was never reaped")
+		}
+	})
+
+	identity, err := inspectProcess(cmd.Process.Pid)
+	if err != nil {
+		t.Fatalf("inspectProcess: %v", err)
+	}
+	recycled := identity
+	recycled.startID++
+	departed := identity
+	departed.pgid++
+
+	for _, test := range []struct {
+		name     string
+		identity processIdentity
+	}{
+		{name: "birth no longer matches", identity: recycled},
+		{name: "member left the process group", identity: departed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			signalErr := (&darwinProcessSignalHandle{identity: test.identity}).Signal(syscall.SIGKILL)
+			if errors.Is(signalErr, errProcessGroupIdentityChanged) {
+				t.Errorf("Signal = %v, which stops the group escalation over one member", signalErr)
+			}
+			if !errors.Is(signalErr, syscall.ESRCH) {
+				t.Errorf("Signal = %v, want ESRCH so callers skip this member and keep going", signalErr)
+			}
+		})
+	}
+
+	if !IsProcessAlive(cmd.Process.Pid) {
+		t.Error("a member that failed its identity check was signalled anyway")
+	}
+}
+
+// TestDarwinSignalHandleRetriesUnstableReads pins that a failed read is retried
+// rather than deciding the delivery. The window this handle exists to cover is
+// exactly when these reads are unstable — a target caught mid-execve can fail
+// its identity read outright — so one bad read must not be the reason a live
+// member goes unsignalled. pid 0 stands in for a read that never succeeds: the
+// attempts are spent, and the last failure is what gets reported.
+func TestDarwinSignalHandleRetriesUnstableReads(t *testing.T) {
+	signalErr := (&darwinProcessSignalHandle{identity: processIdentity{pid: 0}}).Signal(syscall.SIGKILL)
+	if signalErr == nil {
+		t.Fatal("a member that could never be read reported a delivery")
+	}
+	if errors.Is(signalErr, syscall.ESRCH) {
+		t.Errorf("Signal = %v, want the read failure rather than a claim the member is gone", signalErr)
+	}
+	if !strings.Contains(signalErr.Error(), "attempts exhausted") {
+		t.Errorf("Signal = %v, want the failure reported only once the attempts are spent", signalErr)
 	}
 }
 

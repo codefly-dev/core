@@ -124,6 +124,32 @@ jobs:
         # so creep fails HERE, at the PR that introduces it. See docs/cgo.md.
         run: ./scripts/check_cgo_free.sh
 
+      - name: Darwin surface guard
+        # Every runner in this repository is ubuntu, so nothing in CI ever
+        # compiles the GOOS=darwin files: runners/base's process-identity and
+        # postgres-IPC implementations, plus the darwin-only tests under
+        # runners/ and toolbox/launch. A type error in one of them merges green
+        # and breaks only on a developer's machine. Type-check that surface from
+        # this runner so it fails HERE instead.
+        #
+        # Mirrors scripts/check_cgo_free.sh: the tree-sitter grammars under
+        # code/semantic cannot cross-compile without cgo, so they are excluded
+        # and the supported CGO-free constructor is selected with
+        # codefly_nosemantic. vet covers test files, which `go build` does not.
+        #
+        # This type-checks only. RUNNING the darwin tests still needs a macOS
+        # runner, which would add a required status check — see
+        # docs/runbooks/branch-protection.md.
+        run: |
+          set -euo pipefail
+          pkgs=()
+          while IFS= read -r line; do
+            pkgs+=("$line")
+          done < <(GOOS=darwin go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... \
+            | grep -vxF -e "github.com/codefly-dev/core/code/semantic")
+          echo "Type-checking the darwin surface: ${#pkgs[@]} packages"
+          CGO_ENABLED=0 GOOS=darwin go vet -tags codefly_nosemantic "${pkgs[@]}"
+
       - name: Install apt deps (bubblewrap, ripgrep)
         # bubblewrap → core/runners/sandbox tests (default + sandbox_e2e)
         # ripgrep    → core/code search tests (real-repo grep coverage)
