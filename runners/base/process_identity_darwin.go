@@ -179,12 +179,11 @@ func readProcessGroupAuthentication(pid int) (string, bool, error) {
 }
 
 type darwinProcessSignalHandle struct {
-	token darwinAuditToken
+	identity processIdentity
 }
 
 func openProcessSignalHandle(expected processIdentity) (processSignalHandle, error) {
-	unique, err := readDarwinProcessUniqueInfo(expected.pid)
-	if err != nil {
+	if _, err := readDarwinProcessUniqueInfo(expected.pid); err != nil {
 		return nil, err
 	}
 	current, err := inspectProcess(expected.pid)
@@ -194,24 +193,83 @@ func openProcessSignalHandle(expected processIdentity) (processSignalHandle, err
 	if current.pgid != expected.pgid || !current.matches(expected.recorded()) {
 		return nil, errProcessGroupIdentityChanged
 	}
-	token := darwinAuditToken{}
-	token.Value[5] = uint32(expected.pid)
-	token.Value[7] = uint32(unique.PIDVersion)
-	return &darwinProcessSignalHandle{token: token}, nil
+	return &darwinProcessSignalHandle{identity: expected}, nil
 }
 
+// darwinSignalAttempts bounds the re-resolution in Signal. Every retry is
+// caused by one exec the target ran underneath us, or by a read that raced
+// that same exec, and a starting process execs a small, finite number of
+// times.
+const darwinSignalAttempts = 8
+
+// Signal delivers to the exact process birth this handle names.
+//
+// Darwin advances p_idversion on every exec, not only at fork, so an audit
+// token minted before the target execs names an incarnation that no longer
+// exists and the kernel rejects the delivery with ESRCH. A caller cannot tell
+// that apart from the process having exited, so it moves on and a live process
+// survives a pass that reported no failure. The birth is therefore re-verified
+// for every attempt and the version read immediately before delivery, leaving
+// no room for an exec to land between the two.
+//
+// Everything the exec window itself produces — a rejected token, a read that
+// raced the exec — is retried rather than reported, because that window is
+// exactly when these reads are unstable; the last failure is reported only
+// once the attempts are spent.
+//
+// A member that is gone, or that is no longer the birth we were told to
+// signal, is reported as ESRCH. That is a statement about this one member and
+// callers read it as "nothing to do here". It must never be
+// errProcessGroupIdentityChanged: that is a verdict on the whole group, and
+// terminateGroup abandons the escalation when it sees one.
 func (handle *darwinProcessSignalHandle) Signal(signal syscall.Signal) error {
+	var last error
+	for range darwinSignalAttempts {
+		current, err := inspectProcess(handle.identity.pid)
+		if errors.Is(err, errProcessNotFound) {
+			return syscall.ESRCH
+		}
+		if err != nil {
+			last = err
+			continue
+		}
+		if current.pgid != handle.identity.pgid || !current.matches(handle.identity.recorded()) {
+			return syscall.ESRCH
+		}
+		unique, err := readDarwinProcessUniqueInfo(handle.identity.pid)
+		if errors.Is(err, errProcessNotFound) {
+			return syscall.ESRCH
+		}
+		if err != nil {
+			last = err
+			continue
+		}
+		err = signalProcessBirth(handle.identity.pid, unique.PIDVersion, signal)
+		if errors.Is(err, syscall.ESRCH) {
+			last = err
+			continue
+		}
+		return err
+	}
+	return fmt.Errorf("deliver signal %d to process %d: %d attempts exhausted: %w",
+		signal, handle.identity.pid, darwinSignalAttempts, last)
+}
+
+func signalProcessBirth(pid int, version int32, signal syscall.Signal) error {
 	const procInfoCallSignalAuditToken = 0x11
+	token := darwinAuditToken{}
+	token.Value[5] = uint32(pid)
+	token.Value[7] = uint32(version)
 	_, _, errno := syscall.Syscall6(
 		syscall.SYS_PROC_INFO,
 		procInfoCallSignalAuditToken,
 		0,
 		uintptr(signal),
 		0,
-		uintptr(unsafe.Pointer(&handle.token)),
-		unsafe.Sizeof(handle.token),
+		uintptr(unsafe.Pointer(&token)),
+		unsafe.Sizeof(token),
 	)
-	runtime.KeepAlive(handle)
+	runtime.KeepAlive(&token)
 	if errno != 0 {
 		return errno
 	}
