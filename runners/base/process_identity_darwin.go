@@ -165,12 +165,11 @@ func readProcessGroupAuthentication(pid int) (string, error) {
 }
 
 type darwinProcessSignalHandle struct {
-	token darwinAuditToken
+	identity processIdentity
 }
 
 func openProcessSignalHandle(expected processIdentity) (processSignalHandle, error) {
-	unique, err := readDarwinProcessUniqueInfo(expected.pid)
-	if err != nil {
+	if _, err := readDarwinProcessUniqueInfo(expected.pid); err != nil {
 		return nil, err
 	}
 	current, err := inspectProcess(expected.pid)
@@ -180,24 +179,68 @@ func openProcessSignalHandle(expected processIdentity) (processSignalHandle, err
 	if current.pgid != expected.pgid || !current.matches(expected.recorded()) {
 		return nil, errProcessGroupIdentityChanged
 	}
-	token := darwinAuditToken{}
-	token.Value[5] = uint32(expected.pid)
-	token.Value[7] = uint32(unique.PIDVersion)
-	return &darwinProcessSignalHandle{token: token}, nil
+	return &darwinProcessSignalHandle{identity: expected}, nil
 }
 
+// darwinSignalAttempts bounds the re-resolution in Signal. Every retry is
+// caused by one exec the target ran underneath us, and a starting process
+// execs a small, finite number of times.
+const darwinSignalAttempts = 8
+
+// Signal delivers to the exact process birth this handle names.
+//
+// Darwin advances p_idversion on every exec, not only at fork, so an audit
+// token minted before the target execs names an incarnation that no longer
+// exists and the kernel rejects the delivery with ESRCH. A caller cannot tell
+// that apart from the process having exited, so it moves on and a live process
+// survives a pass that reported no failure. The version is therefore re-read
+// and the birth re-verified for every attempt, and a rejection is retried
+// rather than reported: a process that really is gone is caught by the
+// identity read at the top of the loop.
 func (handle *darwinProcessSignalHandle) Signal(signal syscall.Signal) error {
+	for range darwinSignalAttempts {
+		unique, err := readDarwinProcessUniqueInfo(handle.identity.pid)
+		if errors.Is(err, errProcessNotFound) {
+			return syscall.ESRCH
+		}
+		if err != nil {
+			return err
+		}
+		current, err := inspectProcess(handle.identity.pid)
+		if errors.Is(err, errProcessNotFound) {
+			return syscall.ESRCH
+		}
+		if err != nil {
+			return err
+		}
+		if current.pgid != handle.identity.pgid || !current.matches(handle.identity.recorded()) {
+			return errProcessGroupIdentityChanged
+		}
+		err = signalProcessBirth(handle.identity.pid, unique.PIDVersion, signal)
+		if errors.Is(err, syscall.ESRCH) {
+			continue
+		}
+		return err
+	}
+	return fmt.Errorf("deliver signal %d to process %d: process execed on every attempt",
+		signal, handle.identity.pid)
+}
+
+func signalProcessBirth(pid int, version int32, signal syscall.Signal) error {
 	const procInfoCallSignalAuditToken = 0x11
+	token := darwinAuditToken{}
+	token.Value[5] = uint32(pid)
+	token.Value[7] = uint32(version)
 	_, _, errno := syscall.Syscall6(
 		syscall.SYS_PROC_INFO,
 		procInfoCallSignalAuditToken,
 		0,
 		uintptr(signal),
 		0,
-		uintptr(unsafe.Pointer(&handle.token)),
-		unsafe.Sizeof(handle.token),
+		uintptr(unsafe.Pointer(&token)),
+		unsafe.Sizeof(token),
 	)
-	runtime.KeepAlive(handle)
+	runtime.KeepAlive(&token)
 	if errno != 0 {
 		return errno
 	}

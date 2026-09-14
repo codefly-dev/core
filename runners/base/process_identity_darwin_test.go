@@ -94,6 +94,66 @@ func TestReapStaleProcessGroupsTerminatesAuthenticatedUnlinkedExecutable(t *test
 	}
 }
 
+// TestDarwinSignalHandleDeliversAcrossExec pins delivery against Darwin's
+// p_idversion, which advances on exec as well as on fork. A handle opened
+// before the target execs holds a token naming an incarnation that no longer
+// exists, and the kernel rejects it with ESRCH — which signalProcessIdentities
+// reads as "this member already exited" and passes over, so a live process
+// survives a signal pass that reported no failure.
+func TestDarwinSignalHandleDeliversAcrossExec(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "IFS= read -r release; exec sleep 300")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	reaped := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(reaped) }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-reaped:
+		case <-time.After(10 * time.Second):
+			t.Error("helper was never reaped")
+		}
+	})
+
+	identity, err := inspectProcess(cmd.Process.Pid)
+	if err != nil {
+		t.Fatalf("inspectProcess: %v", err)
+	}
+	handle, err := openProcessSignalHandle(identity)
+	if err != nil {
+		t.Fatalf("openProcessSignalHandle: %v", err)
+	}
+	defer func() { _ = handle.Close() }()
+	before, err := readDarwinProcessUniqueInfo(identity.pid)
+	if err != nil {
+		t.Fatalf("readDarwinProcessUniqueInfo: %v", err)
+	}
+
+	if _, err := stdin.Write([]byte("release\n")); err != nil {
+		t.Fatalf("release the helper into its exec: %v", err)
+	}
+	if !waitFor(10*time.Second, func() bool {
+		unique, uniqueErr := readDarwinProcessUniqueInfo(identity.pid)
+		return uniqueErr == nil && unique.PIDVersion != before.PIDVersion
+	}) {
+		t.Fatal("helper never execed, so the delivery window under test never opened")
+	}
+
+	if err := handle.Signal(syscall.SIGKILL); err != nil {
+		t.Fatalf("Signal after the target execed: %v", err)
+	}
+	select {
+	case <-reaped:
+	case <-time.After(10 * time.Second):
+		t.Errorf("process %d survived a SIGKILL its handle reported as delivered", identity.pid)
+	}
+}
+
 func startCopiedRegistryHelper(t *testing.T) (string, *exec.Cmd, string) {
 	t.Helper()
 	source, err := os.Executable()
