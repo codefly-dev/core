@@ -146,7 +146,7 @@ func Evaluate(response *agent.GetEffectiveInputsResponse, req *agent.GetEffectiv
 }
 
 func validKey(k Key) bool {
-	return k.Phase >= agent.TaskPhase_TASK_PHASE_LINT && k.Phase <= agent.TaskPhase_TASK_PHASE_SOURCE_PACKAGE && ((k.Phase == agent.TaskPhase_TASK_PHASE_TEST) == (k.Suite != ""))
+	return k.Phase >= agent.TaskPhase_TASK_PHASE_LINT && k.Phase <= agent.TaskPhase_TASK_PHASE_IMAGE_SBOM && ((k.Phase == agent.TaskPhase_TASK_PHASE_TEST) == (k.Suite != ""))
 }
 
 func unknown(m protoreflect.Message) bool {

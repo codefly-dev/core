@@ -328,6 +328,37 @@ func TestRequiredInventory(t *testing.T) {
 	}
 }
 
+func TestRequiredCoversEveryPhase(t *testing.T) {
+	op := &agent.ValidationOperationCapability{Supported: true}
+	v := &agent.ValidationCapabilities{
+		Lint: op, Compile: op, Audit: op, Sbom: op, ImageSbom: op,
+		ArtifactBuild: op, Sync: op, SourcePackage: op,
+		Test: &agent.TestValidationCapability{Supported: true, Suites: []*agent.TestSuiteCapability{{Name: "unit"}}},
+	}
+	keys, err := Required(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advertised := map[agent.TaskPhase]bool{}
+	for _, key := range keys {
+		if !validKey(key) {
+			t.Fatalf("Required emits a key Evaluate rejects: %+v", key)
+		}
+		advertised[key.Phase] = true
+	}
+	phases := agent.TaskPhase_TASK_PHASE_UNSPECIFIED.Descriptor().Values()
+	for i := 0; i < phases.Len(); i++ {
+		phase := agent.TaskPhase(phases.Get(i).Number())
+		if phase == agent.TaskPhase_TASK_PHASE_UNSPECIFIED || advertised[phase] {
+			continue
+		}
+		t.Fatalf("declared phase never reaches the inventory: %v", phase)
+	}
+	if _, err := Evaluate(nil, &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "snapshot"}, keys); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPreviousAdvertisementSchema(t *testing.T) {
 	descriptor := protodesc.ToFileDescriptorProto(agent.File_codefly_services_agent_v0_agent_proto)
 	for _, message := range descriptor.MessageType {
