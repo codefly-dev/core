@@ -10,7 +10,12 @@ scheduling, evidence persistence and result storage are separate consumers.
 
 1. Obtain `AgentInformation.validation` and call `ciinputs.Required`. For legacy
    validation advertisements, retain the existing RPC capability probes and
-   supply their resulting phase/suite inventory explicitly.
+   supply their resulting phase/suite inventory explicitly. A declaration whose
+   phase sits above every phase this core can name is dropped and the rest keep
+   discovery, but a phase it can name and does not accept still fails the whole
+   response, so advertising a capability carries a version floor on every
+   evaluating consumer: see
+   [Advertising the capability](sbom.md#advertising-the-capability).
 2. Bind a snapshot token to source state, the dependency graph, requested task
    invocation and resolved execution context. Call `ciinputs.Discover` for both
    reference and candidate snapshots. The agent inspects `revision`, or the
