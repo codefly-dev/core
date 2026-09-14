@@ -116,6 +116,14 @@ message InitRequest {
   // workspace_configurations are environment-level configuration values available to the service.
   repeated codefly.base.v0.Configuration workspace_configurations = 6;
 
+  // fixture selects optional fixture data or setup behavior for the whole
+  // invocation. Init carries it because a service under test may never be
+  // started by the orchestrator: a test policy can replace Start with a
+  // barrier or skip it entirely, and only Init is guaranteed to reach the
+  // service under test. An agent reads this first and falls back to
+  // StartRequest.fixture.
+  string fixture = 7;
+
 }
 
 
@@ -146,6 +154,8 @@ message StartRequest {
   // dependencies_network_mappings are concrete addresses for dependency endpoints.
   repeated codefly.base.v0.NetworkMapping dependencies_network_mappings = 2;
   // fixture selects optional fixture data or setup behavior for the start.
+  // InitRequest.fixture takes precedence: it reaches a service under test that
+  // is never started.
   string fixture = 3;
   // overrides are per-service environment variables (KEY=VAL) injected into
   // the service process at run time. Set via `codefly run ... --set <service>:KEY=VAL`.

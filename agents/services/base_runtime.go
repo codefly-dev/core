@@ -49,6 +49,8 @@ type RuntimeWrapper struct {
 	generation uint64
 	health     *basev0.HealthReport
 
+	fixture string
+
 	sync.RWMutex
 }
 
@@ -454,4 +456,30 @@ func (s *RuntimeWrapper) WithContext(runtimeContext *basev0.RuntimeContext) {
 func (s *RuntimeWrapper) SetEnvironment(environment *basev0.Environment) {
 	s.Environment = environment
 	s.EnvironmentVariables.SetEnvironment(environment)
+}
+
+// ── Fixture ───────────────────────────────────────────────
+
+// SetFixture records the invocation's fixture selection and exposes it to the
+// service process as CODEFLY__FIXTURE. The first non-empty selection wins, so
+// an agent can call it from both Init and Start: Init is the selection that
+// reaches a service under test, which a test policy may replace Start for with
+// a barrier or skip entirely, while Start still carries it for an agent host
+// that does not populate Init.
+func (s *RuntimeWrapper) SetFixture(fixture string) {
+	s.Lock()
+	defer s.Unlock()
+	if fixture == "" || s.fixture != "" {
+		return
+	}
+	s.fixture = fixture
+	s.EnvironmentVariables.SetFixture(fixture)
+}
+
+// Fixture returns the selection recorded for this invocation, for an agent that
+// seeds fixture data itself rather than through the service environment.
+func (s *RuntimeWrapper) Fixture() string {
+	s.RLock()
+	defer s.RUnlock()
+	return s.fixture
 }
