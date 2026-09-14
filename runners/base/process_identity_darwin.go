@@ -137,7 +137,12 @@ func darwinBootID() (string, error) {
 func readProcessGroupAuthentication(pid int) (string, bool, error) {
 	data, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {
-		if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT) {
+		// procargs2 reports a pid it cannot find as EINVAL, not ESRCH: the
+		// sysctl fails its proc_find before it can distinguish "gone" from a
+		// malformed request. A member that exits between enumeration and this
+		// read is the ordinary case mid-escalation, so it must read as a
+		// disappearance rather than as a failure to authenticate the group.
+		if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.EINVAL) {
 			return "", false, errProcessNotFound
 		}
 		return "", false, err

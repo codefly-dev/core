@@ -117,6 +117,15 @@ var errProcessGroupIdentityChanged = errors.New("process group identity changed"
 // proof the group is foreign.
 var errProcessGroupNotSignalable = errors.New("process group has no signalable members")
 
+// errProcessGroupNotCredentialed means a leaderless group's members could be
+// read but none carried the start credential. That is not the same answer as
+// errProcessGroupIdentityChanged: a pgid holding a different leader proves our
+// group emptied and nothing of ours survives, whereas an uncredentialed member
+// leaves us unable to tell a recycled group apart from our own group holding a
+// member that no longer carries the credential. Reporting the two alike would
+// let the second case retire as a completed teardown.
+var errProcessGroupNotCredentialed = errors.New("process group members do not carry the start credential")
+
 type recordedProcessIdentity struct {
 	PID        int    `json:"pid"`
 	BootID     string `json:"boot_id"`
@@ -1504,6 +1513,12 @@ func signalGroup(ctx context.Context, rec pgidRecord, authenticate groupAuthenti
 // holding that pid, so a foreign group could occupy it only by ours emptying,
 // the pid being recycled, and the new leader dying too. See
 // readProcessGroupAuthentication.
+//
+// The two ways this declines to authenticate are deliberately distinct. A
+// member sitting on the pgid that is not the recorded leader proves the group
+// is not ours, and the caller may retire it. A readable member that lacks the
+// credential proves only that we cannot tell, so it is reported rather than
+// retired.
 func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]processIdentity, bool, error) {
 	members, inspectErr := inspectProcessGroup(ctx, rec.PGID)
 	if len(members) == 0 {
@@ -1524,7 +1539,7 @@ func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]proce
 	if credentialed || !observed {
 		return members, true, inspectErr
 	}
-	return nil, false, nil
+	return nil, false, errors.Join(inspectErr, errProcessGroupNotCredentialed)
 }
 
 func signalProcessIdentities(ctx context.Context, identities []processIdentity, signal syscall.Signal) error {
