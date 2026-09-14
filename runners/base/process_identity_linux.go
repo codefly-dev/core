@@ -99,32 +99,31 @@ func linuxBootID() (string, error) {
 	return bootID, nil
 }
 
-// processEnvironmentReadable reports whether readProcessGroupAuthentication can
-// observe another process's environment on this platform. Linux exposes it
-// through /proc/<pid>/environ for any process we may ptrace, which includes
-// every same-user descendant this package starts.
-func processEnvironmentReadable() bool { return true }
-
-func readProcessGroupAuthentication(pid int) (string, error) {
+// readProcessGroupAuthentication reads pid's start credential and reports
+// whether pid's environment was observable at all. Linux exposes it through
+// /proc/<pid>/environ for any process we may ptrace, which includes every
+// same-user descendant this package starts, so a read that succeeds has
+// observed the environment.
+func readProcessGroupAuthentication(pid int) (string, bool, error) {
 	file, err := os.Open(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", errProcessNotFound
+			return "", false, errProcessNotFound
 		}
-		return "", err
+		return "", false, err
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, 4<<20))
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	prefix := []byte(groupAuthEnv + "=")
 	for entry := range bytes.SplitSeq(data, []byte{0}) {
 		if value, ok := bytes.CutPrefix(entry, prefix); ok {
-			return string(value), nil
+			return string(value), true, nil
 		}
 	}
-	return "", nil
+	return "", true, nil
 }
 
 type linuxProcessSignalHandle struct {

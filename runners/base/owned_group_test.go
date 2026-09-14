@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -279,43 +280,81 @@ func TestTerminateGroupOfUnreapedZombiesSucceeds(t *testing.T) {
 	}
 }
 
-// TestProcessEnvironmentReadableMatchesReality pins the platform capability
-// that decides how a leaderless group is authenticated. If this constant is
-// wrong, Linux silently loses the credential check and Darwin silently refuses
-// to terminate groups it owns.
-func TestProcessEnvironmentReadableMatchesReality(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	cmd := exec.Command("sh", "-c", "exec sleep 300")
-	group, err := StartOwnedProcessGroup(cmd)
-	if err != nil {
-		t.Fatalf("StartOwnedProcessGroup: %v", err)
+// TestProcessGroupCredentialObservability pins what decides whether a
+// leaderless group is authenticated by its start credential or accepted on the
+// process-group invariant alone. If this is wrong, Linux silently loses the
+// credential check and Darwin either loses it too or silently refuses to
+// terminate groups it owns.
+//
+// Darwin scopes the decision to the target executable rather than to the
+// caller: kern.procargs2 discloses the environment of an ordinary service
+// binary but stops at argv for a code-signing-restricted one such as an Apple
+// platform binary. Being root does not widen that, so both cases are reachable
+// as an unprivileged user.
+func TestProcessGroupCredentialObservability(t *testing.T) {
+	tests := []struct {
+		name       string
+		start      func(t *testing.T) *exec.Cmd
+		observable bool
+	}{
+		{
+			name:       "unrestricted service binary",
+			start:      startCredentialProbeHelper,
+			observable: true,
+		},
+		{
+			name: "apple platform binary",
+			start: func(*testing.T) *exec.Cmd {
+				return exec.Command("sh", "-c", "exec sleep 300")
+			},
+			observable: runtime.GOOS != "darwin",
+		},
 	}
-	waited := make(chan error, 1)
-	go func() { waited <- cmd.Wait() }()
-	t.Cleanup(func() {
-		_ = syscall.Kill(-group.PGID(), syscall.SIGKILL)
-		<-waited
-	})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			cmd := test.start(t)
+			group, err := StartOwnedProcessGroup(cmd)
+			if err != nil {
+				t.Fatalf("StartOwnedProcessGroup: %v", err)
+			}
+			waited := make(chan error, 1)
+			go func() { waited <- cmd.Wait() }()
+			t.Cleanup(func() {
+				_ = syscall.Kill(-group.PGID(), syscall.SIGKILL)
+				<-waited
+			})
 
-	// The credential read races the child's exec. The credential is in the
-	// environment from the gate shell onward and is inherited across each
-	// exec, so a read only comes up empty inside the execve window itself:
-	// there Darwin can fail the procargs read outright and Linux can report
-	// success with no match. The capability under test is stable, the read is
-	// not, so poll for the credential itself and let the bound elapsing be
-	// the "not readable" verdict.
-	var value string
-	var readErr error
-	readable := waitFor(5*time.Second, func() bool {
-		value, readErr = readProcessGroupAuthentication(group.PGID())
-		return value == group.record.Authentication
-	})
-	if readable != processEnvironmentReadable() {
-		t.Errorf("processEnvironmentReadable() = %t but a credentialed child's environment %s (last read %q, error %v)",
-			processEnvironmentReadable(),
-			map[bool]string{true: "was readable", false: "was not readable"}[readable],
-			value, readErr)
+			// The credential read races the child's exec. The credential is in
+			// the environment from the gate shell onward and is inherited
+			// across each exec, so a read only comes up empty inside the
+			// execve window itself: there Darwin can fail the procargs read
+			// outright and Linux can report success with no match. What is
+			// under test is stable, the read is not, so poll for the
+			// credential itself and let the bound elapsing be the "not
+			// observable" verdict.
+			var value string
+			var observed bool
+			var readErr error
+			matched := waitFor(5*time.Second, func() bool {
+				value, observed, readErr = readProcessGroupAuthentication(group.PGID())
+				return observed && value == group.record.Authentication
+			})
+			if matched != test.observable || observed != test.observable {
+				t.Errorf("credentialed child's environment observable = %t, credential matched = %t (last read %q, error %v), want both %t",
+					observed, matched, value, readErr, test.observable)
+			}
+		})
 	}
+}
+
+// startCredentialProbeHelper runs the test binary itself, which — unlike sh or
+// sleep — is an ordinary executable carrying no code-signing restriction.
+func startCredentialProbeHelper(t *testing.T) *exec.Cmd {
+	t.Helper()
+	command := registryHelperCommand("member")
+	command.Env = append(command.Env, processGroupReadyFileEnv+"="+filepath.Join(t.TempDir(), "ready"))
+	return command
 }
 
 // waitFor polls cond until it holds or d elapses.
