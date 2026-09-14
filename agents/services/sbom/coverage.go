@@ -92,7 +92,11 @@ func ExpectedFromBuildResult(service string, result *builderv0.DockerBuildResult
 // expected subject. It is the conformance check every agent is measured
 // against: the expectation comes from the build the service itself declares, so
 // no list of known services has to be kept in sync with the fleet.
-func ValidateCoverage(expected []*builderv0.ImageSubject, resp *builderv0.SBOMResponse) error {
+//
+// service is the service under evaluation. A derived expectation carries that
+// identity in its own subjects, but evidence an agent enumerates for itself is
+// anchored to nothing the caller derived, so the identity has to be supplied.
+func ValidateCoverage(service string, expected []*builderv0.ImageSubject, resp *builderv0.SBOMResponse) error {
 	// State is checked before scope: a failed response carries the real cause in
 	// its message, and reporting it as a scope problem would hide that.
 	if state := resp.GetState().GetState(); state != builderv0.SBOMStatus_COMPLETE {
@@ -102,13 +106,18 @@ func ValidateCoverage(expected []*builderv0.ImageSubject, resp *builderv0.SBOMRe
 		return fmt.Errorf("response scope is %s: a source inventory is not image coverage", resp.GetScope())
 	}
 	if len(expected) == 0 {
-		if resp.GetNoImageReason() == builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
-			return fmt.Errorf("a complete image SBOM covering no images must declare a no-image reason")
-		}
+		// An empty expectation is not evidence that the service ships nothing:
+		// subjects are derived from recipes, which cannot see a vendor image the
+		// service deploys without building. Evidence such an agent enumerates
+		// itself is real coverage and is validated rather than refused, because
+		// refusing it leaves a no-image claim as the only answer it can give.
 		if len(resp.GetImages()) > 0 {
-			return fmt.Errorf("response declares no-image reason %s but carries %d inventories", resp.GetNoImageReason(), len(resp.GetImages()))
+			if reason := resp.GetNoImageReason(); reason != builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
+				return fmt.Errorf("response declares no-image reason %s but carries %d inventories", reason, len(resp.GetImages()))
+			}
+			return validateEnumeratedCoverage(service, resp.GetImages())
 		}
-		return nil
+		return ValidateNoImageReason(resp.GetNoImageReason(), resp.GetState().GetMessage())
 	}
 	if reason := resp.GetNoImageReason(); reason != builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
 		return fmt.Errorf("response declares no-image reason %s but %d images are expected", reason, len(expected))
@@ -153,6 +162,58 @@ func ValidateCoverage(expected []*builderv0.ImageSubject, resp *builderv0.SBOMRe
 		return fmt.Errorf("no image SBOM evidence for %s", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+// validateEnumeratedCoverage accepts evidence an agent enumerated for itself,
+// which no derived expectation names. Each inventory has to name a subject
+// belonging to the service under evaluation: evidence for some other service is
+// not this service's coverage, and without that anchor any well-formed
+// inventory at all would read as a pass.
+func validateEnumeratedCoverage(service string, images []*builderv0.ImageSBOM) error {
+	if service == "" {
+		return fmt.Errorf("enumerated image evidence cannot be accepted without the identity of the service it covers")
+	}
+	for _, evidence := range images {
+		if err := validateEvidence(evidence); err != nil {
+			return err
+		}
+		if !coversService(evidence, service) {
+			return fmt.Errorf("image evidence for %s names no subject belonging to %s", evidence.GetDigest(), service)
+		}
+	}
+	return nil
+}
+
+func coversService(evidence *builderv0.ImageSBOM, service string) bool {
+	for _, subject := range evidence.GetSubjects() {
+		if subject.GetService() == service {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateNoImageReason reports whether a no-image claim is one an agent may
+// make. It is the single definition of that rule: the wrapper refuses to build
+// such a response and coverage refuses to accept one, so the two cannot drift.
+// EXTERNALLY_MANAGED means an external provider owns the runtime, so the
+// response has to say which — a vendor image the service pins and deploys is
+// its own shipped image and owes evidence instead. A reason this contract does
+// not define is refused rather than trusted.
+func ValidateNoImageReason(reason builderv0.NoImageReason, message string) error {
+	switch reason {
+	case builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED:
+		return fmt.Errorf("a complete image SBOM covering no images must declare a no-image reason")
+	case builderv0.NoImageReason_NO_IMAGE_REASON_NO_IMAGE:
+		return nil
+	case builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED:
+		if message == "" {
+			return fmt.Errorf("an externally managed claim must name the runtime that owns the image: a vendor image this service pins and deploys is its own shipped image and owes evidence")
+		}
+		return nil
+	default:
+		return fmt.Errorf("no-image reason %s is not one this contract defines", reason)
+	}
 }
 
 // RequirePinned rejects a subject that names no immutable image, either in its

@@ -91,8 +91,13 @@ const (
 	// NO_IMAGE_REASON_NO_IMAGE means the agent emits no image at all, such as a
 	// passive toolbox or a source-only generator.
 	NoImageReason_NO_IMAGE_REASON_NO_IMAGE NoImageReason = 1
-	// NO_IMAGE_REASON_EXTERNALLY_MANAGED means the service runs images owned by
-	// an external provider, so their contents are not this agent's evidence.
+	// NO_IMAGE_REASON_EXTERNALLY_MANAGED means an external provider owns the
+	// runtime this service points at, so there is no image this service selects.
+	// It is not the reason for a service that deploys a stock image: a vendor
+	// image the service pins and ships is still its own image and owes evidence,
+	// which the agent enumerates as subjects rather than claiming it ships none.
+	// A response carrying this reason must name the external runtime in its
+	// status message.
 	NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED NoImageReason = 2
 )
 
