@@ -1,7 +1,8 @@
 // Package sdk provides helpers for codefly-managed services.
 //
-// Use WithDependencies for CLI-based dependency management,
-// or Env for direct agent management.
+// New CLI-based dependency clients should import sdk/dependencies.
+// This package retains compatible WithDependencies aliases and the deprecated
+// Env API for direct agent management.
 package sdk
 
 import (

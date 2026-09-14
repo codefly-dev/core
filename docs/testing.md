@@ -1,5 +1,14 @@
 # Testing Philosophy & Patterns
 
+CLI dependency sessions are available from the leaf package
+`github.com/codefly-dev/core/sdk/dependencies` (usually imported as `sdk`).
+It launches the CLI through the existing control protocol and does not link
+agent management or container engines into its caller. The original root
+`sdk.WithDependencies` API remains compatible through aliases to the same
+implementation, including its shared environment ownership registry. Root
+`sdk.New` / `Env` retains deprecated direct-agent management.
+
+
 ## Core Principle: NO MOCKS, EVER
 
 Codefly tests run against real infrastructure. No in-memory fakes, no mock databases, no simulated services. If your service uses postgres, your test starts a real postgres. If it calls an LLM, the first test run makes a real API call and records it.

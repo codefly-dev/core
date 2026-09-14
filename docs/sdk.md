@@ -1,5 +1,14 @@
 # SDK Reference
 
+CLI dependency sessions are available from the leaf package
+`github.com/codefly-dev/core/sdk/dependencies` (usually imported as `sdk`).
+It launches the CLI through the existing control protocol and does not link
+agent management or container engines into its caller. The original root
+`sdk.WithDependencies` API remains compatible through aliases to the same
+implementation, including its shared environment ownership registry. Root
+`sdk.New` / `Env` retains deprecated direct-agent management.
+
+
 The SDK provides language-agnostic dependency management for development and testing. It starts real infrastructure via codefly agents and injects connection strings as environment variables.
 
 ## Two Entry Points
@@ -9,7 +18,7 @@ The SDK provides language-agnostic dependency management for development and tes
 Reads `service.codefly.yaml` from the current directory, resolves the full dependency graph, and starts everything via the `codefly` CLI binary.
 
 ```go
-import "github.com/codefly-dev/core/sdk"
+import sdk "github.com/codefly-dev/core/sdk/dependencies"
 
 func TestMyService(t *testing.T) {
     ctx := context.Background()
