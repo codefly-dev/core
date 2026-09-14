@@ -1,4 +1,4 @@
-package sdk
+package dependencies
 
 import (
 	"context"
@@ -425,7 +425,7 @@ func TestWithFixtureSelectsDependencyStackFixture(t *testing.T) {
 
 func TestRunProfilesPassThroughToCodefly(t *testing.T) {
 	ctx := context.Background()
-	workspace, err := resources.LoadWorkspaceFromDir(ctx, "../resources/testdata/workspaces/run-profiles")
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "../../resources/testdata/workspaces/run-profiles")
 	if err != nil {
 		t.Fatalf("load run-profile fixture: %v", err)
 	}

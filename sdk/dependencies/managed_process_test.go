@@ -28,7 +28,7 @@
 // while descendants keep the group non-empty — and once the group does
 // empty, cleanup signals authenticated member incarnations rather than a
 // bare -pgid, so a recycled pgid is never signalled either way.
-package sdk
+package dependencies
 
 import (
 	"context"
