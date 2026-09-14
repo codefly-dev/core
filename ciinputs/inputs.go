@@ -91,15 +91,26 @@ func Evaluate(response *agent.GetEffectiveInputsResponse, req *agent.GetEffectiv
 		inventory[key] = true
 	}
 	declarations := map[Key]*agent.TaskInputs{}
-	supported := response != nil && response.SchemaVersion == Version && !unknown(response.ProtoReflect())
+	supported := response != nil && response.SchemaVersion == Version && len(response.ProtoReflect().GetUnknown()) == 0
 	if supported {
 		if response.Snapshot != req.Snapshot {
 			return nil, fmt.Errorf("effective input snapshot mismatch")
 		}
 		for _, declaration := range response.Tasks {
 			key := Key{declaration.GetTask().GetPhase(), declaration.GetTask().GetSuite()}
+			// Only a phase above every phase this binary knows can be a newer
+			// agent's; any other unrecognized number is malformed.
+			if beyondKnownPhases(key.Phase) {
+				continue
+			}
 			if declaration == nil || !validKey(key) || declarations[key] != nil || !inventory[key] {
 				return nil, fmt.Errorf("invalid, duplicate or unrequested task declaration")
+			}
+			// A dropped declaration is never read, so only a consumed one can
+			// leave this response impossible to interpret.
+			if unknown(declaration.ProtoReflect()) {
+				supported = false
+				break
 			}
 			declarations[key] = declaration
 		}
@@ -147,6 +158,17 @@ func Evaluate(response *agent.GetEffectiveInputsResponse, req *agent.GetEffectiv
 
 func validKey(k Key) bool {
 	return k.Phase >= agent.TaskPhase_TASK_PHASE_LINT && k.Phase <= agent.TaskPhase_TASK_PHASE_IMAGE_SBOM && ((k.Phase == agent.TaskPhase_TASK_PHASE_TEST) == (k.Suite != ""))
+}
+
+func beyondKnownPhases(p agent.TaskPhase) bool {
+	values := p.Descriptor().Values()
+	highest := values.Get(0).Number()
+	for i := 1; i < values.Len(); i++ {
+		if n := values.Get(i).Number(); n > highest {
+			highest = n
+		}
+	}
+	return protoreflect.EnumNumber(p) > highest
 }
 
 func unknown(m protoreflect.Message) bool {

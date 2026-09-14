@@ -221,6 +221,52 @@ func TestRejectMalformedDeclarations(t *testing.T) {
 	}
 }
 
+func TestNewerPhaseKeepsDiscovery(t *testing.T) {
+	values := agent.TaskPhase(0).Descriptor().Values()
+	highest := values.Get(0).Number()
+	for i := 1; i < values.Len(); i++ {
+		if n := values.Get(i).Number(); n > highest {
+			highest = n
+		}
+	}
+	future := Key{Phase: agent.TaskPhase(highest + 1)}
+	req := &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "snapshot"}
+	wire, err := proto.Marshal(response(declaration(build), declaration(future)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	received := &agent.GetEffectiveInputsResponse{}
+	if err := proto.Unmarshal(wire, received); err != nil {
+		t.Fatal(err)
+	}
+	if unknown(received.ProtoReflect()) {
+		t.Fatal("newer phase arrived as an unknown field")
+	}
+	got, err := Evaluate(received, req, []Key{build})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Key != build || got[0].Conservative || !got[0].CacheEligible {
+		t.Fatalf("newer agent's phase cost the caller discovery: %+v", got)
+	}
+	if len(Changed(evaluate(t, response(declaration(build)), build), got)) != 0 {
+		t.Fatal("ignored declaration perturbed task identity")
+	}
+	newerField := response(declaration(build), declaration(future))
+	newerField.Tasks[1].ProtoReflect().SetUnknown(protowire.AppendVarint(protowire.AppendTag(nil, 100, protowire.VarintType), 1))
+	if !evaluate(t, newerField, build)[0].CacheEligible {
+		t.Fatal("a dropped declaration's unknown field sank every other phase")
+	}
+	if _, err := Evaluate(response(declaration(build), declaration(unit)), req, []Key{build}); err == nil {
+		t.Fatal("accepted a representable but unrequested declaration")
+	}
+	garbled := response(declaration(build), declaration(unit))
+	garbled.Tasks[1].Task.Phase = agent.TaskPhase(-1)
+	if _, err := Evaluate(garbled, req, []Key{build, unit}); err == nil {
+		t.Fatal("silently dropped a malformed phase number")
+	}
+}
+
 func TestProtectedInputs(t *testing.T) {
 	key := []byte(strings.Repeat("k", 32))
 	a, err := Protect(key, "workspace-key/v1", []byte("shared secret"))
