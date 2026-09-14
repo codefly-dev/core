@@ -328,7 +328,7 @@ func TestRequiredInventory(t *testing.T) {
 	}
 }
 
-func TestRequiredCoversEveryPhase(t *testing.T) {
+func TestRequiredCoversEveryCapability(t *testing.T) {
 	op := &agent.ValidationOperationCapability{Supported: true}
 	v := &agent.ValidationCapabilities{
 		Lint: op, Compile: op, Audit: op, Sbom: op, ImageSbom: op,
@@ -339,23 +339,20 @@ func TestRequiredCoversEveryPhase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	advertised := map[agent.TaskPhase]bool{}
+	phases := map[agent.TaskPhase]bool{}
 	for _, key := range keys {
 		if !validKey(key) {
 			t.Fatalf("Required emits a key Evaluate rejects: %+v", key)
 		}
-		advertised[key.Phase] = true
+		phases[key.Phase] = true
 	}
-	phases := agent.TaskPhase_TASK_PHASE_UNSPECIFIED.Descriptor().Values()
-	for i := 0; i < phases.Len(); i++ {
-		phase := agent.TaskPhase(phases.Get(i).Number())
-		if phase == agent.TaskPhase_TASK_PHASE_UNSPECIFIED || advertised[phase] {
-			continue
-		}
-		t.Fatalf("declared phase never reaches the inventory: %v", phase)
+	if advertised := v.ProtoReflect().Descriptor().Fields().Len(); len(phases) != advertised {
+		t.Fatalf("advertised %d capabilities, scheduled %d phases", advertised, len(phases))
 	}
-	if _, err := Evaluate(nil, &agent.GetEffectiveInputsRequest{SchemaVersion: Version, Snapshot: "snapshot"}, keys); err != nil {
-		t.Fatal(err)
+	image := Key{Phase: agent.TaskPhase_TASK_PHASE_IMAGE_SBOM}
+	got := evaluate(t, response(declaration(image)), image)
+	if len(got) != 1 || got[0].Conservative || !got[0].CacheEligible {
+		t.Fatalf("image SBOM declaration not honored: %+v", got)
 	}
 }
 
