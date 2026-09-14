@@ -748,6 +748,16 @@ func newReleaseFixture(t *testing.T, version, commit string, mutate func(string)
 	if mutate != nil {
 		mutate(root)
 	}
+	release, trust := buildRelease(t, root, version, commit)
+	verified, err := VerifyRelease(release, testPackage, version, trust)
+	if mutate == nil || !strings.Contains(readFile(t, filepath.Join(root, PackageManifestFileName)), "codefly/other") {
+		require.NoError(t, err)
+	}
+	return &releaseFixture{release: release, verified: verified, trust: trust, root: root}
+}
+
+func buildRelease(t *testing.T, root, version, commit string) (*Release, TrustPolicy) {
+	t.Helper()
 	archive, digest, err := CanonicalArchive(root)
 	require.NoError(t, err)
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x2a}, ed25519.SeedSize))
@@ -764,11 +774,7 @@ func newReleaseFixture(t *testing.T, version, commit string, mutate func(string)
 		Provenance: provenanceData, Signature: ed25519.Sign(privateKey, provenanceData),
 	}
 	trust := TrustPolicy{Repositories: map[string]string{testPackage: testRepository}, Signers: map[string]ed25519.PublicKey{testSigner: publicKey}}
-	verified, err := VerifyRelease(release, testPackage, version, trust)
-	if mutate == nil || !strings.Contains(readFile(t, filepath.Join(root, PackageManifestFileName)), "codefly/other") {
-		require.NoError(t, err)
-	}
-	return &releaseFixture{release: release, verified: verified, trust: trust, root: root}
+	return release, trust
 }
 
 func newPackageRoot(t *testing.T, version string) string {
@@ -785,6 +791,14 @@ services:
   - name: frontend
     endpoints:
       - http
+fixtures:
+  - name: dev-admin
+    description: Seeded tenant with an administrator
+    principals:
+      - id: dev-admin
+        email: admin@dev.local
+        role: super_admin
+        token: dev-admin-provider-id
 contracts:
   composition: ">=2.0 <3.0"
   frontendPlugin: ">=1.0 <2.0"

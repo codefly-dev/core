@@ -413,6 +413,35 @@ func (manifest *PackageManifest) Validate() error {
 	if err := uniqueStrings("provided service", serviceNames); err != nil {
 		return err
 	}
+	fixtureNames := make([]string, 0, len(manifest.Fixtures))
+	for _, fixture := range manifest.Fixtures {
+		if err := validateIdentifier("fixture name", fixture.Name); err != nil {
+			return err
+		}
+		fixtureNames = append(fixtureNames, fixture.Name)
+		ids := make([]string, 0, len(fixture.Principals))
+		roles := make([]string, 0, len(fixture.Principals))
+		for index, principal := range fixture.Principals {
+			if strings.TrimSpace(principal.ID) == "" || strings.TrimSpace(principal.Email) == "" ||
+				strings.TrimSpace(principal.Role) == "" || strings.TrimSpace(principal.Token) == "" {
+				return fmt.Errorf("fixture %s principal %d requires an id, an email, a role, and a token", fixture.Name, index)
+			}
+			ids = append(ids, principal.ID)
+			roles = append(roles, principal.Role)
+		}
+		if err := uniqueStrings("principal in fixture "+fixture.Name, ids); err != nil {
+			return err
+		}
+		if err := uniqueStrings("principal role in fixture "+fixture.Name, roles); err != nil {
+			return err
+		}
+	}
+	if err := uniqueStrings("fixture", fixtureNames); err != nil {
+		return err
+	}
+	if _, exists := manifest.Contracts[ContractFixtures]; len(manifest.Fixtures) > 0 && !exists {
+		return fmt.Errorf("module package declaring fixtures must declare the %q contract", ContractFixtures)
+	}
 	commands := append(slices.Clone(manifest.Generators), manifest.Conformance...)
 	for _, entry := range manifest.EntryPoints {
 		commands = append(commands, PackageCommand{Name: entry.Name, Command: entry.Command})

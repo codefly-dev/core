@@ -45,6 +45,7 @@ type SemanticReport struct {
 	Contracts       []ContractChange        `json:"contracts"`
 	Services        Delta                   `json:"services"`
 	Endpoints       Delta                   `json:"endpoints"`
+	Fixtures        Delta                   `json:"fixtures"`
 	Dependencies    Delta                   `json:"dependencies"`
 	Migrations      Delta                   `json:"migrations"`
 	BreakingChanges []string                `json:"breakingChanges,omitempty"`
@@ -68,6 +69,7 @@ func (report *SemanticReport) String() string {
 	output.WriteString("\nProduct projection\n")
 	fmt.Fprintf(&output, "  %-24s +%d / -%d\n", "services", len(report.Services.Added), len(report.Services.Removed))
 	fmt.Fprintf(&output, "  %-24s +%d / -%d\n", "endpoints", len(report.Endpoints.Added), len(report.Endpoints.Removed))
+	fmt.Fprintf(&output, "  %-24s +%d / -%d\n", "fixtures", len(report.Fixtures.Added), len(report.Fixtures.Removed))
 	for _, kind := range collisionKinds {
 		delta := report.Deltas[kind]
 		fmt.Fprintf(&output, "  %-24s +%d / -%d\n", kind, len(delta.Added), len(delta.Removed))
@@ -124,6 +126,7 @@ func newSemanticReport(descriptor *Descriptor, before *Lock, after *Lock, before
 	}
 	report.Services = stringDelta(serviceNames(beforeManifest), serviceNames(afterManifest))
 	report.Endpoints = stringDelta(endpointNames(beforeManifest), endpointNames(afterManifest))
+	report.Fixtures = stringDelta(fixtureIdentities(beforeManifest), fixtureIdentities(afterManifest))
 	report.Dependencies = stringDelta(catalogDependencies(beforeCatalog), catalogDependencies(afterCatalog))
 	report.Migrations = stringDelta(migrationNames(beforeManifest), migrationNames(afterManifest))
 	if before != nil && before.Version != after.Version && afterManifest != nil {
@@ -189,6 +192,20 @@ func endpointNames(manifest *PackageManifest) []string {
 		}
 	}
 	return endpoints
+}
+
+func fixtureIdentities(manifest *PackageManifest) []string {
+	if manifest == nil {
+		return nil
+	}
+	var identities []string
+	for _, fixture := range manifest.Fixtures {
+		identities = append(identities, fixture.Name)
+		for _, principal := range fixture.Principals {
+			identities = append(identities, fixture.Name+"/"+principal.Role)
+		}
+	}
+	return identities
 }
 
 func stringDelta(before, after []string) Delta {
