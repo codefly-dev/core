@@ -59,6 +59,19 @@ func TestSBOMImagesWithoutSubjectsIsAPreconditionFailure(t *testing.T) {
 	require.Equal(t, basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED, resp.GetState().GetFailure().GetCode())
 }
 
+// A subject naming only a tag is refused before anything is scanned: the
+// registry may still serve an image this build never produced.
+func TestSBOMImagesRefusesAnUnpinnedSubject(t *testing.T) {
+	wrapper := &BuilderWrapper{}
+	subjects := []*builderv0.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
+
+	resp, err := wrapper.SBOMImages(context.Background(), subjects, servicesbom.SourceRegistry)
+	require.NoError(t, err)
+	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
+	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
+	require.Contains(t, resp.GetState().GetMessage(), "names no digest")
+}
+
 // A source inventory is still rejected as image coverage; state is checked
 // first, but a successful source response must not pass as image evidence.
 func TestSourceInventoryIsStillRejectedAsImageCoverage(t *testing.T) {
