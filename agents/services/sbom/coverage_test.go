@@ -74,7 +74,7 @@ func TestValidateCoverageAcceptsEvidenceBoundToTheChildOfAPinnedIndex(t *testing
 	require.Empty(t, expected[0].GetDigest())
 
 	resp := imageResponse(imageEvidence("sha256:child", "linux/amd64", expected[0]))
-	require.NoError(t, ValidateCoverage(expected, resp))
+	require.NoError(t, ValidateCoverage("svc", expected, resp))
 }
 
 // An image only loaded into the daemon has no registry manifest to reference,
@@ -88,7 +88,7 @@ func TestExpectedFromBuildPlanBindsALocalImageToItsDaemonID(t *testing.T) {
 	require.Equal(t, "sha256:localid", expected[0].GetDigest())
 
 	resp := imageResponse(imageEvidence("sha256:localid", "", expected[0]))
-	require.NoError(t, ValidateCoverage(expected, resp))
+	require.NoError(t, ValidateCoverage("svc", expected, resp))
 }
 
 // A recipe names a tag, so a platform the build reported no digest for cannot
@@ -312,7 +312,7 @@ func TestValidateCoverageRejectsAStaleDigest(t *testing.T) {
 func TestValidateCoverageRejectsAnUnpinnedSubject(t *testing.T) {
 	want := &builderv0.ImageSubject{Reference: "ghcr.io/codefly-dev/app:1.0", Platform: "linux/amd64", Role: "app", Service: "svc"}
 	resp := imageResponse(imageEvidence("sha256:whatever", "linux/amd64", want))
-	require.ErrorContains(t, ValidateCoverage([]*builderv0.ImageSubject{want}, resp), "not pinned to a sha256 digest")
+	require.ErrorContains(t, ValidateCoverage("svc", []*builderv0.ImageSubject{want}, resp), "not pinned to a sha256 digest")
 }
 
 // A digest that is not a sha256 pin cannot match evidence, which validateEvidence
@@ -321,7 +321,7 @@ func TestValidateCoverageRejectsAnUnpinnedSubject(t *testing.T) {
 func TestValidateCoverageRejectsAMalformedDigestPin(t *testing.T) {
 	want := &builderv0.ImageSubject{Reference: "ghcr.io/codefly-dev/app:1.0", Digest: "latest", Role: "app", Service: "svc"}
 	resp := imageResponse(imageEvidence("sha256:abc", "", want))
-	require.ErrorContains(t, ValidateCoverage([]*builderv0.ImageSubject{want}, resp), "not pinned to a sha256 digest")
+	require.ErrorContains(t, ValidateCoverage("svc", []*builderv0.ImageSubject{want}, resp), "not pinned to a sha256 digest")
 }
 
 // A malformed subject is reported as itself, not as whatever mismatch another
@@ -334,7 +334,7 @@ func TestValidateCoverageReportsAnUnpinnedSubjectBeforeAStaleDigest(t *testing.T
 		imageEvidence("sha256:whatever", "", unpinned),
 	)
 
-	err := ValidateCoverage([]*builderv0.ImageSubject{stale, unpinned}, resp)
+	err := ValidateCoverage("svc", []*builderv0.ImageSubject{stale, unpinned}, resp)
 	require.ErrorContains(t, err, "not pinned to a sha256 digest")
 	require.NotContains(t, err.Error(), "not the deployed digest")
 }
@@ -346,7 +346,7 @@ func TestValidateCoverageRejectsABuildResultThatNamesOnlyATag(t *testing.T) {
 		Images: []string{"ghcr.io/codefly-dev/app:1.0"},
 	})
 	resp := imageResponse(imageEvidence("sha256:whatever", "", expected[0]))
-	require.ErrorContains(t, ValidateCoverage(expected, resp), "not pinned to a sha256 digest")
+	require.ErrorContains(t, ValidateCoverage("svc", expected, resp), "not pinned to a sha256 digest")
 }
 
 func TestValidateCoverageRejectsAnEmptyInventory(t *testing.T) {
