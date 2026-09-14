@@ -388,3 +388,60 @@ func TestValidateCoverageMatchesATagToItsResolvedDigest(t *testing.T) {
 	resp := imageResponse(imageEvidence("sha256:abc", "linux/amd64", evidenceSubject))
 	require.NoError(t, ValidateCoverage("svc", []*builderv0.ImageSubject{want}, resp))
 }
+
+// A service that publishes its own multi-architecture image has no recipe and
+// no build result to derive from, so the reference it ships is what states the
+// expectation: one subject per shipped platform, pinned by the reference and
+// carrying no digest of its own, because each scan binds to the child manifest
+// it resolved.
+func TestExpectedFromImageReferenceCoversEveryShippedPlatform(t *testing.T) {
+	expected, err := ExpectedFromImageReference("svc", "runtime", "ghcr.io/codefly-dev/gateway@sha256:index", []string{"linux/amd64", "linux/arm64"})
+	require.NoError(t, err)
+	require.Len(t, expected, 2)
+	require.Equal(t, "ghcr.io/codefly-dev/gateway@sha256:index", expected[0].GetReference())
+	require.Empty(t, expected[0].GetDigest())
+	require.Equal(t, "linux/amd64", expected[0].GetPlatform())
+	require.Equal(t, "linux/arm64", expected[1].GetPlatform())
+	require.Equal(t, "runtime", expected[1].GetRole())
+	require.Equal(t, "svc", expected[1].GetService())
+
+	resp := imageResponse(
+		imageEvidence("sha256:amdchild", "linux/amd64", expected[0]),
+		imageEvidence("sha256:armchild", "linux/arm64", expected[1]),
+	)
+	require.NoError(t, ValidateCoverage("svc", expected, resp))
+}
+
+// The expectation is what makes an incomplete answer visible. Enumerated
+// evidence is judged one inventory at a time, so evidence for one platform of a
+// two-platform image passes on its own; measured against the platforms the
+// service ships, the missing one is named.
+func TestValidateCoverageReportsAPlatformAPublishedImageDidNotCover(t *testing.T) {
+	expected, err := ExpectedFromImageReference("svc", "runtime", "ghcr.io/codefly-dev/gateway@sha256:index", []string{"linux/amd64", "linux/arm64"})
+	require.NoError(t, err)
+
+	resp := imageResponse(imageEvidence("sha256:amdchild", "linux/amd64", expected[0]))
+	require.NoError(t, ValidateCoverage("svc", nil, resp))
+
+	err = ValidateCoverage("svc", expected, resp)
+	require.ErrorContains(t, err, "no image SBOM evidence for")
+	require.ErrorContains(t, err, "linux/arm64")
+}
+
+// A published image is named by its registry manifest, so deriving from a tag
+// would ask for an inventory of whatever that tag serves now rather than of the
+// image the service shipped.
+func TestExpectedFromImageReferenceRejectsAFloatingTag(t *testing.T) {
+	_, err := ExpectedFromImageReference("svc", "runtime", "ghcr.io/codefly-dev/gateway:1.0", []string{"linux/amd64"})
+	require.ErrorContains(t, err, "not pinned to a sha256 digest")
+}
+
+// A single-platform published image names no platform, and the evidence its
+// scan binds still covers it.
+func TestExpectedFromImageReferenceCoversAnImageShippingOnePlatform(t *testing.T) {
+	expected, err := ExpectedFromImageReference("svc", "runtime", "ghcr.io/codefly-dev/gateway@sha256:only", nil)
+	require.NoError(t, err)
+	require.Len(t, expected, 1)
+	require.Empty(t, expected[0].GetPlatform())
+	require.NoError(t, ValidateCoverage("svc", expected, imageResponse(imageEvidence("sha256:only", "linux/amd64", expected[0]))))
+}

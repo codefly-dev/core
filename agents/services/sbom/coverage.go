@@ -88,6 +88,39 @@ func ExpectedFromBuildResult(service string, result *builderv0.DockerBuildResult
 	return subjects
 }
 
+// ExpectedFromImageReference derives the image subjects of an image the agent
+// names itself rather than one the caller builds: an image the service
+// publishes from its own release pipeline, or a vendor image it pins and
+// deploys. No recipe describes such an image and no build result names it, so
+// the reference the service ships is what the expectation is derived from.
+//
+// Each shipped platform is its own subject, which is what an expectation states
+// that evidence cannot: enumerated evidence is judged one inventory at a time,
+// so a multi-architecture image answering for a single platform reads as
+// covered until something says which platforms were expected.
+//
+// The reference carries the pin, as it does for any pushed image: each
+// platform's scan resolves a child manifest out of it, so evidence is derived
+// from that identity rather than compared against it.
+func ExpectedFromImageReference(service, role, reference string, platforms []string) ([]*builderv0.ImageSubject, error) {
+	if !strings.HasPrefix(referenceDigest(reference), "sha256:") {
+		return nil, fmt.Errorf("published image %s is not pinned to a sha256 digest: a tag serves whatever was pushed to it last, so its inventory is not coverage of the image this service ships", reference)
+	}
+	if len(platforms) == 0 {
+		platforms = []string{""}
+	}
+	var subjects []*builderv0.ImageSubject
+	for _, platform := range platforms {
+		subjects = append(subjects, &builderv0.ImageSubject{
+			Reference: reference,
+			Platform:  platform,
+			Role:      role,
+			Service:   service,
+		})
+	}
+	return subjects, nil
+}
+
 // ValidateCoverage reports whether a response carries image evidence for every
 // expected subject. It is the conformance check every agent is measured
 // against: the expectation comes from the build the service itself declares, so
