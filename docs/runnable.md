@@ -193,6 +193,11 @@ required field would assert a package nobody built, so a package with no
 artifact must omit `build` and a package with one must pin it. Core never loads
 owner code and never decides which process the owner runs the method in.
 
+A service-only operation may name its owner's pinned `codefly:service` builder
+as `agent`: that agent built the running implementation. It needs no separate
+language Runnable builder. Native/Kubernetes artifacts still require a
+`codefly:runnable` agent, and service builders are not accepted for functions.
+
 A `service` implementation preserves what the owner already publishes — the
 service, endpoint, method name and the identities of the request and response
 messages — alongside the `adaptation` that maps a bounded payload onto them.

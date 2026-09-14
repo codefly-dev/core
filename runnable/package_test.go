@@ -279,6 +279,25 @@ func ownerHandlerPackage(t *testing.T) *basev0.RunnablePackage {
 	return pkg
 }
 
+func TestServiceOnlyPackageUsesItsActualOwnerBuilder(t *testing.T) {
+	pkg := ownerHandlerPackage(t)
+	pkg.Agent.Kind = basev0.Agent_SERVICE
+	pkg.Agent.Name = "go-grpc"
+	pkg.Agent.Version = "0.1.38"
+	prepared, err := runnable.PreparePackage(pkg)
+	require.NoError(t, err)
+	require.Equal(t, basev0.Agent_SERVICE, prepared.GetAgent().GetKind())
+	installed := sampleBinding(prepared, nil, basev0.RunnableFacility_SERVICE)
+	installed.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+	_, err = runnable.PrepareBinding(installed, prepared)
+	require.NoError(t, err)
+	for _, unsupported := range []*basev0.RunnablePackage{samplePackage(t), functionPackage(t)} {
+		unsupported.Agent = proto.Clone(pkg.Agent).(*basev0.Agent)
+		_, err = runnable.PreparePackage(unsupported)
+		require.ErrorContains(t, err, "agent kind")
+	}
+}
+
 func functionPackage(t *testing.T) *basev0.RunnablePackage {
 	t.Helper()
 	pkg := samplePackage(t)

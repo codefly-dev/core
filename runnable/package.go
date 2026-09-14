@@ -235,7 +235,7 @@ func validatePackage(pkg *basev0.RunnablePackage) error {
 	if err != nil {
 		return fmt.Errorf("%w: agent: %v", ErrInvalid, err)
 	}
-	if !agent.IsRunnable() {
+	if !resources.RunnableAgentCompatible(agent, declaredFacilities(pkg.GetExecution())) {
 		return fmt.Errorf("%w: agent kind %s is not %s", ErrInvalid, agent.Kind, resources.RunnableAgent)
 	}
 	if agent.Version == "latest" {
