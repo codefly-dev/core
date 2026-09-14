@@ -67,7 +67,7 @@ func TestExternallyManagedMustNameTheRuntime(t *testing.T) {
 // precondition rather than report coverage or claim to be unimplemented.
 func TestSBOMImagesWithoutSubjectsIsAPreconditionFailure(t *testing.T) {
 	wrapper := &BuilderWrapper{}
-	resp, err := wrapper.SBOMImages(context.Background(), nil, servicesbom.SourceRegistry)
+	resp, err := wrapper.SBOMImages(context.Background(), nil)
 	require.NoError(t, err)
 	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
 	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
@@ -80,7 +80,7 @@ func TestSBOMImagesRefusesAnUnpinnedSubject(t *testing.T) {
 	wrapper := &BuilderWrapper{}
 	subjects := []*builderv0.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
 
-	resp, err := wrapper.SBOMImages(context.Background(), subjects, servicesbom.SourceRegistry)
+	resp, err := wrapper.SBOMImages(context.Background(), subjects)
 	require.NoError(t, err)
 	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
 	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
@@ -96,4 +96,55 @@ func TestSourceInventoryIsStillRejectedAsImageCoverage(t *testing.T) {
 	source, err := wrapper.SBOMResponse(nil, "go-list", "GO", "abc")
 	require.NoError(t, err)
 	require.ErrorContains(t, servicesbom.ValidateCoverage("svc", subjects, source), "not image coverage")
+}
+
+// Nothing in a reference or a digest says whether an image was pushed or only
+// loaded, so the subject carries the answer and one request may mix the two.
+// Reading the selector per subject is what makes the same two subjects fail
+// differently depending on which one is reached first.
+func TestSBOMImagesReachesEachSubjectWhereItSaysItLives(t *testing.T) {
+	wrapper := &BuilderWrapper{}
+	digest := "sha256:2a1f0c8d4e6b7a9c3d5e1f0a2b4c6d8e0f1a3b5c7d9e1f0a2b4c6d8e0f1a3b5c"
+	pushed := &builderv0.ImageSubject{
+		Reference: "localhost:1/codefly/app@" + digest,
+		Platform:  "linux/amd64",
+		Role:      "app",
+		Service:   "svc",
+		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY,
+	}
+	loaded := &builderv0.ImageSubject{
+		Reference: "localhost:1/codefly/migration:1.0",
+		Digest:    digest,
+		Role:      "migration",
+		Service:   "svc",
+		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON,
+	}
+
+	daemonFirst, err := wrapper.SBOMImages(context.Background(), []*builderv0.ImageSubject{loaded, pushed})
+	require.NoError(t, err)
+	require.Contains(t, daemonFirst.GetState().GetMessage(), "resolve local image localhost:1/codefly/migration:1.0")
+
+	registryFirst, err := wrapper.SBOMImages(context.Background(), []*builderv0.ImageSubject{pushed, loaded})
+	require.NoError(t, err)
+	require.Contains(t, registryFirst.GetState().GetMessage(), "registry")
+	require.NotContains(t, registryFirst.GetState().GetMessage(), "resolve local image")
+}
+
+// A local subject pinned only in its reference is refused before anything is
+// scanned: the daemon would resolve that reference to its own image ID and bind
+// evidence to it, leaving no field holding the identity that was requested.
+func TestSBOMImagesRefusesALocalSubjectPinnedOnlyInItsReference(t *testing.T) {
+	wrapper := &BuilderWrapper{}
+	subjects := []*builderv0.ImageSubject{{
+		Reference: "localhost:1/codefly/app@sha256:2a1f0c8d4e6b7a9c3d5e1f0a2b4c6d8e0f1a3b5c7d9e1f0a2b4c6d8e0f1a3b5c",
+		Role:      "app",
+		Service:   "svc",
+		Source:    builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON,
+	}}
+
+	resp, err := wrapper.SBOMImages(context.Background(), subjects)
+	require.NoError(t, err)
+	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
+	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
+	require.Contains(t, resp.GetState().GetMessage(), "pins no sha256 digest field")
 }

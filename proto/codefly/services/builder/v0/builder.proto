@@ -512,6 +512,24 @@ enum NoImageReason {
   NO_IMAGE_REASON_EXTERNALLY_MANAGED = 2;
 }
 
+// ImageSourceKind says where an image lives, and so how a scan must reach it.
+// Nothing in a reference or a digest distinguishes the two: a local image ID
+// and a registry manifest digest are both "sha256:<hex>", and an image loaded
+// with --load commonly carries the same tag a pushed one would. Only the party
+// that produced the image knows which it is.
+enum ImageSourceKind {
+  // IMAGE_SOURCE_KIND_UNSPECIFIED means registry, preserving subjects written
+  // before this selector existed.
+  IMAGE_SOURCE_KIND_UNSPECIFIED = 0;
+  // IMAGE_SOURCE_KIND_REGISTRY resolves and scans the image through its
+  // registry.
+  IMAGE_SOURCE_KIND_REGISTRY = 1;
+  // IMAGE_SOURCE_KIND_DOCKER_DAEMON scans an image the local Docker daemon
+  // holds, which is the only way to reach an image a build loaded and never
+  // pushed.
+  IMAGE_SOURCE_KIND_DOCKER_DAEMON = 2;
+}
+
 // ImageSubject names one service-owned image that image evidence must cover.
 message ImageSubject {
   // reference is the image reference, digest pinned whenever it is known.
@@ -529,6 +547,11 @@ message ImageSubject {
   // service is the Codefly service identity the image belongs to, so evidence
   // deduplicated by digest still reports every service it covers.
   string service = 5;
+  // source says where this image lives, so the scan reaches the image the
+  // caller means rather than one that happens to answer to the same name. It
+  // is per subject: a request may mix a pushed runtime image with a locally
+  // built migration image.
+  ImageSourceKind source = 6;
 }
 
 // ImageSBOM is one image inventory bound to the exact digest and platform that

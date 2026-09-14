@@ -51,6 +51,7 @@ func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan, reso
 				Platform: platform,
 				Role:     recipe.GetName(),
 				Service:  service,
+				Source:   sourceKind(image.Source),
 			}
 			if image.Source == SourceDockerDaemon {
 				// A never-pushed image has no registry manifest to reference, so
@@ -220,8 +221,21 @@ func ValidateNoImageReason(reason builderv0.NoImageReason, message string) error
 // digest field or in its reference. A scan of a floating tag inventories
 // whatever the registry serves at that moment, so reporting it as coverage
 // asserts something about an image nobody checked was the one built.
+//
+// Where the pin sits is not interchangeable across sources. The daemon resolves
+// whatever reference it is handed to its own image ID, so a pin carried only in
+// a local subject's reference is not the identity such a scan binds to: the
+// scan succeeds, evidence binds to the ID the daemon returned, and no field is
+// left holding the identity that was asked for. A local subject therefore has
+// to carry its digest, which is the value the scan is checked against.
 func RequirePinned(subject *builderv0.ImageSubject) error {
-	if strings.HasPrefix(subject.GetDigest(), "sha256:") || strings.HasPrefix(referenceDigest(subject.GetReference()), "sha256:") {
+	if strings.HasPrefix(subject.GetDigest(), "sha256:") {
+		return nil
+	}
+	if SourceOf(subject) == SourceDockerDaemon {
+		return fmt.Errorf("%s names a local image but pins no sha256 digest field: the daemon resolves a reference to its own image ID, so evidence would bind to an identity the subject never named", subjectLabel(subject))
+	}
+	if strings.HasPrefix(referenceDigest(subject.GetReference()), "sha256:") {
 		return nil
 	}
 	return fmt.Errorf("%s is not pinned to a sha256 digest: evidence for a floating tag is not coverage of the image that was built", subjectLabel(subject))
