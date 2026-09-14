@@ -21,6 +21,22 @@ and the `service` it belongs to.
 Every shipped platform of a multi-architecture image is its own subject.
 Evidence for `linux/amd64` does not cover `linux/arm64`.
 
+A subject must be pinned to a `sha256` digest, either in its `digest` field or
+in its reference. A subject naming only a tag asks for a scan of whatever the
+registry serves at that moment, so its evidence says nothing about the image
+that was built — a tag left behind by an earlier push scans clean. Both the
+shared agent implementation and `ValidateCoverage` refuse an unpinned subject.
+
+Which of the two carries the pin is not a style choice. A **pushed** image is
+pinned in its *reference*, so the scan resolves out of the image the build
+produced and the evidence digest is derived from that identity rather than
+compared against it — resolving a pushed image yields the digest of one
+platform's child manifest, which is never the index digest the caller holds, so
+comparing them would reject honest evidence. An image that was only **loaded
+into the daemon** has no registry manifest to reference, so it keeps the tag the
+daemon knows and pins its `digest` field to the local image ID, which is the
+identity such a scan binds to.
+
 Empty `subjects` asks the agent to enumerate its own images.
 
 ## Responses
@@ -101,14 +117,19 @@ Coverage is derived from what the service itself declares, never from a list of
 known services that would drift as the fleet changes:
 
 ```go
-expected := sbom.ExpectedFromBuildPlan(service, plan)
-err := sbom.ValidateCoverage(expected, resp)
+expected, err := sbom.ExpectedFromBuildPlan(service, plan, resolved)
+err = sbom.ValidateCoverage(expected, resp)
 ```
 
-`ExpectedFromBuildPlan` turns each recipe into one subject per shipped platform;
-`ExpectedFromBuildResult` does the same for an agent-owned build.
+`ExpectedFromBuildPlan` turns each recipe into one subject per shipped platform,
+pinned to the digest the caller's build resolved for that platform. A recipe
+names a tag, so those digests are the only thing binding a subject to the image
+that was actually built; a recipe whose build reported none is an error rather
+than a subject nothing can verify. `ExpectedFromBuildResult` does the same for
+an agent-owned build, whose result already names its images.
+
 `ValidateCoverage` is the single check every agent is measured against. It
 rejects a source inventory, a non-complete response, evidence that is not bound
-to a `sha256` digest, an empty inventory, a digest that differs from the
-deployed one, an omitted platform, and a no-image claim that contradicts the
-declared build.
+to a `sha256` digest, an empty inventory, a subject pinned to no digest, a
+digest that differs from the deployed one, an omitted platform, and a no-image
+claim that contradicts the declared build.
