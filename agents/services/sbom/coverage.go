@@ -51,6 +51,7 @@ func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan, reso
 				Platform: platform,
 				Role:     recipe.GetName(),
 				Service:  service,
+				Source:   SourceKind(image.Source),
 			}
 			if image.Source == SourceDockerDaemon {
 				// A never-pushed image has no registry manifest to reference, so

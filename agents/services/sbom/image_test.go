@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/stretchr/testify/require"
 )
 
@@ -199,4 +200,17 @@ func TestManagedSyftArgsForKeepHardeningOnEveryTarget(t *testing.T) {
 	require.Contains(t, args, "--security-opt no-new-privileges")
 	require.Contains(t, args, "registry:redis@sha256:abc")
 	require.NotContains(t, args, "/var/run/docker.sock")
+}
+
+// A subject written before the selector existed carries no kind at all, and it
+// must keep resolving through the registry rather than probing the daemon: a
+// stale local image answering to the same tag would bind evidence to an image
+// nothing deployed.
+func TestSourceOfDefaultsToRegistry(t *testing.T) {
+	require.Equal(t, SourceRegistry, SourceOf(&builderv0.ImageSubject{Reference: "ghcr.io/codefly-dev/app:1.0"}))
+	require.Equal(t, SourceRegistry, SourceOf(&builderv0.ImageSubject{Source: builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY}))
+	require.Equal(t, SourceDockerDaemon, SourceOf(&builderv0.ImageSubject{Source: builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON}))
+
+	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY, SourceKind(SourceRegistry))
+	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON, SourceKind(SourceDockerDaemon))
 }

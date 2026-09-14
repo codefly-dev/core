@@ -463,7 +463,10 @@ func (s *BuilderWrapper) SBOMImageSubjectsRequired() (*builderv0.SBOMResponse, e
 // images. Identical digests are scanned once and reported once, retaining every
 // subject they cover, and any failed scan fails the whole response rather than
 // returning partial coverage.
-func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.ImageSubject, source servicesbom.ImageSource) (*builderv0.SBOMResponse, error) {
+//
+// Each subject says where its own image lives, so one request may mix a pushed
+// runtime image with a migration image that was only loaded into the daemon.
+func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.ImageSubject) (*builderv0.SBOMResponse, error) {
 	if len(subjects) == 0 {
 		return s.SBOMImageSubjectsRequired()
 	}
@@ -476,7 +479,7 @@ func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.I
 		result, err := servicesbom.Image(ctx, servicesbom.ImageRequest{
 			Reference: subject.GetReference(),
 			Platform:  subject.GetPlatform(),
-			Source:    source,
+			Source:    servicesbom.SourceOf(subject),
 		})
 		if err != nil {
 			return s.SBOMImageError(err)

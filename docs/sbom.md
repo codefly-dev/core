@@ -16,7 +16,8 @@ An image-scope request carries `subjects`: the images the caller requires
 evidence for. Each `ImageSubject` names a `reference`, an immutable `digest`, a
 `platform` in `os/arch` form, the `role` the image plays in the service
 (`runtime`, `init`, `migration`, `sidecar` — matching the build recipe name),
-and the `service` it belongs to.
+the `service` it belongs to, and the `source` the image has to be reached
+through.
 
 Every shipped platform of a multi-architecture image is its own subject.
 Evidence for `linux/amd64` does not cover `linux/arm64`.
@@ -36,6 +37,23 @@ comparing them would reject honest evidence. An image that was only **loaded
 into the daemon** has no registry manifest to reference, so it keeps the tag the
 daemon knows and pins its `digest` field to the local image ID, which is the
 identity such a scan binds to.
+
+`source` says which of those two cases applies, and nothing else can: a local
+image ID and a registry manifest digest are both `sha256:<hex>`, and an image
+loaded with `--load` commonly carries exactly the tag a pushed one would.
+Probing the daemon first is not a substitute — a stale local image answering to
+the same tag would bind evidence to an image nothing deployed, which is the
+failure the digest pin exists to prevent. Only the party that produced the image
+knows, so that party states it: `ExpectedFromBuildPlan` stamps each subject with
+what the build resolved for that recipe.
+
+It is per subject, not per request. A service that pushes its runtime image and
+only loads its migration image owes evidence for both, and one request carries
+both. `BuilderWrapper.SBOMImages(ctx, subjects)` reads each subject's own
+selector; an agent no longer picks one source on every caller's behalf.
+
+`IMAGE_SOURCE_KIND_UNSPECIFIED` means registry, so subjects written before the
+selector existed resolve the way they always did.
 
 Empty `subjects` asks the agent to enumerate its own images.
 
@@ -139,7 +157,8 @@ anything else fails with an explicit, actionable error.
 supported path for an image a build produced with `--load` and never pushed,
 whose only immutable identity is its local image ID. It requires an installed
 `syft`: the managed containerized scanner runs without the Docker socket by
-design and cannot reach the daemon.
+design and cannot reach the daemon. `sbom.SourceOf` maps a subject's selector to
+it, and `sbom.SourceKind` maps back for a caller deriving subjects of its own.
 
 `sbom.Container` predates this contract and is unchanged. It scans a registry
 image without resolving or binding a digest, so it does not satisfy image

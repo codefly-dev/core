@@ -86,8 +86,33 @@ func TestExpectedFromBuildPlanBindsALocalImageToItsDaemonID(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ghcr.io/codefly-dev/app:1.0", expected[0].GetReference())
 	require.Equal(t, "sha256:localid", expected[0].GetDigest())
+	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON, expected[0].GetSource())
 
 	resp := imageResponse(imageEvidence("sha256:localid", "", expected[0]))
+	require.NoError(t, ValidateCoverage("svc", expected, resp))
+}
+
+// A service that pushes its runtime image and only loads its migration image
+// owes evidence for both, and no scan can tell them apart from the reference or
+// the digest. Each subject carries what its own build resolved.
+func TestExpectedFromBuildPlanStampsEachRecipeWithItsOwnSource(t *testing.T) {
+	expected, err := ExpectedFromBuildPlan("svc", &builderv0.DockerBuildPlan{Recipes: []*builderv0.DockerBuildRecipe{
+		{Name: "app", Image: "ghcr.io/codefly-dev/app:1.0"},
+		{Name: "migration", Image: "ghcr.io/codefly-dev/migration:1.0"},
+	}}, []ResolvedImage{
+		{Recipe: "app", Digest: "sha256:index"},
+		{Recipe: "migration", Digest: "sha256:localid", Source: SourceDockerDaemon},
+	})
+	require.NoError(t, err)
+	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY, expected[0].GetSource())
+	require.Equal(t, SourceRegistry, SourceOf(expected[0]))
+	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON, expected[1].GetSource())
+	require.Equal(t, SourceDockerDaemon, SourceOf(expected[1]))
+
+	resp := imageResponse(
+		imageEvidence("sha256:child", "", expected[0]),
+		imageEvidence("sha256:localid", "", expected[1]),
+	)
 	require.NoError(t, ValidateCoverage("svc", expected, resp))
 }
 

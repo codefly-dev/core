@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
 
 // ImageSource selects how the scanner reaches an image.
@@ -24,6 +25,28 @@ const (
 	// only immutable identity is its local image ID.
 	SourceDockerDaemon
 )
+
+// SourceOf reports how a subject's image has to be reached. Nothing in the
+// reference or the digest reveals it — a local image ID and a registry
+// manifest digest are both "sha256:<hex>", and a loaded image commonly carries
+// the tag a pushed one would — so only what the subject declares can decide.
+// An unset kind means registry, so subjects written before the selector existed
+// resolve the way they always did.
+func SourceOf(subject *builderv0.ImageSubject) ImageSource {
+	if subject.GetSource() == builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON {
+		return SourceDockerDaemon
+	}
+	return SourceRegistry
+}
+
+// SourceKind is the wire selector for a scanner source, so a caller that
+// resolved an image from its own build states on the subject what it resolved.
+func SourceKind(source ImageSource) builderv0.ImageSourceKind {
+	if source == SourceDockerDaemon {
+		return builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON
+	}
+	return builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY
+}
 
 // ImageRequest is one image and platform to inventory.
 type ImageRequest struct {
