@@ -533,9 +533,6 @@ func (r *Runnable) Validate() error {
 	if r.Agent == nil {
 		return fmt.Errorf("runnable %q declares no agent", r.Name)
 	}
-	if !r.Agent.IsRunnable() {
-		return fmt.Errorf("runnable %q agent kind %q is not %q", r.Name, r.Agent.Kind, RunnableAgent)
-	}
 	if r.Agent.Version == "" || r.Agent.Version == "latest" {
 		return fmt.Errorf("runnable %q must pin its agent version; got %q", r.Name, r.Agent.Version)
 	}
@@ -544,6 +541,9 @@ func (r *Runnable) Validate() error {
 	}
 	if err := r.Execution.Validate(); err != nil {
 		return fmt.Errorf("runnable %q execution: %w", r.Name, err)
+	}
+	if !RunnableAgentCompatible(r.Agent, r.Execution.Facilities) {
+		return fmt.Errorf("runnable %q agent kind %q is not %q for its facilities", r.Name, r.Agent.Kind, RunnableAgent)
 	}
 	protocol, err := r.Execution.Protocol()
 	if err != nil {
@@ -572,6 +572,13 @@ func (r *Runnable) Validate() error {
 		}
 	}
 	return nil
+}
+
+// RunnableAgentCompatible admits the actual owner builder for service-only
+// operations. Launched artifacts still require a Runnable agent's harness and
+// packaging contract; a service builder cannot produce those implicitly.
+func RunnableAgentCompatible(agent *Agent, facilities []RunnableFacility) bool {
+	return agent != nil && (agent.IsRunnable() || (agent.IsService() && len(facilities) == 1 && facilities[0] == RunnableFacilityService))
 }
 
 // Validate rejects an unsupported protocol or a schema outside the bounded

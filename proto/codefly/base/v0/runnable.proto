@@ -320,7 +320,8 @@ message Runnable {
   string description = 2;
   // version is the immutable release version.
   string version = 3 [(buf.validate.field).string.min_len = 5];
-  // agent is the language agent that generates the harness and build recipe.
+  // agent is the pinned builder: a runnable agent for launched artifacts, or
+  // the owner's service agent for an operation exposed only by its service.
   Agent agent = 4 [(buf.validate.field).required = true];
   // contract is the typed operation.
   RunnableContract contract = 5 [(buf.validate.field).required = true];
@@ -414,7 +415,8 @@ message RunnablePackage {
   string schema = 1 [(buf.validate.field).string.min_len = 1];
   // identity is the release identity.
   RunnableIdentity identity = 2 [(buf.validate.field).required = true];
-  // agent is the exact language agent that built the package.
+  // agent is the pinned builder: a runnable agent for launched artifacts, or
+  // the owner's service agent for a service-only implementation.
   Agent agent = 3 [(buf.validate.field).required = true];
   // contract is the typed operation the artifacts implement.
   RunnableContract contract = 4 [(buf.validate.field).required = true];

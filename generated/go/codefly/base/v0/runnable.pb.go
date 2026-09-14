@@ -1526,7 +1526,8 @@ type Runnable struct {
 	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
 	// version is the immutable release version.
 	Version string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	// agent is the language agent that generates the harness and build recipe.
+	// agent is the pinned builder: a runnable agent for launched artifacts, or
+	// the owner's service agent for an operation exposed only by its service.
 	Agent *Agent `protobuf:"bytes,4,opt,name=agent,proto3" json:"agent,omitempty"`
 	// contract is the typed operation.
 	Contract *RunnableContract `protobuf:"bytes,5,opt,name=contract,proto3" json:"contract,omitempty"`
@@ -1965,7 +1966,8 @@ type RunnablePackage struct {
 	Schema string `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
 	// identity is the release identity.
 	Identity *RunnableIdentity `protobuf:"bytes,2,opt,name=identity,proto3" json:"identity,omitempty"`
-	// agent is the exact language agent that built the package.
+	// agent is the pinned builder: a runnable agent for launched artifacts, or
+	// the owner's service agent for a service-only implementation.
 	Agent *Agent `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
 	// contract is the typed operation the artifacts implement.
 	Contract *RunnableContract `protobuf:"bytes,4,opt,name=contract,proto3" json:"contract,omitempty"`

@@ -604,6 +604,7 @@ func TestServiceBackedRunnableDeclaresNoEntrypoint(t *testing.T) {
 	execution["facilities"] = []any{"service"}
 	execution["cancellation"] = "none"
 	declaration["contract"].(map[string]any)["protocol"] = resources.RunnableServiceProtocolV1
+	declaration["agent"] = map[string]any{"kind": "codefly:service", "name": "go-grpc", "version": "0.1.38", "publisher": "codefly.dev"}
 	delete(declaration, "entrypoint")
 	content, err := yaml.Marshal(declaration)
 	require.NoError(t, err)
@@ -621,4 +622,5 @@ func TestServiceBackedRunnableDeclaresNoEntrypoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, wire.GetHandler())
 	require.Zero(t, wire.GetExecution().GetMaxLogBytes())
+	require.Equal(t, basev0.Agent_SERVICE, wire.GetAgent().GetKind())
 }
