@@ -181,11 +181,21 @@ Serving `SBOM_SCOPE_IMAGE` makes an agent *able* to answer. Advertising
 `image_sbom` is what gets the work *scheduled*: `ciinputs.Required` emits a
 `TASK_PHASE_IMAGE_SBOM` key only for an agent whose capability reports
 `supported: true`, and that key is what a consumer plans, discovers effective
-inputs for, and caches against. The two are independent in one direction only.
-An agent may serve image scope while leaving the capability unadvertised, which
-is the state to sit in until the gate below holds. The reverse is a false
-advertisement: a present `ValidationCapabilities` is authoritative, so
-`supported: true` requires the RPC to exist.
+inputs for, and caches against. An agent may serve image scope while leaving the
+capability unadvertised, which is the state to sit in until the gate below holds.
+
+Advertising happens through `agentservices.Advertisement.Validation`: setting
+`ImageSbom` to `supported: true` there is the whole act. A nil `Validation`
+denotes a legacy agent whose RPCs must be compatibility-probed, while an explicit
+empty message advertises that no validation operations are supported.
+
+The bar for setting it is that the agent **serves image scope**, not merely that
+`Builder.SBOM` exists — it already does for every agent serving source scope, so
+its existence proves nothing here. An agent that advertises the capability and
+then answers image-scope requests with `UNSUPPORTED` has made a false
+advertisement: `UNSUPPORTED` means no implementation, so it and this
+advertisement cannot both be true, and the phase is scheduled on every run
+without ever being satisfied.
 
 `sbom` never stands in for `image_sbom`. A source inventory proves nothing about
 the contents of a shipped image, so an agent advertising `sbom` alone is
@@ -198,21 +208,23 @@ agent only advertises over the wire; the consumer that calls
 `Agent.GetEffectiveInputs` and runs `ciinputs.Evaluate` is what has to
 understand the phase, and it can be running an older core than the agent does.
 
-Against such a consumer, advertising does not degrade to "image SBOM is
-skipped". It fails the whole response, for every phase:
+A consumer rejects the phase whenever its own `validKey` bound sits below
+`TASK_PHASE_IMAGE_SBOM`. A core reaches that state two ways — it predates the
+`image_sbom` capability field, or it carries the field but predates the raised
+bound — and the difference does not change the outcome. `validKey` guards both
+the required-task inventory and every returned declaration, so the rejection
+lands on whichever side reaches it first. Neither is fixable from the request
+side: such a consumer cannot represent the phase at all.
 
-- a consumer whose core predates the `image_sbom` field never requests the
-  phase, so the agent's declaration for it is an unrequested task and the entire
-  response is rejected;
-- a consumer whose core carries the field but predates the raised `validKey`
-  phase bound rejects the very key its own `Required` emitted.
-
-Either way that agent loses effective-input discovery for lint, compile, test
-and everything else it supports, and falls back to conservative selection with
-no cache reuse.
+The outcome is not "image SBOM is skipped". `Evaluate` returns an error and no
+tasks, so the agent's whole response is discarded and every other phase — lint,
+compile, test — loses effective-input discovery with it. This is a hard error,
+distinct from the conservative fallback a consumer uses for an `Unimplemented`
+RPC or an unrecognized response: there, tasks come back marked conservative and
+uncacheable; here there is nothing to come back.
 
 An agent that serves image scope may therefore advertise `image_sbom` only once
-every consumer that evaluates it runs a core containing the `validKey` fix
-(codefly-dev/core#501, landed after `v0.3.31`). Until that floor holds across
-the fleet, serve the scope, satisfy `ValidateCoverage`, and leave the capability
-unadvertised.
+every consumer that evaluates it runs a core whose `validKey` accepts the phase:
+core released after `v0.3.31` (the fix in codefly-dev/core#501). Until that floor
+holds across the fleet, serve the scope, satisfy `ValidateCoverage`, and leave
+the capability unadvertised.
