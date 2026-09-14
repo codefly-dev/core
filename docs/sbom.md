@@ -208,20 +208,28 @@ agent only advertises over the wire; the consumer that calls
 `Agent.GetEffectiveInputs` and runs `ciinputs.Evaluate` is what has to
 understand the phase, and it can be running an older core than the agent does.
 
-A consumer rejects the phase whenever its own `validKey` bound sits below
-`TASK_PHASE_IMAGE_SBOM`. A core reaches that state two ways — it predates the
-`image_sbom` capability field, or it carries the field but predates the raised
-bound — and the difference does not change the outcome. `validKey` guards both
-the required-task inventory and every returned declaration, so the rejection
-lands on whichever side reaches it first. Neither is fixable from the request
-side: such a consumer cannot represent the phase at all.
+A consumer below the floor rejects the phase because its own `validKey` bound
+sits below `TASK_PHASE_IMAGE_SBOM`. A core reaches that state two ways — it
+predates the `image_sbom` capability field, or it carries the field but predates
+the raised bound — and the difference does not change the outcome. `validKey`
+guards both the required-task inventory and every returned declaration, so the
+rejection lands on whichever side reaches it first. Neither is fixable from the
+request side: such a consumer cannot represent the phase at all.
 
-The outcome is not "image SBOM is skipped". `Evaluate` returns an error and no
-tasks, so the agent's whole response is discarded and every other phase — lint,
-compile, test — loses effective-input discovery with it. This is a hard error,
-distinct from the conservative fallback a consumer uses for an `Unimplemented`
-RPC or an unrecognized response: there, tasks come back marked conservative and
-uncacheable; here there is nothing to come back.
+For those consumers the outcome is not "image SBOM is skipped". `Evaluate`
+returns an error and no tasks, so the agent's whole response is discarded and
+every other phase — lint, compile, test — loses effective-input discovery with
+it. That is a hard error, distinct from the conservative fallback used for an
+`Unimplemented` RPC or an unrecognized response: there, tasks come back marked
+conservative and uncacheable; here there is nothing to come back.
+
+Current core no longer fails that way, and the difference is prospective only.
+Since the fix for unrepresentable phases, a consumer drops a declaration whose
+phase sits above every phase it can name and keeps discovery for the rest. That
+protects consumers from phases added *after* `TASK_PHASE_IMAGE_SBOM`; it does
+nothing for this one, because every core that mishandles phase 9 predates that
+fix. A core that knows the phase but not the raised bound does not skip it
+either — it can name the phase, so it takes the loud rejection instead.
 
 An agent that serves image scope may therefore advertise `image_sbom` only once
 every consumer that evaluates it runs a core whose `validKey` accepts the phase:
