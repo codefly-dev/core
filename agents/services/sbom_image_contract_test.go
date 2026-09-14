@@ -69,7 +69,7 @@ func TestSBOMImagesRefusesAnUnpinnedSubject(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, builderv0.SBOMStatus_ERROR, resp.GetState().GetState())
 	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, resp.GetScope())
-	require.Contains(t, resp.GetState().GetMessage(), "names no digest")
+	require.Contains(t, resp.GetState().GetMessage(), "not pinned to a sha256 digest")
 }
 
 // A source inventory is still rejected as image coverage; state is checked

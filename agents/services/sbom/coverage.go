@@ -9,27 +9,28 @@ import (
 )
 
 // ResolvedImage is one image a completed build produced: the recipe that built
-// it, the platform it ships, and the immutable digest it resolved to. A
-// multi-architecture recipe resolves one digest per platform, because that is
-// the digest a scan of that platform binds its evidence to.
+// it, the platform it ships, and the immutable identity it resolved to. Source
+// states what that identity is, because the two are not interchangeable: a
+// registry digest names a manifest, while an image only loaded into the daemon
+// has nothing but a local image ID.
 type ResolvedImage struct {
 	Recipe   string
 	Platform string
 	Digest   string
+	Source   ImageSource
 }
 
 // ExpectedFromBuildPlan derives the image subjects a caller-owned build
 // produces. Each recipe contributes one subject per shipped platform, so a
 // multi-architecture recipe is not satisfied by evidence for a single platform.
 //
-// A recipe names a tag, so the digests the caller resolved from its build are
-// what pins each subject. Without them nothing compares the image that was
-// scanned against the image that was built, and a tag that still serves an
-// earlier push scans clean.
+// A recipe names a tag, so what the caller resolved from its build is what pins
+// each subject. Without it a subject names a floating tag and its evidence
+// describes whatever that tag happens to serve.
 func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan, resolved []ResolvedImage) ([]*builderv0.ImageSubject, error) {
-	digests := make(map[string]string, len(resolved))
+	built := make(map[string]ResolvedImage, len(resolved))
 	for _, image := range resolved {
-		digests[image.Recipe+"|"+image.Platform] = image.Digest
+		built[image.Recipe+"|"+image.Platform] = image
 	}
 	var subjects []*builderv0.ImageSubject
 	for _, recipe := range plan.GetRecipes() {
@@ -38,21 +39,35 @@ func ExpectedFromBuildPlan(service string, plan *builderv0.DockerBuildPlan, reso
 			platforms = []string{""}
 		}
 		for _, platform := range platforms {
-			digest := digests[recipe.GetName()+"|"+platform]
-			if !strings.HasPrefix(digest, "sha256:") {
+			image := built[recipe.GetName()+"|"+platform]
+			if !strings.HasPrefix(image.Digest, "sha256:") {
 				where := fmt.Sprintf("%s image %s", recipe.GetName(), recipe.GetImage())
 				if platform != "" {
 					where += " on " + platform
 				}
 				return nil, fmt.Errorf("the build resolved no digest for %s: a subject carrying only a tag binds evidence to whatever that tag serves, not to the image that was built", where)
 			}
-			subjects = append(subjects, &builderv0.ImageSubject{
-				Reference: recipe.GetImage(),
-				Digest:    digest,
-				Platform:  platform,
-				Role:      recipe.GetName(),
-				Service:   service,
-			})
+			subject := &builderv0.ImageSubject{
+				Platform: platform,
+				Role:     recipe.GetName(),
+				Service:  service,
+			}
+			if image.Source == SourceDockerDaemon {
+				// A never-pushed image has no registry manifest to reference, so
+				// the daemon keeps the tag it knows and the local image ID is the
+				// identity a scan of it binds evidence to.
+				subject.Reference = recipe.GetImage()
+				subject.Digest = image.Digest
+			} else {
+				// Pinning the reference makes the scan resolve out of the image
+				// the build produced, so evidence is derived from that identity
+				// rather than compared against it. Comparing would reject honest
+				// evidence: resolving a pushed image yields the digest of one
+				// platform's child manifest, never the index digest the caller
+				// holds.
+				subject.Reference = pinnedReference(recipe.GetImage(), image.Digest)
+			}
+			subjects = append(subjects, subject)
 		}
 	}
 	return subjects, nil
@@ -111,11 +126,16 @@ func ValidateCoverage(expected []*builderv0.ImageSubject, resp *builderv0.SBOMRe
 			covered[key] = evidence
 		}
 	}
-	var missing []string
+	// Well-formedness of the expectation is settled before any of it is matched,
+	// so a malformed subject is reported as itself rather than as whatever
+	// mismatch another subject happens to produce first.
 	for _, want := range expected {
 		if err := RequirePinned(want); err != nil {
 			return err
 		}
+	}
+	var missing []string
+	for _, want := range expected {
 		evidence, ok := covered[subjectKey(want)]
 		if !ok {
 			missing = append(missing, subjectLabel(want))
@@ -140,10 +160,10 @@ func ValidateCoverage(expected []*builderv0.ImageSubject, resp *builderv0.SBOMRe
 // whatever the registry serves at that moment, so reporting it as coverage
 // asserts something about an image nobody checked was the one built.
 func RequirePinned(subject *builderv0.ImageSubject) error {
-	if subject.GetDigest() != "" || referenceDigest(subject.GetReference()) != "" {
+	if strings.HasPrefix(subject.GetDigest(), "sha256:") || strings.HasPrefix(referenceDigest(subject.GetReference()), "sha256:") {
 		return nil
 	}
-	return fmt.Errorf("%s names no digest: evidence for a floating tag is not coverage of the image that was built", subjectLabel(subject))
+	return fmt.Errorf("%s is not pinned to a sha256 digest: evidence for a floating tag is not coverage of the image that was built", subjectLabel(subject))
 }
 
 func validateEvidence(evidence *builderv0.ImageSBOM) error {

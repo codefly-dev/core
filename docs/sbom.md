@@ -21,11 +21,21 @@ and the `service` it belongs to.
 Every shipped platform of a multi-architecture image is its own subject.
 Evidence for `linux/amd64` does not cover `linux/arm64`.
 
-A subject must be pinned, either in its `digest` field or in its reference. A
-subject naming only a tag asks for a scan of whatever the registry serves at
-that moment, so its evidence says nothing about the image that was built — a
-tag left behind by an earlier push scans clean. Both the shared agent
-implementation and `ValidateCoverage` refuse an unpinned subject.
+A subject must be pinned to a `sha256` digest, either in its `digest` field or
+in its reference. A subject naming only a tag asks for a scan of whatever the
+registry serves at that moment, so its evidence says nothing about the image
+that was built — a tag left behind by an earlier push scans clean. Both the
+shared agent implementation and `ValidateCoverage` refuse an unpinned subject.
+
+Which of the two carries the pin is not a style choice. A **pushed** image is
+pinned in its *reference*, so the scan resolves out of the image the build
+produced and the evidence digest is derived from that identity rather than
+compared against it — resolving a pushed image yields the digest of one
+platform's child manifest, which is never the index digest the caller holds, so
+comparing them would reject honest evidence. An image that was only **loaded
+into the daemon** has no registry manifest to reference, so it keeps the tag the
+daemon knows and pins its `digest` field to the local image ID, which is the
+identity such a scan binds to.
 
 Empty `subjects` asks the agent to enumerate its own images.
 
