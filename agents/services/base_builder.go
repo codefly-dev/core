@@ -433,11 +433,8 @@ func (s *BuilderWrapper) SBOMImageResponse(images []*builderv0.ImageSBOM) (*buil
 // only complete image-scope response carrying no inventories, and it is
 // distinct from SBOMUnsupported, which means this agent has no implementation.
 func (s *BuilderWrapper) SBOMNoImage(reason builderv0.NoImageReason, message string) (*builderv0.SBOMResponse, error) {
-	if reason == builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
-		return s.SBOMImageError(fmt.Errorf("a no-image SBOM response requires an explicit reason"))
-	}
-	if reason == builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED && message == "" {
-		return s.SBOMImageError(fmt.Errorf("an externally managed claim must name the runtime that owns the image; a vendor image this service pins and deploys is its own shipped image, so enumerate it as a subject instead"))
+	if err := servicesbom.ValidateNoImageReason(reason, message); err != nil {
+		return s.SBOMImageError(err)
 	}
 	return &builderv0.SBOMResponse{
 		State:         &builderv0.SBOMStatus{State: builderv0.SBOMStatus_COMPLETE, Message: message},

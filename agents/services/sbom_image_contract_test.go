@@ -21,17 +21,17 @@ func TestImageSBOMFailuresNameTheirCauseThroughValidateCoverage(t *testing.T) {
 	failed, err := wrapper.SBOMImageError(fmt.Errorf("syft exited 1: no space left on device"))
 	require.NoError(t, err)
 	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, failed.GetScope())
-	validation := servicesbom.ValidateCoverage(subjects, failed)
+	validation := servicesbom.ValidateCoverage("svc", subjects, failed)
 	require.ErrorContains(t, validation, "no space left on device")
 	require.NotContains(t, validation.Error(), "not image coverage")
 
 	unsupported, err := wrapper.SBOMUnsupported("no generator here")
 	require.NoError(t, err)
-	require.ErrorContains(t, servicesbom.ValidateCoverage(subjects, unsupported), "no generator here")
+	require.ErrorContains(t, servicesbom.ValidateCoverage("svc", subjects, unsupported), "no generator here")
 
 	required, err := wrapper.SBOMImageSubjectsRequired()
 	require.NoError(t, err)
-	require.ErrorContains(t, servicesbom.ValidateCoverage(subjects, required), "does not build its own images")
+	require.ErrorContains(t, servicesbom.ValidateCoverage("svc", subjects, required), "does not build its own images")
 }
 
 func TestNoImageResponseRequiresAnExplicitReason(t *testing.T) {
@@ -41,11 +41,11 @@ func TestNoImageResponseRequiresAnExplicitReason(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, builderv0.SBOMStatus_ERROR, invalid.GetState().GetState())
 	require.Equal(t, builderv0.SBOMScope_SBOM_SCOPE_IMAGE, invalid.GetScope())
-	require.ErrorContains(t, servicesbom.ValidateCoverage(nil, invalid), "explicit reason")
+	require.ErrorContains(t, servicesbom.ValidateCoverage("svc", nil, invalid), "must declare a no-image reason")
 
 	declared, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_NO_IMAGE, "passive toolbox")
 	require.NoError(t, err)
-	require.NoError(t, servicesbom.ValidateCoverage(nil, declared))
+	require.NoError(t, servicesbom.ValidateCoverage("svc", nil, declared))
 }
 
 // A stock-image service that pins a vendor image ships that image, so the
@@ -56,11 +56,11 @@ func TestExternallyManagedMustNameTheRuntime(t *testing.T) {
 	anonymous, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED, "")
 	require.NoError(t, err)
 	require.Equal(t, builderv0.SBOMStatus_ERROR, anonymous.GetState().GetState())
-	require.ErrorContains(t, servicesbom.ValidateCoverage(nil, anonymous), "must name the runtime")
+	require.ErrorContains(t, servicesbom.ValidateCoverage("svc", nil, anonymous), "must name the runtime")
 
 	named, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED, "runs on a provider-managed RDS instance")
 	require.NoError(t, err)
-	require.NoError(t, servicesbom.ValidateCoverage(nil, named))
+	require.NoError(t, servicesbom.ValidateCoverage("svc", nil, named))
 }
 
 // An agent whose images the caller builds holds no digest, so it must fail the
@@ -82,5 +82,5 @@ func TestSourceInventoryIsStillRejectedAsImageCoverage(t *testing.T) {
 
 	source, err := wrapper.SBOMResponse(nil, "go-list", "GO", "abc")
 	require.NoError(t, err)
-	require.ErrorContains(t, servicesbom.ValidateCoverage(subjects, source), "not image coverage")
+	require.ErrorContains(t, servicesbom.ValidateCoverage("svc", subjects, source), "not image coverage")
 }

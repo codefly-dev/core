@@ -58,7 +58,10 @@ the caller asks with an empty expectation — which is not evidence that the
 service ships nothing. A stock-image agent knows its image reference before any
 build, so it enumerates that image and returns real evidence for it. Evidence
 carried against an empty expectation is validated like any other and counts as
-coverage on its own.
+coverage on its own, provided each inventory names a subject belonging to the
+service being validated. Nothing derived anchors that evidence, so the service
+identity is passed to `ValidateCoverage`, and an inventory naming only some
+other service is refused rather than counted.
 
 `EXTERNALLY_MANAGED` is not the escape hatch for that case. It means an external
 provider owns the runtime the service points at — a hosted database, a SaaS
@@ -133,7 +136,7 @@ known services that would drift as the fleet changes:
 
 ```go
 expected := sbom.ExpectedFromBuildPlan(service, plan)
-err := sbom.ValidateCoverage(expected, resp)
+err := sbom.ValidateCoverage(service, expected, resp)
 ```
 
 `ExpectedFromBuildPlan` turns each recipe into one subject per shipped platform;
@@ -141,7 +144,9 @@ err := sbom.ValidateCoverage(expected, resp)
 `ValidateCoverage` is the single check every agent is measured against. It
 rejects a source inventory, a non-complete response, evidence that is not bound
 to a `sha256` digest, an empty inventory, a digest that differs from the
-deployed one, an omitted platform, an externally managed claim that names no
-runtime, and a no-image claim that contradicts the declared build. An empty
-expectation is not itself a pass: the response still has to carry either valid
-enumerated evidence or an honest no-image reason.
+deployed one, an omitted platform, enumerated evidence that names no subject of
+the service being validated, an externally managed claim that names no runtime,
+a no-image reason this contract does not define, and a no-image claim that
+contradicts the declared build. An empty expectation is not itself a pass: the
+response still has to carry either valid enumerated evidence or an honest
+no-image reason.
