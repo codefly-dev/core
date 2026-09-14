@@ -171,3 +171,48 @@ managed claim that names no runtime, a no-image reason this contract does not
 define, and a no-image claim that contradicts the declared build. An empty
 expectation is not itself a pass: the response still has to carry either valid
 enumerated evidence or an honest no-image reason.
+
+## Advertising the capability
+
+`ValidationCapabilities.image_sbom` is a separate advertisement from `sbom`, and
+advertising it is a different act from serving image-scope requests.
+
+Serving `SBOM_SCOPE_IMAGE` makes an agent *able* to answer. Advertising
+`image_sbom` is what gets the work *scheduled*: `ciinputs.Required` emits a
+`TASK_PHASE_IMAGE_SBOM` key only for an agent whose capability reports
+`supported: true`, and that key is what a consumer plans, discovers effective
+inputs for, and caches against. The two are independent in one direction only.
+An agent may serve image scope while leaving the capability unadvertised, which
+is the state to sit in until the gate below holds. The reverse is a false
+advertisement: a present `ValidationCapabilities` is authoritative, so
+`supported: true` requires the RPC to exist.
+
+`sbom` never stands in for `image_sbom`. A source inventory proves nothing about
+the contents of a shipped image, so an agent advertising `sbom` alone is
+correctly read as having no image coverage.
+
+### The rollout gate
+
+The version floor binds on the **evaluating** binary, not on the agent. The
+agent only advertises over the wire; the consumer that calls
+`Agent.GetEffectiveInputs` and runs `ciinputs.Evaluate` is what has to
+understand the phase, and it can be running an older core than the agent does.
+
+Against such a consumer, advertising does not degrade to "image SBOM is
+skipped". It fails the whole response, for every phase:
+
+- a consumer whose core predates the `image_sbom` field never requests the
+  phase, so the agent's declaration for it is an unrequested task and the entire
+  response is rejected;
+- a consumer whose core carries the field but predates the raised `validKey`
+  phase bound rejects the very key its own `Required` emitted.
+
+Either way that agent loses effective-input discovery for lint, compile, test
+and everything else it supports, and falls back to conservative selection with
+no cache reuse.
+
+An agent that serves image scope may therefore advertise `image_sbom` only once
+every consumer that evaluates it runs a core containing the `validKey` fix
+(codefly-dev/core#501, landed after `v0.3.31`). Until that floor holds across
+the fleet, serve the scope, satisfy `ValidateCoverage`, and leave the capability
+unadvertised.
