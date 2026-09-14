@@ -88,34 +88,63 @@ func ExpectedFromBuildResult(service string, result *builderv0.DockerBuildResult
 	return subjects
 }
 
+// PublishedImage names an image the agent ships without the caller building it:
+// one a service publishes from its own release pipeline, or a vendor image it
+// pins and deploys. The fields are named rather than positional because the
+// service and the role are both free-form strings whose exchange would produce
+// a well-formed expectation anchored to the wrong identity.
+type PublishedImage struct {
+	Service   string
+	Role      string
+	Reference string
+	Platforms []string
+}
+
 // ExpectedFromImageReference derives the image subjects of an image the agent
-// names itself rather than one the caller builds: an image the service
-// publishes from its own release pipeline, or a vendor image it pins and
-// deploys. No recipe describes such an image and no build result names it, so
-// the reference the service ships is what the expectation is derived from.
+// names itself. No recipe describes such an image and no build result names it,
+// so the reference the service ships is what the expectation is derived from.
 //
 // Each shipped platform is its own subject, which is what an expectation states
 // that evidence cannot: enumerated evidence is judged one inventory at a time,
 // so a multi-architecture image answering for a single platform reads as
 // covered until something says which platforms were expected.
 //
+// These subjects are what the request asks for, not only what its answer is
+// measured against. Send them as the request's subjects and validate against
+// the same list. Asked with empty subjects an agent enumerates its own, whose
+// role it chooses for itself, and a subject matches evidence by service, role,
+// platform and repository together — so an expectation derived here and an
+// answer enumerated there describe the same image under two different keys, and
+// real coverage is reported missing.
+//
 // The reference carries the pin, as it does for any pushed image: each
 // platform's scan resolves a child manifest out of it, so evidence is derived
 // from that identity rather than compared against it.
-func ExpectedFromImageReference(service, role, reference string, platforms []string) ([]*builderv0.ImageSubject, error) {
-	if !strings.HasPrefix(referenceDigest(reference), "sha256:") {
-		return nil, fmt.Errorf("published image %s is not pinned to a sha256 digest: a tag serves whatever was pushed to it last, so its inventory is not coverage of the image this service ships", reference)
+func ExpectedFromImageReference(image PublishedImage) ([]*builderv0.ImageSubject, error) {
+	// ValidateCoverage takes the service it is validating, but consults it only
+	// for evidence an agent enumerated: an expectation is trusted to carry its
+	// own identity, because a digest shared by several services is validated
+	// from the subjects of all of them at once. A subject naming no service is
+	// therefore anchored to nothing and matches any service's evidence, and
+	// nothing downstream is left to catch it.
+	if image.Service == "" {
+		return nil, fmt.Errorf("image %s cannot be expected of no service: a subject naming no service matches evidence belonging to any of them", image.Reference)
 	}
+	digest, pinned := strings.CutPrefix(referenceDigest(image.Reference), "sha256:")
+	if !pinned || digest == "" || strings.ContainsAny(digest, "@:") {
+		return nil, fmt.Errorf("published image %s is not pinned to a sha256 digest: a tag serves whatever was pushed to it last, so its inventory is not coverage of the image this service ships", image.Reference)
+	}
+	platforms := image.Platforms
 	if len(platforms) == 0 {
 		platforms = []string{""}
 	}
 	var subjects []*builderv0.ImageSubject
 	for _, platform := range platforms {
 		subjects = append(subjects, &builderv0.ImageSubject{
-			Reference: reference,
+			Reference: image.Reference,
 			Platform:  platform,
-			Role:      role,
-			Service:   service,
+			Role:      image.Role,
+			Service:   image.Service,
 		})
 	}
 	return subjects, nil

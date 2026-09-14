@@ -395,7 +395,12 @@ func TestValidateCoverageMatchesATagToItsResolvedDigest(t *testing.T) {
 // carrying no digest of its own, because each scan binds to the child manifest
 // it resolved.
 func TestExpectedFromImageReferenceCoversEveryShippedPlatform(t *testing.T) {
-	expected, err := ExpectedFromImageReference("svc", "runtime", "ghcr.io/codefly-dev/gateway@sha256:index", []string{"linux/amd64", "linux/arm64"})
+	expected, err := ExpectedFromImageReference(PublishedImage{
+		Service:   "svc",
+		Role:      "runtime",
+		Reference: "ghcr.io/codefly-dev/gateway@sha256:index",
+		Platforms: []string{"linux/amd64", "linux/arm64"},
+	})
 	require.NoError(t, err)
 	require.Len(t, expected, 2)
 	require.Equal(t, "ghcr.io/codefly-dev/gateway@sha256:index", expected[0].GetReference())
@@ -417,7 +422,12 @@ func TestExpectedFromImageReferenceCoversEveryShippedPlatform(t *testing.T) {
 // two-platform image passes on its own; measured against the platforms the
 // service ships, the missing one is named.
 func TestValidateCoverageReportsAPlatformAPublishedImageDidNotCover(t *testing.T) {
-	expected, err := ExpectedFromImageReference("svc", "runtime", "ghcr.io/codefly-dev/gateway@sha256:index", []string{"linux/amd64", "linux/arm64"})
+	expected, err := ExpectedFromImageReference(PublishedImage{
+		Service:   "svc",
+		Role:      "runtime",
+		Reference: "ghcr.io/codefly-dev/gateway@sha256:index",
+		Platforms: []string{"linux/amd64", "linux/arm64"},
+	})
 	require.NoError(t, err)
 
 	resp := imageResponse(imageEvidence("sha256:amdchild", "linux/amd64", expected[0]))
@@ -428,18 +438,81 @@ func TestValidateCoverageReportsAPlatformAPublishedImageDidNotCover(t *testing.T
 	require.ErrorContains(t, err, "linux/arm64")
 }
 
+// An expectation is trusted to carry its own identity, because ValidateCoverage
+// consults the service it was given only for enumerated evidence. A subject
+// naming no service is therefore anchored to nothing: it matches evidence
+// belonging to any service at all, and no later check is left to refuse it.
+func TestExpectedFromImageReferenceRejectsAnUnnamedService(t *testing.T) {
+	_, err := ExpectedFromImageReference(PublishedImage{
+		Role:      "runtime",
+		Reference: "ghcr.io/codefly-dev/gateway@sha256:index",
+		Platforms: []string{"linux/amd64"},
+	})
+	require.ErrorContains(t, err, "cannot be expected of no service")
+
+	alien := &builderv0.ImageSubject{Reference: "ghcr.io/codefly-dev/gateway@sha256:index", Platform: "linux/amd64", Role: "runtime"}
+	resp := imageResponse(imageEvidence("sha256:amdchild", "linux/amd64", alien))
+	require.NoError(t, ValidateCoverage("svc", []*builderv0.ImageSubject{alien}, resp))
+}
+
 // A published image is named by its registry manifest, so deriving from a tag
 // would ask for an inventory of whatever that tag serves now rather than of the
 // image the service shipped.
 func TestExpectedFromImageReferenceRejectsAFloatingTag(t *testing.T) {
-	_, err := ExpectedFromImageReference("svc", "runtime", "ghcr.io/codefly-dev/gateway:1.0", []string{"linux/amd64"})
+	_, err := ExpectedFromImageReference(PublishedImage{
+		Service:   "svc",
+		Role:      "runtime",
+		Reference: "ghcr.io/codefly-dev/gateway:1.0",
+		Platforms: []string{"linux/amd64"},
+	})
 	require.ErrorContains(t, err, "not pinned to a sha256 digest")
+}
+
+// The sha256 prefix alone is not a pin. A reference carrying an empty digest,
+// or a second digest appended to the first, names no manifest a scan can
+// resolve, and accepting it deferred the failure to the scan that ran on it.
+func TestExpectedFromImageReferenceRejectsAMalformedPin(t *testing.T) {
+	for _, reference := range []string{
+		"ghcr.io/codefly-dev/gateway@sha256:",
+		"ghcr.io/codefly-dev/gateway@sha256:index@sha256:other",
+	} {
+		_, err := ExpectedFromImageReference(PublishedImage{Service: "svc", Role: "runtime", Reference: reference})
+		require.ErrorContains(t, err, "not pinned to a sha256 digest", reference)
+	}
+}
+
+// A subject matches evidence by service, role, platform and repository
+// together, and an agent asked with empty subjects picks its own role. Deriving
+// an expectation here while letting the agent enumerate there describes one
+// image under two keys, so real coverage reads as missing. The derived subjects
+// are what the request must ask for.
+func TestValidateCoverageMissesEnumeratedEvidenceUnderAnotherRole(t *testing.T) {
+	expected, err := ExpectedFromImageReference(PublishedImage{
+		Service:   "svc",
+		Role:      "runtime",
+		Reference: "ghcr.io/codefly-dev/gateway@sha256:index",
+		Platforms: []string{"linux/amd64"},
+	})
+	require.NoError(t, err)
+
+	enumerated := &builderv0.ImageSubject{
+		Reference: "ghcr.io/codefly-dev/gateway@sha256:index",
+		Platform:  "linux/amd64",
+		Role:      "gateway",
+		Service:   "svc",
+	}
+	resp := imageResponse(imageEvidence("sha256:amdchild", "linux/amd64", enumerated))
+	require.ErrorContains(t, ValidateCoverage("svc", expected, resp), "no image SBOM evidence for")
 }
 
 // A single-platform published image names no platform, and the evidence its
 // scan binds still covers it.
 func TestExpectedFromImageReferenceCoversAnImageShippingOnePlatform(t *testing.T) {
-	expected, err := ExpectedFromImageReference("svc", "runtime", "ghcr.io/codefly-dev/gateway@sha256:only", nil)
+	expected, err := ExpectedFromImageReference(PublishedImage{
+		Service:   "svc",
+		Role:      "runtime",
+		Reference: "ghcr.io/codefly-dev/gateway@sha256:only",
+	})
 	require.NoError(t, err)
 	require.Len(t, expected, 1)
 	require.Empty(t, expected[0].GetPlatform())
