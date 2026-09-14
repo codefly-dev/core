@@ -56,22 +56,22 @@ require (
 	github.com/ulikunitz/xz v0.5.16
 	github.com/yoheimuta/go-protoparser/v4 v4.14.2
 	github.com/yuin/goldmark v1.8.6
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.71.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0
-	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.45.0
+	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/goleak v1.3.0
-	golang.org/x/mod v0.39.0
-	golang.org/x/net v0.58.0
+	golang.org/x/mod v0.41.0
+	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
-	golang.org/x/term v0.45.0
-	golang.org/x/text v0.41.0
+	golang.org/x/term v0.46.0
+	golang.org/x/text v0.42.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688
-	google.golang.org/grpc v1.83.1
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	mvdan.cc/sh/v3 v3.14.1
@@ -189,7 +189,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260820142414-ca536658362e // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
