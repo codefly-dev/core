@@ -118,6 +118,65 @@ func TestValidateCoverageAcceptsADeclaredNoImageService(t *testing.T) {
 	require.NoError(t, ValidateCoverage(nil, resp))
 }
 
+// A stock-image service deploys a vendor image no recipe describes, so the
+// caller derives no subjects for it. The evidence it enumerates itself is the
+// only coverage such an image can have, and refusing it is what leaves a
+// no-image claim as the agent's only answer.
+func TestValidateCoverageAcceptsEnumeratedStockImageEvidence(t *testing.T) {
+	deployed := &builderv0.ImageSubject{
+		Reference: "docker.io/library/postgres@sha256:pg",
+		Digest:    "sha256:pg",
+		Platform:  "linux/amd64",
+		Role:      "runtime",
+		Service:   "svc",
+	}
+	require.NoError(t, ValidateCoverage(nil, imageResponse(imageEvidence("sha256:pg", "linux/amd64", deployed))))
+}
+
+// A multi-architecture vendor image is pinned by its manifest-list reference,
+// and each platform's scan binds evidence to the child manifest it resolved.
+// The subject carries no digest of its own: the index digest it was pinned by
+// names none of the manifests that evidence can bind to.
+func TestValidateCoverageAcceptsAnIndexPinnedStockImage(t *testing.T) {
+	deployed := func(platform string) *builderv0.ImageSubject {
+		return &builderv0.ImageSubject{
+			Reference: "docker.io/library/postgres@sha256:index",
+			Platform:  platform,
+			Role:      "runtime",
+			Service:   "svc",
+		}
+	}
+	resp := imageResponse(
+		imageEvidence("sha256:amdchild", "linux/amd64", deployed("linux/amd64")),
+		imageEvidence("sha256:armchild", "linux/arm64", deployed("linux/arm64")),
+	)
+	require.NoError(t, ValidateCoverage(nil, resp))
+}
+
+// Enumerated evidence is held to the same standard as evidence for a derived
+// subject, so an empty expectation is not a way to report an unbound scan.
+func TestValidateCoverageRejectsUnboundEnumeratedEvidence(t *testing.T) {
+	deployed := &builderv0.ImageSubject{Reference: "docker.io/library/postgres:16", Role: "runtime", Service: "svc"}
+	resp := imageResponse(imageEvidence("", "", deployed))
+	require.ErrorContains(t, ValidateCoverage(nil, resp), "not bound to a sha256 digest")
+}
+
+// The reason exists for a runtime an external provider owns. Naming that
+// runtime is what separates the claim from a stock-image service asserting it
+// ships nothing while deploying a vendor image.
+func TestValidateCoverageRejectsAnExternallyManagedClaimNamingNoRuntime(t *testing.T) {
+	resp := imageResponse()
+	resp.NoImageReason = builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED
+	require.ErrorContains(t, ValidateCoverage(nil, resp), "must name the runtime")
+}
+
+func TestValidateCoverageAcceptsAnExternallyManagedRuntimeThatIsNamed(t *testing.T) {
+	resp := imageResponse()
+	resp.State.Message = "runs on a provider-managed RDS instance"
+	resp.NoImageReason = builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED
+	require.NoError(t, ValidateCoverage(nil, resp))
+}
+
 func TestValidateCoverageRejectsANoImageReasonWhenImagesAreExpected(t *testing.T) {
 	expected := []*builderv0.ImageSubject{{Reference: "ghcr.io/codefly-dev/app:1.0", Role: "app", Service: "svc"}}
 	resp := imageResponse()

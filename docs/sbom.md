@@ -36,7 +36,7 @@ contract exists to prevent:
 | Outcome | Meaning |
 | --- | --- |
 | `COMPLETE` with `images` | Real coverage, each entry bound to a digest. |
-| `COMPLETE` with `no_image_reason` and no images | The service legitimately ships no image: a passive toolbox (`NO_IMAGE`) or an externally managed runtime (`EXTERNALLY_MANAGED`). |
+| `COMPLETE` with `no_image_reason` and no images | The service legitimately ships no image: a passive toolbox (`NO_IMAGE`) or a runtime an external provider owns (`EXTERNALLY_MANAGED`, which must name that runtime in its status message). |
 | `UNSUPPORTED` | This agent has no implementation. Never use it to mean "no image". |
 | `ERROR` | A scan failed, an image was missing, or a digest did not match. |
 
@@ -49,6 +49,37 @@ return `ERROR` with `FAILURE_CODE_PRECONDITION_FAILED` through
 `BuilderWrapper.SBOMImageSubjectsRequired` — the service does ship an image, so
 neither `UNSUPPORTED` nor a no-image reason would be true. Given explicit
 subjects they serve evidence like any other agent.
+
+## Stock images
+
+A service that deploys a vendor image it did not build still ships that image.
+Subjects are derived from recipes, so no derivation can see such an image and
+the caller asks with an empty expectation — which is not evidence that the
+service ships nothing. A stock-image agent knows its image reference before any
+build, so it enumerates that image and returns real evidence for it. Evidence
+carried against an empty expectation is validated like any other and counts as
+coverage on its own.
+
+`EXTERNALLY_MANAGED` is not the escape hatch for that case. It means an external
+provider owns the runtime the service points at — a hosted database, a SaaS
+endpoint — so there is no image this service selects. A vendor image the service
+pins and deploys is still its own shipped image. A response claiming
+`EXTERNALLY_MANAGED` must name the external runtime in its status message, and
+both `BuilderWrapper.SBOMNoImage` and `ValidateCoverage` refuse one that does
+not.
+
+A hybrid service — a vendor image plus its own init or migration recipe — owes
+evidence for both. The recipe-derived subjects cover only the images it builds,
+so the stock image has to be enumerated alongside them.
+
+Pin the reference, not the subject's `digest` field. `sbom.Image` resolves a
+pinned `repo@sha256:...` reference for the requested platform and binds evidence
+to the child manifest it selects, so identity follows from the pin itself. A
+vendor image's per-platform child digests — which a stock-image agent usually
+cannot know — never have to be enumerated, and an index digest copied into
+`digest` would match none of the evidence it asks for. Set `digest` only when it
+names the exact manifest a scan binds to: a true single manifest, or the local
+image ID of an image that was built and never pushed.
 
 ## Scanning
 
@@ -110,5 +141,7 @@ err := sbom.ValidateCoverage(expected, resp)
 `ValidateCoverage` is the single check every agent is measured against. It
 rejects a source inventory, a non-complete response, evidence that is not bound
 to a `sha256` digest, an empty inventory, a digest that differs from the
-deployed one, an omitted platform, and a no-image claim that contradicts the
-declared build.
+deployed one, an omitted platform, an externally managed claim that names no
+runtime, and a no-image claim that contradicts the declared build. An empty
+expectation is not itself a pass: the response still has to carry either valid
+enumerated evidence or an honest no-image reason.

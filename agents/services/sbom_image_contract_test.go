@@ -48,6 +48,21 @@ func TestNoImageResponseRequiresAnExplicitReason(t *testing.T) {
 	require.NoError(t, servicesbom.ValidateCoverage(nil, declared))
 }
 
+// A stock-image service that pins a vendor image ships that image, so the
+// escape hatch is refused unless it names the external runtime instead.
+func TestExternallyManagedMustNameTheRuntime(t *testing.T) {
+	wrapper := &BuilderWrapper{}
+
+	anonymous, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED, "")
+	require.NoError(t, err)
+	require.Equal(t, builderv0.SBOMStatus_ERROR, anonymous.GetState().GetState())
+	require.ErrorContains(t, servicesbom.ValidateCoverage(nil, anonymous), "must name the runtime")
+
+	named, err := wrapper.SBOMNoImage(builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED, "runs on a provider-managed RDS instance")
+	require.NoError(t, err)
+	require.NoError(t, servicesbom.ValidateCoverage(nil, named))
+}
+
 // An agent whose images the caller builds holds no digest, so it must fail the
 // precondition rather than report coverage or claim to be unimplemented.
 func TestSBOMImagesWithoutSubjectsIsAPreconditionFailure(t *testing.T) {

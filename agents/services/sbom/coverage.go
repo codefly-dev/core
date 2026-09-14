@@ -60,11 +60,29 @@ func ValidateCoverage(expected []*builderv0.ImageSubject, resp *builderv0.SBOMRe
 		return fmt.Errorf("response scope is %s: a source inventory is not image coverage", resp.GetScope())
 	}
 	if len(expected) == 0 {
-		if resp.GetNoImageReason() == builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
-			return fmt.Errorf("a complete image SBOM covering no images must declare a no-image reason")
-		}
+		// An empty expectation is not evidence that the service ships nothing:
+		// subjects are derived from recipes, which cannot see a vendor image the
+		// service deploys without building. Evidence such an agent enumerates
+		// itself is real coverage and is validated rather than refused, because
+		// refusing it leaves a no-image claim as the only answer it can give.
 		if len(resp.GetImages()) > 0 {
-			return fmt.Errorf("response declares no-image reason %s but carries %d inventories", resp.GetNoImageReason(), len(resp.GetImages()))
+			if reason := resp.GetNoImageReason(); reason != builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
+				return fmt.Errorf("response declares no-image reason %s but carries %d inventories", reason, len(resp.GetImages()))
+			}
+			for _, evidence := range resp.GetImages() {
+				if err := validateEvidence(evidence); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		switch resp.GetNoImageReason() {
+		case builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED:
+			return fmt.Errorf("a complete image SBOM covering no images must declare a no-image reason")
+		case builderv0.NoImageReason_NO_IMAGE_REASON_EXTERNALLY_MANAGED:
+			if resp.GetState().GetMessage() == "" {
+				return fmt.Errorf("an externally managed claim must name the runtime that owns the image: a vendor image this service pins and deploys is its own shipped image and owes evidence")
+			}
 		}
 		return nil
 	}
