@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -579,4 +581,122 @@ func readRecord(t *testing.T, path string) string {
 		t.Fatalf("read RPC record: %v", err)
 	}
 	return string(content)
+}
+
+// TestConcurrentProcessesShareOneWarmStack is the parallel-package case: four
+// processes keyed to one reusable stack, started at once with no coordination
+// of their own. Exactly one may spawn it and the rest must attach to what it
+// published, which is the outcome `go test -p 1` used to buy.
+//
+// Each driver reports the endpoints it resolved, and the fixture CLI binds an
+// ephemeral port: four processes that agreed on one stack report one address,
+// and four that each spawned their own report four.
+func TestConcurrentProcessesShareOneWarmStack(t *testing.T) {
+	// A binary of this test's own, so the cleanup below cannot reach a stack
+	// another test in this package started.
+	binary := buildFixture(t, "./testdata/testcli")
+	driver := buildFixture(t, "./testdata/sessiondriver")
+	service := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
+	home := warmCacheHome(t)
+	scope := uniqueScope(t)
+	// The warm stack outlives every driver — that is what keep-running means —
+	// so this test owns killing the CLI its drivers left running.
+	t.Cleanup(func() { _ = exec.Command("pkill", "-f", binary).Run() })
+
+	const drivers = 4
+	type outcome struct {
+		endpoints string
+		err       error
+	}
+	outcomes := make([]outcome, drivers)
+	var wait sync.WaitGroup
+	for i := range outcomes {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			outcomes[i].endpoints, outcomes[i].err = runWarmDriver(driver, binary, service, home, scope)
+		}()
+	}
+	wait.Wait()
+
+	for i, got := range outcomes {
+		if got.err != nil {
+			t.Fatalf("driver %d: %v", i, got.err)
+		}
+		if got.endpoints == "" {
+			t.Fatalf("driver %d resolved no endpoint", i)
+		}
+		if got.endpoints != outcomes[0].endpoints {
+			t.Fatalf("driver %d resolved %q and driver 0 resolved %q: they did not share one warm stack",
+				i, got.endpoints, outcomes[0].endpoints)
+		}
+	}
+}
+
+// runWarmDriver runs one driver against the reusable stack named by scope and
+// returns the endpoints it resolved. It takes no *testing.T because several of
+// these run at once and only the calling goroutine may fail the test.
+func runWarmDriver(driver, binary, service, home, scope string) (string, error) {
+	cmd := exec.Command(driver)
+	cmd.Dir = service
+	cmd.Env = append(os.Environ(),
+		"CODEFLY_BINARY="+binary,
+		"HOME="+home,
+		"XDG_CACHE_HOME="+filepath.Join(home, "cache"),
+		"SESSION_SCOPE="+scope,
+		"CODEFLY__RUNTIME_CONTEXT=native")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return "", err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	reader := bufio.NewReader(stdout)
+	// A driver that attached to the warm stack announces it before READY.
+	for {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			return "", fmt.Errorf("read from driver: %w", readErr)
+		}
+		if strings.TrimSpace(line) == "READY" {
+			break
+		}
+	}
+	endpoints, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("read endpoints from driver: %w", err)
+	}
+	if _, err := io.WriteString(stdin, "STOP\n"); err != nil {
+		return "", err
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil || strings.TrimSpace(line) != "STOPPED" {
+		return "", fmt.Errorf("driver said %q (%v), want STOPPED", strings.TrimSpace(line), err)
+	}
+	return strings.TrimSpace(endpoints), nil
+}
+
+// warmCacheHome is a private cache root for a reusable session, kept short: a
+// warm control directory hangs off the user cache directory, and a per-user
+// temporary path is long enough on macOS to push the socket inside it past the
+// platform's sun_path budget.
+func warmCacheHome(t *testing.T) string {
+	t.Helper()
+	home, err := os.MkdirTemp("/tmp", "cfhome-")
+	if err != nil {
+		t.Fatalf("create warm cache home: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	return home
 }

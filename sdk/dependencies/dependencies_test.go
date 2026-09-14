@@ -591,3 +591,14 @@ func readPIDFile(t *testing.T, path string) (int, int) {
 	}
 	return leader, child
 }
+
+// WithService and WithDirectory both anchor the session, so passing both is a
+// contradiction to report rather than a precedence rule to remember.
+func TestServiceAndDirectoryCannotBothAnchorASession(t *testing.T) {
+	_, err := WithDependencies(context.Background(),
+		WithService("shop/web"),
+		WithDirectory(t.TempDir()))
+	if err == nil || !strings.Contains(err.Error(), "both anchor the session") {
+		t.Fatalf("WithDependencies() error = %v, want the conflicting-anchor rejection", err)
+	}
+}

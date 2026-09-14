@@ -21,6 +21,7 @@ import (
 	"github.com/codefly-dev/core/sdk/session"
 	"github.com/codefly-dev/core/wool"
 
+	"github.com/gofrs/flock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
@@ -98,6 +99,7 @@ type Option struct {
 	KeepRunning              bool
 	SharedControlChannel     bool
 	Directory                string
+	Service                  string
 	CommandScopedEnvironment bool
 }
 
@@ -257,6 +259,21 @@ func WithDirectory(dir string) OptionFunc {
 	}
 }
 
+// WithService anchors the session to a service named the way the CLI names it,
+// "<module>/<service>", resolved through the workspace found up from the
+// working directory. A bare service name is accepted when the workspace holds
+// exactly one service with that name.
+//
+// It is the option for a caller that sits outside any service — a
+// solution-level test package, which owns no service.codefly.yaml of its own —
+// and would otherwise have to compute the on-disk path of the service it
+// drives and pass it to WithDirectory.
+func WithService(unique string) OptionFunc {
+	return func(o *Option) {
+		o.Service = unique
+	}
+}
+
 // WithCommandScopedEnvironment keeps the session out of os.Environ. The
 // resolved values are reachable through Dependencies.Environ, which produces a
 // child-process environment, and through Dependencies.Connection. This is the
@@ -291,7 +308,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err := validateDependencyOptions(opt); err != nil {
 		return nil, err
 	}
-	dir, err := sessionDirectory(opt)
+	dir, err := sessionDirectory(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -321,6 +338,14 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 			channel.discard()
 		}
 	}()
+	// Held across the attach-or-spawn decision below, so concurrent processes
+	// keyed to one warm stack take turns deciding rather than racing to the
+	// same conclusion.
+	unlockSetup, err := channel.lockSetup(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockSetup()
 	args := dependencyCommandArguments(opt, channel.scope)
 
 	if opt.KeepRunning {
@@ -540,13 +565,40 @@ func releaseControlAddress(addr string) {
 	delete(controlAddresses.inUse, addr)
 }
 
-// sessionDirectory is the absolute directory a session is anchored to: the one
-// the caller pinned, or the working directory at the moment the session starts.
-func sessionDirectory(opt *Option) (string, error) {
+// sessionDirectory is the absolute directory a session is anchored to: the
+// directory of the service the caller named, the one it pinned, or the working
+// directory at the moment the session starts.
+func sessionDirectory(ctx context.Context, opt *Option) (string, error) {
+	if opt.Service != "" {
+		return serviceDirectory(ctx, opt.Service)
+	}
 	if opt.Directory != "" {
 		return opt.Directory, nil
 	}
 	return os.Getwd()
+}
+
+// serviceDirectory resolves a service name through the workspace owning the
+// working directory. Only the workspace is found by walking up, so a caller
+// that owns no service — which is the whole point of naming one — resolves the
+// same identity from anywhere inside the workspace.
+func serviceDirectory(ctx context.Context, unique string) (string, error) {
+	from, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	workspace, err := resources.FindWorkspaceUpFrom(ctx, from)
+	if err != nil {
+		return "", err
+	}
+	if workspace == nil {
+		return "", fmt.Errorf("no Codefly workspace found from %s, so the service %s cannot be resolved", from, unique)
+	}
+	service, err := workspace.FindUniqueServiceByName(ctx, unique)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve service %s in workspace %s: %w", unique, workspace.Name, err)
+	}
+	return service.Dir(), nil
 }
 
 // installEnvironment resolves everything the session projects and, unless the
@@ -575,6 +627,9 @@ func validateDependencyOptions(opt *Option) error {
 	}
 	if opt.Directory != "" && !filepath.IsAbs(opt.Directory) {
 		return fmt.Errorf("session directory must be absolute: %s", opt.Directory)
+	}
+	if opt.Service != "" && opt.Directory != "" {
+		return fmt.Errorf("WithService(%s) and WithDirectory(%s) both anchor the session: pass one", opt.Service, opt.Directory)
 	}
 	return nil
 }
@@ -756,6 +811,47 @@ func (c *controlChannel) discard() {
 	if c.control != nil && c.fingerprint == "" {
 		_ = c.control.Remove()
 	}
+}
+
+// setupLockRetry is how often a waiting session re-tries the reusable
+// directory's lock. Startup of a full dependency stack is measured in seconds,
+// so a poll this cheap is invisible next to it.
+const setupLockRetry = 50 * time.Millisecond
+
+// lockSetup serializes the attach-or-spawn decision for a reusable session
+// against every other process keyed to the same warm directory. Only that
+// decision is held, not the session: once the owner has published its receipt
+// the lock is released and every waiter attaches to the one warm stack, which
+// is what lets test packages share it while still running concurrently.
+//
+// Without it the window between "no receipt yet" and "receipt written" is open:
+// a second process reads no receipt, concludes there is nothing to attach to,
+// and either refuses because the first child has since bound the socket, or
+// spawns a second CLI over the first one's containers — which the SDK then
+// sees as an EOF on the first RPC it makes.
+//
+// A disposable session owns a directory nothing else can name, so it takes no
+// lock. The wait is bounded by ctx alone: a caller that has not budgeted for a
+// cold start should carry a deadline, and a holder that dies releases the lock
+// with its file descriptors.
+func (c *controlChannel) lockSetup(ctx context.Context) (func(), error) {
+	if c.fingerprint == "" {
+		return func() {}, nil
+	}
+	lock := flock.New(filepath.Join(c.control.Directory, "setup.lock"), flock.SetPermissions(0o600))
+	locked, err := lock.TryLockContext(ctx, setupLockRetry)
+	if err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("waiting for the reusable dependency session at %s: %w", c.control.Directory, err)
+	}
+	if !locked {
+		_ = lock.Close()
+		return nil, fmt.Errorf("could not lock the reusable dependency session at %s", c.control.Directory)
+	}
+	return func() {
+		_ = lock.Unlock()
+		_ = lock.Close()
+	}, nil
 }
 
 // verifyOwnership makes the peer prove it holds this invocation's secret. A

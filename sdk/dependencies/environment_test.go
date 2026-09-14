@@ -324,3 +324,53 @@ func TestEnvironOverridesTheProcessEnvironmentWithoutMutatingIt(t *testing.T) {
 		t.Fatalf("EnvironmentVariables() is not a defensive copy: %q", got)
 	}
 }
+
+// A caller that owns no service — a solution-level test package — names the
+// service it drives. Resolution walks up to the workspace and never to a
+// service, so the name resolves from the workspace root just as it does from
+// inside the service.
+func TestNamedServiceResolvesFromOutsideAnyService(t *testing.T) {
+	t.Chdir(fixtureDir(t, "alpha"))
+	web := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
+
+	// Both the way the CLI names a service and the bare name the workspace
+	// resolves unambiguously.
+	for _, name := range []string{"shop/web", "web"} {
+		dir, err := serviceDirectory(t.Context(), name)
+		if err != nil {
+			t.Fatalf("serviceDirectory(%q) error = %v", name, err)
+		}
+		if dir != web {
+			t.Fatalf("serviceDirectory(%q) = %s, want %s", name, dir, web)
+		}
+	}
+
+	identity, err := resolveSessionIdentity(t.Context(), web)
+	if err != nil {
+		t.Fatalf("resolveSessionIdentity() error = %v", err)
+	}
+	if identity.module.Name != "shop" || identity.service.Name != "web" {
+		t.Fatalf("identity = %s/%s, want shop/web", identity.module.Name, identity.service.Name)
+	}
+
+	if _, err := serviceDirectory(t.Context(), "shop/absent"); err == nil {
+		t.Fatal("serviceDirectory() accepted a service the workspace does not declare")
+	}
+}
+
+// A flat workspace holds its services directly, and the module half of a name
+// is the workspace itself.
+func TestNamedServiceResolvesInAFlatWorkspace(t *testing.T) {
+	t.Chdir(fixtureDir(t, "flat"))
+	gateway := fixtureDir(t, "flat", "services", "gateway")
+
+	for _, name := range []string{"flat-session/gateway", "gateway"} {
+		dir, err := serviceDirectory(t.Context(), name)
+		if err != nil {
+			t.Fatalf("serviceDirectory(%q) error = %v", name, err)
+		}
+		if dir != gateway {
+			t.Fatalf("serviceDirectory(%q) = %s, want %s", name, dir, gateway)
+		}
+	}
+}

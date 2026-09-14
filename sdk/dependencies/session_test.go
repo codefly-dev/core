@@ -198,6 +198,42 @@ func TestConcurrentSessionsCarryTheirOwnCommandScopedEndpoints(t *testing.T) {
 	}
 }
 
+// WithService from the workspace root drives the same session as running from
+// the service's own directory: the identity it adopts and the dependency it
+// resolves are the ones that service declares.
+func TestNamedServiceAnchorsASessionFromTheWorkspaceRoot(t *testing.T) {
+	binary := testCLI(t)
+	t.Chdir(fixtureDir(t, "alpha"))
+	ctx := context.Background()
+
+	deps, err := WithDependencies(ctx,
+		WithService("shop/web"),
+		WithCommandScopedEnvironment(),
+		WithCodeflyBinary(binary),
+		WithTimeout(60*time.Second))
+	if err != nil {
+		t.Fatalf("WithDependencies() error = %v", err)
+	}
+	defer func() { _ = deps.Destroy(ctx) }()
+
+	svc, err := deps.Service(ctx)
+	if err != nil || svc.Name != "web" {
+		t.Fatalf("session service = %v, %v, want web", svc, err)
+	}
+	mod, err := deps.Module(ctx)
+	if err != nil || mod.Name != "shop" {
+		t.Fatalf("session module = %v, %v, want shop", mod, err)
+	}
+
+	address := deps.EnvironmentVariables()[endpointKey("shop", "store")]
+	if address == "" {
+		t.Fatalf("session resolved no dependency endpoint: %v", deps.EnvironmentVariables())
+	}
+	if identity := dependencyIdentity(t, address); identity != "shop/web" {
+		t.Fatalf("endpoint reached %q, want shop/web", identity)
+	}
+}
+
 // A session that fails while resolving configuration leaves the process
 // environment byte-for-byte as it found it — the endpoints it had already
 // resolved are not injected on the way out.
