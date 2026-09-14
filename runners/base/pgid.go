@@ -117,6 +117,15 @@ var errProcessGroupIdentityChanged = errors.New("process group identity changed"
 // proof the group is foreign.
 var errProcessGroupNotSignalable = errors.New("process group has no signalable members")
 
+// errProcessGroupNotCredentialed means a leaderless group's members could be
+// read but none carried the start credential. That is not the same answer as
+// errProcessGroupIdentityChanged: a pgid holding a different leader proves our
+// group emptied and nothing of ours survives, whereas an uncredentialed member
+// leaves us unable to tell a recycled group apart from our own group holding a
+// member that no longer carries the credential. Reporting the two alike would
+// let the second case retire as a completed teardown.
+var errProcessGroupNotCredentialed = errors.New("process group members do not carry the start credential")
+
 type recordedProcessIdentity struct {
 	PID        int    `json:"pid"`
 	BootID     string `json:"boot_id"`
@@ -540,7 +549,7 @@ func abortUnregisteredProcessGroup(cmd *exec.Cmd, group *TrackedProcessGroup, au
 		} else {
 			credentialed := make([]processIdentity, 0, len(members))
 			for _, member := range members {
-				authenticated, authErr := processHasAuthentication(member, authentication)
+				authenticated, _, authErr := processHasAuthentication(member, authentication)
 				if authErr == nil && authenticated {
 					credentialed = append(credentialed, member)
 				}
@@ -1265,7 +1274,7 @@ func authenticateProcessGroup(ctx context.Context, rec pgidRecord) ([]processIde
 		}
 	}
 
-	credentialed, err := anyMemberIsCredentialed(members, rec.Authentication)
+	credentialed, _, err := credentialEvidence(members, rec.Authentication)
 	if err != nil {
 		return nil, false, errors.Join(inspectErr, err)
 	}
@@ -1275,14 +1284,19 @@ func authenticateProcessGroup(ctx context.Context, rec pgidRecord) ([]processIde
 	return members, false, nil
 }
 
-// anyMemberIsCredentialed reports whether at least one member carries the
-// group's start credential. Members that vanish or change identity mid-check
-// are skipped; a member we cannot read at all is a failure to decide, not a
-// negative answer, so it is returned rather than silently counted as "no".
-func anyMemberIsCredentialed(members []processIdentity, authentication string) (bool, error) {
+// credentialEvidence reports what a group's members can testify about the start
+// credential: whether one of them carries it, and whether any member's
+// environment could be observed at all. Members that vanish or change identity
+// mid-check are skipped; a member we cannot read at all is a failure to decide,
+// not a negative answer, so it is returned rather than silently counted as "no".
+//
+// A member whose environment the platform withholds testifies neither way, so
+// it is not evidence against the group. See readProcessGroupAuthentication.
+func credentialEvidence(members []processIdentity, authentication string) (bool, bool, error) {
 	var failures []error
+	observed := false
 	for _, member := range members {
-		credentialed, err := processHasAuthentication(member, authentication)
+		credentialed, memberObserved, err := processHasAuthentication(member, authentication)
 		if errors.Is(err, errProcessNotFound) || errors.Is(err, errProcessGroupIdentityChanged) {
 			continue
 		}
@@ -1290,26 +1304,27 @@ func anyMemberIsCredentialed(members []processIdentity, authentication string) (
 			failures = append(failures, fmt.Errorf("authenticate process-group member %d: %w", member.pid, err))
 			continue
 		}
+		observed = observed || memberObserved
 		if credentialed {
-			return true, nil
+			return true, true, nil
 		}
 	}
-	return false, errors.Join(failures...)
+	return false, observed, errors.Join(failures...)
 }
 
-func processHasAuthentication(expected processIdentity, authentication string) (bool, error) {
-	value, err := readProcessGroupAuthentication(expected.pid)
+func processHasAuthentication(expected processIdentity, authentication string) (bool, bool, error) {
+	value, observed, err := readProcessGroupAuthentication(expected.pid)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	current, err := inspectProcess(expected.pid)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if current.pgid != expected.pgid || !current.matches(expected.recorded()) {
-		return false, errProcessGroupIdentityChanged
+		return false, false, errProcessGroupIdentityChanged
 	}
-	return value == authentication, nil
+	return observed && value == authentication, observed, nil
 }
 
 // inspectProcessGroup enumerates the group's inspectable members, returning
@@ -1489,14 +1504,21 @@ func signalGroup(ctx context.Context, rec pgidRecord, authenticate groupAuthenti
 // A member occupying the pgid must therefore be the recorded leader; anything
 // else means the group emptied and the pid was reused, and nothing is
 // signalled. For a leaderless group the start credential decides wherever the
-// platform lets us read another process's environment — on Linux it does, and
-// requiring it there closes the reuse window outright. Darwin's kern.procargs2
-// returns argv without the environment to a non-root caller (verified against
-// a same-user direct child), so there the credential cannot be read at all and
-// the group is accepted on the process-group invariant alone: a group id is
-// only ever created by a leader holding that pid, so a foreign group could
-// occupy it only by ours emptying, the pid being recycled, and the new leader
-// dying too. See processEnvironmentReadable.
+// platform lets us read a member's environment — on Linux always, and on Darwin
+// for a member whose executable is not code-signing restricted, which covers
+// ordinary service binaries but never an Apple platform binary such as sleep.
+// Requiring the credential there closes the reuse window outright. Where no
+// member's environment can be observed the group is accepted on the
+// process-group invariant alone: a group id is only ever created by a leader
+// holding that pid, so a foreign group could occupy it only by ours emptying,
+// the pid being recycled, and the new leader dying too. See
+// readProcessGroupAuthentication.
+//
+// The two ways this declines to authenticate are deliberately distinct. A
+// member sitting on the pgid that is not the recorded leader proves the group
+// is not ours, and the caller may retire it. A readable member that lacks the
+// credential proves only that we cannot tell, so it is reported rather than
+// retired.
 func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]processIdentity, bool, error) {
 	members, inspectErr := inspectProcessGroup(ctx, rec.PGID)
 	if len(members) == 0 {
@@ -1510,17 +1532,14 @@ func authenticateOwnedProcessGroup(ctx context.Context, rec pgidRecord) ([]proce
 			return nil, false, nil
 		}
 	}
-	if !processEnvironmentReadable() {
-		return members, true, inspectErr
-	}
-	credentialed, err := anyMemberIsCredentialed(members, rec.Authentication)
+	credentialed, observed, err := credentialEvidence(members, rec.Authentication)
 	if err != nil {
 		return nil, false, errors.Join(inspectErr, err)
 	}
-	if credentialed {
+	if credentialed || !observed {
 		return members, true, inspectErr
 	}
-	return nil, false, nil
+	return nil, false, errors.Join(inspectErr, errProcessGroupNotCredentialed)
 }
 
 func signalProcessIdentities(ctx context.Context, identities []processIdentity, signal syscall.Signal) error {

@@ -123,45 +123,59 @@ func darwinBootID() (string, error) {
 	return fmt.Sprintf("%d:%d", bootTime.Sec, bootTime.Usec), nil
 }
 
-// processEnvironmentReadable reports whether readProcessGroupAuthentication can
-// observe another process's environment on this platform. Darwin's
-// kern.procargs2 returns argc and argv but stops before the environment for a
-// non-root caller — even for a direct child of the caller — so the start
-// credential is unreadable here and cannot be used to authenticate a group.
-func processEnvironmentReadable() bool { return false }
-
-func readProcessGroupAuthentication(pid int) (string, error) {
+// readProcessGroupAuthentication reads pid's start credential and reports
+// whether pid's environment was observable at all.
+//
+// Darwin decides that per target rather than per caller: kern.procargs2 stops
+// the copyout at the end of argv unless the target is the caller itself, the
+// target is not code-signing restricted, SIP is off, or the caller holds
+// com.apple.private.read-environment-variables. Being root is not on that list
+// — it only buys the right to call procargs2 across uids at all. So an Apple
+// platform binary's environment is never visible here while an ordinary
+// service binary's is, and a truncated read means the credential is unknown
+// rather than absent.
+func readProcessGroupAuthentication(pid int) (string, bool, error) {
 	data, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {
-		if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT) {
-			return "", errProcessNotFound
+		// procargs2 reports a pid it cannot find as EINVAL, not ESRCH: the
+		// sysctl fails its proc_find before it can distinguish "gone" from a
+		// malformed request. A member that exits between enumeration and this
+		// read is the ordinary case mid-escalation, so it must read as a
+		// disappearance rather than as a failure to authenticate the group.
+		if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.EINVAL) {
+			return "", false, errProcessNotFound
 		}
-		return "", err
+		return "", false, err
 	}
 	if len(data) < 4 {
-		return "", errors.New("process arguments are incomplete")
+		return "", false, errors.New("process arguments are incomplete")
 	}
 	argc := int(binary.NativeEndian.Uint32(data[:4]))
 	data = data[4:]
 	executableEnd := bytes.IndexByte(data, 0)
 	if executableEnd < 0 {
-		return "", errors.New("process executable is unterminated")
+		return "", false, errors.New("process executable is unterminated")
 	}
 	data = bytes.TrimLeft(data[executableEnd+1:], "\x00")
 	for range argc {
 		argumentEnd := bytes.IndexByte(data, 0)
 		if argumentEnd < 0 {
-			return "", errors.New("process arguments are unterminated")
+			return "", false, errors.New("process arguments are unterminated")
 		}
 		data = data[argumentEnd+1:]
+	}
+	// The kernel ends the copyout at the last argv terminator when it withholds
+	// the environment, so nothing remaining here means nothing was disclosed.
+	if len(data) == 0 {
+		return "", false, nil
 	}
 	prefix := []byte(groupAuthEnv + "=")
 	for entry := range bytes.SplitSeq(data, []byte{0}) {
 		if value, ok := bytes.CutPrefix(entry, prefix); ok {
-			return string(value), nil
+			return string(value), true, nil
 		}
 	}
-	return "", nil
+	return "", true, nil
 }
 
 type darwinProcessSignalHandle struct {
