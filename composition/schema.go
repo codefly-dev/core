@@ -413,6 +413,52 @@ func (manifest *PackageManifest) Validate() error {
 	if err := uniqueStrings("provided service", serviceNames); err != nil {
 		return err
 	}
+	fixtureNames := make([]string, 0, len(manifest.Fixtures))
+	for _, fixture := range manifest.Fixtures {
+		if err := validateIdentifier("fixture name", fixture.Name); err != nil {
+			return err
+		}
+		// A fixture name is selected verbatim and travels as CODEFLY__FIXTURE;
+		// the shared identifier pattern would also admit the path separator,
+		// which no consumer of a flat name wants to have to handle.
+		if strings.Contains(fixture.Name, "/") {
+			return fmt.Errorf("fixture name %q cannot contain %q", fixture.Name, "/")
+		}
+		fixtureNames = append(fixtureNames, fixture.Name)
+		ids := make([]string, 0, len(fixture.Principals))
+		roles := make([]string, 0, len(fixture.Principals))
+		for index, principal := range fixture.Principals {
+			// Role is matched literally at lookup, so a value carrying stray
+			// whitespace would validate here and then never resolve, reporting a
+			// seeded role that reads identically to the one asked for.
+			if !isTrimmedNonEmpty(principal.ID) || !isTrimmedNonEmpty(principal.Email) ||
+				!isTrimmedNonEmpty(principal.Role) || !isTrimmedNonEmpty(principal.Token) {
+				return fmt.Errorf("fixture %s principal %d requires an id, an email, a role, and a token without surrounding whitespace", fixture.Name, index)
+			}
+			ids = append(ids, principal.ID)
+			roles = append(roles, principal.Role)
+		}
+		if err := uniqueStrings("principal in fixture "+fixture.Name, ids); err != nil {
+			return err
+		}
+		if err := uniqueStrings("principal role in fixture "+fixture.Name, roles); err != nil {
+			return err
+		}
+	}
+	if err := uniqueStrings("fixture", fixtureNames); err != nil {
+		return err
+	}
+	if len(manifest.Fixtures) > 0 {
+		if _, exists := manifest.Contracts[ContractFixtures]; !exists {
+			return fmt.Errorf("module package declaring fixtures must declare the %q contract", ContractFixtures)
+		}
+		minimumTool, _ := semver.NewConstraint(manifest.MinimumCodeflyVersion)
+		lastWithout, _ := semver.NewVersion(LastCodeflyVersionWithoutFixtures)
+		if minimumTool.Check(lastWithout) {
+			return fmt.Errorf("module package declaring fixtures requires Codefly newer than %s, but minimum-codefly-version %q admits it",
+				LastCodeflyVersionWithoutFixtures, manifest.MinimumCodeflyVersion)
+		}
+	}
 	commands := append(slices.Clone(manifest.Generators), manifest.Conformance...)
 	for _, entry := range manifest.EntryPoints {
 		commands = append(commands, PackageCommand{Name: entry.Name, Command: entry.Command})
@@ -586,6 +632,10 @@ func validateRelativePath(label, value string) error {
 		return fmt.Errorf("%s path %q is not canonical", label, value)
 	}
 	return nil
+}
+
+func isTrimmedNonEmpty(value string) bool {
+	return value != "" && value == strings.TrimSpace(value)
 }
 
 func uniqueStrings(label string, values []string) error {

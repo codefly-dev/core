@@ -30,6 +30,14 @@ const (
 	APIContractKindOpenAPI     = "openapi"
 )
 
+// LastCodeflyVersionWithoutFixtures is the newest Codefly release whose
+// PackageManifest has no Fixtures field. Such a tool decodes the manifest with
+// KnownFields(true), so `fixtures:` fails the ENTIRE package load rather than
+// only the fixture feature. A package declaring fixtures must therefore not
+// claim compatibility with it — minimum-codefly-version is the only gate that
+// turns that into a clear "your Codefly is too old" instead of a decode error.
+const LastCodeflyVersionWithoutFixtures = "0.3.31"
+
 const (
 	ContractComposition    = "composition"
 	ContractFrontendPlugin = "frontendPlugin"
@@ -47,6 +55,8 @@ var (
 	ErrContract          = errors.New("module contract negotiation failed")
 	ErrCollision         = errors.New("module composition collision")
 	ErrCacheVerification = errors.New("module cache verification failed")
+	ErrUnknownFixture    = errors.New("module fixture is not declared by any composed package")
+	ErrUnknownPrincipal  = errors.New("module fixture seeds no principal for the role")
 )
 
 type Descriptor struct {
@@ -114,6 +124,7 @@ type PackageManifest struct {
 	ArtifactRoots         []string           `yaml:"artifact-roots" json:"artifactRoots"`
 	EntryPoints           []EntryPoint       `yaml:"entry-points,omitempty" json:"entryPoints,omitempty"`
 	Services              []ProvidedService  `yaml:"services,omitempty" json:"services,omitempty"`
+	Fixtures              []ProvidedFixture  `yaml:"fixtures,omitempty" json:"fixtures,omitempty"`
 	Contracts             map[string]string  `yaml:"contracts" json:"contracts"`
 	Generators            []PackageCommand   `yaml:"generators,omitempty" json:"generators,omitempty"`
 	Conformance           []PackageCommand   `yaml:"conformance,omitempty" json:"conformance,omitempty"`
@@ -151,6 +162,28 @@ type ProvidedAPIContract struct {
 	Path string `yaml:"path" json:"path"`
 	// Digest is "sha256:<hex>" over the file at Path.
 	Digest string `yaml:"digest" json:"digest"`
+}
+
+// ProvidedFixture is one named seed a package ships: the state a composed host
+// boots with under CODEFLY__FIXTURE=<name>, and the principals that seed
+// creates. It is the contract a solution test resolves against instead of
+// hardcoding the seeded identities, so renaming or dropping one is a package
+// change a consumer sees at update rather than at login.
+type ProvidedFixture struct {
+	Name        string             `yaml:"name" json:"name"`
+	Description string             `yaml:"description,omitempty" json:"description,omitempty"`
+	Principals  []FixturePrincipal `yaml:"principals,omitempty" json:"principals,omitempty"`
+}
+
+// FixturePrincipal is one identity a fixture seeds. Role is the lookup key —
+// unique within the fixture — and Token is the credential a test presents to
+// authenticate as this principal. The manifest ships inside the package, so
+// Token is a development seed credential, never a real secret.
+type FixturePrincipal struct {
+	ID    string `yaml:"id" json:"id"`
+	Email string `yaml:"email" json:"email"`
+	Role  string `yaml:"role" json:"role"`
+	Token string `yaml:"token" json:"token"`
 }
 
 type PackageCommand struct {

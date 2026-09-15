@@ -339,7 +339,7 @@ func TestUpdateDryRunApplyOfflineAndRollback(t *testing.T) {
 	})
 	resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": first.release, "0.2.0": second.release}}
 	engine := NewEngine(projectRoot, resolver, first.trust)
-	engine.ToolVersion = "0.2.0"
+	engine.ToolVersion = "0.3.32"
 	engine.Renderer.Runner = &recordingRunner{}
 
 	dryRun, err := engine.Update(ctx, moduleDir, "0.1.0", false)
@@ -363,7 +363,7 @@ func TestUpdateDryRunApplyOfflineAndRollback(t *testing.T) {
 	require.NoError(t, err)
 
 	offline := NewEngine(projectRoot, nil, first.trust)
-	offline.ToolVersion = "0.2.0"
+	offline.ToolVersion = "0.3.32"
 	offline.Renderer.Runner = &recordingRunner{}
 	offlineProjection, err := offline.Materialize(ctx, moduleDir, MaterializeOptions{CI: true})
 	require.NoError(t, err)
@@ -423,7 +423,7 @@ func TestSemanticReportRendersPriorLockFromCleanCheckout(t *testing.T) {
 	})
 	resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": first.release, "0.2.0": second.release}}
 	engine := NewEngine(projectRoot, resolver, first.trust)
-	engine.ToolVersion = "0.2.0"
+	engine.ToolVersion = "0.3.32"
 	engine.Renderer.Runner = &recordingRunner{}
 	_, err := engine.Update(ctx, moduleDir, "0.1.0", true)
 	require.NoError(t, err)
@@ -442,7 +442,7 @@ func TestCorruptProjectionIsRebuiltWithAtomicActivation(t *testing.T) {
 	fixture := newReleaseFixture(t, "0.1.0", strings.Repeat("a", 40), nil)
 	resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": fixture.release}}
 	engine := NewEngine(projectRoot, resolver, fixture.trust)
-	engine.ToolVersion = "0.2.0"
+	engine.ToolVersion = "0.3.32"
 	engine.Renderer.Runner = &recordingRunner{}
 	applied, err := engine.Update(ctx, moduleDir, "0.1.0", true)
 	require.NoError(t, err)
@@ -493,7 +493,7 @@ func TestDevelopOverrideAndNamespacesStayIndependent(t *testing.T) {
 	fixture := newReleaseFixture(t, "0.1.0", strings.Repeat("a", 40), nil)
 	resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": fixture.release}}
 	engine := NewEngine(projectRoot, resolver, fixture.trust)
-	engine.ToolVersion = "0.2.0"
+	engine.ToolVersion = "0.3.32"
 	engine.Renderer.Runner = &recordingRunner{}
 	stable, err := engine.Update(ctx, moduleDir, "0.1.0", true)
 	require.NoError(t, err)
@@ -748,6 +748,16 @@ func newReleaseFixture(t *testing.T, version, commit string, mutate func(string)
 	if mutate != nil {
 		mutate(root)
 	}
+	release, trust := buildRelease(t, root, version, commit)
+	verified, err := VerifyRelease(release, testPackage, version, trust)
+	if mutate == nil || !strings.Contains(readFile(t, filepath.Join(root, PackageManifestFileName)), "codefly/other") {
+		require.NoError(t, err)
+	}
+	return &releaseFixture{release: release, verified: verified, trust: trust, root: root}
+}
+
+func buildRelease(t *testing.T, root, version, commit string) (*Release, TrustPolicy) {
+	t.Helper()
 	archive, digest, err := CanonicalArchive(root)
 	require.NoError(t, err)
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x2a}, ed25519.SeedSize))
@@ -764,11 +774,7 @@ func newReleaseFixture(t *testing.T, version, commit string, mutate func(string)
 		Provenance: provenanceData, Signature: ed25519.Sign(privateKey, provenanceData),
 	}
 	trust := TrustPolicy{Repositories: map[string]string{testPackage: testRepository}, Signers: map[string]ed25519.PublicKey{testSigner: publicKey}}
-	verified, err := VerifyRelease(release, testPackage, version, trust)
-	if mutate == nil || !strings.Contains(readFile(t, filepath.Join(root, PackageManifestFileName)), "codefly/other") {
-		require.NoError(t, err)
-	}
-	return &releaseFixture{release: release, verified: verified, trust: trust, root: root}
+	return release, trust
 }
 
 func newPackageRoot(t *testing.T, version string) string {
@@ -778,13 +784,21 @@ func newPackageRoot(t *testing.T, version string) string {
 schema: codefly/module-package/v2
 id: %s
 version: %s
-minimum-codefly-version: ">=0.1.0"
+minimum-codefly-version: ">=0.3.32"
 artifact-roots:
   - services
 services:
   - name: frontend
     endpoints:
       - http
+fixtures:
+  - name: dev-admin
+    description: Seeded tenant with an administrator
+    principals:
+      - id: dev-admin
+        email: admin@dev.local
+        role: super_admin
+        token: dev-admin-provider-id
 contracts:
   composition: ">=2.0 <3.0"
   frontendPlugin: ">=1.0 <2.0"
