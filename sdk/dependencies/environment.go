@@ -540,10 +540,39 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 	for _, conf := range resources.FilterConfigurations(dependencies.Configurations, l.runtimeContext) {
 		variables = append(variables, configurationVariables(conf)...)
 	}
-	return newSessionEnvironment(variables), nil
+
+	// Resolved last, so the name the orchestrator chose is the one the process
+	// sees: everything above is projected under a key the SDK derives.
+	supplied, err := processVariables(configuration.GetProcessVariables())
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	return newSessionEnvironment(append(variables, supplied...)), nil
 }
 
 func configurationVariables(conf *basev0.Configuration) []*resources.EnvironmentVariable {
 	variables := resources.ConfigurationAsEnvironmentVariables(conf, false)
 	return append(variables, resources.ConfigurationAsEnvironmentVariables(conf, true)...)
+}
+
+// processVariables projects the values the CLI asked to install under their own
+// names rather than under a key derived from a producer's coordinates. They
+// carry contracts a runtime reads by exact name, which a prefixed projection
+// cannot satisfy.
+//
+// A name that cannot become an environment entry fails the whole resolution
+// instead of being dropped: os.Setenv would reject it with an error naming no
+// source, and a command-scoped session never calls os.Setenv at all, so it would
+// carry a corrupt entry into its children. The error names the key, never the
+// value, because a supplied value may be a secret.
+func processVariables(values []*basev0.ConfigurationValue) ([]*resources.EnvironmentVariable, error) {
+	variables := make([]*resources.EnvironmentVariable, 0, len(values))
+	for _, value := range values {
+		key := value.GetKey()
+		if key == "" || strings.Contains(key, "=") {
+			return nil, fmt.Errorf("the CLI supplied a process variable with an unusable name %q", key)
+		}
+		variables = append(variables, resources.Env(key, value.GetValue()))
+	}
+	return variables, nil
 }

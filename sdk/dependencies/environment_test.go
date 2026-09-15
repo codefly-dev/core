@@ -1,12 +1,14 @@
 package dependencies
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -374,5 +376,44 @@ func TestNamedServiceResolvesInAFlatWorkspace(t *testing.T) {
 	}
 	if dir != gateway {
 		t.Fatalf("serviceDirectory() = %s, want %s", dir, gateway)
+	}
+}
+
+// A CLI-supplied process variable is projected under the name the orchestrator
+// chose, secret or not: the point of the channel is that the runtime reading it
+// knows only that name.
+func TestProcessVariablesKeepTheNameTheCLIChose(t *testing.T) {
+	variables, err := processVariables([]*basev0.ConfigurationValue{
+		{Key: "CODEFLY__API_CONSUMES", Value: "shop/store"},
+		{Key: "CODEFLY__MODULE_REGISTRATION_SECRETS", Value: "registration-token", Secret: true},
+	})
+	if err != nil {
+		t.Fatalf("processVariables() error = %v", err)
+	}
+	got := make(map[string]string, len(variables))
+	for _, variable := range variables {
+		got[variable.Key] = variable.ValueAsString()
+	}
+	want := map[string]string{
+		"CODEFLY__API_CONSUMES":                "shop/store",
+		"CODEFLY__MODULE_REGISTRATION_SECRETS": "registration-token",
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("processVariables() = %v, want %v", got, want)
+	}
+}
+
+// A name that cannot become an environment entry fails the resolution rather
+// than being dropped, so a caller never searches for a contract that silently
+// never arrived.
+func TestUnusableProcessVariableNameFailsResolution(t *testing.T) {
+	for _, key := range []string{"", "NAME=WITH_EQUALS"} {
+		_, err := processVariables([]*basev0.ConfigurationValue{{Key: key, Value: "secret-value"}})
+		if err == nil {
+			t.Fatalf("processVariables(%q) error = nil, want the unusable-name rejection", key)
+		}
+		if strings.Contains(err.Error(), "secret-value") {
+			t.Fatalf("processVariables(%q) error reports the value: %v", key, err)
+		}
 	}
 }

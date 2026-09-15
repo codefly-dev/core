@@ -381,6 +381,28 @@ one process-wide resource, so:
 - Calling `SetEnvironment` again on the same session re-resolves and re-applies;
   release still restores the values captured before the first injection.
 
+### Orchestrator-supplied process variables
+
+Everything above reaches the process under a key the SDK derives — endpoints as
+`CODEFLY__ENDPOINT__…`, configuration as
+`CODEFLY__SERVICE_CONFIGURATION__<UNIQUE>__<INFO>__<KEY>`. Some values cannot be
+projected that way: a runtime that reads a wire contract by its own fixed name
+needs that exact name, not a prefixed rendering of it.
+
+`GetConfigurationResponse.process_variables` is the channel for those. The CLI
+returns key/value pairs and the session installs them verbatim, so a service run
+under `--exclude-root` can receive an input the CLI derived for the root:
+
+```go
+env, _ := sdk.WithDependencies(ctx)
+consumed := env.EnvironmentVariables()["CODEFLY__API_CONSUMES"]
+```
+
+They are resolved last, so a name the orchestrator chose is the one the process
+sees. A pair with an empty name, or a name containing `=`, cannot become an
+environment entry: the session fails to resolve rather than silently dropping
+it. An orchestrator that returns none leaves the environment exactly as it was.
+
 ### NamingScope
 
 `WithNamingScope` is a human label, not an isolation primitive — disposable

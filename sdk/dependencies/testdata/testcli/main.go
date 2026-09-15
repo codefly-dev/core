@@ -41,6 +41,11 @@ const failEnvironment = "CODEFLY_TESTCLI_FAIL"
 // servers it started, instead of matching on this binary's path.
 const pidDirEnvironment = "CODEFLY_TESTCLI_PID_DIR"
 
+// processVariableKey is a value this server supplies under a name of its own
+// choosing, the way the real CLI hands an excluded root's derived inputs to the
+// service it runs. The session must install it verbatim.
+const processVariableKey = "CODEFLY__API_CONSUMES"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "testcli:", err)
@@ -219,6 +224,9 @@ func (c *cli) GetConfiguration(_ context.Context, _ *v0.GetConfigurationRequest)
 					},
 				},
 			},
+		},
+		ProcessVariables: []*basev0.ConfigurationValue{
+			{Key: processVariableKey, Value: c.identity},
 		},
 	}, nil
 }

@@ -453,3 +453,29 @@ func TestDefunctOwnerReleasesTheProcessEnvironment(t *testing.T) {
 		t.Fatalf("%s from the defunct session was not restored", alphaKey)
 	}
 }
+
+// A value the CLI supplies under a name of its own choosing reaches the session
+// verbatim. This is the channel a service run under --exclude-root needs for
+// inputs its runtime reads by exact name: the configuration projection prefixes
+// every key it derives, so it cannot carry one.
+func TestCLISuppliedProcessVariableKeepsItsOwnName(t *testing.T) {
+	binary := testCLI(t)
+	const key = "CODEFLY__API_CONSUMES"
+
+	deps, err := WithDependencies(context.Background(),
+		WithDirectory(fixtureDir(t, "alpha", "modules", "shop", "services", "web")),
+		WithCommandScopedEnvironment(),
+		WithCodeflyBinary(binary),
+		WithTimeout(60*time.Second))
+	if err != nil {
+		t.Fatalf("WithDependencies() error = %v", err)
+	}
+	defer func() { _ = deps.Destroy(context.Background()) }()
+
+	if got := deps.EnvironmentVariables()[key]; got != "shop/web" {
+		t.Fatalf("%s = %q, want the value the CLI supplied: %v", key, got, deps.EnvironmentVariables())
+	}
+	if !slices.Contains(deps.Environ(), key+"=shop/web") {
+		t.Fatalf("Environ() does not carry %s for a child command", key)
+	}
+}
