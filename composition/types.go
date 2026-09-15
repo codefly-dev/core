@@ -30,6 +30,14 @@ const (
 	APIContractKindOpenAPI     = "openapi"
 )
 
+// LastCodeflyVersionWithoutFixtures is the newest Codefly release whose
+// PackageManifest has no Fixtures field. Such a tool decodes the manifest with
+// KnownFields(true), so `fixtures:` fails the ENTIRE package load rather than
+// only the fixture feature. A package declaring fixtures must therefore not
+// claim compatibility with it — minimum-codefly-version is the only gate that
+// turns that into a clear "your Codefly is too old" instead of a decode error.
+const LastCodeflyVersionWithoutFixtures = "0.3.31"
+
 const (
 	ContractComposition    = "composition"
 	ContractFrontendPlugin = "frontendPlugin"

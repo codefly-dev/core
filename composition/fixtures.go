@@ -3,6 +3,7 @@ package composition
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -25,6 +26,10 @@ func Fixtures(manifests ...*PackageManifest) ([]ProvidedFixture, error) {
 				return nil, fmt.Errorf("%w: fixture %q is declared by both %q and %q", ErrCollision, fixture.Name, previous, manifest.ID)
 			}
 			owners[fixture.Name] = manifest.ID
+			// The struct copy still shares the principals array with the
+			// manifest, so without this a caller editing a resolved principal
+			// would rewrite the package's own declaration.
+			fixture.Principals = slices.Clone(fixture.Principals)
 			fixtures = append(fixtures, fixture)
 		}
 	}

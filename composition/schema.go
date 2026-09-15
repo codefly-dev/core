@@ -418,6 +418,12 @@ func (manifest *PackageManifest) Validate() error {
 		if err := validateIdentifier("fixture name", fixture.Name); err != nil {
 			return err
 		}
+		// A fixture name is selected verbatim and travels as CODEFLY__FIXTURE;
+		// the shared identifier pattern would also admit the path separator,
+		// which no consumer of a flat name wants to have to handle.
+		if strings.Contains(fixture.Name, "/") {
+			return fmt.Errorf("fixture name %q cannot contain %q", fixture.Name, "/")
+		}
 		fixtureNames = append(fixtureNames, fixture.Name)
 		ids := make([]string, 0, len(fixture.Principals))
 		roles := make([]string, 0, len(fixture.Principals))
@@ -442,8 +448,16 @@ func (manifest *PackageManifest) Validate() error {
 	if err := uniqueStrings("fixture", fixtureNames); err != nil {
 		return err
 	}
-	if _, exists := manifest.Contracts[ContractFixtures]; len(manifest.Fixtures) > 0 && !exists {
-		return fmt.Errorf("module package declaring fixtures must declare the %q contract", ContractFixtures)
+	if len(manifest.Fixtures) > 0 {
+		if _, exists := manifest.Contracts[ContractFixtures]; !exists {
+			return fmt.Errorf("module package declaring fixtures must declare the %q contract", ContractFixtures)
+		}
+		minimumTool, _ := semver.NewConstraint(manifest.MinimumCodeflyVersion)
+		lastWithout, _ := semver.NewVersion(LastCodeflyVersionWithoutFixtures)
+		if minimumTool.Check(lastWithout) {
+			return fmt.Errorf("module package declaring fixtures requires Codefly newer than %s, but minimum-codefly-version %q admits it",
+				LastCodeflyVersionWithoutFixtures, manifest.MinimumCodeflyVersion)
+		}
 	}
 	commands := append(slices.Clone(manifest.Generators), manifest.Conformance...)
 	for _, entry := range manifest.EntryPoints {

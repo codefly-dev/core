@@ -61,7 +61,7 @@ func validateContracts(descriptor *Descriptor, manifest *PackageManifest, lock *
 	if err != nil || !minimumTool.Check(actualTool) {
 		return fmt.Errorf("%w: Codefly %s does not satisfy package requirement %s", ErrContract, toolVersion, manifest.MinimumCodeflyVersion)
 	}
-	for _, contract := range requiredContracts(descriptor) {
+	for _, contract := range requiredContracts(descriptor, manifest) {
 		if _, exists := lock.Contracts[contract]; !exists {
 			return fmt.Errorf("%w: lock is missing required contract %q", ErrContract, contract)
 		}
@@ -109,7 +109,7 @@ func NegotiateContracts(descriptor *Descriptor, manifest *PackageManifest, toolV
 			return nil, fmt.Errorf("%w: package does not provide selected service %q", ErrContract, service)
 		}
 	}
-	required := requiredContracts(descriptor)
+	required := requiredContracts(descriptor, manifest)
 	negotiated := make(map[string]string, len(required))
 	for _, contract := range required {
 		packageRange, exists := manifest.Contracts[contract]
@@ -143,7 +143,7 @@ func NegotiateContracts(descriptor *Descriptor, manifest *PackageManifest, toolV
 	return negotiated, nil
 }
 
-func requiredContracts(descriptor *Descriptor) []string {
+func requiredContracts(descriptor *Descriptor, manifest *PackageManifest) []string {
 	required := []string{ContractComposition}
 	if len(descriptor.Contributions.Frontend) > 0 {
 		required = append(required, ContractFrontendPlugin)
@@ -154,7 +154,12 @@ func requiredContracts(descriptor *Descriptor) []string {
 	if len(descriptor.Contributions.Permissions) > 0 {
 		required = append(required, ContractPermissions)
 	}
-	if len(descriptor.Contributions.Fixtures) > 0 {
+	// The package's own fixtures are a contract for every consumer of it, not
+	// only for one that contributes fixtures of its own: without this, a
+	// solution that merely resolves principals never negotiates the fixtures
+	// contract, so the lock pins no version for it and a breaking bump lands
+	// unnoticed.
+	if len(descriptor.Contributions.Fixtures) > 0 || len(manifest.Fixtures) > 0 {
 		required = append(required, ContractFixtures)
 	}
 	return required

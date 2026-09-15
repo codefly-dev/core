@@ -339,7 +339,7 @@ func TestUpdateDryRunApplyOfflineAndRollback(t *testing.T) {
 	})
 	resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": first.release, "0.2.0": second.release}}
 	engine := NewEngine(projectRoot, resolver, first.trust)
-	engine.ToolVersion = "0.2.0"
+	engine.ToolVersion = "0.3.32"
 	engine.Renderer.Runner = &recordingRunner{}
 
 	dryRun, err := engine.Update(ctx, moduleDir, "0.1.0", false)
@@ -363,7 +363,7 @@ func TestUpdateDryRunApplyOfflineAndRollback(t *testing.T) {
 	require.NoError(t, err)
 
 	offline := NewEngine(projectRoot, nil, first.trust)
-	offline.ToolVersion = "0.2.0"
+	offline.ToolVersion = "0.3.32"
 	offline.Renderer.Runner = &recordingRunner{}
 	offlineProjection, err := offline.Materialize(ctx, moduleDir, MaterializeOptions{CI: true})
 	require.NoError(t, err)
@@ -423,7 +423,7 @@ func TestSemanticReportRendersPriorLockFromCleanCheckout(t *testing.T) {
 	})
 	resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": first.release, "0.2.0": second.release}}
 	engine := NewEngine(projectRoot, resolver, first.trust)
-	engine.ToolVersion = "0.2.0"
+	engine.ToolVersion = "0.3.32"
 	engine.Renderer.Runner = &recordingRunner{}
 	_, err := engine.Update(ctx, moduleDir, "0.1.0", true)
 	require.NoError(t, err)
@@ -442,7 +442,7 @@ func TestCorruptProjectionIsRebuiltWithAtomicActivation(t *testing.T) {
 	fixture := newReleaseFixture(t, "0.1.0", strings.Repeat("a", 40), nil)
 	resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": fixture.release}}
 	engine := NewEngine(projectRoot, resolver, fixture.trust)
-	engine.ToolVersion = "0.2.0"
+	engine.ToolVersion = "0.3.32"
 	engine.Renderer.Runner = &recordingRunner{}
 	applied, err := engine.Update(ctx, moduleDir, "0.1.0", true)
 	require.NoError(t, err)
@@ -493,7 +493,7 @@ func TestDevelopOverrideAndNamespacesStayIndependent(t *testing.T) {
 	fixture := newReleaseFixture(t, "0.1.0", strings.Repeat("a", 40), nil)
 	resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": fixture.release}}
 	engine := NewEngine(projectRoot, resolver, fixture.trust)
-	engine.ToolVersion = "0.2.0"
+	engine.ToolVersion = "0.3.32"
 	engine.Renderer.Runner = &recordingRunner{}
 	stable, err := engine.Update(ctx, moduleDir, "0.1.0", true)
 	require.NoError(t, err)
@@ -784,7 +784,7 @@ func newPackageRoot(t *testing.T, version string) string {
 schema: codefly/module-package/v2
 id: %s
 version: %s
-minimum-codefly-version: ">=0.1.0"
+minimum-codefly-version: ">=0.3.32"
 artifact-roots:
   - services
 services:

@@ -2,18 +2,22 @@ package composition
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/stretchr/testify/require"
+
+	coreversion "github.com/codefly-dev/core/version"
 )
 
 func fixtureManifest(id string, fixtures ...ProvidedFixture) *PackageManifest {
 	return &PackageManifest{
 		Kind: PackageKind, Schema: PackageSchema, ID: id, Version: "0.1.0",
-		MinimumCodeflyVersion: ">=0.1.0", ArtifactRoots: []string{"services"},
+		MinimumCodeflyVersion: ">=0.3.32", ArtifactRoots: []string{"services"},
 		Contracts: map[string]string{ContractComposition: ">=2.0 <3.0", ContractFixtures: ">=1.0 <2.0"},
 		Fixtures:  fixtures,
 	}
@@ -53,6 +57,8 @@ func TestFixtureDeclarationsAreValidated(t *testing.T) {
 	untrimmedRole.Principals[0].Role = " super_admin"
 	undeclaredContract := fixtureManifest(testPackage, devAdminFixture())
 	delete(undeclaredContract.Contracts, ContractFixtures)
+	staleMinimum := fixtureManifest(testPackage, devAdminFixture())
+	staleMinimum.MinimumCodeflyVersion = ">=0.1.0"
 
 	for name, test := range map[string]struct {
 		manifest *PackageManifest
@@ -64,7 +70,9 @@ func TestFixtureDeclarationsAreValidated(t *testing.T) {
 		"incomplete":          {fixtureManifest(testPackage, incomplete), "fixture dev-admin principal 0 requires an id, an email, a role, and a token"},
 		"untrimmed role":      {fixtureManifest(testPackage, untrimmedRole), "without surrounding whitespace"},
 		"invalid name":        {fixtureManifest(testPackage, ProvidedFixture{Name: "Dev Admin"}), `fixture name "Dev Admin" is invalid`},
+		"name with slash":     {fixtureManifest(testPackage, ProvidedFixture{Name: "dev/admin"}), `fixture name "dev/admin" cannot contain "/"`},
 		"undeclared contract": {undeclaredContract, `must declare the "fixtures" contract`},
+		"stale minimum":       {staleMinimum, "requires Codefly newer than " + LastCodeflyVersionWithoutFixtures},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.ErrorContains(t, test.manifest.Validate(), test.message)
@@ -136,6 +144,50 @@ func TestFixturePrincipalsResolveByRole(t *testing.T) {
 	_, err = (&ProvidedFixture{Name: "simple"}).Principal("super_admin")
 	require.ErrorIs(t, err, ErrUnknownPrincipal)
 	require.ErrorContains(t, err, "seeds no principals")
+}
+
+// A package's fixtures bind every consumer of it, so the fixtures contract must
+// be negotiated and locked even when the consumer contributes no fixtures of
+// its own — otherwise nothing pins the version a breaking bump would change.
+func TestFixturesAreLockedByEveryConsumerOfThePackage(t *testing.T) {
+	descriptor := &Descriptor{Kind: DescriptorKind, Name: "saas", Base: Base{ID: testPackage, Version: "^0.1"}}
+	require.Empty(t, descriptor.Contributions.Fixtures)
+	manifest := fixtureManifest(testPackage, devAdminFixture())
+
+	negotiated, err := NegotiateContracts(descriptor, manifest, "0.3.32", DefaultSupportedContracts)
+	require.NoError(t, err)
+	require.Equal(t, "1.0", negotiated[ContractFixtures])
+
+	lock := validLock()
+	require.NotContains(t, lock.Contracts, ContractFixtures)
+	err = ValidateLockedContracts(descriptor, manifest, lock, "0.3.32", DefaultSupportedContracts)
+	require.ErrorIs(t, err, ErrContract)
+	require.ErrorContains(t, err, `lock is missing required contract "fixtures"`)
+
+	lock.Contracts[ContractFixtures] = negotiated[ContractFixtures]
+	require.NoError(t, ValidateLockedContracts(descriptor, manifest, lock, "0.3.32", DefaultSupportedContracts))
+}
+
+func TestResolvedFixtureIsDecoupledFromTheManifest(t *testing.T) {
+	manifest := fixtureManifest(testPackage, devAdminFixture())
+
+	resolved, err := ResolveFixture("dev-admin", manifest)
+	require.NoError(t, err)
+	resolved.Principals[0].Token = "rewritten"
+
+	require.Equal(t, "dev-admin-provider-id", manifest.Fixtures[0].Principals[0].Token)
+}
+
+// The gate only holds while the constant names a version that has actually been
+// released; a constant ahead of the build would reject every honest package.
+func TestFixtureGateIsNotAheadOfTheShippedVersion(t *testing.T) {
+	shipped, err := coreversion.Version(context.Background())
+	require.NoError(t, err)
+	gate, err := semver.NewVersion(LastCodeflyVersionWithoutFixtures)
+	require.NoError(t, err)
+	current, err := semver.NewVersion(shipped)
+	require.NoError(t, err)
+	require.False(t, current.LessThan(gate), "shipped version %s is older than the fixtures gate %s", shipped, gate)
 }
 
 func TestSemanticReportShowsFixtureChanges(t *testing.T) {
