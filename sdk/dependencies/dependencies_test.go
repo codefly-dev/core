@@ -591,3 +591,32 @@ func readPIDFile(t *testing.T, path string) (int, int) {
 	}
 	return leader, child
 }
+
+// A borrowed session spawns nothing, so a named service that does not resolve
+// where the parent runtime placed the test must not refuse dependencies that
+// are already live.
+func TestNamedServiceDoesNotRefuseABorrowedSession(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv(resources.RunningPrefix, "true")
+	t.Setenv(resources.RuntimeContextPrefix, resources.RuntimeContextNative)
+	t.Setenv(resources.EndpointPrefix+"__SHOP__STORE__TCP__TCP", "localhost:5432")
+
+	deps, err := WithDependencies(context.Background(), WithService("shop/web"))
+	if err != nil {
+		t.Fatalf("WithDependencies() error = %v", err)
+	}
+	if !deps.inherited {
+		t.Fatal("managed dependencies were not marked as inherited")
+	}
+}
+
+// WithService and WithDirectory both anchor the session, so passing both is a
+// contradiction to report rather than a precedence rule to remember.
+func TestServiceAndDirectoryCannotBothAnchorASession(t *testing.T) {
+	_, err := WithDependencies(context.Background(),
+		WithService("shop/web"),
+		WithDirectory(t.TempDir()))
+	if err == nil || !strings.Contains(err.Error(), "both anchor the session") {
+		t.Fatalf("WithDependencies() error = %v, want the conflicting-anchor rejection", err)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/codefly-dev/core/sdk/session"
 	"github.com/codefly-dev/core/wool"
 
+	"github.com/gofrs/flock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
@@ -98,6 +100,7 @@ type Option struct {
 	KeepRunning              bool
 	SharedControlChannel     bool
 	Directory                string
+	Service                  string
 	CommandScopedEnvironment bool
 }
 
@@ -257,6 +260,21 @@ func WithDirectory(dir string) OptionFunc {
 	}
 }
 
+// WithService anchors the session to a service named the way the CLI names it,
+// "<module>/<service>", resolved through the workspace found up from the
+// working directory. The module half is required: a bare service name is
+// refused rather than guessed at across modules.
+//
+// It is the option for a caller that sits outside any service — a
+// solution-level test package, which owns no service.codefly.yaml of its own —
+// and would otherwise have to compute the on-disk path of the service it
+// drives and pass it to WithDirectory.
+func WithService(unique string) OptionFunc {
+	return func(o *Option) {
+		o.Service = unique
+	}
+}
+
 // WithCommandScopedEnvironment keeps the session out of os.Environ. The
 // resolved values are reachable through Dependencies.Environ, which produces a
 // child-process environment, and through Dependencies.Connection. This is the
@@ -291,21 +309,28 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	if err := validateDependencyOptions(opt); err != nil {
 		return nil, err
 	}
-	dir, err := sessionDirectory(opt)
-	if err != nil {
-		return nil, err
-	}
+	// Borrowing the parent runtime's dependencies is decided before the session
+	// is anchored: that path spawns nothing, so it must not be refused by a
+	// directory lookup made on behalf of a stack it will never start.
 	if hasManagedDependencyEnvironment(os.Environ()) {
 		if hasInvocationConfigurationOverrides(opt) {
 			return nil, fmt.Errorf("invocation-scoped configurations cannot replace values in dependencies owned by the parent Codefly runtime")
 		}
 		wool.Get(ctx).In("sdk.WithDependencies").
 			Debug("reusing dependencies injected by the managed Codefly runtime")
+		dir, err := inheritedDirectory(ctx, opt)
+		if err != nil {
+			return nil, err
+		}
 		return &Dependencies{
 			runtimeContext: resources.RuntimeContextFromEnv(),
 			inherited:      true,
 			dir:            dir,
 		}, nil
+	}
+	dir, err := sessionDirectory(ctx, opt)
+	if err != nil {
+		return nil, err
 	}
 	channel, err := newControlChannel(ctx, dir, opt)
 	if err != nil {
@@ -321,10 +346,18 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 			channel.discard()
 		}
 	}()
+	// Held across the attach-or-spawn decision below, so concurrent processes
+	// keyed to one warm stack take turns deciding rather than racing to the
+	// same conclusion.
+	unlockSetup, err := channel.lockSetup(ctx, setupLockWait(opt.Timeout))
+	if err != nil {
+		return nil, err
+	}
+	defer unlockSetup()
 	args := dependencyCommandArguments(opt, channel.scope)
 
 	if opt.KeepRunning {
-		if deps, err := attachDependencies(ctx, channel, dir, opt); err == nil {
+		if deps, err := attachDependencies(ctx, channel, dir, opt, unlockSetup); err == nil {
 			success = true
 			return deps, nil
 		} else {
@@ -342,11 +375,17 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		// receipt bounds how long its secret survives on disk; clearing the
 		// socket refuses outright when a server still answers there, so a
 		// second stack can never come up over the first one's containers.
-		if err := channel.control.RemoveReceipt(); err != nil {
-			return nil, err
-		}
-		if err := channel.control.ClearStaleSocket(); err != nil {
-			return nil, err
+		//
+		// A shared control channel owns no directory: there is no receipt and
+		// no socket of ours to clear, and a server still holding the workspace
+		// port is refused by the child's own failure to bind it.
+		if channel.isolated() {
+			if err := channel.control.RemoveReceipt(); err != nil {
+				return nil, err
+			}
+			if err := channel.control.ClearStaleSocket(); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -540,12 +579,65 @@ func releaseControlAddress(addr string) {
 	delete(controlAddresses.inUse, addr)
 }
 
-// sessionDirectory is the absolute directory a session is anchored to: the one
-// the caller pinned, or the working directory at the moment the session starts.
-func sessionDirectory(opt *Option) (string, error) {
+// sessionDirectory is the absolute directory a session is anchored to: the
+// directory of the service the caller named, the one it pinned, or the working
+// directory at the moment the session starts.
+func sessionDirectory(ctx context.Context, opt *Option) (string, error) {
+	if opt.Service != "" {
+		return serviceDirectory(ctx, opt.Service)
+	}
 	if opt.Directory != "" {
 		return opt.Directory, nil
 	}
+	return os.Getwd()
+}
+
+// serviceDirectory resolves "<module>/<service>" through the workspace owning
+// the working directory. Only the workspace is found by walking up, so a caller
+// that owns no service — which is the whole point of naming one — resolves the
+// same identity from anywhere inside the workspace.
+func serviceDirectory(ctx context.Context, unique string) (string, error) {
+	reference, err := resources.ParseServiceWithOptionalModule(unique)
+	if err != nil {
+		return "", err
+	}
+	if reference.Module == "" {
+		return "", fmt.Errorf("service %q must name its module, as <module>/<service>", unique)
+	}
+	from, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	workspace, err := resources.FindWorkspaceUpFrom(ctx, from)
+	if err != nil {
+		return "", err
+	}
+	if workspace == nil {
+		return "", fmt.Errorf("no Codefly workspace found from %s, so the service %s cannot be resolved", from, unique)
+	}
+	service, err := workspace.LoadService(ctx, reference)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve service %s in workspace %s: %w", unique, workspace.Name, err)
+	}
+	return service.Dir(), nil
+}
+
+// inheritedDirectory anchors a borrowed session. It spawns nothing, so the
+// directory only names the identity Service and Module report: a service name
+// that does not resolve here — a parent runtime may run the test outside the
+// workspace that name belongs to — falls back to the working directory rather
+// than failing a session whose dependencies are already live.
+func inheritedDirectory(ctx context.Context, opt *Option) (string, error) {
+	dir, err := sessionDirectory(ctx, opt)
+	if err == nil {
+		return dir, nil
+	}
+	if opt.Service == "" {
+		return "", err
+	}
+	wool.Get(ctx).In("sdk.WithDependencies").
+		Debug("named service does not resolve here; anchoring the borrowed session to the working directory",
+			wool.Field("service", opt.Service), wool.Field("error", err.Error()))
 	return os.Getwd()
 }
 
@@ -575,6 +667,9 @@ func validateDependencyOptions(opt *Option) error {
 	}
 	if opt.Directory != "" && !filepath.IsAbs(opt.Directory) {
 		return fmt.Errorf("session directory must be absolute: %s", opt.Directory)
+	}
+	if opt.Service != "" && opt.Directory != "" {
+		return fmt.Errorf("WithService(%s) and WithDirectory(%s) both anchor the session: pass one", opt.Service, opt.Directory)
 	}
 	return nil
 }
@@ -756,6 +851,77 @@ func (c *controlChannel) discard() {
 	if c.control != nil && c.fingerprint == "" {
 		_ = c.control.Remove()
 	}
+}
+
+// setupLockRetry is how often a waiting session re-tries the reusable
+// directory's lock. Startup of a full dependency stack is measured in seconds,
+// so a poll this cheap is invisible next to it.
+const setupLockRetry = 50 * time.Millisecond
+
+// setupLockTimeout is the floor on how long a session waits for another process
+// to finish deciding. It has to cover a cold start of the shared stack, which
+// runs into minutes when that stack pulls images, so it is far longer than the
+// per-phase opt.Timeout.
+const setupLockTimeout = 5 * time.Minute
+
+// setupLockWait bounds the wait, and is finite because the alternative is
+// worse: a holder that wedges mid-start — a CLI that accepts an RPC it never
+// answers — would otherwise hang every other process until the test binary's
+// own panic timeout, leaving a stack trace that points at this lock rather than
+// at the process that stalled. A caller that budgeted more than the floor for
+// its own start is waiting on a stack that slow, so its timeout wins.
+func setupLockWait(timeout time.Duration) time.Duration {
+	if timeout > setupLockTimeout {
+		return timeout
+	}
+	return setupLockTimeout
+}
+
+// lockSetup serializes the attach-or-spawn decision for a reusable session
+// against every other process keyed to the same warm directory. Only that
+// decision is held, not the session: once the owner has published its receipt
+// the lock is released and every waiter attaches to the one warm stack, which
+// is what lets test packages share it while still running concurrently.
+//
+// Without it the window between "no receipt yet" and "receipt written" is open:
+// a second process reads no receipt, concludes there is nothing to attach to,
+// and either refuses because the first child has since bound the socket, or
+// spawns a second CLI over the first one's containers — which the SDK then
+// sees as an EOF on the first RPC it makes.
+//
+// A disposable session owns a directory nothing else can name, so it takes no
+// lock. A holder that dies releases the lock along with its file descriptors;
+// one that wedges is bounded by wait.
+func (c *controlChannel) lockSetup(ctx context.Context, wait time.Duration) (func(), error) {
+	if c.fingerprint == "" {
+		return func() {}, nil
+	}
+	lock := flock.New(c.control.SetupLockPath(), flock.SetPermissions(0o600))
+	bounded, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	locked, err := lock.TryLockContext(bounded, setupLockRetry)
+	if err != nil {
+		_ = lock.Close()
+		// The caller's own context expiring is its business; this deadline
+		// expiring means the process that holds the lock never let go.
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return nil, fmt.Errorf("timed out after %s waiting for another process to finish starting the reusable dependency session at %s: the process holding it may be wedged", wait, c.control.Directory)
+		}
+		return nil, fmt.Errorf("waiting for the reusable dependency session at %s: %w", c.control.Directory, err)
+	}
+	if !locked {
+		_ = lock.Close()
+		return nil, fmt.Errorf("could not lock the reusable dependency session at %s", c.control.Directory)
+	}
+	// Released once: the attach path hands the lock back as soon as the
+	// decision is made, and the deferred release then has nothing left to do.
+	var released sync.Once
+	return func() {
+		released.Do(func() {
+			_ = lock.Unlock()
+			_ = lock.Close()
+		})
+	}, nil
 }
 
 // verifyOwnership makes the peer prove it holds this invocation's secret. A
@@ -999,7 +1165,12 @@ func codeflyBinary(opt *Option) string {
 	return "codefly"
 }
 
-func attachDependencies(ctx context.Context, channel *controlChannel, dir string, opt *Option) (*Dependencies, error) {
+// attachDependencies joins the stack a reusable control directory already has.
+// It calls attached as soon as the peer is proven, which is where the caller
+// hands back the setup lock: everything after that point is this session's own
+// work, and holding the lock through it would serialize every waiter's
+// readiness wait behind the one in front of it.
+func attachDependencies(ctx context.Context, channel *controlChannel, dir string, opt *Option, attached func()) (*Dependencies, error) {
 	owner, err := warmSessionOwner(channel)
 	if err != nil {
 		return nil, err
@@ -1024,6 +1195,11 @@ func attachDependencies(ctx context.Context, channel *controlChannel, dir string
 		_ = conn.Close()
 		return nil, fmt.Errorf("existing CLI server ping failed: %w", err)
 	}
+	// A live stack that proved it is ours settles the attach-or-spawn question.
+	// A process that takes the lock next reads the same receipt and attaches
+	// too; one whose attach fails cannot displace this stack, because clearing
+	// a socket a live server still answers is refused.
+	attached()
 	l := &Dependencies{
 		cli:            cli,
 		conn:           conn,

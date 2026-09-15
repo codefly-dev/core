@@ -46,6 +46,7 @@ func WithServiceSecret(service, name, key, value string) OptionFunc {
 func WithKeepRunning() OptionFunc               { return dependencies.WithKeepRunning() }
 func WithSharedControlChannel() OptionFunc      { return dependencies.WithSharedControlChannel() }
 func WithDirectory(dir string) OptionFunc       { return dependencies.WithDirectory(dir) }
+func WithService(unique string) OptionFunc      { return dependencies.WithService(unique) }
 func WithCommandScopedEnvironment() OptionFunc  { return dependencies.WithCommandScopedEnvironment() }
 func Connection(service, name string) string    { return dependencies.Connection(service, name) }
 func Service() (*resources.Service, error)      { return dependencies.Service() }

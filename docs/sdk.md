@@ -263,6 +263,20 @@ profile, exclusions, silenced services, dependency home and CLI binary. A run
 with a different fixture or profile starts its own stack instead of inheriting
 one built from another plan.
 
+Several processes can be keyed to one warm stack — parallel test packages that
+share a naming scope, for instance. The attach-or-spawn decision is serialized
+across them by an advisory lock on the control directory, so exactly one process
+spawns the stack and the rest attach to the receipt it publishes. Without it the
+window between "no receipt yet" and "receipt written" is open: a second process
+either refuses because the first child has since bound the socket, or spawns a
+second CLI over the first one's containers, which the SDK then sees as an `EOF`
+on the first RPC it makes. Only the decision is held, never the session, so the
+packages still run concurrently once the stack is up. The wait is bounded — five
+minutes, or the caller's own timeout when that is longer — so a process that
+wedges mid-start fails the waiters with an error naming what they waited for,
+rather than hanging them until the test binary's own panic timeout. A holder
+that dies releases the lock along with its file descriptors.
+
 ### Borrowed sessions
 
 When a parent Codefly runtime already injected live dependency endpoints, the
@@ -281,6 +295,25 @@ instead, so one process can drive several stacks, each on its own service:
 alpha, _ := sdk.WithDependencies(ctx, sdk.WithDirectory("/abs/path/shop/web"))
 beta, _ := sdk.WithDependencies(ctx, sdk.WithDirectory("/abs/path/office/portal"))
 ```
+
+`WithService` names the identity instead of the path, the way
+`codefly run service <module>/<service>` does, and resolves it through the
+workspace found up from the working directory:
+
+```go
+deps, _ := sdk.WithDependencies(ctx, sdk.WithService("lastlogin-go/backend"))
+```
+
+It is the option for a caller that owns no `service.codefly.yaml` of its own — a
+solution-level test package sits outside every service, and would otherwise have
+to compute the on-disk path of the service it drives. Only the workspace is
+found by walking up, so the name resolves the same from anywhere inside it. The
+module half is required: a bare service name is refused rather than guessed at
+across modules. `WithService` and `WithDirectory` both anchor the session, so
+passing both is rejected rather than resolved by precedence. A session that
+borrows its dependencies from a parent Codefly runtime spawns nothing, so a name
+that does not resolve where that runtime placed the test falls back to the
+working directory instead of failing.
 
 Isolated sessions already get their own control socket, so concurrent sessions
 need no naming flags. On the two channels that are not per-invocation —

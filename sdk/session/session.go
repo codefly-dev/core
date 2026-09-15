@@ -293,6 +293,14 @@ func (c *Control) receiptPath() string {
 	return filepath.Join(c.Directory, "receipt.json")
 }
 
+// SetupLockPath is the advisory lock a reusable session holds while it decides
+// whether to attach to the stack this directory already has or to start one. It
+// is named here, beside the socket and the receipt, because the layout of this
+// directory belongs to one package.
+func (c *Control) SetupLockPath() string {
+	return filepath.Join(c.Directory, "setup.lock")
+}
+
 // WriteReceipt records the owning session. The secret makes the file
 // credential-bearing, so it is written 0600 inside the 0700 directory.
 func (c *Control) WriteReceipt(receipt Receipt) error {

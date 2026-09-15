@@ -324,3 +324,55 @@ func TestEnvironOverridesTheProcessEnvironmentWithoutMutatingIt(t *testing.T) {
 		t.Fatalf("EnvironmentVariables() is not a defensive copy: %q", got)
 	}
 }
+
+// A caller that owns no service — a solution-level test package — names the
+// service it drives. Resolution walks up to the workspace and never to a
+// service, so the name resolves from the workspace root just as it does from
+// inside the service.
+func TestNamedServiceResolvesFromOutsideAnyService(t *testing.T) {
+	t.Chdir(fixtureDir(t, "alpha"))
+	web := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
+
+	dir, err := serviceDirectory(t.Context(), "shop/web")
+	if err != nil {
+		t.Fatalf("serviceDirectory() error = %v", err)
+	}
+	if dir != web {
+		t.Fatalf("serviceDirectory() = %s, want %s", dir, web)
+	}
+
+	// A bare name is refused rather than guessed at across modules: two modules
+	// may each declare a service by that name, and silently picking one is
+	// worse than asking the caller which they meant.
+	if _, err := serviceDirectory(t.Context(), "web"); err == nil ||
+		!strings.Contains(err.Error(), "must name its module") {
+		t.Fatalf("serviceDirectory(\"web\") error = %v, want the missing-module refusal", err)
+	}
+
+	identity, err := resolveSessionIdentity(t.Context(), web)
+	if err != nil {
+		t.Fatalf("resolveSessionIdentity() error = %v", err)
+	}
+	if identity.module.Name != "shop" || identity.service.Name != "web" {
+		t.Fatalf("identity = %s/%s, want shop/web", identity.module.Name, identity.service.Name)
+	}
+
+	if _, err := serviceDirectory(t.Context(), "shop/absent"); err == nil {
+		t.Fatal("serviceDirectory() accepted a service the workspace does not declare")
+	}
+}
+
+// A flat workspace holds its services directly, and the module half of a name
+// is the workspace itself.
+func TestNamedServiceResolvesInAFlatWorkspace(t *testing.T) {
+	t.Chdir(fixtureDir(t, "flat"))
+	gateway := fixtureDir(t, "flat", "services", "gateway")
+
+	dir, err := serviceDirectory(t.Context(), "flat-session/gateway")
+	if err != nil {
+		t.Fatalf("serviceDirectory() error = %v", err)
+	}
+	if dir != gateway {
+		t.Fatalf("serviceDirectory() = %s, want %s", dir, gateway)
+	}
+}
