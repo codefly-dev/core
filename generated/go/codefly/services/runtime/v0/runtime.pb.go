@@ -1050,7 +1050,15 @@ type InitRequest struct {
 	// barrier or skip it entirely, and only Init is guaranteed to reach the
 	// service under test. An agent reads this first and falls back to
 	// StartRequest.fixture.
-	Fixture       string `protobuf:"bytes,7,opt,name=fixture,proto3" json:"fixture,omitempty"`
+	Fixture string `protobuf:"bytes,7,opt,name=fixture,proto3" json:"fixture,omitempty"`
+	// overrides are per-service environment variables (KEY=VAL) injected into
+	// the service process. Init carries them for the same reason it carries the
+	// fixture: a service under test may never be started, so StartRequest.overrides
+	// never reaches it, and the values a solution entry needs to federate
+	// (CODEFLY__API_CONSUMES, the registration secrets) are exactly what such a
+	// suite exercises. An agent reads this first and falls back to
+	// StartRequest.overrides.
+	Overrides     map[string]string `protobuf:"bytes,8,rep,name=overrides,proto3" json:"overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1132,6 +1140,13 @@ func (x *InitRequest) GetFixture() string {
 		return x.Fixture
 	}
 	return ""
+}
+
+func (x *InitRequest) GetOverrides() map[string]string {
+	if x != nil {
+		return x.Overrides
+	}
+	return nil
 }
 
 // InitResponse returns the runtime context and mappings the agent actually accepted.
@@ -4498,7 +4513,7 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05READY\x10\x01\x12\t\n" +
-	"\x05ERROR\x10\x02\"\xa2\x04\n" +
+	"\x05ERROR\x10\x02\"\xb7\x05\n" +
 	"\vInitRequest\x12H\n" +
 	"\x0fruntime_context\x18\x01 \x01(\v2\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12D\n" +
 	"\rconfiguration\x18\x02 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\x12[\n" +
@@ -4506,7 +4521,11 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x16dependencies_endpoints\x18\x04 \x03(\v2\x19.codefly.base.v0.EndpointR\x15dependenciesEndpoints\x12_\n" +
 	"\x1bdependencies_configurations\x18\x05 \x03(\v2\x1e.codefly.base.v0.ConfigurationR\x1adependenciesConfigurations\x12Y\n" +
 	"\x18workspace_configurations\x18\x06 \x03(\v2\x1e.codefly.base.v0.ConfigurationR\x17workspaceConfigurations\x12\x18\n" +
-	"\afixture\x18\a \x01(\tR\afixture\"\xbc\x02\n" +
+	"\afixture\x18\a \x01(\tR\afixture\x12U\n" +
+	"\toverrides\x18\b \x03(\v27.codefly.services.runtime.v0.InitRequest.OverridesEntryR\toverrides\x1a<\n" +
+	"\x0eOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbc\x02\n" +
 	"\fInitResponse\x12?\n" +
 	"\x06status\x18\x01 \x01(\v2'.codefly.services.runtime.v0.InitStatusR\x06status\x12H\n" +
 	"\x0fruntime_context\x18\x02 \x01(\v2\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12J\n" +
@@ -4830,7 +4849,7 @@ func file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_services_runtime_v0_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
-var file_codefly_services_runtime_v0_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_codefly_services_runtime_v0_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_codefly_services_runtime_v0_runtime_proto_goTypes = []any{
 	(TestCaseState)(0),                 // 0: codefly.services.runtime.v0.TestCaseState
 	(TestFailureKind)(0),               // 1: codefly.services.runtime.v0.TestFailureKind
@@ -4893,141 +4912,143 @@ var file_codefly_services_runtime_v0_runtime_proto_goTypes = []any{
 	(*InformationRequest)(nil),         // 58: codefly.services.runtime.v0.InformationRequest
 	(*DesiredState)(nil),               // 59: codefly.services.runtime.v0.DesiredState
 	(*InformationResponse)(nil),        // 60: codefly.services.runtime.v0.InformationResponse
-	nil,                                // 61: codefly.services.runtime.v0.StartRequest.OverridesEntry
-	nil,                                // 62: codefly.services.runtime.v0.TestFormula.EnvEntry
-	nil,                                // 63: codefly.services.runtime.v0.TestFormula.ProvisioningEntry
-	(*v0.Failure)(nil),                 // 64: codefly.base.v0.Failure
-	(*v0.ServiceIdentity)(nil),         // 65: codefly.base.v0.ServiceIdentity
-	(*v0.Environment)(nil),             // 66: codefly.base.v0.Environment
-	(*v0.Version)(nil),                 // 67: codefly.base.v0.Version
-	(*v0.Endpoint)(nil),                // 68: codefly.base.v0.Endpoint
-	(*v0.RuntimeContext)(nil),          // 69: codefly.base.v0.RuntimeContext
-	(*v0.Configuration)(nil),           // 70: codefly.base.v0.Configuration
-	(*v0.NetworkMapping)(nil),          // 71: codefly.base.v0.NetworkMapping
-	(*v0.Specs)(nil),                   // 72: codefly.base.v0.Specs
-	(*durationpb.Duration)(nil),        // 73: google.protobuf.Duration
-	(*v0.HealthReport)(nil),            // 74: codefly.base.v0.HealthReport
-	(*v01.Answer)(nil),                 // 75: codefly.services.agent.v0.Answer
-	(*v01.Question)(nil),               // 76: codefly.services.agent.v0.Question
+	nil,                                // 61: codefly.services.runtime.v0.InitRequest.OverridesEntry
+	nil,                                // 62: codefly.services.runtime.v0.StartRequest.OverridesEntry
+	nil,                                // 63: codefly.services.runtime.v0.TestFormula.EnvEntry
+	nil,                                // 64: codefly.services.runtime.v0.TestFormula.ProvisioningEntry
+	(*v0.Failure)(nil),                 // 65: codefly.base.v0.Failure
+	(*v0.ServiceIdentity)(nil),         // 66: codefly.base.v0.ServiceIdentity
+	(*v0.Environment)(nil),             // 67: codefly.base.v0.Environment
+	(*v0.Version)(nil),                 // 68: codefly.base.v0.Version
+	(*v0.Endpoint)(nil),                // 69: codefly.base.v0.Endpoint
+	(*v0.RuntimeContext)(nil),          // 70: codefly.base.v0.RuntimeContext
+	(*v0.Configuration)(nil),           // 71: codefly.base.v0.Configuration
+	(*v0.NetworkMapping)(nil),          // 72: codefly.base.v0.NetworkMapping
+	(*v0.Specs)(nil),                   // 73: codefly.base.v0.Specs
+	(*durationpb.Duration)(nil),        // 74: google.protobuf.Duration
+	(*v0.HealthReport)(nil),            // 75: codefly.base.v0.HealthReport
+	(*v01.Answer)(nil),                 // 76: codefly.services.agent.v0.Answer
+	(*v01.Question)(nil),               // 77: codefly.services.agent.v0.Question
 }
 var file_codefly_services_runtime_v0_runtime_proto_depIdxs = []int32{
 	2,   // 0: codefly.services.runtime.v0.LoadStatus.state:type_name -> codefly.services.runtime.v0.LoadStatus.Status
-	64,  // 1: codefly.services.runtime.v0.LoadStatus.failure:type_name -> codefly.base.v0.Failure
-	65,  // 2: codefly.services.runtime.v0.LoadRequest.identity:type_name -> codefly.base.v0.ServiceIdentity
-	66,  // 3: codefly.services.runtime.v0.LoadRequest.environment:type_name -> codefly.base.v0.Environment
-	67,  // 4: codefly.services.runtime.v0.LoadResponse.version:type_name -> codefly.base.v0.Version
+	65,  // 1: codefly.services.runtime.v0.LoadStatus.failure:type_name -> codefly.base.v0.Failure
+	66,  // 2: codefly.services.runtime.v0.LoadRequest.identity:type_name -> codefly.base.v0.ServiceIdentity
+	67,  // 3: codefly.services.runtime.v0.LoadRequest.environment:type_name -> codefly.base.v0.Environment
+	68,  // 4: codefly.services.runtime.v0.LoadResponse.version:type_name -> codefly.base.v0.Version
 	13,  // 5: codefly.services.runtime.v0.LoadResponse.status:type_name -> codefly.services.runtime.v0.LoadStatus
-	68,  // 6: codefly.services.runtime.v0.LoadResponse.endpoints:type_name -> codefly.base.v0.Endpoint
+	69,  // 6: codefly.services.runtime.v0.LoadResponse.endpoints:type_name -> codefly.base.v0.Endpoint
 	3,   // 7: codefly.services.runtime.v0.InitStatus.state:type_name -> codefly.services.runtime.v0.InitStatus.Status
-	64,  // 8: codefly.services.runtime.v0.InitStatus.failure:type_name -> codefly.base.v0.Failure
-	69,  // 9: codefly.services.runtime.v0.InitRequest.runtime_context:type_name -> codefly.base.v0.RuntimeContext
-	70,  // 10: codefly.services.runtime.v0.InitRequest.configuration:type_name -> codefly.base.v0.Configuration
-	71,  // 11: codefly.services.runtime.v0.InitRequest.proposed_network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	68,  // 12: codefly.services.runtime.v0.InitRequest.dependencies_endpoints:type_name -> codefly.base.v0.Endpoint
-	70,  // 13: codefly.services.runtime.v0.InitRequest.dependencies_configurations:type_name -> codefly.base.v0.Configuration
-	70,  // 14: codefly.services.runtime.v0.InitRequest.workspace_configurations:type_name -> codefly.base.v0.Configuration
-	16,  // 15: codefly.services.runtime.v0.InitResponse.status:type_name -> codefly.services.runtime.v0.InitStatus
-	69,  // 16: codefly.services.runtime.v0.InitResponse.runtime_context:type_name -> codefly.base.v0.RuntimeContext
-	71,  // 17: codefly.services.runtime.v0.InitResponse.network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	70,  // 18: codefly.services.runtime.v0.InitResponse.runtime_configurations:type_name -> codefly.base.v0.Configuration
-	72,  // 19: codefly.services.runtime.v0.StartRequest.specs:type_name -> codefly.base.v0.Specs
-	71,  // 20: codefly.services.runtime.v0.StartRequest.dependencies_network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	61,  // 21: codefly.services.runtime.v0.StartRequest.overrides:type_name -> codefly.services.runtime.v0.StartRequest.OverridesEntry
-	4,   // 22: codefly.services.runtime.v0.StartStatus.state:type_name -> codefly.services.runtime.v0.StartStatus.Status
-	64,  // 23: codefly.services.runtime.v0.StartStatus.failure:type_name -> codefly.base.v0.Failure
-	20,  // 24: codefly.services.runtime.v0.StartResponse.status:type_name -> codefly.services.runtime.v0.StartStatus
-	5,   // 25: codefly.services.runtime.v0.BuildStatus.state:type_name -> codefly.services.runtime.v0.BuildStatus.Status
-	64,  // 26: codefly.services.runtime.v0.BuildStatus.failure:type_name -> codefly.base.v0.Failure
-	24,  // 27: codefly.services.runtime.v0.ValidationSelection.package:type_name -> codefly.services.runtime.v0.ValidationPackageSelection
-	25,  // 28: codefly.services.runtime.v0.ValidationSelection.file:type_name -> codefly.services.runtime.v0.ValidationFileSelection
-	23,  // 29: codefly.services.runtime.v0.BuildRequest.selection:type_name -> codefly.services.runtime.v0.ValidationSelection
-	22,  // 30: codefly.services.runtime.v0.BuildResponse.status:type_name -> codefly.services.runtime.v0.BuildStatus
-	23,  // 31: codefly.services.runtime.v0.BuildResponse.requested_selection:type_name -> codefly.services.runtime.v0.ValidationSelection
-	6,   // 32: codefly.services.runtime.v0.TestStatus.state:type_name -> codefly.services.runtime.v0.TestStatus.Status
-	64,  // 33: codefly.services.runtime.v0.TestStatus.failure:type_name -> codefly.base.v0.Failure
-	30,  // 34: codefly.services.runtime.v0.TestSelection.package:type_name -> codefly.services.runtime.v0.TestPackageSelection
-	31,  // 35: codefly.services.runtime.v0.TestSelection.file:type_name -> codefly.services.runtime.v0.TestFileSelection
-	32,  // 36: codefly.services.runtime.v0.TestSelection.suite:type_name -> codefly.services.runtime.v0.TestSuiteSelection
-	33,  // 37: codefly.services.runtime.v0.TestSelection.test_case:type_name -> codefly.services.runtime.v0.TestCaseSelection
-	35,  // 38: codefly.services.runtime.v0.TestRequest.formula:type_name -> codefly.services.runtime.v0.TestFormula
-	29,  // 39: codefly.services.runtime.v0.TestRequest.selection:type_name -> codefly.services.runtime.v0.TestSelection
-	62,  // 40: codefly.services.runtime.v0.TestFormula.env:type_name -> codefly.services.runtime.v0.TestFormula.EnvEntry
-	63,  // 41: codefly.services.runtime.v0.TestFormula.provisioning:type_name -> codefly.services.runtime.v0.TestFormula.ProvisioningEntry
-	28,  // 42: codefly.services.runtime.v0.TestResponse.status:type_name -> codefly.services.runtime.v0.TestStatus
-	37,  // 43: codefly.services.runtime.v0.TestResponse.run:type_name -> codefly.services.runtime.v0.TestRun
-	38,  // 44: codefly.services.runtime.v0.TestResponse.result:type_name -> codefly.services.runtime.v0.TestRunResult
-	39,  // 45: codefly.services.runtime.v0.TestResponse.counts:type_name -> codefly.services.runtime.v0.TestCounts
-	40,  // 46: codefly.services.runtime.v0.TestResponse.suites:type_name -> codefly.services.runtime.v0.TestSuite
-	45,  // 47: codefly.services.runtime.v0.TestResponse.coverage:type_name -> codefly.services.runtime.v0.TestCoverage
-	47,  // 48: codefly.services.runtime.v0.TestResponse.truncation:type_name -> codefly.services.runtime.v0.TestTruncation
-	73,  // 49: codefly.services.runtime.v0.TestRun.duration:type_name -> google.protobuf.Duration
-	29,  // 50: codefly.services.runtime.v0.TestRun.requested_selection:type_name -> codefly.services.runtime.v0.TestSelection
-	7,   // 51: codefly.services.runtime.v0.TestRunResult.state:type_name -> codefly.services.runtime.v0.TestRunResult.State
-	64,  // 52: codefly.services.runtime.v0.TestRunResult.failure:type_name -> codefly.base.v0.Failure
-	73,  // 53: codefly.services.runtime.v0.TestSuite.duration:type_name -> google.protobuf.Duration
-	39,  // 54: codefly.services.runtime.v0.TestSuite.counts:type_name -> codefly.services.runtime.v0.TestCounts
-	40,  // 55: codefly.services.runtime.v0.TestSuite.suites:type_name -> codefly.services.runtime.v0.TestSuite
-	41,  // 56: codefly.services.runtime.v0.TestSuite.cases:type_name -> codefly.services.runtime.v0.TestCase
-	0,   // 57: codefly.services.runtime.v0.TestCase.state:type_name -> codefly.services.runtime.v0.TestCaseState
-	73,  // 58: codefly.services.runtime.v0.TestCase.duration:type_name -> google.protobuf.Duration
-	43,  // 59: codefly.services.runtime.v0.TestCase.location:type_name -> codefly.services.runtime.v0.TestLocation
-	42,  // 60: codefly.services.runtime.v0.TestCase.failure:type_name -> codefly.services.runtime.v0.TestFailure
-	44,  // 61: codefly.services.runtime.v0.TestCase.retries:type_name -> codefly.services.runtime.v0.TestRetry
-	1,   // 62: codefly.services.runtime.v0.TestFailure.kind:type_name -> codefly.services.runtime.v0.TestFailureKind
-	43,  // 63: codefly.services.runtime.v0.TestFailure.source_location:type_name -> codefly.services.runtime.v0.TestLocation
-	0,   // 64: codefly.services.runtime.v0.TestRetry.state:type_name -> codefly.services.runtime.v0.TestCaseState
-	73,  // 65: codefly.services.runtime.v0.TestRetry.duration:type_name -> google.protobuf.Duration
-	42,  // 66: codefly.services.runtime.v0.TestRetry.failure:type_name -> codefly.services.runtime.v0.TestFailure
-	46,  // 67: codefly.services.runtime.v0.TestCoverage.files:type_name -> codefly.services.runtime.v0.TestFileCoverage
-	8,   // 68: codefly.services.runtime.v0.LintStatus.state:type_name -> codefly.services.runtime.v0.LintStatus.Status
-	64,  // 69: codefly.services.runtime.v0.LintStatus.failure:type_name -> codefly.base.v0.Failure
-	9,   // 70: codefly.services.runtime.v0.LintDiagnostic.severity:type_name -> codefly.services.runtime.v0.LintDiagnostic.Severity
-	23,  // 71: codefly.services.runtime.v0.LintRequest.selection:type_name -> codefly.services.runtime.v0.ValidationSelection
-	48,  // 72: codefly.services.runtime.v0.LintResponse.status:type_name -> codefly.services.runtime.v0.LintStatus
-	49,  // 73: codefly.services.runtime.v0.LintResponse.diagnostics:type_name -> codefly.services.runtime.v0.LintDiagnostic
-	23,  // 74: codefly.services.runtime.v0.LintResponse.requested_selection:type_name -> codefly.services.runtime.v0.ValidationSelection
-	10,  // 75: codefly.services.runtime.v0.StopStatus.state:type_name -> codefly.services.runtime.v0.StopStatus.Status
-	64,  // 76: codefly.services.runtime.v0.StopStatus.failure:type_name -> codefly.base.v0.Failure
-	53,  // 77: codefly.services.runtime.v0.StopResponse.status:type_name -> codefly.services.runtime.v0.StopStatus
-	11,  // 78: codefly.services.runtime.v0.DestroyStatus.state:type_name -> codefly.services.runtime.v0.DestroyStatus.Status
-	64,  // 79: codefly.services.runtime.v0.DestroyStatus.failure:type_name -> codefly.base.v0.Failure
-	56,  // 80: codefly.services.runtime.v0.DestroyResponse.status:type_name -> codefly.services.runtime.v0.DestroyStatus
-	12,  // 81: codefly.services.runtime.v0.DesiredState.stage:type_name -> codefly.services.runtime.v0.DesiredState.Stage
-	59,  // 82: codefly.services.runtime.v0.InformationResponse.desired_state:type_name -> codefly.services.runtime.v0.DesiredState
-	13,  // 83: codefly.services.runtime.v0.InformationResponse.load_status:type_name -> codefly.services.runtime.v0.LoadStatus
-	16,  // 84: codefly.services.runtime.v0.InformationResponse.init_status:type_name -> codefly.services.runtime.v0.InitStatus
-	20,  // 85: codefly.services.runtime.v0.InformationResponse.start_status:type_name -> codefly.services.runtime.v0.StartStatus
-	53,  // 86: codefly.services.runtime.v0.InformationResponse.stop_status:type_name -> codefly.services.runtime.v0.StopStatus
-	56,  // 87: codefly.services.runtime.v0.InformationResponse.destroy_status:type_name -> codefly.services.runtime.v0.DestroyStatus
-	28,  // 88: codefly.services.runtime.v0.InformationResponse.test_status:type_name -> codefly.services.runtime.v0.TestStatus
-	22,  // 89: codefly.services.runtime.v0.InformationResponse.build_status:type_name -> codefly.services.runtime.v0.BuildStatus
-	48,  // 90: codefly.services.runtime.v0.InformationResponse.lint_status:type_name -> codefly.services.runtime.v0.LintStatus
-	74,  // 91: codefly.services.runtime.v0.InformationResponse.health:type_name -> codefly.base.v0.HealthReport
-	14,  // 92: codefly.services.runtime.v0.Runtime.Load:input_type -> codefly.services.runtime.v0.LoadRequest
-	17,  // 93: codefly.services.runtime.v0.Runtime.Init:input_type -> codefly.services.runtime.v0.InitRequest
-	19,  // 94: codefly.services.runtime.v0.Runtime.Start:input_type -> codefly.services.runtime.v0.StartRequest
-	52,  // 95: codefly.services.runtime.v0.Runtime.Stop:input_type -> codefly.services.runtime.v0.StopRequest
-	55,  // 96: codefly.services.runtime.v0.Runtime.Destroy:input_type -> codefly.services.runtime.v0.DestroyRequest
-	26,  // 97: codefly.services.runtime.v0.Runtime.Build:input_type -> codefly.services.runtime.v0.BuildRequest
-	34,  // 98: codefly.services.runtime.v0.Runtime.Test:input_type -> codefly.services.runtime.v0.TestRequest
-	50,  // 99: codefly.services.runtime.v0.Runtime.Lint:input_type -> codefly.services.runtime.v0.LintRequest
-	58,  // 100: codefly.services.runtime.v0.Runtime.Information:input_type -> codefly.services.runtime.v0.InformationRequest
-	75,  // 101: codefly.services.runtime.v0.Runtime.Communicate:input_type -> codefly.services.agent.v0.Answer
-	15,  // 102: codefly.services.runtime.v0.Runtime.Load:output_type -> codefly.services.runtime.v0.LoadResponse
-	18,  // 103: codefly.services.runtime.v0.Runtime.Init:output_type -> codefly.services.runtime.v0.InitResponse
-	21,  // 104: codefly.services.runtime.v0.Runtime.Start:output_type -> codefly.services.runtime.v0.StartResponse
-	54,  // 105: codefly.services.runtime.v0.Runtime.Stop:output_type -> codefly.services.runtime.v0.StopResponse
-	57,  // 106: codefly.services.runtime.v0.Runtime.Destroy:output_type -> codefly.services.runtime.v0.DestroyResponse
-	27,  // 107: codefly.services.runtime.v0.Runtime.Build:output_type -> codefly.services.runtime.v0.BuildResponse
-	36,  // 108: codefly.services.runtime.v0.Runtime.Test:output_type -> codefly.services.runtime.v0.TestResponse
-	51,  // 109: codefly.services.runtime.v0.Runtime.Lint:output_type -> codefly.services.runtime.v0.LintResponse
-	60,  // 110: codefly.services.runtime.v0.Runtime.Information:output_type -> codefly.services.runtime.v0.InformationResponse
-	76,  // 111: codefly.services.runtime.v0.Runtime.Communicate:output_type -> codefly.services.agent.v0.Question
-	102, // [102:112] is the sub-list for method output_type
-	92,  // [92:102] is the sub-list for method input_type
-	92,  // [92:92] is the sub-list for extension type_name
-	92,  // [92:92] is the sub-list for extension extendee
-	0,   // [0:92] is the sub-list for field type_name
+	65,  // 8: codefly.services.runtime.v0.InitStatus.failure:type_name -> codefly.base.v0.Failure
+	70,  // 9: codefly.services.runtime.v0.InitRequest.runtime_context:type_name -> codefly.base.v0.RuntimeContext
+	71,  // 10: codefly.services.runtime.v0.InitRequest.configuration:type_name -> codefly.base.v0.Configuration
+	72,  // 11: codefly.services.runtime.v0.InitRequest.proposed_network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	69,  // 12: codefly.services.runtime.v0.InitRequest.dependencies_endpoints:type_name -> codefly.base.v0.Endpoint
+	71,  // 13: codefly.services.runtime.v0.InitRequest.dependencies_configurations:type_name -> codefly.base.v0.Configuration
+	71,  // 14: codefly.services.runtime.v0.InitRequest.workspace_configurations:type_name -> codefly.base.v0.Configuration
+	61,  // 15: codefly.services.runtime.v0.InitRequest.overrides:type_name -> codefly.services.runtime.v0.InitRequest.OverridesEntry
+	16,  // 16: codefly.services.runtime.v0.InitResponse.status:type_name -> codefly.services.runtime.v0.InitStatus
+	70,  // 17: codefly.services.runtime.v0.InitResponse.runtime_context:type_name -> codefly.base.v0.RuntimeContext
+	72,  // 18: codefly.services.runtime.v0.InitResponse.network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	71,  // 19: codefly.services.runtime.v0.InitResponse.runtime_configurations:type_name -> codefly.base.v0.Configuration
+	73,  // 20: codefly.services.runtime.v0.StartRequest.specs:type_name -> codefly.base.v0.Specs
+	72,  // 21: codefly.services.runtime.v0.StartRequest.dependencies_network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	62,  // 22: codefly.services.runtime.v0.StartRequest.overrides:type_name -> codefly.services.runtime.v0.StartRequest.OverridesEntry
+	4,   // 23: codefly.services.runtime.v0.StartStatus.state:type_name -> codefly.services.runtime.v0.StartStatus.Status
+	65,  // 24: codefly.services.runtime.v0.StartStatus.failure:type_name -> codefly.base.v0.Failure
+	20,  // 25: codefly.services.runtime.v0.StartResponse.status:type_name -> codefly.services.runtime.v0.StartStatus
+	5,   // 26: codefly.services.runtime.v0.BuildStatus.state:type_name -> codefly.services.runtime.v0.BuildStatus.Status
+	65,  // 27: codefly.services.runtime.v0.BuildStatus.failure:type_name -> codefly.base.v0.Failure
+	24,  // 28: codefly.services.runtime.v0.ValidationSelection.package:type_name -> codefly.services.runtime.v0.ValidationPackageSelection
+	25,  // 29: codefly.services.runtime.v0.ValidationSelection.file:type_name -> codefly.services.runtime.v0.ValidationFileSelection
+	23,  // 30: codefly.services.runtime.v0.BuildRequest.selection:type_name -> codefly.services.runtime.v0.ValidationSelection
+	22,  // 31: codefly.services.runtime.v0.BuildResponse.status:type_name -> codefly.services.runtime.v0.BuildStatus
+	23,  // 32: codefly.services.runtime.v0.BuildResponse.requested_selection:type_name -> codefly.services.runtime.v0.ValidationSelection
+	6,   // 33: codefly.services.runtime.v0.TestStatus.state:type_name -> codefly.services.runtime.v0.TestStatus.Status
+	65,  // 34: codefly.services.runtime.v0.TestStatus.failure:type_name -> codefly.base.v0.Failure
+	30,  // 35: codefly.services.runtime.v0.TestSelection.package:type_name -> codefly.services.runtime.v0.TestPackageSelection
+	31,  // 36: codefly.services.runtime.v0.TestSelection.file:type_name -> codefly.services.runtime.v0.TestFileSelection
+	32,  // 37: codefly.services.runtime.v0.TestSelection.suite:type_name -> codefly.services.runtime.v0.TestSuiteSelection
+	33,  // 38: codefly.services.runtime.v0.TestSelection.test_case:type_name -> codefly.services.runtime.v0.TestCaseSelection
+	35,  // 39: codefly.services.runtime.v0.TestRequest.formula:type_name -> codefly.services.runtime.v0.TestFormula
+	29,  // 40: codefly.services.runtime.v0.TestRequest.selection:type_name -> codefly.services.runtime.v0.TestSelection
+	63,  // 41: codefly.services.runtime.v0.TestFormula.env:type_name -> codefly.services.runtime.v0.TestFormula.EnvEntry
+	64,  // 42: codefly.services.runtime.v0.TestFormula.provisioning:type_name -> codefly.services.runtime.v0.TestFormula.ProvisioningEntry
+	28,  // 43: codefly.services.runtime.v0.TestResponse.status:type_name -> codefly.services.runtime.v0.TestStatus
+	37,  // 44: codefly.services.runtime.v0.TestResponse.run:type_name -> codefly.services.runtime.v0.TestRun
+	38,  // 45: codefly.services.runtime.v0.TestResponse.result:type_name -> codefly.services.runtime.v0.TestRunResult
+	39,  // 46: codefly.services.runtime.v0.TestResponse.counts:type_name -> codefly.services.runtime.v0.TestCounts
+	40,  // 47: codefly.services.runtime.v0.TestResponse.suites:type_name -> codefly.services.runtime.v0.TestSuite
+	45,  // 48: codefly.services.runtime.v0.TestResponse.coverage:type_name -> codefly.services.runtime.v0.TestCoverage
+	47,  // 49: codefly.services.runtime.v0.TestResponse.truncation:type_name -> codefly.services.runtime.v0.TestTruncation
+	74,  // 50: codefly.services.runtime.v0.TestRun.duration:type_name -> google.protobuf.Duration
+	29,  // 51: codefly.services.runtime.v0.TestRun.requested_selection:type_name -> codefly.services.runtime.v0.TestSelection
+	7,   // 52: codefly.services.runtime.v0.TestRunResult.state:type_name -> codefly.services.runtime.v0.TestRunResult.State
+	65,  // 53: codefly.services.runtime.v0.TestRunResult.failure:type_name -> codefly.base.v0.Failure
+	74,  // 54: codefly.services.runtime.v0.TestSuite.duration:type_name -> google.protobuf.Duration
+	39,  // 55: codefly.services.runtime.v0.TestSuite.counts:type_name -> codefly.services.runtime.v0.TestCounts
+	40,  // 56: codefly.services.runtime.v0.TestSuite.suites:type_name -> codefly.services.runtime.v0.TestSuite
+	41,  // 57: codefly.services.runtime.v0.TestSuite.cases:type_name -> codefly.services.runtime.v0.TestCase
+	0,   // 58: codefly.services.runtime.v0.TestCase.state:type_name -> codefly.services.runtime.v0.TestCaseState
+	74,  // 59: codefly.services.runtime.v0.TestCase.duration:type_name -> google.protobuf.Duration
+	43,  // 60: codefly.services.runtime.v0.TestCase.location:type_name -> codefly.services.runtime.v0.TestLocation
+	42,  // 61: codefly.services.runtime.v0.TestCase.failure:type_name -> codefly.services.runtime.v0.TestFailure
+	44,  // 62: codefly.services.runtime.v0.TestCase.retries:type_name -> codefly.services.runtime.v0.TestRetry
+	1,   // 63: codefly.services.runtime.v0.TestFailure.kind:type_name -> codefly.services.runtime.v0.TestFailureKind
+	43,  // 64: codefly.services.runtime.v0.TestFailure.source_location:type_name -> codefly.services.runtime.v0.TestLocation
+	0,   // 65: codefly.services.runtime.v0.TestRetry.state:type_name -> codefly.services.runtime.v0.TestCaseState
+	74,  // 66: codefly.services.runtime.v0.TestRetry.duration:type_name -> google.protobuf.Duration
+	42,  // 67: codefly.services.runtime.v0.TestRetry.failure:type_name -> codefly.services.runtime.v0.TestFailure
+	46,  // 68: codefly.services.runtime.v0.TestCoverage.files:type_name -> codefly.services.runtime.v0.TestFileCoverage
+	8,   // 69: codefly.services.runtime.v0.LintStatus.state:type_name -> codefly.services.runtime.v0.LintStatus.Status
+	65,  // 70: codefly.services.runtime.v0.LintStatus.failure:type_name -> codefly.base.v0.Failure
+	9,   // 71: codefly.services.runtime.v0.LintDiagnostic.severity:type_name -> codefly.services.runtime.v0.LintDiagnostic.Severity
+	23,  // 72: codefly.services.runtime.v0.LintRequest.selection:type_name -> codefly.services.runtime.v0.ValidationSelection
+	48,  // 73: codefly.services.runtime.v0.LintResponse.status:type_name -> codefly.services.runtime.v0.LintStatus
+	49,  // 74: codefly.services.runtime.v0.LintResponse.diagnostics:type_name -> codefly.services.runtime.v0.LintDiagnostic
+	23,  // 75: codefly.services.runtime.v0.LintResponse.requested_selection:type_name -> codefly.services.runtime.v0.ValidationSelection
+	10,  // 76: codefly.services.runtime.v0.StopStatus.state:type_name -> codefly.services.runtime.v0.StopStatus.Status
+	65,  // 77: codefly.services.runtime.v0.StopStatus.failure:type_name -> codefly.base.v0.Failure
+	53,  // 78: codefly.services.runtime.v0.StopResponse.status:type_name -> codefly.services.runtime.v0.StopStatus
+	11,  // 79: codefly.services.runtime.v0.DestroyStatus.state:type_name -> codefly.services.runtime.v0.DestroyStatus.Status
+	65,  // 80: codefly.services.runtime.v0.DestroyStatus.failure:type_name -> codefly.base.v0.Failure
+	56,  // 81: codefly.services.runtime.v0.DestroyResponse.status:type_name -> codefly.services.runtime.v0.DestroyStatus
+	12,  // 82: codefly.services.runtime.v0.DesiredState.stage:type_name -> codefly.services.runtime.v0.DesiredState.Stage
+	59,  // 83: codefly.services.runtime.v0.InformationResponse.desired_state:type_name -> codefly.services.runtime.v0.DesiredState
+	13,  // 84: codefly.services.runtime.v0.InformationResponse.load_status:type_name -> codefly.services.runtime.v0.LoadStatus
+	16,  // 85: codefly.services.runtime.v0.InformationResponse.init_status:type_name -> codefly.services.runtime.v0.InitStatus
+	20,  // 86: codefly.services.runtime.v0.InformationResponse.start_status:type_name -> codefly.services.runtime.v0.StartStatus
+	53,  // 87: codefly.services.runtime.v0.InformationResponse.stop_status:type_name -> codefly.services.runtime.v0.StopStatus
+	56,  // 88: codefly.services.runtime.v0.InformationResponse.destroy_status:type_name -> codefly.services.runtime.v0.DestroyStatus
+	28,  // 89: codefly.services.runtime.v0.InformationResponse.test_status:type_name -> codefly.services.runtime.v0.TestStatus
+	22,  // 90: codefly.services.runtime.v0.InformationResponse.build_status:type_name -> codefly.services.runtime.v0.BuildStatus
+	48,  // 91: codefly.services.runtime.v0.InformationResponse.lint_status:type_name -> codefly.services.runtime.v0.LintStatus
+	75,  // 92: codefly.services.runtime.v0.InformationResponse.health:type_name -> codefly.base.v0.HealthReport
+	14,  // 93: codefly.services.runtime.v0.Runtime.Load:input_type -> codefly.services.runtime.v0.LoadRequest
+	17,  // 94: codefly.services.runtime.v0.Runtime.Init:input_type -> codefly.services.runtime.v0.InitRequest
+	19,  // 95: codefly.services.runtime.v0.Runtime.Start:input_type -> codefly.services.runtime.v0.StartRequest
+	52,  // 96: codefly.services.runtime.v0.Runtime.Stop:input_type -> codefly.services.runtime.v0.StopRequest
+	55,  // 97: codefly.services.runtime.v0.Runtime.Destroy:input_type -> codefly.services.runtime.v0.DestroyRequest
+	26,  // 98: codefly.services.runtime.v0.Runtime.Build:input_type -> codefly.services.runtime.v0.BuildRequest
+	34,  // 99: codefly.services.runtime.v0.Runtime.Test:input_type -> codefly.services.runtime.v0.TestRequest
+	50,  // 100: codefly.services.runtime.v0.Runtime.Lint:input_type -> codefly.services.runtime.v0.LintRequest
+	58,  // 101: codefly.services.runtime.v0.Runtime.Information:input_type -> codefly.services.runtime.v0.InformationRequest
+	76,  // 102: codefly.services.runtime.v0.Runtime.Communicate:input_type -> codefly.services.agent.v0.Answer
+	15,  // 103: codefly.services.runtime.v0.Runtime.Load:output_type -> codefly.services.runtime.v0.LoadResponse
+	18,  // 104: codefly.services.runtime.v0.Runtime.Init:output_type -> codefly.services.runtime.v0.InitResponse
+	21,  // 105: codefly.services.runtime.v0.Runtime.Start:output_type -> codefly.services.runtime.v0.StartResponse
+	54,  // 106: codefly.services.runtime.v0.Runtime.Stop:output_type -> codefly.services.runtime.v0.StopResponse
+	57,  // 107: codefly.services.runtime.v0.Runtime.Destroy:output_type -> codefly.services.runtime.v0.DestroyResponse
+	27,  // 108: codefly.services.runtime.v0.Runtime.Build:output_type -> codefly.services.runtime.v0.BuildResponse
+	36,  // 109: codefly.services.runtime.v0.Runtime.Test:output_type -> codefly.services.runtime.v0.TestResponse
+	51,  // 110: codefly.services.runtime.v0.Runtime.Lint:output_type -> codefly.services.runtime.v0.LintResponse
+	60,  // 111: codefly.services.runtime.v0.Runtime.Information:output_type -> codefly.services.runtime.v0.InformationResponse
+	77,  // 112: codefly.services.runtime.v0.Runtime.Communicate:output_type -> codefly.services.agent.v0.Question
+	103, // [103:113] is the sub-list for method output_type
+	93,  // [93:103] is the sub-list for method input_type
+	93,  // [93:93] is the sub-list for extension type_name
+	93,  // [93:93] is the sub-list for extension extendee
+	0,   // [0:93] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_runtime_v0_runtime_proto_init() }
@@ -5051,7 +5072,7 @@ func file_codefly_services_runtime_v0_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_runtime_v0_runtime_proto_rawDesc), len(file_codefly_services_runtime_v0_runtime_proto_rawDesc)),
 			NumEnums:      13,
-			NumMessages:   51,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
