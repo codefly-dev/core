@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strconv"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
@@ -33,6 +35,11 @@ import (
 // failEnvironment names an RPC that must fail, so a test can force a real
 // resolution failure in the middle of the dependency handshake.
 const failEnvironment = "CODEFLY_TESTCLI_FAIL"
+
+// pidDirEnvironment names a directory this process records itself in. A test
+// that deliberately leaves a reusable stack running then kills exactly the
+// servers it started, instead of matching on this binary's path.
+const pidDirEnvironment = "CODEFLY_TESTCLI_PID_DIR"
 
 func main() {
 	if err := run(); err != nil {
@@ -68,6 +75,9 @@ func run() error {
 
 	control, owner, err := listenControl()
 	if err != nil {
+		return err
+	}
+	if err := recordProcess(); err != nil {
 		return err
 	}
 	server := grpc.NewServer()
@@ -108,6 +118,16 @@ func listenControl() (net.Listener, *session.Session, error) {
 		return nil, nil, err
 	}
 	return listener, nil, nil
+}
+
+// recordProcess leaves this server's PID where the test that started it can
+// find it, so a stack left running on purpose is still torn down on purpose.
+func recordProcess() error {
+	dir := os.Getenv(pidDirEnvironment)
+	if dir == "" {
+		return nil
+	}
+	return os.WriteFile(filepath.Join(dir, strconv.Itoa(os.Getpid())), nil, 0o600)
 }
 
 // greet answers every connection with the identity of the session that owns

@@ -333,16 +333,20 @@ func TestNamedServiceResolvesFromOutsideAnyService(t *testing.T) {
 	t.Chdir(fixtureDir(t, "alpha"))
 	web := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
 
-	// Both the way the CLI names a service and the bare name the workspace
-	// resolves unambiguously.
-	for _, name := range []string{"shop/web", "web"} {
-		dir, err := serviceDirectory(t.Context(), name)
-		if err != nil {
-			t.Fatalf("serviceDirectory(%q) error = %v", name, err)
-		}
-		if dir != web {
-			t.Fatalf("serviceDirectory(%q) = %s, want %s", name, dir, web)
-		}
+	dir, err := serviceDirectory(t.Context(), "shop/web")
+	if err != nil {
+		t.Fatalf("serviceDirectory() error = %v", err)
+	}
+	if dir != web {
+		t.Fatalf("serviceDirectory() = %s, want %s", dir, web)
+	}
+
+	// A bare name is refused rather than guessed at across modules: two modules
+	// may each declare a service by that name, and silently picking one is
+	// worse than asking the caller which they meant.
+	if _, err := serviceDirectory(t.Context(), "web"); err == nil ||
+		!strings.Contains(err.Error(), "must name its module") {
+		t.Fatalf("serviceDirectory(\"web\") error = %v, want the missing-module refusal", err)
 	}
 
 	identity, err := resolveSessionIdentity(t.Context(), web)
@@ -364,13 +368,11 @@ func TestNamedServiceResolvesInAFlatWorkspace(t *testing.T) {
 	t.Chdir(fixtureDir(t, "flat"))
 	gateway := fixtureDir(t, "flat", "services", "gateway")
 
-	for _, name := range []string{"flat-session/gateway", "gateway"} {
-		dir, err := serviceDirectory(t.Context(), name)
-		if err != nil {
-			t.Fatalf("serviceDirectory(%q) error = %v", name, err)
-		}
-		if dir != gateway {
-			t.Fatalf("serviceDirectory(%q) = %s, want %s", name, dir, gateway)
-		}
+	dir, err := serviceDirectory(t.Context(), "flat-session/gateway")
+	if err != nil {
+		t.Fatalf("serviceDirectory() error = %v", err)
+	}
+	if dir != gateway {
+		t.Fatalf("serviceDirectory() = %s, want %s", dir, gateway)
 	}
 }

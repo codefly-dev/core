@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -592,16 +593,20 @@ func readRecord(t *testing.T, path string) string {
 // ephemeral port: four processes that agreed on one stack report one address,
 // and four that each spawned their own report four.
 func TestConcurrentProcessesShareOneWarmStack(t *testing.T) {
-	// A binary of this test's own, so the cleanup below cannot reach a stack
-	// another test in this package started.
-	binary := buildFixture(t, "./testdata/testcli")
+	binary := testCLI(t)
 	driver := buildFixture(t, "./testdata/sessiondriver")
 	service := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
 	home := warmCacheHome(t)
+	pids := filepath.Join(home, "pids")
+	if err := os.MkdirAll(pids, 0o700); err != nil {
+		t.Fatalf("create pid directory: %v", err)
+	}
 	scope := uniqueScope(t)
 	// The warm stack outlives every driver — that is what keep-running means —
-	// so this test owns killing the CLI its drivers left running.
-	t.Cleanup(func() { _ = exec.Command("pkill", "-f", binary).Run() })
+	// so this test owns killing the servers its drivers started. Each one
+	// records its PID, so cleanup reaches exactly those and needs no pkill,
+	// which a minimal CI image may not even carry.
+	t.Cleanup(func() { killRecordedServers(pids) })
 
 	const drivers = 4
 	type outcome struct {
@@ -643,7 +648,8 @@ func runWarmDriver(driver, binary, service, home, scope string) (string, error) 
 		"CODEFLY_BINARY="+binary,
 		"HOME="+home,
 		"XDG_CACHE_HOME="+filepath.Join(home, "cache"),
-		"SESSION_SCOPE="+scope,
+		"CODEFLY_TESTCLI_PID_DIR="+filepath.Join(home, "pids"),
+		"CODEFLY_TEST_SESSION_SCOPE="+scope,
 		"CODEFLY__RUNTIME_CONTEXT=native")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -699,4 +705,86 @@ func warmCacheHome(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	return home
+}
+
+// killRecordedServers stops every control server that recorded itself in dir.
+func killRecordedServers(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		if process, err := os.FindProcess(pid); err == nil {
+			_ = process.Kill()
+		}
+	}
+}
+
+// A process holding the setup lock must not be able to hang every other one.
+// The holder here never finishes, which is what a CLI wedged mid-start looks
+// like from outside, and the contender has to come back with an error that says
+// so rather than waiting for the test binary's own panic timeout.
+func TestWarmSetupLockWaitIsBounded(t *testing.T) {
+	channel, err := newControlChannel(context.Background(), testSessionDirectory(t),
+		&Option{KeepRunning: true, NamingScope: uniqueScope(t)})
+	if err != nil {
+		t.Fatalf("newControlChannel() error = %v", err)
+	}
+	t.Cleanup(func() { _ = channel.control.Remove() })
+
+	release, err := channel.lockSetup(context.Background(), time.Minute)
+	if err != nil {
+		t.Fatalf("lockSetup() error = %v", err)
+	}
+
+	start := time.Now()
+	_, err = channel.lockSetup(context.Background(), 150*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("contending lockSetup() error = %v, want a bounded timeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Fatalf("contending lockSetup() waited %s, want it bounded by its deadline", elapsed)
+	}
+
+	release()
+	regained, err := channel.lockSetup(context.Background(), time.Second)
+	if err != nil {
+		t.Fatalf("lockSetup() after release error = %v", err)
+	}
+	regained()
+}
+
+// The bound has to cover a cold start of the shared stack, and must not shrink
+// below what a caller budgeted for its own.
+func TestSetupLockWaitCoversAColdStart(t *testing.T) {
+	if got := setupLockWait(10 * time.Second); got != setupLockTimeout {
+		t.Fatalf("setupLockWait(10s) = %s, want the %s floor", got, setupLockTimeout)
+	}
+	if want := 20 * time.Minute; setupLockWait(want) != want {
+		t.Fatalf("setupLockWait(%s) = %s, want the caller's own budget", want, setupLockWait(want))
+	}
+}
+
+// A shared control channel owns no directory, so the attach-miss path must not
+// reach for a receipt or a socket that cannot exist. The stand-in binary records
+// that it ran, which is how this proves the session got past that path instead
+// of dying in it.
+func TestKeepRunningOnASharedControlChannelReachesTheSpawnPath(t *testing.T) {
+	dir := fixtureDir(t, "alpha", "modules", "shop", "services", "web")
+	binary, spawned := markerBinary(t)
+
+	_, err := WithDependencies(context.Background(),
+		WithDirectory(dir), WithKeepRunning(), WithSharedControlChannel(),
+		WithNamingScope(freeSharedScope(t, dir)), WithCommandScopedEnvironment(),
+		WithCodeflyBinary(binary), WithTimeout(2*time.Second))
+	if err == nil {
+		t.Fatal("WithDependencies() succeeded against a binary that exits immediately")
+	}
+	if _, statErr := os.Stat(spawned); statErr != nil {
+		t.Fatalf("the session never reached the spawn path; stat error = %v", statErr)
+	}
 }

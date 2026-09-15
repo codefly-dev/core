@@ -271,9 +271,11 @@ window between "no receipt yet" and "receipt written" is open: a second process
 either refuses because the first child has since bound the socket, or spawns a
 second CLI over the first one's containers, which the SDK then sees as an `EOF`
 on the first RPC it makes. Only the decision is held, never the session, so the
-packages still run concurrently once the stack is up. The wait is bounded by the
-caller's context, and a holder that dies releases the lock along with its file
-descriptors.
+packages still run concurrently once the stack is up. The wait is bounded — five
+minutes, or the caller's own timeout when that is longer — so a process that
+wedges mid-start fails the waiters with an error naming what they waited for,
+rather than hanging them until the test binary's own panic timeout. A holder
+that dies releases the lock along with its file descriptors.
 
 ### Borrowed sessions
 
@@ -305,10 +307,13 @@ deps, _ := sdk.WithDependencies(ctx, sdk.WithService("lastlogin-go/backend"))
 It is the option for a caller that owns no `service.codefly.yaml` of its own — a
 solution-level test package sits outside every service, and would otherwise have
 to compute the on-disk path of the service it drives. Only the workspace is
-found by walking up, so the name resolves the same from anywhere inside it. A
-bare service name is accepted when the workspace holds exactly one service with
-that name. `WithService` and `WithDirectory` both anchor the session, so passing
-both is rejected rather than resolved by precedence.
+found by walking up, so the name resolves the same from anywhere inside it. The
+module half is required: a bare service name is refused rather than guessed at
+across modules. `WithService` and `WithDirectory` both anchor the session, so
+passing both is rejected rather than resolved by precedence. A session that
+borrows its dependencies from a parent Codefly runtime spawns nothing, so a name
+that does not resolve where that runtime placed the test falls back to the
+working directory instead of failing.
 
 Isolated sessions already get their own control socket, so concurrent sessions
 need no naming flags. On the two channels that are not per-invocation —
