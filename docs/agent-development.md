@@ -414,6 +414,44 @@ Use `Runtime.LoadService` for the standard load path, response helpers such as
 and `Base.StopWatcher()` for watcher cleanup. When a spawned process exits after
 Start, call `Runtime.MarkRunnerExited(err)` so the CLI observes the failure.
 
+### Fixture and process overrides
+
+The invocation's fixture selection and its per-service process overrides ride
+both `InitRequest` and `StartRequest`. Record them from both:
+
+```go
+func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
+    s.Runtime.SetFixtureFromInit(req.GetFixture())
+    s.Runtime.SetOverridesFromInit(req.GetOverrides())
+    // ...
+}
+
+func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
+    s.Runtime.SetFixtureFromStart(req.GetFixture())
+    s.Runtime.SetOverridesFromStart(req.GetOverrides())
+    // ...
+}
+```
+
+Reading only the Start copies leaves a service under test unwired. A
+`TEST_DEPENDENCY_MODE_START_DEPENDENCIES` policy replaces that service's Start
+with a no-op sequencing barrier and `NONE` skips Start altogether, so under the
+two modes a dependency-backed suite actually uses, the process never observes
+`CODEFLY__FIXTURE` or the overrides carrying `CODEFLY__API_CONSUMES` and its
+registration secrets — and the suite runs green against a composition that was
+never wired. Init reaches the service in every mode.
+
+The Init pair is authoritative: it replaces what a previous invocation recorded,
+including with none, so an agent process reused for a second invocation does not
+serve the first one's values. The Start pair is the fallback for a host that
+populates only Start; it neither clears nor overrides what Init recorded.
+Precedence is first non-empty, Init before Start, so adopting one half at a time
+behaves. Both pairs are nil-safe and ignore an empty selection.
+
+Do not stamp either value through `EnvironmentVariables` directly.
+`AddOverrides` appends unconditionally, so a Start repeating a key Init already
+carried leaves the process holding two entries for it.
+
 ## Response states: use helpers, not aliases
 
 Do not introduce local aliases for generated values such as
