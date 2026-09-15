@@ -1044,8 +1044,15 @@ type InitRequest struct {
 	DependenciesConfigurations []*v0.Configuration `protobuf:"bytes,5,rep,name=dependencies_configurations,json=dependenciesConfigurations,proto3" json:"dependencies_configurations,omitempty"`
 	// workspace_configurations are environment-level configuration values available to the service.
 	WorkspaceConfigurations []*v0.Configuration `protobuf:"bytes,6,rep,name=workspace_configurations,json=workspaceConfigurations,proto3" json:"workspace_configurations,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// fixture selects optional fixture data or setup behavior for the whole
+	// invocation. Init carries it because a service under test may never be
+	// started by the orchestrator: a test policy can replace Start with a
+	// barrier or skip it entirely, and only Init is guaranteed to reach the
+	// service under test. An agent reads this first and falls back to
+	// StartRequest.fixture.
+	Fixture       string `protobuf:"bytes,7,opt,name=fixture,proto3" json:"fixture,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InitRequest) Reset() {
@@ -1118,6 +1125,13 @@ func (x *InitRequest) GetWorkspaceConfigurations() []*v0.Configuration {
 		return x.WorkspaceConfigurations
 	}
 	return nil
+}
+
+func (x *InitRequest) GetFixture() string {
+	if x != nil {
+		return x.Fixture
+	}
+	return ""
 }
 
 // InitResponse returns the runtime context and mappings the agent actually accepted.
@@ -1201,6 +1215,8 @@ type StartRequest struct {
 	// dependencies_network_mappings are concrete addresses for dependency endpoints.
 	DependenciesNetworkMappings []*v0.NetworkMapping `protobuf:"bytes,2,rep,name=dependencies_network_mappings,json=dependenciesNetworkMappings,proto3" json:"dependencies_network_mappings,omitempty"`
 	// fixture selects optional fixture data or setup behavior for the start.
+	// InitRequest.fixture takes precedence: it reaches a service under test that
+	// is never started.
 	Fixture string `protobuf:"bytes,3,opt,name=fixture,proto3" json:"fixture,omitempty"`
 	// overrides are per-service environment variables (KEY=VAL) injected into
 	// the service process at run time. Set via `codefly run ... --set <service>:KEY=VAL`.
@@ -4482,14 +4498,15 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05READY\x10\x01\x12\t\n" +
-	"\x05ERROR\x10\x02\"\x88\x04\n" +
+	"\x05ERROR\x10\x02\"\xa2\x04\n" +
 	"\vInitRequest\x12H\n" +
 	"\x0fruntime_context\x18\x01 \x01(\v2\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12D\n" +
 	"\rconfiguration\x18\x02 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\x12[\n" +
 	"\x19proposed_network_mappings\x18\x03 \x03(\v2\x1f.codefly.base.v0.NetworkMappingR\x17proposedNetworkMappings\x12P\n" +
 	"\x16dependencies_endpoints\x18\x04 \x03(\v2\x19.codefly.base.v0.EndpointR\x15dependenciesEndpoints\x12_\n" +
 	"\x1bdependencies_configurations\x18\x05 \x03(\v2\x1e.codefly.base.v0.ConfigurationR\x1adependenciesConfigurations\x12Y\n" +
-	"\x18workspace_configurations\x18\x06 \x03(\v2\x1e.codefly.base.v0.ConfigurationR\x17workspaceConfigurations\"\xbc\x02\n" +
+	"\x18workspace_configurations\x18\x06 \x03(\v2\x1e.codefly.base.v0.ConfigurationR\x17workspaceConfigurations\x12\x18\n" +
+	"\afixture\x18\a \x01(\tR\afixture\"\xbc\x02\n" +
 	"\fInitResponse\x12?\n" +
 	"\x06status\x18\x01 \x01(\v2'.codefly.services.runtime.v0.InitStatusR\x06status\x12H\n" +
 	"\x0fruntime_context\x18\x02 \x01(\v2\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12J\n" +

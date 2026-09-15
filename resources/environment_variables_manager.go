@@ -200,7 +200,24 @@ func (holder *EnvironmentVariableManager) SetRunning() {
 
 const FixturePrefix = "CODEFLY__FIXTURE"
 
+// SetFixture records a fixture selection from a source that is not
+// authoritative for the invocation. An empty selection is ignored and one
+// already recorded is kept, so a caller with nothing to select — a StartRequest
+// in a test flow that never carried a fixture — can neither clear nor override
+// what the invocation selected.
 func (holder *EnvironmentVariableManager) SetFixture(fixture string) {
+	if fixture == "" || holder.fixture != "" {
+		return
+	}
+	holder.fixture = fixture
+}
+
+// ResetFixture records the selection for a new invocation, replacing any
+// previous one and clearing it when the invocation selects none. This manager
+// outlives a single invocation whenever an agent process is reused for a second
+// one, so the authoritative source has to be able to say "none" — otherwise the
+// service keeps serving the fixture the previous invocation chose.
+func (holder *EnvironmentVariableManager) ResetFixture(fixture string) {
 	holder.fixture = fixture
 }
 

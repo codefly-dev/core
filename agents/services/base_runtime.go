@@ -455,3 +455,33 @@ func (s *RuntimeWrapper) SetEnvironment(environment *basev0.Environment) {
 	s.Environment = environment
 	s.EnvironmentVariables.SetEnvironment(environment)
 }
+
+// ── Fixture ───────────────────────────────────────────────
+
+// The fixture selection is held by the environment manager rather than by this
+// wrapper. Load replaces that manager while the wrapper, built once per agent
+// process, survives every invocation the process serves — so a selection
+// remembered here would outlive the environment it was meant to stamp.
+
+// SetFixtureFromInit records the invocation's fixture selection, carried by
+// InitRequest, and exposes it to the service process as CODEFLY__FIXTURE. Init
+// is authoritative and replaces any previous selection, including with none: an
+// agent process reused for a second invocation must not serve the first one's
+// fixture.
+func (s *RuntimeWrapper) SetFixtureFromInit(fixture string) {
+	if s == nil || s.Base == nil || s.EnvironmentVariables == nil {
+		return
+	}
+	s.EnvironmentVariables.ResetFixture(fixture)
+}
+
+// SetFixtureFromStart records a selection carried by StartRequest, for a host
+// that does not populate InitRequest.fixture. It neither clears nor overrides
+// what Init recorded, because the Start that reaches a service under test is
+// often a policy barrier carrying no selection of its own.
+func (s *RuntimeWrapper) SetFixtureFromStart(fixture string) {
+	if s == nil || s.Base == nil || s.EnvironmentVariables == nil {
+		return
+	}
+	s.EnvironmentVariables.SetFixture(fixture)
+}
