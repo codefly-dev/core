@@ -221,6 +221,27 @@ func (holder *EnvironmentVariableManager) ResetFixture(fixture string) {
 	holder.fixture = fixture
 }
 
+// SetOverrides records overrides from a source that is not authoritative for
+// the invocation. An empty set is ignored and one already recorded is kept, so
+// a StartRequest in a test flow that never carried overrides can neither clear
+// nor override what the invocation injected.
+func (holder *EnvironmentVariableManager) SetOverrides(overrides map[string]string) {
+	if len(overrides) == 0 || len(holder.overrides) > 0 {
+		return
+	}
+	holder.AddOverrides(overrides)
+}
+
+// ResetOverrides records the overrides for a new invocation, replacing any
+// previously recorded and clearing them when the invocation injects none. Like
+// ResetFixture, this exists because the manager outlives a single invocation
+// whenever an agent process is reused: otherwise the service keeps seeing the
+// previous invocation's values.
+func (holder *EnvironmentVariableManager) ResetOverrides(overrides map[string]string) {
+	holder.overrides = nil
+	holder.AddOverrides(overrides)
+}
+
 // AddOverrides appends per-service runtime overrides (KEY=VAL) so they reach
 // the process environment via All()/Configurations(), like fixture/others.
 func (holder *EnvironmentVariableManager) AddOverrides(overrides map[string]string) {

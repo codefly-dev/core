@@ -124,6 +124,15 @@ message InitRequest {
   // StartRequest.fixture.
   string fixture = 7;
 
+  // overrides are per-service environment variables (KEY=VAL) injected into
+  // the service process. Init carries them for the same reason it carries the
+  // fixture: a service under test may never be started, so StartRequest.overrides
+  // never reaches it, and the values a solution entry needs to federate
+  // (CODEFLY__API_CONSUMES, the registration secrets) are exactly what such a
+  // suite exercises. An agent reads this first and falls back to
+  // StartRequest.overrides.
+  map<string, string> overrides = 8;
+
 }
 
 

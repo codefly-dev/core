@@ -485,3 +485,27 @@ func (s *RuntimeWrapper) SetFixtureFromStart(fixture string) {
 	}
 	s.EnvironmentVariables.SetFixture(fixture)
 }
+
+// ── Overrides ─────────────────────────────────────────────
+
+// SetOverridesFromInit records the process overrides carried by InitRequest and
+// exposes them to the service process. Init is authoritative and replaces any
+// previous set, including with none, so an agent process reused for a second
+// invocation does not serve the first one's values.
+func (s *RuntimeWrapper) SetOverridesFromInit(overrides map[string]string) {
+	if s == nil || s.Base == nil || s.EnvironmentVariables == nil {
+		return
+	}
+	s.EnvironmentVariables.ResetOverrides(overrides)
+}
+
+// SetOverridesFromStart records overrides carried by StartRequest, for a host
+// that does not populate InitRequest.overrides. It neither clears nor overrides
+// what Init recorded, because the Start that reaches a service under test is
+// often a policy barrier carrying nothing of its own.
+func (s *RuntimeWrapper) SetOverridesFromStart(overrides map[string]string) {
+	if s == nil || s.Base == nil || s.EnvironmentVariables == nil {
+		return
+	}
+	s.EnvironmentVariables.SetOverrides(overrides)
+}
