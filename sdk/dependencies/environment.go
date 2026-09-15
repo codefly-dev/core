@@ -427,6 +427,20 @@ func connectionKeys(service, name string) []string {
 	}
 }
 
+// ProcessVariable returns a value the CLI supplied under its own name, such as
+// a contract a runtime reads by exact name. It falls back to the process
+// environment for a session that inherited its dependencies from a parent
+// Codefly runtime: that session drives no CLI of its own, so the parent is what
+// installed these, and reading only the session's own resolved values would
+// answer "absent" for a variable that is in fact present.
+func (l *Dependencies) ProcessVariable(name string) string {
+	env := l.resolved()
+	if env == nil {
+		return os.Getenv(name)
+	}
+	return env.values[name]
+}
+
 // Service returns the service owning this session's directory.
 func (l *Dependencies) Service(ctx context.Context) (*resources.Service, error) {
 	identity, err := l.sessionIdentity(ctx)
@@ -555,22 +569,45 @@ func configurationVariables(conf *basev0.Configuration) []*resources.Environment
 	return append(variables, resources.ConfigurationAsEnvironmentVariables(conf, true)...)
 }
 
+// ProcessVariableNamespace is the only namespace the CLI may install a process
+// variable into. The SDK hands these to the process verbatim, so without a
+// namespace the orchestrator could replace any variable the caller runs on —
+// PATH, HOME, LD_PRELOAD — in a session that injects globally, and could delete
+// one from a concurrent session's children, because Environ drops every key
+// another session owns. Both effects are invisible at the point of failure.
+//
+// Every contract this channel exists to carry is already in this namespace, so
+// the restriction costs nothing today. It is also the direction that stays
+// open: widening it later is backwards compatible, narrowing it would not be.
+const ProcessVariableNamespace = "CODEFLY__"
+
 // processVariables projects the values the CLI asked to install under their own
 // names rather than under a key derived from a producer's coordinates. They
 // carry contracts a runtime reads by exact name, which a prefixed projection
 // cannot satisfy.
 //
-// A name that cannot become an environment entry fails the whole resolution
-// instead of being dropped: os.Setenv would reject it with an error naming no
-// source, and a command-scoped session never calls os.Setenv at all, so it would
-// carry a corrupt entry into its children. The error names the key, never the
-// value, because a supplied value may be a secret.
+// Anything that cannot become a sound environment entry fails the whole
+// resolution instead of being dropped: os.Setenv would reject it with an error
+// naming no source, and a command-scoped session never calls os.Setenv at all,
+// so it would carry a corrupt entry into its children. Errors name the key,
+// never the value, because a supplied value may be a secret.
 func processVariables(values []*basev0.ConfigurationValue) ([]*resources.EnvironmentVariable, error) {
 	variables := make([]*resources.EnvironmentVariable, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		key := value.GetKey()
-		if key == "" || strings.Contains(key, "=") {
-			return nil, fmt.Errorf("the CLI supplied a process variable with an unusable name %q", key)
+		if !strings.HasPrefix(key, ProcessVariableNamespace) || strings.Contains(key, "=") {
+			return nil, fmt.Errorf("the CLI supplied the process variable %q, which is not a usable name in the %s namespace", key, ProcessVariableNamespace)
+		}
+		if _, duplicate := seen[key]; duplicate {
+			// Exact-name delivery is the whole point of the channel, so two
+			// values for one name is a fault in the sender rather than an
+			// ordering the SDK should silently resolve.
+			return nil, fmt.Errorf("the CLI supplied the process variable %s more than once", key)
+		}
+		seen[key] = struct{}{}
+		if strings.ContainsRune(value.GetValue(), 0) {
+			return nil, fmt.Errorf("the value of process variable %s contains a NUL byte, which cannot be an environment value", key)
 		}
 		variables = append(variables, resources.Env(key, value.GetValue()))
 	}

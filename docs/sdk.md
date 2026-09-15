@@ -395,13 +395,29 @@ under `--exclude-root` can receive an input the CLI derived for the root:
 
 ```go
 env, _ := sdk.WithDependencies(ctx)
-consumed := env.EnvironmentVariables()["CODEFLY__API_CONSUMES"]
+consumed, _ := manifest.ParseConsumedAPIs(
+    env.ProcessVariable(manifest.APIConsumesEnvironmentVariable))
 ```
 
+Read them with `ProcessVariable`, not out of `EnvironmentVariables()`. A session
+that borrowed its dependencies from a parent Codefly runtime resolves no values
+of its own, so the map is empty for it; `ProcessVariable` reads the process
+environment that runtime installed them into instead of reporting a variable
+that is present as absent.
+
+**Names must be in the `CODEFLY__` namespace.** These values are installed
+verbatim, so an unnamespaced name would let the orchestrator replace a variable
+the caller itself runs on — `PATH`, `HOME` — in a session that injects globally,
+and would *delete* that variable from a concurrent session's children, because
+`Environ` drops every key another session owns. Both failures are invisible where
+they surface. Widening the namespace later stays backwards compatible; narrowing
+it would not.
+
 They are resolved last, so a name the orchestrator chose is the one the process
-sees. A pair with an empty name, or a name containing `=`, cannot become an
-environment entry: the session fails to resolve rather than silently dropping
-it. An orchestrator that returns none leaves the environment exactly as it was.
+sees. A key outside the namespace or containing `=`, the same key sent twice, or
+a value containing a NUL byte fails the resolution rather than being dropped
+silently. An orchestrator that returns none leaves the environment exactly as it
+was.
 
 ### NamingScope
 

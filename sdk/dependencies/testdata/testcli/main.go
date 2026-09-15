@@ -25,6 +25,7 @@ import (
 	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/sdk/session"
+	"github.com/codefly-dev/core/solution/manifest"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -43,8 +44,10 @@ const pidDirEnvironment = "CODEFLY_TESTCLI_PID_DIR"
 
 // processVariableKey is a value this server supplies under a name of its own
 // choosing, the way the real CLI hands an excluded root's derived inputs to the
-// service it runs. The session must install it verbatim.
-const processVariableKey = "CODEFLY__API_CONSUMES"
+// service it runs. The session must install it verbatim. It is the real
+// contract name rather than a literal, so a rename of the contract breaks this
+// server instead of leaving it asserting a name nothing reads any more.
+const processVariableKey = manifest.APIConsumesEnvironmentVariable
 
 func main() {
 	if err := run(); err != nil {
