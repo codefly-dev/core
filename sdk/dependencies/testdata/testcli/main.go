@@ -25,6 +25,7 @@ import (
 	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/sdk/session"
+	"github.com/codefly-dev/core/solution/manifest"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -40,6 +41,13 @@ const failEnvironment = "CODEFLY_TESTCLI_FAIL"
 // that deliberately leaves a reusable stack running then kills exactly the
 // servers it started, instead of matching on this binary's path.
 const pidDirEnvironment = "CODEFLY_TESTCLI_PID_DIR"
+
+// processVariableKey is a value this server supplies under a name of its own
+// choosing, the way the real CLI hands an excluded root's derived inputs to the
+// service it runs. The session must install it verbatim. It is the real
+// contract name rather than a literal, so a rename of the contract breaks this
+// server instead of leaving it asserting a name nothing reads any more.
+const processVariableKey = manifest.APIConsumesEnvironmentVariable
 
 func main() {
 	if err := run(); err != nil {
@@ -219,6 +227,9 @@ func (c *cli) GetConfiguration(_ context.Context, _ *v0.GetConfigurationRequest)
 					},
 				},
 			},
+		},
+		ProcessVariables: []*basev0.ConfigurationValue{
+			{Key: processVariableKey, Value: c.identity},
 		},
 	}, nil
 }

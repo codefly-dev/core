@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/codefly-dev/core/solution/manifest"
 )
 
 // These tests drive the ordinary WithDependencies spawn path against a real
@@ -451,5 +453,72 @@ func TestDefunctOwnerReleasesTheProcessEnvironment(t *testing.T) {
 	t.Cleanup(next.ReleaseEnvironment)
 	if _, present := os.LookupEnv(alphaKey); present {
 		t.Fatalf("%s from the defunct session was not restored", alphaKey)
+	}
+}
+
+// A value the CLI supplies under a name of its own choosing reaches the session
+// verbatim. This is the channel a service run under --exclude-root needs for
+// inputs its runtime reads by exact name: the configuration projection prefixes
+// every key it derives, so it cannot carry one.
+func TestCLISuppliedProcessVariableKeepsItsOwnName(t *testing.T) {
+	binary := testCLI(t)
+	key := manifest.APIConsumesEnvironmentVariable
+
+	deps, err := WithDependencies(context.Background(),
+		WithDirectory(fixtureDir(t, "alpha", "modules", "shop", "services", "web")),
+		WithCommandScopedEnvironment(),
+		WithCodeflyBinary(binary),
+		WithTimeout(60*time.Second))
+	if err != nil {
+		t.Fatalf("WithDependencies() error = %v", err)
+	}
+	defer func() { _ = deps.Destroy(context.Background()) }()
+
+	if got := deps.EnvironmentVariables()[key]; got != "shop/web" {
+		t.Fatalf("%s = %q, want the value the CLI supplied: %v", key, got, deps.EnvironmentVariables())
+	}
+	if got := deps.ProcessVariable(key); got != "shop/web" {
+		t.Fatalf("ProcessVariable(%s) = %q, want the value the CLI supplied", key, got)
+	}
+	if !slices.Contains(deps.Environ(), key+"=shop/web") {
+		t.Fatalf("Environ() does not carry %s for a child command", key)
+	}
+}
+
+// The process-global path installs a CLI-supplied variable into os.Environ and
+// hands it back on release, like every other value a session owns. It is
+// covered on its own because it is the path where a name outside the CODEFLY__
+// namespace would overwrite the caller's own environment, and the command-scoped
+// test above never calls os.Setenv at all.
+func TestCLISuppliedProcessVariableIsInstalledAndRestored(t *testing.T) {
+	binary := testCLI(t)
+	key := manifest.APIConsumesEnvironmentVariable
+	if _, present := os.LookupEnv(key); present {
+		t.Fatalf("%s is already set in this process, so this test cannot own it", key)
+	}
+
+	deps, err := WithDependencies(context.Background(),
+		WithDirectory(fixtureDir(t, "alpha", "modules", "shop", "services", "web")),
+		WithCodeflyBinary(binary),
+		WithTimeout(60*time.Second))
+	if err != nil {
+		t.Fatalf("WithDependencies() error = %v", err)
+	}
+	// A session holding the process environment has to be released even if an
+	// assertion below fails, or every later test in this package is refused.
+	defer func() { _ = deps.Destroy(context.Background()) }()
+
+	if got := os.Getenv(key); got != "shop/web" {
+		t.Fatalf("os.Getenv(%s) = %q, want the value the CLI supplied", key, got)
+	}
+	if got := deps.ProcessVariable(key); got != "shop/web" {
+		t.Fatalf("ProcessVariable(%s) = %q, want the value the CLI supplied", key, got)
+	}
+
+	if err := deps.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if _, present := os.LookupEnv(key); present {
+		t.Fatalf("%s survived the owning session's release", key)
 	}
 }

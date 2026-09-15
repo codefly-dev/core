@@ -1,13 +1,16 @@
 package dependencies
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/solution/manifest"
 )
 
 // packageDir is this package's directory, captured before any test can change
@@ -374,5 +377,66 @@ func TestNamedServiceResolvesInAFlatWorkspace(t *testing.T) {
 	}
 	if dir != gateway {
 		t.Fatalf("serviceDirectory() = %s, want %s", dir, gateway)
+	}
+}
+
+// A CLI-supplied process variable is projected under the name the orchestrator
+// chose, secret or not: the point of the channel is that the runtime reading it
+// knows only that name.
+func TestProcessVariablesKeepTheNameTheCLIChose(t *testing.T) {
+	variables, err := processVariables([]*basev0.ConfigurationValue{
+		{Key: manifest.APIConsumesEnvironmentVariable, Value: "shop/store"},
+		{Key: "CODEFLY__MODULE_REGISTRATION_SECRETS", Value: "registration-token", Secret: true},
+	})
+	if err != nil {
+		t.Fatalf("processVariables() error = %v", err)
+	}
+	got := make(map[string]string, len(variables))
+	for _, variable := range variables {
+		got[variable.Key] = variable.ValueAsString()
+	}
+	want := map[string]string{
+		manifest.APIConsumesEnvironmentVariable: "shop/store",
+		"CODEFLY__MODULE_REGISTRATION_SECRETS":  "registration-token",
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("processVariables() = %v, want %v", got, want)
+	}
+}
+
+// Anything that cannot become a sound environment entry fails the resolution
+// rather than being dropped, so a caller never searches for a contract that
+// silently never arrived.
+//
+// PATH and HOME are the cases that matter most. These values are installed
+// verbatim, so a name outside the CODEFLY__ namespace would let the orchestrator
+// replace the toolchain the calling process runs on, and would delete that
+// variable outright from a concurrent session's children, because Environ drops
+// every key another session owns.
+func TestUnusableProcessVariableFailsResolution(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		values []*basev0.ConfigurationValue
+	}{
+		{"empty name", []*basev0.ConfigurationValue{{Key: "", Value: "secret-value"}}},
+		{"path outside the namespace", []*basev0.ConfigurationValue{{Key: "PATH", Value: "secret-value"}}},
+		{"home outside the namespace", []*basev0.ConfigurationValue{{Key: "HOME", Value: "secret-value"}}},
+		{"near miss on the namespace", []*basev0.ConfigurationValue{{Key: "CODEFLY_API", Value: "secret-value"}}},
+		{"equals in name", []*basev0.ConfigurationValue{{Key: "CODEFLY__A=B", Value: "secret-value"}}},
+		{"same name twice", []*basev0.ConfigurationValue{
+			{Key: "CODEFLY__A", Value: "first"},
+			{Key: "CODEFLY__A", Value: "secret-value"},
+		}},
+		{"NUL in value", []*basev0.ConfigurationValue{{Key: "CODEFLY__A", Value: "secret\x00value"}}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := processVariables(testCase.values)
+			if err == nil {
+				t.Fatalf("processVariables() error = nil, want a rejection")
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatalf("processVariables() error reports the value: %v", err)
+			}
+		})
 	}
 }

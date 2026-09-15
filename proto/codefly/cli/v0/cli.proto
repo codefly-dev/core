@@ -99,6 +99,12 @@ message GetConfigurationRequest {
 message GetConfigurationResponse {
   // configuration is the service or workspace configuration payload.
   codefly.base.v0.Configuration configuration = 1;
+  // process_variables are values the orchestrator installs into the caller's
+  // process under exactly these names. Configuration reaches a process under a
+  // key the SDK derives (CODEFLY__SERVICE_CONFIGURATION__<UNIQUE>__…), which
+  // cannot satisfy a wire contract a runtime reads by its own fixed name; these
+  // are projected verbatim instead.
+  repeated codefly.base.v0.ConfigurationValue process_variables = 2;
 }
 
 

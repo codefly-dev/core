@@ -593,8 +593,14 @@ type GetConfigurationResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// configuration is the service or workspace configuration payload.
 	Configuration *v01.Configuration `protobuf:"bytes,1,opt,name=configuration,proto3" json:"configuration,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// process_variables are values the orchestrator installs into the caller's
+	// process under exactly these names. Configuration reaches a process under a
+	// key the SDK derives (CODEFLY__SERVICE_CONFIGURATION__<UNIQUE>__…), which
+	// cannot satisfy a wire contract a runtime reads by its own fixed name; these
+	// are projected verbatim instead.
+	ProcessVariables []*v01.ConfigurationValue `protobuf:"bytes,2,rep,name=process_variables,json=processVariables,proto3" json:"process_variables,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GetConfigurationResponse) Reset() {
@@ -630,6 +636,13 @@ func (*GetConfigurationResponse) Descriptor() ([]byte, []int) {
 func (x *GetConfigurationResponse) GetConfiguration() *v01.Configuration {
 	if x != nil {
 		return x.Configuration
+	}
+	return nil
+}
+
+func (x *GetConfigurationResponse) GetProcessVariables() []*v01.ConfigurationValue {
+	if x != nil {
+		return x.ProcessVariables
 	}
 	return nil
 }
@@ -1145,9 +1158,10 @@ const file_codefly_cli_v0_cli_proto_rawDesc = "" +
 	"\x10network_mappings\x18\x01 \x03(\v2\x1f.codefly.base.v0.NetworkMappingR\x0fnetworkMappings\"K\n" +
 	"\x17GetConfigurationRequest\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\tR\x06module\x12\x18\n" +
-	"\aservice\x18\x02 \x01(\tR\aservice\"`\n" +
+	"\aservice\x18\x02 \x01(\tR\aservice\"\xb2\x01\n" +
 	"\x18GetConfigurationResponse\x12D\n" +
-	"\rconfiguration\x18\x01 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\"c\n" +
+	"\rconfiguration\x18\x01 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\x12P\n" +
+	"\x11process_variables\x18\x02 \x03(\v2#.codefly.base.v0.ConfigurationValueR\x10processVariables\"c\n" +
 	"\x19GetConfigurationsResponse\x12F\n" +
 	"\x0econfigurations\x18\x01 \x03(\v2\x1e.codefly.base.v0.ConfigurationR\x0econfigurations\"\x81\x01\n" +
 	"\x17SessionHandshakeRequest\x12\x1d\n" +
@@ -1241,63 +1255,65 @@ var file_codefly_cli_v0_cli_proto_goTypes = []any{
 	(*v0.GraphResponse)(nil),           // 20: codefly.observability.v0.GraphResponse
 	(*v01.NetworkMapping)(nil),         // 21: codefly.base.v0.NetworkMapping
 	(*v01.Configuration)(nil),          // 22: codefly.base.v0.Configuration
-	(*timestamppb.Timestamp)(nil),      // 23: google.protobuf.Timestamp
-	(*v01.HealthReport)(nil),           // 24: codefly.base.v0.HealthReport
-	(*emptypb.Empty)(nil),              // 25: google.protobuf.Empty
-	(*v0.LogRequest)(nil),              // 26: codefly.observability.v0.LogRequest
-	(*v02.AgentInformation)(nil),       // 27: codefly.services.agent.v0.AgentInformation
-	(*v01.Workspace)(nil),              // 28: codefly.base.v0.Workspace
-	(*v0.Log)(nil),                     // 29: codefly.observability.v0.Log
-	(*v0.LogResponse)(nil),             // 30: codefly.observability.v0.LogResponse
+	(*v01.ConfigurationValue)(nil),     // 23: codefly.base.v0.ConfigurationValue
+	(*timestamppb.Timestamp)(nil),      // 24: google.protobuf.Timestamp
+	(*v01.HealthReport)(nil),           // 25: codefly.base.v0.HealthReport
+	(*emptypb.Empty)(nil),              // 26: google.protobuf.Empty
+	(*v0.LogRequest)(nil),              // 27: codefly.observability.v0.LogRequest
+	(*v02.AgentInformation)(nil),       // 28: codefly.services.agent.v0.AgentInformation
+	(*v01.Workspace)(nil),              // 29: codefly.base.v0.Workspace
+	(*v0.Log)(nil),                     // 30: codefly.observability.v0.Log
+	(*v0.LogResponse)(nil),             // 31: codefly.observability.v0.LogResponse
 }
 var file_codefly_cli_v0_cli_proto_depIdxs = []int32{
 	20, // 0: codefly.cli.v0.MultiGraphResponse.graphs:type_name -> codefly.observability.v0.GraphResponse
 	21, // 1: codefly.cli.v0.GetNetworkMappingsResponse.network_mappings:type_name -> codefly.base.v0.NetworkMapping
 	22, // 2: codefly.cli.v0.GetConfigurationResponse.configuration:type_name -> codefly.base.v0.Configuration
-	22, // 3: codefly.cli.v0.GetConfigurationsResponse.configurations:type_name -> codefly.base.v0.Configuration
-	0,  // 4: codefly.cli.v0.ServiceReadiness.lifecycle:type_name -> codefly.cli.v0.ServiceLifecycle
-	23, // 5: codefly.cli.v0.ServiceReadiness.entered_at:type_name -> google.protobuf.Timestamp
-	24, // 6: codefly.cli.v0.ServiceReadiness.health:type_name -> codefly.base.v0.HealthReport
-	14, // 7: codefly.cli.v0.FlowStatus.services:type_name -> codefly.cli.v0.ServiceReadiness
-	25, // 8: codefly.cli.v0.CLI.Ping:input_type -> google.protobuf.Empty
-	12, // 9: codefly.cli.v0.CLI.SessionHandshake:input_type -> codefly.cli.v0.SessionHandshakeRequest
-	1,  // 10: codefly.cli.v0.CLI.GetAgentInformation:input_type -> codefly.cli.v0.GetAgentInformationRequest
-	25, // 11: codefly.cli.v0.CLI.GetWorkspaceInventory:input_type -> google.protobuf.Empty
-	25, // 12: codefly.cli.v0.CLI.GetWorkspaceServiceDependencyGraph:input_type -> google.protobuf.Empty
-	25, // 13: codefly.cli.v0.CLI.GetWorkspacePublicModulesDependencyGraph:input_type -> google.protobuf.Empty
-	25, // 14: codefly.cli.v0.CLI.GetActive:input_type -> google.protobuf.Empty
-	5,  // 15: codefly.cli.v0.CLI.GetAddresses:input_type -> codefly.cli.v0.GetAddressRequest
-	9,  // 16: codefly.cli.v0.CLI.GetConfiguration:input_type -> codefly.cli.v0.GetConfigurationRequest
-	9,  // 17: codefly.cli.v0.CLI.GetDependenciesConfigurations:input_type -> codefly.cli.v0.GetConfigurationRequest
-	7,  // 18: codefly.cli.v0.CLI.GetDependenciesNetworkMappings:input_type -> codefly.cli.v0.GetNetworkMappingsRequest
-	9,  // 19: codefly.cli.v0.CLI.GetRuntimeConfigurations:input_type -> codefly.cli.v0.GetConfigurationRequest
-	25, // 20: codefly.cli.v0.CLI.Logs:input_type -> google.protobuf.Empty
-	26, // 21: codefly.cli.v0.CLI.ActiveLogHistory:input_type -> codefly.observability.v0.LogRequest
-	25, // 22: codefly.cli.v0.CLI.GetFlowStatus:input_type -> google.protobuf.Empty
-	16, // 23: codefly.cli.v0.CLI.StopFlow:input_type -> codefly.cli.v0.StopFlowRequest
-	18, // 24: codefly.cli.v0.CLI.DestroyFlow:input_type -> codefly.cli.v0.DestroyFlowRequest
-	25, // 25: codefly.cli.v0.CLI.Ping:output_type -> google.protobuf.Empty
-	13, // 26: codefly.cli.v0.CLI.SessionHandshake:output_type -> codefly.cli.v0.SessionHandshakeResponse
-	27, // 27: codefly.cli.v0.CLI.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
-	28, // 28: codefly.cli.v0.CLI.GetWorkspaceInventory:output_type -> codefly.base.v0.Workspace
-	20, // 29: codefly.cli.v0.CLI.GetWorkspaceServiceDependencyGraph:output_type -> codefly.observability.v0.GraphResponse
-	2,  // 30: codefly.cli.v0.CLI.GetWorkspacePublicModulesDependencyGraph:output_type -> codefly.cli.v0.MultiGraphResponse
-	3,  // 31: codefly.cli.v0.CLI.GetActive:output_type -> codefly.cli.v0.ActiveResponse
-	6,  // 32: codefly.cli.v0.CLI.GetAddresses:output_type -> codefly.cli.v0.GetAddressResponse
-	10, // 33: codefly.cli.v0.CLI.GetConfiguration:output_type -> codefly.cli.v0.GetConfigurationResponse
-	11, // 34: codefly.cli.v0.CLI.GetDependenciesConfigurations:output_type -> codefly.cli.v0.GetConfigurationsResponse
-	8,  // 35: codefly.cli.v0.CLI.GetDependenciesNetworkMappings:output_type -> codefly.cli.v0.GetNetworkMappingsResponse
-	11, // 36: codefly.cli.v0.CLI.GetRuntimeConfigurations:output_type -> codefly.cli.v0.GetConfigurationsResponse
-	29, // 37: codefly.cli.v0.CLI.Logs:output_type -> codefly.observability.v0.Log
-	30, // 38: codefly.cli.v0.CLI.ActiveLogHistory:output_type -> codefly.observability.v0.LogResponse
-	15, // 39: codefly.cli.v0.CLI.GetFlowStatus:output_type -> codefly.cli.v0.FlowStatus
-	17, // 40: codefly.cli.v0.CLI.StopFlow:output_type -> codefly.cli.v0.StopFlowResponse
-	19, // 41: codefly.cli.v0.CLI.DestroyFlow:output_type -> codefly.cli.v0.DestroyFlowResponse
-	25, // [25:42] is the sub-list for method output_type
-	8,  // [8:25] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	23, // 3: codefly.cli.v0.GetConfigurationResponse.process_variables:type_name -> codefly.base.v0.ConfigurationValue
+	22, // 4: codefly.cli.v0.GetConfigurationsResponse.configurations:type_name -> codefly.base.v0.Configuration
+	0,  // 5: codefly.cli.v0.ServiceReadiness.lifecycle:type_name -> codefly.cli.v0.ServiceLifecycle
+	24, // 6: codefly.cli.v0.ServiceReadiness.entered_at:type_name -> google.protobuf.Timestamp
+	25, // 7: codefly.cli.v0.ServiceReadiness.health:type_name -> codefly.base.v0.HealthReport
+	14, // 8: codefly.cli.v0.FlowStatus.services:type_name -> codefly.cli.v0.ServiceReadiness
+	26, // 9: codefly.cli.v0.CLI.Ping:input_type -> google.protobuf.Empty
+	12, // 10: codefly.cli.v0.CLI.SessionHandshake:input_type -> codefly.cli.v0.SessionHandshakeRequest
+	1,  // 11: codefly.cli.v0.CLI.GetAgentInformation:input_type -> codefly.cli.v0.GetAgentInformationRequest
+	26, // 12: codefly.cli.v0.CLI.GetWorkspaceInventory:input_type -> google.protobuf.Empty
+	26, // 13: codefly.cli.v0.CLI.GetWorkspaceServiceDependencyGraph:input_type -> google.protobuf.Empty
+	26, // 14: codefly.cli.v0.CLI.GetWorkspacePublicModulesDependencyGraph:input_type -> google.protobuf.Empty
+	26, // 15: codefly.cli.v0.CLI.GetActive:input_type -> google.protobuf.Empty
+	5,  // 16: codefly.cli.v0.CLI.GetAddresses:input_type -> codefly.cli.v0.GetAddressRequest
+	9,  // 17: codefly.cli.v0.CLI.GetConfiguration:input_type -> codefly.cli.v0.GetConfigurationRequest
+	9,  // 18: codefly.cli.v0.CLI.GetDependenciesConfigurations:input_type -> codefly.cli.v0.GetConfigurationRequest
+	7,  // 19: codefly.cli.v0.CLI.GetDependenciesNetworkMappings:input_type -> codefly.cli.v0.GetNetworkMappingsRequest
+	9,  // 20: codefly.cli.v0.CLI.GetRuntimeConfigurations:input_type -> codefly.cli.v0.GetConfigurationRequest
+	26, // 21: codefly.cli.v0.CLI.Logs:input_type -> google.protobuf.Empty
+	27, // 22: codefly.cli.v0.CLI.ActiveLogHistory:input_type -> codefly.observability.v0.LogRequest
+	26, // 23: codefly.cli.v0.CLI.GetFlowStatus:input_type -> google.protobuf.Empty
+	16, // 24: codefly.cli.v0.CLI.StopFlow:input_type -> codefly.cli.v0.StopFlowRequest
+	18, // 25: codefly.cli.v0.CLI.DestroyFlow:input_type -> codefly.cli.v0.DestroyFlowRequest
+	26, // 26: codefly.cli.v0.CLI.Ping:output_type -> google.protobuf.Empty
+	13, // 27: codefly.cli.v0.CLI.SessionHandshake:output_type -> codefly.cli.v0.SessionHandshakeResponse
+	28, // 28: codefly.cli.v0.CLI.GetAgentInformation:output_type -> codefly.services.agent.v0.AgentInformation
+	29, // 29: codefly.cli.v0.CLI.GetWorkspaceInventory:output_type -> codefly.base.v0.Workspace
+	20, // 30: codefly.cli.v0.CLI.GetWorkspaceServiceDependencyGraph:output_type -> codefly.observability.v0.GraphResponse
+	2,  // 31: codefly.cli.v0.CLI.GetWorkspacePublicModulesDependencyGraph:output_type -> codefly.cli.v0.MultiGraphResponse
+	3,  // 32: codefly.cli.v0.CLI.GetActive:output_type -> codefly.cli.v0.ActiveResponse
+	6,  // 33: codefly.cli.v0.CLI.GetAddresses:output_type -> codefly.cli.v0.GetAddressResponse
+	10, // 34: codefly.cli.v0.CLI.GetConfiguration:output_type -> codefly.cli.v0.GetConfigurationResponse
+	11, // 35: codefly.cli.v0.CLI.GetDependenciesConfigurations:output_type -> codefly.cli.v0.GetConfigurationsResponse
+	8,  // 36: codefly.cli.v0.CLI.GetDependenciesNetworkMappings:output_type -> codefly.cli.v0.GetNetworkMappingsResponse
+	11, // 37: codefly.cli.v0.CLI.GetRuntimeConfigurations:output_type -> codefly.cli.v0.GetConfigurationsResponse
+	30, // 38: codefly.cli.v0.CLI.Logs:output_type -> codefly.observability.v0.Log
+	31, // 39: codefly.cli.v0.CLI.ActiveLogHistory:output_type -> codefly.observability.v0.LogResponse
+	15, // 40: codefly.cli.v0.CLI.GetFlowStatus:output_type -> codefly.cli.v0.FlowStatus
+	17, // 41: codefly.cli.v0.CLI.StopFlow:output_type -> codefly.cli.v0.StopFlowResponse
+	19, // 42: codefly.cli.v0.CLI.DestroyFlow:output_type -> codefly.cli.v0.DestroyFlowResponse
+	26, // [26:43] is the sub-list for method output_type
+	9,  // [9:26] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_codefly_cli_v0_cli_proto_init() }
