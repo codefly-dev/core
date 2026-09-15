@@ -14,7 +14,7 @@ type GenerationConformanceFixture struct {
 // descriptions, constants, enumerations, and nullable structured output to
 // survive adapter installation.
 func StructuredGenerationConformanceFixtures() []GenerationConformanceFixture {
-	return []GenerationConformanceFixture{
+	fixtures := []GenerationConformanceFixture{
 		{
 			Name: "described-enumerated-constant-object",
 			Request: GenerationRequest{
@@ -22,9 +22,9 @@ func StructuredGenerationConformanceFixtures() []GenerationConformanceFixture {
 				Messages:   []Message{{Role: "user", Content: "classify this"}},
 				MaxTokens:  64,
 				Schema:     json.RawMessage(`{"type":"object","description":"A classified finding.","properties":{"kind":{"type":"string","description":"The finding category.","enum":["fact","question"]},"source":{"type":"string","const":"fixture"}},"required":["kind","source"],"additionalProperties":false}`),
-				Invocation: Invocation{ID: "fixture-1", IntentDigest: "sha256:fixture-1"},
+				Invocation: Invocation{ID: "fixture-1"},
 			},
-			Result: GenerationResult{Invocation: Invocation{ID: "fixture-1", IntentDigest: "sha256:fixture-1"}, Receipt: "fixture-receipt-1", Outcome: GenerationCompleted, JSON: json.RawMessage(`{"kind":"fact","source":"fixture"}`)},
+			Result: GenerationResult{Receipt: "fixture-receipt-1", Outcome: GenerationCompleted, Delivery: GenerationResponseReceived, JSON: json.RawMessage(`{"kind":"fact","source":"fixture"}`)},
 		},
 		{
 			Name: "nullable-abstention",
@@ -33,9 +33,16 @@ func StructuredGenerationConformanceFixtures() []GenerationConformanceFixture {
 				Messages:   []Message{{Role: "user", Content: "answer only when supported"}},
 				MaxTokens:  64,
 				Schema:     json.RawMessage(`{"type":["object","null"],"description":"A result or an explicit abstention.","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`),
-				Invocation: Invocation{ID: "fixture-2", IntentDigest: "sha256:fixture-2"},
+				Invocation: Invocation{ID: "fixture-2"},
 			},
-			Result: GenerationResult{Invocation: Invocation{ID: "fixture-2", IntentDigest: "sha256:fixture-2"}, Receipt: "fixture-receipt-2", Outcome: GenerationCompleted, JSON: json.RawMessage(`null`)},
+			Result: GenerationResult{Receipt: "fixture-receipt-2", Outcome: GenerationCompleted, Delivery: GenerationResponseReceived, JSON: json.RawMessage(`null`)},
 		},
 	}
+	for i := range fixtures {
+		if err := BindInvocation(&fixtures[i].Request, fixtures[i].Request.Invocation.ID); err != nil {
+			panic(err)
+		}
+		fixtures[i].Result.Invocation = fixtures[i].Request.Invocation
+	}
+	return fixtures
 }

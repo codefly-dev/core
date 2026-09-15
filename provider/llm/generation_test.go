@@ -16,15 +16,23 @@ type controlledGenerationExecutor struct {
 }
 
 type adapterGenerationExecutor struct {
-	controlled *controlledGenerationExecutor
+	results map[llm.Invocation]*llm.GenerationResult
 }
 
-func (e adapterGenerationExecutor) Generate(ctx context.Context, request *llm.GenerationRequest) (*llm.GenerationResult, error) {
-	return e.controlled.Generate(ctx, request)
+func (e adapterGenerationExecutor) Generate(_ context.Context, request *llm.GenerationRequest) (*llm.GenerationResult, error) {
+	result, ok := e.results[request.Invocation]
+	if !ok {
+		return nil, fmt.Errorf("invocation was not installed")
+	}
+	return result, nil
 }
 
-func (e adapterGenerationExecutor) Lookup(ctx context.Context, lookup *llm.GenerationLookup) (*llm.GenerationResult, error) {
-	return e.controlled.Lookup(ctx, lookup)
+func (e adapterGenerationExecutor) Lookup(_ context.Context, lookup *llm.GenerationLookup) (*llm.GenerationResult, error) {
+	result, ok := e.results[lookup.Request.Invocation]
+	if !ok {
+		return nil, fmt.Errorf("invocation was not installed")
+	}
+	return result, nil
 }
 
 func newControlledGenerationExecutor(t *testing.T) *controlledGenerationExecutor {
@@ -48,7 +56,7 @@ func (e *controlledGenerationExecutor) Generate(_ context.Context, request *llm.
 
 func (e *controlledGenerationExecutor) Lookup(_ context.Context, lookup *llm.GenerationLookup) (*llm.GenerationResult, error) {
 	e.lookupCalls++
-	result, ok := e.results[lookup.Invocation]
+	result, ok := e.results[lookup.Request.Invocation]
 	if !ok {
 		return nil, fmt.Errorf("invocation was not installed")
 	}
@@ -57,12 +65,14 @@ func (e *controlledGenerationExecutor) Lookup(_ context.Context, lookup *llm.Gen
 
 func TestStructuredClient_InterchangeableExecutorsUseSameCallerLogic(t *testing.T) {
 	fixture := llm.StructuredGenerationConformanceFixtures()[0]
-	controlled := newControlledGenerationExecutor(t)
-	for _, executor := range []llm.GenerationExecutor{controlled, adapterGenerationExecutor{controlled: newControlledGenerationExecutor(t)}} {
-		client := llm.NewStructuredClient(executor)
-		result, err := client.Generate(context.Background(), &fixture.Request)
+	result := fixture.Result
+	for _, executor := range []llm.GenerationExecutor{
+		newControlledGenerationExecutor(t),
+		adapterGenerationExecutor{results: map[llm.Invocation]*llm.GenerationResult{fixture.Request.Invocation: &result}},
+	} {
+		got, err := llm.NewStructuredClient(executor).Generate(context.Background(), &fixture.Request)
 		require.NoError(t, err)
-		require.Equal(t, fixture.Result.JSON, result.JSON)
+		require.Equal(t, fixture.Result.JSON, got.JSON)
 	}
 }
 
@@ -76,54 +86,89 @@ func TestStructuredClient_ValidatesFixturesAndNullableAbstention(t *testing.T) {
 	}
 }
 
-func TestStructuredClient_LookupDoesNotGenerateAndBindsIntent(t *testing.T) {
+func TestStructuredClient_RejectsChangedIntentBeforeDispatchAndLookup(t *testing.T) {
 	fixture := llm.StructuredGenerationConformanceFixtures()[0]
 	executor := newControlledGenerationExecutor(t)
 	client := llm.NewStructuredClient(executor)
+	changed := fixture.Request
+	changed.Messages = []llm.Message{{Role: "user", Content: "a different request"}}
 
-	result, err := client.Lookup(context.Background(), &llm.GenerationLookup{Invocation: fixture.Request.Invocation, Receipt: fixture.Result.Receipt, Schema: fixture.Request.Schema})
+	_, err := client.Generate(context.Background(), &changed)
+	require.ErrorContains(t, err, "intent digest does not match")
+	require.Equal(t, 0, executor.generateCalls)
+
+	_, err = client.Lookup(context.Background(), &llm.GenerationLookup{Request: &changed, Receipt: fixture.Result.Receipt})
+	require.ErrorContains(t, err, "intent digest does not match")
+	require.Equal(t, 0, executor.lookupCalls)
+}
+
+func TestStructuredClient_LookupDoesNotGenerate(t *testing.T) {
+	fixture := llm.StructuredGenerationConformanceFixtures()[0]
+	executor := newControlledGenerationExecutor(t)
+	result, err := llm.NewStructuredClient(executor).Lookup(context.Background(), &llm.GenerationLookup{Request: &fixture.Request, Receipt: fixture.Result.Receipt})
 	require.NoError(t, err)
 	require.Equal(t, fixture.Result.JSON, result.JSON)
 	require.Equal(t, 0, executor.generateCalls)
 	require.Equal(t, 1, executor.lookupCalls)
-
-	changed := fixture.Request.Invocation
-	changed.IntentDigest = "sha256:changed-intent"
-	_, err = client.Lookup(context.Background(), &llm.GenerationLookup{Invocation: changed, Receipt: fixture.Result.Receipt, Schema: fixture.Request.Schema})
-	require.ErrorContains(t, err, "not installed")
-	require.Equal(t, 0, executor.generateCalls)
 }
 
-func TestStructuredClient_PreservesDistinctOutcomesAndUnknownUsage(t *testing.T) {
+func TestStructuredClient_RejectsRefusalWithStructuredContent(t *testing.T) {
 	fixture := llm.StructuredGenerationConformanceFixtures()[0]
-	for _, outcome := range []llm.GenerationOutcome{llm.GenerationRefused, llm.GenerationIncomplete, llm.GenerationCanceled, llm.GenerationUncertain} {
-		t.Run(string(outcome), func(t *testing.T) {
-			result := fixture.Result
-			result.Outcome = outcome
-			result.JSON = nil
-			result.Usage = nil
-			if outcome == llm.GenerationRefused {
-				result.Refusal = "cannot comply"
-			}
-			executor := &controlledGenerationExecutor{results: map[llm.Invocation]*llm.GenerationResult{fixture.Request.Invocation: &result}}
-			got, err := llm.NewStructuredClient(executor).Generate(context.Background(), &fixture.Request)
-			require.NoError(t, err)
-			require.Equal(t, outcome, got.Outcome)
-			require.Nil(t, got.Usage)
-		})
-	}
+	result := fixture.Result
+	result.Outcome = llm.GenerationRefused
+	result.Refusal = "cannot comply"
+	executor := &controlledGenerationExecutor{results: map[llm.Invocation]*llm.GenerationResult{fixture.Request.Invocation: &result}}
+	_, err := llm.NewStructuredClient(executor).Generate(context.Background(), &fixture.Request)
+	require.ErrorContains(t, err, "refused generation has invalid settlement or content")
 }
 
-func TestStructuredClient_RejectsLossySchemasAndInvalidCompletedContent(t *testing.T) {
+func TestStructuredClient_PreservesPartialOutputSeparately(t *testing.T) {
 	fixture := llm.StructuredGenerationConformanceFixtures()[0]
-	unsupported := fixture.Request
-	unsupported.Schema = []byte(`{"type":"object","oneOf":[]}`)
-	_, err := llm.NewStructuredClient(newControlledGenerationExecutor(t)).Generate(context.Background(), &unsupported)
-	require.ErrorContains(t, err, `keyword "oneOf" is unsupported`)
+	result := fixture.Result
+	result.Outcome = llm.GenerationIncomplete
+	result.JSON = nil
+	result.PartialText = `{"kind":"fact","source":"fixture"`
+	executor := &controlledGenerationExecutor{results: map[llm.Invocation]*llm.GenerationResult{fixture.Request.Invocation: &result}}
+	got, err := llm.NewStructuredClient(executor).Generate(context.Background(), &fixture.Request)
+	require.NoError(t, err)
+	require.Equal(t, llm.GenerationIncomplete, got.Outcome)
+	require.Equal(t, result.PartialText, got.PartialText)
+}
 
-	invalid := fixture.Result
-	invalid.JSON = []byte(`{"kind":"other","source":"fixture"}`)
-	executor := &controlledGenerationExecutor{results: map[llm.Invocation]*llm.GenerationResult{fixture.Request.Invocation: &invalid}}
+func TestStructuredClient_MapsCanceledExecutorErrorToTypedSettlement(t *testing.T) {
+	fixture := llm.StructuredGenerationConformanceFixtures()[0]
+	executor := generationExecutorFunc(func(context.Context, *llm.GenerationRequest) (*llm.GenerationResult, error) {
+		return nil, context.Canceled
+	})
+	result, err := llm.NewStructuredClient(executor).Generate(context.Background(), &fixture.Request)
+	require.NoError(t, err)
+	require.Equal(t, llm.GenerationCanceled, result.Outcome)
+	require.Equal(t, llm.GenerationSentOutcomeUnknown, result.Delivery)
+}
+
+func TestStructuredClient_RejectsDuplicateKeysAndInvalidUsage(t *testing.T) {
+	require.ErrorContains(t, llm.ValidateStructuredSchema([]byte(`{"type":"object","type":"string"}`)), "duplicate object key")
+	fixture := llm.StructuredGenerationConformanceFixtures()[0]
+	result := fixture.Result
+	result.JSON = []byte(`{"kind":"fact","kind":"question","source":"fixture"}`)
+	executor := &controlledGenerationExecutor{results: map[llm.Invocation]*llm.GenerationResult{fixture.Request.Invocation: &result}}
+	_, err := llm.NewStructuredClient(executor).Generate(context.Background(), &fixture.Request)
+	require.ErrorContains(t, err, "duplicate object key")
+
+	negative := int64(-1)
+	result = fixture.Result
+	result.Usage = &llm.GenerationUsage{InputTokens: &negative}
+	executor.results[fixture.Request.Invocation] = &result
 	_, err = llm.NewStructuredClient(executor).Generate(context.Background(), &fixture.Request)
-	require.ErrorContains(t, err, "does not match schema")
+	require.ErrorContains(t, err, "usage cannot be negative")
+}
+
+type generationExecutorFunc func(context.Context, *llm.GenerationRequest) (*llm.GenerationResult, error)
+
+func (f generationExecutorFunc) Generate(ctx context.Context, request *llm.GenerationRequest) (*llm.GenerationResult, error) {
+	return f(ctx, request)
+}
+
+func (generationExecutorFunc) Lookup(context.Context, *llm.GenerationLookup) (*llm.GenerationResult, error) {
+	return nil, fmt.Errorf("not implemented")
 }

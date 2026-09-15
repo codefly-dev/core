@@ -1,34 +1,29 @@
 package llm
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
+	"io"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// GenerationExecutor is the transport-neutral port for a single structured,
-// non-streaming model generation. Implementations own provider translation,
-// credentials, dispatch, and durable invocation storage.
 type GenerationExecutor interface {
 	Generate(context.Context, *GenerationRequest) (*GenerationResult, error)
 	Lookup(context.Context, *GenerationLookup) (*GenerationResult, error)
 }
 
-// StructuredClient validates the shared structured-generation contract around
-// an injected executor. It has no provider or module dependency.
-type StructuredClient struct {
-	exec GenerationExecutor
-}
+type StructuredClient struct{ exec GenerationExecutor }
 
-// NewStructuredClient wraps a structured-generation executor.
 func NewStructuredClient(exec GenerationExecutor) *StructuredClient {
 	return &StructuredClient{exec: exec}
 }
 
-// GenerationRequest describes one no-tool, non-streaming structured generation.
 type GenerationRequest struct {
 	Model       ModelIdentity
 	Messages    []Message
@@ -39,30 +34,23 @@ type GenerationRequest struct {
 	Invocation  Invocation
 }
 
-// ModelIdentity identifies the selected model and optional deployment profile.
-// A profile is adapter-defined and is never a provider URL.
 type ModelIdentity struct {
 	Model   string
 	Profile string
 }
 
-// Invocation binds an idempotent invocation identifier to the exact caller
-// intent. IntentDigest must change whenever messages, schema, or generation
-// settings change.
+// Invocation is a stable caller identifier bound by Core to the exact request intent.
 type Invocation struct {
 	ID           string
 	IntentDigest string
 }
 
-// GenerationLookup recovers a prior invocation without dispatching another
-// sample. Receipt is an opaque adapter reference when an adapter has one.
+// GenerationLookup requires the original request so Core can verify its intent.
 type GenerationLookup struct {
-	Invocation Invocation
-	Receipt    string
-	Schema     json.RawMessage
+	Request *GenerationRequest
+	Receipt string
 }
 
-// GenerationOutcome separates model content from dispatch settlement.
 type GenerationOutcome string
 
 const (
@@ -73,114 +61,183 @@ const (
 	GenerationUncertain  GenerationOutcome = "UNCERTAIN"
 )
 
-// GenerationUsage is optional token accounting. A nil Usage means the adapter
-// does not know usage; a zero token count is therefore an explicit value.
+// GenerationDelivery records dispatch settlement independently from model content.
+type GenerationDelivery string
+
+const (
+	GenerationNotSent            GenerationDelivery = "NOT_SENT"
+	GenerationResponseReceived   GenerationDelivery = "RESPONSE_RECEIVED"
+	GenerationSentOutcomeUnknown GenerationDelivery = "SENT_OUTCOME_UNKNOWN"
+)
+
+// GenerationUsage uses nil for unknown fields; zero is an explicit count.
 type GenerationUsage struct {
 	InputTokens  *int64
 	OutputTokens *int64
 	TotalTokens  *int64
 }
 
-// GenerationResult is the settled result of a structured generation. JSON is
-// populated only for a completed generation and is validated against Schema by
-// StructuredClient. A JSON null is a valid completed abstention when Schema
-// permits null.
+// GenerationResult preserves partial output separately from valid completed JSON.
 type GenerationResult struct {
-	Invocation Invocation
-	Receipt    string
-	Outcome    GenerationOutcome
-	JSON       json.RawMessage
-	Refusal    string
-	Usage      *GenerationUsage
+	Invocation  Invocation
+	Receipt     string
+	Outcome     GenerationOutcome
+	Delivery    GenerationDelivery
+	JSON        json.RawMessage
+	PartialText string
+	Refusal     string
+	Usage       *GenerationUsage
 }
 
-// Generate dispatches one generation and validates its returned contract.
+// BindInvocation derives and installs the request intent digest.
+func BindInvocation(request *GenerationRequest, id string) error {
+	if request == nil {
+		return fmt.Errorf("generation request is required")
+	}
+	request.Invocation.ID = id
+	digest, err := GenerationIntentDigest(request)
+	if err != nil {
+		return err
+	}
+	request.Invocation.IntentDigest = digest
+	return nil
+}
+
+// GenerationIntentDigest derives a stable digest from every model-request field.
+func GenerationIntentDigest(request *GenerationRequest) (string, error) {
+	if request == nil {
+		return "", fmt.Errorf("generation request is required")
+	}
+	compiled, err := compileStructuredSchema(request.Schema)
+	if err != nil {
+		return "", err
+	}
+	return generationIntentDigest(request, compiled.value)
+}
+
 func (c *StructuredClient) Generate(ctx context.Context, request *GenerationRequest) (*GenerationResult, error) {
-	if err := validateGenerationRequest(request); err != nil {
+	prepared, err := prepareGenerationRequest(request)
+	if err != nil {
 		return nil, err
 	}
 	result, err := c.exec.Generate(ctx, request)
 	if err != nil {
-		return nil, err
+		return canceledResult(request.Invocation, err)
 	}
-	if err := validateGenerationResult(request.Invocation, request.Schema, result); err != nil {
+	if err := validateGenerationResult(request.Invocation, prepared, result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-// Lookup recovers a prior result. It never calls Generate; executors must use
-// Invocation and Receipt only to locate their durable invocation record.
 func (c *StructuredClient) Lookup(ctx context.Context, lookup *GenerationLookup) (*GenerationResult, error) {
-	if err := validateGenerationLookup(lookup); err != nil {
+	if lookup == nil {
+		return nil, fmt.Errorf("generation lookup is required")
+	}
+	prepared, err := prepareGenerationRequest(lookup.Request)
+	if err != nil {
 		return nil, err
 	}
 	result, err := c.exec.Lookup(ctx, lookup)
 	if err != nil {
-		return nil, err
+		return canceledResult(lookup.Request.Invocation, err)
 	}
-	if err := validateGenerationResult(lookup.Invocation, lookup.Schema, result); err != nil {
+	if err := validateGenerationResult(lookup.Request.Invocation, prepared, result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func validateGenerationRequest(request *GenerationRequest) error {
+func canceledResult(invocation Invocation, err error) (*GenerationResult, error) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &GenerationResult{Invocation: invocation, Outcome: GenerationCanceled, Delivery: GenerationSentOutcomeUnknown}, nil
+	}
+	return nil, err
+}
+
+type compiledStructuredSchema struct {
+	value  any
+	schema *jsonschema.Schema
+}
+
+func prepareGenerationRequest(request *GenerationRequest) (*compiledStructuredSchema, error) {
 	if request == nil {
-		return fmt.Errorf("generation request is required")
+		return nil, fmt.Errorf("generation request is required")
 	}
 	if request.Model.Model == "" {
-		return fmt.Errorf("generation model is required")
+		return nil, fmt.Errorf("generation model is required")
 	}
-	if err := validateInvocation(request.Invocation); err != nil {
-		return err
+	if request.Invocation.ID == "" {
+		return nil, fmt.Errorf("invocation id is required")
 	}
-	return ValidateStructuredSchema(request.Schema)
+	compiled, err := compileStructuredSchema(request.Schema)
+	if err != nil {
+		return nil, err
+	}
+	digest, err := generationIntentDigest(request, compiled.value)
+	if err != nil {
+		return nil, err
+	}
+	if request.Invocation.IntentDigest != digest {
+		return nil, fmt.Errorf("invocation intent digest does not match request")
+	}
+	return compiled, nil
 }
 
-func validateGenerationLookup(lookup *GenerationLookup) error {
-	if lookup == nil {
-		return fmt.Errorf("generation lookup is required")
+func generationIntentDigest(request *GenerationRequest, schema any) (string, error) {
+	intent := struct {
+		Model       ModelIdentity
+		Messages    []Message
+		System      string
+		MaxTokens   int64
+		Temperature string
+		Schema      any
+	}{request.Model, request.Messages, request.System, request.MaxTokens, request.Temperature, schema}
+	encoded, err := json.Marshal(intent)
+	if err != nil {
+		return "", fmt.Errorf("marshal generation intent: %w", err)
 	}
-	if err := validateInvocation(lookup.Invocation); err != nil {
-		return err
-	}
-	return ValidateStructuredSchema(lookup.Schema)
+	sum := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func validateInvocation(invocation Invocation) error {
-	if invocation.ID == "" {
-		return fmt.Errorf("invocation id is required")
-	}
-	if invocation.IntentDigest == "" {
-		return fmt.Errorf("invocation intent digest is required")
-	}
-	return nil
-}
-
-func validateGenerationResult(invocation Invocation, schema json.RawMessage, result *GenerationResult) error {
+func validateGenerationResult(invocation Invocation, schema *compiledStructuredSchema, result *GenerationResult) error {
 	if result == nil {
 		return fmt.Errorf("generation result is required")
 	}
 	if result.Invocation != invocation {
 		return fmt.Errorf("generation result invocation does not match request")
 	}
+	if err := validateGenerationUsage(result.Usage); err != nil {
+		return err
+	}
 	switch result.Outcome {
 	case GenerationCompleted:
-		if result.Refusal != "" {
-			return fmt.Errorf("completed generation cannot include a refusal")
+		if result.Delivery != GenerationResponseReceived || result.Refusal != "" || result.PartialText != "" {
+			return fmt.Errorf("completed generation has invalid settlement or content")
 		}
 		if len(result.JSON) == 0 {
 			return fmt.Errorf("completed generation requires structured JSON")
 		}
-		return ValidateStructuredJSON(schema, result.JSON)
+		return validateStructuredJSON(schema, result.JSON)
 	case GenerationRefused:
-		if result.Refusal == "" {
-			return fmt.Errorf("refused generation requires a refusal")
+		if result.Delivery != GenerationResponseReceived || result.Refusal == "" || len(result.JSON) != 0 || result.PartialText != "" {
+			return fmt.Errorf("refused generation has invalid settlement or content")
 		}
-	case GenerationIncomplete, GenerationCanceled, GenerationUncertain:
-		if len(result.JSON) != 0 || result.Refusal != "" {
-			return fmt.Errorf("%s generation cannot include model content", strings.ToLower(string(result.Outcome)))
+	case GenerationIncomplete:
+		if result.Delivery != GenerationResponseReceived || len(result.JSON) != 0 || result.Refusal != "" {
+			return fmt.Errorf("incomplete generation has invalid settlement or content")
+		}
+	case GenerationCanceled:
+		if result.Delivery != GenerationNotSent && result.Delivery != GenerationSentOutcomeUnknown {
+			return fmt.Errorf("canceled generation has invalid delivery")
+		}
+		if len(result.JSON) != 0 || result.PartialText != "" || result.Refusal != "" {
+			return fmt.Errorf("canceled generation cannot include model output")
+		}
+	case GenerationUncertain:
+		if result.Delivery != GenerationSentOutcomeUnknown || len(result.JSON) != 0 || result.PartialText != "" || result.Refusal != "" {
+			return fmt.Errorf("uncertain generation has invalid settlement or content")
 		}
 	default:
 		return fmt.Errorf("unknown generation outcome %q", result.Outcome)
@@ -188,51 +245,137 @@ func validateGenerationResult(invocation Invocation, schema json.RawMessage, res
 	return nil
 }
 
-// ValidateStructuredSchema accepts the portable output-schema profile. The
-// profile supports type (including a nullable type array), description,
-// properties, required, additionalProperties, items, enum, and const. Other
-// JSON Schema keywords are rejected so adapters cannot silently lose meaning.
-func ValidateStructuredSchema(schema json.RawMessage) error {
-	var value any
-	if len(schema) == 0 || json.Unmarshal(schema, &value) != nil {
-		return fmt.Errorf("structured schema must be valid JSON")
+func validateGenerationUsage(usage *GenerationUsage) error {
+	if usage == nil {
+		return nil
 	}
-	if err := validateSchemaNode(value); err != nil {
-		return err
+	if usage.InputTokens == nil && usage.OutputTokens == nil && usage.TotalTokens == nil {
+		return fmt.Errorf("generation usage without counts must be nil")
 	}
-	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("structured-generation.json", value); err != nil {
-		return fmt.Errorf("structured schema is malformed: %w", err)
+	for _, count := range []*int64{usage.InputTokens, usage.OutputTokens, usage.TotalTokens} {
+		if count != nil && *count < 0 {
+			return fmt.Errorf("generation usage cannot be negative")
+		}
 	}
-	if _, err := compiler.Compile("structured-generation.json"); err != nil {
-		return fmt.Errorf("structured schema cannot compile: %w", err)
+	if usage.InputTokens != nil && usage.OutputTokens != nil && usage.TotalTokens != nil && *usage.TotalTokens != *usage.InputTokens+*usage.OutputTokens {
+		return fmt.Errorf("generation usage total does not match input and output")
 	}
 	return nil
 }
 
-// ValidateStructuredJSON validates one completed JSON value against the exact
-// installed output schema.
+func ValidateStructuredSchema(schema json.RawMessage) error {
+	_, err := compileStructuredSchema(schema)
+	return err
+}
+
 func ValidateStructuredJSON(schema, content json.RawMessage) error {
-	if err := ValidateStructuredSchema(schema); err != nil {
+	compiled, err := compileStructuredSchema(schema)
+	if err != nil {
 		return err
 	}
-	var schemaValue, contentValue any
-	_ = json.Unmarshal(schema, &schemaValue)
-	if err := json.Unmarshal(content, &contentValue); err != nil {
-		return fmt.Errorf("structured response must be valid JSON: %w", err)
+	return validateStructuredJSON(compiled, content)
+}
+
+func compileStructuredSchema(schema json.RawMessage) (*compiledStructuredSchema, error) {
+	value, err := decodeStrictJSON(schema)
+	if err != nil {
+		return nil, fmt.Errorf("structured schema must be valid JSON: %w", err)
+	}
+	if err := validateSchemaNode(value); err != nil {
+		return nil, err
 	}
 	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("structured-generation.json", schemaValue); err != nil {
-		return fmt.Errorf("structured schema is malformed: %w", err)
+	if err := compiler.AddResource("structured-generation.json", value); err != nil {
+		return nil, fmt.Errorf("structured schema is malformed: %w", err)
 	}
 	compiled, err := compiler.Compile("structured-generation.json")
 	if err != nil {
-		return fmt.Errorf("structured schema cannot compile: %w", err)
+		return nil, fmt.Errorf("structured schema cannot compile: %w", err)
 	}
-	if err := compiled.Validate(contentValue); err != nil {
+	return &compiledStructuredSchema{value: value, schema: compiled}, nil
+}
+
+func validateStructuredJSON(schema *compiledStructuredSchema, content json.RawMessage) error {
+	value, err := decodeStrictJSON(content)
+	if err != nil {
+		return fmt.Errorf("structured response must be valid JSON: %w", err)
+	}
+	if err := schema.schema.Validate(value); err != nil {
 		return fmt.Errorf("structured response does not match schema: %w", err)
 	}
 	return nil
+}
+
+func decodeStrictJSON(data []byte) (any, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty JSON")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	value, err := decodeJSONValue(decoder)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("multiple JSON values")
+		}
+		return nil, err
+	}
+	return value, nil
+}
+
+func decodeJSONValue(decoder *json.Decoder) (any, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	switch token := token.(type) {
+	case json.Delim:
+		switch token {
+		case '{':
+			object := map[string]any{}
+			for decoder.More() {
+				key, err := decoder.Token()
+				if err != nil {
+					return nil, err
+				}
+				name, ok := key.(string)
+				if !ok {
+					return nil, fmt.Errorf("object key is not a string")
+				}
+				if _, duplicate := object[name]; duplicate {
+					return nil, fmt.Errorf("duplicate object key %q", name)
+				}
+				value, err := decodeJSONValue(decoder)
+				if err != nil {
+					return nil, err
+				}
+				object[name] = value
+			}
+			if _, err := decoder.Token(); err != nil {
+				return nil, err
+			}
+			return object, nil
+		case '[':
+			var list []any
+			for decoder.More() {
+				value, err := decodeJSONValue(decoder)
+				if err != nil {
+					return nil, err
+				}
+				list = append(list, value)
+			}
+			if _, err := decoder.Token(); err != nil {
+				return nil, err
+			}
+			return list, nil
+		default:
+			return nil, fmt.Errorf("unexpected JSON delimiter %q", token)
+		}
+	default:
+		return token, nil
+	}
 }
 
 func validateSchemaNode(value any) error {
@@ -240,10 +383,7 @@ func validateSchemaNode(value any) error {
 	if !ok {
 		return fmt.Errorf("structured schema nodes must be objects")
 	}
-	allowed := map[string]bool{
-		"type": true, "description": true, "properties": true, "required": true,
-		"additionalProperties": true, "items": true, "enum": true, "const": true,
-	}
+	allowed := map[string]bool{"type": true, "description": true, "properties": true, "required": true, "additionalProperties": true, "items": true, "enum": true, "const": true}
 	for key := range node {
 		if !allowed[key] {
 			return fmt.Errorf("structured schema keyword %q is unsupported", key)
