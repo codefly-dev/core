@@ -1,6 +1,7 @@
 package composition
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,6 +14,12 @@ func Fixtures(manifests ...*PackageManifest) ([]ProvidedFixture, error) {
 	var fixtures []ProvidedFixture
 	owners := make(map[string]string)
 	for _, manifest := range manifests {
+		// A nil entry means the caller lost a composed package: resolving from
+		// the rest would answer with a fixture set that is missing whatever that
+		// package declared, and miss a name collision against it.
+		if manifest == nil {
+			return nil, errors.New("module package manifest is required")
+		}
 		for _, fixture := range manifest.Fixtures {
 			if previous, exists := owners[fixture.Name]; exists {
 				return nil, fmt.Errorf("%w: fixture %q is declared by both %q and %q", ErrCollision, fixture.Name, previous, manifest.ID)

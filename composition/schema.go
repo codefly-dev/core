@@ -422,9 +422,12 @@ func (manifest *PackageManifest) Validate() error {
 		ids := make([]string, 0, len(fixture.Principals))
 		roles := make([]string, 0, len(fixture.Principals))
 		for index, principal := range fixture.Principals {
-			if strings.TrimSpace(principal.ID) == "" || strings.TrimSpace(principal.Email) == "" ||
-				strings.TrimSpace(principal.Role) == "" || strings.TrimSpace(principal.Token) == "" {
-				return fmt.Errorf("fixture %s principal %d requires an id, an email, a role, and a token", fixture.Name, index)
+			// Role is matched literally at lookup, so a value carrying stray
+			// whitespace would validate here and then never resolve, reporting a
+			// seeded role that reads identically to the one asked for.
+			if !isTrimmedNonEmpty(principal.ID) || !isTrimmedNonEmpty(principal.Email) ||
+				!isTrimmedNonEmpty(principal.Role) || !isTrimmedNonEmpty(principal.Token) {
+				return fmt.Errorf("fixture %s principal %d requires an id, an email, a role, and a token without surrounding whitespace", fixture.Name, index)
 			}
 			ids = append(ids, principal.ID)
 			roles = append(roles, principal.Role)
@@ -615,6 +618,10 @@ func validateRelativePath(label, value string) error {
 		return fmt.Errorf("%s path %q is not canonical", label, value)
 	}
 	return nil
+}
+
+func isTrimmedNonEmpty(value string) bool {
+	return value != "" && value == strings.TrimSpace(value)
 }
 
 func uniqueStrings(label string, values []string) error {

@@ -49,6 +49,8 @@ func TestFixtureDeclarationsAreValidated(t *testing.T) {
 	incomplete.Principals[0].Token = ""
 	duplicateID := devAdminFixture()
 	duplicateID.Principals[1].ID = "dev-admin"
+	untrimmedRole := devAdminFixture()
+	untrimmedRole.Principals[0].Role = " super_admin"
 	undeclaredContract := fixtureManifest(testPackage, devAdminFixture())
 	delete(undeclaredContract.Contracts, ContractFixtures)
 
@@ -60,6 +62,7 @@ func TestFixtureDeclarationsAreValidated(t *testing.T) {
 		"duplicate role":      {fixtureManifest(testPackage, duplicateRole), `duplicate principal role in fixture dev-admin "super_admin"`},
 		"duplicate principal": {fixtureManifest(testPackage, duplicateID), `duplicate principal in fixture dev-admin "dev-admin"`},
 		"incomplete":          {fixtureManifest(testPackage, incomplete), "fixture dev-admin principal 0 requires an id, an email, a role, and a token"},
+		"untrimmed role":      {fixtureManifest(testPackage, untrimmedRole), "without surrounding whitespace"},
 		"invalid name":        {fixtureManifest(testPackage, ProvidedFixture{Name: "Dev Admin"}), `fixture name "Dev Admin" is invalid`},
 		"undeclared contract": {undeclaredContract, `must declare the "fixtures" contract`},
 	} {
@@ -108,6 +111,13 @@ func TestResolveFixtureNamesTheAvailableFixtures(t *testing.T) {
 	_, err = Fixtures(packages[0], fixtureManifest("codefly/other", devAdminFixture()))
 	require.ErrorIs(t, err, ErrCollision)
 	require.ErrorContains(t, err, `declared by both "codefly/saas-starter" and "codefly/other"`)
+
+	// A lost package must not resolve to a fixture set that silently omits
+	// whatever it declared, nor take down the caller.
+	_, err = Fixtures(packages[0], nil)
+	require.ErrorContains(t, err, "module package manifest is required")
+	_, err = ResolveFixture("dev-admin", nil)
+	require.ErrorContains(t, err, "module package manifest is required")
 }
 
 func TestFixturePrincipalsResolveByRole(t *testing.T) {
