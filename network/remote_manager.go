@@ -49,7 +49,7 @@ func (m *RemoteManager) KubernetesService(service *resources.ServiceIdentity, en
 	host := fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, namespace)
 	var instance *basev0.NetworkInstance
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
-		instance = resources.NewHTTPNetworkInstance(host, port, false)
+		instance = resources.NewHTTPNetworkInstance(host, port, resources.EndpointSecured(endpoint))
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
 	}

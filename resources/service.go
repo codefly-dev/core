@@ -736,6 +736,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 				w.Debug("couldn't load endpoints", wool.ErrField(err))
 				continue
 			}
+			rest.Secured = ed.Secured
 			base.ApiDetails = ToRestAPI(rest)
 			out = append(out, base)
 		case standards.GRPC:
@@ -749,6 +750,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 				multi = multierror.Append(multi, err)
 				continue
 			}
+			grpc.Secured = ed.Secured
 			base.Api = standards.GRPC
 			base.ApiDetails = ToGrpcAPI(grpc)
 			out = append(out, base)
@@ -757,6 +759,7 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 			if err != nil {
 				multi = multierror.Append(multi, err)
 			}
+			http.Secured = ed.Secured
 			base.Api = standards.HTTP
 			base.ApiDetails = ToHTTPAPI(http)
 			out = append(out, base)
@@ -771,12 +774,12 @@ func (s *Service) LoadEndpoints(ctx context.Context) ([]*basev0.Endpoint, error)
 		case standards.CONNECT:
 			// Connect uses HTTP/2 transport — same API shape as HTTP.
 			base.Api = standards.CONNECT
-			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{})
+			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{Secured: ed.Secured})
 			out = append(out, base)
 		case standards.MCP:
 			// MCP is served over Streamable HTTP — same API shape as HTTP.
 			base.Api = standards.MCP
-			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{})
+			base.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{Secured: ed.Secured})
 			out = append(out, base)
 		}
 	}

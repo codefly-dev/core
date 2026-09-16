@@ -24,6 +24,53 @@ func TestLoadEndpoints(t *testing.T) {
 	require.Equal(t, 2, len(endpoints))
 }
 
+func TestLoadEndpointsPreservesDeclaredTLS(t *testing.T) {
+	for _, api := range []string{standards.REST, standards.GRPC, standards.HTTP, standards.CONNECT} {
+		t.Run(api, func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			declaration := fmt.Sprintf(`kind: service
+name: model
+endpoints:
+  - name: api
+    api: %s
+    secured: true
+`, api)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "service.codefly.yaml"), []byte(declaration), 0o644))
+
+			service, err := resources.LoadServiceFromDir(ctx, dir)
+			require.NoError(t, err)
+			require.True(t, service.Endpoints[0].Secured)
+			service.WithModule("model")
+			endpoints, err := service.LoadEndpoints(ctx)
+			require.NoError(t, err)
+			require.Len(t, endpoints, 1)
+			require.True(t, resources.EndpointSecured(endpoints[0]))
+
+			roundTrip := resources.EndpointFromProto(endpoints[0])
+			require.True(t, roundTrip.Secured)
+		})
+	}
+}
+
+func TestEndpointRejectsTLSWithoutTypedProtocol(t *testing.T) {
+	_, err := (&resources.Endpoint{Name: "socket", API: standards.TCP, Secured: true}).Proto()
+	require.ErrorContains(t, err, `cannot declare TLS for the untyped tcp API`)
+}
+
+func TestEndpointProtoCarriesDeclaredTLS(t *testing.T) {
+	for _, api := range []string{standards.REST, standards.GRPC, standards.HTTP, standards.CONNECT} {
+		t.Run(api, func(t *testing.T) {
+			endpoint, err := (&resources.Endpoint{
+				Name: "api", Module: "model", Service: "model",
+				API: api, Visibility: resources.VisibilityPrivate, Secured: true,
+			}).Proto()
+			require.NoError(t, err)
+			require.True(t, resources.EndpointSecured(endpoint))
+		})
+	}
+}
+
 func TestLoadEndpointsPrefersDependencyContract(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

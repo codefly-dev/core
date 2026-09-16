@@ -50,6 +50,7 @@ type Endpoint struct {
 	Description string `yaml:"description,omitempty"`
 	Visibility  string `yaml:"visibility,omitempty"`
 	API         string `yaml:"api,omitempty"`
+	Secured     bool   `yaml:"secured,omitempty"`
 	// Location describes where the endpoint lives, independently of visibility.
 	Location string `yaml:"location,omitempty"`
 	// AllowModules lists the modules permitted to reach an internal endpoint.
@@ -243,6 +244,9 @@ func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
 	if err := standards.IsSupportedAPI(endpoint.API); err != nil {
 		return nil, fmt.Errorf("unsupported api: %s", endpoint.API)
 	}
+	if endpoint.Secured && endpoint.API == standards.TCP {
+		return nil, fmt.Errorf("endpoint %q cannot declare TLS for the untyped tcp API", endpoint.Name)
+	}
 	health, err := endpoint.Health.Proto(endpoint.API)
 	if err != nil {
 		return nil, fmt.Errorf("endpoint %q health: %w", endpoint.Name, err)
@@ -257,6 +261,16 @@ func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
 		Location:     endpoint.Location,
 		AllowModules: endpoint.AllowModules,
 		Health:       health,
+	}
+	switch endpoint.API {
+	case standards.REST:
+		e.ApiDetails = ToRestAPI(&basev0.RestAPI{Secured: endpoint.Secured})
+	case standards.GRPC:
+		e.ApiDetails = ToGrpcAPI(&basev0.GrpcAPI{Secured: endpoint.Secured})
+	case standards.HTTP, standards.CONNECT, standards.MCP:
+		e.ApiDetails = ToHTTPAPI(&basev0.HttpAPI{Secured: endpoint.Secured})
+	case standards.TCP:
+		e.ApiDetails = ToTCPAPI(&basev0.TcpAPI{})
 	}
 	// Validate
 	if err := Validate(e); err != nil {
@@ -282,6 +296,7 @@ func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 		Visibility:   e.Visibility,
 		Description:  e.Description,
 		API:          e.Api,
+		Secured:      EndpointSecured(e),
 		Location:     e.Location,
 		AllowModules: e.AllowModules,
 		Health:       HealthFromProto(e.Health),
