@@ -23,9 +23,9 @@ supports tool turns.
 | Messages and system instruction | `GenerationRequest.Messages`, `System` | Included in the invocation intent digest |
 | Tool declaration | `ToolDeclaration` | Name uniqueness and exact input schema are checked before dispatch |
 | Tool proposal | `GenerationToolCalls`, `ToolProposal` | Call IDs are nonempty and unique; arguments validate against the declared tool |
-| Authorized execution | `AuthorizedToolResult.Authorization` | Opaque caller evidence is required; Core never executes a tool |
+| Authorized execution | `AuthorizedToolResult.AuthorizationReference` | A bounded non-secret caller reference is required, excluded from model intent, and never sent to the model executor |
 | Committed tool result | `ToolResult` | Success carries typed JSON; failure carries an error, never both |
-| Continuation | `ContinuationRequest`, `GenerationResult.Continuation` | Opaque reference, prior proposals, authorizations, and results are bound to a new invocation |
+| Continuation | `ContinuationRequest`, `ToolContinuationRequest`, `GenerationResult.Continuation` | Core validates caller policy metadata, then sends only the opaque reference and committed results to the executor |
 | Structured output | `GenerationRequest.Schema`, `GenerationResult.JSON` | Completed nonempty JSON validates against the exact installed schema; JSON `null` can represent schema-permitted abstention |
 | Model/profile identity | `ModelIdentity` | Both values are included in intent identity |
 | Limits | `MaxTokens`, `Temperature` | Included in intent identity; adapters translate them to provider profiles |
@@ -33,7 +33,7 @@ supports tool turns.
 | Cancellation and uncertain delivery | `GenerationCanceled`, `GenerationUncertain`, `GenerationDelivery` | Content outcome remains separate from dispatch settlement |
 | Usage | `*GenerationUsage` with pointer counts | `nil` means unknown; a non-nil zero is an observed zero |
 | Stable request identity | `Invocation` | SHA-256 intent digest prevents changed requests or tool results from reusing an ID |
-| Lookup/recovery | `GenerationExecutor.Lookup` | Lookup accepts an original or continuation request and never calls generate |
+| Lookup/recovery | `GenerationExecutor.Lookup` | Lookup accepts an original or continuation request, may return a rotated receipt, and never calls generate |
 
 ## Structured schema profile
 
@@ -53,9 +53,19 @@ installation.
 an opaque continuation. The consumer authorizes and executes each proposed call,
 then supplies exactly one committed result per call to `Continue`. Each
 continuation is a separate stable invocation, so changing a result requires a
-new identity. Missing, duplicated, or mismatched data produces a typed
-`ContinuationError` before dispatch. Executors report stale references with
-`ContinuationExpired` and replay conflicts with `ContinuationDuplicate`.
+new identity. Authorization references and recovery receipts are operation
+metadata and do not change that model intent. Missing, duplicated, or
+mismatched data produces a typed `ContinuationError` before dispatch. Executors
+report stale references with `ContinuationExpired` and replay conflicts with
+`ContinuationDuplicate`.
+
+Every executor must atomically bind an invocation ID to its first intent digest
+before dispatch. The same ID and digest recovers the existing invocation instead
+of generating again; the same ID with another digest returns
+`ErrInvocationConflict`. A tool executor also consumes each opaque continuation
+for one invocation and rejects use by another invocation with
+`ContinuationDuplicate`. Lookup observes durable state and propagates lookup
+cancellation as an operation error; it never manufactures a generation outcome.
 
 Each API call is unary and bounded to one model turn. A consumer may apply its
 own policy and call `Continue` again if another proposal is returned. Core owns

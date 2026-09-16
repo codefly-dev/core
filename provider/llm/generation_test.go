@@ -11,6 +11,7 @@ import (
 
 type controlledGenerationExecutor struct {
 	results       map[llm.Invocation]*llm.GenerationResult
+	invocations   map[string]llm.Invocation
 	generateCalls int
 	lookupCalls   int
 }
@@ -37,16 +38,20 @@ func (e adapterGenerationExecutor) Lookup(_ context.Context, lookup *llm.Generat
 
 func newControlledGenerationExecutor(t *testing.T) *controlledGenerationExecutor {
 	t.Helper()
-	executor := &controlledGenerationExecutor{results: map[llm.Invocation]*llm.GenerationResult{}}
+	executor := &controlledGenerationExecutor{results: map[llm.Invocation]*llm.GenerationResult{}, invocations: map[string]llm.Invocation{}}
 	for _, fixture := range llm.StructuredGenerationConformanceFixtures() {
 		result := fixture.Result
 		executor.results[fixture.Request.Invocation] = &result
+		executor.invocations[fixture.Request.Invocation.ID] = fixture.Request.Invocation
 	}
 	return executor
 }
 
 func (e *controlledGenerationExecutor) Generate(_ context.Context, request *llm.GenerationRequest) (*llm.GenerationResult, error) {
 	e.generateCalls++
+	if invocation, exists := e.invocations[request.Invocation.ID]; exists && invocation.IntentDigest != request.Invocation.IntentDigest {
+		return nil, llm.ErrInvocationConflict
+	}
 	result, ok := e.results[request.Invocation]
 	if !ok {
 		return nil, fmt.Errorf("invocation was not installed")
@@ -56,6 +61,9 @@ func (e *controlledGenerationExecutor) Generate(_ context.Context, request *llm.
 
 func (e *controlledGenerationExecutor) Lookup(_ context.Context, lookup *llm.GenerationLookup) (*llm.GenerationResult, error) {
 	e.lookupCalls++
+	if invocation, exists := e.invocations[lookup.Request.Invocation.ID]; exists && invocation.IntentDigest != lookup.Request.Invocation.IntentDigest {
+		return nil, llm.ErrInvocationConflict
+	}
 	result, ok := e.results[lookup.Request.Invocation]
 	if !ok {
 		return nil, fmt.Errorf("invocation was not installed")
@@ -100,6 +108,17 @@ func TestStructuredClient_RejectsChangedIntentBeforeDispatchAndLookup(t *testing
 	_, err = client.Lookup(context.Background(), &llm.GenerationLookup{Request: &changed, Receipt: fixture.Result.Receipt})
 	require.ErrorContains(t, err, "intent digest does not match")
 	require.Equal(t, 0, executor.lookupCalls)
+}
+
+func TestStructuredClient_ExecutorRejectsReboundInvocationID(t *testing.T) {
+	fixture := llm.StructuredGenerationConformanceFixtures()[0]
+	executor := newControlledGenerationExecutor(t)
+	changed := fixture.Request
+	changed.Messages = []llm.Message{{Role: "user", Content: "a different request"}}
+	require.NoError(t, llm.BindInvocation(&changed, fixture.Request.Invocation.ID))
+
+	_, err := llm.NewStructuredClient(executor).Generate(t.Context(), &changed)
+	require.ErrorIs(t, err, llm.ErrInvocationConflict)
 }
 
 func TestStructuredClient_LookupDoesNotGenerate(t *testing.T) {

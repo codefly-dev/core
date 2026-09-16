@@ -13,16 +13,26 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
+// ErrInvocationConflict reports an invocation ID already bound to a different
+// intent digest.
+var ErrInvocationConflict = errors.New("invocation id is already bound to different intent")
+
+// GenerationExecutor durably binds each invocation ID to its intent before
+// dispatch. Repeating the same ID and digest recovers the existing invocation;
+// repeating an ID with another digest returns ErrInvocationConflict. Lookup
+// observes existing state and never dispatches generation.
 type GenerationExecutor interface {
 	Generate(context.Context, *GenerationRequest) (*GenerationResult, error)
 	Lookup(context.Context, *GenerationLookup) (*GenerationResult, error)
 }
 
 // ToolGenerationExecutor extends structured generation with one caller-driven
-// continuation. The executor proposes tools but never runs them.
+// continuation. Continue atomically consumes the opaque continuation for one
+// invocation; another invocation using it returns ContinuationDuplicate. The
+// executor proposes tools but never runs them.
 type ToolGenerationExecutor interface {
 	GenerationExecutor
-	Continue(context.Context, *ContinuationRequest) (*GenerationResult, error)
+	Continue(context.Context, *ToolContinuationRequest) (*GenerationResult, error)
 }
 
 type StructuredClient struct{ exec GenerationExecutor }
@@ -125,7 +135,7 @@ func GenerationIntentDigest(request *GenerationRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tools, err := prepareToolDeclarations(request.Tools)
+	tools, _, err := prepareToolDeclarations(request.Tools)
 	if err != nil {
 		return "", err
 	}
@@ -137,11 +147,11 @@ func (c *StructuredClient) Generate(ctx context.Context, request *GenerationRequ
 	if err != nil {
 		return nil, err
 	}
-	result, err := c.exec.Generate(ctx, request)
+	result, err := c.exec.Generate(ctx, cloneGenerationRequest(request))
 	if err != nil {
-		return canceledResult(request.Invocation, err)
+		return canceledResult(prepared.invocation, err)
 	}
-	if err := validateGenerationResult(request, request.Invocation, prepared, result); err != nil {
+	if err := validateGenerationResult(prepared, prepared.invocation, result); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -151,19 +161,16 @@ func (c *StructuredClient) Lookup(ctx context.Context, lookup *GenerationLookup)
 	if lookup == nil {
 		return nil, fmt.Errorf("generation lookup is required")
 	}
-	request, invocation, prepared, err := prepareGenerationLookup(lookup)
+	prepared, invocation, executorLookup, err := prepareGenerationLookup(lookup)
 	if err != nil {
 		return nil, err
 	}
-	result, err := c.exec.Lookup(ctx, lookup)
+	result, err := c.exec.Lookup(ctx, executorLookup)
 	if err != nil {
-		return canceledResult(invocation, err)
-	}
-	if err := validateGenerationResult(request, invocation, prepared, result); err != nil {
 		return nil, err
 	}
-	if lookup.Receipt != "" && result.Receipt != lookup.Receipt {
-		return nil, fmt.Errorf("generation lookup receipt does not match result")
+	if err := validateGenerationResult(prepared, invocation, result); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -180,7 +187,13 @@ type compiledStructuredSchema struct {
 	schema *jsonschema.Schema
 }
 
-func prepareGenerationRequest(request *GenerationRequest) (*compiledStructuredSchema, error) {
+type preparedGenerationRequest struct {
+	schema     *compiledStructuredSchema
+	tools      map[string]*compiledStructuredSchema
+	invocation Invocation
+}
+
+func prepareGenerationRequest(request *GenerationRequest) (*preparedGenerationRequest, error) {
 	if request == nil {
 		return nil, fmt.Errorf("generation request is required")
 	}
@@ -194,7 +207,7 @@ func prepareGenerationRequest(request *GenerationRequest) (*compiledStructuredSc
 	if err != nil {
 		return nil, err
 	}
-	tools, err := prepareToolDeclarations(request.Tools)
+	tools, toolSchemas, err := prepareToolDeclarations(request.Tools)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +218,7 @@ func prepareGenerationRequest(request *GenerationRequest) (*compiledStructuredSc
 	if request.Invocation.IntentDigest != digest {
 		return nil, fmt.Errorf("invocation intent digest does not match request")
 	}
-	return compiled, nil
+	return &preparedGenerationRequest{schema: compiled, tools: toolSchemas, invocation: request.Invocation}, nil
 }
 
 func generationIntentDigest(request *GenerationRequest, schema any, tools []preparedToolDeclaration) (string, error) {
@@ -226,7 +239,7 @@ func generationIntentDigest(request *GenerationRequest, schema any, tools []prep
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func validateGenerationResult(request *GenerationRequest, invocation Invocation, schema *compiledStructuredSchema, result *GenerationResult) error {
+func validateGenerationResult(prepared *preparedGenerationRequest, invocation Invocation, result *GenerationResult) error {
 	if result == nil {
 		return fmt.Errorf("generation result is required")
 	}
@@ -244,12 +257,12 @@ func validateGenerationResult(request *GenerationRequest, invocation Invocation,
 		if len(result.JSON) == 0 {
 			return fmt.Errorf("completed generation requires structured JSON")
 		}
-		return validateStructuredJSON(schema, result.JSON)
+		return validateStructuredJSON(prepared.schema, result.JSON)
 	case GenerationToolCalls:
 		if result.Delivery != GenerationResponseReceived || len(result.JSON) != 0 || result.Refusal != "" || result.PartialText != "" || result.Continuation == "" {
 			return fmt.Errorf("tool-call generation has invalid settlement or content")
 		}
-		return validateToolProposals(request.Tools, result.ToolCalls)
+		return validateToolProposals(prepared.tools, result.ToolCalls)
 	case GenerationRefused:
 		if result.Delivery != GenerationResponseReceived || result.Refusal == "" || len(result.JSON) != 0 || result.PartialText != "" || len(result.ToolCalls) != 0 || result.Continuation != "" {
 			return fmt.Errorf("refused generation has invalid settlement or content")

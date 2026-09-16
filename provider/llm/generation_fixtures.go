@@ -58,8 +58,8 @@ func StructuredGenerationConformanceFixtures() []GenerationConformanceFixture {
 }
 
 // ToolTurnConformanceFixtures returns portable fixtures for injected executors.
-func ToolTurnConformanceFixtures() []ToolTurnConformanceFixture {
-	fixtures := []ToolTurnConformanceFixture{
+func ToolTurnConformanceFixtures() []*ToolTurnConformanceFixture {
+	fixtures := []*ToolTurnConformanceFixture{
 		{
 			Name: "authorized-tool-result-continuation",
 			Request: GenerationRequest{
@@ -83,7 +83,7 @@ func ToolTurnConformanceFixtures() []ToolTurnConformanceFixture {
 			},
 			Continuation: ContinuationRequest{
 				Results: []AuthorizedToolResult{{
-					Authorization: "caller-authorization-1",
+					AuthorizationReference: "caller-authorization-1",
 					Result: ToolResult{
 						CallID:  "call-weather-1",
 						Outcome: ToolResultSucceeded,
@@ -100,8 +100,7 @@ func ToolTurnConformanceFixtures() []ToolTurnConformanceFixture {
 			},
 		},
 	}
-	for i := range fixtures {
-		fixture := &fixtures[i]
+	for _, fixture := range fixtures {
 		if err := BindInvocation(&fixture.Request, fixture.Request.Invocation.ID); err != nil {
 			panic(err)
 		}
