@@ -26,10 +26,11 @@ type GenerationExecutor interface {
 	Lookup(context.Context, *GenerationLookup) (*GenerationResult, error)
 }
 
-// ToolGenerationExecutor extends structured generation with one caller-driven
-// continuation. Continue atomically consumes the opaque continuation for one
-// invocation; another invocation using it returns ContinuationDuplicate. The
-// executor proposes tools but never runs them.
+// ToolGenerationExecutor extends structured generation with caller-driven
+// continuations. Continue verifies that the opaque continuation belongs to
+// Previous, then atomically consumes it for one invocation; another invocation
+// using it returns ContinuationDuplicate. The executor proposes tools but never
+// runs them.
 type ToolGenerationExecutor interface {
 	GenerationExecutor
 	Continue(context.Context, *ToolContinuationRequest) (*GenerationResult, error)

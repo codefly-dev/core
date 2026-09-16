@@ -250,7 +250,7 @@ func prepareContinuationValue(request *ContinuationRequest, checkDigest bool) (*
 	if request.Previous.Continuation == "" {
 		return nil, nil, continuationIntent{}, continuationError(ContinuationMissing, "previous result has no continuation")
 	}
-	if err := validateGenerationResult(prepared, prepared.invocation, request.Previous); err != nil {
+	if err := validateGenerationResult(prepared, request.Previous.Invocation, request.Previous); err != nil {
 		return nil, nil, continuationIntent{}, continuationError(ContinuationMismatched, err.Error())
 	}
 	if request.Previous.Outcome != GenerationToolCalls {

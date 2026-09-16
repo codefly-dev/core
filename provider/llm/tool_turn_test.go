@@ -16,6 +16,7 @@ type controlledToolExecutor struct {
 	continueCalls      int
 	lookupCalls        int
 	continueErr        error
+	loseContinueReply  bool
 	lookupErr          error
 	lastRequest        *llm.GenerationRequest
 	lastContinuation   *llm.ToolContinuationRequest
@@ -23,6 +24,7 @@ type controlledToolExecutor struct {
 	mutateRequest      func(*llm.GenerationRequest)
 	mutateContinuation func(*llm.ToolContinuationRequest, *llm.GenerationResult)
 	invocations        map[string]llm.Invocation
+	continuationOwners map[string]llm.Invocation
 	continuations      map[string]string
 	continuationCache  map[string]*llm.GenerationResult
 }
@@ -32,6 +34,9 @@ func (e *controlledToolExecutor) Generate(_ context.Context, request *llm.Genera
 	e.lastRequest = request
 	if e.mutateRequest != nil {
 		e.mutateRequest(request)
+	}
+	if e.proposal != nil && e.proposal.Continuation != "" {
+		e.continuationOwners[e.proposal.Continuation] = e.proposal.Invocation
 	}
 	return e.proposal, nil
 }
@@ -49,6 +54,10 @@ func (e *controlledToolExecutor) Continue(_ context.Context, request *llm.ToolCo
 		}
 		return e.continuationCache[request.Invocation.ID], nil
 	}
+	owner, exists := e.continuationOwners[request.Continuation]
+	if !exists || owner != request.Previous {
+		return nil, &llm.ContinuationError{Code: llm.ContinuationMismatched, Message: "continuation does not belong to previous invocation"}
+	}
 	if _, consumed := e.continuations[request.Continuation]; consumed {
 		return nil, &llm.ContinuationError{Code: llm.ContinuationDuplicate, Message: "continuation already consumed"}
 	}
@@ -57,6 +66,13 @@ func (e *controlledToolExecutor) Continue(_ context.Context, request *llm.ToolCo
 	e.continuationCache[request.Invocation.ID] = e.result
 	e.continueCalls++
 	e.lastContinuation = request
+	if e.result != nil && e.result.Continuation != "" {
+		e.continuationOwners[e.result.Continuation] = e.result.Invocation
+	}
+	if e.loseContinueReply {
+		e.loseContinueReply = false
+		return nil, context.DeadlineExceeded
+	}
 	return e.result, nil
 }
 
@@ -67,7 +83,7 @@ func (e *controlledToolExecutor) Lookup(_ context.Context, lookup *llm.Generatio
 		return nil, e.lookupErr
 	}
 	if lookup.Continuation != nil {
-		return e.result, nil
+		return e.continuationCache[lookup.Continuation.Invocation.ID], nil
 	}
 	return e.proposal, nil
 }
@@ -266,6 +282,86 @@ func TestStructuredClient_ContinuationIdentityAndReferenceAreSingleUse(t *testin
 	require.Equal(t, 1, executor.continueCalls)
 }
 
+func TestStructuredClient_MultipleToolTurnsPreserveLineageAndRecoverLostReply(t *testing.T) {
+	fixture := llm.ToolTurnConformanceFixtures()[0]
+	executor := newToolExecutor()
+	client := llm.NewStructuredClient(executor)
+
+	firstProposal, err := client.Generate(t.Context(), &fixture.Request)
+	require.NoError(t, err)
+	fixture.Continuation.Previous = firstProposal
+	require.NoError(t, llm.BindContinuation(&fixture.Continuation, fixture.Continuation.Invocation.ID))
+
+	secondProposal := &llm.GenerationResult{
+		Invocation:   fixture.Continuation.Invocation,
+		Receipt:      "tool-fixture-receipt-2",
+		Outcome:      llm.GenerationToolCalls,
+		Delivery:     llm.GenerationResponseReceived,
+		ToolCalls:    []llm.ToolProposal{{ID: "call-weather-2", Name: "weather", Arguments: []byte(`{"city":"New York","unit":"celsius"}`)}},
+		Continuation: "opaque-continuation-2",
+	}
+	executor.result = secondProposal
+	continued, err := client.Continue(t.Context(), &fixture.Continuation)
+	require.NoError(t, err)
+	require.Equal(t, fixture.Continuation.Invocation, continued.Invocation)
+
+	secondContinuation := llm.ContinuationRequest{
+		Request:  &fixture.Request,
+		Previous: continued,
+		Results: []llm.AuthorizedToolResult{{
+			AuthorizationReference: "caller-authorization-2",
+			Result: llm.ToolResult{
+				CallID:  "call-weather-2",
+				Outcome: llm.ToolResultSucceeded,
+				JSON:    []byte(`{"temperature":20,"unit":"celsius"}`),
+			},
+		}},
+	}
+	require.NoError(t, llm.BindContinuation(&secondContinuation, "tool-fixture-3"))
+	final := &llm.GenerationResult{
+		Invocation: secondContinuation.Invocation,
+		Receipt:    "tool-fixture-receipt-3",
+		Outcome:    llm.GenerationCompleted,
+		Delivery:   llm.GenerationResponseReceived,
+		JSON:       []byte(`{"answer":"It is 20 degrees Celsius in New York."}`),
+	}
+	executor.result = final
+	executor.loseContinueReply = true
+
+	uncertain, err := client.Continue(t.Context(), &secondContinuation)
+	require.NoError(t, err)
+	require.Equal(t, llm.GenerationCanceled, uncertain.Outcome)
+	require.Equal(t, 2, executor.continueCalls)
+
+	recovered, err := client.Lookup(t.Context(), &llm.GenerationLookup{
+		Continuation: &secondContinuation,
+		Receipt:      final.Receipt,
+	})
+	require.NoError(t, err)
+	require.Equal(t, final.JSON, recovered.JSON)
+	require.Equal(t, 2, executor.continueCalls)
+	require.Equal(t, 1, executor.lookupCalls)
+}
+
+func TestStructuredClient_RejectsForeignContinuationPredecessor(t *testing.T) {
+	fixture := llm.ToolTurnConformanceFixtures()[0]
+	executor := newToolExecutor()
+	client := llm.NewStructuredClient(executor)
+
+	proposal, err := client.Generate(t.Context(), &fixture.Request)
+	require.NoError(t, err)
+	foreign := *proposal
+	foreign.Invocation = llm.Invocation{ID: "foreign-turn", IntentDigest: "sha256:foreign"}
+	fixture.Continuation.Previous = &foreign
+	require.NoError(t, llm.BindContinuation(&fixture.Continuation, fixture.Continuation.Invocation.ID))
+
+	_, err = client.Continue(t.Context(), &fixture.Continuation)
+	var continuationErr *llm.ContinuationError
+	require.ErrorAs(t, err, &continuationErr)
+	require.Equal(t, llm.ContinuationMismatched, continuationErr.Code)
+	require.Zero(t, executor.continueCalls)
+}
+
 func TestContinuationIntentExcludesAuthorizationAndRecoveryReceipt(t *testing.T) {
 	fixture := llm.ToolTurnConformanceFixtures()[0]
 	original, err := llm.ContinuationIntentDigest(&fixture.Continuation)
@@ -358,11 +454,12 @@ func TestStructuredClient_MapsCanceledContinuationToTypedSettlement(t *testing.T
 func newToolExecutor() *controlledToolExecutor {
 	fixture := llm.ToolTurnConformanceFixtures()[0]
 	return &controlledToolExecutor{
-		proposal:          &fixture.Proposal,
-		result:            &fixture.Result,
-		invocations:       map[string]llm.Invocation{},
-		continuations:     map[string]string{},
-		continuationCache: map[string]*llm.GenerationResult{},
+		proposal:           &fixture.Proposal,
+		result:             &fixture.Result,
+		invocations:        map[string]llm.Invocation{},
+		continuationOwners: map[string]llm.Invocation{fixture.Proposal.Continuation: fixture.Proposal.Invocation},
+		continuations:      map[string]string{},
+		continuationCache:  map[string]*llm.GenerationResult{fixture.Continuation.Invocation.ID: &fixture.Result},
 	}
 }
 

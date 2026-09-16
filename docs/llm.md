@@ -62,10 +62,11 @@ report stale references with `ContinuationExpired` and replay conflicts with
 Every executor must atomically bind an invocation ID to its first intent digest
 before dispatch. The same ID and digest recovers the existing invocation instead
 of generating again; the same ID with another digest returns
-`ErrInvocationConflict`. A tool executor also consumes each opaque continuation
-for one invocation and rejects use by another invocation with
-`ContinuationDuplicate`. Lookup observes durable state and propagates lookup
-cancellation as an operation error; it never manufactures a generation outcome.
+`ErrInvocationConflict`. A tool executor verifies that each opaque continuation
+belongs to the direct predecessor invocation, consumes it for one invocation,
+and rejects use by another invocation with `ContinuationDuplicate`. Lookup
+observes durable state and propagates lookup cancellation as an operation error;
+it never manufactures a generation outcome.
 
 Each API call is unary and bounded to one model turn. A consumer may apply its
 own policy and call `Continue` again if another proposal is returned. Core owns
