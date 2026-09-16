@@ -18,6 +18,13 @@ type GenerationExecutor interface {
 	Lookup(context.Context, *GenerationLookup) (*GenerationResult, error)
 }
 
+// ToolGenerationExecutor extends structured generation with one caller-driven
+// continuation. The executor proposes tools but never runs them.
+type ToolGenerationExecutor interface {
+	GenerationExecutor
+	Continue(context.Context, *ContinuationRequest) (*GenerationResult, error)
+}
+
 type StructuredClient struct{ exec GenerationExecutor }
 
 func NewStructuredClient(exec GenerationExecutor) *StructuredClient {
@@ -31,6 +38,7 @@ type GenerationRequest struct {
 	MaxTokens   int64
 	Temperature string
 	Schema      json.RawMessage
+	Tools       []ToolDeclaration
 	Invocation  Invocation
 }
 
@@ -45,16 +53,19 @@ type Invocation struct {
 	IntentDigest string
 }
 
-// GenerationLookup requires the original request so Core can verify its intent.
+// GenerationLookup requires the original generation or continuation request so
+// Core can verify its intent without issuing another model call.
 type GenerationLookup struct {
-	Request *GenerationRequest
-	Receipt string
+	Request      *GenerationRequest
+	Continuation *ContinuationRequest
+	Receipt      string
 }
 
 type GenerationOutcome string
 
 const (
 	GenerationCompleted  GenerationOutcome = "COMPLETED"
+	GenerationToolCalls  GenerationOutcome = "TOOL_CALLS"
 	GenerationRefused    GenerationOutcome = "REFUSED"
 	GenerationIncomplete GenerationOutcome = "INCOMPLETE"
 	GenerationCanceled   GenerationOutcome = "CANCELED"
@@ -79,14 +90,16 @@ type GenerationUsage struct {
 
 // GenerationResult preserves partial output separately from valid completed JSON.
 type GenerationResult struct {
-	Invocation  Invocation
-	Receipt     string
-	Outcome     GenerationOutcome
-	Delivery    GenerationDelivery
-	JSON        json.RawMessage
-	PartialText string
-	Refusal     string
-	Usage       *GenerationUsage
+	Invocation   Invocation
+	Receipt      string
+	Outcome      GenerationOutcome
+	Delivery     GenerationDelivery
+	JSON         json.RawMessage
+	PartialText  string
+	Refusal      string
+	ToolCalls    []ToolProposal
+	Continuation string
+	Usage        *GenerationUsage
 }
 
 // BindInvocation derives and installs the request intent digest.
@@ -112,7 +125,11 @@ func GenerationIntentDigest(request *GenerationRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return generationIntentDigest(request, compiled.value)
+	tools, err := prepareToolDeclarations(request.Tools)
+	if err != nil {
+		return "", err
+	}
+	return generationIntentDigest(request, compiled.value, tools)
 }
 
 func (c *StructuredClient) Generate(ctx context.Context, request *GenerationRequest) (*GenerationResult, error) {
@@ -124,7 +141,7 @@ func (c *StructuredClient) Generate(ctx context.Context, request *GenerationRequ
 	if err != nil {
 		return canceledResult(request.Invocation, err)
 	}
-	if err := validateGenerationResult(request.Invocation, prepared, result); err != nil {
+	if err := validateGenerationResult(request, request.Invocation, prepared, result); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -134,16 +151,19 @@ func (c *StructuredClient) Lookup(ctx context.Context, lookup *GenerationLookup)
 	if lookup == nil {
 		return nil, fmt.Errorf("generation lookup is required")
 	}
-	prepared, err := prepareGenerationRequest(lookup.Request)
+	request, invocation, prepared, err := prepareGenerationLookup(lookup)
 	if err != nil {
 		return nil, err
 	}
 	result, err := c.exec.Lookup(ctx, lookup)
 	if err != nil {
-		return canceledResult(lookup.Request.Invocation, err)
+		return canceledResult(invocation, err)
 	}
-	if err := validateGenerationResult(lookup.Request.Invocation, prepared, result); err != nil {
+	if err := validateGenerationResult(request, invocation, prepared, result); err != nil {
 		return nil, err
+	}
+	if lookup.Receipt != "" && result.Receipt != lookup.Receipt {
+		return nil, fmt.Errorf("generation lookup receipt does not match result")
 	}
 	return result, nil
 }
@@ -174,7 +194,11 @@ func prepareGenerationRequest(request *GenerationRequest) (*compiledStructuredSc
 	if err != nil {
 		return nil, err
 	}
-	digest, err := generationIntentDigest(request, compiled.value)
+	tools, err := prepareToolDeclarations(request.Tools)
+	if err != nil {
+		return nil, err
+	}
+	digest, err := generationIntentDigest(request, compiled.value, tools)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +208,7 @@ func prepareGenerationRequest(request *GenerationRequest) (*compiledStructuredSc
 	return compiled, nil
 }
 
-func generationIntentDigest(request *GenerationRequest, schema any) (string, error) {
+func generationIntentDigest(request *GenerationRequest, schema any, tools []preparedToolDeclaration) (string, error) {
 	intent := struct {
 		Model       ModelIdentity
 		Messages    []Message
@@ -192,7 +216,8 @@ func generationIntentDigest(request *GenerationRequest, schema any) (string, err
 		MaxTokens   int64
 		Temperature string
 		Schema      any
-	}{request.Model, request.Messages, request.System, request.MaxTokens, request.Temperature, schema}
+		Tools       []preparedToolDeclaration `json:",omitempty"`
+	}{request.Model, request.Messages, request.System, request.MaxTokens, request.Temperature, schema, tools}
 	encoded, err := json.Marshal(intent)
 	if err != nil {
 		return "", fmt.Errorf("marshal generation intent: %w", err)
@@ -201,7 +226,7 @@ func generationIntentDigest(request *GenerationRequest, schema any) (string, err
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func validateGenerationResult(invocation Invocation, schema *compiledStructuredSchema, result *GenerationResult) error {
+func validateGenerationResult(request *GenerationRequest, invocation Invocation, schema *compiledStructuredSchema, result *GenerationResult) error {
 	if result == nil {
 		return fmt.Errorf("generation result is required")
 	}
@@ -213,30 +238,35 @@ func validateGenerationResult(invocation Invocation, schema *compiledStructuredS
 	}
 	switch result.Outcome {
 	case GenerationCompleted:
-		if result.Delivery != GenerationResponseReceived || result.Refusal != "" || result.PartialText != "" {
+		if result.Delivery != GenerationResponseReceived || result.Refusal != "" || result.PartialText != "" || len(result.ToolCalls) != 0 || result.Continuation != "" {
 			return fmt.Errorf("completed generation has invalid settlement or content")
 		}
 		if len(result.JSON) == 0 {
 			return fmt.Errorf("completed generation requires structured JSON")
 		}
 		return validateStructuredJSON(schema, result.JSON)
+	case GenerationToolCalls:
+		if result.Delivery != GenerationResponseReceived || len(result.JSON) != 0 || result.Refusal != "" || result.PartialText != "" || result.Continuation == "" {
+			return fmt.Errorf("tool-call generation has invalid settlement or content")
+		}
+		return validateToolProposals(request.Tools, result.ToolCalls)
 	case GenerationRefused:
-		if result.Delivery != GenerationResponseReceived || result.Refusal == "" || len(result.JSON) != 0 || result.PartialText != "" {
+		if result.Delivery != GenerationResponseReceived || result.Refusal == "" || len(result.JSON) != 0 || result.PartialText != "" || len(result.ToolCalls) != 0 || result.Continuation != "" {
 			return fmt.Errorf("refused generation has invalid settlement or content")
 		}
 	case GenerationIncomplete:
-		if result.Delivery != GenerationResponseReceived || len(result.JSON) != 0 || result.Refusal != "" {
+		if result.Delivery != GenerationResponseReceived || len(result.JSON) != 0 || result.Refusal != "" || len(result.ToolCalls) != 0 || result.Continuation != "" {
 			return fmt.Errorf("incomplete generation has invalid settlement or content")
 		}
 	case GenerationCanceled:
 		if result.Delivery != GenerationNotSent && result.Delivery != GenerationSentOutcomeUnknown {
 			return fmt.Errorf("canceled generation has invalid delivery")
 		}
-		if len(result.JSON) != 0 || result.PartialText != "" || result.Refusal != "" {
+		if len(result.JSON) != 0 || result.PartialText != "" || result.Refusal != "" || len(result.ToolCalls) != 0 || result.Continuation != "" {
 			return fmt.Errorf("canceled generation cannot include model output")
 		}
 	case GenerationUncertain:
-		if result.Delivery != GenerationSentOutcomeUnknown || len(result.JSON) != 0 || result.PartialText != "" || result.Refusal != "" {
+		if result.Delivery != GenerationSentOutcomeUnknown || len(result.JSON) != 0 || result.PartialText != "" || result.Refusal != "" || len(result.ToolCalls) != 0 || result.Continuation != "" {
 			return fmt.Errorf("uncertain generation has invalid settlement or content")
 		}
 	default:
