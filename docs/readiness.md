@@ -40,6 +40,7 @@ endpoints:
         failure-threshold: 30
   - name: http
     visibility: public
+    secured: true
     health:
       readiness:
         kind: http
@@ -85,9 +86,10 @@ down.
 Requirements combine conjunctively — a consumer is ready only when *every*
 required predicate holds.
 
-The endpoint's declared transport security (`secured` in its API details) rides
-on the plan, so a probe against a TLS endpoint dials TLS. A caller never has to
-supply it, and so cannot forget to.
+The endpoint's authored transport security (`secured: true`) rides on its
+network mappings and readiness plan, so discovery returns an `https://` address
+and probes dial TLS. A caller never has to supply or infer the scheme, and so
+cannot forget to.
 
 ### Timing is binding
 

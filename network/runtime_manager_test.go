@@ -40,6 +40,26 @@ func TestConnectNetworkInstancesUseHTTPAddresses(t *testing.T) {
 	)
 }
 
+func TestDeclaredTLSEndpointsUseHTTPSMappings(t *testing.T) {
+	endpoint := &basev0.Endpoint{
+		Api: standards.HTTP,
+		ApiDetails: &basev0.API{Value: &basev0.API_Http{
+			Http: &basev0.HttpAPI{Secured: true},
+		}},
+	}
+
+	require.Equal(t, "https://localhost:8443", network.Native(endpoint, 8443).Address)
+	require.Equal(t, "https://host.docker.internal:8443", network.Container(endpoint, 8443).Address)
+	require.Equal(t, "https://localhost:8443", network.PublicDefault(endpoint, 8443).Address)
+	require.Equal(
+		t,
+		"https://model.namespace.svc.cluster.local:8443",
+		(&network.RemoteManager{}).KubernetesService(
+			&resources.ServiceIdentity{Name: "model"}, endpoint, "namespace", 8443,
+		).Address,
+	)
+}
+
 // testDnsManager returns no DNS for any endpoint. Used to drive the
 // named-port branch of GenerateNetworkMappings.
 type testDnsManager struct{}

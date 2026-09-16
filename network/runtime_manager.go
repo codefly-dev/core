@@ -44,7 +44,7 @@ func Container(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := "host.docker.internal"
 	instance := resources.NewNetworkInstance(host, port)
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
-		instance = resources.NewHTTPNetworkInstance(host, port, false)
+		instance = resources.NewHTTPNetworkInstance(host, port, resources.EndpointSecured(endpoint))
 	}
 	instance.Access = resources.NewContainerNetworkAccess()
 	return instance
@@ -54,7 +54,7 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 	host := Localhost
 	var instance *basev0.NetworkInstance
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
-		instance = resources.NewHTTPNetworkInstance(host, port, false)
+		instance = resources.NewHTTPNetworkInstance(host, port, resources.EndpointSecured(endpoint))
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
 	}
@@ -88,7 +88,7 @@ func PublicDefault(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstan
 	host := Localhost
 	var instance *basev0.NetworkInstance
 	if standards.IsHTTPBasedAPI(endpoint.Api) {
-		instance = resources.NewHTTPNetworkInstance(host, port, false)
+		instance = resources.NewHTTPNetworkInstance(host, port, resources.EndpointSecured(endpoint))
 	} else {
 		instance = resources.NewNetworkInstance(host, port)
 	}
