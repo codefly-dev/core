@@ -11,24 +11,24 @@ import (
 
 // The workspace's module list answers "where does a module named X come from" —
 // source, version, checkout location. It is a pin set. Which modules take part
-// in a given run is a different question, and restating it as a second list is
-// what lets the two drift: a module can be pinned and never run, and a run can
-// need a module nobody remembered to list.
+// in a given run or build is a different question, and restating it as a second
+// list is what lets the two drift: a module can be pinned and never run, and a
+// run can need a module nobody remembered to list.
 //
 // ResolveModuleClosure answers the second question from the first plus the
 // dependencies each service already declares, so there is exactly one statement
 // of each fact and nothing to keep in sync.
 
 // ModuleEdge is one derived participation edge: a service in From declared a
-// dependency that To produces, which is what pulls To into the run.
+// dependency that To produces, which is what pulls To into the closure.
 type ModuleEdge struct {
 	From        string
 	FromService string
 	To          string
 }
 
-// ModuleClosure is the module set one run needs: the seeds and everything their
-// declarations transitively reach, in breadth-first order from the seeds.
+// ModuleClosure is the module set one stage needs: the seeds and everything
+// their declarations transitively reach, in breadth-first order from the seeds.
 type ModuleClosure struct {
 	Modules []*Module
 	Edges   []ModuleEdge
@@ -43,7 +43,7 @@ func (closure *ModuleClosure) Names() []string {
 	return names
 }
 
-// Contains reports whether the module takes part in the run.
+// Contains reports whether the module takes part in the closure.
 func (closure *ModuleClosure) Contains(name string) bool {
 	for _, mod := range closure.Modules {
 		if mod.Name == name {
@@ -74,22 +74,35 @@ func (demand moduleDemand) unpinned(workspace *Workspace) error {
 		demand.consumer, demand.service, demand.module, workspace.Name, strings.Join(pinned, ", "))
 }
 
-// ResolveModuleClosure derives the module set for a run from what is being run
-// and what that transitively declares it consumes. Seeds are the module names
-// the run starts from; each is resolved through the workspace's pin set, and
-// every module a loaded service declares a dependency on joins the frontier.
+// ResolveModuleClosure derives the module set one stage needs from what is
+// being run or built and what that transitively declares it consumes. Seeds are
+// the module names the stage starts from; each is resolved through the
+// workspace's pin set, and every module a loaded service declares a
+// stage-constraining dependency on joins the frontier.
+//
+// Only dependencies whose kind constrains the stage pull a module in. Building
+// a service needs its codegen inputs and not the endpoints it will later
+// consume; running it needs the reverse. Collapsing the two would make a stage
+// demand pins for modules it never touches — and a dependency of kind external
+// names a capability provided outside the workspace, so it constrains no stage
+// and pulls in nothing.
 //
 // A pinned module nothing reaches is not in the closure: the pin set is a
-// superset of any one run. A module a declaration reaches but the pin set does
-// not cover is an error naming the declaring service — that is the drift the
-// hand-maintained list used to hide until the run came up with no endpoints.
-//
-// Dependencies of kind external name a capability provided outside the
-// workspace, so they pull in no module.
-func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, seeds []string) (*ModuleClosure, error) {
+// superset of any one stage. A module a declaration reaches but the pin set
+// does not cover is an error naming the declaring service — that is the drift
+// the hand-maintained list used to hide until the run came up with no
+// endpoints.
+func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, stage Stage, seeds []string) (*ModuleClosure, error) {
 	w := wool.Get(ctx).In("Workspace::ResolveModuleClosure", wool.NameField(workspace.Name))
+	if err := stage.Validate(); err != nil {
+		return nil, w.Wrap(err)
+	}
 	closure := &ModuleClosure{}
 	seen := make(map[string]bool, len(seeds))
+	// An edge records that a service pulls a module in, so several dependencies
+	// from one service into one module are a single participation edge — the
+	// producing service is not part of the identity.
+	recorded := make(map[ModuleEdge]bool)
 	var frontier []moduleDemand
 	for _, seed := range seeds {
 		if seen[seed] {
@@ -116,7 +129,7 @@ func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, seeds []st
 		}
 		for _, svc := range services {
 			for _, dep := range svc.ServiceDependencies {
-				if dep.Kind == DependencyKindExternal {
+				if !dep.Kind.Participates(stage) {
 					continue
 				}
 				producer := dep.Module
@@ -126,7 +139,11 @@ func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, seeds []st
 				if producer == mod.Name {
 					continue
 				}
-				closure.Edges = append(closure.Edges, ModuleEdge{From: mod.Name, FromService: svc.Name, To: producer})
+				edge := ModuleEdge{From: mod.Name, FromService: svc.Name, To: producer}
+				if !recorded[edge] {
+					recorded[edge] = true
+					closure.Edges = append(closure.Edges, edge)
+				}
 				if seen[producer] {
 					continue
 				}
@@ -139,7 +156,7 @@ func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, seeds []st
 }
 
 // ValidateServiceDependencies applies the workspace's endpoint-visibility rules
-// to exactly the modules that take part in the run. It shares its
+// to exactly the modules that take part in the closure. It shares its
 // implementation with the workspace-wide pass, so the check a run performs and
 // the check validation performs cannot diverge — only their scope differs.
 func (closure *ModuleClosure) ValidateServiceDependencies(ctx context.Context) error {

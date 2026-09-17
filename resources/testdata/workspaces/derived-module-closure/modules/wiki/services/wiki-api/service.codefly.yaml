@@ -11,10 +11,17 @@ service-dependencies:
     module: saas
     endpoints:
       - name: rest
+  - name: sessions
+    module: saas
+    endpoints:
+      - name: grpc
   - name: documents
     module: documents
     endpoints:
       - name: grpc
+  - name: schemas
+    module: codegen
+    kind: build
   - name: billing
     module: stripe
     kind: external

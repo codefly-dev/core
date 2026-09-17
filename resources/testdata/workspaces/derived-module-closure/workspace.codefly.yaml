@@ -5,3 +5,4 @@ modules:
   - name: saas
   - name: documents
   - name: analytics
+  - name: codegen

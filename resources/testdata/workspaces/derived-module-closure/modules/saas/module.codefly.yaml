@@ -3,3 +3,4 @@ name: saas
 services:
     - name: auth-gateway
     - name: accounts
+    - name: sessions

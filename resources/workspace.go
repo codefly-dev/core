@@ -332,10 +332,8 @@ func (workspace *Workspace) referenceIdentifiesByCoordinate(ref *ModuleReference
 // LoadModuleFromName loads an module from a name
 func (workspace *Workspace) LoadModuleFromName(ctx context.Context, name string) (*Module, error) {
 	w := wool.Get(ctx).In("Workspace::LoadModuleFromName", wool.NameField(name))
-	for _, ref := range workspace.Modules {
-		if ReferenceMatch(ref.Name, name) {
-			return workspace.LoadModuleFromReference(ctx, ref)
-		}
+	if ref := workspace.moduleReference(name); ref != nil {
+		return workspace.LoadModuleFromReference(ctx, ref)
 	}
 	var present []string
 	for _, ref := range workspace.Modules {

@@ -1,0 +1,4 @@
+kind: module
+name: codegen
+services:
+    - name: schemas

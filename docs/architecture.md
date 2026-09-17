@@ -243,8 +243,13 @@ source, version, checkout location. It does not say which modules take part in a
 given run: that is derived by `Workspace.ResolveModuleClosure`, which starts from
 the modules being run and follows the dependencies services already declare.
 
+The closure is per-`Stage`, because a dependency only pulls a module in for the
+stages its kind constrains: building a service needs its codegen inputs and not
+the endpoints it will later consume, and running it needs the reverse. A
+`kind: external` dependency constrains no stage and so pulls in nothing.
+
 A pinned module nothing reaches is simply not in the closure, so the pin set is a
-superset of any one run. A module a declaration reaches but the pin set does not
+superset of any one stage. A module a declaration reaches but the pin set does not
 cover is an error naming the declaring service, rather than a run that comes up
 with no endpoints. `ModuleClosure.ValidateServiceDependencies` applies the
 workspace-wide visibility rules to exactly that set, sharing its implementation
