@@ -307,12 +307,9 @@ func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRe
 }
 
 func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
-	if req != nil && instance.Service != nil {
-		mappings, err := resources.ResolveDependencyNetworkMappings(instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+	if req != nil && instance.Service != nil && instance.Module != nil {
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
 		if err != nil {
-			return nil, err
-		}
-		if err := resources.ValidateConsumedMappingVisibility(instance.Module.Name, instance.Service.ServiceDependencies, mappings); err != nil {
 			return nil, err
 		}
 		filtered := proto.Clone(req).(*runtimev0.StartRequest)

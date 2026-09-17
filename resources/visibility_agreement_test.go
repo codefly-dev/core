@@ -51,7 +51,7 @@ func TestStaticAndRuntimeAgreeOnDeniedEdge(t *testing.T) {
 	require.Error(t, staticErr, "static pass must refuse a cross-module dependency on a private endpoint")
 
 	consumer := loadService(ctx, t, dir, "platform", "api")
-	runtimeErr := resources.ValidateConsumedMappingVisibility(
+	_, runtimeErr := resources.ResolveDependencyNetworkMappings(
 		"platform",
 		consumer.ServiceDependencies,
 		runtimeMappingsFor(ctx, t, dir, "saas", "accounts"),
@@ -71,9 +71,17 @@ func TestStaticAndRuntimeAgreeOnAllowedEdge(t *testing.T) {
 	require.NoError(t, workspace.ValidateServiceDependencies(ctx), "static pass must permit the edge")
 
 	consumer := loadService(ctx, t, dir, "platform", "api")
-	require.NoError(t, resources.ValidateConsumedMappingVisibility(
+	resolved, err := resources.ResolveDependencyNetworkMappings(
 		"platform",
 		consumer.ServiceDependencies,
 		runtimeMappingsFor(ctx, t, dir, "saas", "gateway"),
-	), "a run must permit the edge the static pass permitted")
+	)
+	require.NoError(t, err, "a run must permit the edge the static pass permitted")
+	// What resolves is what the consumer's SDK exposes, so the permitted set
+	// and the exposed set have to be the same two endpoints.
+	names := make([]string, 0, len(resolved))
+	for _, mapping := range resolved {
+		names = append(names, mapping.GetEndpoint().GetName())
+	}
+	require.ElementsMatch(t, []string{"public", "internal"}, names)
 }

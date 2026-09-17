@@ -152,7 +152,13 @@ func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, 
 	return nil, w.NewError("no network mapping for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }
 
-func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
+// The consumerModule is the module of the service these mappings are for. It
+// decides visibility per endpoint: what this returns is what gets injected as
+// the consumer's environment, and therefore what its SDK exposes, so the
+// permitted set and the exposed set are computed here together and cannot
+// drift. Every path that hands a consumer its dependencies' addresses — the
+// native run, deploy, and the SDK dependency session — resolves through here.
+func ResolveDependencyNetworkMappings(consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
 	endpoints := make([]*basev0.Endpoint, 0, len(mappings))
 	for _, mapping := range mappings {
 		if mapping == nil || mapping.Endpoint == nil {
@@ -175,7 +181,21 @@ func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mapping
 		if err != nil {
 			return nil, err
 		}
+		// Naming an endpoint the producer does not share is an error naming
+		// that endpoint, never a silent omission: the consumer's author asked
+		// for it, so dropping it would leave their SDK missing a declared
+		// accessor with nothing to explain why. A dependency that names none
+		// consumes "all", which can only mean all it is permitted — otherwise a
+		// producer adding one private endpoint breaks every consumer that did
+		// not enumerate, and changes their SDK surface from the outside.
 		for _, endpoint := range resolved {
+			err := ValidateEndpointVisibility(consumerModule, endpoint.Module, dependency.Name, endpoint.Name, endpoint.Visibility, endpoint.AllowModules)
+			if err != nil {
+				if len(dependency.Endpoints) == 0 {
+					continue
+				}
+				return nil, err
+			}
 			selected[EndpointDestination(endpoint)] = struct{}{}
 		}
 	}
@@ -186,49 +206,6 @@ func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mapping
 		}
 	}
 	return resolved, nil
-}
-
-// ValidateConsumedMappingVisibility fails closed when the consuming module is
-// not permitted to reach an endpoint it actually depends on. It is the runtime
-// counterpart of the static pass in validateModuleDependencyVisibility, and
-// lives here so the two cannot drift: every path that hands a consumer the
-// addresses of its dependencies goes through this package.
-//
-// It scopes to the declared dependencies so an unrelated sibling endpoint
-// surfaced by the graph never produces a false rejection, and it refuses a
-// mapping with no endpoint rather than dereferencing a nil.
-func ValidateConsumedMappingVisibility(consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) error {
-	for _, mapping := range mappings {
-		ep := mapping.GetEndpoint()
-		if ep == nil {
-			return fmt.Errorf("dependency network mapping is missing its endpoint")
-		}
-		if !dependenciesConsumeMapping(dependencies, ep) {
-			continue
-		}
-		if err := ValidateEndpointVisibility(consumerModule, ep.Module, ep.Service, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// dependenciesConsumeMapping reports whether any declared dependency consumes
-// the given producer endpoint. A dependency matches by producer service (and
-// module when both are known) and then by its endpoint selector.
-func dependenciesConsumeMapping(dependencies []*ServiceDependency, ep *basev0.Endpoint) bool {
-	for _, dep := range dependencies {
-		if dep.Name != ep.Service {
-			continue
-		}
-		if dep.Module != "" && ep.Module != "" && dep.Module != ep.Module {
-			continue
-		}
-		if dep.ConsumesEndpoint(ep.Name, ep.Api) {
-			return true
-		}
-	}
-	return false
 }
 
 func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
