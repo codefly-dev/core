@@ -6,11 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/require"
 )
@@ -126,7 +126,7 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 		_ = json.NewEncoder(os.Stdout).Encode(config.Labels)
 		os.Exit(0)
 	}
-	t.Setenv(ContainerRecoveryScopeEnvironment, "")
+	t.Setenv(recoveryscope.EnvironmentVariable, "")
 	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "agent")
 	require.NoError(t, err)
 	require.NoError(t, SetContainerRecoveryScope(scope))
@@ -135,35 +135,22 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, scope.id, config.Labels[LabelCodeflyRecoveryScope])
 	require.Equal(t, scope.namespace, config.Labels[LabelCodeflyRecoveryNamespace])
-	pid := strconv.Itoa(os.Getpid())
-	tagged := func(digests ...string) string {
-		return pid + ":" + containerRecoveryMarkerVersion + ":" + strings.Join(digests, ":")
-	}
+	// Every marker layout is exercised against the parser that owns it, in
+	// runners/recoveryscope. What only this boundary can show is that a refused
+	// marker stops container configuration outright instead of quietly
+	// labelling a container with ownership no sweep will match.
 	for _, tc := range []struct {
 		name, marker, want, namespace string
 		wantError                     bool
 	}{
-		{"direct child", os.Getenv(ContainerRecoveryScopeEnvironment), scope.id, scope.namespace, false},
+		{"direct child", os.Getenv(recoveryscope.EnvironmentVariable), scope.id, scope.namespace, false},
 		{"legacy", "", "", "", false},
-		{"stale parent", "999999999:" + containerRecoveryMarkerVersion + ":" + scope.id + ":" + scope.namespace, "", "", true},
-		{"malformed identity", tagged("bad", scope.namespace), "", "", true},
-		// A revision older than the layout tag projects the exact scope alone. It
-		// stays labeled, but never delegates cross-scope recovery.
-		{"untagged exact scope", pid + ":" + scope.id, scope.id, "", false},
-		// A revision older than the tag also wrote pid:scope:group here. Reading
-		// that group as a namespace stamped the container with ownership no sweep
-		// could ever match, leaking it permanently — refuse instead of guessing.
-		{"untagged trailing field", pid + ":" + scope.id + ":" + strings.Repeat("d", 64), "", "", true},
-		{"scope and namespace", tagged(scope.id, scope.namespace), scope.id, scope.namespace, false},
-		// A host with no durable identity projects an empty namespace field.
-		{"scope without namespace", tagged(scope.id, ""), scope.id, "", false},
-		{"missing namespace field", tagged(scope.id), "", "", true},
-		{"malformed namespace", tagged(scope.id, "bad"), "", "", true},
-		{"trailing field", tagged(scope.id, scope.namespace, strings.Repeat("e", 64)), "", "", true},
+		{"host without durable identity", recoveryscope.Marker(os.Getpid(), scope.id, ""), scope.id, "", false},
+		{"stale parent", recoveryscope.Marker(999999999, scope.id, scope.namespace), "", "", true},
 		{"malformed marker", "bad", "", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(ContainerRecoveryScopeEnvironment, tc.marker)
+			t.Setenv(recoveryscope.EnvironmentVariable, tc.marker)
 			cmd := exec.Command(os.Args[0], "-test.run=^TestContainerRecoveryScopeAgentProcess$")
 			cmd.Env = append(os.Environ(), "RECOVERY_SCOPE_AGENT_TEST=1")
 			output, err := cmd.Output()
@@ -179,18 +166,6 @@ func TestContainerRecoveryScopeAgentProcess(t *testing.T) {
 			require.Equal(t, tc.namespace, labels[LabelCodeflyRecoveryNamespace])
 		})
 	}
-	t.Run("zero owner cannot claim namespace init", func(t *testing.T) {
-		t.Setenv(ContainerRecoveryScopeEnvironment, tagged(scope.id, scope.namespace))
-		require.NotEmpty(t, InheritedContainerRecoveryScope())
-		t.Setenv(ContainerRecoveryScopeEnvironment, "0:"+containerRecoveryMarkerVersion+":"+scope.id+":"+scope.namespace)
-		require.Empty(t, InheritedContainerRecoveryScope())
-	})
-	t.Run("acknowledgement echoes an empty namespace", func(t *testing.T) {
-		// A compatible agent on a host with no durable identity must not look
-		// like an agent that failed to understand the marker at all.
-		t.Setenv(ContainerRecoveryScopeEnvironment, tagged(scope.id, ""))
-		require.Equal(t, scope.id+":", InheritedContainerRecoveryScope())
-	})
 }
 
 func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
@@ -210,14 +185,14 @@ func TestContainerRecoveryScopeSurvivesParentExit(t *testing.T) {
 	}
 	if role == "agent" {
 		require.NoError(t, os.WriteFile(ready, nil, 0600))
-		require.Eventually(t, func() bool { return os.Getppid() != containerRecoveryParentPID }, 5*time.Second, time.Millisecond)
+		require.Eventually(t, func() bool { return os.Getppid() != recoveryscope.LaunchingParentPID() }, 5*time.Second, time.Millisecond)
 		env := &DockerEnvironment{image: resources.NewDockerImage("alpine:latest")}
 		config, _, err := env.desiredContainerConfigs(t.Context())
 		require.NoError(t, err)
 		require.NoError(t, json.NewEncoder(os.Stdout).Encode(config.Labels))
 		os.Exit(0)
 	}
-	t.Setenv(ContainerRecoveryScopeEnvironment, "")
+	t.Setenv(recoveryscope.EnvironmentVariable, "")
 	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "crash")
 	require.NoError(t, err)
 	require.NoError(t, SetContainerRecoveryScope(scope))

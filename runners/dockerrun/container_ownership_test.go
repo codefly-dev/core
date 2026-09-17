@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +40,7 @@ func TestContainerOwnershipGuardsReuseReplacementAndShutdown(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-			t.Setenv(ContainerRecoveryScopeEnvironment, "")
+			t.Setenv(recoveryscope.EnvironmentVariable, "")
 			if tc.first.id != "" {
 				require.NoError(t, SetContainerRecoveryScope(tc.first))
 			}
@@ -56,7 +57,7 @@ func TestContainerOwnershipGuardsReuseReplacementAndShutdown(t *testing.T) {
 				return err == nil
 			}, 5*time.Second, 10*time.Millisecond)
 
-			t.Setenv(ContainerRecoveryScopeEnvironment, "")
+			t.Setenv(recoveryscope.EnvironmentVariable, "")
 			if tc.second.id != "" {
 				require.NoError(t, SetContainerRecoveryScope(tc.second))
 			}

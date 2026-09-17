@@ -7,11 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	"github.com/codefly-dev/core/runners/dockerrun"
+	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,18 +23,16 @@ func TestAgentAcknowledgesInheritedContainerRecoveryOverGRPC(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "recoveryagent")
 	output, err := exec.Command("go", "build", "-o", binary, "./testdata/recoveryagent").CombinedOutput()
 	require.NoError(t, err, "%s", output)
-	t.Setenv(dockerrun.ContainerRecoveryScopeEnvironment, "")
-	scope, err := dockerrun.NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "test")
-	require.NoError(t, err)
-	require.NoError(t, dockerrun.SetContainerRecoveryScope(scope))
+	scope := recoveryscope.Marker(os.Getpid(), strings.Repeat("a", 64), strings.Repeat("b", 64))
+	t.Setenv(recoveryscope.EnvironmentVariable, scope)
 	for _, valid := range []bool{true, false} {
 		t.Run(fmt.Sprint(valid), func(t *testing.T) {
-			marker := os.Getenv(dockerrun.ContainerRecoveryScopeEnvironment)
+			marker := scope
 			if !valid {
 				marker = "0:invalid"
 			}
 			command := exec.Command(binary)
-			command.Env = append(os.Environ(), "CODEFLY_AGENT_TOKEN=recovery-test", "CODEFLY_AGENT_UDS_PATH=", dockerrun.ContainerRecoveryScopeEnvironment+"="+marker)
+			command.Env = append(os.Environ(), "CODEFLY_AGENT_TOKEN=recovery-test", "CODEFLY_AGENT_UDS_PATH=", recoveryscope.EnvironmentVariable+"="+marker)
 			stdout, err := command.StdoutPipe()
 			require.NoError(t, err)
 			var stderr bytes.Buffer
@@ -51,9 +50,9 @@ func TestAgentAcknowledgesInheritedContainerRecoveryOverGRPC(t *testing.T) {
 			_, err = agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
 			require.NoError(t, err)
 			if valid {
-				require.Equal(t, []string{dockerrun.InheritedContainerRecoveryScope()}, headers.Get(dockerrun.ContainerRecoveryScopeHeader))
+				require.Equal(t, []string{recoveryscope.Acknowledgement()}, headers.Get(recoveryscope.Header))
 			} else {
-				require.Empty(t, headers.Get(dockerrun.ContainerRecoveryScopeHeader))
+				require.Empty(t, headers.Get(recoveryscope.Header))
 			}
 		})
 	}
