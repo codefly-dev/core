@@ -10,7 +10,7 @@ import (
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/failures"
 	runners "github.com/codefly-dev/core/runners/base"
-	"github.com/codefly-dev/core/runners/dockerrun"
+	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/codefly-dev/core/wool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -536,7 +536,7 @@ func UpdateAgent(ctx context.Context, service *resources.Service) (*UpdateInform
 // from one that acknowledged none, which is the very condition this header
 // exists to detect before Docker provisioning.
 func acknowledgedContainerRecoveryScope(headers metadata.MD) (string, error) {
-	values := headers.Get(dockerrun.ContainerRecoveryScopeHeader)
+	values := headers.Get(recoveryscope.Header)
 	if len(values) > 1 {
 		return "", fmt.Errorf("agent acknowledged %d container recovery identities: %v", len(values), values)
 	}

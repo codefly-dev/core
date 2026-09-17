@@ -317,6 +317,12 @@ environment retains its scope from first use so another flow changing the proces
 marker cannot redirect its cleanup. Cross-scope recovery authorizes orphan
 sweeping only; it never authorizes adopting another invocation's container.
 
+The marker and that header are owned by `runners/recoveryscope`, which holds no
+Docker client: an agent validates and echoes what it inherited but never calls a
+daemon, so reading the marker through `runners/dockerrun` would put the Docker
+client in the build graph of every SDK consumer. `runners/dockerrun` builds
+scopes and projects them; `runners/recoveryscope` parses and acknowledges them.
+
 The agent's `GetAgentInformation` response includes the
 `codefly-container-recovery-scope` gRPC header with the validated inherited scope.
 The CLI must require this acknowledgement before Docker provisioning. The

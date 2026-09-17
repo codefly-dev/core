@@ -10,13 +10,14 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/require"
 )
 
 func TestContainerRecoveryRejectsAdoptionBeforeReuseOrReplacement(t *testing.T) {
 	backend := newBackend(t)
-	t.Setenv(ContainerRecoveryScopeEnvironment, "")
+	t.Setenv(recoveryscope.EnvironmentVariable, "")
 	scope, err := NewContainerRecoveryScope(t.TempDir(), t.TempDir(), "reuse")
 	require.NoError(t, err)
 	require.NoError(t, SetContainerRecoveryScope(scope))
@@ -81,7 +82,7 @@ func TestContainerRecoveryRejectsAdoptionBeforeReuseOrReplacement(t *testing.T) 
 				// an unscoped caller is a fresh environment that never inherited
 				// a marker — not this one with the ambient marker pulled out
 				// from under its already-resolved identity.
-				t.Setenv(ContainerRecoveryScopeEnvironment, "")
+				t.Setenv(recoveryscope.EnvironmentVariable, "")
 				reuser = newEnvironment()
 			}
 			err = reuser.GetContainer(t.Context())
