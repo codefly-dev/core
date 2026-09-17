@@ -1,0 +1,57 @@
+syntax = "proto3";
+package codefly.runnable.v0;
+
+import "codefly/base/v0/work_context.proto";
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/duration.proto";
+
+/*
+A unary, idempotent method an owner service already publishes becomes a
+Runnable by derivation, not by authoring: the method option below says which
+methods are operations and under what execution policy, and the message
+descriptors say what the contract is. Nothing here is a second spelling of the
+contract — a package built from a method is
+codefly.base.v0.RunnablePackage like any other.
+
+The option's bounds are enforced by the runnable Go package, not by
+protovalidate: these values are read off a descriptor at generation time, never
+off a wire message, so a constraint here would describe a validation nobody
+runs.
+*/
+
+// Operation marks one method as a Runnable operation and declares how it is
+// executed. Policy and authority are installed with the binding, so they are
+// deliberately not part of the package the method derives: the package is the
+// contract, and two installations of it may run under different policies.
+message Operation {
+  // attempt_timeout bounds one attempt.
+  google.protobuf.Duration attempt_timeout = 1;
+  // total_timeout bounds every attempt of one invocation together, and is the
+  // derived package's execution timeout.
+  google.protobuf.Duration total_timeout = 2;
+  // max_attempts is how many times the operation may be attempted.
+  uint32 max_attempts = 3;
+  // backoff is the delay before the second attempt.
+  google.protobuf.Duration backoff = 4;
+  // retryable_codes are the gRPC status code names an attempt may be retried
+  // on, such as "UNAVAILABLE". A code outside that set ends the invocation.
+  repeated string retryable_codes = 5;
+  // audience is the exact trust boundary the authority is minted for.
+  string audience = 6;
+  // invoke_scopes are the scopes the runtime binds for the call itself.
+  repeated codefly.base.v0.WorkScopeV1 invoke_scopes = 7;
+  // lookup_scopes are the scopes the runtime binds to read an effect receipt.
+  // They must be a read-only subset of invoke_scopes: recovering an outcome
+  // never carries more authority than producing it did.
+  repeated codefly.base.v0.WorkScopeV1 lookup_scopes = 8;
+  // lookup_method is a paired method on the same service that takes the effect
+  // id and answers with the receipt. Empty leaves the answer to the SDK's
+  // generic receipt lookup.
+  string lookup_method = 9;
+}
+
+extend google.protobuf.MethodOptions {
+  // operation marks the method as a Runnable operation; its presence is the
+  // marking, and its value is the execution policy.
+  Operation operation = 51003;
+}

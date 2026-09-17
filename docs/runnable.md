@@ -315,6 +315,66 @@ differs, so mapping and instance order cannot change the binding digest.
 These checks validate resolved coordinates; installers and launchers still
 own facility compatibility, reachability and the declared readiness predicates.
 
+## Operations derived from a service method
+
+A unary, idempotent method an owner service already publishes becomes a
+Runnable by derivation, not by authoring. The owner marks the method with
+`codefly.runnable.v0.operation` (`proto/codefly/runnable/v0/options.proto`, a
+`google.protobuf.MethodOptions` extension) and the contract follows from the
+method's own request and response descriptors. Nothing is written twice, so the
+published message and the bounded contract cannot drift apart.
+
+`runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")`
+returns the `RunnablePackage` and, beside it, the `OperationSpec`. The package
+is the contract: facility `SERVICE`, protocol `codefly.runnable.service/v1`,
+`recovery: receipt`, `cancellation: none`, the option's `total_timeout` as its
+execution timeout, the default inline payload bounds, one
+`RunnableServiceOperation` naming the owner's module, service, endpoint and
+`/pkg.Service/Method` with `ADAPTATION_BOUNDED_JSON_V1`, and the owner's own
+`codefly:service` agent — the exception a `SERVICE`-only release already makes.
+It is finished by `PreparePackage`, so its digest is the canonical one.
+
+The option's execution policy and its Work Context authority are *not* in the
+package. Policy is installed with the binding, so two installations of one
+contract may differ in both, and a digest that moved when an attempt budget did
+would make re-registering an unchanged contract read as a conflict. Core
+validates them and hands them back: the method must be unary (a streaming
+method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
+least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
+`retryable_codes`, each a `google.rpc.Code` name and named once — the bounds the
+orchestration runtime enforces at installation, restated here so a descriptor
+that generates is a descriptor that installs. `lookup_scopes` must be a subset
+of `invoke_scopes` under the Work Context attenuation rule and read-only
+(exactly `read`): recovering an outcome never carries more authority than
+producing it did.
+
+### The projection
+
+`runnable.ProjectMessage(md)` is the one implementation of message descriptor →
+`RunnableSchema`:
+
+| Protobuf | Bounded profile | Note |
+|---|---|---|
+| `string` | `STRING` | |
+| `int32`, `sint32`, `sfixed32`, `int64`, `sint64`, `sfixed64`, `uint32`, `fixed32` | `INTEGER` | int64 range |
+| `uint64`, `fixed64` | **rejected** | exceeds int64 |
+| `bool` | `BOOLEAN` | |
+| message | `OBJECT` with `fields` | recursive, depth ≤ 32, recursion (a message reaching itself) rejected |
+| `repeated T` | `ARRAY` with `items` | |
+| proto3 `optional` / message-typed field | `optional: true` | absent key |
+| `enum`, `map<>`, `oneof`, `bytes`, `float`, `double`, `google.protobuf.*` well-known types, `Any` | **rejected** | named by full field path in the error; never coerced |
+
+Rejection is a generation failure, not a runtime one: an out-of-profile payload
+is fixed once in the `.proto` and stays fixed, whereas coercing one would put a
+representation on the wire that neither the owner nor the runtime agreed to. An
+array's items carry neither the field's name nor its optionality — an element is
+present or the list is shorter.
+
+Core owns the option, the projection and the builder. The generator that walks
+a service and writes the results out is the CLI's (`codefly generate
+runnables`); the generic `SERVICE` invoker and receipt lookup belong to the
+orchestration runtime and the SDK.
+
 ## Agent protocol
 
 A runnable agent is an ordinary codefly agent of a uniform kind
