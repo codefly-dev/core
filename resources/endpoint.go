@@ -58,6 +58,21 @@ type Endpoint struct {
 	// Health declares what "healthy" means for this endpoint. Absence keeps the
 	// legacy transport-only semantics.
 	Health *Health `yaml:"health,omitempty"`
+
+	// authoredVisibility retains what the YAML declared when a module's
+	// interface decides what the endpoint exports instead, so a save writes the
+	// author's value back rather than the exported one.
+	authoredVisibility *string
+}
+
+// exportAs sets the visibility the endpoint carries across module boundaries,
+// keeping the authored value for save.
+func (endpoint *Endpoint) exportAs(visibility Visibility) {
+	if endpoint.authoredVisibility == nil {
+		authored := endpoint.Visibility
+		endpoint.authoredVisibility = &authored
+	}
+	endpoint.Visibility = visibility
 }
 
 func validateEndpointNames(endpoints []*Endpoint) error {
@@ -144,6 +159,9 @@ func IsExternalEndpoint(e *basev0.Endpoint) bool {
 }
 
 func (endpoint *Endpoint) preSave() {
+	if endpoint.authoredVisibility != nil {
+		endpoint.Visibility = *endpoint.authoredVisibility
+	}
 	if endpoint.Visibility == VisibilityPrivate {
 		endpoint.Visibility = ""
 	}

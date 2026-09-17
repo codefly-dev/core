@@ -23,9 +23,20 @@ const (
 
 // InterfaceEndpoint declares a single endpoint that the module exposes to other modules.
 type InterfaceEndpoint struct {
-	Service    string `yaml:"service"`
-	Endpoint   string `yaml:"endpoint"`
-	Visibility string `yaml:"visibility,omitempty"` // "module" or "public"; defaults to "module"
+	Service  string `yaml:"service"`
+	Endpoint string `yaml:"endpoint"`
+	// Visibility is what this endpoint carries across module boundaries:
+	// "internal", "module" or "public", defaulting to "module".
+	Visibility string `yaml:"visibility,omitempty"`
+}
+
+// exportedVisibility is the visibility this entry grants across module
+// boundaries. An entry that names no visibility exports at "module".
+func (ie *InterfaceEndpoint) exportedVisibility() Visibility {
+	if ie.Visibility == "" {
+		return VisibilityModule
+	}
+	return ie.Visibility
 }
 
 // ModuleInterface declares the contract of a module: what it exposes to the outside world.
@@ -513,7 +524,33 @@ func (mod *Module) LoadServiceFromReference(ctx context.Context, ref *ServiceRef
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
+	mod.applyInterface(service)
 	return service, nil
+}
+
+// applyInterface stamps each endpoint with the visibility the module's
+// interface exports it at. A declared interface is the module's export
+// boundary: an endpoint it lists crosses module lines at the interface's
+// visibility, and an endpoint it omits does not cross them at all, however the
+// service itself declares it. Reachability within the module is unaffected —
+// visibility never restricts that. This is the single place the boundary is
+// applied, so every reader of an endpoint's visibility observes it: the static
+// passes, the module graph, the run and deploy resolution, and the protos a
+// module publishes.
+func (mod *Module) applyInterface(service *Service) {
+	if !mod.HasInterface() {
+		return
+	}
+	for _, endpoint := range service.Endpoints {
+		exported := VisibilityPrivate
+		for _, ie := range mod.Interface.Endpoints {
+			if ReferenceMatch(ie.Service, service.Name) && ie.Endpoint == endpoint.Name {
+				exported = ie.exportedVisibility()
+				break
+			}
+		}
+		endpoint.exportAs(exported)
+	}
 }
 
 // LoadServiceFromName loads a service from a module
@@ -640,8 +677,11 @@ func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.E
 	return mod.ExposedEndpoints(ctx)
 }
 
-// ValidateInterface checks that all interface endpoints reference valid services and endpoints
-// with appropriate visibility (must be "module" or "public", not "private").
+// ValidateInterface checks that all interface endpoints reference valid services
+// and endpoints, and that each entry names a visibility an export can carry. The
+// endpoint's own visibility is not consulted: the interface entry is what
+// exports it, so a service that keeps an endpoint private to itself and a module
+// that exports it are not in disagreement.
 func (mod *Module) ValidateInterface(ctx context.Context) error {
 	w := wool.Get(ctx).In("Module::ValidateInterface", wool.ThisField(mod))
 	if mod.Interface == nil || len(mod.Interface.Endpoints) == 0 {
@@ -667,15 +707,11 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 			return w.Wrapf(err, "interface references unknown service %q", ie.Service)
 		}
 
-		// Check endpoint exists and has compatible visibility
+		// Check endpoint exists
 		found := false
 		for _, ep := range service.Endpoints {
 			if ep.Name == ie.Endpoint {
 				found = true
-				if ep.Visibility == VisibilityPrivate || ep.Visibility == "" {
-					return w.NewError("interface exposes endpoint %s/%s but service marks it as private",
-						ie.Service, ie.Endpoint)
-				}
 				break
 			}
 		}

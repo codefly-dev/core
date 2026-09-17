@@ -1,0 +1,20 @@
+kind: service
+name: gateway
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+endpoints:
+  - name: public
+    api: rest
+    visibility: public
+  - name: restricted
+    api: grpc
+    visibility: private
+    allow-modules:
+      - platform
+  - name: omitted
+    api: http
+    visibility: public
