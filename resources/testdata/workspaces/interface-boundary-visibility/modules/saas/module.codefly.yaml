@@ -1,0 +1,20 @@
+kind: module
+name: saas
+services:
+    - name: accounts
+    - name: gateway
+    - name: vendor
+interface:
+    endpoints:
+        - service: accounts
+          endpoint: grpc
+          visibility: module
+        - service: gateway
+          endpoint: public
+          visibility: public
+        - service: gateway
+          endpoint: restricted
+          visibility: internal
+        - service: vendor
+          endpoint: listed
+          visibility: module

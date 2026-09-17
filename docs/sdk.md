@@ -8,6 +8,16 @@ agent management or container engines into its caller. The original root
 implementation, including its shared environment ownership registry. Root
 `sdk.New` / `Env` retains deprecated direct-agent management.
 
+**No container engine, from either entry point.** Neither `sdk` nor `agents`
+reaches a container runtime client. The CLI owns every daemon call; a consumer
+links the SDK to boot dependencies and gets no such client in its build graph.
+This is a dependency-surface promise, not only a layering preference — a client
+in the graph lands in the consumer's `go.mod` together with its advisories, and
+an advisory whose newest published release carries no fix leaves that consumer
+with a permanently red `govulncheck` and no version to bump to.
+`TestSDKDoesNotLinkAContainerRuntimeClient` fails in core at the change that
+would reintroduce the edge.
+
 
 The SDK provides language-agnostic dependency management for development and testing. It starts real infrastructure via codefly agents and injects connection strings as environment variables.
 
@@ -247,6 +257,21 @@ env, _ := sdk.WithDependencies(ctx, sdk.WithSharedControlChannel())
 That restores the pre-isolation behaviour — a workspace-hashed control port,
 shared by every invocation of that workspace name, with no proof that the
 server answering it is the child that was started.
+
+**Which CLI honors the socket.** The contract shipped in core **v0.3.31**, so a
+CLI honors it exactly when the core it pins is v0.3.31 or newer — read that from
+its `go.mod` rather than from its own version number, which tracks the CLI's
+release line and not this contract. CLI **v0.1.155** pins core v0.3.35 and is the
+version this was verified against; CLI v0.1.145 pins core v0.3.20 and predates
+the contract, which is what the missing-socket error reports.
+
+A separate gate can block moving to such a CLI: it refuses to provision when a
+service agent does not acknowledge the run's container recovery scope. That
+acknowledgement is the `v2` marker layout, unchanged since core v0.3.29, so an
+agent built against any core from v0.3.29 onward satisfies a newer CLI — an
+agent published before it does not, and the fix is a rebuilt agent, never a
+downgraded CLI. Both halves have to move together: pinning an old CLI to satisfy
+an old agent pins away the socket contract with it.
 
 ### Reusable sessions
 

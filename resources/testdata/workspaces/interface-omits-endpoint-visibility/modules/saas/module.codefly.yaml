@@ -1,0 +1,9 @@
+kind: module
+name: saas
+services:
+    - name: gateway
+interface:
+    endpoints:
+        - service: gateway
+          endpoint: public
+          visibility: public

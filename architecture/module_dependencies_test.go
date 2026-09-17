@@ -12,21 +12,31 @@ import (
 func TestLoadPublicModuleGraphUsesInterfaceWhenDeclared(t *testing.T) {
 	ctx := context.Background()
 
+	// Counted on the graph of the module under test, by name: these workspaces
+	// also carry modules that exist only to consume it, and a bare count would
+	// silently depend on those exporting nothing.
 	countTypes := func(dir string) (int, int) {
 		workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
 		require.NoError(t, err)
 		gs, err := architecture.LoadPublicModuleGraph(ctx, workspace)
 		require.NoError(t, err)
-		require.Len(t, gs, 1)
 		var services, endpoints int
-		for _, node := range gs[0].Nodes() {
-			switch node.Type {
-			case resources.SERVICE:
-				services++
-			case resources.ENDPOINT:
-				endpoints++
+		var found bool
+		for _, g := range gs {
+			if g.Name != "api" {
+				continue
+			}
+			found = true
+			for _, node := range g.Nodes() {
+				switch node.Type {
+				case resources.SERVICE:
+					services++
+				case resources.ENDPOINT:
+					endpoints++
+				}
 			}
 		}
+		require.Truef(t, found, "no module graph for %q in %s", "api", dir)
 		return services, endpoints
 	}
 

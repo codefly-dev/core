@@ -1,5 +1,5 @@
 name: codefly-platform
 layout: modules
 modules:
-    - name: api
-    - name: consumer
+  - name: saas
+  - name: platform

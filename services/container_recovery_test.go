@@ -3,13 +3,13 @@ package services
 import (
 	"testing"
 
-	"github.com/codefly-dev/core/runners/dockerrun"
+	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 )
 
 func TestAcknowledgedContainerRecoveryScope(t *testing.T) {
-	header := dockerrun.ContainerRecoveryScopeHeader
+	header := recoveryscope.Header
 	t.Run("absent", func(t *testing.T) {
 		scope, err := acknowledgedContainerRecoveryScope(metadata.MD{})
 		require.NoError(t, err)

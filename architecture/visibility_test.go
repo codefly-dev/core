@@ -65,3 +65,20 @@ func TestVerifyVisibilityDeniedForBuildDependency(t *testing.T) {
 	require.Contains(t, err.Error(), "web/builder")
 	require.Contains(t, err.Error(), "vault/secrets")
 }
+
+// A module that declares an interface exports only what it lists. api/two is
+// public on the service and absent from the interface, so the graph excludes it
+// and verify has to refuse the module that consumes it — otherwise the export
+// boundary narrows the graph while permitting the edge anyway.
+func TestVerifyVisibilityDeniedForEndpointOutsideInterface(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/interface-declared")
+	require.NoError(t, err)
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+
+	err = dep.VerifyVisibility(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "api/two")
+}

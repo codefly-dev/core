@@ -26,6 +26,7 @@ import (
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/gortk"
 	"github.com/google/uuid"
@@ -635,7 +636,8 @@ func EphemeralContainers() bool {
 		return true
 	}
 	marker := os.Getenv(EphemeralContainersEnvironment)
-	return containerRecoveryParentPID > 0 && marker == strconv.Itoa(containerRecoveryParentPID)
+	parent := recoveryscope.LaunchingParentPID()
+	return parent > 0 && marker == strconv.Itoa(parent)
 }
 
 func (docker *DockerEnvironment) createHostConfig(_ context.Context) *container.HostConfig {
