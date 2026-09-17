@@ -312,6 +312,9 @@ func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.Start
 		if err != nil {
 			return nil, err
 		}
+		if err := resources.ValidateConsumedMappingVisibility(instance.Module.Name, instance.Service.ServiceDependencies, mappings); err != nil {
+			return nil, err
+		}
 		filtered := proto.Clone(req).(*runtimev0.StartRequest)
 		filtered.DependenciesNetworkMappings = mappings
 		req = filtered

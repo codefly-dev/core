@@ -1,4 +1,4 @@
-package dependencies
+package resources_test
 
 import (
 	"strings"
@@ -32,10 +32,10 @@ func TestValidateConsumedMappingVisibilityEnforcesConsumedEndpoint(t *testing.T)
 	deps := secretsDep("http")
 	mappings := []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityInternal, "platform")}
 
-	if err := validateConsumedMappingVisibility("web", deps, mappings); err == nil {
+	if err := resources.ValidateConsumedMappingVisibility("web", deps, mappings); err == nil {
 		t.Fatal("consuming an internal endpoint that does not permit the module must fail")
 	}
-	if err := validateConsumedMappingVisibility("platform", deps, mappings); err != nil {
+	if err := resources.ValidateConsumedMappingVisibility("platform", deps, mappings); err != nil {
 		t.Fatalf("allow-listed module must be permitted: %v", err)
 	}
 }
@@ -50,7 +50,7 @@ func TestValidateConsumedMappingVisibilityIgnoresUnconsumedSiblingEndpoint(t *te
 		mappingOf("admin", resources.VisibilityPrivate), // sibling the consumer never asked for
 	}
 
-	if err := validateConsumedMappingVisibility("web", deps, mappings); err != nil {
+	if err := resources.ValidateConsumedMappingVisibility("web", deps, mappings); err != nil {
 		t.Fatalf("an unconsumed sibling endpoint must not fail the run: %v", err)
 	}
 }
@@ -61,7 +61,7 @@ func TestValidateConsumedMappingVisibilityUnnamedDependencyConsumesAll(t *testin
 	deps := secretsDep() // no endpoint names -> consumes them all
 	mappings := []*basev0.NetworkMapping{mappingOf("admin", resources.VisibilityPrivate)}
 
-	if err := validateConsumedMappingVisibility("web", deps, mappings); err == nil {
+	if err := resources.ValidateConsumedMappingVisibility("web", deps, mappings); err == nil {
 		t.Fatal("an unnamed dependency consumes every endpoint; a private cross-module one must fail")
 	}
 }
@@ -70,7 +70,7 @@ func TestValidateConsumedMappingVisibilityUnnamedDependencyConsumesAll(t *testin
 // a nil pointer and panicking the runtime.
 func TestValidateConsumedMappingVisibilityRejectsNilEndpoint(t *testing.T) {
 	deps := secretsDep("http")
-	err := validateConsumedMappingVisibility("platform", deps, []*basev0.NetworkMapping{{Endpoint: nil}})
+	err := resources.ValidateConsumedMappingVisibility("platform", deps, []*basev0.NetworkMapping{{Endpoint: nil}})
 	if err == nil || !strings.Contains(err.Error(), "missing its endpoint") {
 		t.Fatalf("nil endpoint must be rejected, got %v", err)
 	}

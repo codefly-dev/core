@@ -188,6 +188,49 @@ func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mapping
 	return resolved, nil
 }
 
+// ValidateConsumedMappingVisibility fails closed when the consuming module is
+// not permitted to reach an endpoint it actually depends on. It is the runtime
+// counterpart of the static pass in validateModuleDependencyVisibility, and
+// lives here so the two cannot drift: every path that hands a consumer the
+// addresses of its dependencies goes through this package.
+//
+// It scopes to the declared dependencies so an unrelated sibling endpoint
+// surfaced by the graph never produces a false rejection, and it refuses a
+// mapping with no endpoint rather than dereferencing a nil.
+func ValidateConsumedMappingVisibility(consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) error {
+	for _, mapping := range mappings {
+		ep := mapping.GetEndpoint()
+		if ep == nil {
+			return fmt.Errorf("dependency network mapping is missing its endpoint")
+		}
+		if !dependenciesConsumeMapping(dependencies, ep) {
+			continue
+		}
+		if err := ValidateEndpointVisibility(consumerModule, ep.Module, ep.Service, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dependenciesConsumeMapping reports whether any declared dependency consumes
+// the given producer endpoint. A dependency matches by producer service (and
+// module when both are known) and then by its endpoint selector.
+func dependenciesConsumeMapping(dependencies []*ServiceDependency, ep *basev0.Endpoint) bool {
+	for _, dep := range dependencies {
+		if dep.Name != ep.Service {
+			continue
+		}
+		if dep.Module != "" && ep.Module != "" && dep.Module != ep.Module {
+			continue
+		}
+		if dep.ConsumesEndpoint(ep.Name, ep.Api) {
+			return true
+		}
+	}
+	return false
+}
+
 func MakeManyNetworkMappingSummary(mappings []*basev0.NetworkMapping) string {
 	var results []string
 	for _, mapping := range mappings {

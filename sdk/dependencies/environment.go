@@ -524,7 +524,7 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 	// and rejecting a run because of an endpoint the consumer never
 	// references would be a false positive — the static workspace pass
 	// (Workspace.ValidateServiceDependencies) scopes the same way.
-	if err := validateConsumedMappingVisibility(mod.Name, svc.ServiceDependencies, dependencyMappings); err != nil {
+	if err := resources.ValidateConsumedMappingVisibility(mod.Name, svc.ServiceDependencies, dependencyMappings); err != nil {
 		return nil, w.Wrap(err)
 	}
 	for _, mapping := range dependencyMappings {

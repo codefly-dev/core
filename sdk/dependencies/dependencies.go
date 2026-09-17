@@ -678,45 +678,6 @@ func hasInvocationConfigurationOverrides(opt *Option) bool {
 	return len(opt.WorkspaceConfigurations) > 0 || len(opt.ServiceConfigurations) > 0
 }
 
-// validateConsumedMappingVisibility fails closed when the consuming module is
-// not permitted to reach an endpoint it actually depends on. It scopes to the
-// declared dependencies so an unrelated sibling endpoint surfaced by the graph
-// never produces a false rejection, and it refuses a mapping with no endpoint
-// rather than dereferencing a nil.
-func validateConsumedMappingVisibility(consumerModule string, deps []*resources.ServiceDependency, mappings []*basev0.NetworkMapping) error {
-	for _, mapping := range mappings {
-		ep := mapping.GetEndpoint()
-		if ep == nil {
-			return fmt.Errorf("dependency network mapping is missing its endpoint")
-		}
-		if !dependenciesConsumeMapping(deps, ep) {
-			continue
-		}
-		if err := resources.ValidateEndpointVisibility(consumerModule, ep.Module, ep.Service, ep.Name, ep.Visibility, ep.AllowModules); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// dependenciesConsumeMapping reports whether any declared dependency consumes
-// the given producer endpoint. A dependency matches by producer service (and
-// module when both are known) and then by its endpoint selector.
-func dependenciesConsumeMapping(deps []*resources.ServiceDependency, ep *basev0.Endpoint) bool {
-	for _, dep := range deps {
-		if dep.Name != ep.Service {
-			continue
-		}
-		if dep.Module != "" && ep.Module != "" && dep.Module != ep.Module {
-			continue
-		}
-		if dep.ConsumesEndpoint(ep.Name, ep.Api) {
-			return true
-		}
-	}
-	return false
-}
-
 func dependencyCommandArguments(opt *Option, scope string) []string {
 	args := []string{"run", "service"}
 	if opt.Debug {

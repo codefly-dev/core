@@ -7,9 +7,11 @@ agent:
   version: 0.0.1
   publisher: codefly.ai
 endpoints:
-  - name: public-api
+  - name: public
+    api: rest
     visibility: public
   - name: internal
+    api: grpc
     visibility: internal
     allow-modules:
       - platform

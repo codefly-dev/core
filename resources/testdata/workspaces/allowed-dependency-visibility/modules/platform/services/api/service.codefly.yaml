@@ -10,5 +10,5 @@ service-dependencies:
   - name: gateway
     module: saas
     endpoints:
-      - name: public-api
+      - name: public
       - name: internal

@@ -359,8 +359,9 @@ func (workspace *Workspace) LoadModules(ctx context.Context) ([]*Module, error) 
 // ValidateServiceDependencies checks that no service depends on a private
 // endpoint exported by a different module. It is the static, workspace-wide
 // counterpart to Module.ValidateInterface: the interface guards the producing
-// side, this guards the consuming side. The runtime performs the same check
-// authoritatively in sdk.SetEnvironment via ValidateEndpointVisibility.
+// side, this guards the consuming side. A run enforces the same rule over the
+// mappings it actually hands a consumer, via ValidateConsumedMappingVisibility;
+// the difference between the two is scope, never the verdict on an edge.
 func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) error {
 	w := wool.Get(ctx).In("Workspace::ValidateServiceDependencies", wool.NameField(workspace.Name))
 	modules, err := workspace.LoadModules(ctx)
