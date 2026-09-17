@@ -495,9 +495,43 @@ func (s *Service) AddDependency(ctx context.Context, requirement *ServiceIdentit
 	return nil
 }
 
+// ApplyModuleInterface narrows a service's endpoints to what the module owning
+// its directory exports. Loading a service by directory yields endpoints at
+// their authored visibility, which is not what they export once the module
+// declares an interface; callers that cannot go through Module.LoadService*
+// — an agent loading the service it serves, a lookup from a working directory —
+// use this so they observe the same boundary every validator does. A service
+// with no module above it is left exactly as declared.
+func ApplyModuleInterface(ctx context.Context, service *Service) error {
+	w := wool.Get(ctx).In("resources.ApplyModuleInterface")
+	dir, err := FindUpFrom[Module](ctx, service.Dir())
+	if err != nil {
+		return w.Wrap(err)
+	}
+	if dir == nil {
+		return nil
+	}
+	mod, err := LoadModuleFromDir(ctx, *dir)
+	if err != nil {
+		return w.Wrap(err)
+	}
+	mod.applyInterface(service)
+	return nil
+}
+
 // ReloadService from directory
 func ReloadService(ctx context.Context, service *Service) (*Service, error) {
-	return LoadServiceFromDir(ctx, service.Dir())
+	reloaded, err := LoadServiceFromDir(ctx, service.Dir())
+	if err != nil {
+		return nil, err
+	}
+	// Reloading dropped both the module identity and, with it, the export
+	// boundary the module declares.
+	reloaded.WithModule(service.module)
+	if err := ApplyModuleInterface(ctx, reloaded); err != nil {
+		return nil, err
+	}
+	return reloaded, nil
 }
 
 func (s *Service) postLoad(ctx context.Context) error {
@@ -987,6 +1021,7 @@ func LoadModuleAndServiceUpFrom(ctx context.Context, from string) (*Module, *Ser
 		}
 		if mod != nil {
 			svc.WithModule(mod.Name)
+			mod.applyInterface(svc)
 		}
 	}
 	return mod, svc, nil

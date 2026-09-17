@@ -173,6 +173,13 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 
 	s.Service.WithModule(s.Identity.Module)
 
+	// The service is loaded by directory, so its endpoints arrive at their
+	// authored visibility. What the agent reports has to be what the module
+	// exports, or a consumer resolves an endpoint the validators refuse.
+	if err = resources.ApplyModuleInterface(ctx, s.Service); err != nil {
+		return s.Wool.Wrapf(err, "cannot apply module interface")
+	}
+
 	s.EnvironmentVariables = resources.NewEnvironmentVariableManager()
 
 	s.EnvironmentVariables.SetIdentity(identity)

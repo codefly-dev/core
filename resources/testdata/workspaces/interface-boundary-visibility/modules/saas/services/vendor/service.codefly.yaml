@@ -1,0 +1,15 @@
+kind: service
+name: vendor
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+endpoints:
+  - name: listed
+    api: tcp
+    visibility: external
+  - name: unlisted
+    api: tcp
+    visibility: external
