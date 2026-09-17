@@ -369,6 +369,17 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 	if err != nil {
 		return w.Wrap(err)
 	}
+	if err := validateModuleDependencyVisibility(ctx, modules); err != nil {
+		return w.Wrap(err)
+	}
+	return nil
+}
+
+// validateModuleDependencyVisibility is the shared body of the visibility pass.
+// The workspace-wide pass runs it over every pinned module and a run runs it
+// over its closure; scoping is the only difference between them.
+func validateModuleDependencyVisibility(ctx context.Context, modules []*Module) error {
+	w := wool.Get(ctx).In("resources.validateModuleDependencyVisibility")
 	byName := make(map[string]*Module, len(modules))
 	for _, mod := range modules {
 		byName[mod.Name] = mod

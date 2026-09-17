@@ -1,0 +1,5 @@
+kind: module
+name: saas
+services:
+    - name: auth-gateway
+    - name: accounts

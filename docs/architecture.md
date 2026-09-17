@@ -235,3 +235,18 @@ Start order: `postgres → api-server, worker` (parallel where possible).
 A dependency can declare a `kind` saying which stage it constrains — a build
 input, a consumed runtime endpoint, a one-shot completion prerequisite, a schema
 contribution or an external capability. See [dependency-kinds.md](dependency-kinds.md).
+
+### The module list is a pin set, not a graph
+
+`workspace.codefly.yaml`'s `modules:` answers where a module named X comes from —
+source, version, checkout location. It does not say which modules take part in a
+given run: that is derived by `Workspace.ResolveModuleClosure`, which starts from
+the modules being run and follows the dependencies services already declare.
+
+A pinned module nothing reaches is simply not in the closure, so the pin set is a
+superset of any one run. A module a declaration reaches but the pin set does not
+cover is an error naming the declaring service, rather than a run that comes up
+with no endpoints. `ModuleClosure.ValidateServiceDependencies` applies the
+workspace-wide visibility rules to exactly that set, sharing its implementation
+with `Workspace.ValidateServiceDependencies` so the two cannot disagree about
+anything but scope.

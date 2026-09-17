@@ -1,0 +1,20 @@
+kind: service
+name: wiki-api
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+service-dependencies:
+  - name: auth-gateway
+    module: saas
+    endpoints:
+      - name: rest
+  - name: documents
+    module: documents
+    endpoints:
+      - name: grpc
+  - name: billing
+    module: stripe
+    kind: external

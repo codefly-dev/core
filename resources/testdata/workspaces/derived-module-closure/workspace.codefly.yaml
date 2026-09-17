@@ -1,0 +1,7 @@
+name: codefly-platform
+layout: modules
+modules:
+  - name: wiki
+  - name: saas
+  - name: documents
+  - name: analytics
