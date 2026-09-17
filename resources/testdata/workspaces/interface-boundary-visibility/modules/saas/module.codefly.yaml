@@ -3,6 +3,7 @@ name: saas
 services:
     - name: accounts
     - name: gateway
+    - name: vendor
 interface:
     endpoints:
         - service: accounts
@@ -14,3 +15,6 @@ interface:
         - service: gateway
           endpoint: restricted
           visibility: internal
+        - service: vendor
+          endpoint: listed
+          visibility: module

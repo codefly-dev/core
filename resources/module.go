@@ -23,15 +23,17 @@ const (
 
 // InterfaceEndpoint declares a single endpoint that the module exposes to other modules.
 type InterfaceEndpoint struct {
-	Service  string `yaml:"service"`
-	Endpoint string `yaml:"endpoint"`
-	// Visibility is what this endpoint carries across module boundaries:
-	// "internal", "module" or "public", defaulting to "module".
-	Visibility string `yaml:"visibility,omitempty"`
+	Service    string `yaml:"service"`
+	Endpoint   string `yaml:"endpoint"`
+	Visibility string `yaml:"visibility,omitempty"` // "internal", "module" or "public"; defaults to "module"
 }
 
 // exportedVisibility is the visibility this entry grants across module
-// boundaries. An entry that names no visibility exports at "module".
+// boundaries. An entry that names none exports at "module": the deprecated
+// alias is the default because it is the documented one, and because it is what
+// an external topology check expects to see for an undecorated export. Naming
+// "internal" instead would silently require an allow-list the entry has no way
+// to write.
 func (ie *InterfaceEndpoint) exportedVisibility() Visibility {
 	if ie.Visibility == "" {
 		return VisibilityModule
@@ -542,6 +544,14 @@ func (mod *Module) applyInterface(service *Service) {
 		return
 	}
 	for _, endpoint := range service.Endpoints {
+		// The deprecated "external" spells a location as a visibility, and it is
+		// the only record that the endpoint lives outside the system. Exporting
+		// over it would move the endpoint inside, so that an address resolved
+		// from DNS becomes an allocated port. Endpoints that say "location:
+		// external" keep it in a separate field and export normally.
+		if endpoint.Visibility == VisibilityExternal {
+			continue
+		}
 		exported := VisibilityPrivate
 		for _, ie := range mod.Interface.Endpoints {
 			if ReferenceMatch(ie.Service, service.Name) && ie.Endpoint == endpoint.Name {

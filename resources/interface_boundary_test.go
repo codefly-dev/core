@@ -84,6 +84,9 @@ func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 		"grpc":       resources.VisibilityModule,
 		"public":     resources.VisibilityPublic,
 		"restricted": resources.VisibilityInternal,
+		// Exported, but its visibility records a location the interface cannot
+		// restate, so the entry grants export without moving it inside.
+		"listed": resources.VisibilityExternal,
 	}, visibility)
 
 	gateway, err := mod.LoadServiceFromName(ctx, "gateway")
@@ -99,6 +102,95 @@ func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 	require.False(t, byName["omitted"].AllowsModule("platform"))
 	// Visibility never restricts reachability inside the owning module.
 	require.True(t, byName["omitted"].AllowsModule("saas"))
+}
+
+// "external" is a location written as a visibility, and the only record that an
+// endpoint lives outside the system. Exporting over it would move the endpoint
+// inside, turning an address resolved from DNS into an allocated port — for
+// every endpoint of the module, since an interface entry can only grant
+// internal, module or public.
+func TestInterfaceBoundaryKeepsExternalEndpointsExternal(t *testing.T) {
+	ctx := context.Background()
+	const dir = "testdata/workspaces/interface-boundary-visibility"
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	mod, err := workspace.LoadModuleFromName(ctx, "saas")
+	require.NoError(t, err)
+	vendor, err := mod.LoadServiceFromName(ctx, "vendor")
+	require.NoError(t, err)
+
+	for _, endpoint := range vendor.Endpoints {
+		require.Truef(t, endpoint.External(), "endpoint %q stopped being external", endpoint.Name)
+		require.Equalf(t, resources.VisibilityExternal, endpoint.Visibility,
+			"endpoint %q lost the location its visibility records", endpoint.Name)
+	}
+
+	endpoints, err := vendor.LoadEndpoints(ctx)
+	require.NoError(t, err)
+	require.Len(t, endpoints, 2)
+	for _, endpoint := range endpoints {
+		require.Truef(t, resources.IsExternalEndpoint(endpoint),
+			"endpoint %q would be given an allocated port instead of a DNS address", endpoint.GetName())
+	}
+}
+
+// A service loaded by directory rather than through its module — what an agent
+// does with the service it serves, and what a lookup from a working directory
+// does — must observe the same boundary. Reporting an endpoint at its authored
+// visibility would hand a consumer an endpoint the validators refuse.
+func TestModuleInterfaceAppliesToServicesLoadedByDirectory(t *testing.T) {
+	ctx := context.Background()
+	const dir = "testdata/workspaces/interface-boundary-visibility"
+	gatewayDir := filepath.Join(dir, "modules/saas/services/gateway")
+
+	direct, err := resources.LoadServiceFromDir(ctx, gatewayDir)
+	require.NoError(t, err)
+	require.NoError(t, resources.ApplyModuleInterface(ctx, direct))
+
+	byName := make(map[string]string, len(direct.Endpoints))
+	for _, endpoint := range direct.Endpoints {
+		byName[endpoint.Name] = endpoint.Visibility
+	}
+	require.Equal(t, map[string]string{
+		"public":     resources.VisibilityPublic,
+		"restricted": resources.VisibilityInternal,
+		"omitted":    resources.VisibilityPrivate,
+	}, byName)
+
+	// The same service reached through the module has to agree, or the run path
+	// and the static passes are reading two different contracts.
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	mod, err := workspace.LoadModuleFromName(ctx, "saas")
+	require.NoError(t, err)
+	viaModule, err := mod.LoadServiceFromName(ctx, "gateway")
+	require.NoError(t, err)
+	for _, endpoint := range viaModule.Endpoints {
+		require.Equalf(t, byName[endpoint.Name], endpoint.Visibility,
+			"endpoint %q differs by load path", endpoint.Name)
+	}
+}
+
+// Reloading a service must not hand back a different contract than the one it
+// was reloaded from: it kept neither the module identity nor the boundary.
+func TestReloadServiceKeepsModuleAndBoundary(t *testing.T) {
+	ctx := context.Background()
+	const dir = "testdata/workspaces/interface-boundary-visibility"
+
+	gateway := loadService(ctx, t, dir, "saas", "gateway")
+	reloaded, err := resources.ReloadService(ctx, gateway)
+	require.NoError(t, err)
+	require.Equal(t, gateway.MustUnique(), reloaded.MustUnique(), "reload lost the module identity")
+
+	before := make(map[string]string, len(gateway.Endpoints))
+	for _, endpoint := range gateway.Endpoints {
+		before[endpoint.Name] = endpoint.Visibility
+	}
+	for _, endpoint := range reloaded.Endpoints {
+		require.Equalf(t, before[endpoint.Name], endpoint.Visibility,
+			"endpoint %q changed visibility across a reload", endpoint.Name)
+	}
 }
 
 // Applying the boundary must not rewrite what the author wrote: the exported
@@ -131,10 +223,11 @@ func TestInterfaceBoundaryDoesNotRewriteAuthoredVisibility(t *testing.T) {
 	for _, endpoint := range declaration.Endpoints {
 		authored[endpoint.Name] = endpoint.Visibility
 	}
-	// "private" is blanked on save and read back as private, as it always was.
+	// "restricted" is exported at internal and "omitted" not exported at all,
+	// yet both were authored public and must save as they were written.
 	require.Equal(t, map[string]string{
 		"public":     resources.VisibilityPublic,
-		"restricted": "",
+		"restricted": resources.VisibilityPublic,
 		"omitted":    resources.VisibilityPublic,
 	}, authored)
 }

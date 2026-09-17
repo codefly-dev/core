@@ -70,7 +70,16 @@ endpoint no entry names does not cross them at all, however the service declares
 it — `visibility:` on the endpoint governs the module's own inside. The boundary
 is applied where a module hands out its services, so every reader observes the
 same value: the static passes, the module graph, the run and deploy resolution,
-and the protos the module publishes.
+and the protos the module publishes. A service loaded by directory rather than
+through its module — an agent loading the service it serves — applies it with
+`resources.ApplyModuleInterface`.
+
+The one endpoint the boundary leaves alone is the one whose visibility is the
+deprecated `external`, because there that word records a location rather than a
+permission, and it is the only record of it. Rewriting it would move an endpoint
+resolved from DNS inside the system and give it an allocated port. Declare
+`location: external` alongside a real visibility and the endpoint exports like
+any other.
 
 ### Client facades
 
