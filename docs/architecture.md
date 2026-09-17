@@ -64,6 +64,14 @@ Consumers generate clients from the package, never from a checkout of the
 producing repository. The module `interface` block is the authoritative export
 boundary: only its endpoints are exported and graphed across modules.
 
+A module that declares one therefore states each export once. An entry's
+`visibility` is the visibility that endpoint carries across module lines, and an
+endpoint no entry names does not cross them at all, however the service declares
+it — `visibility:` on the endpoint governs the module's own inside. The boundary
+is applied where a module hands out its services, so every reader observes the
+same value: the static passes, the module graph, the run and deploy resolution,
+and the protos the module publishes.
+
 ### Client facades
 
 A published client pairs the generated bindings with a small facade that binds
