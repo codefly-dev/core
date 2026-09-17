@@ -32,6 +32,17 @@ type ModuleEdge struct {
 type ModuleClosure struct {
 	Modules []*Module
 	Edges   []ModuleEdge
+
+	// stage is the stage the closure was resolved for. It is what makes the
+	// closure self-consistent: the same predicate that decided which modules
+	// take part decides which edges are judged.
+	stage Stage
+}
+
+// admits reports whether a dependency takes part in the stage this closure was
+// resolved for.
+func (closure *ModuleClosure) admits(dep *ServiceDependency) bool {
+	return dep.Kind.Participates(closure.stage)
 }
 
 // Names returns the closure's module names, in closure order.
@@ -97,7 +108,7 @@ func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, stage Stag
 	if err := stage.Validate(); err != nil {
 		return nil, w.Wrap(err)
 	}
-	closure := &ModuleClosure{}
+	closure := &ModuleClosure{stage: stage}
 	seen := make(map[string]bool, len(seeds))
 	// An edge records that a service pulls a module in, so several dependencies
 	// from one service into one module are a single participation edge — the
@@ -156,12 +167,19 @@ func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, stage Stag
 }
 
 // ValidateServiceDependencies applies the workspace's endpoint-visibility rules
-// to exactly the modules that take part in the closure. It shares its
-// implementation with the workspace-wide pass, so the check a run performs and
-// the check validation performs cannot diverge — only their scope differs.
+// to exactly the modules that take part in the closure, and to exactly the
+// dependencies that put them there. It shares its implementation with the
+// workspace-wide pass, so the check a run performs and the check validation
+// performs cannot diverge — only their scope differs.
+//
+// Judging an edge the closure did not follow would make its verdict depend on
+// company: a build-time edge onto a private endpoint would pass when the run
+// closure happens to exclude the producer and fail when an unrelated seed drags
+// it in. Each edge is instead judged by the stage that actually traverses it,
+// and the workspace-wide pass still judges them all.
 func (closure *ModuleClosure) ValidateServiceDependencies(ctx context.Context) error {
 	w := wool.Get(ctx).In("ModuleClosure::ValidateServiceDependencies")
-	if err := validateModuleDependencyVisibility(ctx, closure.Modules); err != nil {
+	if err := validateModuleDependencyVisibility(ctx, closure.Modules, closure.admits); err != nil {
 		return w.Wrap(err)
 	}
 	return nil

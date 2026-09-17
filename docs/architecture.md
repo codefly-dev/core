@@ -252,6 +252,8 @@ A pinned module nothing reaches is simply not in the closure, so the pin set is 
 superset of any one stage. A module a declaration reaches but the pin set does not
 cover is an error naming the declaring service, rather than a run that comes up
 with no endpoints. `ModuleClosure.ValidateServiceDependencies` applies the
-workspace-wide visibility rules to exactly that set, sharing its implementation
-with `Workspace.ValidateServiceDependencies` so the two cannot disagree about
-anything but scope.
+workspace-wide visibility rules to exactly that set — and to exactly the
+dependencies that put them there, so an edge is judged by the stage that
+traverses it rather than by whichever modules happen to be loaded beside it. It
+shares its implementation with `Workspace.ValidateServiceDependencies`, which
+has no stage to scope to and so judges every declared edge.

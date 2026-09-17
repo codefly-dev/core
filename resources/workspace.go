@@ -367,16 +367,24 @@ func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) err
 	if err != nil {
 		return w.Wrap(err)
 	}
-	if err := validateModuleDependencyVisibility(ctx, modules); err != nil {
+	if err := validateModuleDependencyVisibility(ctx, modules, admitsEveryDependency); err != nil {
 		return w.Wrap(err)
 	}
 	return nil
 }
 
+// admitsEveryDependency validates a dependency whatever stage its kind
+// constrains. The workspace-wide pass uses it: a lint over every pinned module
+// has no stage to scope to, so it judges every declared edge.
+func admitsEveryDependency(*ServiceDependency) bool { return true }
+
 // validateModuleDependencyVisibility is the shared body of the visibility pass.
-// The workspace-wide pass runs it over every pinned module and a run runs it
-// over its closure; scoping is the only difference between them.
-func validateModuleDependencyVisibility(ctx context.Context, modules []*Module) error {
+// The workspace-wide pass runs it over every pinned module and a stage runs it
+// over its closure; scoping is the only difference between them. admits must
+// select the same dependencies that selected the module set, or an edge's
+// verdict turns on whether some unrelated module happened to be loaded
+// alongside it.
+func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, admits func(*ServiceDependency) bool) error {
 	w := wool.Get(ctx).In("resources.validateModuleDependencyVisibility")
 	byName := make(map[string]*Module, len(modules))
 	for _, mod := range modules {
@@ -389,6 +397,9 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module) 
 		}
 		for _, svc := range services {
 			for _, dep := range svc.ServiceDependencies {
+				if !admits(dep) {
+					continue
+				}
 				producerModule := dep.Module
 				if producerModule == "" {
 					producerModule = mod.Name

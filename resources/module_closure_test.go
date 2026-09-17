@@ -138,6 +138,28 @@ func TestModuleClosureValidateServiceDependenciesScopesToTheRun(t *testing.T) {
 	require.NoError(t, closure.ValidateServiceDependencies(ctx))
 }
 
+// An edge's verdict must not depend on company. wiki reads codegen's contract
+// at build time and codegen keeps that endpoint private, so the edge is a
+// violation at build and irrelevant at run — whether or not some unrelated seed
+// happens to pull codegen into the run closure alongside it.
+func TestModuleClosureValidateServiceDependenciesScopesToTheStage(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/derived-module-closure")
+	require.NoError(t, err)
+
+	seeded, err := workspace.ResolveModuleClosure(ctx, resources.StageRun, []string{"wiki", "codegen"})
+	require.NoError(t, err)
+	require.True(t, seeded.Contains("codegen"))
+	require.NoError(t, seeded.ValidateServiceDependencies(ctx))
+
+	build, err := workspace.ResolveModuleClosure(ctx, resources.StageBuild, []string{"wiki"})
+	require.NoError(t, err)
+	require.True(t, build.Contains("codegen"))
+	err = build.ValidateServiceDependencies(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `private to module "codegen"`)
+}
+
 func TestModuleClosureValidateServiceDependenciesRejectsDeniedEdge(t *testing.T) {
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/workspaces/denied-dependency-visibility")

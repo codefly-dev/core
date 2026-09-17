@@ -8,4 +8,4 @@ agent:
   publisher: codefly.ai
 endpoints:
   - name: grpc
-    visibility: public
+    visibility: private
