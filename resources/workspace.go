@@ -359,8 +359,12 @@ func (workspace *Workspace) LoadModules(ctx context.Context) ([]*Module, error) 
 // ValidateServiceDependencies checks that no service depends on a private
 // endpoint exported by a different module. It is the static, workspace-wide
 // counterpart to Module.ValidateInterface: the interface guards the producing
-// side, this guards the consuming side. The runtime performs the same check
-// authoritatively in sdk.SetEnvironment via ValidateEndpointVisibility.
+// side, this guards the consuming side. Handing a consumer a dependency's
+// address goes through ResolveDependencyNetworkMappings, which applies the same
+// per-endpoint rule as it selects, so the run, deploy and SDK paths cannot
+// permit what they do not expose or expose what they do not permit. This pass
+// is the wider one: it judges every declared edge whatever stage its kind
+// constrains, including edges that inject no address and so are never resolved.
 func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) error {
 	w := wool.Get(ctx).In("Workspace::ValidateServiceDependencies", wool.NameField(workspace.Name))
 	modules, err := workspace.LoadModules(ctx)

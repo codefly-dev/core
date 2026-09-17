@@ -60,8 +60,8 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 			configuration("module/database", "database", "PASSWORD", "dependency-secret", true),
 		},
 		DependenciesNetworkMappings: []*basev0.NetworkMapping{
-			dependencyMapping("saas", "accounts", "grpc", "grpc", 9090),
-			dependencyMapping("saas", "accounts", "usage", "grpc", 19090),
+			dependencyMapping("saas", "accounts", "grpc", "grpc", 9090, resources.VisibilityPrivate),
+			dependencyMapping("saas", "accounts", "usage", "grpc", 19090, resources.VisibilityPublic),
 		},
 	}
 
@@ -127,11 +127,11 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	require.Contains(t, string(deploymentManifest), `codefly.dev/test-parameter: "prepared"`)
 }
 
-func dependencyMapping(module, service, name, api string, port uint16) *basev0.NetworkMapping {
+func dependencyMapping(module, service, name, api string, port uint16, visibility resources.Visibility) *basev0.NetworkMapping {
 	instance := resources.NewNetworkInstance(service, port)
 	instance.Access = resources.NewContainerNetworkAccess()
 	return &basev0.NetworkMapping{
-		Endpoint:  &basev0.Endpoint{Module: module, Service: service, Name: name, Api: api},
+		Endpoint:  &basev0.Endpoint{Module: module, Service: service, Name: name, Api: api, Visibility: visibility},
 		Instances: []*basev0.NetworkInstance{instance},
 	}
 }
@@ -770,4 +770,57 @@ func configuration(origin, name, key, value string, secret bool) *basev0.Configu
 			}},
 		}},
 	}
+}
+
+// A deploy hands the consumer its dependencies' addresses just as a run does,
+// so it must refuse an endpoint the producer keeps private. Nothing on this
+// path used to ask: the workspace failed static validation, failed to run, and
+// still deployed, shipping the private endpoint's address to the cluster.
+func TestDeployKustomizeRefusesDependencyOnPrivateEndpoint(t *testing.T) {
+	ctx := context.Background()
+	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
+	require.NoError(t, err)
+
+	manager := resources.NewEnvironmentVariableManager()
+	manager.SetIdentity(&basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
+	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
+	base := &Base{
+		Wool:                 wool.Get(ctx),
+		Identity:             identity,
+		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
+		EnvironmentVariables: manager,
+		Service: &resources.Service{ServiceDependencies: []*resources.ServiceDependency{{
+			Module:    "saas",
+			Name:      "accounts",
+			Endpoints: []*resources.EndpointReference{{Name: "usage"}},
+		}}},
+		loaded: true,
+	}
+	base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
+	builder := &BuilderWrapper{Base: base}
+	base.Builder = builder
+
+	req := &builderv0.DeploymentRequest{
+		Environment: &basev0.Environment{Name: "test", Fixture: "dev-admin"},
+		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+			Kubernetes: &builderv0.KubernetesDeployment{
+				Namespace:   "codefly",
+				Destination: t.TempDir(),
+				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+			},
+		}},
+		DependenciesNetworkMappings: []*basev0.NetworkMapping{
+			dependencyMapping("saas", "accounts", "usage", "grpc", 19090, resources.VisibilityPrivate),
+		},
+	}
+
+	response, err := builder.DeployKustomize(ctx, req, KustomizeDeployment{
+		EnvironmentVariables: manager,
+		Templates:            templates,
+		Inputs:               DeploymentInputs{DependencyEndpoints: true},
+		Parameters:           struct{ Name string }{Name: "prepared"},
+	})
+	require.NoError(t, err, "the refusal is reported as a failed deployment, not a transport error")
+	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+	require.Contains(t, response.GetState().GetMessage(), "private to module \"saas\"")
 }

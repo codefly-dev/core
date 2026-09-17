@@ -825,7 +825,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	if deployment.Inputs.DependencyEndpoints {
 		dependencyMappings := req.GetDependenciesNetworkMappings()
 		if s.Service != nil {
-			dependencyMappings, err = resources.ResolveDependencyNetworkMappings(s.Service.ServiceDependencies, dependencyMappings)
+			dependencyMappings, err = resources.ResolveDependencyNetworkMappings(s.Identity.Module, s.Service.ServiceDependencies, dependencyMappings)
 			if err != nil {
 				return fail(err)
 			}

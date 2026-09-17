@@ -152,7 +152,13 @@ func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, 
 	return nil, w.NewError("no network mapping for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }
 
-func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
+// The consumerModule is the module of the service these mappings are for. It
+// decides visibility per endpoint: what this returns is what gets injected as
+// the consumer's environment, and therefore what its SDK exposes, so the
+// permitted set and the exposed set are computed here together and cannot
+// drift. Every path that hands a consumer its dependencies' addresses — the
+// native run, deploy, and the SDK dependency session — resolves through here.
+func ResolveDependencyNetworkMappings(consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
 	endpoints := make([]*basev0.Endpoint, 0, len(mappings))
 	for _, mapping := range mappings {
 		if mapping == nil || mapping.Endpoint == nil {
@@ -175,7 +181,21 @@ func ResolveDependencyNetworkMappings(dependencies []*ServiceDependency, mapping
 		if err != nil {
 			return nil, err
 		}
+		// Naming an endpoint the producer does not share is an error naming
+		// that endpoint, never a silent omission: the consumer's author asked
+		// for it, so dropping it would leave their SDK missing a declared
+		// accessor with nothing to explain why. A dependency that names none
+		// consumes "all", which can only mean all it is permitted — otherwise a
+		// producer adding one private endpoint breaks every consumer that did
+		// not enumerate, and changes their SDK surface from the outside.
 		for _, endpoint := range resolved {
+			err := ValidateEndpointVisibility(consumerModule, endpoint.Module, dependency.Name, endpoint.Name, endpoint.Visibility, endpoint.AllowModules)
+			if err != nil {
+				if len(dependency.Endpoints) == 0 {
+					continue
+				}
+				return nil, err
+			}
 			selected[EndpointDestination(endpoint)] = struct{}{}
 		}
 	}
