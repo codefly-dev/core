@@ -1,0 +1,13 @@
+kind: service
+name: sessions
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+endpoints:
+  - name: grpc
+    visibility: internal
+    allow-modules:
+      - wiki

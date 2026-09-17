@@ -1,0 +1,4 @@
+kind: module
+name: analytics
+services:
+    - name: reports
