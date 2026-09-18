@@ -114,13 +114,14 @@ func ProjectJSONSchema(doc *OpenAPIDocument, schema *JSONSchema) (*basev0.Runnab
 	if schema == nil {
 		return nil, fmt.Errorf("%w: schema is required", ErrInvalid)
 	}
+	budget := MaxProjectionFields
 	// Resolving here rather than only inside the walk is what lets the payload's
 	// own rejections name the component they are about.
 	resolved, at, open, err := resolve(doc, schema, "#", nil)
 	if err != nil {
 		return nil, err
 	}
-	payload, err := projectSchema(doc, resolved, at, open, 0)
+	payload, err := projectSchema(doc, resolved, at, open, 0, &budget)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +140,7 @@ func ProjectJSONSchema(doc *OpenAPIDocument, schema *JSONSchema) (*basev0.Runnab
 // $refs already being resolved, so it is the cycle check: a schema that reaches
 // itself describes an unbounded payload, not a deep one. depth counts the
 // objects already open, which no chain of inline schemas carries a name for.
-func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int) (*basev0.RunnableField, error) {
+func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) (*basev0.RunnableField, error) {
 	resolved, at, open, err := resolve(doc, schema, at, open)
 	if err != nil {
 		return nil, err
@@ -171,13 +172,13 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 	case "boolean":
 		field.Type = basev0.RunnableField_BOOLEAN
 	case "object":
-		fields, objectErr := projectProperties(doc, resolved, at, open, depth)
+		fields, objectErr := projectProperties(doc, resolved, at, open, depth, budget)
 		if objectErr != nil {
 			return nil, objectErr
 		}
 		field.Type, field.Fields = basev0.RunnableField_OBJECT, fields
 	case "array":
-		items, itemsErr := projectItems(doc, resolved, at, open, depth)
+		items, itemsErr := projectItems(doc, resolved, at, open, depth, budget)
 		if itemsErr != nil {
 			return nil, itemsErr
 		}
@@ -243,7 +244,7 @@ func boundedType(schema *JSONSchema, at string) (string, bool, error) {
 // projectProperties walks one object. An object with no properties is free-form
 // and one accepting additional properties is a map, and neither has the fixed
 // set of typed members the profile describes.
-func projectProperties(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int) ([]*basev0.RunnableField, error) {
+func projectProperties(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) ([]*basev0.RunnableField, error) {
 	if schema.Properties == nil {
 		return nil, fmt.Errorf("%w: %s is an object declaring no properties, which the bounded profile does not cover", ErrInvalid, at)
 	}
@@ -253,9 +254,21 @@ func projectProperties(doc *OpenAPIDocument, schema *JSONSchema, at string, open
 	if depth >= MaxProjectionDepth {
 		return nil, fmt.Errorf("%w: %s nests more than %d objects deep", ErrInvalid, at, MaxProjectionDepth)
 	}
+	// A name in required that properties does not declare would otherwise be
+	// dropped in silence: the object closes additionalProperties, so the
+	// declaration is unsatisfiable, and the derived contract would say nothing
+	// about a key the owner marked mandatory.
+	for _, name := range schema.Required {
+		if !slices.ContainsFunc(*schema.Properties, func(p JSONSchemaProperty) bool { return p.Name == name }) {
+			return nil, fmt.Errorf("%w: %s requires %q, which it does not declare as a property", ErrInvalid, at, name)
+		}
+	}
 	fields := make([]*basev0.RunnableField, 0, len(*schema.Properties))
 	for _, property := range *schema.Properties {
-		field, err := projectSchema(doc, property.Schema, at+"/properties/"+escapePointer(property.Name), open, depth+1)
+		if *budget--; *budget < 0 {
+			return nil, fmt.Errorf("%w: %s projects more than %d fields; depth alone does not bound a payload whose members are themselves objects", ErrInvalid, at, MaxProjectionFields)
+		}
+		field, err := projectSchema(doc, property.Schema, at+"/properties/"+escapePointer(property.Name), open, depth+1, budget)
 		if err != nil {
 			return nil, err
 		}
@@ -269,7 +282,7 @@ func projectProperties(doc *OpenAPIDocument, schema *JSONSchema, at string, open
 // projectItems reads an array's element schema. A tuple names a different type
 // per position, which is a fixed-length record rather than the homogeneous list
 // the profile carries.
-func projectItems(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int) (*basev0.RunnableField, error) {
+func projectItems(doc *OpenAPIDocument, schema *JSONSchema, at string, open []string, depth int, budget *int) (*basev0.RunnableField, error) {
 	trimmed := bytes.TrimSpace(schema.Items)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("%w: %s is an array declaring no items, and the bounded profile has no untyped element", ErrInvalid, at)
@@ -283,7 +296,7 @@ func projectItems(doc *OpenAPIDocument, schema *JSONSchema, at string, open []st
 	}
 	// An element is present or the list is shorter, so the item carries neither
 	// a name nor optionality — the same reading the proto projection makes.
-	return projectSchema(doc, items, at+"/items", open, depth)
+	return projectSchema(doc, items, at+"/items", open, depth, budget)
 }
 
 // escapePointer spells a property name as an RFC 6901 reference token, so a

@@ -420,7 +420,7 @@ document transcoded from them project to **equal** `RunnableSchema`s.
 | `int32`, `sint32`, `sfixed32`, `int64`, `sint64`, `sfixed64`, `uint32`, `fixed32` | `type: integer`, `format` absent, `int32` or `int64` | `INTEGER` | int64 range |
 | `uint64`, `fixed64` | `type: integer` of any other `format` | **rejected** | exceeds int64 |
 | `bool` | `type: boolean` | `BOOLEAN` | |
-| message | `type: object` with `properties` and `additionalProperties: false` | `OBJECT` with `fields` | depth ≤ 32; recursion (a message or a `$ref` reaching itself) rejected |
+| message | `type: object` with `properties` and `additionalProperties: false` | `OBJECT` with `fields` | depth ≤ 32 and ≤ 10 000 fields in total; recursion (a message or a `$ref` reaching itself) rejected |
 | `repeated T` | `type: array` with a single `items` schema | `ARRAY` with `items` | |
 | proto3 `optional` / message-typed field | a name absent from `required` | `optional: true` | absent key |
 | — | `nullable: true`, or `type: [T, "null"]` | `nullable: true` | protobuf has no null value |
@@ -442,6 +442,17 @@ the rejected protobuf types transcode to — `bytes` becomes `byte` or `binary`,
 `Timestamp` becomes `date-time` — which is why the two columns reject the same
 payloads.
 
+Depth is not the only bound, because it is not the one that binds. A payload
+whose members are themselves objects expands *multiplicatively*: at twelve
+levels of fanout three, under three kilobytes of source describes forty
+megabytes of schema, and sixteen levels exhausts memory before it finishes —
+while `MaxProjectionDepth` would allow twice that nesting. `MaxProjectionFields`
+bounds the projection at 10 000 fields in total, in both readers, because there
+is one profile. A `required` name the object does not declare is rejected for
+the same reason a type outside the profile is: the object closes
+`additionalProperties`, so the declaration is unsatisfiable, and projecting it
+anyway would hand back a contract silent about a key the owner marked mandatory.
+
 Reading the columns together says what a transcription has to spell, and the
 fixture pair is what enforces it. A proto3 field with implicit presence has a
 key that is always there, so it is `required` in the document; a message-typed
@@ -457,11 +468,25 @@ taken over.
 `runnable.PackageFromOpenAPIOperation(document, location, owner, method, path)`
 reads the OpenAPI JSON an owner already publishes (`codefly generate
 contracts` writes one per HTTP endpoint) and derives the same package. An
-operation is eligible only if it is a `POST` or a `PUT`, carries no path or
-query parameter, has one `application/json` request body and exactly one `2xx`
-response with an `application/json` schema. Anything else is a refusal that
-names why, never a coercion: v1 keeps an operation's input as one JSON object,
-and folding a path or query parameter into it is a later profile decision.
+operation is eligible only if it is a `POST` or a `PUT`, carries no parameter
+outside `header` and `cookie`, has one `application/json` request body and
+exactly one `2xx` response with an `application/json` schema. Anything else is a
+refusal that names why, never a coercion: v1 keeps an operation's input as one
+JSON object, and folding a parameter into it is a later profile decision.
+
+The parameter locations are an **allow list**, not a pair of denied ones. The
+transport carries a header and a cookie, so they are no part of the payload;
+every other location names an input the contract would have to describe.
+Denying only `path` and `query` would let `body` and `formData` — which is how
+Swagger 2.0 spells a request body — pass in silence, and the derived contract
+would simply omit the operation's input.
+
+The document's version is checked rather than assumed, for the same reason.
+Swagger 2.0 puts a request body in an `in: body` parameter and a response schema
+on the response itself, so reading one as OpenAPI 3 finds no `requestBody` and
+reports exactly that — pointing at the wrong part of a document that plainly
+declares one. Core's own `OpenAPICombinator` still writes 2.0, so this is a
+document that turns up; it is refused as Swagger, by name.
 
 Both payload schemas must be `#/components/schemas/…` references. That is where
 `input_message` and `output_message` come from, and their job is to record the

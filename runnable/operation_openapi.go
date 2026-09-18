@@ -33,11 +33,26 @@ const (
 // a diff against a state the contract does not carry.
 var openAPIOperationMethods = []string{http.MethodPost, http.MethodPut}
 
+// transportParameterLocations are the parameter locations a derived operation
+// may carry: the transport carries them and they are no part of the payload.
+// Every other location names an input the bounded contract would have to
+// describe, and is refused rather than ignored.
+var transportParameterLocations = []string{"header", "cookie"}
+
+// supportedOpenAPIMajor is the document version a Runnable operation is derived
+// from.
+const supportedOpenAPIMajor = "3"
+
 // OpenAPIDocument is the part of an OpenAPI document a Runnable operation is
 // derived from, read as JSON. It is deliberately not a model of OpenAPI:
 // everything outside the operation's own payloads — servers, security, tags,
 // examples — says how the route is served and never what the contract is.
 type OpenAPIDocument struct {
+	// OpenAPI and Swagger are the two spellings of a document's version. Both
+	// are read so a Swagger 2.0 document is refused as one rather than as an
+	// OpenAPI 3 document that happens to declare nothing.
+	OpenAPI    string                      `json:"openapi"`
+	Swagger    string                      `json:"swagger"`
 	Paths      map[string]*OpenAPIPathItem `json:"paths"`
 	Components OpenAPIComponents           `json:"components"`
 }
@@ -95,6 +110,18 @@ func ParseOpenAPIDocument(document []byte) (*OpenAPIDocument, error) {
 	if err := json.Unmarshal(document, doc); err != nil {
 		return nil, fmt.Errorf("%w: document is not readable OpenAPI JSON: %v", ErrInvalid, err)
 	}
+	// The version is checked rather than assumed. Swagger 2.0 describes the
+	// same operation in different places — a body is an `in: body` parameter
+	// and a response schema hangs off the response itself — so reading one as
+	// OpenAPI 3 finds no request body and reports that, pointing at the wrong
+	// part of a document that plainly declares one. Core's own
+	// OpenAPICombinator still writes 2.0, so this is a document that turns up.
+	if doc.Swagger != "" {
+		return nil, fmt.Errorf("%w: document declares swagger %q; a Runnable operation is derived from OpenAPI %s, which spells a request body and a response schema in different places", ErrInvalid, doc.Swagger, supportedOpenAPIMajor)
+	}
+	if major, _, _ := strings.Cut(doc.OpenAPI, "."); major != supportedOpenAPIMajor {
+		return nil, fmt.Errorf("%w: document declares openapi %q; a Runnable operation is derived from OpenAPI %s", ErrInvalid, doc.OpenAPI, supportedOpenAPIMajor)
+	}
 	return doc, nil
 }
 
@@ -143,10 +170,15 @@ func (d *OpenAPIDocument) operation(method, path string) (*OpenAPIOperation, str
 	}
 	for _, parameter := range slices.Concat(item.Parameters, operation.Parameters) {
 		if parameter.Ref != "" {
-			return nil, "", fmt.Errorf("%w: %s carries a $ref parameter, which core does not follow and so cannot prove is neither a path nor a query parameter", ErrInvalid, route)
+			return nil, "", fmt.Errorf("%w: %s carries a $ref parameter, which core does not follow and so cannot prove it carries no input", ErrInvalid, route)
 		}
-		if parameter.In == "path" || parameter.In == "query" {
-			return nil, "", fmt.Errorf("%w: %s carries %s parameter %q, and a derived operation's input is the request body alone", ErrInvalid, route, parameter.In, parameter.Name)
+		// The locations are allow-listed, not the reverse. A location this did
+		// not recognise would otherwise pass silently, and some of them name an
+		// input: `body` and `formData` are how Swagger 2.0 spells a request
+		// body, so denying only path and query would drop the operation's whole
+		// input from the contract without saying so.
+		if !slices.Contains(transportParameterLocations, parameter.In) {
+			return nil, "", fmt.Errorf("%w: %s carries %q parameter %q, and a derived operation's input is the JSON request body alone", ErrInvalid, route, parameter.In, parameter.Name)
 		}
 	}
 	return operation, route, nil

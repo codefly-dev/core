@@ -15,6 +15,14 @@ import (
 // with a path to fix rather than a schema no generated binding can express.
 const MaxProjectionDepth = 32
 
+// MaxProjectionFields bounds how many fields a projected payload may carry in
+// total. Depth alone does not bound the work: a payload whose members are
+// themselves objects expands multiplicatively, so a .proto or a document of a
+// couple of kilobytes can describe a payload of tens of megabytes, and one
+// twice as deep exhausts memory before it finishes. The bound is on the
+// projection rather than on the source, because the source is small either way.
+const MaxProjectionFields = 10000
+
 // wellKnownPrefix names the protobuf well-known types. They carry meaning the
 // bounded profile does not have — a Timestamp is not a string and an Any is
 // not an object — so projecting one would invent a representation the runtime
@@ -39,7 +47,8 @@ func ProjectMessage(md protoreflect.MessageDescriptor) (*basev0.RunnableSchema, 
 	if strings.HasPrefix(string(md.FullName()), wellKnownPrefix) {
 		return nil, fmt.Errorf("%w: payload %s is a well-known type the bounded profile has no representation for", ErrInvalid, md.FullName())
 	}
-	fields, err := projectFields(md, string(md.FullName()), nil)
+	budget := MaxProjectionFields
+	fields, err := projectFields(md, string(md.FullName()), nil, &budget)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +58,7 @@ func ProjectMessage(md protoreflect.MessageDescriptor) (*basev0.RunnableSchema, 
 // projectFields walks one message. enclosing is the chain of messages already
 // open, so it carries both the depth and the cycle check: a message that
 // reaches itself describes an unbounded payload, not a deep one.
-func projectFields(md protoreflect.MessageDescriptor, at string, enclosing []protoreflect.FullName) ([]*basev0.RunnableField, error) {
+func projectFields(md protoreflect.MessageDescriptor, at string, enclosing []protoreflect.FullName, budget *int) ([]*basev0.RunnableField, error) {
 	if slices.Contains(enclosing, md.FullName()) {
 		return nil, fmt.Errorf("%w: %s reaches %s again, and a recursive message has no bounded shape", ErrInvalid, at, md.FullName())
 	}
@@ -60,7 +69,10 @@ func projectFields(md protoreflect.MessageDescriptor, at string, enclosing []pro
 	descriptors := md.Fields()
 	fields := make([]*basev0.RunnableField, 0, descriptors.Len())
 	for i := 0; i < descriptors.Len(); i++ {
-		field, err := projectField(descriptors.Get(i), at, enclosing)
+		if *budget--; *budget < 0 {
+			return nil, fmt.Errorf("%w: %s projects more than %d fields; depth alone does not bound a message whose fields are themselves messages", ErrInvalid, at, MaxProjectionFields)
+		}
+		field, err := projectField(descriptors.Get(i), at, enclosing, budget)
 		if err != nil {
 			return nil, err
 		}
@@ -69,7 +81,7 @@ func projectFields(md protoreflect.MessageDescriptor, at string, enclosing []pro
 	return fields, nil
 }
 
-func projectField(fd protoreflect.FieldDescriptor, parent string, enclosing []protoreflect.FullName) (*basev0.RunnableField, error) {
+func projectField(fd protoreflect.FieldDescriptor, parent string, enclosing []protoreflect.FullName, budget *int) (*basev0.RunnableField, error) {
 	at := parent + "." + string(fd.Name())
 	// A proto3 optional field is a synthetic one-member oneof; only an authored
 	// oneof is a choice the profile has no shape for.
@@ -95,7 +107,7 @@ func projectField(fd protoreflect.FieldDescriptor, parent string, enclosing []pr
 		if strings.HasPrefix(string(fd.Message().FullName()), wellKnownPrefix) {
 			return nil, fmt.Errorf("%w: %s is %s, a well-known type the bounded profile has no representation for", ErrInvalid, at, fd.Message().FullName())
 		}
-		fields, err := projectFields(fd.Message(), at, enclosing)
+		fields, err := projectFields(fd.Message(), at, enclosing, budget)
 		if err != nil {
 			return nil, err
 		}

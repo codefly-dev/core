@@ -138,17 +138,65 @@ func TestPackageFromOpenAPIOperationAnswersAnUnmarkedRoute(t *testing.T) {
 	require.ErrorContains(t, err, applyTextRoute)
 }
 
-// TestPackageFromOpenAPIOperationAcceptsAHeaderParameter guards the edge of the
-// parameter rule: what the input must be free of is what would have to be
-// folded into the payload, and a header is carried by the transport.
-func TestPackageFromOpenAPIOperationAcceptsAHeaderParameter(t *testing.T) {
-	_, _, err := runnable.PackageFromOpenAPIOperation(
-		ingestionDocument(t, func(doc map[string]any) {
-			applyTextOperation(doc)["parameters"] = []any{
-				map[string]any{"name": "Idempotency-Key", "in": "header", "required": true},
-			}
-		}), ingestLocation(), ingestRestOwner(), "POST", ingestPath)
-	require.NoError(t, err)
+// TestPackageFromOpenAPIOperationReadsParameterLocationsAsAnAllowList states
+// the whole parameter rule, in both directions. The transport carries a header
+// and a cookie, so they are no part of the payload. Every other location names
+// an input — `body` and `formData` are how Swagger 2.0 spells a request body —
+// and denying only path and query would let those pass, dropping the
+// operation's own input from the contract without a word.
+func TestPackageFromOpenAPIOperationReadsParameterLocationsAsAnAllowList(t *testing.T) {
+	carrying := func(in string) ([]*basev0.RunnablePackage, error) {
+		_, _, err := runnable.PackageFromOpenAPIOperation(
+			ingestionDocument(t, func(doc map[string]any) {
+				applyTextOperation(doc)["parameters"] = []any{
+					map[string]any{"name": "extra", "in": in, "required": true},
+				}
+			}), ingestLocation(), ingestRestOwner(), "POST", ingestPath)
+		return nil, err
+	}
+	for _, carried := range []string{"header", "cookie"} {
+		t.Run("carried by the transport: "+carried, func(t *testing.T) {
+			_, err := carrying(carried)
+			require.NoError(t, err)
+		})
+	}
+	for _, input := range []string{"path", "query", "body", "formData", "nonsense", ""} {
+		t.Run("names an input: "+input, func(t *testing.T) {
+			_, err := carrying(input)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, `parameter "extra"`)
+		})
+	}
+}
+
+// TestParseOpenAPIDocumentRefusesSwaggerAsItself covers the document core's own
+// OpenAPICombinator still writes. Swagger 2.0 puts a request body in an
+// `in: body` parameter and a response schema on the response itself, so reading
+// one as OpenAPI 3 finds no request body and says so — pointing at the wrong
+// part of a document that plainly declares one.
+func TestParseOpenAPIDocumentRefusesSwaggerAsItself(t *testing.T) {
+	_, err := runnable.ParseOpenAPIDocument([]byte(`{"swagger":"2.0","paths":{},"definitions":{}}`))
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, `swagger "2.0"`)
+
+	for _, declared := range []string{`"openapi":"2.0"`, `"openapi":"4.0.0"`, `"openapi":""`} {
+		t.Run(declared, func(t *testing.T) {
+			_, err = runnable.ParseOpenAPIDocument([]byte(`{` + declared + `,"paths":{}}`))
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, "openapi")
+		})
+	}
+
+	// A document that declares no version at all is not an OpenAPI 3 one.
+	_, err = runnable.ParseOpenAPIDocument([]byte(`{"paths":{}}`))
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+
+	for _, declared := range []string{"3.0.3", "3.1.0", "3"} {
+		t.Run(declared, func(t *testing.T) {
+			_, parseErr := runnable.ParseOpenAPIDocument([]byte(`{"openapi":"` + declared + `","paths":{}}`))
+			require.NoError(t, parseErr)
+		})
+	}
 }
 
 // TestPackageFromOpenAPIOperationReadsAMediaTypeNotAString guards the edge of
@@ -203,15 +251,9 @@ func TestPackageFromOpenAPIOperationRefusesWhatABoundedContractCannotDescribe(t 
 		{name: "path item $ref", edit: func(doc map[string]any) {
 			pathItem(doc)["$ref"] = "#/components/pathItems/Ingest"
 		}, because: "$ref to another path item"},
-		{name: "path parameter", edit: func(doc map[string]any) {
-			applyTextOperation(doc)["parameters"] = []any{map[string]any{"name": "container", "in": "path"}}
-		}, because: `path parameter "container"`},
-		{name: "query parameter", edit: func(doc map[string]any) {
-			applyTextOperation(doc)["parameters"] = []any{map[string]any{"name": "dry_run", "in": "query"}}
-		}, because: `query parameter "dry_run"`},
 		{name: "inherited path parameter", edit: func(doc map[string]any) {
 			pathItem(doc)["parameters"] = []any{map[string]any{"name": "tenant", "in": "query"}}
-		}, because: `query parameter "tenant"`},
+		}, because: `"query" parameter "tenant"`},
 		{name: "$ref parameter", edit: func(doc map[string]any) {
 			applyTextOperation(doc)["parameters"] = []any{map[string]any{"$ref": "#/components/parameters/Tenant"}}
 		}, because: "$ref parameter"},

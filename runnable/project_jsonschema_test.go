@@ -326,3 +326,80 @@ func TestParseOpenAPIDocumentRejectsAMalformedSchema(t *testing.T) {
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "items is not a schema")
 }
+
+// TestProjectJSONSchemaRejectsARequiredNameItDoesNotDeclare covers a silent
+// drop: the object closes additionalProperties, so requiring a name it never
+// declares is unsatisfiable, and projecting it anyway would hand back a
+// contract that says nothing about a key the owner marked mandatory.
+func TestProjectJSONSchemaRejectsARequiredNameItDoesNotDeclare(t *testing.T) {
+	doc, err := runnable.ParseOpenAPIDocument([]byte(document(
+		`"Root":{"type":"object","additionalProperties":false,"properties":{"a":{"type":"string"}},"required":["a","ghost"]}`)))
+	require.NoError(t, err)
+	_, err = runnable.ProjectJSONSchema(doc, &runnable.JSONSchema{Ref: "#/components/schemas/Root"})
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, `requires "ghost"`)
+}
+
+// TestBothProjectionsBoundTotalFields is the bound depth does not give. A
+// payload whose members are themselves objects expands multiplicatively: at
+// twelve levels of fanout three, under three kilobytes of source describes
+// forty megabytes of schema, and sixteen levels exhausts memory before it
+// finishes. MaxProjectionDepth allows twice that nesting, so the field budget
+// is what actually stops it — in both readers, because there is one profile.
+func TestBothProjectionsBoundTotalFields(t *testing.T) {
+	const fanout = 3
+
+	fannedDocument := func(levels int) string {
+		schemas := make([]string, 0, levels+1)
+		for level := range levels {
+			members := make([]string, 0, fanout)
+			for f := range fanout {
+				members = append(members, fmt.Sprintf(`"p%d":{"$ref":"#/components/schemas/L%d"}`, f, level+1))
+			}
+			// No required list: a message-typed proto field has presence, so
+			// its key may be absent, and the transcription says so by omission.
+			schemas = append(schemas, fmt.Sprintf(`"L%d":{"type":"object","additionalProperties":false,"properties":{%s}}`,
+				level, strings.Join(members, ",")))
+		}
+		schemas = append(schemas, fmt.Sprintf(`"L%d":`+object(`"leaf":{"type":"string"}`), levels))
+		return document(schemas...)
+	}
+
+	fannedMessages := func(levels int) []*descriptorpb.DescriptorProto {
+		messages := make([]*descriptorpb.DescriptorProto, 0, levels+1)
+		for level := range levels {
+			members := make([]*descriptorpb.FieldDescriptorProto, 0, fanout)
+			for f := range fanout {
+				members = append(members, named(fmt.Sprintf("p%d", f), int32(f+1), tMessage, fmt.Sprintf(".fanout.L%d", level+1)))
+			}
+			messages = append(messages, message(fmt.Sprintf("L%d", level), members...))
+		}
+		return append(messages, message(fmt.Sprintf("L%d", levels), scalar("leaf", 1, tString)))
+	}
+
+	// Twelve levels is far past the budget and used to take 318ms and 40MB;
+	// sixteen never finished. Both readers now refuse it by name.
+	const past = 12
+	raw := fannedDocument(past)
+	require.Less(t, len(raw), 4096, "the source that describes the blowup is tiny")
+
+	doc, err := runnable.ParseOpenAPIDocument([]byte(raw))
+	require.NoError(t, err)
+	_, err = runnable.ProjectJSONSchema(doc, &runnable.JSONSchema{Ref: "#/components/schemas/L0"})
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, fmt.Sprintf("more than %d fields", runnable.MaxProjectionFields))
+
+	_, err = projected(t, fileSpec{name: "fanout.proto", pkg: "fanout", messages: fannedMessages(past)}, "L0")
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, fmt.Sprintf("more than %d fields", runnable.MaxProjectionFields))
+
+	// A schema that fits the budget still projects, through both readers.
+	const within = 6
+	doc, err = runnable.ParseOpenAPIDocument([]byte(fannedDocument(within)))
+	require.NoError(t, err)
+	fromOpenAPI, err := runnable.ProjectJSONSchema(doc, &runnable.JSONSchema{Ref: "#/components/schemas/L0"})
+	require.NoError(t, err)
+	fromProto, err := projected(t, fileSpec{name: "small.proto", pkg: "fanout", messages: fannedMessages(within)}, "L0")
+	require.NoError(t, err)
+	require.True(t, proto.Equal(fromProto, fromOpenAPI), "the two readers disagree on a fanned payload")
+}
