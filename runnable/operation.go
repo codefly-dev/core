@@ -38,6 +38,17 @@ const (
 	// ReadOnlyScopeAction is the one action a lookup scope may carry: reading
 	// an effect receipt is the whole of what recovery is allowed to do.
 	ReadOnlyScopeAction = "read"
+	// MaxAudienceLength bounds the trust boundary name.
+	MaxAudienceLength = 512
+	// MaxScopes, MaxScopeActions and MaxScopeResourceIds bound one scope set.
+	MaxScopes           = 64
+	MaxScopeActions     = 256
+	MaxScopeResourceIds = 256
+	// MaxScopeKindLength, MaxScopeActionLength and MaxScopeResourceIdLength
+	// bound the individual values of a scope.
+	MaxScopeKindLength       = 128
+	MaxScopeActionLength     = 128
+	MaxScopeResourceIdLength = 512
 )
 
 // ErrNotAnOperation is returned for a method that does not carry the
@@ -86,9 +97,15 @@ type OperationSpec struct {
 }
 
 // ServiceOwner is the published service a derived operation is reached on: the
-// facts the method descriptor does not carry. The module, workspace, name and
-// version come from the release identity the caller passes.
+// facts the method descriptor does not carry. The release's own workspace, name
+// and version come from the identity the caller passes.
 type ServiceOwner struct {
+	// Module is the owner service's module, named as an Endpoint's module is.
+	// It is stated rather than taken from the release identity: a runnable's
+	// module is where its declaration lives, which need not be where the
+	// service publishing the method lives, and a binding resolves this one
+	// against the Endpoint.
+	Module string
 	// Service is the owner service, named as an Endpoint's service is.
 	Service string
 	// Endpoint is the endpoint the method is published on.
@@ -113,6 +130,32 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 	if method.IsStreamingClient() || method.IsStreamingServer() {
 		return nil, fmt.Errorf("%w: %s streams, and a Runnable operation is one finite call with one input and one output", ErrInvalid, full)
 	}
+	// The option's presence is the marking, but every policy field is required:
+	// an attempt budget and an authority nobody chose are not defaults core may
+	// invent on an owner's behalf.
+	if proto.Equal(declared, &runnablev0.Operation{}) {
+		return nil, fmt.Errorf("%w: %s carries the operation option but declares no execution policy; the option marks the method and its fields state how it runs", ErrInvalid, full)
+	}
+	// AsDuration saturates a Duration outside its valid range instead of
+	// reporting it, so an unreadable value would silently become 292 years.
+	for _, declaredDuration := range []struct {
+		field string
+		value *durationpb.Duration
+	}{
+		{"attempt_timeout", declared.GetAttemptTimeout()},
+		{"total_timeout", declared.GetTotalTimeout()},
+		{"backoff", declared.GetBackoff()},
+	} {
+		if declaredDuration.value == nil {
+			continue
+		}
+		if err := declaredDuration.value.CheckValid(); err != nil {
+			return nil, fmt.Errorf("%w: %s %s is not a valid duration: %v", ErrInvalid, full, declaredDuration.field, err)
+		}
+	}
+	if err := validateLookupMethod(method, full, declared.GetLookupMethod()); err != nil {
+		return nil, err
+	}
 	spec := &OperationSpec{
 		Method:         full,
 		AttemptTimeout: declared.GetAttemptTimeout().AsDuration(),
@@ -129,6 +172,36 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 		return nil, err
 	}
 	return spec, nil
+}
+
+// validateLookupMethod ties the declared receipt lookup to a method that
+// actually exists beside the operation. Whether it takes the effect id is not
+// a descriptor fact — document-store carries it in call metadata — so what is
+// checkable is checked: the same service publishes it, it is unary, and it is
+// not the operation itself. That last one is the point: a package declaring
+// RECOVERY_RECEIPT says an uncertain outcome is resolved by reading the
+// receipt and never by re-running, and naming the operation as its own lookup
+// would make recovery repeat the effect it exists to avoid repeating.
+func validateLookupMethod(method protoreflect.MethodDescriptor, full, lookup string) error {
+	if lookup == "" {
+		return nil
+	}
+	if lookup == full {
+		return fmt.Errorf("%w: %s names itself as its lookup method, so recovering an uncertain outcome would re-run the effect", ErrInvalid, full)
+	}
+	service, published := method.Parent().(protoreflect.ServiceDescriptor)
+	prefix := "/" + string(method.Parent().FullName()) + "/"
+	if !published || !strings.HasPrefix(lookup, prefix) {
+		return fmt.Errorf("%w: %s declares lookup method %q, which %s does not publish; a receipt lookup is a method on the same service", ErrInvalid, full, lookup, method.Parent().FullName())
+	}
+	paired := service.Methods().ByName(protoreflect.Name(strings.TrimPrefix(lookup, prefix)))
+	if paired == nil {
+		return fmt.Errorf("%w: %s declares lookup method %q, which %s does not publish", ErrInvalid, full, lookup, service.FullName())
+	}
+	if paired.IsStreamingClient() || paired.IsStreamingServer() {
+		return fmt.Errorf("%w: %s declares lookup method %q, which streams; a receipt is one answer", ErrInvalid, full, lookup)
+	}
+	return nil
 }
 
 // clonedScopes copies the option's scopes out of the descriptor: a spec is
@@ -173,6 +246,9 @@ func (s *OperationSpec) Validate() error {
 		}
 		seen[name] = struct{}{}
 	}
+	if !boundedScopeValue(s.Audience, MaxAudienceLength) {
+		return fmt.Errorf("%w: %s audience %q is not a trust boundary the runtime can mint authority for", ErrInvalid, s.Method, s.Audience)
+	}
 	if err := s.validateScopes("invoke_scopes", s.InvokeScopes); err != nil {
 		return err
 	}
@@ -190,22 +266,58 @@ func (s *OperationSpec) Validate() error {
 	return nil
 }
 
+// validateScopes applies the bounds the runtime applies when it installs the
+// authority. An unauthorized operation is not a lenient one: with no audience
+// and no scopes there is nothing to mint a child capability from, and the
+// runtime refuses the installation rather than calling without authority.
 func (s *OperationSpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) error {
+	if len(scopes) == 0 || len(scopes) > MaxScopes {
+		return fmt.Errorf("%w: %s declares %d %s; between 1 and %d are required", ErrInvalid, s.Method, len(scopes), at, MaxScopes)
+	}
 	kinds := make(map[string]struct{}, len(scopes))
 	for _, scope := range scopes {
 		kind := scope.GetResourceKind()
-		if kind == "" {
-			return fmt.Errorf("%w: %s declares a %s entry with no resource kind", ErrInvalid, s.Method, at)
-		}
-		if len(scope.GetActions()) == 0 {
-			return fmt.Errorf("%w: %s %s scope %q names no action", ErrInvalid, s.Method, at, kind)
+		if !boundedScopeValue(kind, MaxScopeKindLength) {
+			return fmt.Errorf("%w: %s declares a %s entry whose resource kind %q is not a usable name", ErrInvalid, s.Method, at, kind)
 		}
 		if _, exists := kinds[kind]; exists {
 			return fmt.Errorf("%w: %s declares %s scope %q twice", ErrInvalid, s.Method, at, kind)
 		}
 		kinds[kind] = struct{}{}
+		if len(scope.GetActions()) == 0 || len(scope.GetActions()) > MaxScopeActions {
+			return fmt.Errorf("%w: %s %s scope %q names %d actions; between 1 and %d are required", ErrInvalid, s.Method, at, kind, len(scope.GetActions()), MaxScopeActions)
+		}
+		if len(scope.GetResourceIds()) > MaxScopeResourceIds {
+			return fmt.Errorf("%w: %s %s scope %q names %d resource ids; at most %d may be declared", ErrInvalid, s.Method, at, kind, len(scope.GetResourceIds()), MaxScopeResourceIds)
+		}
+		if err := s.validateScopeValues(at, kind, "action", scope.GetActions(), MaxScopeActionLength); err != nil {
+			return err
+		}
+		if err := s.validateScopeValues(at, kind, "resource id", scope.GetResourceIds(), MaxScopeResourceIdLength); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func (s *OperationSpec) validateScopeValues(at, kind, what string, values []string, bound int) error {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !boundedScopeValue(value, bound) {
+			return fmt.Errorf("%w: %s %s scope %q names %s %q, which is not a usable value", ErrInvalid, s.Method, at, kind, what, value)
+		}
+		if _, exists := seen[value]; exists {
+			return fmt.Errorf("%w: %s %s scope %q names %s %q twice", ErrInvalid, s.Method, at, kind, what, value)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+// boundedScopeValue mirrors the runtime's own admission of a scope string: a
+// value it would refuse is a value this must not generate.
+func boundedScopeValue(value string, bound int) bool {
+	return value != "" && len(value) <= bound && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n\t")
 }
 
 // scopeContained applies the Work Context attenuation rule: a child may narrow
@@ -309,7 +421,7 @@ func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableL
 			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
 		},
 		ServiceOperations: []*basev0.RunnableServiceOperation{{
-			Module:        identity.GetModule(),
+			Module:        owner.Module,
 			Name:          owner.Service,
 			Endpoint:      owner.Endpoint,
 			Operation:     spec.Method,

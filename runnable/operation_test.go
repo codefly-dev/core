@@ -1,6 +1,7 @@
 package runnable_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -57,15 +58,24 @@ func ingestion(declared *runnablev0.Operation, methods ...*descriptorpb.MethodDe
 		scalar("skipped", 5, tBool),
 		scalar("quarantined", 6, tBool),
 	)
+	lookupRequest := message("LookupTextRequest", named("original", 1, tMessage, ".documents.ingest.v1.ApplyTextRequest"))
+	lookupResponse := message("LookupTextResponse",
+		scalar("found", 1, tBool),
+		named("result", 2, tMessage, ".documents.ingest.v1.ApplyTextResponse"),
+	)
 	if len(methods) == 0 {
 		methods = []*descriptorpb.MethodDescriptorProto{operationMethod("ApplyText",
 			".documents.ingest.v1.ApplyTextRequest", ".documents.ingest.v1.ApplyTextResponse", declared)}
 	}
+	// The paired receipt lookup is part of every fixture: an operation naming a
+	// lookup its service does not publish is now rejected, as it should be.
+	methods = append(methods, operationMethod("LookupText",
+		".documents.ingest.v1.LookupTextRequest", ".documents.ingest.v1.LookupTextResponse", nil))
 	return fileSpec{
 		name:     "documents/ingest/v1/ingestion.proto",
 		pkg:      "documents.ingest.v1",
 		imports:  []string{"codefly/runnable/v0/options.proto"},
-		messages: []*descriptorpb.DescriptorProto{request, response},
+		messages: []*descriptorpb.DescriptorProto{request, response, lookupRequest, lookupResponse},
 		services: []*descriptorpb.ServiceDescriptorProto{service("IngestionService", methods...)},
 	}
 }
@@ -85,6 +95,7 @@ func ingestLocation() *resources.RunnableLocation {
 
 func ingestOwner() runnable.ServiceOwner {
 	return runnable.ServiceOwner{
+		Module:   "documents",
 		Service:  "runtime-worker",
 		Endpoint: "grpc",
 		Agent:    &basev0.Agent{Kind: basev0.Agent_SERVICE, Name: "go", Version: "0.0.48", Publisher: "codefly.dev"},
@@ -229,8 +240,8 @@ func TestOperationFromMethodEnforcesThePolicyBounds(t *testing.T) {
 		{"unknown retryable code", func(o *runnablev0.Operation) { o.RetryableCodes = []string{"FLAKY"} }, `"FLAKY"`},
 		{"lowercase retryable code", func(o *runnablev0.Operation) { o.RetryableCodes = []string{"unavailable"} }, `"unavailable"`},
 		{"repeated retryable code", func(o *runnablev0.Operation) { o.RetryableCodes = []string{"UNAVAILABLE", "UNAVAILABLE"} }, "twice"},
-		{"scope without a kind", func(o *runnablev0.Operation) { o.InvokeScopes = []*basev0.WorkScopeV1{{Actions: []string{"ingest"}}} }, "no resource kind"},
-		{"scope without an action", func(o *runnablev0.Operation) { o.InvokeScopes = documents() }, "names no action"},
+		{"scope without a kind", func(o *runnablev0.Operation) { o.InvokeScopes = []*basev0.WorkScopeV1{{Actions: []string{"ingest"}}} }, "is not a usable name"},
+		{"scope without an action", func(o *runnablev0.Operation) { o.InvokeScopes = documents() }, "names 0 actions"},
 		{"scope declared twice", func(o *runnablev0.Operation) {
 			o.InvokeScopes = append(o.InvokeScopes, &basev0.WorkScopeV1{ResourceKind: "documents", Actions: []string{"read"}})
 		}, "twice"},
@@ -250,6 +261,37 @@ func TestOperationFromMethodEnforcesThePolicyBounds(t *testing.T) {
 		{"lookup scope widens a narrowed set", func(o *runnablev0.Operation) {
 			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one"}}}
 		}, "not covered"},
+		// The runtime refuses to install an operation with no audience and no
+		// scopes, so a descriptor declaring none must not generate one.
+		{"no audience", func(o *runnablev0.Operation) { o.Audience = "" }, "audience"},
+		{"untrimmed audience", func(o *runnablev0.Operation) { o.Audience = " documents.ingestion " }, "audience"},
+		{"overlong audience", func(o *runnablev0.Operation) { o.Audience = strings.Repeat("a", runnable.MaxAudienceLength+1) }, "audience"},
+		{"no invoke scopes", func(o *runnablev0.Operation) { o.InvokeScopes = nil }, "declares 0 invoke_scopes"},
+		{"no lookup scopes", func(o *runnablev0.Operation) { o.LookupScopes = nil }, "declares 0 lookup_scopes"},
+		{"too many scopes", func(o *runnablev0.Operation) {
+			o.InvokeScopes = make([]*basev0.WorkScopeV1, 0, runnable.MaxScopes+1)
+			for i := range runnable.MaxScopes + 1 {
+				o.InvokeScopes = append(o.InvokeScopes, &basev0.WorkScopeV1{ResourceKind: fmt.Sprintf("kind-%d", i), Actions: []string{"read"}})
+			}
+		}, "invoke_scopes"},
+		{"blank action", func(o *runnablev0.Operation) { o.InvokeScopes = documents("ingest", "read", " ") }, `action " "`},
+		{"action with a newline", func(o *runnablev0.Operation) { o.InvokeScopes = documents("ingest", "read", "a\nb") }, "not a usable value"},
+		{"repeated action", func(o *runnablev0.Operation) { o.InvokeScopes = documents("ingest", "read", "read") }, "twice"},
+		{"too many resource ids", func(o *runnablev0.Operation) {
+			ids := make([]string, 0, runnable.MaxScopeResourceIds+1)
+			for i := range runnable.MaxScopeResourceIds + 1 {
+				ids = append(ids, fmt.Sprintf("doc-%d", i))
+			}
+			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: ids}}
+		}, "resource ids"},
+		{"repeated resource id", func(o *runnablev0.Operation) {
+			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one", "one"}}}
+		}, "twice"},
+		// AsDuration saturates instead of reporting, so an unreadable duration
+		// used to become 292 years.
+		{"unreadable duration", func(o *runnablev0.Operation) {
+			o.TotalTimeout = &durationpb.Duration{Seconds: 999999999999999}
+		}, "is not a valid duration"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			declared := declaredOperation()
@@ -325,4 +367,83 @@ func TestOperationFromMethodRequiresADescriptor(t *testing.T) {
 	_, err := runnable.OperationFromMethod(nil)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.True(t, strings.Contains(err.Error(), "method descriptor is required"))
+}
+
+// TestOperationFromMethodValidatesThePairedLookupMethod guards the one
+// declaration that, wrong, makes recovery repeat the effect it exists to avoid.
+func TestOperationFromMethodValidatesThePairedLookupMethod(t *testing.T) {
+	for _, test := range []struct {
+		name, lookup, because string
+	}{
+		{"itself", applyText, "names itself as its lookup method"},
+		{"another service", "/somewhere.Else/Entirely", "does not publish"},
+		{"a bare method name", "LookupText", "does not publish"},
+		{"a method the service does not publish", "/documents.ingest.v1.IngestionService/DoesNotExist", "does not publish"},
+		{"whitespace", "   ", "does not publish"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			declared := declaredOperation()
+			declared.LookupMethod = test.lookup
+			_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, test.because)
+		})
+	}
+
+	// A streaming lookup cannot answer with one receipt.
+	streaming := operationMethod("LookupText", ".documents.ingest.v1.LookupTextRequest", ".documents.ingest.v1.LookupTextResponse", nil)
+	streaming.ServerStreaming = proto.Bool(true)
+	spec := ingestion(declaredOperation())
+	spec.services[0].Method[1] = streaming
+	_, _, err := runnable.PackageFromMethod(registry(t, compile(t, spec)), ingestLocation(), ingestOwner(), applyText)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "which streams")
+
+	// An empty lookup method leaves the answer to the SDK's generic lookup.
+	declared := declaredOperation()
+	declared.LookupMethod = ""
+	_, got, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+	require.NoError(t, err)
+	require.Empty(t, got.LookupMethod)
+}
+
+func TestOperationFromMethodRejectsAnEmptyPolicy(t *testing.T) {
+	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, &runnablev0.Operation{}), ingestLocation(), ingestOwner(), applyText)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "declares no execution policy")
+}
+
+// TestPackageFromMethodNamesTheOwnerServiceModule keeps the published method's
+// module the owner's own: it is resolved against that service's Endpoint, and a
+// runnable declared in another module would name a service no binding can find.
+func TestPackageFromMethodNamesTheOwnerServiceModule(t *testing.T) {
+	location := ingestLocation()
+	location.Identity.Module = "ingestion"
+	pkg, _, err := runnable.PackageFromMethod(ingestionFiles(t, declaredOperation()), location, ingestOwner(), applyText)
+	require.NoError(t, err)
+	require.Equal(t, "ingestion", pkg.GetIdentity().GetModule())
+	require.Equal(t, "documents", pkg.GetServiceOperations()[0].GetModule())
+}
+
+// TestPackageFromMethodRejectsAWellKnownPayload covers the payload itself, not
+// just its fields: a Timestamp reads as two integers and an Empty as an object
+// with no keys, either of which is a contract that misdescribes the wire.
+func TestPackageFromMethodRejectsAWellKnownPayload(t *testing.T) {
+	for _, wellKnown := range []string{
+		".google.protobuf.Empty",
+		".google.protobuf.Timestamp",
+		".google.protobuf.Duration",
+		".google.protobuf.StringValue",
+	} {
+		t.Run(wellKnown, func(t *testing.T) {
+			spec := ingestion(declaredOperation())
+			spec.imports = append(spec.imports, "google/protobuf/empty.proto", "google/protobuf/timestamp.proto",
+				"google/protobuf/duration.proto", "google/protobuf/wrappers.proto")
+			spec.services[0].Method[0].OutputType = proto.String(wellKnown)
+			_, _, err := runnable.PackageFromMethod(registry(t, compile(t, spec)), ingestLocation(), ingestOwner(), applyText)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, "payload "+strings.TrimPrefix(wellKnown, "."))
+			require.ErrorContains(t, err, "well-known type")
+		})
+	}
 }

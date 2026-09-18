@@ -341,12 +341,24 @@ would make re-registering an unchanged contract read as a conflict. Core
 validates them and hands them back: the method must be unary (a streaming
 method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
 least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
-`retryable_codes`, each a `google.rpc.Code` name and named once — the bounds the
-orchestration runtime enforces at installation, restated here so a descriptor
-that generates is a descriptor that installs. `lookup_scopes` must be a subset
-of `invoke_scopes` under the Work Context attenuation rule and read-only
-(exactly `read`): recovering an outcome never carries more authority than
-producing it did.
+`retryable_codes`, each a `google.rpc.Code` name and named once; `audience` and
+both scope sets are required and carry the runtime's own value bounds — the
+bounds the orchestration runtime enforces at installation, restated here so a
+descriptor that generates is a descriptor that installs. An operation with no
+audience and no scopes is not a lenient one: there is nothing to mint a child
+capability from, and the runtime refuses the installation rather than calling
+without authority. `lookup_scopes` must be a subset of `invoke_scopes` under
+the Work Context attenuation rule and read-only (exactly `read`): recovering an
+outcome never carries more authority than producing it did.
+
+`lookup_method` is optional — empty leaves the answer to the SDK's generic
+receipt lookup — but when set it must name a unary method the *same* service
+publishes, and it may not name the operation itself. A package declaring
+`recovery: receipt` says an uncertain outcome is resolved by reading the
+receipt and never by re-running, so an operation that is its own lookup would
+make recovery repeat the effect it exists to avoid repeating. The option's
+presence is the marking; its policy fields are required, and an empty option is
+rejected rather than filled in with an attempt budget nobody chose.
 
 ### The projection
 
@@ -369,6 +381,13 @@ is fixed once in the `.proto` and stays fixed, whereas coercing one would put a
 representation on the wire that neither the owner nor the runtime agreed to. An
 array's items carry neither the field's name nor its optionality — an element is
 present or the list is shorter.
+
+The well-known-type rule covers the payload itself and not only its fields: a
+method taking or returning `google.protobuf.Timestamp` would otherwise derive a
+contract of `{seconds, nanos}`, and one returning `google.protobuf.Empty` a
+contract with no keys at all. `optional` reads the field's presence, except that
+a *required* field (proto2, or editions `LEGACY_REQUIRED`) keeps its key: it
+tracks presence, but it is never absent.
 
 Core owns the option, the projection and the builder. The generator that walks
 a service and writes the results out is the CLI's (`codefly generate

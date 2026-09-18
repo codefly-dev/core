@@ -6,8 +6,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
@@ -182,4 +188,47 @@ func TestProjectMessageRejectsRecursionAndExcessiveDepth(t *testing.T) {
 func TestProjectMessageRequiresADescriptor(t *testing.T) {
 	_, err := runnable.ProjectMessage(nil)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
+}
+
+// TestProjectMessageRejectsAWellKnownPayload covers the root message, which the
+// per-field guard never sees: google.protobuf.Timestamp projects into two
+// integers just as happily at the payload as nested, and the wrappers project
+// into a single-key object.
+func TestProjectMessageRejectsAWellKnownPayload(t *testing.T) {
+	for _, wellKnown := range []protoreflect.MessageDescriptor{
+		(&timestamppb.Timestamp{}).ProtoReflect().Descriptor(),
+		(&durationpb.Duration{}).ProtoReflect().Descriptor(),
+		(&emptypb.Empty{}).ProtoReflect().Descriptor(),
+		(&wrapperspb.StringValue{}).ProtoReflect().Descriptor(),
+		(&wrapperspb.BoolValue{}).ProtoReflect().Descriptor(),
+		(&wrapperspb.Int64Value{}).ProtoReflect().Descriptor(),
+	} {
+		t.Run(string(wellKnown.FullName()), func(t *testing.T) {
+			_, err := runnable.ProjectMessage(wellKnown)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, "payload "+string(wellKnown.FullName()))
+		})
+	}
+}
+
+// TestProjectMessageKeepsARequiredKeyPresent guards the inverse reading of
+// presence: proto2 required and editions LEGACY_REQUIRED track presence, but
+// their key is never absent.
+func TestProjectMessageKeepsARequiredKeyPresent(t *testing.T) {
+	required := scalar("id", 1, tString)
+	required.Label = descriptorpb.FieldDescriptorProto_LABEL_REQUIRED.Enum()
+	fd := fileSpec{name: "legacy.proto", pkg: "legacy", messages: []*descriptorpb.DescriptorProto{
+		message("Root", required, scalar("note", 2, tString)),
+	}}.proto()
+	fd.Syntax = proto.String("proto2")
+	file, err := protodesc.NewFile(fd, protoregistry.GlobalFiles)
+	require.NoError(t, err)
+
+	schema, err := runnable.ProjectMessage(file.Messages().ByName("Root"))
+	require.NoError(t, err)
+	require.True(t, proto.Equal(&basev0.RunnableSchema{Fields: []*basev0.RunnableField{
+		{Name: "id", Type: basev0.RunnableField_STRING},
+		// proto2 optional does have an absent key.
+		{Name: "note", Type: basev0.RunnableField_STRING, Optional: true},
+	}}, schema), "projected %v", schema)
 }

@@ -29,6 +29,11 @@ const (
 // executed. Policy and authority are installed with the binding, so they are
 // deliberately not part of the package the method derives: the package is the
 // contract, and two installations of it may run under different policies.
+//
+// The option's presence is the marking; every field below except lookup_method
+// is required. An attempt budget and an authority nobody chose are not defaults
+// core may invent on an owner's behalf, so an empty option is rejected rather
+// than filled in.
 type Operation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// attempt_timeout bounds one attempt.
@@ -52,8 +57,9 @@ type Operation struct {
 	// never carries more authority than producing it did.
 	LookupScopes []*v0.WorkScopeV1 `protobuf:"bytes,8,rep,name=lookup_scopes,json=lookupScopes,proto3" json:"lookup_scopes,omitempty"`
 	// lookup_method is a paired method on the same service that takes the effect
-	// id and answers with the receipt. Empty leaves the answer to the SDK's
-	// generic receipt lookup.
+	// id and answers with the receipt, spelled "/package.Service/Method". Empty
+	// leaves the answer to the SDK's generic receipt lookup. It may not name the
+	// operation itself: recovery reads the receipt and never re-runs the effect.
 	LookupMethod  string `protobuf:"bytes,9,opt,name=lookup_method,json=lookupMethod,proto3" json:"lookup_method,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

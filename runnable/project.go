@@ -33,6 +33,12 @@ func ProjectMessage(md protoreflect.MessageDescriptor) (*basev0.RunnableSchema, 
 	if md == nil {
 		return nil, fmt.Errorf("%w: message descriptor is required", ErrInvalid)
 	}
+	// A well-known type is no more projectable as the payload than as a field:
+	// a Timestamp reads as two integers and an Empty as an object with no keys,
+	// and either one lands a contract that misdescribes the wire.
+	if strings.HasPrefix(string(md.FullName()), wellKnownPrefix) {
+		return nil, fmt.Errorf("%w: payload %s is a well-known type the bounded profile has no representation for", ErrInvalid, md.FullName())
+	}
 	fields, err := projectFields(md, string(md.FullName()), nil)
 	if err != nil {
 		return nil, err
@@ -103,6 +109,9 @@ func projectField(fd protoreflect.FieldDescriptor, parent string, enclosing []pr
 		return &basev0.RunnableField{Name: string(fd.Name()), Type: basev0.RunnableField_ARRAY, Items: value}, nil
 	}
 	value.Name = string(fd.Name())
-	value.Optional = fd.HasPresence()
+	// A required field tracks presence but its key is never absent, so reading
+	// presence alone would mark proto2 required and editions LEGACY_REQUIRED
+	// fields omissible — the inverse of what they declare.
+	value.Optional = fd.HasPresence() && fd.Cardinality() != protoreflect.Required
 	return value, nil
 }
