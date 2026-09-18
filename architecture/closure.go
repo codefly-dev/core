@@ -193,18 +193,30 @@ func (closure *Closure) moduleReference(name string) *resources.ModuleReference 
 	return nil
 }
 
-// Verify rejects a closure that cannot be executed: a node the walk reached but
-// could not resolve, a dependency cycle, or a dependency onto an endpoint the
-// producer's visibility does not grant the consumer's module.
-func (closure *Closure) Verify(ctx context.Context) error {
+// Verify rejects a closure that cannot be executed for the given phase: a node
+// the walk reached but could not resolve, a dependency cycle, or a dependency
+// onto an endpoint the producer's visibility does not grant the consumer's
+// module.
+//
+// The phase is what scopes the visibility verdict. The walk follows every
+// declared edge whatever stage its kind constrains, so judging them all would
+// make an edge's verdict depend on company: a build input onto a private
+// endpoint would fail a run whenever the walk happened to reach its consumer,
+// and pass when it did not. Each edge is judged by the phase that traverses it.
+func (closure *Closure) Verify(ctx context.Context, phase resources.Phase) error {
 	w := wool.Get(ctx).In("architecture.Closure.Verify", wool.NameField(closure.Target))
+	if err := phase.Validate(); err != nil {
+		return w.Wrap(err)
+	}
 	if err := closure.unresolvedError(ctx); err != nil {
 		return err
 	}
 	if _, err := closure.graph.TopologicalSort(); err != nil {
 		return w.Wrapf(err, "cannot order the closure of <%s>", closure.Target)
 	}
-	return verifyVisibility(ctx, closure.services)
+	return verifyVisibility(ctx, closure.services, func(dep *resources.ServiceDependency) bool {
+		return dep.Kind.ConstrainsPhase(phase)
+	})
 }
 
 func (closure *Closure) unresolvedError(ctx context.Context) error {

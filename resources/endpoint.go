@@ -661,6 +661,75 @@ func SelectServiceDependencyEndpoints(service *ServiceDependency, endpoints []*b
 	return resolveServiceDependencyEndpoints(service, endpoints, false)
 }
 
+// dependencyEndpointVerdicts selects the endpoints a dependency consumes and
+// judges each against the consuming module, returning the permitted ones and
+// the reasons the rest were refused. It is the one body behind every "may this
+// consumer depend on this endpoint" answer in the codebase.
+func dependencyEndpointVerdicts(consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, []error, error) {
+	resolved, err := SelectServiceDependencyEndpoints(dependency, endpoints)
+	if err != nil {
+		return nil, nil, err
+	}
+	var permitted []*basev0.Endpoint
+	var denials []error
+	for _, endpoint := range resolved {
+		if err := ValidateEndpointVisibility(consumerModule, endpoint.Module, dependency.Name, endpoint.Name, endpoint.Visibility, endpoint.AllowModules); err != nil {
+			denials = append(denials, err)
+			continue
+		}
+		permitted = append(permitted, endpoint)
+	}
+	return permitted, denials, nil
+}
+
+// PermittedDependencyEndpoints returns what a consumer ends up wired to: the
+// endpoints of the dependency its module may receive, with the rest dropped. It
+// passes no judgement on the edge itself — ConsumedDependencyEndpoints is the
+// same selection with the verdict attached — so a description of a composition
+// that will not run still says what it would have carried.
+func PermittedDependencyEndpoints(consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	permitted, _, err := dependencyEndpointVerdicts(consumerModule, dependency, endpoints)
+	return permitted, err
+}
+
+// ConsumedDependencyEndpoints returns the producer endpoints a dependency
+// consumes, refusing the edge when the consuming module may not have them. It
+// is the single answer to "may this consumer depend on this endpoint": the
+// static passes and every path that hands a consumer an address resolve through
+// it, so a composition validation refuses can never be one a run resolves.
+//
+// A dependency that names endpoints consumes exactly those, and naming one the
+// producer does not grant is an error naming that endpoint: the consumer's
+// author asked for it, so dropping it would leave their SDK missing a declared
+// accessor with nothing to explain why. A dependency that names none consumes
+// "all", which can only mean all it is permitted — otherwise a producer adding
+// one private endpoint breaks every consumer that did not enumerate, and
+// changes their SDK surface from the outside. Being permitted none of them is
+// still a violation: the edge is declared and the producer's export boundary
+// grants nothing for it, so resolving it to an empty set would leave the
+// consumer silently unwired.
+func ConsumedDependencyEndpoints(consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	permitted, denials, err := dependencyEndpointVerdicts(consumerModule, dependency, endpoints)
+	if err != nil {
+		return nil, err
+	}
+	if len(denials) == 0 {
+		return permitted, nil
+	}
+	if len(dependency.Endpoints) != 0 {
+		return nil, denials[0]
+	}
+	if len(permitted) > 0 {
+		return permitted, nil
+	}
+	reasons := make([]string, 0, len(denials))
+	for _, denial := range denials {
+		reasons = append(reasons, denial.Error())
+	}
+	return nil, fmt.Errorf("service dependency %s names no endpoint and none of the endpoints it would consume permit module %q: %s",
+		dependency.Unique(), consumerModule, strings.Join(reasons, "; "))
+}
+
 func ValidateServiceDependencyEndpoints(dependency *ServiceDependency, endpoints []*basev0.Endpoint) error {
 	resolved, err := ResolveServiceDependencyEndpoints(dependency, endpoints)
 	if err != nil {

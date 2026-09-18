@@ -22,6 +22,11 @@ type ServiceDependencies struct {
 	graph           *DAG
 	uniqueToService map[string]*resources.Service
 	options         *DependencyOptions
+
+	// stage is the stage this view was restricted to, empty when it was not.
+	// It is what keeps a restricted view self-consistent: the same predicate
+	// that decided which edges order the stage decides which are judged.
+	stage resources.Stage
 }
 
 type DependencyOptions struct {
@@ -247,7 +252,9 @@ func (d *ServiceDependencies) ForStage(stage resources.Stage) (*ServiceDependenc
 	if err != nil {
 		return nil, err
 	}
-	return d.withGraph(g), nil
+	restricted := d.withGraph(g)
+	restricted.stage = stage
+	return restricted, nil
 }
 
 // StageOrder is the execution order for one stage of a phase.
@@ -298,6 +305,7 @@ func (d *ServiceDependencies) withGraph(g *DAG) *ServiceDependencies {
 		graph:           g,
 		uniqueToService: services,
 		options:         d.options.clone(),
+		stage:           d.stage,
 	}
 }
 

@@ -1,0 +1,11 @@
+kind: service
+name: app
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.16
+    publisher: codefly.ai
+service-dependencies:
+    - name: api
+      module: producer

@@ -424,16 +424,9 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 					}
 					return w.Wrap(err)
 				}
-				producerEndpoints := make([]*basev0.Endpoint, 0, len(producer.Endpoints))
-				for _, endpoint := range producer.Endpoints {
-					producerEndpoints = append(producerEndpoints, &basev0.Endpoint{
-						Module:       producerModule,
-						Service:      producer.Name,
-						Name:         endpoint.Name,
-						Api:          endpoint.API,
-						Visibility:   endpoint.Visibility,
-						AllowModules: endpoint.AllowModules,
-					})
+				producerEndpoints, err := producer.DependencyEndpoints()
+				if err != nil {
+					return w.Wrap(err)
 				}
 				if err := ValidateServiceDependencyEndpoints(dep, producerEndpoints); err != nil {
 					return w.Wrap(err)
@@ -441,17 +434,8 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 				if err := ValidateDependencyPrerequisite(dep, producerEndpoints); err != nil {
 					return w.Wrap(err)
 				}
-				if producerModule == mod.Name {
-					continue
-				}
-				consumed, err := ResolveServiceDependencyEndpoints(dep, producerEndpoints)
-				if err != nil {
+				if _, err := ConsumedDependencyEndpoints(mod.Name, dep, producerEndpoints); err != nil {
 					return w.Wrap(err)
-				}
-				for _, endpoint := range consumed {
-					if err := ValidateEndpointVisibility(mod.Name, producerModule, dep.Name, endpoint.Name, endpoint.Visibility, endpoint.AllowModules); err != nil {
-						return w.Wrap(err)
-					}
 				}
 			}
 		}

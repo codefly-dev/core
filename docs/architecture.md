@@ -274,3 +274,10 @@ dependencies that put them there, so an edge is judged by the stage that
 traverses it rather than by whichever modules happen to be loaded beside it. It
 shares its implementation with `Workspace.ValidateServiceDependencies`, which
 has no stage to scope to and so judges every declared edge.
+
+The same scoping rule governs the graph in `architecture`. A view restricted
+with `ServiceDependencies.ForStage` judges the edges that constrain that stage
+and an unrestricted one judges them all, and `Closure.Verify` takes the phase
+the plan is for — the closure walk follows every declared edge, so judging them
+all would make a build input's verdict depend on whether the walk happened to
+reach its consumer.

@@ -177,25 +177,11 @@ func ResolveDependencyNetworkMappings(consumerModule string, dependencies []*Ser
 		if !dependency.Kind.Participates(StageRun) {
 			continue
 		}
-		resolved, err := SelectServiceDependencyEndpoints(dependency, endpoints)
+		consumed, err := ConsumedDependencyEndpoints(consumerModule, dependency, endpoints)
 		if err != nil {
 			return nil, err
 		}
-		// Naming an endpoint the producer does not share is an error naming
-		// that endpoint, never a silent omission: the consumer's author asked
-		// for it, so dropping it would leave their SDK missing a declared
-		// accessor with nothing to explain why. A dependency that names none
-		// consumes "all", which can only mean all it is permitted — otherwise a
-		// producer adding one private endpoint breaks every consumer that did
-		// not enumerate, and changes their SDK surface from the outside.
-		for _, endpoint := range resolved {
-			err := ValidateEndpointVisibility(consumerModule, endpoint.Module, dependency.Name, endpoint.Name, endpoint.Visibility, endpoint.AllowModules)
-			if err != nil {
-				if len(dependency.Endpoints) == 0 {
-					continue
-				}
-				return nil, err
-			}
+		for _, endpoint := range consumed {
 			selected[EndpointDestination(endpoint)] = struct{}{}
 		}
 	}

@@ -85,3 +85,30 @@ func TestStaticAndRuntimeAgreeOnAllowedEdge(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{"public", "internal"}, names)
 }
+
+// The edge that diverged after #541: a dependency that names no endpoint. The
+// runtime kept the permitted endpoints and dropped the rest, while the static
+// pass judged every endpoint the producer declares and refused the same edge,
+// so the composition a run resolves correctly was the one validation rejected.
+func TestStaticAndRuntimeAgreeOnAnEdgeThatConsumesAll(t *testing.T) {
+	ctx := context.Background()
+	const dir = "testdata/workspaces/consumes-all-dependency-visibility"
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	require.NoError(t, workspace.ValidateServiceDependencies(ctx),
+		"a producer keeping one endpoint private must not break a consumer that did not enumerate")
+
+	consumer := loadService(ctx, t, dir, "platform", "api")
+	resolved, err := resources.ResolveDependencyNetworkMappings(
+		"platform",
+		consumer.ServiceDependencies,
+		runtimeMappingsFor(ctx, t, dir, "saas", "gateway"),
+	)
+	require.NoError(t, err)
+	names := make([]string, 0, len(resolved))
+	for _, mapping := range resolved {
+		names = append(names, mapping.GetEndpoint().GetName())
+	}
+	require.Equal(t, []string{"public"}, names, "the private endpoint is dropped, not consumed")
+}

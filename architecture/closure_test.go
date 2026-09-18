@@ -30,7 +30,7 @@ func TestSelectClosureIgnoresUnavailableUnrelatedModule(t *testing.T) {
 
 	closure, err := architecture.SelectClosure(ctx, workspace, "billing/accounts")
 	require.NoError(t, err)
-	require.NoError(t, closure.Verify(ctx))
+	require.NoError(t, closure.Verify(ctx, resources.PhaseRun))
 
 	order, err := closure.Order(ctx)
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestSelectClosureReportsUnavailableModuleOnAnEdge(t *testing.T) {
 	closure, err := architecture.SelectClosure(ctx, workspace, "web/portal")
 	require.NoError(t, err)
 
-	err = closure.Verify(ctx)
+	err = closure.Verify(ctx, resources.PhaseRun)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "vault/secrets")
 	require.Contains(t, err.Error(), "required by web/portal")
@@ -65,7 +65,7 @@ func TestSelectClosureReportsUncomposedModule(t *testing.T) {
 	closure, err := architecture.SelectClosure(ctx, workspace, "absent/service")
 	require.NoError(t, err)
 
-	err = closure.Verify(ctx)
+	err = closure.Verify(ctx, resources.PhaseRun)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "module <absent> is not composed in workspace <codefly-platform>")
 	require.Contains(t, err.Error(), resources.WorkspaceConfigurationName)
@@ -110,7 +110,7 @@ func TestSelectClosureEnforcesVisibility(t *testing.T) {
 	closure, err := architecture.SelectClosure(ctx, workspace, "web/portal")
 	require.NoError(t, err)
 
-	err = closure.Verify(ctx)
+	err = closure.Verify(ctx, resources.PhaseRun)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "web/portal")
 	require.Contains(t, err.Error(), "vault/secrets")
@@ -124,7 +124,7 @@ func TestSelectClosureEnforcesAcyclicity(t *testing.T) {
 	closure, err := architecture.SelectClosure(ctx, workspace, "loop/left")
 	require.NoError(t, err)
 
-	err = closure.Verify(ctx)
+	err = closure.Verify(ctx, resources.PhaseRun)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cycle")
 }
@@ -136,7 +136,7 @@ func TestSelectClosureFlatLayout(t *testing.T) {
 
 	closure, err := architecture.SelectClosure(ctx, workspace, "gateway")
 	require.NoError(t, err)
-	require.NoError(t, closure.Verify(ctx))
+	require.NoError(t, closure.Verify(ctx, resources.PhaseRun))
 
 	order, err := closure.Order(ctx)
 	require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestSelectClosureExcludesServices(t *testing.T) {
 	closure, err := architecture.SelectClosure(ctx, workspace, "api/orders",
 		architecture.ExcludeServices("data/postgres"))
 	require.NoError(t, err)
-	require.NoError(t, closure.Verify(ctx))
+	require.NoError(t, closure.Verify(ctx, resources.PhaseRun))
 
 	order, err := closure.Order(ctx)
 	require.NoError(t, err)

@@ -144,3 +144,40 @@ func TestResolveDependencyNetworkMappingsRejectsNilEndpoint(t *testing.T) {
 		t.Fatalf("nil endpoint must be rejected, got %v", err)
 	}
 }
+
+// Consuming "all" of a producer that permits none of it is not an empty
+// consumption, it is a declared edge the export boundary grants nothing for.
+// Resolving it to nothing would leave the consumer wired to a producer it can
+// never reach, with no address and no error to say why.
+func TestResolveDependencyNetworkMappingsRejectsConsumingAllWhenNothingIsPermitted(t *testing.T) {
+	deps := secretsDep() // no endpoint names -> consumes them all
+	mappings := []*basev0.NetworkMapping{
+		mappingOf("admin", resources.VisibilityPrivate),
+		mappingOf("ops", resources.VisibilityInternal, "platform"),
+	}
+
+	_, err := resources.ResolveDependencyNetworkMappings("web", deps, mappings)
+	if err == nil {
+		t.Fatal("a dependency permitted none of the producer's endpoints must fail")
+	}
+	for _, want := range []string{"names no endpoint", "admin", "ops", `module "web"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the error must carry %q, got %v", want, err)
+		}
+	}
+}
+
+// A producer that exports no endpoint at all is a different case: there is
+// nothing to permit, and whether the edge makes sense is the prerequisite
+// check's question, not visibility's.
+func TestResolveDependencyNetworkMappingsAllowsAnEndpointlessProducer(t *testing.T) {
+	deps := secretsDep()
+
+	resolved, err := resources.ResolveDependencyNetworkMappings("web", deps, nil)
+	if err != nil {
+		t.Fatalf("a producer with no endpoint must not fail visibility: %v", err)
+	}
+	if len(resolved) != 0 {
+		t.Fatalf("nothing can resolve, got %v", resolvedNames(resolved))
+	}
+}
