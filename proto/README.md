@@ -23,8 +23,7 @@ codefly generate proto --proto ./proto --output ./generated --local
 
 That regenerates the Go bindings into `core/generated/go/` (pinned codegen
 plugins + goimports). Commit the `.proto` change and the regenerated code
-together — `internal/protoguard` compiles these sources and fails the suite when
-the committed bindings no longer describe them.
+together.
 
 `--local` does not pin buf itself — it execs whatever `buf` is on `PATH`, so the
 output is reproducible only once that buf is the `Makefile`'s `BUF_VERSION`.
@@ -71,7 +70,9 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
   `internal/ciguard` holds equal to the workflow's and the companion's, and which
   no recipe may bypass with a literal version. A bare `buf` answers from whatever
   is on `PATH`, which is not the buf deciding whether the schema lands.
-- `go test ./internal/protoguard/` compares the bindings against these sources,
-  so an edit that was never regenerated is caught even when `buf breaking` and
-  the rest of the suite are both green.
+- `go test ./internal/protoguard/` compares the descriptor each `.pb.go` embeds
+  against these sources, so an edit that was never regenerated is caught even
+  when `buf breaking` and the rest of the suite are both green. It reads only
+  that descriptor: a `_grpc.pb.go`, `.connect.go` or `.pb.gw.go` left stale
+  beside a current `.pb.go` needs the generator to detect.
 - Validation uses CEL via protovalidate (field constraints in the `.proto`s).

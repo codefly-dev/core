@@ -15,6 +15,20 @@
 // private module CI here must not depend on. So the schema is compiled
 // in-process with protocompile — the pure-Go compiler buf itself is built on —
 // and compared against the descriptors the generated packages register.
+//
+// What that does and does not cover. The comparison is of descriptors: the
+// rawDesc embedded in each .pb.go is the only generated artifact carrying the
+// schema, so a _grpc.pb.go, .connect.go or .pb.gw.go left stale beside a
+// current .pb.go — a plugin that failed midway through a generate, a merge
+// resolved one-sided — is outside what this can see. Only running the
+// generator closes that, which is the constraint above.
+//
+// The comparison also has a second input. Option bytes on our fields are
+// parsed here against the protovalidate and googleapis descriptors that go.mod
+// pins, while the committed bytes were serialized by buf against the BSR
+// commits proto/buf.lock pins. Nothing links those two pins, so moving one
+// without the other lands as a diff confined to field options; the failure
+// message names that cause alongside staleness rather than asserting one.
 package protoguard
 
 import (
@@ -86,23 +100,49 @@ func schemaPaths(t *testing.T, dir string) []string {
 	return paths
 }
 
-// compileSchema builds descriptors straight from the .proto sources. Imports
-// resolve out of proto/ first, so the schema is always read from source; only
-// the BSR dependencies buf.lock names — googleapis and protovalidate — fall
-// through to the descriptors their Go modules register.
+// schemaResolver reads our own schema from proto/ and nothing else from
+// anywhere else. Imports outside proto/ — the googleapis and protovalidate
+// descriptors buf.lock names — come from the registry, because no copy of them
+// is vendored here.
+//
+// The registry is also where the artifact under test lives, which is why this
+// is not a protocompile.CompositeResolver: that falls through to the next
+// resolver on ANY error from the one before, not just fs.ErrNotExist. Under it
+// a source in proto/ that cannot be read — a mode change, EMFILE under the
+// compiler's parallelism, a stalled mount — resolved from the bindings
+// instead, and the comparison downstream came out green having compared the
+// generated descriptor with itself. Here a path we are here to check never
+// reaches the registry at all, so unreadable surfaces as the read error it is
+// rather than as agreement.
+func schemaResolver(dir string, own []string) protocompile.Resolver {
+	ours := make(map[string]struct{}, len(own))
+	for _, path := range own {
+		ours[path] = struct{}{}
+	}
+	source := &protocompile.SourceResolver{ImportPaths: []string{dir}}
+	return protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
+		result, err := source.FindFileByPath(path)
+		if err == nil {
+			return result, nil
+		}
+		if _, mine := ours[path]; mine {
+			return protocompile.SearchResult{}, err
+		}
+		file, missing := protoregistry.GlobalFiles.FindFileByPath(path)
+		if missing != nil {
+			// The read failure is the root cause worth reporting; the registry
+			// was only ever the second place to look.
+			return protocompile.SearchResult{}, err
+		}
+		return protocompile.SearchResult{Desc: file}, nil
+	})
+}
+
+// compileSchema builds descriptors straight from the .proto sources.
 func compileSchema(t *testing.T, dir string, paths []string) []*descriptorpb.FileDescriptorProto {
 	t.Helper()
 	compiler := protocompile.Compiler{
-		Resolver: protocompile.CompositeResolver{
-			&protocompile.SourceResolver{ImportPaths: []string{dir}},
-			protocompile.ResolverFunc(func(path string) (protocompile.SearchResult, error) {
-				file, err := protoregistry.GlobalFiles.FindFileByPath(path)
-				if err != nil {
-					return protocompile.SearchResult{}, err
-				}
-				return protocompile.SearchResult{Desc: file}, nil
-			}),
-		},
+		Resolver: schemaResolver(dir, paths),
 		// protoc-gen-go strips comments and spans from the descriptor it
 		// embeds, so carrying them here would diff every file.
 		SourceInfoMode: protocompile.SourceInfoNone,
@@ -159,16 +199,45 @@ func TestGeneratedBindingsMatchTheSchema(t *testing.T) {
 			continue
 		}
 		if diff := cmp.Diff(compiled[i], schema(generated), protocmp.Transform()); diff != "" {
-			t.Errorf("generated/go is stale for %s: the bindings no longer describe the "+
-				"schema. Regenerate with `%s` and commit the result alongside the .proto "+
-				"change.\n(-proto +generated/go)\n%s", path, regenerate, diff)
+			t.Errorf("%s: the committed bindings no longer describe the schema.\n"+
+				"Usually they are stale — regenerate with `%s` and commit the result "+
+				"alongside the .proto change.\n"+
+				"If this .proto was not touched, suspect the other input: field options "+
+				"are parsed here against the protovalidate and googleapis descriptors "+
+				"go.mod pins, which nothing keeps in step with the BSR commits "+
+				"proto/buf.lock pins, and moving one alone shows up as a diff confined "+
+				"to options.\n(-proto +generated/go)\n%s", path, regenerate, diff)
 		}
 	}
+}
+
+// schemaCandidates names the .proto a binding could have come from, nearest
+// spelling first. protoc-gen-go and protoc-gen-go-grpc both write
+// source_relative, one file and one _grpc file per .proto — but stripping
+// _grpc unconditionally misreads a schema legitimately named that way:
+// stream_grpc.proto generates stream_grpc.pb.go, which is its own file, not
+// the stubs for a stream.proto that never existed. Nothing forbids the name
+// either; proto/buf.yaml lints with BASIC and COMMENTS, neither of which
+// constrains it. So the literal spelling is tried before the stripped one.
+func schemaCandidates(rel string) []string {
+	base := strings.TrimSuffix(rel, ".pb.go")
+	candidates := []string{base + ".proto"}
+	if stubs := strings.TrimSuffix(base, "_grpc"); stubs != base {
+		candidates = append(candidates, stubs+".proto")
+	}
+	return candidates
 }
 
 // A .proto that is deleted or renamed leaves its bindings behind, and the
 // comparison above only walks the sources that still exist — so the orphan
 // keeps exporting types and registering a file path the schema no longer has.
+//
+// This also closes the one hole schemaResolver cannot: an import naming a
+// deleted .proto still resolves, because the deleted file's bindings are still
+// registered, so the importer compiles and compares clean. The two tests meet
+// exactly — for a codefly path to resolve from the registry its .pb.go must
+// exist, and a .pb.go with no .proto is what this reports — so weakening this
+// test reopens that path silently rather than loudly.
 func TestEveryBindingStillHasASchema(t *testing.T) {
 	root := repoRoot(t)
 	bindings := filepath.Join(root, "generated", "go")
@@ -184,16 +253,78 @@ func TestEveryBindingStillHasASchema(t *testing.T) {
 			return err
 		}
 		found++
-		// protoc-gen-go and protoc-gen-go-grpc both write source_relative: one
-		// file and one _grpc file per .proto.
-		source := strings.TrimSuffix(strings.TrimSuffix(rel, ".pb.go"), "_grpc") + ".proto"
-		if _, err := os.Stat(filepath.Join(root, "proto", source)); err != nil {
-			orphans = append(orphans, filepath.ToSlash(rel)+" -> proto/"+filepath.ToSlash(source))
+		candidates := schemaCandidates(filepath.ToSlash(rel))
+		for _, source := range candidates {
+			if _, err := os.Stat(filepath.Join(root, "proto", filepath.FromSlash(source))); err == nil {
+				return nil
+			}
 		}
+		orphans = append(orphans, filepath.ToSlash(rel)+" -> proto/"+strings.Join(candidates, " or proto/"))
 		return nil
 	}))
 	require.NotZero(t, found, "no bindings under %s", bindings)
 	require.Empty(t, orphans,
 		"these bindings have no schema left. The .proto was deleted or renamed without "+
 			"regenerating; rerun `%s` and delete what it no longer writes.", regenerate)
+}
+
+// An unreadable source must reach the caller as a compile error. Before the
+// fallback learned to refuse our own paths it returned the registered
+// descriptor instead, and TestGeneratedBindingsMatchTheSchema then compared
+// the generated descriptor with itself and passed — drift present in the
+// .proto and the guard green. chmod is the obvious way to provoke it and a
+// useless one here, since CI runs as root and root reads a 0000 file anyway;
+// an empty import path reproduces the same resolver state directly.
+func TestSchemaResolverRefusesToServeOurSourcesFromTheBindings(t *testing.T) {
+	const registered = "codefly/base/v0/scope.proto"
+	_, registeredErr := protoregistry.GlobalFiles.FindFileByPath(registered)
+	require.NoError(t, registeredErr, "fixture must be a path the bindings really do register")
+
+	unreadable := schemaResolver(t.TempDir(), []string{registered})
+
+	result, err := unreadable.FindFileByPath(registered)
+	require.Error(t, err,
+		"a schema source that cannot be read resolved anyway — from the bindings under "+
+			"test, which makes the comparison downstream compare them with themselves")
+	require.Nil(t, result.Desc, "the bindings were served in place of the unreadable source")
+	require.ErrorIs(t, err, fs.ErrNotExist, "the read failure is what the caller needs to see")
+
+	// The legitimate fallback still has to work, or every proto importing
+	// protovalidate stops compiling.
+	external, err := unreadable.FindFileByPath("buf/validate/validate.proto")
+	require.NoError(t, err, "imports outside proto/ have no source to read and must still resolve")
+	require.NotNil(t, external.Desc)
+}
+
+// The same property at the level that matters: a compile whose sources cannot
+// be read fails, rather than quietly succeeding against the bindings.
+func TestCompilingUnreadableSourcesFails(t *testing.T) {
+	compiler := protocompile.Compiler{
+		Resolver:       schemaResolver(t.TempDir(), []string{"codefly/base/v0/scope.proto"}),
+		SourceInfoMode: protocompile.SourceInfoNone,
+	}
+	_, err := compiler.Compile(context.Background(), "codefly/base/v0/scope.proto")
+	require.Error(t, err, "compiling sources that cannot be read must fail, not fall back to the bindings")
+}
+
+func TestSchemaCandidatesReadGrpcNamedSchemasAsThemselves(t *testing.T) {
+	for _, tc := range []struct {
+		binding string
+		want    []string
+	}{
+		{"codefly/base/v0/scope.pb.go", []string{"codefly/base/v0/scope.proto"}},
+		{"codefly/base/v0/scope_grpc.pb.go", []string{"codefly/base/v0/scope_grpc.proto", "codefly/base/v0/scope.proto"}},
+		{"codefly/base/v0/stream_grpc_grpc.pb.go", []string{"codefly/base/v0/stream_grpc_grpc.proto", "codefly/base/v0/stream_grpc.proto"}},
+	} {
+		t.Run(tc.binding, func(t *testing.T) {
+			require.Equal(t, tc.want, schemaCandidates(tc.binding))
+		})
+	}
+
+	// The regression: a schema named *_grpc.proto generates a *_grpc.pb.go of
+	// its own, and stripping _grpc unconditionally reported it as an orphan of
+	// a .proto that never existed.
+	require.Contains(t, schemaCandidates("codefly/base/v0/stream_grpc.pb.go"),
+		"codefly/base/v0/stream_grpc.proto",
+		"a schema legitimately named *_grpc.proto must be recognised as its own source")
 }
