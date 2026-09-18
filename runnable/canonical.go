@@ -1,6 +1,7 @@
 package runnable
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,6 +28,17 @@ const (
 // writes them to disk and diffs the committed file against a freshly derived
 // one — calls this rather than marshalling a second time on its own.
 //
+// message must already be in canonical form. This normalizes the JSON
+// encoding, never the message: the unordered sets a descriptor sorts are
+// sorted by PreparePackage and PrepareBinding, and a message that has not been
+// through one of those canonicalizes to stable bytes of an uncanonical
+// descriptor — reproducible, and not what core digests.
+//
+// `<`, `>` and `&` are emitted as themselves rather than escaped to \uXXXX.
+// Go's encoding/json escapes them by default; no other language's encoder
+// does, and these bytes are reproduced outside Go. executionplan's
+// marshalCompact makes the same choice for the same reason.
+//
 // The byte form is a contract, not only the digest taken over it: changing the
 // normalization turns every committed file into spurious drift, everywhere at
 // once, and every unchanged re-registration into ErrConflict.
@@ -35,6 +47,12 @@ const (
 // outside the schema it claims cannot be canonicalized by this version, and a
 // form that ignored them would let those bytes change without notice.
 func CanonicalJSON(message proto.Message) ([]byte, error) {
+	// An absent message is a caller error, not an empty descriptor: a typed nil
+	// canonicalizes to "{}" without complaint, and a consumer writing that to
+	// disk gets a file that every later check happily agrees with.
+	if message == nil || !message.ProtoReflect().IsValid() {
+		return nil, fmt.Errorf("%w: message is required", ErrInvalid)
+	}
 	if carriesUnknownFields(message.ProtoReflect()) {
 		return nil, fmt.Errorf("%w: message carries fields outside its declared schema", ErrInvalid)
 	}
@@ -46,11 +64,13 @@ func CanonicalJSON(message proto.Message) ([]byte, error) {
 	if decodeErr := json.Unmarshal(encoded, &generic); decodeErr != nil {
 		return nil, fmt.Errorf("%w: decode canonical form: %v", ErrInvalid, decodeErr)
 	}
-	canonical, err := json.Marshal(generic)
-	if err != nil {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err = encoder.Encode(generic); err != nil {
 		return nil, fmt.Errorf("%w: encode canonical form: %v", ErrInvalid, err)
 	}
-	return canonical, nil
+	return bytes.TrimRight(buffer.Bytes(), "\n"), nil
 }
 
 // digestOf hashes the canonical form core owns. The protobuf wire encoding,

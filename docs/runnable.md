@@ -153,6 +153,19 @@ pins it: changing the normalization turns every committed file into spurious
 `--check` drift and every unchanged re-registration into `ErrConflict`, so it
 is a versioned decision reviewed here, never an incidental one.
 
+Three properties of that form are load-bearing, because the repos reproducing
+it are not all Go. `<`, `>` and `&` are emitted as themselves: Go's
+`encoding/json` escapes them to `\uXXXX` by default and nothing else does, so
+the escaping is off and `executionplan`'s canonical encoding makes the same
+choice. The call normalizes the *encoding*, never the message — the unordered
+sets are sorted by `PreparePackage` and `PrepareBinding`, and canonicalizing a
+descriptor that skipped those yields stable bytes of an uncanonical descriptor,
+which is reproducible and still not what core digests. And the form inherits
+`protojson`'s value rendering, where a `Duration` is `"120s"`, an `int64` is a
+quoted string and an enum is its name; a `google.golang.org/protobuf` upgrade
+that changed any of those would move every digest, which is why the golden
+fixture pins bytes rather than only the digest taken over them.
+
 `runnable.CompareRelease(existing, incoming)` is the registration rule: same
 identity and same digest is an idempotent registration (`nil`); same identity
 and a different digest is `ErrConflict`. A new version is a different release
