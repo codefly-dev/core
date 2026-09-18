@@ -104,7 +104,12 @@ func (closure *Closure) resolveConsumption() (consumption, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s depends on %s: %w", consumer, producer, err)
 			}
-			if err := resources.ValidateServiceDependencyEndpoints(dependency, declared); err != nil {
+			// Only the undeclared-reference half of the endpoint checks belongs
+			// here. A draft describes a closure that cannot run, and Verify
+			// already reports what refuses it; but an enumerated endpoint the
+			// producer does not declare must not be quietly dropped from the
+			// plan, because the plan is what says the consumer receives it.
+			if _, err := resources.ResolveServiceDependencyEndpoints(dependency, declared); err != nil {
 				return nil, fmt.Errorf("%s depends on %s: %w", consumer, producer, err)
 			}
 			module, _ := resources.SplitUnique(consumer)

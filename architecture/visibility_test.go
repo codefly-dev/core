@@ -203,3 +203,52 @@ func TestPlanCarriesOnlyThePermittedConsumedEndpoints(t *testing.T) {
 		require.Equal(t, []string{"http"}, required)
 	}
 }
+
+// Plan has to reach the static pass's verdict on an ambiguous non-enumerating
+// edge, and Draft has to keep describing it. Draft is what an explain view
+// renders when Plan refuses, so a refusal Draft cannot describe leaves the
+// author with a rejection and no account of it.
+func TestPlanRefusesAnAmbiguousConsumesAllEdgeAndDraftStillDescribesIt(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/ambiguous-consumes-all")
+	require.NoError(t, err)
+
+	require.ErrorContains(t, workspace.ValidateServiceDependencies(ctx), "multiple grpc endpoints")
+
+	closure, err := architecture.SelectClosure(ctx, workspace, "consumer/app")
+	require.NoError(t, err)
+	require.ErrorContains(t, closure.Verify(ctx, resources.PhaseRun), "multiple grpc endpoints")
+
+	draft, err := closure.Draft(ctx, runOptions())
+	require.NoError(t, err, "a draft describes a closure that cannot run")
+	require.Len(t, draft.Nodes, 2)
+}
+
+// The same holds for a refusal on visibility alone.
+func TestDraftDescribesAVisibilityRefusal(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/visibility-denied")
+	require.NoError(t, err)
+
+	closure, err := architecture.SelectClosure(ctx, workspace, "web/portal")
+	require.NoError(t, err)
+	require.Error(t, closure.Verify(ctx, resources.PhaseRun))
+
+	draft, err := closure.Draft(ctx, runOptions())
+	require.NoError(t, err)
+	require.Len(t, draft.Nodes, 2)
+}
+
+// An enumerated endpoint the producer does not declare must never be quietly
+// dropped from a plan: the plan is what says the consumer receives it.
+func TestDraftRefusesAnUndeclaredEnumeratedEndpoint(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/visibility-unknown")
+	require.NoError(t, err)
+
+	closure, err := architecture.SelectClosure(ctx, workspace, "platform/gateway")
+	require.NoError(t, err)
+
+	_, err = closure.Draft(ctx, runOptions())
+	require.ErrorContains(t, err, "nope")
+}
