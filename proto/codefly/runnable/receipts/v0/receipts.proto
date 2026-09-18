@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package codefly.runnable.receipts.v0;
+
+// Receipts answers the one question a RECOVERY_RECEIPT operation's recovery
+// asks its owner: what did this effect commit? It is generic over every
+// operation a module publishes, so an owner declaring no
+// codefly.runnable.v0.Operation lookup_method needs no per-method lookup RPC.
+//
+// The tenant is deliberately absent from every request below: it comes from the
+// verified Work Context the call carries, so one tenant cannot name another's
+// effect. The method is authorized with that operation's lookup_scopes, which
+// are a read-only subset of its invoke_scopes — recovering an outcome never
+// carries more authority than producing it did.
+service Receipts {
+  // Lookup answers with the receipt one invocation's effect committed.
+  //
+  // No receipt is NOT_FOUND, and a recovery treats that as inconclusive, never
+  // as "the effect did not happen": a swept receipt is indistinguishable from
+  // one that never existed, which is why retention has to exceed the runtime's
+  // maximum recovery horizon.
+  rpc Lookup(LookupRequest) returns (LookupResponse);
+}
+
+// LookupRequest names one effect attempted on one operation.
+message LookupRequest {
+  // effect_id is the identity every attempt of one invocation presented.
+  string effect_id = 1;
+  // method is the operation the effect was attempted on, spelled
+  // "/package.Service/Method".
+  string method = 2;
+}
+
+// LookupResponse carries the outcome the effect committed, opaque to the
+// runtime adapter relaying it and decoded by whoever holds the operation's
+// contract.
+message LookupResponse {
+  // response is the committed response in protobuf wire encoding, encoded as
+  // the operation's own output message.
+  bytes response = 1;
+}
