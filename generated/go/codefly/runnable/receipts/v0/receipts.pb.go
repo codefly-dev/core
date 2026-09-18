@@ -11,6 +11,7 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
+	status "google.golang.org/genproto/googleapis/rpc/status"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
@@ -28,7 +29,16 @@ type LookupRequest struct {
 	// effect_id is the identity every attempt of one invocation presented.
 	EffectId string `protobuf:"bytes,1,opt,name=effect_id,json=effectId,proto3" json:"effect_id,omitempty"`
 	// method is the operation the effect was attempted on, spelled
-	// "/package.Service/Method".
+	// "/package.Service/Method". It keys the receipt together with effect_id
+	// rather than describing it: an effect_id recorded under another method is
+	// NOT_FOUND here, never answered with that other method's receipt.
+	//
+	// It is also the authorization subject, and it is request data while the
+	// scopes authorizing it are Work Context data. A server must therefore
+	// reject a method whose lookup_scopes the presented context does not cover.
+	// Accept the method unchecked and a caller holding lookup authority for one
+	// operation reads another operation's receipt from inside its own tenant,
+	// which the Work Context alone does not stop.
 	Method        string `protobuf:"bytes,2,opt,name=method,proto3" json:"method,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -78,14 +88,23 @@ func (x *LookupRequest) GetMethod() string {
 	return ""
 }
 
-// LookupResponse carries the outcome the effect committed, opaque to the
-// runtime adapter relaying it and decoded by whoever holds the operation's
-// contract.
+// LookupResponse carries the one terminal outcome the effect committed, opaque
+// to the runtime adapter relaying it and decoded by whoever holds the
+// operation's contract.
 type LookupResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// response is the committed response in protobuf wire encoding, encoded as
-	// the operation's own output message.
-	Response      []byte `protobuf:"bytes,1,opt,name=response,proto3" json:"response,omitempty"`
+	// outcome is what the effect committed, and exactly one arm is set. It is a
+	// oneof because the two ways of answering without one are both wrong: an
+	// absent payload reported as an empty response decodes into a zero-valued
+	// success the effect never returned, and a committed rejection reported as
+	// NOT_FOUND reads as inconclusive, so the recovery re-runs the very effect
+	// the receipt exists to keep from running twice.
+	//
+	// Types that are valid to be assigned to Outcome:
+	//
+	//	*LookupResponse_Response
+	//	*LookupResponse_Status
+	Outcome       isLookupResponse_Outcome `protobuf_oneof:"outcome"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -120,23 +139,70 @@ func (*LookupResponse) Descriptor() ([]byte, []int) {
 	return file_codefly_runnable_receipts_v0_receipts_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *LookupResponse) GetResponse() []byte {
+func (x *LookupResponse) GetOutcome() isLookupResponse_Outcome {
 	if x != nil {
-		return x.Response
+		return x.Outcome
 	}
 	return nil
 }
+
+func (x *LookupResponse) GetResponse() []byte {
+	if x != nil {
+		if x, ok := x.Outcome.(*LookupResponse_Response); ok {
+			return x.Response
+		}
+	}
+	return nil
+}
+
+func (x *LookupResponse) GetStatus() *status.Status {
+	if x != nil {
+		if x, ok := x.Outcome.(*LookupResponse_Status); ok {
+			return x.Status
+		}
+	}
+	return nil
+}
+
+type isLookupResponse_Outcome interface {
+	isLookupResponse_Outcome()
+}
+
+type LookupResponse_Response struct {
+	// response is the committed response in protobuf wire encoding, encoded as
+	// the operation's own output message. Zero bytes is a valid committed
+	// response — an operation whose output message is empty commits one — so
+	// it is the arm being set, never its length, that says the effect
+	// succeeded.
+	Response []byte `protobuf:"bytes,1,opt,name=response,proto3,oneof"`
+}
+
+type LookupResponse_Status struct {
+	// status is the terminal non-OK outcome an operation that durably records
+	// its rejection committed, such as a create that commits a deduplication
+	// marker and answers ALREADY_EXISTS. A recovery replays it to the caller
+	// verbatim: a committed rejection is an answer, not an absence. Detail
+	// beyond the code and message travels in status.details, which is where a
+	// codefly.base.v0.Failure belongs when the owner sends one.
+	Status *status.Status `protobuf:"bytes,2,opt,name=status,proto3,oneof"`
+}
+
+func (*LookupResponse_Response) isLookupResponse_Outcome() {}
+
+func (*LookupResponse_Status) isLookupResponse_Outcome() {}
 
 var File_codefly_runnable_receipts_v0_receipts_proto protoreflect.FileDescriptor
 
 const file_codefly_runnable_receipts_v0_receipts_proto_rawDesc = "" +
 	"\n" +
-	"+codefly/runnable/receipts/v0/receipts.proto\x12\x1ccodefly.runnable.receipts.v0\"D\n" +
+	"+codefly/runnable/receipts/v0/receipts.proto\x12\x1ccodefly.runnable.receipts.v0\x1a\x17google/rpc/status.proto\"D\n" +
 	"\rLookupRequest\x12\x1b\n" +
 	"\teffect_id\x18\x01 \x01(\tR\beffectId\x12\x16\n" +
-	"\x06method\x18\x02 \x01(\tR\x06method\",\n" +
-	"\x0eLookupResponse\x12\x1a\n" +
-	"\bresponse\x18\x01 \x01(\fR\bresponse2o\n" +
+	"\x06method\x18\x02 \x01(\tR\x06method\"g\n" +
+	"\x0eLookupResponse\x12\x1c\n" +
+	"\bresponse\x18\x01 \x01(\fH\x00R\bresponse\x12,\n" +
+	"\x06status\x18\x02 \x01(\v2\x12.google.rpc.StatusH\x00R\x06statusB\t\n" +
+	"\aoutcome2o\n" +
 	"\bReceipts\x12c\n" +
 	"\x06Lookup\x12+.codefly.runnable.receipts.v0.LookupRequest\x1a,.codefly.runnable.receipts.v0.LookupResponseB\x8c\x02\n" +
 	" com.codefly.runnable.receipts.v0B\rReceiptsProtoP\x01ZEgithub.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v0\xa2\x02\x04CRRV\xaa\x02\x1cCodefly.Runnable.Receipts.V0\xca\x02\x1cCodefly\\Runnable\\Receipts\\V0\xe2\x02(Codefly\\Runnable\\Receipts\\V0\\GPBMetadata\xea\x02\x1fCodefly::Runnable::Receipts::V0b\x06proto3"
@@ -157,21 +223,27 @@ var file_codefly_runnable_receipts_v0_receipts_proto_msgTypes = make([]protoimpl
 var file_codefly_runnable_receipts_v0_receipts_proto_goTypes = []any{
 	(*LookupRequest)(nil),  // 0: codefly.runnable.receipts.v0.LookupRequest
 	(*LookupResponse)(nil), // 1: codefly.runnable.receipts.v0.LookupResponse
+	(*status.Status)(nil),  // 2: google.rpc.Status
 }
 var file_codefly_runnable_receipts_v0_receipts_proto_depIdxs = []int32{
-	0, // 0: codefly.runnable.receipts.v0.Receipts.Lookup:input_type -> codefly.runnable.receipts.v0.LookupRequest
-	1, // 1: codefly.runnable.receipts.v0.Receipts.Lookup:output_type -> codefly.runnable.receipts.v0.LookupResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: codefly.runnable.receipts.v0.LookupResponse.status:type_name -> google.rpc.Status
+	0, // 1: codefly.runnable.receipts.v0.Receipts.Lookup:input_type -> codefly.runnable.receipts.v0.LookupRequest
+	1, // 2: codefly.runnable.receipts.v0.Receipts.Lookup:output_type -> codefly.runnable.receipts.v0.LookupResponse
+	2, // [2:3] is the sub-list for method output_type
+	1, // [1:2] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_codefly_runnable_receipts_v0_receipts_proto_init() }
 func file_codefly_runnable_receipts_v0_receipts_proto_init() {
 	if File_codefly_runnable_receipts_v0_receipts_proto != nil {
 		return
+	}
+	file_codefly_runnable_receipts_v0_receipts_proto_msgTypes[1].OneofWrappers = []any{
+		(*LookupResponse_Response)(nil),
+		(*LookupResponse_Status)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

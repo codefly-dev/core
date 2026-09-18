@@ -34,9 +34,10 @@ const (
 //
 // The tenant is deliberately absent from every request below: it comes from the
 // verified Work Context the call carries, so one tenant cannot name another's
-// effect. The method is authorized with that operation's lookup_scopes, which
-// are a read-only subset of its invoke_scopes — recovering an outcome never
-// carries more authority than producing it did.
+// effect. Authority is the operation's lookup_scopes, which are a read-only
+// subset of its invoke_scopes — recovering an outcome never carries more
+// authority than producing it did. Binding those scopes to the operation named
+// in the request is the server's job, and LookupRequest.method says why.
 type ReceiptsClient interface {
 	// Lookup answers with the receipt one invocation's effect committed.
 	//
@@ -76,9 +77,10 @@ func (c *receiptsClient) Lookup(ctx context.Context, in *LookupRequest, opts ...
 //
 // The tenant is deliberately absent from every request below: it comes from the
 // verified Work Context the call carries, so one tenant cannot name another's
-// effect. The method is authorized with that operation's lookup_scopes, which
-// are a read-only subset of its invoke_scopes — recovering an outcome never
-// carries more authority than producing it did.
+// effect. Authority is the operation's lookup_scopes, which are a read-only
+// subset of its invoke_scopes — recovering an outcome never carries more
+// authority than producing it did. Binding those scopes to the operation named
+// in the request is the server's job, and LookupRequest.method says why.
 type ReceiptsServer interface {
 	// Lookup answers with the receipt one invocation's effect committed.
 	//
