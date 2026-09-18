@@ -1,0 +1,5 @@
+name: codefly-platform
+layout: modules
+modules:
+  - name: saas
+  - name: platform

@@ -668,6 +668,29 @@ func (s *Service) HasEndpoints(_ context.Context, endpoints []string) ([]string,
 	return nil, nil
 }
 
+// DependencyEndpoints returns the service's declared endpoints as the minimal
+// protos the dependency checks judge: identity and visibility, with each API
+// contract left unread. LoadEndpoints reads every contract off disk, and
+// whether a consumer may depend on an endpoint does not turn on what it serves.
+func (s *Service) DependencyEndpoints() ([]*basev0.Endpoint, error) {
+	identity, err := s.Identity()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*basev0.Endpoint, 0, len(s.Endpoints))
+	for _, endpoint := range s.Endpoints {
+		out = append(out, &basev0.Endpoint{
+			Module:       identity.Module,
+			Service:      s.Name,
+			Name:         endpoint.Name,
+			Api:          endpoint.API,
+			Visibility:   endpoint.Visibility,
+			AllowModules: endpoint.AllowModules,
+		})
+	}
+	return out, nil
+}
+
 // ConsumedEndpoints returns the endpoints a dependency consumes from this
 // service: the named subset, or every endpoint when names is empty (an
 // unnamed dependency receives them all). It errors if a name matches no

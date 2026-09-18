@@ -24,7 +24,7 @@ type PlanOptions struct {
 // reported as such rather than as a malformed plan.
 func (closure *Closure) Plan(ctx context.Context, options PlanOptions) (*executionplan.Plan, error) {
 	w := wool.Get(ctx).In("architecture.Closure.Plan", wool.NameField(closure.Target))
-	if err := closure.Verify(ctx); err != nil {
+	if err := closure.Verify(ctx, resources.Phase(options.Phase)); err != nil {
 		return nil, w.Wrap(err)
 	}
 	plan, err := closure.Draft(ctx, options)
@@ -100,13 +100,32 @@ func (closure *Closure) resolveConsumption() (consumption, error) {
 			if !selected {
 				continue
 			}
-			names := make([]string, 0, len(dependency.Endpoints))
-			for _, reference := range dependency.Endpoints {
-				names = append(names, reference.Name)
-			}
-			endpoints, err := target.ConsumedEndpoints(names)
+			declared, err := target.DependencyEndpoints()
 			if err != nil {
 				return nil, fmt.Errorf("%s depends on %s: %w", consumer, producer, err)
+			}
+			// Only the undeclared-reference half of the endpoint checks belongs
+			// here. A draft describes a closure that cannot run, and Verify
+			// already reports what refuses it; but an enumerated endpoint the
+			// producer does not declare must not be quietly dropped from the
+			// plan, because the plan is what says the consumer receives it.
+			if _, err := resources.ResolveServiceDependencyEndpoints(dependency, declared); err != nil {
+				return nil, fmt.Errorf("%s depends on %s: %w", consumer, producer, err)
+			}
+			module, _ := resources.SplitUnique(consumer)
+			permitted, err := resources.PermittedDependencyEndpoints(module, dependency, declared)
+			if err != nil {
+				return nil, fmt.Errorf("%s depends on %s: %w", consumer, producer, err)
+			}
+			wired := make(map[string]struct{}, len(permitted))
+			for _, endpoint := range permitted {
+				wired[endpoint.Name] = struct{}{}
+			}
+			var endpoints []*resources.Endpoint
+			for _, endpoint := range target.Endpoints {
+				if _, ok := wired[endpoint.Name]; ok {
+					endpoints = append(endpoints, endpoint)
+				}
 			}
 			resolved[consumptionKey(consumer, producer)] = endpoints
 		}

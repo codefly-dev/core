@@ -218,9 +218,19 @@ endpoints:
 ```
 
 A dependency onto an endpoint whose visibility does not permit the consuming
-service's module is a hard error at `verify` time
-(`architecture.ServiceDependencies.VerifyVisibility`) — the declaration and any
-NetworkPolicy generated from the same topology cannot drift.
+service's module is a hard error — the declaration and any NetworkPolicy
+generated from the same topology cannot drift. Every path that asks reaches the
+same verdict, because they all resolve through
+`resources.ConsumedDependencyEndpoints`: the static workspace pass, the stage
+closure, `architecture.ServiceDependencies.VerifyVisibility` at `verify` time,
+the plan `Closure.Verify` gates, and the addresses a run injects.
+
+A dependency that *names* endpoints consumes exactly those, and naming one the
+producer does not grant fails naming that endpoint. A dependency that names none
+consumes "all", which means all it is permitted: the rest are dropped, so a
+producer adding one private endpoint does not break every consumer that did not
+enumerate. Being permitted none of them is still an error — the edge is declared
+and the export boundary grants nothing for it.
 
 **Deprecated aliases** (still load, with a warning): `visibility: module` maps
 to `internal` with `allow-modules: ["*"]`; `visibility: external` maps to
