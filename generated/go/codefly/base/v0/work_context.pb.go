@@ -42,22 +42,36 @@ type WorkContextV1 struct {
 	// issuer is the authority that verified identity and minted this context.
 	Issuer string `protobuf:"bytes,4,opt,name=issuer,proto3" json:"issuer,omitempty"`
 	// audience is the exact service or trust boundary allowed to consume it.
-	Audience      string `protobuf:"bytes,5,opt,name=audience,proto3" json:"audience,omitempty"`
-	NotBeforeUnix int64  `protobuf:"varint,6,opt,name=not_before_unix,json=notBeforeUnix,proto3" json:"not_before_unix,omitempty"`
-	IssuedAtUnix  int64  `protobuf:"varint,7,opt,name=issued_at_unix,json=issuedAtUnix,proto3" json:"issued_at_unix,omitempty"`
-	ExpiresAtUnix int64  `protobuf:"varint,8,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"`
+	Audience string `protobuf:"bytes,5,opt,name=audience,proto3" json:"audience,omitempty"`
+	// not_before_unix is the earliest instant a verifier may accept this
+	// capability.
+	NotBeforeUnix int64 `protobuf:"varint,6,opt,name=not_before_unix,json=notBeforeUnix,proto3" json:"not_before_unix,omitempty"`
+	// issued_at_unix is when the issuer minted it.
+	IssuedAtUnix int64 `protobuf:"varint,7,opt,name=issued_at_unix,json=issuedAtUnix,proto3" json:"issued_at_unix,omitempty"`
+	// expires_at_unix is the instant it stops being accepted. Exchanging a
+	// parent capability for a child one never extends it.
+	ExpiresAtUnix int64 `protobuf:"varint,8,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"`
 	// nonce identifies the capability. Replay behavior is separately explicit.
 	Nonce string `protobuf:"bytes,9,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	// authorization_revision is the issuer's current membership/policy revision.
 	AuthorizationRevision uint64 `protobuf:"varint,10,opt,name=authorization_revision,json=authorizationRevision,proto3" json:"authorization_revision,omitempty"`
 	// replay_policy is "idempotent" or "single-use". A verifier still needs a
 	// durable replay store to enforce single-use consumption.
-	ReplayPolicy     string  `protobuf:"bytes,11,opt,name=replay_policy,json=replayPolicy,proto3" json:"replay_policy,omitempty"`
-	TenantId         string  `protobuf:"bytes,12,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	OwnerPrincipalId string  `protobuf:"bytes,13,opt,name=owner_principal_id,json=ownerPrincipalId,proto3" json:"owner_principal_id,omitempty"`
-	TaskId           string  `protobuf:"bytes,14,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	SessionId        string  `protobuf:"bytes,15,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	ParentSessionId  *string `protobuf:"bytes,16,opt,name=parent_session_id,json=parentSessionId,proto3,oneof" json:"parent_session_id,omitempty"`
+	ReplayPolicy string `protobuf:"bytes,11,opt,name=replay_policy,json=replayPolicy,proto3" json:"replay_policy,omitempty"`
+	// tenant_id is the first element of the task identity tuple and is carried
+	// unchanged across every hop.
+	TenantId string `protobuf:"bytes,12,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// owner_principal_id is the principal on whose authority the task runs. It
+	// is the delegating owner, not necessarily the current actor.
+	OwnerPrincipalId string `protobuf:"bytes,13,opt,name=owner_principal_id,json=ownerPrincipalId,proto3" json:"owner_principal_id,omitempty"`
+	// task_id completes the task identity tuple and survives child agents.
+	TaskId string `protobuf:"bytes,14,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// session_id identifies this hop. Starting a child agent mints a new one
+	// rather than mutating this capability.
+	SessionId string `protobuf:"bytes,15,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// parent_session_id is the session this one was exchanged from; absent on
+	// the first session of a task.
+	ParentSessionId *string `protobuf:"bytes,16,opt,name=parent_session_id,json=parentSessionId,proto3,oneof" json:"parent_session_id,omitempty"`
 	// authority_scopes are the maximum scopes the owner delegated into this
 	// Work Context. Each actor hop's granted_scopes must be a subset of the
 	// preceding effective scopes.
@@ -68,10 +82,14 @@ type WorkContextV1 struct {
 	// attribution_team_ids is an immutable verified attribution snapshot. It
 	// explains ownership; current authorization is still evaluated separately.
 	AttributionTeamIds []string `protobuf:"bytes,19,rep,name=attribution_team_ids,json=attributionTeamIds,proto3" json:"attribution_team_ids,omitempty"`
-	WorkspaceId        *string  `protobuf:"bytes,20,opt,name=workspace_id,json=workspaceId,proto3,oneof" json:"workspace_id,omitempty"`
-	ProjectId          *string  `protobuf:"bytes,21,opt,name=project_id,json=projectId,proto3,oneof" json:"project_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// workspace_id is the workspace the task runs against, when the task is
+	// scoped to one.
+	WorkspaceId *string `protobuf:"bytes,20,opt,name=workspace_id,json=workspaceId,proto3,oneof" json:"workspace_id,omitempty"`
+	// project_id narrows workspace_id to a single project, when the task is
+	// scoped that far.
+	ProjectId     *string `protobuf:"bytes,21,opt,name=project_id,json=projectId,proto3,oneof" json:"project_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WorkContextV1) Reset() {
@@ -255,10 +273,14 @@ func (x *WorkContextV1) GetProjectId() string {
 // resource_ids means every resource of resource_kind; a child may narrow that
 // wildcard to explicit IDs but may never widen an explicit parent set.
 type WorkScopeV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ResourceKind  string                 `protobuf:"bytes,1,opt,name=resource_kind,json=resourceKind,proto3" json:"resource_kind,omitempty"`
-	Actions       []string               `protobuf:"bytes,2,rep,name=actions,proto3" json:"actions,omitempty"`
-	ResourceIds   []string               `protobuf:"bytes,3,rep,name=resource_ids,json=resourceIds,proto3" json:"resource_ids,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// resource_kind is the class of resource the scope grants against.
+	ResourceKind string `protobuf:"bytes,1,opt,name=resource_kind,json=resourceKind,proto3" json:"resource_kind,omitempty"`
+	// actions are the operations permitted on that kind.
+	Actions []string `protobuf:"bytes,2,rep,name=actions,proto3" json:"actions,omitempty"`
+	// resource_ids narrows the scope to specific resources. Empty means every
+	// resource of resource_kind.
+	ResourceIds   []string `protobuf:"bytes,3,rep,name=resource_ids,json=resourceIds,proto3" json:"resource_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -317,11 +339,18 @@ func (x *WorkScopeV1) GetResourceIds() []string {
 // WorkActorV1 is one verified delegated actor. granted_scopes are the actor's
 // effective scopes and must monotonically attenuate the previous hop.
 type WorkActorV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PrincipalId   string                 `protobuf:"bytes,1,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
-	PrincipalKind string                 `protobuf:"bytes,2,opt,name=principal_kind,json=principalKind,proto3" json:"principal_kind,omitempty"`
-	DelegationId  string                 `protobuf:"bytes,3,opt,name=delegation_id,json=delegationId,proto3" json:"delegation_id,omitempty"`
-	GrantedScopes []*WorkScopeV1         `protobuf:"bytes,4,rep,name=granted_scopes,json=grantedScopes,proto3" json:"granted_scopes,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// principal_id identifies the actor this hop delegated to.
+	PrincipalId string `protobuf:"bytes,1,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	// principal_kind distinguishes the sort of principal, so a human and an
+	// agent bearing the same id are not conflated.
+	PrincipalKind string `protobuf:"bytes,2,opt,name=principal_kind,json=principalKind,proto3" json:"principal_kind,omitempty"`
+	// delegation_id identifies the delegation that produced this hop, so the
+	// chain stays auditable back to its grant.
+	DelegationId string `protobuf:"bytes,3,opt,name=delegation_id,json=delegationId,proto3" json:"delegation_id,omitempty"`
+	// granted_scopes are this actor's effective scopes, a subset of the
+	// preceding hop's.
+	GrantedScopes []*WorkScopeV1 `protobuf:"bytes,4,rep,name=granted_scopes,json=grantedScopes,proto3" json:"granted_scopes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

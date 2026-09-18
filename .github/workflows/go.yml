@@ -78,6 +78,31 @@ jobs:
           echo "buf breaking could not complete after 3 attempts" >&2
           exit 1
 
+      - name: proto lint guard
+        # proto/buf.yaml has selected BASIC + COMMENTS since the module landed
+        # and proto/README.md has always said to run `buf lint` before
+        # committing, but no workflow ran it. The obligation rotted into 363
+        # standing COMMENTS findings, which is what an undocumented field costs
+        # once the next real one is indistinguishable from them (#567).
+        #
+        # Exit 100 and the retry loop mean what they mean in the step above.
+        working-directory: proto
+        run: |
+          for attempt in 1 2 3; do
+            if buf lint; then
+              exit 0
+            else
+              code=$?
+            fi
+            if [ "$code" -eq 100 ]; then
+              exit 100
+            fi
+            echo "buf exited $code (attempt $attempt/3), not a rule violation; retrying in 15s" >&2
+            sleep 15
+          done
+          echo "buf lint could not complete after 3 attempts" >&2
+          exit 1
+
   build:
     name: Build
     runs-on: ubuntu-latest

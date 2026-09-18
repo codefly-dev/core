@@ -852,10 +852,11 @@ type RunnableServiceOperation struct {
 	// operation is the method name the service publishes, preserved as the
 	// owner spells it so the operation stays recognizably the owner's own.
 	Operation string `protobuf:"bytes,4,opt,name=operation,proto3" json:"operation,omitempty"`
-	// input_message and output_message are the published message identities the
-	// method takes and returns, kept so the reuse is auditable rather than
-	// implied by a matching shape.
-	InputMessage  string `protobuf:"bytes,5,opt,name=input_message,json=inputMessage,proto3" json:"input_message,omitempty"`
+	// input_message is the published message identity the method takes, kept so
+	// the reuse is auditable rather than implied by a matching shape.
+	InputMessage string `protobuf:"bytes,5,opt,name=input_message,json=inputMessage,proto3" json:"input_message,omitempty"`
+	// output_message is the published message identity the method returns, kept
+	// for the same reason as input_message.
 	OutputMessage string `protobuf:"bytes,6,opt,name=output_message,json=outputMessage,proto3" json:"output_message,omitempty"`
 	// adaptation is how the bounded payload maps onto those messages.
 	Adaptation    RunnableServiceOperation_Adaptation `protobuf:"varint,7,opt,name=adaptation,proto3,enum=codefly.base.v0.RunnableServiceOperation_Adaptation" json:"adaptation,omitempty"`

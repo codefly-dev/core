@@ -90,10 +90,16 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
   break reported on a branch that touched no `.proto`. Pass
   `BASE_REMOTE=<remote>` if your `origin` is a fork; the target refuses a remote
   that is not `codefly-dev/core` rather than answering from a stale baseline.
-- `make buf-lint` before committing — but it is **red on `main` today**: `proto/`
-  carries 363 unenforced `COMMENTS` findings (#567), because `buf lint` is in no
-  workflow and this instruction went unenforced. Read your findings against that
-  baseline until #567 clears it.
+- CI also runs `buf lint` under `BASIC` + `COMMENTS`, so every message, field,
+  enum, and enum value needs a comment. Run it before pushing:
+
+  ```bash
+  make buf-lint
+  ```
+
+  It went unenforced for as long as it was only written down here, and `proto/`
+  accumulated 363 `COMMENTS` findings (#567) — enough that the next real one was
+  indistinguishable from them. That is why it is a workflow step now.
 - Every target runs the buf version pinned in the `Makefile`, which
   `internal/ciguard` holds equal to the workflow's and the companion's, and which
   no recipe may bypass with a literal version. A bare `buf` answers from whatever

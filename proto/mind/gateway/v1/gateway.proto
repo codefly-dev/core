@@ -339,11 +339,19 @@ message ListFilesResponse {
 // RESCAN is an explicit uncertainty marker (watch overflow, replay gap, or a
 // directory-level change) and requires an authoritative manifest pull.
 enum WorkspaceChangeOperation {
+  // UNSPECIFIED means the producer named no operation; treat the path as
+  // changed by an unknown means rather than unchanged.
   WORKSPACE_CHANGE_OPERATION_UNSPECIFIED = 0;
+  // CREATE means the path came into existence.
   WORKSPACE_CHANGE_OPERATION_CREATE = 1;
+  // WRITE means the path's content changed.
   WORKSPACE_CHANGE_OPERATION_WRITE = 2;
+  // REMOVE means the path no longer exists.
   WORKSPACE_CHANGE_OPERATION_REMOVE = 3;
+  // METADATA means only mode or attributes changed, not content.
   WORKSPACE_CHANGE_OPERATION_METADATA = 4;
+  // RESCAN is an explicit uncertainty marker: the watcher lost track, so the
+  // consumer must pull an authoritative manifest rather than apply a delta.
   WORKSPACE_CHANGE_OPERATION_RESCAN = 5;
 }
 
@@ -351,21 +359,34 @@ enum WorkspaceChangeOperation {
 // sequence. Both fields are required together; an empty cursor first emits an
 // explicit rescan because the consumer cannot prove prior completeness.
 message WorkspaceChangeCursor {
+  // source_id identifies the monitor epoch. A cursor from a different epoch
+  // cannot be resumed and yields a rescan.
   string source_id = 1;
+  // sequence is the last position the consumer acknowledged within that
+  // epoch.
   uint64 sequence = 2;
 }
 
+// SubscribeWorkspaceChangesRequest opens a change stream for one service.
 message SubscribeWorkspaceChangesRequest {
+  // service is the Codefly service name whose workspace is watched.
   string service = 1;
+  // after resumes from an acknowledged cursor. Empty starts with an explicit
+  // rescan, because the consumer cannot prove it saw everything before.
   WorkspaceChangeCursor after = 2;
 }
 
 // WorkspaceChange contains metadata only. Source bytes remain behind ReadFile
 // and version-aware Gateway operations.
 message WorkspaceChange {
+  // operation is why the path may have changed.
   WorkspaceChangeOperation operation = 1;
+  // path is the repository-relative path affected, empty for a rescan that
+  // covers the whole subscription.
   string path = 2;
+  // previous_path is the path before a rename, empty otherwise.
   string previous_path = 3;
+  // reason explains a rescan or an otherwise surprising operation.
   string reason = 4;
 }
 
@@ -373,9 +394,14 @@ message WorkspaceChange {
 // producers emit one canonical change per position so downstream journals can
 // acknowledge it atomically; consumers must treat any future batch atomically.
 message WorkspaceChangeEvent {
+  // source_id identifies the monitor epoch this position belongs to.
   string source_id = 1;
+  // sequence is this event's position within that epoch; it is what a
+  // consumer acknowledges.
   uint64 sequence = 2;
+  // observed_at is when the watcher saw the change.
   google.protobuf.Timestamp observed_at = 3;
+  // changes are the changes at this position, acknowledged as one unit.
   repeated WorkspaceChange changes = 4;
 }
 
@@ -526,31 +552,53 @@ message ApplyEditResponse {
 // ApplySymbolPatchRequest addresses one declaration by the exact qualified
 // name and declaration hash returned by Codefly semantic projection.
 message ApplySymbolPatchRequest {
+  // service is the Codefly service name whose tree holds the declaration.
   string service = 1;
+  // file is the service-relative path holding it.
   string file = 2;
+  // qualified_name selects the declaration, spelled exactly as the semantic
+  // projection emits it.
   string qualified_name = 3;
+  // expected_declaration_sha256 is the digest the author read. A mismatch
+  // fails the patch before any write, so a stale edit cannot land.
   string expected_declaration_sha256 = 4;
+  // new_source is the complete replacement declaration, not a diff.
   string new_source = 5;
+  // fix_mode selects which formatters and import fixers run after the edit.
   codefly.base.v0.FixMode fix_mode = 6;
+  // dry_run computes the result and its hashes without writing.
   bool dry_run = 7;
 }
 
 // ApplySymbolPatchResponse deliberately omits project content. Mind receives
 // only typed success/failure and exact identities needed for orchestration.
 message ApplySymbolPatchResponse {
+  // success reports that the declaration was located and replaced.
   bool success = 1;
+  // error is the human-readable cause. Mind branches on failure_reason
+  // instead of parsing this.
   string error = 2;
+  // strategy names how the declaration was located.
   string strategy = 3;
+  // fix_actions names the formatters or import fixers that ran after the edit.
   repeated string fix_actions = 4;
+  // changed reports whether the file differs from before the patch.
   bool changed = 5;
+  // before_sha256 is the lowercase SHA-256 digest of the original file.
   string before_sha256 = 6;
+  // after_sha256 is the lowercase SHA-256 digest of the resulting file.
   string after_sha256 = 7;
+  // declaration_sha256 is the digest of the replaced declaration afterwards,
+  // so the next patch can pass it as expected_declaration_sha256.
   string declaration_sha256 = 8;
+  // wrote reports whether the agent committed the change; a dry run does not.
   bool wrote = 9;
+  // output preserves bounded formatter or fixer output for follow-up linting.
   string output = 10;
   // failure preserves the agent-owned recovery classification without
   // requiring Mind to parse the human-readable error string.
   codefly.base.v0.Failure failure = 11;
+  // failure_reason is the typed recovery branch Mind acts on.
   codefly.base.v0.SymbolPatchFailureReason failure_reason = 12;
   // before_size_bytes is the exact original content length.
   uint64 before_size_bytes = 13;
@@ -592,18 +640,32 @@ message BatchApplyEditsResponse {
 // coordinated mutation path. A running gateway may repeat the same binding,
 // but it rejects attempts to replace it with another authority or workspace.
 message ConfigureMutationAuthorityRequest {
+  // authority_id identifies the coordinator whose permits this gateway will
+  // accept.
   string authority_id = 1;
+  // workspace_id is the workspace this gateway is bound to; permits scoped to
+  // any other workspace are rejected.
   string workspace_id = 2;
+  // ed25519_public_key verifies permit signatures. Verification is local, so
+  // applying a mutation never calls back to the coordinator.
   bytes ed25519_public_key = 3;
 }
 
+// ConfigureMutationAuthorityResponse echoes the binding now in force, so a
+// caller repeating a configuration can confirm it did not replace one.
 message ConfigureMutationAuthorityResponse {
+  // authority_id is the bound coordinator identity.
   string authority_id = 1;
+  // workspace_id is the bound workspace identity.
   string workspace_id = 2;
 }
 
+// PreparedFileOperation is what a prepared mutation does to one path.
 enum PreparedFileOperation {
+  // UNSPECIFIED means the preparation named no operation, which no producer
+  // emits and a consumer must not apply.
   PREPARED_FILE_OPERATION_UNSPECIFIED = 0;
+  // MODIFY replaces the content of an existing file.
   PREPARED_FILE_OPERATION_MODIFY = 1;
 }
 
@@ -611,13 +673,22 @@ enum PreparedFileOperation {
 // Codefly inside the execution box. Mind and the SaaS coordinator receive only
 // hashes and resource identity; project content never crosses this RPC.
 message PreparedFileMutation {
+  // path is the service-relative file the mutation writes.
   string path = 1;
+  // operation is what the mutation does to that path.
   PreparedFileOperation operation = 2;
+  // before_sha256 is the digest preparation observed, and the precondition
+  // the apply re-checks.
   string before_sha256 = 3;
+  // after_sha256 identifies the exact bytes Codefly retained inside the box;
+  // the content itself never crosses this RPC.
   string after_sha256 = 4;
   // before_size_bytes is the exact original content length.
   uint64 before_size_bytes = 5;
+  // strategy names how the edit was resolved against the current bytes.
   string strategy = 6;
+  // fix_actions names the formatters or import fixers folded into the
+  // prepared result, so the apply adds nothing the digest does not cover.
   repeated string fix_actions = 7;
   // symbol_id is set only when Codefly prepared an exact symbol mutation. It
   // causes the coordinator to issue a symbol fence instead of a file fence.
@@ -629,26 +700,49 @@ message PreparedFileMutation {
 // PreparedMutation is one immutable, version-bound write proposal. The digest
 // is SHA-256 over deterministic protobuf bytes with mutation_digest cleared.
 message PreparedMutation {
+  // schema_version is the version of this proposal's shape, part of the bytes
+  // the digest is taken over.
   uint32 schema_version = 1;
+  // preparation_id identifies this proposal for the later apply.
   string preparation_id = 2;
+  // authority_id is the coordinator expected to admit this proposal.
   string authority_id = 3;
+  // workspace_id binds the proposal to one workspace.
   string workspace_id = 4;
+  // service is the Codefly service the write lands in.
   string service = 5;
+  // workspace_version is the version the proposal was resolved against; the
+  // apply refuses if the workspace has moved on.
   string workspace_version = 6;
+  // mutation_digest seals everything else here. It is SHA-256 over the
+  // deterministic protobuf bytes with this field cleared.
   string mutation_digest = 7;
+  // files are the per-path write proposals, identified by hash only.
   repeated PreparedFileMutation files = 8;
+  // prepared_at is when the proposal was sealed.
   google.protobuf.Timestamp prepared_at = 9;
+  // expires_at is when it stops being applicable, so a proposal cannot be
+  // admitted long after the bytes it was resolved against.
   google.protobuf.Timestamp expires_at = 10;
 }
 
+// PrepareApplyEditMutation proposes one find/replace edit for preparation.
 message PrepareApplyEditMutation {
+  // file is the service-relative path to edit.
   string file = 1;
+  // find is the text to locate; the agent owns the matching strategy.
   string find = 2;
+  // replace is the replacement text.
   string replace = 3;
+  // fix_mode selects the language-aware rewriting folded into the result.
   codefly.base.v0.FixMode fix_mode = 4;
 }
 
+// PrepareSymbolPatchMutation proposes replacing one whole declaration. It
+// carries a symbol identity so the coordinator can fence the symbol rather
+// than the whole file.
 message PrepareSymbolPatchMutation {
+  // file is the service-relative path holding the declaration.
   string file = 1;
   // symbol_id is the stable KG/coordinator resource identity used for the
   // exact claim, lease, and permit fence.
@@ -656,23 +750,41 @@ message PrepareSymbolPatchMutation {
   // qualified_name is the exact analyzer-emitted declaration selector. It is
   // deliberately distinct from the stable resource identity above.
   string qualified_name = 3;
+  // expected_declaration_sha256 is the digest the author read. A mismatch
+  // fails preparation, so a stale edit is never sealed.
   string expected_declaration_sha256 = 4;
+  // new_source is the complete replacement declaration, not a diff.
   string new_source = 5;
+  // fix_mode selects the language-aware rewriting folded into the result.
   codefly.base.v0.FixMode fix_mode = 6;
 }
 
+// PrepareMutationRequest asks the gateway to resolve one proposed edit against
+// current project bytes and seal the result, without writing it.
 message PrepareMutationRequest {
+  // service is the Codefly service the edit targets.
   string service = 1;
+  // workspace_version is the version the caller believes it is editing; the
+  // sealed proposal is bound to it.
   string workspace_version = 2;
+  // mutation is the proposed edit, in whichever form the caller authored.
   oneof mutation {
+    // apply_edit proposes a find/replace edit.
     PrepareApplyEditMutation apply_edit = 10;
+    // symbol_patch proposes a whole-declaration replacement.
     PrepareSymbolPatchMutation symbol_patch = 11;
   }
 }
 
+// PrepareMutationResponse returns the sealed proposal, or a typed reason it
+// could not be sealed.
 message PrepareMutationResponse {
+  // success reports that the edit resolved and was sealed.
   bool success = 1;
+  // error is the human-readable cause. Mind branches on the typed fields
+  // below instead of parsing this.
   string error = 2;
+  // prepared is the sealed proposal, present only on success.
   PreparedMutation prepared = 3;
   // failure preserves the agent-owned classification when preparation invokes
   // a language capability. It is absent for Gateway-local validation errors.
@@ -682,20 +794,30 @@ message PrepareMutationResponse {
   codefly.base.v0.SymbolPatchFailureReason symbol_patch_failure_reason = 5;
 }
 
+// ApplyPreparedMutationRequest commits a previously sealed proposal.
 message ApplyPreparedMutationRequest {
+  // service is the Codefly service the proposal targets.
   string service = 1;
+  // preparation_id selects the sealed proposal to apply.
   string preparation_id = 2;
   // mutation_permit is Codefly's v2 Ed25519 scoped-authorization token,
   // minted only after the Work Coordinator admits this exact prepared
   // mutation under a current plan and lease. Codefly verifies it locally.
   string mutation_permit = 3;
+  // mutation_digest must equal the sealed proposal's digest, so the permit
+  // and the bytes about to be written cannot refer to different proposals.
   string mutation_digest = 4;
 }
 
+// AppliedFileMutation is the source-free record of one committed write.
 message AppliedFileMutation {
+  // path is the service-relative file that was written.
   string path = 1;
+  // operation is what was done to it.
   PreparedFileOperation operation = 2;
+  // before_sha256 is the digest of the content that was replaced.
   string before_sha256 = 3;
+  // after_sha256 is the digest of the content now on disk.
   string after_sha256 = 4;
   // before_size_bytes is the exact original content length.
   uint64 before_size_bytes = 5;
@@ -703,11 +825,18 @@ message AppliedFileMutation {
   uint64 after_size_bytes = 6;
 }
 
+// ApplyPreparedMutationResponse reports the commit and echoes the identities
+// it was made under, so a journal can record what actually landed.
 message ApplyPreparedMutationResponse {
+  // success reports that every precondition held and the write landed.
   bool success = 1;
+  // error is the human-readable cause when it did not.
   string error = 2;
+  // preparation_id echoes the applied proposal.
   string preparation_id = 3;
+  // mutation_digest echoes the digest the write was made under.
   string mutation_digest = 4;
+  // files are the writes that landed.
   repeated AppliedFileMutation files = 5;
 }
 
@@ -757,9 +886,14 @@ message SearchMatch {
   int64 original_text_bytes = 7;
 }
 
+// SearchTruncationReason names which budget cut a search short, so a caller
+// can widen the one that actually bound rather than guessing.
 enum SearchTruncationReason {
+  // UNSPECIFIED means the results are complete; nothing was truncated.
   SEARCH_TRUNCATION_REASON_UNSPECIFIED = 0;
+  // MAX_RESULTS means the match count reached SearchRequest.max_results.
   SEARCH_TRUNCATION_REASON_MAX_RESULTS = 1;
+  // MAX_BYTES means cumulative match text reached SearchRequest.max_bytes.
   SEARCH_TRUNCATION_REASON_MAX_BYTES = 2;
 }
 
@@ -885,13 +1019,17 @@ message TestResponse {
 // configuration changes. Paths are limited to the schema advertised by that
 // plugin (for example test.env.CFLAGS or test.provisioning.python).
 message ConfigureServiceRequest {
+  // service is the Codefly service whose plugin owns the configuration.
   string service = 1;
+  // changes are the typed configuration edits to persist.
   repeated codefly.services.builder.v0.ConfigChange changes = 2;
 }
 
 // ConfigureServiceResponse preserves the builder plugin's authoritative
 // status and effective configuration projection.
 message ConfigureServiceResponse {
+  // response is the builder plugin's own verdict, passed through rather than
+  // re-derived, so the gateway adds no second source of truth.
   codefly.services.builder.v0.ConfigureResponse response = 1;
 }
 
@@ -1701,43 +1839,75 @@ message ForgeRequestReviewResponse {
 
 // ForgeEventKind is the provider-neutral event family.
 enum ForgeEventKind {
+  // UNSPECIFIED means the toolbox recognized the delivery but not its family.
   FORGE_EVENT_KIND_UNSPECIFIED = 0;
+  // PULL_REQUEST is a change to a pull request itself.
   FORGE_EVENT_KIND_PULL_REQUEST = 1;
+  // CHECK is a status or check run reported against a revision.
   FORGE_EVENT_KIND_CHECK = 2;
+  // REVIEW is a review submitted on a pull request.
   FORGE_EVENT_KIND_REVIEW = 3;
 }
 
 // ForgeEvent is one provider-authoritative event normalized by the toolbox.
 message ForgeEvent {
+  // event_id is the provider's delivery identity, so a replayed delivery is
+  // recognizable rather than counted twice.
   string event_id = 1;
+  // kind is the provider-neutral family this event belongs to.
   ForgeEventKind kind = 2;
+  // ref is the git ref the event concerns.
   string ref = 3;
+  // repository identifies the forge resource.
   ForgeRepository repository = 4;
+  // number is the pull-request number, zero for events that have none.
   int64 number = 5;
+  // revision is the commit the event concerns.
   string revision = 6;
+  // state is the provider's state string for a pull request or review.
   string state = 7;
+  // check_name names the check, set only for CHECK events.
   string check_name = 8;
+  // conclusion is a finished check's outcome, empty while it is still
+  // running.
   string conclusion = 9;
+  // author is the provider login that caused the event.
   string author = 10;
+  // authoritative_url points at the provider's own record, so a consumer can
+  // reach the truth rather than trust this projection.
   string authoritative_url = 11;
+  // authoritative_source names the provider that record belongs to.
   string authoritative_source = 12;
+  // observed_at is when the toolbox normalized the delivery.
   google.protobuf.Timestamp observed_at = 13;
 }
 
 // ForgeNormalizeWebhookRequest carries the signed provider delivery to the
 // toolbox that owns provider schemas and signature rules.
 message ForgeNormalizeWebhookRequest {
+  // service identifies the workspace used for provider defaults.
   string service = 1;
+  // provider names the forge the delivery came from, selecting the schema and
+  // signature rules the toolbox applies.
   string provider = 2;
+  // event_type is the provider's own event name for the delivery.
   string event_type = 3;
+  // delivery_id is the provider's delivery identity.
   string delivery_id = 4;
+  // payload is the raw delivery body, verified before it is parsed.
   bytes payload = 5;
+  // signature is the provider's signature over payload.
   string signature = 6;
+  // secret is the shared secret that signature is verified against.
   string secret = 7;
 }
 
+// ForgeNormalizeWebhookResponse returns the provider-neutral event, or the
+// reason the delivery could not be verified or understood.
 message ForgeNormalizeWebhookResponse {
+  // event is the normalized delivery, absent when error is set.
   ForgeEvent event = 1;
+  // error explains a failed signature check or an unrecognized delivery.
   string error = 2;
 }
 
@@ -1864,30 +2034,46 @@ message GetProjectInfoResponse {
 
 // GetSemanticIndexRequest identifies one production-agent source boundary.
 message GetSemanticIndexRequest {
+  // service is the Codefly service whose source tree is inspected.
   string service = 1;
+  // code_unit narrows the inspection to one discovered boundary; absent
+  // inspects the whole service tree.
   CodeUnitTarget code_unit = 2;
 }
 
 // GetSemanticIndexResponse preserves typed analyzer coverage and the exact
 // inspected boundary. Paths in index are repository-relative.
 message GetSemanticIndexResponse {
+  // index is the body-free semantic projection; its own state field says how
+  // completely the boundary was inspected.
   codefly.base.v0.SemanticIndex index = 1;
+  // failure is set only when the capability or infrastructure failed, never
+  // for a file that merely degraded.
   codefly.base.v0.Failure failure = 2;
+  // code_unit echoes the boundary that was actually inspected.
   CodeUnitTarget code_unit = 3;
 }
 
 // GetInstructionIndexRequest identifies a repository projection and an
 // optional code-unit scope filter.
 message GetInstructionIndexRequest {
+  // service is the Codefly service whose source tree is inspected.
   string service = 1;
+  // code_unit narrows the inspection to one discovered boundary; absent
+  // inspects the whole service tree.
   CodeUnitTarget code_unit = 2;
 }
 
 // GetInstructionIndexResponse preserves typed analyzer coverage and echoes an
 // exact requested scope. Source paths in index are repository-relative.
 message GetInstructionIndexResponse {
+  // index is the typed guidance projection; its own state field says how
+  // completely the documents were inspected.
   codefly.base.v0.InstructionIndex index = 1;
+  // failure is set only when the capability or infrastructure failed, never
+  // for a single document that degraded.
   codefly.base.v0.Failure failure = 2;
+  // code_unit echoes the scope that was actually projected.
   CodeUnitTarget code_unit = 3;
 }
 
@@ -1895,38 +2081,60 @@ message GetInstructionIndexResponse {
 // revision observes the live worktree; a non-empty revision resolves an
 // immutable Git tree before returning any entries.
 message GetSourceManifestRequest {
+  // service is the Codefly service whose tree is inventoried.
   string service = 1;
+  // revision resolves one immutable Git tree. Empty observes the live
+  // worktree instead.
   string revision = 2;
+  // identity_mode selects how artifact identities are computed.
   codefly.base.v0.SourceManifestIdentityMode identity_mode = 3;
 }
 
 // GetSourceManifestResponse keeps project bytes behind Codefly while exposing
 // exact artifact identities and a typed failure boundary to Mind.
 message GetSourceManifestResponse {
+  // manifest is the artifact inventory, carrying identities rather than the
+  // project bytes they stand for.
   codefly.base.v0.SourceManifest manifest = 1;
+  // failure is the sole structured cause when the inventory could not be
+  // produced.
   codefly.base.v0.Failure failure = 2;
 }
 
 // DiscoverCodeUnitsRequest identifies the service whose rooted source tree is
 // inspected. Empty service selects the gateway's attached source behavior.
 message DiscoverCodeUnitsRequest {
+  // service is the Codefly service to inspect. Empty selects the gateway's
+  // attached source behavior.
   string service = 1;
 }
 
 // CodeUnitInfo is the gateway projection of the Code service's structural
 // discovery result.
 message CodeUnitInfo {
+  // path is relative to the service root; "." identifies the root itself.
   string path = 1;
+  // name is a stable human-readable name derived from the boundary directory.
   string name = 2;
+  // primary_language is the deterministic primary ecosystem, for consumers
+  // that can carry only one.
   string primary_language = 3;
+  // languages preserves every ecosystem declared at this exact boundary.
   repeated string languages = 4;
+  // manifest_paths are the root-relative declaration files that established
+  // the boundary, so the detection is auditable.
   repeated string manifest_paths = 5;
+  // runtime_agent is the unversioned service-agent family this boundary binds
+  // to; unknown or mixed ecosystems bind to "generic".
   string runtime_agent = 6;
 }
 
 // DiscoverCodeUnitsResponse preserves every discovered source boundary.
 message DiscoverCodeUnitsResponse {
+  // code_units is the complete structural inventory. A markerless tree yields
+  // exactly one generic root unit rather than an empty list.
   repeated CodeUnitInfo code_units = 1;
+  // error explains why discovery could not run at all.
   string error = 2;
 }
 
@@ -2053,6 +2261,8 @@ message ListTerminalsResponse {
 // EvaluateStorageCapacityRequest carries the caller's typed operation demand.
 // At least one unique, non-zero, authority-scoped requirement is required.
 message EvaluateStorageCapacityRequest {
+  // requirements are the caller's per-component demands. Requirements that
+  // resolve to one physical authority are coalesced before evaluation.
   repeated codefly.base.v0.StorageCapacityRequirement requirements = 1;
 }
 
@@ -2060,6 +2270,9 @@ message EvaluateStorageCapacityRequest {
 // storage authority and the sole structured cause when the request is invalid,
 // unavailable, or any authority rejects its combined requirements.
 message EvaluateStorageCapacityResponse {
+  // admissions holds one evaluation per distinct physical storage authority.
   repeated codefly.base.v0.StorageCapacityAdmission admissions = 1;
+  // failure is the sole structured cause when the request is invalid, an
+  // authority is unavailable, or one rejects its combined requirements.
   codefly.base.v0.Failure failure = 2;
 }

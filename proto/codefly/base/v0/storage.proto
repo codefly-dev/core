@@ -8,6 +8,8 @@ option go_package = "github.com/codefly-dev/core/generated/go/codefly/base/v0;ba
 // Callers use the kind and opaque authority_id for diagnostics; host paths and
 // implementation details never cross the boundary.
 enum StorageAuthorityKind {
+  // UNSPECIFIED means the reporting boundary did not name an owner; callers
+  // treat the reading as unattributed rather than assuming a default.
   STORAGE_AUTHORITY_KIND_UNSPECIFIED = 0;
   // GATEWAY_ROOT is the filesystem that contains the Codefly Gateway's
   // execution root, including caller-authorized repository/cache state below it.
@@ -25,7 +27,10 @@ enum StorageAuthorityKind {
 // storage demand. Components remain separate in traces so operators can see
 // which subsystem made an admission expensive.
 message StorageCapacityRequirement {
+  // component names the subsystem making this demand, so a trace attributes
+  // the cost rather than reporting one opaque total.
   string component = 1;
+  // bytes is how much storage that component needs for the operation.
   uint64 bytes = 2;
   // authority_kind identifies the logical owner of this demand. The
   // evaluating boundary resolves that logical owner to an opaque physical
@@ -43,9 +48,14 @@ message StorageCapacityAdmission {
   // authority_kinds are the logical owners whose requirements resolved to
   // this physical storage authority. More than one kind can share a volume.
   repeated StorageAuthorityKind authority_kinds = 2;
+  // total_bytes is the authority's capacity at the moment of evaluation.
   uint64 total_bytes = 3;
+  // available_bytes is the free capacity observed at that same moment.
   uint64 available_bytes = 4;
+  // requirements are the per-component demands that were summed, preserved so
+  // a rejection names what asked for the space.
   repeated StorageCapacityRequirement requirements = 5;
+  // required_bytes is the sum of requirements.
   uint64 required_bytes = 6;
   // projected_available_bytes is available_bytes - required_bytes when the
   // request is admitted, otherwise zero.
@@ -53,5 +63,7 @@ message StorageCapacityAdmission {
   // shortfall_bytes is required_bytes - available_bytes when rejected,
   // otherwise zero.
   uint64 shortfall_bytes = 8;
+  // admitted is the verdict: available_bytes covered required_bytes. It is an
+  // observation, not a reservation — re-evaluate before a later phase.
   bool admitted = 9;
 }

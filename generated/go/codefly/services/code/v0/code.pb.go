@@ -23,12 +23,17 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// SearchTruncationReason names which budget cut a search short, so a caller
+// can widen the one that actually bound rather than guessing.
 type SearchTruncationReason int32
 
 const (
+	// UNSPECIFIED means the results are complete; nothing was truncated.
 	SearchTruncationReason_SEARCH_TRUNCATION_REASON_UNSPECIFIED SearchTruncationReason = 0
+	// MAX_RESULTS means the match count reached SearchRequest.max_results.
 	SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_RESULTS SearchTruncationReason = 1
-	SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_BYTES   SearchTruncationReason = 2
+	// MAX_BYTES means cumulative match text reached SearchRequest.max_bytes.
+	SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_BYTES SearchTruncationReason = 2
 )
 
 // Enum value maps for SearchTruncationReason.
@@ -864,15 +869,23 @@ func (x *ApplyEditResponse) GetAfterSizeBytes() uint64 {
 // exact qualified name emitted by GetSemanticIndex. The expected declaration
 // hash makes stale or ambiguous authoring fail before any workspace write.
 type ApplySymbolPatchRequest struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	File                      string                 `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
-	QualifiedName             string                 `protobuf:"bytes,2,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
-	ExpectedDeclarationSha256 string                 `protobuf:"bytes,3,opt,name=expected_declaration_sha256,json=expectedDeclarationSha256,proto3" json:"expected_declaration_sha256,omitempty"`
-	NewSource                 string                 `protobuf:"bytes,4,opt,name=new_source,json=newSource,proto3" json:"new_source,omitempty"`
-	FixMode                   v0.FixMode             `protobuf:"varint,5,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
-	DryRun                    bool                   `protobuf:"varint,6,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// file is the service-relative path holding the declaration.
+	File string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
+	// qualified_name selects the declaration, spelled exactly as
+	// GetSemanticIndex emits it.
+	QualifiedName string `protobuf:"bytes,2,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
+	// expected_declaration_sha256 is the digest the author read. A mismatch
+	// fails the patch before any write, so a stale edit cannot land.
+	ExpectedDeclarationSha256 string `protobuf:"bytes,3,opt,name=expected_declaration_sha256,json=expectedDeclarationSha256,proto3" json:"expected_declaration_sha256,omitempty"`
+	// new_source is the complete replacement declaration, not a diff.
+	NewSource string `protobuf:"bytes,4,opt,name=new_source,json=newSource,proto3" json:"new_source,omitempty"`
+	// fix_mode selects which formatters and import fixers run after the edit.
+	FixMode v0.FixMode `protobuf:"varint,5,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
+	// dry_run computes the result and its hashes without writing.
+	DryRun        bool `protobuf:"varint,6,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ApplySymbolPatchRequest) Reset() {
@@ -951,18 +964,31 @@ func (x *ApplySymbolPatchRequest) GetDryRun() bool {
 // Codefly boundary. Gateway callers receive a source-free projection of these
 // hashes and actions.
 type ApplySymbolPatchResponse struct {
-	state             protoimpl.MessageState      `protogen:"open.v1"`
-	Success           bool                        `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Content           string                      `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
-	Strategy          string                      `protobuf:"bytes,3,opt,name=strategy,proto3" json:"strategy,omitempty"`
-	FixActions        []string                    `protobuf:"bytes,4,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"`
-	Changed           bool                        `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
-	BeforeSha256      string                      `protobuf:"bytes,6,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
-	AfterSha256       string                      `protobuf:"bytes,7,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
-	DeclarationSha256 string                      `protobuf:"bytes,8,opt,name=declaration_sha256,json=declarationSha256,proto3" json:"declaration_sha256,omitempty"`
-	Wrote             bool                        `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
-	Output            string                      `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
-	FailureReason     v0.SymbolPatchFailureReason `protobuf:"varint,11,opt,name=failure_reason,json=failureReason,proto3,enum=codefly.base.v0.SymbolPatchFailureReason" json:"failure_reason,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// success reports that the declaration was located and replaced.
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// content is the complete post-edit file, populated only inside the Codefly
+	// boundary; the gateway projection drops it.
+	Content string `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	// strategy names how the declaration was located.
+	Strategy string `protobuf:"bytes,3,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	// fix_actions names the formatters or import fixers that ran after the edit.
+	FixActions []string `protobuf:"bytes,4,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"`
+	// changed reports whether the returned content differs from the original.
+	Changed bool `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
+	// before_sha256 is the lowercase SHA-256 digest of the original file.
+	BeforeSha256 string `protobuf:"bytes,6,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
+	// after_sha256 is the lowercase SHA-256 digest of the returned file.
+	AfterSha256 string `protobuf:"bytes,7,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
+	// declaration_sha256 is the digest of the replaced declaration after the
+	// edit, so the next patch can pass it as expected_declaration_sha256.
+	DeclarationSha256 string `protobuf:"bytes,8,opt,name=declaration_sha256,json=declarationSha256,proto3" json:"declaration_sha256,omitempty"`
+	// wrote reports whether the agent committed the content; a dry run does not.
+	Wrote bool `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
+	// output preserves bounded formatter or fixer output for follow-up linting.
+	Output string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
+	// failure_reason is the structured cause when success is false.
+	FailureReason v0.SymbolPatchFailureReason `protobuf:"varint,11,opt,name=failure_reason,json=failureReason,proto3,enum=codefly.base.v0.SymbolPatchFailureReason" json:"failure_reason,omitempty"`
 	// before_size_bytes is the exact original content length.
 	BeforeSizeBytes uint64 `protobuf:"varint,12,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
 	// after_size_bytes is the exact returned content length.
@@ -2424,8 +2450,11 @@ func (*GetInstructionIndexRequest) Descriptor() ([]byte, []int) {
 // identities. Empty revision observes the live worktree; a non-empty revision
 // resolves one immutable Git tree.
 type GetSourceManifestRequest struct {
-	state         protoimpl.MessageState        `protogen:"open.v1"`
-	Revision      string                        `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// revision resolves one immutable Git tree. Empty observes the live
+	// worktree instead.
+	Revision string `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	// identity_mode selects how artifact identities are computed.
 	IdentityMode  v0.SourceManifestIdentityMode `protobuf:"varint,2,opt,name=identity_mode,json=identityMode,proto3,enum=codefly.base.v0.SourceManifestIdentityMode" json:"identity_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2611,8 +2640,10 @@ func (x *CodeUnitInfo) GetRuntimeAgent() string {
 // DiscoverCodeUnitsResponse returns a deterministic, complete structural
 // inventory. A markerless source tree is represented by one generic root unit.
 type DiscoverCodeUnitsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CodeUnits     []*CodeUnitInfo        `protobuf:"bytes,1,rep,name=code_units,json=codeUnits,proto3" json:"code_units,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// code_units is the complete structural inventory. A markerless tree yields
+	// exactly one generic root unit rather than an empty list.
+	CodeUnits     []*CodeUnitInfo `protobuf:"bytes,1,rep,name=code_units,json=codeUnits,proto3" json:"code_units,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

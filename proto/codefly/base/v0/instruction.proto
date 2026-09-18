@@ -6,23 +6,40 @@ package codefly.base.v0;
 // repository instruction documents. Consumers must not infer completeness
 // from a non-empty record list.
 enum InstructionIndexState {
+  // UNSPECIFIED means the producer did not state completeness; a consumer
+  // must treat the projection as unattested rather than complete.
   INSTRUCTION_INDEX_STATE_UNSPECIFIED = 0;
+  // COMPLETE means every recognized document was inspected successfully.
   INSTRUCTION_INDEX_STATE_COMPLETE = 1;
+  // DEGRADED means some documents failed inspection; issues names which, and
+  // the records from the siblings are still authoritative.
   INSTRUCTION_INDEX_STATE_DEGRADED = 2;
+  // NOT_ATTEMPTED means inspection never ran, so an empty record list says
+  // nothing about the repository.
   INSTRUCTION_INDEX_STATE_NOT_ATTEMPTED = 3;
 }
 
 // InstructionKnowledgeKind is the deterministic semantic class assigned to
 // one instruction section by the Codefly analyzer.
 enum InstructionKnowledgeKind {
+  // UNSPECIFIED means the analyzer recognized the section but could not
+  // classify it.
   INSTRUCTION_KNOWLEDGE_KIND_UNSPECIFIED = 0;
+  // RULE is a binding constraint the project requires be obeyed.
   INSTRUCTION_KNOWLEDGE_KIND_RULE = 1;
+  // CONVENTION is an established practice, expected but not enforced.
   INSTRUCTION_KNOWLEDGE_KIND_CONVENTION = 2;
+  // ANTI_PATTERN is something the project states should not be done.
   INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN = 3;
+  // DECISION is a settled choice recorded with its rationale.
   INSTRUCTION_KNOWLEDGE_KIND_DECISION = 4;
+  // REQUIREMENT is a capability or property the work must deliver.
   INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT = 5;
+  // GUIDANCE is advisory direction with no obligation behind it.
   INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE = 6;
+  // LESSON is knowledge recorded from a past failure.
   INSTRUCTION_KNOWLEDGE_KIND_LESSON = 7;
+  // ASSUMPTION is a premise the project takes as given and may revisit.
   INSTRUCTION_KNOWLEDGE_KIND_ASSUMPTION = 8;
 }
 
@@ -30,9 +47,15 @@ enum InstructionKnowledgeKind {
 // instruction source. scope_path is the repository-relative subtree to which
 // the document applies; "." means the repository root.
 message InstructionDocument {
+  // path is the repository-relative location of the document.
   string path = 1;
+  // content_sha256 identifies the exact bytes inspected, so a record stays
+  // auditable without carrying the document itself.
   string content_sha256 = 2;
+  // byte_size is the document's length in bytes.
   int64 byte_size = 3;
+  // scope_path is the subtree the document applies to; "." is the repository
+  // root.
   string scope_path = 4;
 }
 
@@ -42,22 +65,39 @@ message InstructionDocument {
 // record independently auditable without giving the orchestration brain a
 // Markdown parser.
 message InstructionKnowledge {
+  // id is the deterministic identity of this record, stable across
+  // re-projections of the same source bytes.
   string id = 1;
+  // kind is the semantic class the analyzer assigned to the section.
   InstructionKnowledgeKind kind = 2;
+  // title is the section heading the record was extracted from.
   string title = 3;
+  // guidance is the section's bounded instruction text. The complete source
+  // document never crosses the boundary.
   string guidance = 4;
+  // source_path is the repository-relative document the section came from.
   string source_path = 5;
+  // source_sha256 is that document's content digest, pinning the record to
+  // the exact bytes it was read from.
   string source_sha256 = 6;
+  // start_line is the 1-based first line of the section.
   int32 start_line = 7;
+  // end_line is the 1-based last line of the section.
   int32 end_line = 8;
+  // scope_path is the subtree this record applies to, inherited from the
+  // source document.
   string scope_path = 9;
 }
 
 // InstructionIssue preserves one source-local inspection failure while
 // retaining records successfully extracted from sibling documents.
 message InstructionIssue {
+  // code is the stable machine-readable cause, so a consumer can react
+  // without parsing message.
   string code = 1;
+  // message is the human-readable explanation.
   string message = 2;
+  // path is the repository-relative document whose inspection failed.
   string path = 3;
 }
 
@@ -65,11 +105,19 @@ message InstructionIssue {
 // project instruction documents. Analyzer provenance is part of the durable
 // identity consumers persist alongside repository/version scope.
 message InstructionIndex {
+  // state says how completely the documents were inspected. A non-empty
+  // records list does not by itself mean complete.
   InstructionIndexState state = 1;
+  // analyzer names the implementation that produced this projection.
   string analyzer = 2;
+  // analyzer_version pins that implementation, so a consumer can tell a
+  // changed repository from a changed analyzer.
   string analyzer_version = 3;
+  // documents are the body-free identities of every recognized source.
   repeated InstructionDocument documents = 4;
+  // records are the typed sections extracted from those documents.
   repeated InstructionKnowledge records = 5;
+  // issues are the source-local inspection failures behind a DEGRADED state.
   repeated InstructionIssue issues = 6;
   // fingerprint seals the sorted typed projection (documents, records, and
   // issue identities) so a consumer can bind it to one immutable repository

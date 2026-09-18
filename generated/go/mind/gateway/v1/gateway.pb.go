@@ -32,12 +32,20 @@ const (
 type WorkspaceChangeOperation int32
 
 const (
+	// UNSPECIFIED means the producer named no operation; treat the path as
+	// changed by an unknown means rather than unchanged.
 	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_UNSPECIFIED WorkspaceChangeOperation = 0
-	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_CREATE      WorkspaceChangeOperation = 1
-	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_WRITE       WorkspaceChangeOperation = 2
-	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_REMOVE      WorkspaceChangeOperation = 3
-	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_METADATA    WorkspaceChangeOperation = 4
-	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_RESCAN      WorkspaceChangeOperation = 5
+	// CREATE means the path came into existence.
+	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_CREATE WorkspaceChangeOperation = 1
+	// WRITE means the path's content changed.
+	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_WRITE WorkspaceChangeOperation = 2
+	// REMOVE means the path no longer exists.
+	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_REMOVE WorkspaceChangeOperation = 3
+	// METADATA means only mode or attributes changed, not content.
+	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_METADATA WorkspaceChangeOperation = 4
+	// RESCAN is an explicit uncertainty marker: the watcher lost track, so the
+	// consumer must pull an authoritative manifest rather than apply a delta.
+	WorkspaceChangeOperation_WORKSPACE_CHANGE_OPERATION_RESCAN WorkspaceChangeOperation = 5
 )
 
 // Enum value maps for WorkspaceChangeOperation.
@@ -87,11 +95,15 @@ func (WorkspaceChangeOperation) EnumDescriptor() ([]byte, []int) {
 	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{0}
 }
 
+// PreparedFileOperation is what a prepared mutation does to one path.
 type PreparedFileOperation int32
 
 const (
+	// UNSPECIFIED means the preparation named no operation, which no producer
+	// emits and a consumer must not apply.
 	PreparedFileOperation_PREPARED_FILE_OPERATION_UNSPECIFIED PreparedFileOperation = 0
-	PreparedFileOperation_PREPARED_FILE_OPERATION_MODIFY      PreparedFileOperation = 1
+	// MODIFY replaces the content of an existing file.
+	PreparedFileOperation_PREPARED_FILE_OPERATION_MODIFY PreparedFileOperation = 1
 )
 
 // Enum value maps for PreparedFileOperation.
@@ -133,12 +145,17 @@ func (PreparedFileOperation) EnumDescriptor() ([]byte, []int) {
 	return file_mind_gateway_v1_gateway_proto_rawDescGZIP(), []int{1}
 }
 
+// SearchTruncationReason names which budget cut a search short, so a caller
+// can widen the one that actually bound rather than guessing.
 type SearchTruncationReason int32
 
 const (
+	// UNSPECIFIED means the results are complete; nothing was truncated.
 	SearchTruncationReason_SEARCH_TRUNCATION_REASON_UNSPECIFIED SearchTruncationReason = 0
+	// MAX_RESULTS means the match count reached SearchRequest.max_results.
 	SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_RESULTS SearchTruncationReason = 1
-	SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_BYTES   SearchTruncationReason = 2
+	// MAX_BYTES means cumulative match text reached SearchRequest.max_bytes.
+	SearchTruncationReason_SEARCH_TRUNCATION_REASON_MAX_BYTES SearchTruncationReason = 2
 )
 
 // Enum value maps for SearchTruncationReason.
@@ -541,10 +558,14 @@ func (ForgeCheckPolicy) EnumDescriptor() ([]byte, []int) {
 type ForgeEventKind int32
 
 const (
-	ForgeEventKind_FORGE_EVENT_KIND_UNSPECIFIED  ForgeEventKind = 0
+	// UNSPECIFIED means the toolbox recognized the delivery but not its family.
+	ForgeEventKind_FORGE_EVENT_KIND_UNSPECIFIED ForgeEventKind = 0
+	// PULL_REQUEST is a change to a pull request itself.
 	ForgeEventKind_FORGE_EVENT_KIND_PULL_REQUEST ForgeEventKind = 1
-	ForgeEventKind_FORGE_EVENT_KIND_CHECK        ForgeEventKind = 2
-	ForgeEventKind_FORGE_EVENT_KIND_REVIEW       ForgeEventKind = 3
+	// CHECK is a status or check run reported against a revision.
+	ForgeEventKind_FORGE_EVENT_KIND_CHECK ForgeEventKind = 2
+	// REVIEW is a review submitted on a pull request.
+	ForgeEventKind_FORGE_EVENT_KIND_REVIEW ForgeEventKind = 3
 )
 
 // Enum value maps for ForgeEventKind.
@@ -1162,9 +1183,13 @@ func (x *ListFilesResponse) GetFiles() []*FileInfo {
 // sequence. Both fields are required together; an empty cursor first emits an
 // explicit rescan because the consumer cannot prove prior completeness.
 type WorkspaceChangeCursor struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SourceId      string                 `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
-	Sequence      uint64                 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// source_id identifies the monitor epoch. A cursor from a different epoch
+	// cannot be resumed and yields a rescan.
+	SourceId string `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	// sequence is the last position the consumer acknowledged within that
+	// epoch.
+	Sequence      uint64 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1213,9 +1238,13 @@ func (x *WorkspaceChangeCursor) GetSequence() uint64 {
 	return 0
 }
 
+// SubscribeWorkspaceChangesRequest opens a change stream for one service.
 type SubscribeWorkspaceChangesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service name whose workspace is watched.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// after resumes from an acknowledged cursor. Empty starts with an explicit
+	// rescan, because the consumer cannot prove it saw everything before.
 	After         *WorkspaceChangeCursor `protobuf:"bytes,2,opt,name=after,proto3" json:"after,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1268,11 +1297,16 @@ func (x *SubscribeWorkspaceChangesRequest) GetAfter() *WorkspaceChangeCursor {
 // WorkspaceChange contains metadata only. Source bytes remain behind ReadFile
 // and version-aware Gateway operations.
 type WorkspaceChange struct {
-	state         protoimpl.MessageState   `protogen:"open.v1"`
-	Operation     WorkspaceChangeOperation `protobuf:"varint,1,opt,name=operation,proto3,enum=mind.gateway.v1.WorkspaceChangeOperation" json:"operation,omitempty"`
-	Path          string                   `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	PreviousPath  string                   `protobuf:"bytes,3,opt,name=previous_path,json=previousPath,proto3" json:"previous_path,omitempty"`
-	Reason        string                   `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// operation is why the path may have changed.
+	Operation WorkspaceChangeOperation `protobuf:"varint,1,opt,name=operation,proto3,enum=mind.gateway.v1.WorkspaceChangeOperation" json:"operation,omitempty"`
+	// path is the repository-relative path affected, empty for a rescan that
+	// covers the whole subscription.
+	Path string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	// previous_path is the path before a rename, empty otherwise.
+	PreviousPath string `protobuf:"bytes,3,opt,name=previous_path,json=previousPath,proto3" json:"previous_path,omitempty"`
+	// reason explains a rescan or an otherwise surprising operation.
+	Reason        string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1339,11 +1373,16 @@ func (x *WorkspaceChange) GetReason() string {
 // producers emit one canonical change per position so downstream journals can
 // acknowledge it atomically; consumers must treat any future batch atomically.
 type WorkspaceChangeEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SourceId      string                 `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
-	Sequence      uint64                 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
-	ObservedAt    *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
-	Changes       []*WorkspaceChange     `protobuf:"bytes,4,rep,name=changes,proto3" json:"changes,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// source_id identifies the monitor epoch this position belongs to.
+	SourceId string `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	// sequence is this event's position within that epoch; it is what a
+	// consumer acknowledges.
+	Sequence uint64 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	// observed_at is when the watcher saw the change.
+	ObservedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	// changes are the changes at this position, acknowledged as one unit.
+	Changes       []*WorkspaceChange `protobuf:"bytes,4,rep,name=changes,proto3" json:"changes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2229,16 +2268,25 @@ func (x *ApplyEditResponse) GetAfterSizeBytes() uint64 {
 // ApplySymbolPatchRequest addresses one declaration by the exact qualified
 // name and declaration hash returned by Codefly semantic projection.
 type ApplySymbolPatchRequest struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	Service                   string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	File                      string                 `protobuf:"bytes,2,opt,name=file,proto3" json:"file,omitempty"`
-	QualifiedName             string                 `protobuf:"bytes,3,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
-	ExpectedDeclarationSha256 string                 `protobuf:"bytes,4,opt,name=expected_declaration_sha256,json=expectedDeclarationSha256,proto3" json:"expected_declaration_sha256,omitempty"`
-	NewSource                 string                 `protobuf:"bytes,5,opt,name=new_source,json=newSource,proto3" json:"new_source,omitempty"`
-	FixMode                   v0.FixMode             `protobuf:"varint,6,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
-	DryRun                    bool                   `protobuf:"varint,7,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service name whose tree holds the declaration.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// file is the service-relative path holding it.
+	File string `protobuf:"bytes,2,opt,name=file,proto3" json:"file,omitempty"`
+	// qualified_name selects the declaration, spelled exactly as the semantic
+	// projection emits it.
+	QualifiedName string `protobuf:"bytes,3,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
+	// expected_declaration_sha256 is the digest the author read. A mismatch
+	// fails the patch before any write, so a stale edit cannot land.
+	ExpectedDeclarationSha256 string `protobuf:"bytes,4,opt,name=expected_declaration_sha256,json=expectedDeclarationSha256,proto3" json:"expected_declaration_sha256,omitempty"`
+	// new_source is the complete replacement declaration, not a diff.
+	NewSource string `protobuf:"bytes,5,opt,name=new_source,json=newSource,proto3" json:"new_source,omitempty"`
+	// fix_mode selects which formatters and import fixers run after the edit.
+	FixMode v0.FixMode `protobuf:"varint,6,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
+	// dry_run computes the result and its hashes without writing.
+	DryRun        bool `protobuf:"varint,7,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ApplySymbolPatchRequest) Reset() {
@@ -2323,20 +2371,33 @@ func (x *ApplySymbolPatchRequest) GetDryRun() bool {
 // ApplySymbolPatchResponse deliberately omits project content. Mind receives
 // only typed success/failure and exact identities needed for orchestration.
 type ApplySymbolPatchResponse struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Success           bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Error             string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
-	Strategy          string                 `protobuf:"bytes,3,opt,name=strategy,proto3" json:"strategy,omitempty"`
-	FixActions        []string               `protobuf:"bytes,4,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"`
-	Changed           bool                   `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
-	BeforeSha256      string                 `protobuf:"bytes,6,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
-	AfterSha256       string                 `protobuf:"bytes,7,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
-	DeclarationSha256 string                 `protobuf:"bytes,8,opt,name=declaration_sha256,json=declarationSha256,proto3" json:"declaration_sha256,omitempty"`
-	Wrote             bool                   `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
-	Output            string                 `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// success reports that the declaration was located and replaced.
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// error is the human-readable cause. Mind branches on failure_reason
+	// instead of parsing this.
+	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// strategy names how the declaration was located.
+	Strategy string `protobuf:"bytes,3,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	// fix_actions names the formatters or import fixers that ran after the edit.
+	FixActions []string `protobuf:"bytes,4,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"`
+	// changed reports whether the file differs from before the patch.
+	Changed bool `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
+	// before_sha256 is the lowercase SHA-256 digest of the original file.
+	BeforeSha256 string `protobuf:"bytes,6,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
+	// after_sha256 is the lowercase SHA-256 digest of the resulting file.
+	AfterSha256 string `protobuf:"bytes,7,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
+	// declaration_sha256 is the digest of the replaced declaration afterwards,
+	// so the next patch can pass it as expected_declaration_sha256.
+	DeclarationSha256 string `protobuf:"bytes,8,opt,name=declaration_sha256,json=declarationSha256,proto3" json:"declaration_sha256,omitempty"`
+	// wrote reports whether the agent committed the change; a dry run does not.
+	Wrote bool `protobuf:"varint,9,opt,name=wrote,proto3" json:"wrote,omitempty"`
+	// output preserves bounded formatter or fixer output for follow-up linting.
+	Output string `protobuf:"bytes,10,opt,name=output,proto3" json:"output,omitempty"`
 	// failure preserves the agent-owned recovery classification without
 	// requiring Mind to parse the human-readable error string.
-	Failure       *v0.Failure                 `protobuf:"bytes,11,opt,name=failure,proto3" json:"failure,omitempty"`
+	Failure *v0.Failure `protobuf:"bytes,11,opt,name=failure,proto3" json:"failure,omitempty"`
+	// failure_reason is the typed recovery branch Mind acts on.
 	FailureReason v0.SymbolPatchFailureReason `protobuf:"varint,12,opt,name=failure_reason,json=failureReason,proto3,enum=codefly.base.v0.SymbolPatchFailureReason" json:"failure_reason,omitempty"`
 	// before_size_bytes is the exact original content length.
 	BeforeSizeBytes uint64 `protobuf:"varint,13,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
@@ -2670,10 +2731,16 @@ func (x *BatchApplyEditsResponse) GetFailed() int32 {
 // coordinated mutation path. A running gateway may repeat the same binding,
 // but it rejects attempts to replace it with another authority or workspace.
 type ConfigureMutationAuthorityRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	AuthorityId      string                 `protobuf:"bytes,1,opt,name=authority_id,json=authorityId,proto3" json:"authority_id,omitempty"`
-	WorkspaceId      string                 `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
-	Ed25519PublicKey []byte                 `protobuf:"bytes,3,opt,name=ed25519_public_key,json=ed25519PublicKey,proto3" json:"ed25519_public_key,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// authority_id identifies the coordinator whose permits this gateway will
+	// accept.
+	AuthorityId string `protobuf:"bytes,1,opt,name=authority_id,json=authorityId,proto3" json:"authority_id,omitempty"`
+	// workspace_id is the workspace this gateway is bound to; permits scoped to
+	// any other workspace are rejected.
+	WorkspaceId string `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	// ed25519_public_key verifies permit signatures. Verification is local, so
+	// applying a mutation never calls back to the coordinator.
+	Ed25519PublicKey []byte `protobuf:"bytes,3,opt,name=ed25519_public_key,json=ed25519PublicKey,proto3" json:"ed25519_public_key,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2729,10 +2796,14 @@ func (x *ConfigureMutationAuthorityRequest) GetEd25519PublicKey() []byte {
 	return nil
 }
 
+// ConfigureMutationAuthorityResponse echoes the binding now in force, so a
+// caller repeating a configuration can confirm it did not replace one.
 type ConfigureMutationAuthorityResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AuthorityId   string                 `protobuf:"bytes,1,opt,name=authority_id,json=authorityId,proto3" json:"authority_id,omitempty"`
-	WorkspaceId   string                 `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// authority_id is the bound coordinator identity.
+	AuthorityId string `protobuf:"bytes,1,opt,name=authority_id,json=authorityId,proto3" json:"authority_id,omitempty"`
+	// workspace_id is the bound workspace identity.
+	WorkspaceId   string `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2785,15 +2856,24 @@ func (x *ConfigureMutationAuthorityResponse) GetWorkspaceId() string {
 // Codefly inside the execution box. Mind and the SaaS coordinator receive only
 // hashes and resource identity; project content never crosses this RPC.
 type PreparedFileMutation struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	Path         string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Operation    PreparedFileOperation  `protobuf:"varint,2,opt,name=operation,proto3,enum=mind.gateway.v1.PreparedFileOperation" json:"operation,omitempty"`
-	BeforeSha256 string                 `protobuf:"bytes,3,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
-	AfterSha256  string                 `protobuf:"bytes,4,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is the service-relative file the mutation writes.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// operation is what the mutation does to that path.
+	Operation PreparedFileOperation `protobuf:"varint,2,opt,name=operation,proto3,enum=mind.gateway.v1.PreparedFileOperation" json:"operation,omitempty"`
+	// before_sha256 is the digest preparation observed, and the precondition
+	// the apply re-checks.
+	BeforeSha256 string `protobuf:"bytes,3,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
+	// after_sha256 identifies the exact bytes Codefly retained inside the box;
+	// the content itself never crosses this RPC.
+	AfterSha256 string `protobuf:"bytes,4,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
 	// before_size_bytes is the exact original content length.
-	BeforeSizeBytes uint64   `protobuf:"varint,5,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
-	Strategy        string   `protobuf:"bytes,6,opt,name=strategy,proto3" json:"strategy,omitempty"`
-	FixActions      []string `protobuf:"bytes,7,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"`
+	BeforeSizeBytes uint64 `protobuf:"varint,5,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
+	// strategy names how the edit was resolved against the current bytes.
+	Strategy string `protobuf:"bytes,6,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	// fix_actions names the formatters or import fixers folded into the
+	// prepared result, so the apply adds nothing the digest does not cover.
+	FixActions []string `protobuf:"bytes,7,rep,name=fix_actions,json=fixActions,proto3" json:"fix_actions,omitempty"`
 	// symbol_id is set only when Codefly prepared an exact symbol mutation. It
 	// causes the coordinator to issue a symbol fence instead of a file fence.
 	SymbolId string `protobuf:"bytes,8,opt,name=symbol_id,json=symbolId,proto3" json:"symbol_id,omitempty"`
@@ -2899,19 +2979,33 @@ func (x *PreparedFileMutation) GetAfterSizeBytes() uint64 {
 // PreparedMutation is one immutable, version-bound write proposal. The digest
 // is SHA-256 over deterministic protobuf bytes with mutation_digest cleared.
 type PreparedMutation struct {
-	state            protoimpl.MessageState  `protogen:"open.v1"`
-	SchemaVersion    uint32                  `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	PreparationId    string                  `protobuf:"bytes,2,opt,name=preparation_id,json=preparationId,proto3" json:"preparation_id,omitempty"`
-	AuthorityId      string                  `protobuf:"bytes,3,opt,name=authority_id,json=authorityId,proto3" json:"authority_id,omitempty"`
-	WorkspaceId      string                  `protobuf:"bytes,4,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
-	Service          string                  `protobuf:"bytes,5,opt,name=service,proto3" json:"service,omitempty"`
-	WorkspaceVersion string                  `protobuf:"bytes,6,opt,name=workspace_version,json=workspaceVersion,proto3" json:"workspace_version,omitempty"`
-	MutationDigest   string                  `protobuf:"bytes,7,opt,name=mutation_digest,json=mutationDigest,proto3" json:"mutation_digest,omitempty"`
-	Files            []*PreparedFileMutation `protobuf:"bytes,8,rep,name=files,proto3" json:"files,omitempty"`
-	PreparedAt       *timestamppb.Timestamp  `protobuf:"bytes,9,opt,name=prepared_at,json=preparedAt,proto3" json:"prepared_at,omitempty"`
-	ExpiresAt        *timestamppb.Timestamp  `protobuf:"bytes,10,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// schema_version is the version of this proposal's shape, part of the bytes
+	// the digest is taken over.
+	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	// preparation_id identifies this proposal for the later apply.
+	PreparationId string `protobuf:"bytes,2,opt,name=preparation_id,json=preparationId,proto3" json:"preparation_id,omitempty"`
+	// authority_id is the coordinator expected to admit this proposal.
+	AuthorityId string `protobuf:"bytes,3,opt,name=authority_id,json=authorityId,proto3" json:"authority_id,omitempty"`
+	// workspace_id binds the proposal to one workspace.
+	WorkspaceId string `protobuf:"bytes,4,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	// service is the Codefly service the write lands in.
+	Service string `protobuf:"bytes,5,opt,name=service,proto3" json:"service,omitempty"`
+	// workspace_version is the version the proposal was resolved against; the
+	// apply refuses if the workspace has moved on.
+	WorkspaceVersion string `protobuf:"bytes,6,opt,name=workspace_version,json=workspaceVersion,proto3" json:"workspace_version,omitempty"`
+	// mutation_digest seals everything else here. It is SHA-256 over the
+	// deterministic protobuf bytes with this field cleared.
+	MutationDigest string `protobuf:"bytes,7,opt,name=mutation_digest,json=mutationDigest,proto3" json:"mutation_digest,omitempty"`
+	// files are the per-path write proposals, identified by hash only.
+	Files []*PreparedFileMutation `protobuf:"bytes,8,rep,name=files,proto3" json:"files,omitempty"`
+	// prepared_at is when the proposal was sealed.
+	PreparedAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=prepared_at,json=preparedAt,proto3" json:"prepared_at,omitempty"`
+	// expires_at is when it stops being applicable, so a proposal cannot be
+	// admitted long after the bytes it was resolved against.
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PreparedMutation) Reset() {
@@ -3014,12 +3108,17 @@ func (x *PreparedMutation) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// PrepareApplyEditMutation proposes one find/replace edit for preparation.
 type PrepareApplyEditMutation struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	File          string                 `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
-	Find          string                 `protobuf:"bytes,2,opt,name=find,proto3" json:"find,omitempty"`
-	Replace       string                 `protobuf:"bytes,3,opt,name=replace,proto3" json:"replace,omitempty"`
-	FixMode       v0.FixMode             `protobuf:"varint,4,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// file is the service-relative path to edit.
+	File string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
+	// find is the text to locate; the agent owns the matching strategy.
+	Find string `protobuf:"bytes,2,opt,name=find,proto3" json:"find,omitempty"`
+	// replace is the replacement text.
+	Replace string `protobuf:"bytes,3,opt,name=replace,proto3" json:"replace,omitempty"`
+	// fix_mode selects the language-aware rewriting folded into the result.
+	FixMode       v0.FixMode `protobuf:"varint,4,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3082,20 +3181,28 @@ func (x *PrepareApplyEditMutation) GetFixMode() v0.FixMode {
 	return v0.FixMode(0)
 }
 
+// PrepareSymbolPatchMutation proposes replacing one whole declaration. It
+// carries a symbol identity so the coordinator can fence the symbol rather
+// than the whole file.
 type PrepareSymbolPatchMutation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	File  string                 `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
+	// file is the service-relative path holding the declaration.
+	File string `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
 	// symbol_id is the stable KG/coordinator resource identity used for the
 	// exact claim, lease, and permit fence.
 	SymbolId string `protobuf:"bytes,2,opt,name=symbol_id,json=symbolId,proto3" json:"symbol_id,omitempty"`
 	// qualified_name is the exact analyzer-emitted declaration selector. It is
 	// deliberately distinct from the stable resource identity above.
-	QualifiedName             string     `protobuf:"bytes,3,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
-	ExpectedDeclarationSha256 string     `protobuf:"bytes,4,opt,name=expected_declaration_sha256,json=expectedDeclarationSha256,proto3" json:"expected_declaration_sha256,omitempty"`
-	NewSource                 string     `protobuf:"bytes,5,opt,name=new_source,json=newSource,proto3" json:"new_source,omitempty"`
-	FixMode                   v0.FixMode `protobuf:"varint,6,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	QualifiedName string `protobuf:"bytes,3,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
+	// expected_declaration_sha256 is the digest the author read. A mismatch
+	// fails preparation, so a stale edit is never sealed.
+	ExpectedDeclarationSha256 string `protobuf:"bytes,4,opt,name=expected_declaration_sha256,json=expectedDeclarationSha256,proto3" json:"expected_declaration_sha256,omitempty"`
+	// new_source is the complete replacement declaration, not a diff.
+	NewSource string `protobuf:"bytes,5,opt,name=new_source,json=newSource,proto3" json:"new_source,omitempty"`
+	// fix_mode selects the language-aware rewriting folded into the result.
+	FixMode       v0.FixMode `protobuf:"varint,6,opt,name=fix_mode,json=fixMode,proto3,enum=codefly.base.v0.FixMode" json:"fix_mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PrepareSymbolPatchMutation) Reset() {
@@ -3170,10 +3277,17 @@ func (x *PrepareSymbolPatchMutation) GetFixMode() v0.FixMode {
 	return v0.FixMode(0)
 }
 
+// PrepareMutationRequest asks the gateway to resolve one proposed edit against
+// current project bytes and seal the result, without writing it.
 type PrepareMutationRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Service          string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	WorkspaceVersion string                 `protobuf:"bytes,2,opt,name=workspace_version,json=workspaceVersion,proto3" json:"workspace_version,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service the edit targets.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// workspace_version is the version the caller believes it is editing; the
+	// sealed proposal is bound to it.
+	WorkspaceVersion string `protobuf:"bytes,2,opt,name=workspace_version,json=workspaceVersion,proto3" json:"workspace_version,omitempty"`
+	// mutation is the proposed edit, in whichever form the caller authored.
+	//
 	// Types that are valid to be assigned to Mutation:
 	//
 	//	*PrepareMutationRequest_ApplyEdit
@@ -3257,10 +3371,12 @@ type isPrepareMutationRequest_Mutation interface {
 }
 
 type PrepareMutationRequest_ApplyEdit struct {
+	// apply_edit proposes a find/replace edit.
 	ApplyEdit *PrepareApplyEditMutation `protobuf:"bytes,10,opt,name=apply_edit,json=applyEdit,proto3,oneof"`
 }
 
 type PrepareMutationRequest_SymbolPatch struct {
+	// symbol_patch proposes a whole-declaration replacement.
 	SymbolPatch *PrepareSymbolPatchMutation `protobuf:"bytes,11,opt,name=symbol_patch,json=symbolPatch,proto3,oneof"`
 }
 
@@ -3268,11 +3384,17 @@ func (*PrepareMutationRequest_ApplyEdit) isPrepareMutationRequest_Mutation() {}
 
 func (*PrepareMutationRequest_SymbolPatch) isPrepareMutationRequest_Mutation() {}
 
+// PrepareMutationResponse returns the sealed proposal, or a typed reason it
+// could not be sealed.
 type PrepareMutationResponse struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Success  bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Error    string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
-	Prepared *PreparedMutation      `protobuf:"bytes,3,opt,name=prepared,proto3" json:"prepared,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// success reports that the edit resolved and was sealed.
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// error is the human-readable cause. Mind branches on the typed fields
+	// below instead of parsing this.
+	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// prepared is the sealed proposal, present only on success.
+	Prepared *PreparedMutation `protobuf:"bytes,3,opt,name=prepared,proto3" json:"prepared,omitempty"`
 	// failure preserves the agent-owned classification when preparation invokes
 	// a language capability. It is absent for Gateway-local validation errors.
 	Failure *v0.Failure `protobuf:"bytes,4,opt,name=failure,proto3" json:"failure,omitempty"`
@@ -3348,14 +3470,19 @@ func (x *PrepareMutationResponse) GetSymbolPatchFailureReason() v0.SymbolPatchFa
 	return v0.SymbolPatchFailureReason(0)
 }
 
+// ApplyPreparedMutationRequest commits a previously sealed proposal.
 type ApplyPreparedMutationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	PreparationId string                 `protobuf:"bytes,2,opt,name=preparation_id,json=preparationId,proto3" json:"preparation_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service the proposal targets.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// preparation_id selects the sealed proposal to apply.
+	PreparationId string `protobuf:"bytes,2,opt,name=preparation_id,json=preparationId,proto3" json:"preparation_id,omitempty"`
 	// mutation_permit is Codefly's v2 Ed25519 scoped-authorization token,
 	// minted only after the Work Coordinator admits this exact prepared
 	// mutation under a current plan and lease. Codefly verifies it locally.
 	MutationPermit string `protobuf:"bytes,3,opt,name=mutation_permit,json=mutationPermit,proto3" json:"mutation_permit,omitempty"`
+	// mutation_digest must equal the sealed proposal's digest, so the permit
+	// and the bytes about to be written cannot refer to different proposals.
 	MutationDigest string `protobuf:"bytes,4,opt,name=mutation_digest,json=mutationDigest,proto3" json:"mutation_digest,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -3419,12 +3546,17 @@ func (x *ApplyPreparedMutationRequest) GetMutationDigest() string {
 	return ""
 }
 
+// AppliedFileMutation is the source-free record of one committed write.
 type AppliedFileMutation struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	Path         string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Operation    PreparedFileOperation  `protobuf:"varint,2,opt,name=operation,proto3,enum=mind.gateway.v1.PreparedFileOperation" json:"operation,omitempty"`
-	BeforeSha256 string                 `protobuf:"bytes,3,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
-	AfterSha256  string                 `protobuf:"bytes,4,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is the service-relative file that was written.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// operation is what was done to it.
+	Operation PreparedFileOperation `protobuf:"varint,2,opt,name=operation,proto3,enum=mind.gateway.v1.PreparedFileOperation" json:"operation,omitempty"`
+	// before_sha256 is the digest of the content that was replaced.
+	BeforeSha256 string `protobuf:"bytes,3,opt,name=before_sha256,json=beforeSha256,proto3" json:"before_sha256,omitempty"`
+	// after_sha256 is the digest of the content now on disk.
+	AfterSha256 string `protobuf:"bytes,4,opt,name=after_sha256,json=afterSha256,proto3" json:"after_sha256,omitempty"`
 	// before_size_bytes is the exact original content length.
 	BeforeSizeBytes uint64 `protobuf:"varint,5,opt,name=before_size_bytes,json=beforeSizeBytes,proto3" json:"before_size_bytes,omitempty"`
 	// after_size_bytes is the exact applied content length.
@@ -3505,15 +3637,22 @@ func (x *AppliedFileMutation) GetAfterSizeBytes() uint64 {
 	return 0
 }
 
+// ApplyPreparedMutationResponse reports the commit and echoes the identities
+// it was made under, so a journal can record what actually landed.
 type ApplyPreparedMutationResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Success        bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Error          string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
-	PreparationId  string                 `protobuf:"bytes,3,opt,name=preparation_id,json=preparationId,proto3" json:"preparation_id,omitempty"`
-	MutationDigest string                 `protobuf:"bytes,4,opt,name=mutation_digest,json=mutationDigest,proto3" json:"mutation_digest,omitempty"`
-	Files          []*AppliedFileMutation `protobuf:"bytes,5,rep,name=files,proto3" json:"files,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// success reports that every precondition held and the write landed.
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// error is the human-readable cause when it did not.
+	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// preparation_id echoes the applied proposal.
+	PreparationId string `protobuf:"bytes,3,opt,name=preparation_id,json=preparationId,proto3" json:"preparation_id,omitempty"`
+	// mutation_digest echoes the digest the write was made under.
+	MutationDigest string `protobuf:"bytes,4,opt,name=mutation_digest,json=mutationDigest,proto3" json:"mutation_digest,omitempty"`
+	// files are the writes that landed.
+	Files         []*AppliedFileMutation `protobuf:"bytes,5,rep,name=files,proto3" json:"files,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ApplyPreparedMutationResponse) Reset() {
@@ -4447,9 +4586,11 @@ func (x *TestResponse) GetRuntimeResponse() *v01.TestResponse {
 // configuration changes. Paths are limited to the schema advertised by that
 // plugin (for example test.env.CFLAGS or test.provisioning.python).
 type ConfigureServiceRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	Changes       []*v02.ConfigChange    `protobuf:"bytes,2,rep,name=changes,proto3" json:"changes,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service whose plugin owns the configuration.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// changes are the typed configuration edits to persist.
+	Changes       []*v02.ConfigChange `protobuf:"bytes,2,rep,name=changes,proto3" json:"changes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4501,7 +4642,9 @@ func (x *ConfigureServiceRequest) GetChanges() []*v02.ConfigChange {
 // ConfigureServiceResponse preserves the builder plugin's authoritative
 // status and effective configuration projection.
 type ConfigureServiceResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// response is the builder plugin's own verdict, passed through rather than
+	// re-derived, so the gateway adds no second source of truth.
 	Response      *v02.ConfigureResponse `protobuf:"bytes,1,opt,name=response,proto3" json:"response,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -8804,22 +8947,38 @@ func (x *ForgeRequestReviewResponse) GetAct() *ActReceipt {
 
 // ForgeEvent is one provider-authoritative event normalized by the toolbox.
 type ForgeEvent struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	EventId             string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
-	Kind                ForgeEventKind         `protobuf:"varint,2,opt,name=kind,proto3,enum=mind.gateway.v1.ForgeEventKind" json:"kind,omitempty"`
-	Ref                 string                 `protobuf:"bytes,3,opt,name=ref,proto3" json:"ref,omitempty"`
-	Repository          *ForgeRepository       `protobuf:"bytes,4,opt,name=repository,proto3" json:"repository,omitempty"`
-	Number              int64                  `protobuf:"varint,5,opt,name=number,proto3" json:"number,omitempty"`
-	Revision            string                 `protobuf:"bytes,6,opt,name=revision,proto3" json:"revision,omitempty"`
-	State               string                 `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
-	CheckName           string                 `protobuf:"bytes,8,opt,name=check_name,json=checkName,proto3" json:"check_name,omitempty"`
-	Conclusion          string                 `protobuf:"bytes,9,opt,name=conclusion,proto3" json:"conclusion,omitempty"`
-	Author              string                 `protobuf:"bytes,10,opt,name=author,proto3" json:"author,omitempty"`
-	AuthoritativeUrl    string                 `protobuf:"bytes,11,opt,name=authoritative_url,json=authoritativeUrl,proto3" json:"authoritative_url,omitempty"`
-	AuthoritativeSource string                 `protobuf:"bytes,12,opt,name=authoritative_source,json=authoritativeSource,proto3" json:"authoritative_source,omitempty"`
-	ObservedAt          *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// event_id is the provider's delivery identity, so a replayed delivery is
+	// recognizable rather than counted twice.
+	EventId string `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	// kind is the provider-neutral family this event belongs to.
+	Kind ForgeEventKind `protobuf:"varint,2,opt,name=kind,proto3,enum=mind.gateway.v1.ForgeEventKind" json:"kind,omitempty"`
+	// ref is the git ref the event concerns.
+	Ref string `protobuf:"bytes,3,opt,name=ref,proto3" json:"ref,omitempty"`
+	// repository identifies the forge resource.
+	Repository *ForgeRepository `protobuf:"bytes,4,opt,name=repository,proto3" json:"repository,omitempty"`
+	// number is the pull-request number, zero for events that have none.
+	Number int64 `protobuf:"varint,5,opt,name=number,proto3" json:"number,omitempty"`
+	// revision is the commit the event concerns.
+	Revision string `protobuf:"bytes,6,opt,name=revision,proto3" json:"revision,omitempty"`
+	// state is the provider's state string for a pull request or review.
+	State string `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
+	// check_name names the check, set only for CHECK events.
+	CheckName string `protobuf:"bytes,8,opt,name=check_name,json=checkName,proto3" json:"check_name,omitempty"`
+	// conclusion is a finished check's outcome, empty while it is still
+	// running.
+	Conclusion string `protobuf:"bytes,9,opt,name=conclusion,proto3" json:"conclusion,omitempty"`
+	// author is the provider login that caused the event.
+	Author string `protobuf:"bytes,10,opt,name=author,proto3" json:"author,omitempty"`
+	// authoritative_url points at the provider's own record, so a consumer can
+	// reach the truth rather than trust this projection.
+	AuthoritativeUrl string `protobuf:"bytes,11,opt,name=authoritative_url,json=authoritativeUrl,proto3" json:"authoritative_url,omitempty"`
+	// authoritative_source names the provider that record belongs to.
+	AuthoritativeSource string `protobuf:"bytes,12,opt,name=authoritative_source,json=authoritativeSource,proto3" json:"authoritative_source,omitempty"`
+	// observed_at is when the toolbox normalized the delivery.
+	ObservedAt    *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ForgeEvent) Reset() {
@@ -8946,14 +9105,22 @@ func (x *ForgeEvent) GetObservedAt() *timestamppb.Timestamp {
 // ForgeNormalizeWebhookRequest carries the signed provider delivery to the
 // toolbox that owns provider schemas and signature rules.
 type ForgeNormalizeWebhookRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	Provider      string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
-	EventType     string                 `protobuf:"bytes,3,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
-	DeliveryId    string                 `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId,proto3" json:"delivery_id,omitempty"`
-	Payload       []byte                 `protobuf:"bytes,5,opt,name=payload,proto3" json:"payload,omitempty"`
-	Signature     string                 `protobuf:"bytes,6,opt,name=signature,proto3" json:"signature,omitempty"`
-	Secret        string                 `protobuf:"bytes,7,opt,name=secret,proto3" json:"secret,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service identifies the workspace used for provider defaults.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// provider names the forge the delivery came from, selecting the schema and
+	// signature rules the toolbox applies.
+	Provider string `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	// event_type is the provider's own event name for the delivery.
+	EventType string `protobuf:"bytes,3,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	// delivery_id is the provider's delivery identity.
+	DeliveryId string `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId,proto3" json:"delivery_id,omitempty"`
+	// payload is the raw delivery body, verified before it is parsed.
+	Payload []byte `protobuf:"bytes,5,opt,name=payload,proto3" json:"payload,omitempty"`
+	// signature is the provider's signature over payload.
+	Signature string `protobuf:"bytes,6,opt,name=signature,proto3" json:"signature,omitempty"`
+	// secret is the shared secret that signature is verified against.
+	Secret        string `protobuf:"bytes,7,opt,name=secret,proto3" json:"secret,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9037,10 +9204,14 @@ func (x *ForgeNormalizeWebhookRequest) GetSecret() string {
 	return ""
 }
 
+// ForgeNormalizeWebhookResponse returns the provider-neutral event, or the
+// reason the delivery could not be verified or understood.
 type ForgeNormalizeWebhookResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Event         *ForgeEvent            `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
-	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// event is the normalized delivery, absent when error is set.
+	Event *ForgeEvent `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
+	// error explains a failed signature check or an unrecognized delivery.
+	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9807,9 +9978,12 @@ func (x *GetProjectInfoResponse) GetCodeUnit() *CodeUnitTarget {
 
 // GetSemanticIndexRequest identifies one production-agent source boundary.
 type GetSemanticIndexRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	CodeUnit      *CodeUnitTarget        `protobuf:"bytes,2,opt,name=code_unit,json=codeUnit,proto3" json:"code_unit,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service whose source tree is inspected.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// code_unit narrows the inspection to one discovered boundary; absent
+	// inspects the whole service tree.
+	CodeUnit      *CodeUnitTarget `protobuf:"bytes,2,opt,name=code_unit,json=codeUnit,proto3" json:"code_unit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9861,10 +10035,15 @@ func (x *GetSemanticIndexRequest) GetCodeUnit() *CodeUnitTarget {
 // GetSemanticIndexResponse preserves typed analyzer coverage and the exact
 // inspected boundary. Paths in index are repository-relative.
 type GetSemanticIndexResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         *v0.SemanticIndex      `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Failure       *v0.Failure            `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
-	CodeUnit      *CodeUnitTarget        `protobuf:"bytes,3,opt,name=code_unit,json=codeUnit,proto3" json:"code_unit,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// index is the body-free semantic projection; its own state field says how
+	// completely the boundary was inspected.
+	Index *v0.SemanticIndex `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	// failure is set only when the capability or infrastructure failed, never
+	// for a file that merely degraded.
+	Failure *v0.Failure `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
+	// code_unit echoes the boundary that was actually inspected.
+	CodeUnit      *CodeUnitTarget `protobuf:"bytes,3,opt,name=code_unit,json=codeUnit,proto3" json:"code_unit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9923,9 +10102,12 @@ func (x *GetSemanticIndexResponse) GetCodeUnit() *CodeUnitTarget {
 // GetInstructionIndexRequest identifies a repository projection and an
 // optional code-unit scope filter.
 type GetInstructionIndexRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	CodeUnit      *CodeUnitTarget        `protobuf:"bytes,2,opt,name=code_unit,json=codeUnit,proto3" json:"code_unit,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service whose source tree is inspected.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// code_unit narrows the inspection to one discovered boundary; absent
+	// inspects the whole service tree.
+	CodeUnit      *CodeUnitTarget `protobuf:"bytes,2,opt,name=code_unit,json=codeUnit,proto3" json:"code_unit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9977,10 +10159,15 @@ func (x *GetInstructionIndexRequest) GetCodeUnit() *CodeUnitTarget {
 // GetInstructionIndexResponse preserves typed analyzer coverage and echoes an
 // exact requested scope. Source paths in index are repository-relative.
 type GetInstructionIndexResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         *v0.InstructionIndex   `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Failure       *v0.Failure            `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
-	CodeUnit      *CodeUnitTarget        `protobuf:"bytes,3,opt,name=code_unit,json=codeUnit,proto3" json:"code_unit,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// index is the typed guidance projection; its own state field says how
+	// completely the documents were inspected.
+	Index *v0.InstructionIndex `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	// failure is set only when the capability or infrastructure failed, never
+	// for a single document that degraded.
+	Failure *v0.Failure `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
+	// code_unit echoes the scope that was actually projected.
+	CodeUnit      *CodeUnitTarget `protobuf:"bytes,3,opt,name=code_unit,json=codeUnit,proto3" json:"code_unit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10040,9 +10227,13 @@ func (x *GetInstructionIndexResponse) GetCodeUnit() *CodeUnitTarget {
 // revision observes the live worktree; a non-empty revision resolves an
 // immutable Git tree before returning any entries.
 type GetSourceManifestRequest struct {
-	state         protoimpl.MessageState        `protogen:"open.v1"`
-	Service       string                        `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	Revision      string                        `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service whose tree is inventoried.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// revision resolves one immutable Git tree. Empty observes the live
+	// worktree instead.
+	Revision string `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	// identity_mode selects how artifact identities are computed.
 	IdentityMode  v0.SourceManifestIdentityMode `protobuf:"varint,3,opt,name=identity_mode,json=identityMode,proto3,enum=codefly.base.v0.SourceManifestIdentityMode" json:"identity_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -10102,9 +10293,13 @@ func (x *GetSourceManifestRequest) GetIdentityMode() v0.SourceManifestIdentityMo
 // GetSourceManifestResponse keeps project bytes behind Codefly while exposing
 // exact artifact identities and a typed failure boundary to Mind.
 type GetSourceManifestResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Manifest      *v0.SourceManifest     `protobuf:"bytes,1,opt,name=manifest,proto3" json:"manifest,omitempty"`
-	Failure       *v0.Failure            `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// manifest is the artifact inventory, carrying identities rather than the
+	// project bytes they stand for.
+	Manifest *v0.SourceManifest `protobuf:"bytes,1,opt,name=manifest,proto3" json:"manifest,omitempty"`
+	// failure is the sole structured cause when the inventory could not be
+	// produced.
+	Failure       *v0.Failure `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10156,8 +10351,10 @@ func (x *GetSourceManifestResponse) GetFailure() *v0.Failure {
 // DiscoverCodeUnitsRequest identifies the service whose rooted source tree is
 // inspected. Empty service selects the gateway's attached source behavior.
 type DiscoverCodeUnitsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service is the Codefly service to inspect. Empty selects the gateway's
+	// attached source behavior.
+	Service       string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10202,15 +10399,24 @@ func (x *DiscoverCodeUnitsRequest) GetService() string {
 // CodeUnitInfo is the gateway projection of the Code service's structural
 // discovery result.
 type CodeUnitInfo struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Path            string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	PrimaryLanguage string                 `protobuf:"bytes,3,opt,name=primary_language,json=primaryLanguage,proto3" json:"primary_language,omitempty"`
-	Languages       []string               `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
-	ManifestPaths   []string               `protobuf:"bytes,5,rep,name=manifest_paths,json=manifestPaths,proto3" json:"manifest_paths,omitempty"`
-	RuntimeAgent    string                 `protobuf:"bytes,6,opt,name=runtime_agent,json=runtimeAgent,proto3" json:"runtime_agent,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is relative to the service root; "." identifies the root itself.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// name is a stable human-readable name derived from the boundary directory.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// primary_language is the deterministic primary ecosystem, for consumers
+	// that can carry only one.
+	PrimaryLanguage string `protobuf:"bytes,3,opt,name=primary_language,json=primaryLanguage,proto3" json:"primary_language,omitempty"`
+	// languages preserves every ecosystem declared at this exact boundary.
+	Languages []string `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
+	// manifest_paths are the root-relative declaration files that established
+	// the boundary, so the detection is auditable.
+	ManifestPaths []string `protobuf:"bytes,5,rep,name=manifest_paths,json=manifestPaths,proto3" json:"manifest_paths,omitempty"`
+	// runtime_agent is the unversioned service-agent family this boundary binds
+	// to; unknown or mixed ecosystems bind to "generic".
+	RuntimeAgent  string `protobuf:"bytes,6,opt,name=runtime_agent,json=runtimeAgent,proto3" json:"runtime_agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CodeUnitInfo) Reset() {
@@ -10287,9 +10493,12 @@ func (x *CodeUnitInfo) GetRuntimeAgent() string {
 
 // DiscoverCodeUnitsResponse preserves every discovered source boundary.
 type DiscoverCodeUnitsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CodeUnits     []*CodeUnitInfo        `protobuf:"bytes,1,rep,name=code_units,json=codeUnits,proto3" json:"code_units,omitempty"`
-	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// code_units is the complete structural inventory. A markerless tree yields
+	// exactly one generic root unit rather than an empty list.
+	CodeUnits []*CodeUnitInfo `protobuf:"bytes,1,rep,name=code_units,json=codeUnits,proto3" json:"code_units,omitempty"`
+	// error explains why discovery could not run at all.
+	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -11140,7 +11349,9 @@ func (x *ListTerminalsResponse) GetTerminals() []*TerminalInfo {
 // EvaluateStorageCapacityRequest carries the caller's typed operation demand.
 // At least one unique, non-zero, authority-scoped requirement is required.
 type EvaluateStorageCapacityRequest struct {
-	state         protoimpl.MessageState           `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// requirements are the caller's per-component demands. Requirements that
+	// resolve to one physical authority are coalesced before evaluation.
 	Requirements  []*v0.StorageCapacityRequirement `protobuf:"bytes,1,rep,name=requirements,proto3" json:"requirements,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -11187,9 +11398,12 @@ func (x *EvaluateStorageCapacityRequest) GetRequirements() []*v0.StorageCapacity
 // storage authority and the sole structured cause when the request is invalid,
 // unavailable, or any authority rejects its combined requirements.
 type EvaluateStorageCapacityResponse struct {
-	state         protoimpl.MessageState         `protogen:"open.v1"`
-	Admissions    []*v0.StorageCapacityAdmission `protobuf:"bytes,1,rep,name=admissions,proto3" json:"admissions,omitempty"`
-	Failure       *v0.Failure                    `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// admissions holds one evaluation per distinct physical storage authority.
+	Admissions []*v0.StorageCapacityAdmission `protobuf:"bytes,1,rep,name=admissions,proto3" json:"admissions,omitempty"`
+	// failure is the sole structured cause when the request is invalid, an
+	// authority is unavailable, or one rejects its combined requirements.
+	Failure       *v0.Failure `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

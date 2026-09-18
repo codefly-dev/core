@@ -20,9 +20,15 @@ enum FixMode {
 // The values match Git's three leaf-entry categories so worktree and immutable
 // revision manifests share one contract.
 enum SourceEntryKind {
+  // UNSPECIFIED means the producer did not classify the entry.
   SOURCE_ENTRY_KIND_UNSPECIFIED = 0;
+  // FILE is a regular file, executable or not.
   SOURCE_ENTRY_KIND_FILE = 1;
+  // SYMLINK is a symbolic link; its identity covers the target path, not a
+  // file body.
   SOURCE_ENTRY_KIND_SYMLINK = 2;
+  // GITLINK is a submodule reference, naming another commit rather than any
+  // content in this tree.
   SOURCE_ENTRY_KIND_GITLINK = 3;
 }
 
@@ -30,11 +36,20 @@ enum SourceEntryKind {
 // identity a source entry carries. Consumers compare identities; they never
 // reconstruct them from project bytes outside the Codefly boundary.
 enum SourceIdentityAlgorithm {
+  // UNSPECIFIED means the identity is unattributed, so two digests must not
+  // be compared even when they are the same length.
   SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED = 0;
+  // SHA256 is a plain digest over the content bytes, with no Git framing.
   SOURCE_IDENTITY_ALGORITHM_SHA256 = 1;
+  // GIT_BLOB_SHA1 is a Git blob hash in a SHA-1 repository, so it includes
+  // Git's object header and is not a plain content digest.
   SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1 = 2;
+  // GIT_BLOB_SHA256 is the same blob hash in a SHA-256 repository.
   SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256 = 3;
+  // GIT_OBJECT_SHA1 names a non-blob object — a gitlink's commit — in a
+  // SHA-1 repository.
   SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 = 4;
+  // GIT_OBJECT_SHA256 is the same object identity in a SHA-256 repository.
   SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256 = 5;
 }
 
@@ -43,7 +58,11 @@ enum SourceIdentityAlgorithm {
 // worktree files already carry content SHA-256 in either mode. Gitlinks remain
 // Git object identities because they name another commit, not a file body.
 enum SourceManifestIdentityMode {
+  // NATIVE preserves each entry's own Git object identity, so a manifest can
+  // be compared against Git without rehashing anything.
   SOURCE_MANIFEST_IDENTITY_MODE_NATIVE = 0;
+  // CONTENT_SHA256 normalizes file entries to a content digest, so manifests
+  // from repositories with different Git hash algorithms compare directly.
   SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256 = 1;
 }
 
@@ -51,53 +70,93 @@ enum SourceManifestIdentityMode {
 // artifact. UNKNOWN is durable evidence that no registered path convention
 // matched; consumers must not infer a language from the path themselves.
 enum SourceLanguage {
+  // UNKNOWN is durable evidence that no registered path convention matched.
+  // It is a result, not a missing value, and consumers must not re-guess.
   SOURCE_LANGUAGE_UNKNOWN = 0;
+  // GO is Go source.
   SOURCE_LANGUAGE_GO = 1;
+  // PYTHON is Python source.
   SOURCE_LANGUAGE_PYTHON = 2;
+  // TYPESCRIPT is TypeScript source, including TSX.
   SOURCE_LANGUAGE_TYPESCRIPT = 3;
+  // JAVASCRIPT is JavaScript source, including JSX.
   SOURCE_LANGUAGE_JAVASCRIPT = 4;
+  // RUST is Rust source.
   SOURCE_LANGUAGE_RUST = 5;
+  // JAVA is Java source.
   SOURCE_LANGUAGE_JAVA = 6;
+  // KOTLIN is Kotlin source.
   SOURCE_LANGUAGE_KOTLIN = 7;
+  // SQL is SQL, including migration scripts.
   SOURCE_LANGUAGE_SQL = 8;
+  // JSON is JSON data.
   SOURCE_LANGUAGE_JSON = 9;
+  // YAML is YAML data.
   SOURCE_LANGUAGE_YAML = 10;
+  // TOML is TOML data.
   SOURCE_LANGUAGE_TOML = 11;
+  // XML is XML data.
   SOURCE_LANGUAGE_XML = 12;
+  // MARKDOWN is Markdown prose.
   SOURCE_LANGUAGE_MARKDOWN = 13;
+  // SHELL is a shell script.
   SOURCE_LANGUAGE_SHELL = 14;
+  // CSHARP is C# source.
   SOURCE_LANGUAGE_CSHARP = 15;
 }
 
 // SourceContentKind distinguishes project text from opaque artifacts without
 // requiring a caller to inspect project bytes.
 enum SourceContentKind {
+  // UNKNOWN means the boundary could not decide; the caller still must not
+  // read project bytes to decide for itself.
   SOURCE_CONTENT_KIND_UNKNOWN = 0;
+  // TEXT is decodable project text, safe to diff and display.
   SOURCE_CONTENT_KIND_TEXT = 1;
+  // BINARY is an opaque artifact; only its identity is meaningful.
   SOURCE_CONTENT_KIND_BINARY = 2;
+  // SYMLINK holds a target path rather than content.
   SOURCE_CONTENT_KIND_SYMLINK = 3;
+  // GITLINK holds a submodule commit rather than content.
   SOURCE_CONTENT_KIND_GITLINK = 4;
 }
 
 // SourceRole captures deterministic repository conventions used by review,
 // impact, and navigation consumers. It is evidence, not an execution policy.
 enum SourceRole {
+  // UNKNOWN means no repository convention matched the path.
   SOURCE_ROLE_UNKNOWN = 0;
+  // PRODUCTION is hand-written code that ships.
   SOURCE_ROLE_PRODUCTION = 1;
+  // TEST is test code, which review and impact consumers weigh differently
+  // from what it exercises.
   SOURCE_ROLE_TEST = 2;
+  // GENERATED is machine-produced output, edited at its generator rather
+  // than in place.
   SOURCE_ROLE_GENERATED = 3;
+  // VENDOR is third-party code checked into the tree.
   SOURCE_ROLE_VENDOR = 4;
+  // CONFIG is configuration rather than code.
   SOURCE_ROLE_CONFIG = 5;
+  // DOCS is documentation.
   SOURCE_ROLE_DOCS = 6;
+  // MIGRATION is a schema or data migration, which is ordered and usually
+  // applied once.
   SOURCE_ROLE_MIGRATION = 7;
+  // FIXTURE is test data rather than test code.
   SOURCE_ROLE_FIXTURE = 8;
+  // BUILD is build, packaging, or CI definition.
   SOURCE_ROLE_BUILD = 9;
 }
 
 // SourceIdentity is one complete, typed identity for a source entry.
 message SourceIdentity {
+  // algorithm says what digest is, so two identities are never compared
+  // across algorithms.
   SourceIdentityAlgorithm algorithm = 1;
+  // digest is the lowercase hex identity under that algorithm.
   string digest = 2;
+  // size_bytes is the entry's content length.
   int64 size_bytes = 3;
 }
 
@@ -105,12 +164,22 @@ message SourceIdentity {
 // Codefly boundary. Consumers persist these facts and must not repeat
 // extension selection or byte sniffing outside Codefly.
 message SourceFileAttributes {
+  // schema_version is the version of this attribute set, so a consumer can
+  // tell persisted facts it understands from ones it does not.
   uint32 schema_version = 1;
+  // language is the artifact's classified language.
   SourceLanguage language = 2;
+  // content_kind says whether the artifact is text, opaque, or a link.
   SourceContentKind content_kind = 3;
+  // source_role is the repository convention the path matched.
   SourceRole source_role = 4;
+  // classifier_version pins the implementation that produced these facts, so
+  // a changed classification is attributable.
   string classifier_version = 5;
+  // confidence is how strongly the evidence supported the classification.
   float confidence = 6;
+  // reason names the evidence used, so a surprising classification can be
+  // explained without re-running the classifier.
   string reason = 7;
 }
 
@@ -118,10 +187,16 @@ message SourceFileAttributes {
 // project artifact. mode uses canonical Git tree modes (100644, 100755,
 // 120000, or 160000) represented as an integer.
 message SourceManifestEntry {
+  // path is repository-relative.
   string path = 1;
+  // mode is the canonical Git tree mode as an integer.
   uint32 mode = 2;
+  // kind is the leaf category the mode corresponds to.
   SourceEntryKind kind = 3;
+  // identity is the entry's typed digest, which stands in for the bytes the
+  // manifest does not carry.
   SourceIdentity identity = 4;
+  // attributes are the classifications produced inside the boundary.
   SourceFileAttributes attributes = 5;
 }
 
@@ -129,6 +204,9 @@ message SourceManifestEntry {
 // inside Codefly. revision is the resolved immutable commit for a revision
 // request and empty for a live worktree observation.
 message SourceManifest {
+  // revision is the resolved immutable commit, empty for a live worktree
+  // observation.
   string revision = 1;
+  // entries is the complete artifact inventory at that revision.
   repeated SourceManifestEntry entries = 2;
 }

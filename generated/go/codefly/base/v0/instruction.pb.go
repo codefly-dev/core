@@ -28,9 +28,16 @@ const (
 type InstructionIndexState int32
 
 const (
-	InstructionIndexState_INSTRUCTION_INDEX_STATE_UNSPECIFIED   InstructionIndexState = 0
-	InstructionIndexState_INSTRUCTION_INDEX_STATE_COMPLETE      InstructionIndexState = 1
-	InstructionIndexState_INSTRUCTION_INDEX_STATE_DEGRADED      InstructionIndexState = 2
+	// UNSPECIFIED means the producer did not state completeness; a consumer
+	// must treat the projection as unattested rather than complete.
+	InstructionIndexState_INSTRUCTION_INDEX_STATE_UNSPECIFIED InstructionIndexState = 0
+	// COMPLETE means every recognized document was inspected successfully.
+	InstructionIndexState_INSTRUCTION_INDEX_STATE_COMPLETE InstructionIndexState = 1
+	// DEGRADED means some documents failed inspection; issues names which, and
+	// the records from the siblings are still authoritative.
+	InstructionIndexState_INSTRUCTION_INDEX_STATE_DEGRADED InstructionIndexState = 2
+	// NOT_ATTEMPTED means inspection never ran, so an empty record list says
+	// nothing about the repository.
 	InstructionIndexState_INSTRUCTION_INDEX_STATE_NOT_ATTEMPTED InstructionIndexState = 3
 )
 
@@ -82,15 +89,25 @@ func (InstructionIndexState) EnumDescriptor() ([]byte, []int) {
 type InstructionKnowledgeKind int32
 
 const (
-	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_UNSPECIFIED  InstructionKnowledgeKind = 0
-	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_RULE         InstructionKnowledgeKind = 1
-	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_CONVENTION   InstructionKnowledgeKind = 2
+	// UNSPECIFIED means the analyzer recognized the section but could not
+	// classify it.
+	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_UNSPECIFIED InstructionKnowledgeKind = 0
+	// RULE is a binding constraint the project requires be obeyed.
+	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_RULE InstructionKnowledgeKind = 1
+	// CONVENTION is an established practice, expected but not enforced.
+	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_CONVENTION InstructionKnowledgeKind = 2
+	// ANTI_PATTERN is something the project states should not be done.
 	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ANTI_PATTERN InstructionKnowledgeKind = 3
-	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_DECISION     InstructionKnowledgeKind = 4
-	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT  InstructionKnowledgeKind = 5
-	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE     InstructionKnowledgeKind = 6
-	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_LESSON       InstructionKnowledgeKind = 7
-	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ASSUMPTION   InstructionKnowledgeKind = 8
+	// DECISION is a settled choice recorded with its rationale.
+	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_DECISION InstructionKnowledgeKind = 4
+	// REQUIREMENT is a capability or property the work must deliver.
+	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_REQUIREMENT InstructionKnowledgeKind = 5
+	// GUIDANCE is advisory direction with no obligation behind it.
+	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_GUIDANCE InstructionKnowledgeKind = 6
+	// LESSON is knowledge recorded from a past failure.
+	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_LESSON InstructionKnowledgeKind = 7
+	// ASSUMPTION is a premise the project takes as given and may revisit.
+	InstructionKnowledgeKind_INSTRUCTION_KNOWLEDGE_KIND_ASSUMPTION InstructionKnowledgeKind = 8
 )
 
 // Enum value maps for InstructionKnowledgeKind.
@@ -150,11 +167,17 @@ func (InstructionKnowledgeKind) EnumDescriptor() ([]byte, []int) {
 // instruction source. scope_path is the repository-relative subtree to which
 // the document applies; "." means the repository root.
 type InstructionDocument struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	ContentSha256 string                 `protobuf:"bytes,2,opt,name=content_sha256,json=contentSha256,proto3" json:"content_sha256,omitempty"`
-	ByteSize      int64                  `protobuf:"varint,3,opt,name=byte_size,json=byteSize,proto3" json:"byte_size,omitempty"`
-	ScopePath     string                 `protobuf:"bytes,4,opt,name=scope_path,json=scopePath,proto3" json:"scope_path,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is the repository-relative location of the document.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// content_sha256 identifies the exact bytes inspected, so a record stays
+	// auditable without carrying the document itself.
+	ContentSha256 string `protobuf:"bytes,2,opt,name=content_sha256,json=contentSha256,proto3" json:"content_sha256,omitempty"`
+	// byte_size is the document's length in bytes.
+	ByteSize int64 `protobuf:"varint,3,opt,name=byte_size,json=byteSize,proto3" json:"byte_size,omitempty"`
+	// scope_path is the subtree the document applies to; "." is the repository
+	// root.
+	ScopePath     string `protobuf:"bytes,4,opt,name=scope_path,json=scopePath,proto3" json:"scope_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -223,16 +246,29 @@ func (x *InstructionDocument) GetScopePath() string {
 // record independently auditable without giving the orchestration brain a
 // Markdown parser.
 type InstructionKnowledge struct {
-	state         protoimpl.MessageState   `protogen:"open.v1"`
-	Id            string                   `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Kind          InstructionKnowledgeKind `protobuf:"varint,2,opt,name=kind,proto3,enum=codefly.base.v0.InstructionKnowledgeKind" json:"kind,omitempty"`
-	Title         string                   `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
-	Guidance      string                   `protobuf:"bytes,4,opt,name=guidance,proto3" json:"guidance,omitempty"`
-	SourcePath    string                   `protobuf:"bytes,5,opt,name=source_path,json=sourcePath,proto3" json:"source_path,omitempty"`
-	SourceSha256  string                   `protobuf:"bytes,6,opt,name=source_sha256,json=sourceSha256,proto3" json:"source_sha256,omitempty"`
-	StartLine     int32                    `protobuf:"varint,7,opt,name=start_line,json=startLine,proto3" json:"start_line,omitempty"`
-	EndLine       int32                    `protobuf:"varint,8,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
-	ScopePath     string                   `protobuf:"bytes,9,opt,name=scope_path,json=scopePath,proto3" json:"scope_path,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id is the deterministic identity of this record, stable across
+	// re-projections of the same source bytes.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// kind is the semantic class the analyzer assigned to the section.
+	Kind InstructionKnowledgeKind `protobuf:"varint,2,opt,name=kind,proto3,enum=codefly.base.v0.InstructionKnowledgeKind" json:"kind,omitempty"`
+	// title is the section heading the record was extracted from.
+	Title string `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
+	// guidance is the section's bounded instruction text. The complete source
+	// document never crosses the boundary.
+	Guidance string `protobuf:"bytes,4,opt,name=guidance,proto3" json:"guidance,omitempty"`
+	// source_path is the repository-relative document the section came from.
+	SourcePath string `protobuf:"bytes,5,opt,name=source_path,json=sourcePath,proto3" json:"source_path,omitempty"`
+	// source_sha256 is that document's content digest, pinning the record to
+	// the exact bytes it was read from.
+	SourceSha256 string `protobuf:"bytes,6,opt,name=source_sha256,json=sourceSha256,proto3" json:"source_sha256,omitempty"`
+	// start_line is the 1-based first line of the section.
+	StartLine int32 `protobuf:"varint,7,opt,name=start_line,json=startLine,proto3" json:"start_line,omitempty"`
+	// end_line is the 1-based last line of the section.
+	EndLine int32 `protobuf:"varint,8,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
+	// scope_path is the subtree this record applies to, inherited from the
+	// source document.
+	ScopePath     string `protobuf:"bytes,9,opt,name=scope_path,json=scopePath,proto3" json:"scope_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -333,10 +369,14 @@ func (x *InstructionKnowledge) GetScopePath() string {
 // InstructionIssue preserves one source-local inspection failure while
 // retaining records successfully extracted from sibling documents.
 type InstructionIssue struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	Path          string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// code is the stable machine-readable cause, so a consumer can react
+	// without parsing message.
+	Code string `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	// message is the human-readable explanation.
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// path is the repository-relative document whose inspection failed.
+	Path          string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -396,13 +436,21 @@ func (x *InstructionIssue) GetPath() string {
 // project instruction documents. Analyzer provenance is part of the durable
 // identity consumers persist alongside repository/version scope.
 type InstructionIndex struct {
-	state           protoimpl.MessageState  `protogen:"open.v1"`
-	State           InstructionIndexState   `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.base.v0.InstructionIndexState" json:"state,omitempty"`
-	Analyzer        string                  `protobuf:"bytes,2,opt,name=analyzer,proto3" json:"analyzer,omitempty"`
-	AnalyzerVersion string                  `protobuf:"bytes,3,opt,name=analyzer_version,json=analyzerVersion,proto3" json:"analyzer_version,omitempty"`
-	Documents       []*InstructionDocument  `protobuf:"bytes,4,rep,name=documents,proto3" json:"documents,omitempty"`
-	Records         []*InstructionKnowledge `protobuf:"bytes,5,rep,name=records,proto3" json:"records,omitempty"`
-	Issues          []*InstructionIssue     `protobuf:"bytes,6,rep,name=issues,proto3" json:"issues,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state says how completely the documents were inspected. A non-empty
+	// records list does not by itself mean complete.
+	State InstructionIndexState `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.base.v0.InstructionIndexState" json:"state,omitempty"`
+	// analyzer names the implementation that produced this projection.
+	Analyzer string `protobuf:"bytes,2,opt,name=analyzer,proto3" json:"analyzer,omitempty"`
+	// analyzer_version pins that implementation, so a consumer can tell a
+	// changed repository from a changed analyzer.
+	AnalyzerVersion string `protobuf:"bytes,3,opt,name=analyzer_version,json=analyzerVersion,proto3" json:"analyzer_version,omitempty"`
+	// documents are the body-free identities of every recognized source.
+	Documents []*InstructionDocument `protobuf:"bytes,4,rep,name=documents,proto3" json:"documents,omitempty"`
+	// records are the typed sections extracted from those documents.
+	Records []*InstructionKnowledge `protobuf:"bytes,5,rep,name=records,proto3" json:"records,omitempty"`
+	// issues are the source-local inspection failures behind a DEGRADED state.
+	Issues []*InstructionIssue `protobuf:"bytes,6,rep,name=issues,proto3" json:"issues,omitempty"`
 	// fingerprint seals the sorted typed projection (documents, records, and
 	// issue identities) so a consumer can bind it to one immutable repository
 	// version without persisting project documents.

@@ -1330,9 +1330,13 @@ func (*GetSemanticIndexRequest) Descriptor() ([]byte, []int) {
 // GetSemanticIndexResponse returns typed facts even when some files degrade;
 // failure is reserved for capability or infrastructure failure.
 type GetSemanticIndexResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         *v0.SemanticIndex      `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Failure       *v0.Failure            `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// index is the semantic projection, populated even when individual files
+	// degraded into partial facts.
+	Index *v0.SemanticIndex `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	// failure is set only when the capability or infrastructure itself failed,
+	// never for a file the inspector could only partly read.
+	Failure       *v0.Failure `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1422,9 +1426,13 @@ func (*GetInstructionIndexRequest) Descriptor() ([]byte, []int) {
 // GetInstructionIndexResponse retains useful sibling records when one source
 // document degrades. failure is reserved for capability/infrastructure loss.
 type GetInstructionIndexResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         *v0.InstructionIndex   `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Failure       *v0.Failure            `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// index is the typed guidance projected from the recognized documents,
+	// retaining the siblings of any document that degraded.
+	Index *v0.InstructionIndex `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	// failure is set only when the capability or infrastructure itself failed,
+	// never for a single document that degraded.
+	Failure       *v0.Failure `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

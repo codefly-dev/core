@@ -65,15 +65,12 @@ CI additionally runs, and all of these are runnable locally:
 | `./scripts/check_version_tag.sh` (`make check-version-tag`) | `version/info.codefly.yaml` vs. published tags |
 | `./scripts/govulncheck.sh` | unsuppressed vulns that have an upstream fix |
 | `make buf-breaking` | schema breaks, `PACKAGE` rules |
+| `make buf-lint` | `BASIC` + `COMMENTS`: every field, enum value and message documented |
 
 Run buf through the `Makefile`, never a bare `buf`: its targets pin the version
 CI's gate and the companion's generator both use, so a local check is a verdict
 on the gate rather than on whatever is on `PATH`. `make buf-install` puts that
 same buf on `PATH` for `codefly generate proto --local`, which cannot use them.
-
-`make buf-lint` is **not** in CI and is **red on `main`** — `proto/` carries 363
-unenforced `COMMENTS` findings (#567). Judge it against that baseline, and do
-not treat a clean `buf breaking` as covering lint.
 
 `GOFLAGS ?= -timeout=300s` is exported by the `Makefile` so no test run hangs.
 Tests with the `proto_companion_required` tag are **not** in CI — they need an

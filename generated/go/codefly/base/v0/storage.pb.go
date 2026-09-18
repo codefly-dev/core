@@ -28,6 +28,8 @@ const (
 type StorageAuthorityKind int32
 
 const (
+	// UNSPECIFIED means the reporting boundary did not name an owner; callers
+	// treat the reading as unattributed rather than assuming a default.
 	StorageAuthorityKind_STORAGE_AUTHORITY_KIND_UNSPECIFIED StorageAuthorityKind = 0
 	// GATEWAY_ROOT is the filesystem that contains the Codefly Gateway's
 	// execution root, including caller-authorized repository/cache state below it.
@@ -88,9 +90,12 @@ func (StorageAuthorityKind) EnumDescriptor() ([]byte, []int) {
 // storage demand. Components remain separate in traces so operators can see
 // which subsystem made an admission expensive.
 type StorageCapacityRequirement struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	Component string                 `protobuf:"bytes,1,opt,name=component,proto3" json:"component,omitempty"`
-	Bytes     uint64                 `protobuf:"varint,2,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// component names the subsystem making this demand, so a trace attributes
+	// the cost rather than reporting one opaque total.
+	Component string `protobuf:"bytes,1,opt,name=component,proto3" json:"component,omitempty"`
+	// bytes is how much storage that component needs for the operation.
+	Bytes uint64 `protobuf:"varint,2,opt,name=bytes,proto3" json:"bytes,omitempty"`
 	// authority_kind identifies the logical owner of this demand. The
 	// evaluating boundary resolves that logical owner to an opaque physical
 	// storage authority and coalesces requirements that share one volume.
@@ -160,20 +165,27 @@ type StorageCapacityAdmission struct {
 	AuthorityId string `protobuf:"bytes,1,opt,name=authority_id,json=authorityId,proto3" json:"authority_id,omitempty"`
 	// authority_kinds are the logical owners whose requirements resolved to
 	// this physical storage authority. More than one kind can share a volume.
-	AuthorityKinds []StorageAuthorityKind        `protobuf:"varint,2,rep,packed,name=authority_kinds,json=authorityKinds,proto3,enum=codefly.base.v0.StorageAuthorityKind" json:"authority_kinds,omitempty"`
-	TotalBytes     uint64                        `protobuf:"varint,3,opt,name=total_bytes,json=totalBytes,proto3" json:"total_bytes,omitempty"`
-	AvailableBytes uint64                        `protobuf:"varint,4,opt,name=available_bytes,json=availableBytes,proto3" json:"available_bytes,omitempty"`
-	Requirements   []*StorageCapacityRequirement `protobuf:"bytes,5,rep,name=requirements,proto3" json:"requirements,omitempty"`
-	RequiredBytes  uint64                        `protobuf:"varint,6,opt,name=required_bytes,json=requiredBytes,proto3" json:"required_bytes,omitempty"`
+	AuthorityKinds []StorageAuthorityKind `protobuf:"varint,2,rep,packed,name=authority_kinds,json=authorityKinds,proto3,enum=codefly.base.v0.StorageAuthorityKind" json:"authority_kinds,omitempty"`
+	// total_bytes is the authority's capacity at the moment of evaluation.
+	TotalBytes uint64 `protobuf:"varint,3,opt,name=total_bytes,json=totalBytes,proto3" json:"total_bytes,omitempty"`
+	// available_bytes is the free capacity observed at that same moment.
+	AvailableBytes uint64 `protobuf:"varint,4,opt,name=available_bytes,json=availableBytes,proto3" json:"available_bytes,omitempty"`
+	// requirements are the per-component demands that were summed, preserved so
+	// a rejection names what asked for the space.
+	Requirements []*StorageCapacityRequirement `protobuf:"bytes,5,rep,name=requirements,proto3" json:"requirements,omitempty"`
+	// required_bytes is the sum of requirements.
+	RequiredBytes uint64 `protobuf:"varint,6,opt,name=required_bytes,json=requiredBytes,proto3" json:"required_bytes,omitempty"`
 	// projected_available_bytes is available_bytes - required_bytes when the
 	// request is admitted, otherwise zero.
 	ProjectedAvailableBytes uint64 `protobuf:"varint,7,opt,name=projected_available_bytes,json=projectedAvailableBytes,proto3" json:"projected_available_bytes,omitempty"`
 	// shortfall_bytes is required_bytes - available_bytes when rejected,
 	// otherwise zero.
 	ShortfallBytes uint64 `protobuf:"varint,8,opt,name=shortfall_bytes,json=shortfallBytes,proto3" json:"shortfall_bytes,omitempty"`
-	Admitted       bool   `protobuf:"varint,9,opt,name=admitted,proto3" json:"admitted,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// admitted is the verdict: available_bytes covered required_bytes. It is an
+	// observation, not a reservation — re-evaluate before a later phase.
+	Admitted      bool `protobuf:"varint,9,opt,name=admitted,proto3" json:"admitted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StorageCapacityAdmission) Reset() {

@@ -265,7 +265,11 @@ message GetSemanticIndexRequest {}
 // GetSemanticIndexResponse returns typed facts even when some files degrade;
 // failure is reserved for capability or infrastructure failure.
 message GetSemanticIndexResponse {
+  // index is the semantic projection, populated even when individual files
+  // degraded into partial facts.
   codefly.base.v0.SemanticIndex index = 1;
+  // failure is set only when the capability or infrastructure itself failed,
+  // never for a file the inspector could only partly read.
   codefly.base.v0.Failure failure = 2;
 }
 
@@ -276,7 +280,11 @@ message GetInstructionIndexRequest {}
 // GetInstructionIndexResponse retains useful sibling records when one source
 // document degrades. failure is reserved for capability/infrastructure loss.
 message GetInstructionIndexResponse {
+  // index is the typed guidance projected from the recognized documents,
+  // retaining the siblings of any document that degraded.
   codefly.base.v0.InstructionIndex index = 1;
+  // failure is set only when the capability or infrastructure itself failed,
+  // never for a single document that degraded.
   codefly.base.v0.Failure failure = 2;
 }
 

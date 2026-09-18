@@ -85,10 +85,16 @@ func (FixMode) EnumDescriptor() ([]byte, []int) {
 type SourceEntryKind int32
 
 const (
+	// UNSPECIFIED means the producer did not classify the entry.
 	SourceEntryKind_SOURCE_ENTRY_KIND_UNSPECIFIED SourceEntryKind = 0
-	SourceEntryKind_SOURCE_ENTRY_KIND_FILE        SourceEntryKind = 1
-	SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK     SourceEntryKind = 2
-	SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK     SourceEntryKind = 3
+	// FILE is a regular file, executable or not.
+	SourceEntryKind_SOURCE_ENTRY_KIND_FILE SourceEntryKind = 1
+	// SYMLINK is a symbolic link; its identity covers the target path, not a
+	// file body.
+	SourceEntryKind_SOURCE_ENTRY_KIND_SYMLINK SourceEntryKind = 2
+	// GITLINK is a submodule reference, naming another commit rather than any
+	// content in this tree.
+	SourceEntryKind_SOURCE_ENTRY_KIND_GITLINK SourceEntryKind = 3
 )
 
 // Enum value maps for SourceEntryKind.
@@ -140,11 +146,20 @@ func (SourceEntryKind) EnumDescriptor() ([]byte, []int) {
 type SourceIdentityAlgorithm int32
 
 const (
-	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED       SourceIdentityAlgorithm = 0
-	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256            SourceIdentityAlgorithm = 1
-	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1     SourceIdentityAlgorithm = 2
-	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256   SourceIdentityAlgorithm = 3
-	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1   SourceIdentityAlgorithm = 4
+	// UNSPECIFIED means the identity is unattributed, so two digests must not
+	// be compared even when they are the same length.
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_UNSPECIFIED SourceIdentityAlgorithm = 0
+	// SHA256 is a plain digest over the content bytes, with no Git framing.
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_SHA256 SourceIdentityAlgorithm = 1
+	// GIT_BLOB_SHA1 is a Git blob hash in a SHA-1 repository, so it includes
+	// Git's object header and is not a plain content digest.
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA1 SourceIdentityAlgorithm = 2
+	// GIT_BLOB_SHA256 is the same blob hash in a SHA-256 repository.
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_BLOB_SHA256 SourceIdentityAlgorithm = 3
+	// GIT_OBJECT_SHA1 names a non-blob object — a gitlink's commit — in a
+	// SHA-1 repository.
+	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA1 SourceIdentityAlgorithm = 4
+	// GIT_OBJECT_SHA256 is the same object identity in a SHA-256 repository.
 	SourceIdentityAlgorithm_SOURCE_IDENTITY_ALGORITHM_GIT_OBJECT_SHA256 SourceIdentityAlgorithm = 5
 )
 
@@ -202,7 +217,11 @@ func (SourceIdentityAlgorithm) EnumDescriptor() ([]byte, []int) {
 type SourceManifestIdentityMode int32
 
 const (
-	SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_NATIVE         SourceManifestIdentityMode = 0
+	// NATIVE preserves each entry's own Git object identity, so a manifest can
+	// be compared against Git without rehashing anything.
+	SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_NATIVE SourceManifestIdentityMode = 0
+	// CONTENT_SHA256 normalizes file entries to a content digest, so manifests
+	// from repositories with different Git hash algorithms compare directly.
 	SourceManifestIdentityMode_SOURCE_MANIFEST_IDENTITY_MODE_CONTENT_SHA256 SourceManifestIdentityMode = 1
 )
 
@@ -251,22 +270,39 @@ func (SourceManifestIdentityMode) EnumDescriptor() ([]byte, []int) {
 type SourceLanguage int32
 
 const (
-	SourceLanguage_SOURCE_LANGUAGE_UNKNOWN    SourceLanguage = 0
-	SourceLanguage_SOURCE_LANGUAGE_GO         SourceLanguage = 1
-	SourceLanguage_SOURCE_LANGUAGE_PYTHON     SourceLanguage = 2
+	// UNKNOWN is durable evidence that no registered path convention matched.
+	// It is a result, not a missing value, and consumers must not re-guess.
+	SourceLanguage_SOURCE_LANGUAGE_UNKNOWN SourceLanguage = 0
+	// GO is Go source.
+	SourceLanguage_SOURCE_LANGUAGE_GO SourceLanguage = 1
+	// PYTHON is Python source.
+	SourceLanguage_SOURCE_LANGUAGE_PYTHON SourceLanguage = 2
+	// TYPESCRIPT is TypeScript source, including TSX.
 	SourceLanguage_SOURCE_LANGUAGE_TYPESCRIPT SourceLanguage = 3
+	// JAVASCRIPT is JavaScript source, including JSX.
 	SourceLanguage_SOURCE_LANGUAGE_JAVASCRIPT SourceLanguage = 4
-	SourceLanguage_SOURCE_LANGUAGE_RUST       SourceLanguage = 5
-	SourceLanguage_SOURCE_LANGUAGE_JAVA       SourceLanguage = 6
-	SourceLanguage_SOURCE_LANGUAGE_KOTLIN     SourceLanguage = 7
-	SourceLanguage_SOURCE_LANGUAGE_SQL        SourceLanguage = 8
-	SourceLanguage_SOURCE_LANGUAGE_JSON       SourceLanguage = 9
-	SourceLanguage_SOURCE_LANGUAGE_YAML       SourceLanguage = 10
-	SourceLanguage_SOURCE_LANGUAGE_TOML       SourceLanguage = 11
-	SourceLanguage_SOURCE_LANGUAGE_XML        SourceLanguage = 12
-	SourceLanguage_SOURCE_LANGUAGE_MARKDOWN   SourceLanguage = 13
-	SourceLanguage_SOURCE_LANGUAGE_SHELL      SourceLanguage = 14
-	SourceLanguage_SOURCE_LANGUAGE_CSHARP     SourceLanguage = 15
+	// RUST is Rust source.
+	SourceLanguage_SOURCE_LANGUAGE_RUST SourceLanguage = 5
+	// JAVA is Java source.
+	SourceLanguage_SOURCE_LANGUAGE_JAVA SourceLanguage = 6
+	// KOTLIN is Kotlin source.
+	SourceLanguage_SOURCE_LANGUAGE_KOTLIN SourceLanguage = 7
+	// SQL is SQL, including migration scripts.
+	SourceLanguage_SOURCE_LANGUAGE_SQL SourceLanguage = 8
+	// JSON is JSON data.
+	SourceLanguage_SOURCE_LANGUAGE_JSON SourceLanguage = 9
+	// YAML is YAML data.
+	SourceLanguage_SOURCE_LANGUAGE_YAML SourceLanguage = 10
+	// TOML is TOML data.
+	SourceLanguage_SOURCE_LANGUAGE_TOML SourceLanguage = 11
+	// XML is XML data.
+	SourceLanguage_SOURCE_LANGUAGE_XML SourceLanguage = 12
+	// MARKDOWN is Markdown prose.
+	SourceLanguage_SOURCE_LANGUAGE_MARKDOWN SourceLanguage = 13
+	// SHELL is a shell script.
+	SourceLanguage_SOURCE_LANGUAGE_SHELL SourceLanguage = 14
+	// CSHARP is C# source.
+	SourceLanguage_SOURCE_LANGUAGE_CSHARP SourceLanguage = 15
 )
 
 // Enum value maps for SourceLanguage.
@@ -341,10 +377,16 @@ func (SourceLanguage) EnumDescriptor() ([]byte, []int) {
 type SourceContentKind int32
 
 const (
+	// UNKNOWN means the boundary could not decide; the caller still must not
+	// read project bytes to decide for itself.
 	SourceContentKind_SOURCE_CONTENT_KIND_UNKNOWN SourceContentKind = 0
-	SourceContentKind_SOURCE_CONTENT_KIND_TEXT    SourceContentKind = 1
-	SourceContentKind_SOURCE_CONTENT_KIND_BINARY  SourceContentKind = 2
+	// TEXT is decodable project text, safe to diff and display.
+	SourceContentKind_SOURCE_CONTENT_KIND_TEXT SourceContentKind = 1
+	// BINARY is an opaque artifact; only its identity is meaningful.
+	SourceContentKind_SOURCE_CONTENT_KIND_BINARY SourceContentKind = 2
+	// SYMLINK holds a target path rather than content.
 	SourceContentKind_SOURCE_CONTENT_KIND_SYMLINK SourceContentKind = 3
+	// GITLINK holds a submodule commit rather than content.
 	SourceContentKind_SOURCE_CONTENT_KIND_GITLINK SourceContentKind = 4
 )
 
@@ -398,16 +440,29 @@ func (SourceContentKind) EnumDescriptor() ([]byte, []int) {
 type SourceRole int32
 
 const (
-	SourceRole_SOURCE_ROLE_UNKNOWN    SourceRole = 0
+	// UNKNOWN means no repository convention matched the path.
+	SourceRole_SOURCE_ROLE_UNKNOWN SourceRole = 0
+	// PRODUCTION is hand-written code that ships.
 	SourceRole_SOURCE_ROLE_PRODUCTION SourceRole = 1
-	SourceRole_SOURCE_ROLE_TEST       SourceRole = 2
-	SourceRole_SOURCE_ROLE_GENERATED  SourceRole = 3
-	SourceRole_SOURCE_ROLE_VENDOR     SourceRole = 4
-	SourceRole_SOURCE_ROLE_CONFIG     SourceRole = 5
-	SourceRole_SOURCE_ROLE_DOCS       SourceRole = 6
-	SourceRole_SOURCE_ROLE_MIGRATION  SourceRole = 7
-	SourceRole_SOURCE_ROLE_FIXTURE    SourceRole = 8
-	SourceRole_SOURCE_ROLE_BUILD      SourceRole = 9
+	// TEST is test code, which review and impact consumers weigh differently
+	// from what it exercises.
+	SourceRole_SOURCE_ROLE_TEST SourceRole = 2
+	// GENERATED is machine-produced output, edited at its generator rather
+	// than in place.
+	SourceRole_SOURCE_ROLE_GENERATED SourceRole = 3
+	// VENDOR is third-party code checked into the tree.
+	SourceRole_SOURCE_ROLE_VENDOR SourceRole = 4
+	// CONFIG is configuration rather than code.
+	SourceRole_SOURCE_ROLE_CONFIG SourceRole = 5
+	// DOCS is documentation.
+	SourceRole_SOURCE_ROLE_DOCS SourceRole = 6
+	// MIGRATION is a schema or data migration, which is ordered and usually
+	// applied once.
+	SourceRole_SOURCE_ROLE_MIGRATION SourceRole = 7
+	// FIXTURE is test data rather than test code.
+	SourceRole_SOURCE_ROLE_FIXTURE SourceRole = 8
+	// BUILD is build, packaging, or CI definition.
+	SourceRole_SOURCE_ROLE_BUILD SourceRole = 9
 )
 
 // Enum value maps for SourceRole.
@@ -467,10 +522,14 @@ func (SourceRole) EnumDescriptor() ([]byte, []int) {
 
 // SourceIdentity is one complete, typed identity for a source entry.
 type SourceIdentity struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Algorithm     SourceIdentityAlgorithm `protobuf:"varint,1,opt,name=algorithm,proto3,enum=codefly.base.v0.SourceIdentityAlgorithm" json:"algorithm,omitempty"`
-	Digest        string                  `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
-	SizeBytes     int64                   `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// algorithm says what digest is, so two identities are never compared
+	// across algorithms.
+	Algorithm SourceIdentityAlgorithm `protobuf:"varint,1,opt,name=algorithm,proto3,enum=codefly.base.v0.SourceIdentityAlgorithm" json:"algorithm,omitempty"`
+	// digest is the lowercase hex identity under that algorithm.
+	Digest string `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	// size_bytes is the entry's content length.
+	SizeBytes     int64 `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -530,16 +589,26 @@ func (x *SourceIdentity) GetSizeBytes() int64 {
 // Codefly boundary. Consumers persist these facts and must not repeat
 // extension selection or byte sniffing outside Codefly.
 type SourceFileAttributes struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	SchemaVersion     uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	Language          SourceLanguage         `protobuf:"varint,2,opt,name=language,proto3,enum=codefly.base.v0.SourceLanguage" json:"language,omitempty"`
-	ContentKind       SourceContentKind      `protobuf:"varint,3,opt,name=content_kind,json=contentKind,proto3,enum=codefly.base.v0.SourceContentKind" json:"content_kind,omitempty"`
-	SourceRole        SourceRole             `protobuf:"varint,4,opt,name=source_role,json=sourceRole,proto3,enum=codefly.base.v0.SourceRole" json:"source_role,omitempty"`
-	ClassifierVersion string                 `protobuf:"bytes,5,opt,name=classifier_version,json=classifierVersion,proto3" json:"classifier_version,omitempty"`
-	Confidence        float32                `protobuf:"fixed32,6,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	Reason            string                 `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// schema_version is the version of this attribute set, so a consumer can
+	// tell persisted facts it understands from ones it does not.
+	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	// language is the artifact's classified language.
+	Language SourceLanguage `protobuf:"varint,2,opt,name=language,proto3,enum=codefly.base.v0.SourceLanguage" json:"language,omitempty"`
+	// content_kind says whether the artifact is text, opaque, or a link.
+	ContentKind SourceContentKind `protobuf:"varint,3,opt,name=content_kind,json=contentKind,proto3,enum=codefly.base.v0.SourceContentKind" json:"content_kind,omitempty"`
+	// source_role is the repository convention the path matched.
+	SourceRole SourceRole `protobuf:"varint,4,opt,name=source_role,json=sourceRole,proto3,enum=codefly.base.v0.SourceRole" json:"source_role,omitempty"`
+	// classifier_version pins the implementation that produced these facts, so
+	// a changed classification is attributable.
+	ClassifierVersion string `protobuf:"bytes,5,opt,name=classifier_version,json=classifierVersion,proto3" json:"classifier_version,omitempty"`
+	// confidence is how strongly the evidence supported the classification.
+	Confidence float32 `protobuf:"fixed32,6,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	// reason names the evidence used, so a surprising classification can be
+	// explained without re-running the classifier.
+	Reason        string `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SourceFileAttributes) Reset() {
@@ -625,12 +694,18 @@ func (x *SourceFileAttributes) GetReason() string {
 // project artifact. mode uses canonical Git tree modes (100644, 100755,
 // 120000, or 160000) represented as an integer.
 type SourceManifestEntry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Mode          uint32                 `protobuf:"varint,2,opt,name=mode,proto3" json:"mode,omitempty"`
-	Kind          SourceEntryKind        `protobuf:"varint,3,opt,name=kind,proto3,enum=codefly.base.v0.SourceEntryKind" json:"kind,omitempty"`
-	Identity      *SourceIdentity        `protobuf:"bytes,4,opt,name=identity,proto3" json:"identity,omitempty"`
-	Attributes    *SourceFileAttributes  `protobuf:"bytes,5,opt,name=attributes,proto3" json:"attributes,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is repository-relative.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// mode is the canonical Git tree mode as an integer.
+	Mode uint32 `protobuf:"varint,2,opt,name=mode,proto3" json:"mode,omitempty"`
+	// kind is the leaf category the mode corresponds to.
+	Kind SourceEntryKind `protobuf:"varint,3,opt,name=kind,proto3,enum=codefly.base.v0.SourceEntryKind" json:"kind,omitempty"`
+	// identity is the entry's typed digest, which stands in for the bytes the
+	// manifest does not carry.
+	Identity *SourceIdentity `protobuf:"bytes,4,opt,name=identity,proto3" json:"identity,omitempty"`
+	// attributes are the classifications produced inside the boundary.
+	Attributes    *SourceFileAttributes `protobuf:"bytes,5,opt,name=attributes,proto3" json:"attributes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -704,8 +779,11 @@ func (x *SourceManifestEntry) GetAttributes() *SourceFileAttributes {
 // inside Codefly. revision is the resolved immutable commit for a revision
 // request and empty for a live worktree observation.
 type SourceManifest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Revision      string                 `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// revision is the resolved immutable commit, empty for a live worktree
+	// observation.
+	Revision string `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	// entries is the complete artifact inventory at that revision.
 	Entries       []*SourceManifestEntry `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

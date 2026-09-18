@@ -22,8 +22,13 @@ message WorkContextV1 {
   string issuer = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
   // audience is the exact service or trust boundary allowed to consume it.
   string audience = 5 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // not_before_unix is the earliest instant a verifier may accept this
+  // capability.
   int64 not_before_unix = 6;
+  // issued_at_unix is when the issuer minted it.
   int64 issued_at_unix = 7;
+  // expires_at_unix is the instant it stops being accepted. Exchanging a
+  // parent capability for a child one never extends it.
   int64 expires_at_unix = 8;
   // nonce identifies the capability. Replay behavior is separately explicit.
   string nonce = 9 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
@@ -33,10 +38,19 @@ message WorkContextV1 {
   // durable replay store to enforce single-use consumption.
   string replay_policy = 11 [(buf.validate.field).string.in = "idempotent", (buf.validate.field).string.in = "single-use"];
 
+  // tenant_id is the first element of the task identity tuple and is carried
+  // unchanged across every hop.
   string tenant_id = 12 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // owner_principal_id is the principal on whose authority the task runs. It
+  // is the delegating owner, not necessarily the current actor.
   string owner_principal_id = 13 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // task_id completes the task identity tuple and survives child agents.
   string task_id = 14 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // session_id identifies this hop. Starting a child agent mints a new one
+  // rather than mutating this capability.
   string session_id = 15 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // parent_session_id is the session this one was exchanged from; absent on
+  // the first session of a task.
   optional string parent_session_id = 16 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
 
   // authority_scopes are the maximum scopes the owner delegated into this
@@ -49,7 +63,11 @@ message WorkContextV1 {
   // attribution_team_ids is an immutable verified attribution snapshot. It
   // explains ownership; current authorization is still evaluated separately.
   repeated string attribution_team_ids = 19;
+  // workspace_id is the workspace the task runs against, when the task is
+  // scoped to one.
   optional string workspace_id = 20 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // project_id narrows workspace_id to a single project, when the task is
+  // scoped that far.
   optional string project_id = 21 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
 }
 
@@ -57,16 +75,27 @@ message WorkContextV1 {
 // resource_ids means every resource of resource_kind; a child may narrow that
 // wildcard to explicit IDs but may never widen an explicit parent set.
 message WorkScopeV1 {
+  // resource_kind is the class of resource the scope grants against.
   string resource_kind = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // actions are the operations permitted on that kind.
   repeated string actions = 2;
+  // resource_ids narrows the scope to specific resources. Empty means every
+  // resource of resource_kind.
   repeated string resource_ids = 3;
 }
 
 // WorkActorV1 is one verified delegated actor. granted_scopes are the actor's
 // effective scopes and must monotonically attenuate the previous hop.
 message WorkActorV1 {
+  // principal_id identifies the actor this hop delegated to.
   string principal_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // principal_kind distinguishes the sort of principal, so a human and an
+  // agent bearing the same id are not conflated.
   string principal_kind = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // delegation_id identifies the delegation that produced this hop, so the
+  // chain stays auditable back to its grant.
   string delegation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // granted_scopes are this actor's effective scopes, a subset of the
+  // preceding hop's.
   repeated WorkScopeV1 granted_scopes = 4;
 }
