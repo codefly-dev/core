@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cheggaaa/pb/v3"
 	"github.com/codefly-dev/core/resources"
@@ -60,6 +62,63 @@ func Downloaded(ctx context.Context, p *resources.Agent) (bool, error) {
 	return exists, nil
 }
 
+// agentDownloadClient bounds the ways a release download can stall before the
+// asset starts flowing — an unreachable host, a TLS handshake that never
+// completes, a proxy that swallows the response. It deliberately sets no
+// client-wide Timeout: once headers are in, a large asset over a slow link is
+// legitimate, and the caller's context is what ends it early.
+var agentDownloadClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: time.Second,
+		// Parity with http.DefaultTransport, which the previous http.Get got
+		// for free: without these an idle keep-alive connection to the release
+		// CDN is pinned for the life of the process.
+		MaxIdleConns:    100,
+		IdleConnTimeout: 90 * time.Second,
+	},
+}
+
+// fetchRelease issues the asset GET under the caller's context, so cancelling
+// it aborts the transfer at any point — including mid-body, which no timeout
+// on the request can cover.
+//
+// It does not check the host: callers must pass a URL they have already put
+// through ValidURL, as Download does. The check lives there rather than here
+// because the tests that cover the stall and cancellation paths have to reach
+// a local server.
+func fetchRelease(ctx context.Context, releaseURL string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	return agentDownloadClient.Do(req)
+}
+
+// writeArchive streams body into f and closes it. extractTarGz reopens the
+// archive by path, so the write handle must not outlive the copy — every
+// return here closes it, including the ones that fail.
+func writeArchive(f *os.File, body io.Reader, size int64) error {
+	defer func() { _ = f.Close() }()
+
+	bar := pb.Full.Start64(size)
+	bar.Set(pb.Bytes, true) // Display in bytes instead of default kilobytes
+
+	if _, err := io.Copy(bar.NewProxyWriter(f), body); err != nil {
+		return err
+	}
+	bar.Finish()
+
+	// Closed here rather than only by the defer: a write error that surfaces
+	// at close must reach the caller instead of appearing after the archive
+	// has already been extracted.
+	return f.Close()
+}
+
 func Download(ctx context.Context, p *resources.Agent) error {
 	w := wool.Get(ctx).In("agents.Download", wool.Field("agent", p.Identifier()))
 	registration, err := resources.AgentKindRegistrationFor(p.Kind)
@@ -79,8 +138,7 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	w.Info(fmt.Sprintf("Downloading agent %s", p.Identifier()))
 	w.Debug("downloading", wool.Field("agent", p.Identifier()), wool.Field("url", releaseURL).Debug())
 
-	// #nosec G107
-	resp, err := http.Get(releaseURL)
+	resp, err := fetchRelease(ctx, releaseURL)
 	if err != nil {
 		return w.Wrapf(err, "cannot download agent")
 	}
@@ -101,22 +159,9 @@ func Download(ctx context.Context, p *resources.Agent) error {
 			w.Error("cannot remove temp file", wool.ErrField(err))
 		}
 	}(tmp.Name())
-	// Get the content size from the header
-	size := resp.ContentLength
-
-	// Create progress bar
-	bar := pb.Full.Start64(size)
-	bar.Set(pb.Bytes, true) // Display in bytes instead of default kilobytes
-
-	// Wrap the output file writer with the progress bar to track writes
-	writer := bar.NewProxyWriter(tmp)
-
-	// Copy the response body to the file while updating the progress bar
-	_, err = io.Copy(writer, resp.Body)
-	if err != nil {
+	if err = writeArchive(tmp, resp.Body, resp.ContentLength); err != nil {
 		return w.Wrapf(err, "cannot copy agent")
 	}
-	bar.Finish()
 
 	tmpDir, err := os.MkdirTemp("", "agent-*")
 	if err != nil {
