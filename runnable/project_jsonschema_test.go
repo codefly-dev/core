@@ -162,6 +162,9 @@ func TestProjectJSONSchemaRejectsEveryShapeOutsideTheProfile(t *testing.T) {
 		{"untyped array", []string{member(`{"type":"array","additionalProperties":false}`)}, value, "declaring no items"},
 		{"$ref beside keywords", []string{member(`{"$ref":"#/components/schemas/Inner","nullable":true}`), `"Inner":` + object(`"label":{"type":"string"}`)}, value, "beside other keywords"},
 		{"dangling $ref", []string{member(`{"$ref":"#/components/schemas/Missing"}`)}, value, "does not define"},
+		// A null component is a key the map reports as present carrying no
+		// schema; reading it as defined would descend into nothing.
+		{"null component", []string{member(`{"$ref":"#/components/schemas/Inner"}`), `"Inner":null`}, value, "does not define"},
 		{"external $ref", []string{member(`{"$ref":"other.json#/Thing"}`)}, value, "does not define"},
 		// A rejection deeper in is named by the whole pointer, not by the leaf:
 		// the same component may be reached from several members.

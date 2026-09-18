@@ -3,6 +3,7 @@ package runnable
 import (
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"slices"
 	"strings"
@@ -103,8 +104,11 @@ func (d *OpenAPIDocument) componentSchema(ref string) (*JSONSchema, bool) {
 	if d == nil || !isComponent {
 		return nil, false
 	}
+	// A component spelled as null is a key the map reports as present carrying
+	// no schema, which is a component the document does not define — not one
+	// the walk may descend into.
 	schema, defined := d.Components.Schemas[name]
-	return schema, defined
+	return schema, defined && schema != nil
 }
 
 // Route spells an operation the way a derived package records it: the method
@@ -162,9 +166,17 @@ func (d *OpenAPIDocument) payload(body *OpenAPIBody, route, what string) (*basev
 	if len(body.Content) != 1 {
 		return nil, "", fmt.Errorf("%w: %s %s is carried as %d media types, and a bounded payload is %s alone", ErrInvalid, route, what, len(body.Content), jsonMediaType)
 	}
-	media, carried := body.Content[jsonMediaType]
-	if !carried {
-		return nil, "", fmt.Errorf("%w: %s %s is not carried as %s, and the bounded profile describes no other encoding", ErrInvalid, route, what, jsonMediaType)
+	// A media type's parameters do not change what a payload is encoded as, and
+	// its type is case-insensitive, so the key is read as a media type rather
+	// than compared as a string: "application/json; charset=utf-8" is JSON, and
+	// refusing it would refuse a document that is spelling it legally.
+	var media OpenAPIMediaType
+	for spelling, carried := range body.Content {
+		kind, _, parseErr := mime.ParseMediaType(spelling)
+		if parseErr != nil || kind != jsonMediaType {
+			return nil, "", fmt.Errorf("%w: %s %s is carried as %q, and the bounded profile describes no encoding but %s", ErrInvalid, route, what, spelling, jsonMediaType)
+		}
+		media = carried
 	}
 	if media.Schema == nil {
 		return nil, "", fmt.Errorf("%w: %s %s declares no schema, and an undescribed payload is not a contract", ErrInvalid, route, what)

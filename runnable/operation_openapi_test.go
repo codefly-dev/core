@@ -151,6 +151,29 @@ func TestPackageFromOpenAPIOperationAcceptsAHeaderParameter(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestPackageFromOpenAPIOperationReadsAMediaTypeNotAString guards the edge of
+// the encoding rule: a charset parameter and a capitalised type are legal
+// spellings of the same JSON, and refusing them would refuse a document that is
+// spelling the one encoding the profile does describe.
+func TestPackageFromOpenAPIOperationReadsAMediaTypeNotAString(t *testing.T) {
+	for _, spelling := range []string{"application/json; charset=utf-8", "application/json;charset=UTF-8", "Application/JSON"} {
+		t.Run(spelling, func(t *testing.T) {
+			_, _, err := runnable.PackageFromOpenAPIOperation(
+				ingestionDocument(t, func(doc map[string]any) {
+					for _, body := range []map[string]any{
+						applyTextOperation(doc)["requestBody"].(map[string]any),
+						applyTextOperation(doc)["responses"].(map[string]any)["200"].(map[string]any),
+					} {
+						content := body["content"].(map[string]any)
+						content[spelling] = content["application/json"]
+						delete(content, "application/json")
+					}
+				}), ingestLocation(), ingestRestOwner(), "POST", ingestPath)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestPackageFromOpenAPIOperationDerivesAPut(t *testing.T) {
 	pkg, _, err := runnable.PackageFromOpenAPIOperation(
 		ingestionDocument(t, func(doc map[string]any) {
@@ -202,12 +225,18 @@ func TestPackageFromOpenAPIOperationRefusesWhatABoundedContractCannotDescribe(t 
 			content := applyTextOperation(doc)["requestBody"].(map[string]any)["content"].(map[string]any)
 			content["application/xml"] = content["application/json"]
 		}, because: "carried as 2 media types"},
+		{name: "not json, spelled with parameters", edit: func(doc map[string]any) {
+			body := applyTextOperation(doc)["requestBody"].(map[string]any)
+			content := body["content"].(map[string]any)
+			content["application/xml; charset=utf-8"] = content["application/json"]
+			delete(content, "application/json")
+		}, because: `carried as "application/xml; charset=utf-8"`},
 		{name: "not json", edit: func(doc map[string]any) {
 			body := applyTextOperation(doc)["requestBody"].(map[string]any)
 			content := body["content"].(map[string]any)
 			content["application/x-protobuf"] = content["application/json"]
 			delete(content, "application/json")
-		}, because: "not carried as application/json"},
+		}, because: `carried as "application/x-protobuf"`},
 		{name: "no request schema", edit: func(doc map[string]any) {
 			applyTextOperation(doc)["requestBody"].(map[string]any)["content"].(map[string]any)["application/json"] = map[string]any{}
 		}, because: "declares no schema"},
