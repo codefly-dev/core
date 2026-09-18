@@ -16,10 +16,10 @@ import (
 // encode against this schema rather than against each other.
 //
 // What this pins is the descriptor the bindings embed — what every Go consumer
-// imports — and not receipts.proto itself. Nothing machine-checks that the two
-// still agree: regenerating needs the codefly CLI, which AGENTS.md forbids CI
-// from depending on, and no .proto parser is in the module. A schema edit
-// shipped without regenerating therefore passes here.
+// imports — and not receipts.proto itself. internal/protoguard is what holds
+// the two together: it compiles the schema with protocompile and compares the
+// result against these same registered descriptors, so a schema edit shipped
+// without regenerating fails there rather than here.
 func TestReceiptsLookupIsTheGenericWireContract(t *testing.T) {
 	fieldNumbers := func(message protoreflect.MessageDescriptor) map[string]protoreflect.FieldNumber {
 		numbers := make(map[string]protoreflect.FieldNumber, message.Fields().Len())

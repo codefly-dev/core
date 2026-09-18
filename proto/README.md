@@ -70,4 +70,9 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
   `internal/ciguard` holds equal to the workflow's and the companion's, and which
   no recipe may bypass with a literal version. A bare `buf` answers from whatever
   is on `PATH`, which is not the buf deciding whether the schema lands.
+- `go test ./internal/protoguard/` compares the descriptor each `.pb.go` embeds
+  against these sources, so an edit that was never regenerated is caught even
+  when `buf breaking` and the rest of the suite are both green. It reads only
+  that descriptor: a `_grpc.pb.go`, `.connect.go` or `.pb.gw.go` left stale
+  beside a current `.pb.go` needs the generator to detect.
 - Validation uses CEL via protovalidate (field constraints in the `.proto`s).
