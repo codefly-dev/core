@@ -38,17 +38,30 @@ func TestFetchReleaseAbortsWhenContextIsCancelledBeforeHeaders(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	start := time.Now()
-	resp, err := fetchRelease(ctx, server.URL)
-	if err == nil {
-		resp.Body.Close()
-		t.Fatal("a server that never answers must not return a response")
+	// The fetch runs off the test goroutine: without the context on the
+	// request it never returns at all, and this must report that as a failure
+	// rather than hang the package until the suite-wide timeout.
+	type result struct {
+		resp *http.Response
+		err  error
 	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("got %v, want the caller's deadline to end the fetch", err)
-	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Fatalf("fetch took %s — the context did not reach the request", elapsed)
+	returned := make(chan result, 1)
+	go func() {
+		resp, err := fetchRelease(ctx, server.URL)
+		returned <- result{resp, err}
+	}()
+
+	select {
+	case got := <-returned:
+		if got.err == nil {
+			got.resp.Body.Close()
+			t.Fatal("a server that never answers must not return a response")
+		}
+		if !errors.Is(got.err, context.DeadlineExceeded) {
+			t.Fatalf("got %v, want the caller's deadline to end the fetch", got.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("fetch outlived its context deadline — the context did not reach the request")
 	}
 }
 
@@ -115,10 +128,18 @@ func TestAgentDownloadClientBoundsStallsWithoutCappingTheTransfer(t *testing.T) 
 	if !ok {
 		t.Fatalf("unexpected transport %T", agentDownloadClient.Transport)
 	}
-	if transport.ResponseHeaderTimeout == 0 {
-		t.Fatal("a host that accepts the connection and never answers would hang forever")
+	// Upper bounds, not just non-zero: a timeout long enough to outlive the
+	// user's patience bounds nothing, and would pass a >0 assertion.
+	if d := transport.ResponseHeaderTimeout; d == 0 || d > time.Minute {
+		t.Fatalf("ResponseHeaderTimeout is %v — a host that accepts and never answers must fail within a minute", d)
 	}
-	if transport.TLSHandshakeTimeout == 0 {
-		t.Fatal("a stalled TLS handshake would hang forever")
+	if d := transport.TLSHandshakeTimeout; d == 0 || d > time.Minute {
+		t.Fatalf("TLSHandshakeTimeout is %v — a stalled handshake must fail within a minute", d)
+	}
+	// The idle pool is the one thing http.Get got right by inheriting
+	// DefaultTransport: an unset IdleConnTimeout pins a connection to the
+	// release CDN for the life of the process.
+	if transport.IdleConnTimeout == 0 {
+		t.Fatal("IdleConnTimeout is unset — idle connections never expire")
 	}
 }

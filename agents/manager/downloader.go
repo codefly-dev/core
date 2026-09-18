@@ -75,6 +75,11 @@ var agentDownloadClient = &http.Client{
 		TLSHandshakeTimeout:   15 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		ExpectContinueTimeout: time.Second,
+		// Parity with http.DefaultTransport, which the previous http.Get got
+		// for free: without these an idle keep-alive connection to the release
+		// CDN is pinned for the life of the process.
+		MaxIdleConns:    100,
+		IdleConnTimeout: 90 * time.Second,
 	},
 }
 
