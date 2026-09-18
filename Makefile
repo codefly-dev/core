@@ -43,12 +43,33 @@ BUF := go run github.com/bufbuild/buf/cmd/buf@v$(BUF_VERSION)
 buf-lint:
 	cd proto && $(BUF) lint
 
-# Fetches first: buf reads the baseline out of origin/main, so without it the
-# gate silently answers against whatever that ref pointed at last.
+# `codefly generate proto --local` execs whatever `buf` is on PATH
+# (codefly-dev/cli#744), and that buf is the one whose output gets committed.
+# `go run` puts nothing on PATH, so the check targets cannot serve that path —
+# this installs the same pin where generation will find it.
+.PHONY: buf-install
+buf-install:
+	go install github.com/bufbuild/buf/cmd/buf@v$(BUF_VERSION)
+
+# The remote holding the canonical repo, which is not always `origin`: on a fork
+# checkout `origin` is the fork, whose main can be arbitrarily stale, and a
+# baseline taken from it reports clean on a real break. Checked, not assumed.
+BASE_REMOTE ?= origin
+
+# The baseline is the MERGE BASE, not $(BASE_REMOTE)/main. CI checks out the
+# pull request merged into main, so a package main gained after this branch was
+# cut is present on both sides there. Compared against main's tip instead, that
+# same package is missing from this branch only, and buf reports it as a
+# deletion: `make buf-breaking` exits 100 naming a package the branch never
+# touched. The merge base is what the branch actually changed, so it answers the
+# question CI answers. Fetch first, or the merge base is computed against
+# wherever the ref last pointed.
 .PHONY: buf-breaking
 buf-breaking:
-	git fetch origin main
-	cd proto && $(BUF) breaking --against "../.git#ref=origin/main,subdir=proto"
+	@git remote get-url $(BASE_REMOTE) | grep -q 'codefly-dev/core' || \
+		{ echo "BASE_REMOTE=$(BASE_REMOTE) is not codefly-dev/core: its main is not the baseline the gate uses. Re-run with BASE_REMOTE=<remote>." >&2; exit 1; }
+	git fetch $(BASE_REMOTE) main
+	cd proto && $(BUF) breaking --against "../.git#ref=$$(git merge-base $(BASE_REMOTE)/main HEAD),subdir=proto"
 
 # Companions: build images with scripts (run from core/)
 #   ./companions/scripts/build_companions.sh

@@ -27,8 +27,10 @@ together.
 
 `--local` does not pin buf itself — it execs whatever `buf` is on `PATH`, so the
 output is reproducible only once that buf is the `Makefile`'s `BUF_VERSION`.
-Install it before regenerating; codefly-dev/cli#744 tracks pinning it in the
-tool, where it belongs.
+`make buf-install` puts exactly that one there; run it before regenerating. The
+check targets cannot stand in for it — they run buf through `go run`, which puts
+nothing on `PATH`. codefly-dev/cli#744 tracks pinning it in the tool, where it
+belongs.
 
 Python bindings (for the CLI) are produced via `generated/buf.gen.yaml` where
 the BSR remote plugins are reachable.
@@ -47,14 +49,25 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
   consumer together so the workspace and released artifact set stay atomic.
 - CI runs `buf breaking` against `main` under the `PACKAGE` rules, so a removal
   or a type change is caught while moving a message between files in the same
-  package is not. Run the same check before pushing:
+  package is not. Run it before pushing:
 
   ```bash
   make buf-breaking
   ```
-- `make buf-lint` before committing.
-- Both targets run the buf version pinned in the `Makefile`, which
-  `internal/ciguard` holds equal to the workflow's and the companion's. A bare
-  `buf` answers from whatever is on `PATH`, which is not the buf deciding
-  whether the schema lands.
+
+  It compares against the **merge base**, because that is what CI compares: CI
+  checks out the pull request already merged into `main`, so a package `main`
+  gained since you branched is on both of its sides. Against `main`'s tip that
+  package is missing from your branch alone and buf calls it a deletion — a
+  break reported on a branch that touched no `.proto`. Pass
+  `BASE_REMOTE=<remote>` if your `origin` is a fork; the target refuses a remote
+  that is not `codefly-dev/core` rather than answering from a stale baseline.
+- `make buf-lint` before committing — but it is **red on `main` today**: `proto/`
+  carries 363 unenforced `COMMENTS` findings (#567), because `buf lint` is in no
+  workflow and this instruction went unenforced. Read your findings against that
+  baseline until #567 clears it.
+- Every target runs the buf version pinned in the `Makefile`, which
+  `internal/ciguard` holds equal to the workflow's and the companion's, and which
+  no recipe may bypass with a literal version. A bare `buf` answers from whatever
+  is on `PATH`, which is not the buf deciding whether the schema lands.
 - Validation uses CEL via protovalidate (field constraints in the `.proto`s).
