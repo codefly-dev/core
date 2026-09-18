@@ -1,0 +1,35 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "shapes",
+    "version": "0.1.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "Item": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": {"type": "string"},
+          "weight": {"type": "integer", "format": "int64"}
+        },
+        "required": ["label", "weight"]
+      },
+      "Payload": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "count": {"type": "integer", "format": "int32"},
+          "active": {"type": "boolean"},
+          "item": {"$ref": "#/components/schemas/Item"},
+          "tags": {"type": "array", "items": {"type": "string"}},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/Item"}},
+          "note": {"type": "string"}
+        },
+        "required": ["name", "count", "active", "tags", "items"]
+      }
+    }
+  }
+}
