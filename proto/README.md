@@ -21,9 +21,14 @@ Edit the `.proto` files here, then from `core/`:
 codefly generate proto --proto ./proto --output ./generated --local
 ```
 
-That regenerates the Go bindings into `core/generated/go/` (pinned plugin
-versions + goimports → byte-reproducible). Commit the `.proto` change and the
-regenerated code together.
+That regenerates the Go bindings into `core/generated/go/` (pinned codegen
+plugins + goimports). Commit the `.proto` change and the regenerated code
+together.
+
+`--local` does not pin buf itself — it execs whatever `buf` is on `PATH`, so the
+output is reproducible only once that buf is the `Makefile`'s `BUF_VERSION`.
+Install it before regenerating; codefly-dev/cli#744 tracks pinning it in the
+tool, where it belongs.
 
 Python bindings (for the CLI) are produced via `generated/buf.gen.yaml` where
 the BSR remote plugins are reachable.
