@@ -163,10 +163,11 @@ message RunnableServiceOperation {
   // operation is the method name the service publishes, preserved as the
   // owner spells it so the operation stays recognizably the owner's own.
   string operation = 4 [(buf.validate.field).string.min_len = 1];
-  // input_message and output_message are the published message identities the
-  // method takes and returns, kept so the reuse is auditable rather than
-  // implied by a matching shape.
+  // input_message is the published message identity the method takes, kept so
+  // the reuse is auditable rather than implied by a matching shape.
   string input_message = 5 [(buf.validate.field).string.min_len = 1];
+  // output_message is the published message identity the method returns, kept
+  // for the same reason as input_message.
   string output_message = 6 [(buf.validate.field).string.min_len = 1];
   // adaptation is how the bounded payload maps onto those messages.
   Adaptation adaptation = 7 [(buf.validate.field).enum.defined_only = true];

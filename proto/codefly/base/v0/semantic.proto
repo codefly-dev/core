@@ -5,64 +5,109 @@ package codefly.base.v0;
 // SemanticIndexState states how completely an agent inspected its attached
 // source root. Consumers must never infer completeness from a non-empty list.
 enum SemanticIndexState {
+  // UNSPECIFIED means the agent did not state completeness; the projection is
+  // unattested rather than complete.
   SEMANTIC_INDEX_STATE_UNSPECIFIED = 0;
+  // COMPLETE means every file under the source root was inspected.
   SEMANTIC_INDEX_STATE_COMPLETE = 1;
+  // DEGRADED means some files failed inspection; issues names which, and the
+  // symbols from the rest are still authoritative.
   SEMANTIC_INDEX_STATE_DEGRADED = 2;
+  // NOT_ATTEMPTED means inspection never ran, so an empty symbol list says
+  // nothing about the source root.
   SEMANTIC_INDEX_STATE_NOT_ATTEMPTED = 3;
 }
 
 // SemanticSymbolKind is a language-neutral declaration category.
 enum SemanticSymbolKind {
+  // UNSPECIFIED means the analyzer found a declaration it could not map onto
+  // any language-neutral category.
   SEMANTIC_SYMBOL_KIND_UNSPECIFIED = 0;
+  // FUNCTION is a free function, not bound to a receiver or type.
   SEMANTIC_SYMBOL_KIND_FUNCTION = 1;
+  // METHOD is a function bound to a receiver, class, or type.
   SEMANTIC_SYMBOL_KIND_METHOD = 2;
+  // CLASS is a class declaration in languages that have them.
   SEMANTIC_SYMBOL_KIND_CLASS = 3;
+  // STRUCT is a record type declared by its fields.
   SEMANTIC_SYMBOL_KIND_STRUCT = 4;
+  // INTERFACE is a declared contract with no implementation.
   SEMANTIC_SYMBOL_KIND_INTERFACE = 5;
+  // ENUM is an enumerated type.
   SEMANTIC_SYMBOL_KIND_ENUM = 6;
+  // FIELD is a member of a class, struct, or enclosing record type.
   SEMANTIC_SYMBOL_KIND_FIELD = 7;
+  // VARIABLE is a mutable binding.
   SEMANTIC_SYMBOL_KIND_VARIABLE = 8;
+  // CONSTANT is an immutable binding.
   SEMANTIC_SYMBOL_KIND_CONSTANT = 9;
+  // TYPE_ALIAS names an existing type rather than declaring a new one.
   SEMANTIC_SYMBOL_KIND_TYPE_ALIAS = 10;
+  // MODULE is a namespace, package, or module declaration.
   SEMANTIC_SYMBOL_KIND_MODULE = 11;
 }
 
 // SymbolPatchFailureReason is the typed recovery branch for analyzer-owned
 // declaration mutation. Callers never infer recovery behavior from messages.
 enum SymbolPatchFailureReason {
+  // UNSPECIFIED means no typed cause was given; the caller has no recovery
+  // branch to take and must treat the patch as simply failed.
   SYMBOL_PATCH_FAILURE_REASON_UNSPECIFIED = 0;
+  // STALE_ANCHOR means the declaration changed since the caller read its
+  // hash. Re-read the index and re-author against the current declaration.
   SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR = 1;
+  // NOT_FOUND means no declaration carries the requested qualified name.
   SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND = 2;
+  // AMBIGUOUS means the qualified name selected more than one declaration.
   SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS = 3;
+  // SHARED_DECLARATION means the span covers more than the named symbol, so
+  // replacing it would rewrite declarations the caller did not name.
   SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION = 4;
+  // UNSUPPORTED_LANGUAGE means no analyzer here can mutate declarations in
+  // that language, whatever the request.
   SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE = 5;
+  // INVALID_REPLACEMENT means the new source is not a well-formed
+  // declaration of the language.
   SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT = 6;
 }
 
 // SemanticLocation identifies a declaration or use without exposing source
 // bytes. Lines and columns are one-based and inclusive.
 message SemanticLocation {
+  // path is the source file, relative to the inspected root.
   string path = 1;
+  // start_line is the first line of the span.
   int32 start_line = 2;
+  // start_column is the first column of the span.
   int32 start_column = 3;
+  // end_line is the last line of the span.
   int32 end_line = 4;
+  // end_column is the last column of the span.
   int32 end_column = 5;
 }
 
 // SemanticUse is unresolved analyzer evidence attached to one declaration.
 // Resolution across files and code units remains a brain concern.
 message SemanticUse {
+  // name is the identifier as written at the use site, unresolved.
   string name = 1;
+  // location is where that use appears.
   SemanticLocation location = 2;
 }
 
 // SemanticFile is the typed projection of one source file. It intentionally
 // contains no source body.
 message SemanticFile {
+  // path is the file, relative to the inspected source root.
   string path = 1;
+  // content_sha256 identifies the exact bytes projected, so a consumer can
+  // tell a stale projection from a changed file without holding the source.
   string content_sha256 = 2;
+  // byte_size is the file's length in bytes.
   int64 byte_size = 3;
+  // imports are the file's declared imports as written, unresolved.
   repeated string imports = 4;
+  // language is the ecosystem the analyzer read the file as.
   string language = 5;
 }
 
@@ -70,16 +115,31 @@ message SemanticFile {
 // Signature is bounded declaration evidence; implementation bodies never
 // cross the agent boundary and are represented only by body_sha256.
 message SemanticSymbol {
+  // name is the declaration's own identifier, unqualified.
   string name = 1;
+  // qualified_name is the unique identity callers select declarations by,
+  // including in typed symbol mutations.
   string qualified_name = 2;
+  // kind is the language-neutral category of the declaration.
   SemanticSymbolKind kind = 3;
+  // location is where the declaration appears.
   SemanticLocation location = 4;
+  // package is the namespace or package the declaration belongs to.
   string package = 5;
+  // parent_qualified_name is the enclosing declaration, empty at top level.
   string parent_qualified_name = 6;
+  // signature is bounded declaration evidence. The implementation body never
+  // crosses the agent boundary.
   string signature = 7;
+  // signature_sha256 digests that signature, so a consumer can detect a
+  // contract change without diffing text.
   string signature_sha256 = 8;
+  // body_sha256 represents the implementation the projection omits, so a
+  // body change is still observable.
   string body_sha256 = 9;
+  // calls are unresolved call sites found inside this declaration.
   repeated SemanticUse calls = 10;
+  // references are the other unresolved identifier uses inside it.
   repeated SemanticUse references = 11;
   // declaration_sha256 identifies the complete declaration span selected by
   // the analyzer. Typed symbol mutations use this source-free precondition;
@@ -90,19 +150,33 @@ message SemanticSymbol {
 // SemanticIssue preserves per-file analyzer failures without converting a
 // partially useful index into an untyped transport error.
 message SemanticIssue {
+  // code is the stable machine-readable cause, so a consumer can react
+  // without parsing message.
   string code = 1;
+  // message is the human-readable explanation.
   string message = 2;
+  // path is the file whose analysis failed.
   string path = 3;
 }
 
 // SemanticIndex is one deterministic, body-free projection of an attached
 // source root. Analyzer provenance is part of the contract and cache key.
 message SemanticIndex {
+  // state says how completely the source root was inspected. A non-empty
+  // symbol list does not by itself mean complete.
   SemanticIndexState state = 1;
+  // analyzer names the implementation that produced this projection; it is
+  // part of the cache key.
   string analyzer = 2;
+  // analyzer_version pins that implementation, so a consumer can tell a
+  // changed source root from a changed analyzer.
   string analyzer_version = 3;
+  // languages are the ecosystems found under the source root.
   repeated string languages = 4;
+  // files are the body-free projections of every file inspected.
   repeated SemanticFile files = 5;
+  // symbols are the declarations projected from those files.
   repeated SemanticSymbol symbols = 6;
+  // issues are the per-file analyzer failures behind a DEGRADED state.
   repeated SemanticIssue issues = 7;
 }

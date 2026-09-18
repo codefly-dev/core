@@ -27,9 +27,16 @@ const (
 type SemanticIndexState int32
 
 const (
-	SemanticIndexState_SEMANTIC_INDEX_STATE_UNSPECIFIED   SemanticIndexState = 0
-	SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE      SemanticIndexState = 1
-	SemanticIndexState_SEMANTIC_INDEX_STATE_DEGRADED      SemanticIndexState = 2
+	// UNSPECIFIED means the agent did not state completeness; the projection is
+	// unattested rather than complete.
+	SemanticIndexState_SEMANTIC_INDEX_STATE_UNSPECIFIED SemanticIndexState = 0
+	// COMPLETE means every file under the source root was inspected.
+	SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE SemanticIndexState = 1
+	// DEGRADED means some files failed inspection; issues names which, and the
+	// symbols from the rest are still authoritative.
+	SemanticIndexState_SEMANTIC_INDEX_STATE_DEGRADED SemanticIndexState = 2
+	// NOT_ATTEMPTED means inspection never ran, so an empty symbol list says
+	// nothing about the source root.
 	SemanticIndexState_SEMANTIC_INDEX_STATE_NOT_ATTEMPTED SemanticIndexState = 3
 )
 
@@ -80,18 +87,31 @@ func (SemanticIndexState) EnumDescriptor() ([]byte, []int) {
 type SemanticSymbolKind int32
 
 const (
+	// UNSPECIFIED means the analyzer found a declaration it could not map onto
+	// any language-neutral category.
 	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_UNSPECIFIED SemanticSymbolKind = 0
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION    SemanticSymbolKind = 1
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD      SemanticSymbolKind = 2
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CLASS       SemanticSymbolKind = 3
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT      SemanticSymbolKind = 4
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE   SemanticSymbolKind = 5
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM        SemanticSymbolKind = 6
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FIELD       SemanticSymbolKind = 7
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_VARIABLE    SemanticSymbolKind = 8
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CONSTANT    SemanticSymbolKind = 9
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_TYPE_ALIAS  SemanticSymbolKind = 10
-	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_MODULE      SemanticSymbolKind = 11
+	// FUNCTION is a free function, not bound to a receiver or type.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FUNCTION SemanticSymbolKind = 1
+	// METHOD is a function bound to a receiver, class, or type.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_METHOD SemanticSymbolKind = 2
+	// CLASS is a class declaration in languages that have them.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CLASS SemanticSymbolKind = 3
+	// STRUCT is a record type declared by its fields.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_STRUCT SemanticSymbolKind = 4
+	// INTERFACE is a declared contract with no implementation.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_INTERFACE SemanticSymbolKind = 5
+	// ENUM is an enumerated type.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_ENUM SemanticSymbolKind = 6
+	// FIELD is a member of a class, struct, or enclosing record type.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_FIELD SemanticSymbolKind = 7
+	// VARIABLE is a mutable binding.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_VARIABLE SemanticSymbolKind = 8
+	// CONSTANT is an immutable binding.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_CONSTANT SemanticSymbolKind = 9
+	// TYPE_ALIAS names an existing type rather than declaring a new one.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_TYPE_ALIAS SemanticSymbolKind = 10
+	// MODULE is a namespace, package, or module declaration.
+	SemanticSymbolKind_SEMANTIC_SYMBOL_KIND_MODULE SemanticSymbolKind = 11
 )
 
 // Enum value maps for SemanticSymbolKind.
@@ -158,13 +178,25 @@ func (SemanticSymbolKind) EnumDescriptor() ([]byte, []int) {
 type SymbolPatchFailureReason int32
 
 const (
-	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSPECIFIED          SymbolPatchFailureReason = 0
-	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR         SymbolPatchFailureReason = 1
-	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND            SymbolPatchFailureReason = 2
-	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS            SymbolPatchFailureReason = 3
-	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION   SymbolPatchFailureReason = 4
+	// UNSPECIFIED means no typed cause was given; the caller has no recovery
+	// branch to take and must treat the patch as simply failed.
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSPECIFIED SymbolPatchFailureReason = 0
+	// STALE_ANCHOR means the declaration changed since the caller read its
+	// hash. Re-read the index and re-author against the current declaration.
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_STALE_ANCHOR SymbolPatchFailureReason = 1
+	// NOT_FOUND means no declaration carries the requested qualified name.
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_NOT_FOUND SymbolPatchFailureReason = 2
+	// AMBIGUOUS means the qualified name selected more than one declaration.
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_AMBIGUOUS SymbolPatchFailureReason = 3
+	// SHARED_DECLARATION means the span covers more than the named symbol, so
+	// replacing it would rewrite declarations the caller did not name.
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_SHARED_DECLARATION SymbolPatchFailureReason = 4
+	// UNSUPPORTED_LANGUAGE means no analyzer here can mutate declarations in
+	// that language, whatever the request.
 	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_UNSUPPORTED_LANGUAGE SymbolPatchFailureReason = 5
-	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT  SymbolPatchFailureReason = 6
+	// INVALID_REPLACEMENT means the new source is not a well-formed
+	// declaration of the language.
+	SymbolPatchFailureReason_SYMBOL_PATCH_FAILURE_REASON_INVALID_REPLACEMENT SymbolPatchFailureReason = 6
 )
 
 // Enum value maps for SymbolPatchFailureReason.
@@ -219,12 +251,17 @@ func (SymbolPatchFailureReason) EnumDescriptor() ([]byte, []int) {
 // SemanticLocation identifies a declaration or use without exposing source
 // bytes. Lines and columns are one-based and inclusive.
 type SemanticLocation struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	StartLine     int32                  `protobuf:"varint,2,opt,name=start_line,json=startLine,proto3" json:"start_line,omitempty"`
-	StartColumn   int32                  `protobuf:"varint,3,opt,name=start_column,json=startColumn,proto3" json:"start_column,omitempty"`
-	EndLine       int32                  `protobuf:"varint,4,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
-	EndColumn     int32                  `protobuf:"varint,5,opt,name=end_column,json=endColumn,proto3" json:"end_column,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is the source file, relative to the inspected root.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// start_line is the first line of the span.
+	StartLine int32 `protobuf:"varint,2,opt,name=start_line,json=startLine,proto3" json:"start_line,omitempty"`
+	// start_column is the first column of the span.
+	StartColumn int32 `protobuf:"varint,3,opt,name=start_column,json=startColumn,proto3" json:"start_column,omitempty"`
+	// end_line is the last line of the span.
+	EndLine int32 `protobuf:"varint,4,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
+	// end_column is the last column of the span.
+	EndColumn     int32 `protobuf:"varint,5,opt,name=end_column,json=endColumn,proto3" json:"end_column,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -297,9 +334,11 @@ func (x *SemanticLocation) GetEndColumn() int32 {
 // SemanticUse is unresolved analyzer evidence attached to one declaration.
 // Resolution across files and code units remains a brain concern.
 type SemanticUse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Location      *SemanticLocation      `protobuf:"bytes,2,opt,name=location,proto3" json:"location,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the identifier as written at the use site, unresolved.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// location is where that use appears.
+	Location      *SemanticLocation `protobuf:"bytes,2,opt,name=location,proto3" json:"location,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -351,12 +390,18 @@ func (x *SemanticUse) GetLocation() *SemanticLocation {
 // SemanticFile is the typed projection of one source file. It intentionally
 // contains no source body.
 type SemanticFile struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	ContentSha256 string                 `protobuf:"bytes,2,opt,name=content_sha256,json=contentSha256,proto3" json:"content_sha256,omitempty"`
-	ByteSize      int64                  `protobuf:"varint,3,opt,name=byte_size,json=byteSize,proto3" json:"byte_size,omitempty"`
-	Imports       []string               `protobuf:"bytes,4,rep,name=imports,proto3" json:"imports,omitempty"`
-	Language      string                 `protobuf:"bytes,5,opt,name=language,proto3" json:"language,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is the file, relative to the inspected source root.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// content_sha256 identifies the exact bytes projected, so a consumer can
+	// tell a stale projection from a changed file without holding the source.
+	ContentSha256 string `protobuf:"bytes,2,opt,name=content_sha256,json=contentSha256,proto3" json:"content_sha256,omitempty"`
+	// byte_size is the file's length in bytes.
+	ByteSize int64 `protobuf:"varint,3,opt,name=byte_size,json=byteSize,proto3" json:"byte_size,omitempty"`
+	// imports are the file's declared imports as written, unresolved.
+	Imports []string `protobuf:"bytes,4,rep,name=imports,proto3" json:"imports,omitempty"`
+	// language is the ecosystem the analyzer read the file as.
+	Language      string `protobuf:"bytes,5,opt,name=language,proto3" json:"language,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -430,18 +475,33 @@ func (x *SemanticFile) GetLanguage() string {
 // Signature is bounded declaration evidence; implementation bodies never
 // cross the agent boundary and are represented only by body_sha256.
 type SemanticSymbol struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Name                string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	QualifiedName       string                 `protobuf:"bytes,2,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
-	Kind                SemanticSymbolKind     `protobuf:"varint,3,opt,name=kind,proto3,enum=codefly.base.v0.SemanticSymbolKind" json:"kind,omitempty"`
-	Location            *SemanticLocation      `protobuf:"bytes,4,opt,name=location,proto3" json:"location,omitempty"`
-	Package             string                 `protobuf:"bytes,5,opt,name=package,proto3" json:"package,omitempty"`
-	ParentQualifiedName string                 `protobuf:"bytes,6,opt,name=parent_qualified_name,json=parentQualifiedName,proto3" json:"parent_qualified_name,omitempty"`
-	Signature           string                 `protobuf:"bytes,7,opt,name=signature,proto3" json:"signature,omitempty"`
-	SignatureSha256     string                 `protobuf:"bytes,8,opt,name=signature_sha256,json=signatureSha256,proto3" json:"signature_sha256,omitempty"`
-	BodySha256          string                 `protobuf:"bytes,9,opt,name=body_sha256,json=bodySha256,proto3" json:"body_sha256,omitempty"`
-	Calls               []*SemanticUse         `protobuf:"bytes,10,rep,name=calls,proto3" json:"calls,omitempty"`
-	References          []*SemanticUse         `protobuf:"bytes,11,rep,name=references,proto3" json:"references,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the declaration's own identifier, unqualified.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// qualified_name is the unique identity callers select declarations by,
+	// including in typed symbol mutations.
+	QualifiedName string `protobuf:"bytes,2,opt,name=qualified_name,json=qualifiedName,proto3" json:"qualified_name,omitempty"`
+	// kind is the language-neutral category of the declaration.
+	Kind SemanticSymbolKind `protobuf:"varint,3,opt,name=kind,proto3,enum=codefly.base.v0.SemanticSymbolKind" json:"kind,omitempty"`
+	// location is where the declaration appears.
+	Location *SemanticLocation `protobuf:"bytes,4,opt,name=location,proto3" json:"location,omitempty"`
+	// package is the namespace or package the declaration belongs to.
+	Package string `protobuf:"bytes,5,opt,name=package,proto3" json:"package,omitempty"`
+	// parent_qualified_name is the enclosing declaration, empty at top level.
+	ParentQualifiedName string `protobuf:"bytes,6,opt,name=parent_qualified_name,json=parentQualifiedName,proto3" json:"parent_qualified_name,omitempty"`
+	// signature is bounded declaration evidence. The implementation body never
+	// crosses the agent boundary.
+	Signature string `protobuf:"bytes,7,opt,name=signature,proto3" json:"signature,omitempty"`
+	// signature_sha256 digests that signature, so a consumer can detect a
+	// contract change without diffing text.
+	SignatureSha256 string `protobuf:"bytes,8,opt,name=signature_sha256,json=signatureSha256,proto3" json:"signature_sha256,omitempty"`
+	// body_sha256 represents the implementation the projection omits, so a
+	// body change is still observable.
+	BodySha256 string `protobuf:"bytes,9,opt,name=body_sha256,json=bodySha256,proto3" json:"body_sha256,omitempty"`
+	// calls are unresolved call sites found inside this declaration.
+	Calls []*SemanticUse `protobuf:"bytes,10,rep,name=calls,proto3" json:"calls,omitempty"`
+	// references are the other unresolved identifier uses inside it.
+	References []*SemanticUse `protobuf:"bytes,11,rep,name=references,proto3" json:"references,omitempty"`
 	// declaration_sha256 identifies the complete declaration span selected by
 	// the analyzer. Typed symbol mutations use this source-free precondition;
 	// callers never reconstruct declaration boundaries from lines or bytes.
@@ -567,10 +627,14 @@ func (x *SemanticSymbol) GetDeclarationSha256() string {
 // SemanticIssue preserves per-file analyzer failures without converting a
 // partially useful index into an untyped transport error.
 type SemanticIssue struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	Path          string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// code is the stable machine-readable cause, so a consumer can react
+	// without parsing message.
+	Code string `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	// message is the human-readable explanation.
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// path is the file whose analysis failed.
+	Path          string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -629,16 +693,26 @@ func (x *SemanticIssue) GetPath() string {
 // SemanticIndex is one deterministic, body-free projection of an attached
 // source root. Analyzer provenance is part of the contract and cache key.
 type SemanticIndex struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	State           SemanticIndexState     `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.base.v0.SemanticIndexState" json:"state,omitempty"`
-	Analyzer        string                 `protobuf:"bytes,2,opt,name=analyzer,proto3" json:"analyzer,omitempty"`
-	AnalyzerVersion string                 `protobuf:"bytes,3,opt,name=analyzer_version,json=analyzerVersion,proto3" json:"analyzer_version,omitempty"`
-	Languages       []string               `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
-	Files           []*SemanticFile        `protobuf:"bytes,5,rep,name=files,proto3" json:"files,omitempty"`
-	Symbols         []*SemanticSymbol      `protobuf:"bytes,6,rep,name=symbols,proto3" json:"symbols,omitempty"`
-	Issues          []*SemanticIssue       `protobuf:"bytes,7,rep,name=issues,proto3" json:"issues,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// state says how completely the source root was inspected. A non-empty
+	// symbol list does not by itself mean complete.
+	State SemanticIndexState `protobuf:"varint,1,opt,name=state,proto3,enum=codefly.base.v0.SemanticIndexState" json:"state,omitempty"`
+	// analyzer names the implementation that produced this projection; it is
+	// part of the cache key.
+	Analyzer string `protobuf:"bytes,2,opt,name=analyzer,proto3" json:"analyzer,omitempty"`
+	// analyzer_version pins that implementation, so a consumer can tell a
+	// changed source root from a changed analyzer.
+	AnalyzerVersion string `protobuf:"bytes,3,opt,name=analyzer_version,json=analyzerVersion,proto3" json:"analyzer_version,omitempty"`
+	// languages are the ecosystems found under the source root.
+	Languages []string `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
+	// files are the body-free projections of every file inspected.
+	Files []*SemanticFile `protobuf:"bytes,5,rep,name=files,proto3" json:"files,omitempty"`
+	// symbols are the declarations projected from those files.
+	Symbols []*SemanticSymbol `protobuf:"bytes,6,rep,name=symbols,proto3" json:"symbols,omitempty"`
+	// issues are the per-file analyzer failures behind a DEGRADED state.
+	Issues        []*SemanticIssue `protobuf:"bytes,7,rep,name=issues,proto3" json:"issues,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SemanticIndex) Reset() {

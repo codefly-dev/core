@@ -165,11 +165,19 @@ message ApplyEditResponse {
 // exact qualified name emitted by GetSemanticIndex. The expected declaration
 // hash makes stale or ambiguous authoring fail before any workspace write.
 message ApplySymbolPatchRequest {
+  // file is the service-relative path holding the declaration.
   string file = 1;
+  // qualified_name selects the declaration, spelled exactly as
+  // GetSemanticIndex emits it.
   string qualified_name = 2;
+  // expected_declaration_sha256 is the digest the author read. A mismatch
+  // fails the patch before any write, so a stale edit cannot land.
   string expected_declaration_sha256 = 3;
+  // new_source is the complete replacement declaration, not a diff.
   string new_source = 4;
+  // fix_mode selects which formatters and import fixers run after the edit.
   codefly.base.v0.FixMode fix_mode = 5;
+  // dry_run computes the result and its hashes without writing.
   bool dry_run = 6;
 }
 
@@ -177,16 +185,29 @@ message ApplySymbolPatchRequest {
 // Codefly boundary. Gateway callers receive a source-free projection of these
 // hashes and actions.
 message ApplySymbolPatchResponse {
+  // success reports that the declaration was located and replaced.
   bool success = 1;
+  // content is the complete post-edit file, populated only inside the Codefly
+  // boundary; the gateway projection drops it.
   string content = 2;
+  // strategy names how the declaration was located.
   string strategy = 3;
+  // fix_actions names the formatters or import fixers that ran after the edit.
   repeated string fix_actions = 4;
+  // changed reports whether the returned content differs from the original.
   bool changed = 5;
+  // before_sha256 is the lowercase SHA-256 digest of the original file.
   string before_sha256 = 6;
+  // after_sha256 is the lowercase SHA-256 digest of the returned file.
   string after_sha256 = 7;
+  // declaration_sha256 is the digest of the replaced declaration after the
+  // edit, so the next patch can pass it as expected_declaration_sha256.
   string declaration_sha256 = 8;
+  // wrote reports whether the agent committed the content; a dry run does not.
   bool wrote = 9;
+  // output preserves bounded formatter or fixer output for follow-up linting.
   string output = 10;
+  // failure_reason is the structured cause when success is false.
   codefly.base.v0.SymbolPatchFailureReason failure_reason = 11;
   // before_size_bytes is the exact original content length.
   uint64 before_size_bytes = 12;
@@ -238,9 +259,14 @@ message SearchMatch {
   int64 original_text_bytes = 7;
 }
 
+// SearchTruncationReason names which budget cut a search short, so a caller
+// can widen the one that actually bound rather than guessing.
 enum SearchTruncationReason {
+  // UNSPECIFIED means the results are complete; nothing was truncated.
   SEARCH_TRUNCATION_REASON_UNSPECIFIED = 0;
+  // MAX_RESULTS means the match count reached SearchRequest.max_results.
   SEARCH_TRUNCATION_REASON_MAX_RESULTS = 1;
+  // MAX_BYTES means cumulative match text reached SearchRequest.max_bytes.
   SEARCH_TRUNCATION_REASON_MAX_BYTES = 2;
 }
 
@@ -440,7 +466,10 @@ message GetInstructionIndexRequest {}
 // identities. Empty revision observes the live worktree; a non-empty revision
 // resolves one immutable Git tree.
 message GetSourceManifestRequest {
+  // revision resolves one immutable Git tree. Empty observes the live
+  // worktree instead.
   string revision = 1;
+  // identity_mode selects how artifact identities are computed.
   codefly.base.v0.SourceManifestIdentityMode identity_mode = 2;
 }
 
@@ -473,6 +502,8 @@ message CodeUnitInfo {
 // DiscoverCodeUnitsResponse returns a deterministic, complete structural
 // inventory. A markerless source tree is represented by one generic root unit.
 message DiscoverCodeUnitsResponse {
+  // code_units is the complete structural inventory. A markerless tree yields
+  // exactly one generic root unit rather than an empty list.
   repeated CodeUnitInfo code_units = 1;
 }
 
