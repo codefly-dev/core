@@ -342,22 +342,37 @@ own facility compatibility, reachability and the declared readiness predicates.
 
 ## Operations derived from a service method
 
-A unary, idempotent method an owner service already publishes becomes a
-Runnable by derivation, not by authoring. The owner marks the method with
-`codefly.runnable.v0.operation` (`proto/codefly/runnable/v0/options.proto`, a
-`google.protobuf.MethodOptions` extension) and the contract follows from the
-method's own request and response descriptors. Nothing is written twice, so the
-published message and the bounded contract cannot drift apart.
+A unary, idempotent operation an owner service already publishes becomes a
+Runnable by derivation, not by authoring. The owner marks it and the contract
+follows from the payloads the owner already describes. Nothing is written
+twice, so the published message and the bounded contract cannot drift apart.
 
-`runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")`
-returns the `RunnablePackage` and, beside it, the `OperationSpec`. The package
-is the contract: facility `SERVICE`, protocol `codefly.runnable.service/v1`,
-`recovery: receipt`, `cancellation: none`, the option's `total_timeout` as its
-execution timeout, the default inline payload bounds, one
-`RunnableServiceOperation` naming the owner's module, service, endpoint and
-`/pkg.Service/Method` with `ADAPTATION_BOUNDED_JSON_V1`, and the owner's own
+There are two ways an owner describes an operation, and one derivation:
+
+| | gRPC | REST |
+| --- | --- | --- |
+| Marking | the `codefly.runnable.v0.operation` method option (`proto/codefly/runnable/v0/options.proto`, a `google.protobuf.MethodOptions` extension) | the `x-codefly-operation` vendor extension on the operation object, the proto3 JSON form of that same `Operation` message |
+| Source of the contract | the method's request and response descriptors | the operation's `application/json` request body and its one `2xx` response |
+| Builder | `runnable.PackageFromMethod(files, location, owner, "/pkg.Service/Method")` | `runnable.PackageFromOpenAPIOperation(document, location, owner, "POST", "/path")` |
+| Projection | `runnable.ProjectMessage(md)` | `runnable.ProjectJSONSchema(doc, schema)` |
+| `operation` recorded | `/pkg.Service/Method` | `POST /path` |
+| `input_message` / `output_message` | the messages' full names | the payload components' names |
+| `retryable_codes` | `google.rpc.Code` names, such as `UNAVAILABLE` | HTTP statuses as decimal strings, such as `"503"` |
+
+Both land in the same place, which is the point: one profile, one digest and
+one drift rule, so a FastAPI service and a gRPC one publish the same kind of
+operation rather than two kinds that resemble each other.
+
+Either builder returns the `RunnablePackage` and, beside it, the
+`OperationSpec`. The package is the contract: facility `SERVICE`, protocol
+`codefly.runnable.service/v1`, `recovery: receipt`, `cancellation: none`, the
+declared `total_timeout` as its execution timeout, the default inline payload
+bounds, one `RunnableServiceOperation` naming the owner's module, service and
+endpoint with `ADAPTATION_BOUNDED_JSON_V1`, and the owner's own
 `codefly:service` agent — the exception a `SERVICE`-only release already makes.
-It is finished by `PreparePackage`, so its digest is the canonical one.
+It is finished by `PreparePackage`, so its digest is the canonical one. The
+endpoint and the operation spelling differ between the two, so one operation
+published over both transports is two releases of one contract.
 
 The option's execution policy and its Work Context authority are *not* in the
 package. Policy is installed with the binding, so two installations of one
@@ -366,8 +381,9 @@ would make re-registering an unchanged contract read as a conflict. Core
 validates them and hands them back: the method must be unary (a streaming
 method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
 least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
-`retryable_codes`, each a `google.rpc.Code` name and named once; `audience` and
-both scope sets are required and carry the runtime's own value bounds — the
+`retryable_codes`, each named once and a code of the transport's own
+vocabulary; `audience` and both scope sets are required and carry the runtime's
+own value bounds — the
 bounds the orchestration runtime enforces at installation, restated here so a
 descriptor that generates is a descriptor that installs. An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
@@ -381,43 +397,122 @@ receipt lookup — but when set it must name a unary method the *same* service
 publishes, and it may not name the operation itself. A package declaring
 `recovery: receipt` says an uncertain outcome is resolved by reading the
 receipt and never by re-running, so an operation that is its own lookup would
-make recovery repeat the effect it exists to avoid repeating. The option's
-presence is the marking; its policy fields are required, and an empty option is
-rejected rather than filled in with an attempt budget nobody chose.
+make recovery repeat the effect it exists to avoid repeating. Naming a method
+is the whole of what the field can say, which is a gRPC spelling: an
+`x-codefly-operation` declaring one is rejected rather than accepted as a route
+nothing validates, and a REST operation's receipts are read through the
+receipts route the SDK publishes.
+
+The marking's presence is the marking; its policy fields are required, and an
+empty option or marker is rejected rather than filled in with an attempt budget
+nobody chose.
 
 ### The projection
 
-`runnable.ProjectMessage(md)` is the one implementation of message descriptor →
-`RunnableSchema`:
+`runnable.ProjectMessage(md)` and `runnable.ProjectJSONSchema(doc, schema)` are
+the two readers of one profile. They are written as one table so they cannot
+drift, and held to it by a fixture pair: a method's messages and the OpenAPI
+document transcoded from them project to **equal** `RunnableSchema`s.
 
-| Protobuf | Bounded profile | Note |
-|---|---|---|
-| `string` | `STRING` | |
-| `int32`, `sint32`, `sfixed32`, `int64`, `sint64`, `sfixed64`, `uint32`, `fixed32` | `INTEGER` | int64 range |
-| `uint64`, `fixed64` | **rejected** | exceeds int64 |
-| `bool` | `BOOLEAN` | |
-| message | `OBJECT` with `fields` | recursive, depth ≤ 32, recursion (a message reaching itself) rejected |
-| `repeated T` | `ARRAY` with `items` | |
-| proto3 `optional` / message-typed field | `optional: true` | absent key |
-| `enum`, `map<>`, `oneof`, `bytes`, `float`, `double`, `google.protobuf.*` well-known types, `Any` | **rejected** | named by full field path in the error; never coerced |
+| Protobuf | JSON Schema | Bounded profile | Note |
+|---|---|---|---|
+| `string` | `type: string`, `format` absent or outside the rejected list below | `STRING` | `uuid`, `email`, `uri` annotate a string |
+| `int32`, `sint32`, `sfixed32`, `int64`, `sint64`, `sfixed64`, `uint32`, `fixed32` | `type: integer`, `format` absent, `int32` or `int64` | `INTEGER` | int64 range |
+| `uint64`, `fixed64` | `type: integer` of any other `format` | **rejected** | exceeds int64 |
+| `bool` | `type: boolean` | `BOOLEAN` | |
+| message | `type: object` with `properties` and `additionalProperties: false` | `OBJECT` with `fields` | depth ≤ 32 and ≤ 10 000 fields in total; recursion (a message or a `$ref` reaching itself) rejected |
+| `repeated T` | `type: array` with a single `items` schema | `ARRAY` with `items` | |
+| proto3 `optional` / message-typed field | a name absent from `required` | `optional: true` | absent key |
+| — | `nullable: true`, or `type: [T, "null"]` | `nullable: true` | protobuf has no null value |
+| `enum`, `map<>`, `oneof`, `bytes`, `float`, `double`, `google.protobuf.*` well-known types, `Any` | `enum`, `oneOf` / `anyOf` / `allOf`, `type: number`, `additionalProperties` other than `false` (maps), free-form objects, `type: object` without `properties`, tuple `items`, `format: byte` / `binary` / `date-time` / `date` | **rejected** | named by full field path or by JSON pointer in the error; never coerced |
 
 Rejection is a generation failure, not a runtime one: an out-of-profile payload
-is fixed once in the `.proto` and stays fixed, whereas coercing one would put a
-representation on the wire that neither the owner nor the runtime agreed to. An
-array's items carry neither the field's name nor its optionality — an element is
-present or the list is shorter.
+is fixed once in the `.proto` or the document and stays fixed, whereas coercing
+one would put a representation on the wire that neither the owner nor the
+runtime agreed to. An array's items carry neither the field's name nor its
+optionality — an element is present or the list is shorter.
 
 The well-known-type rule covers the payload itself and not only its fields: a
 method taking or returning `google.protobuf.Timestamp` would otherwise derive a
 contract of `{seconds, nanos}`, and one returning `google.protobuf.Empty` a
 contract with no keys at all. `optional` reads the field's presence, except that
 a *required* field (proto2, or editions `LEGACY_REQUIRED`) keeps its key: it
-tracks presence, but it is never absent.
+tracks presence, but it is never absent. The rejected string formats are what
+the rejected protobuf types transcode to — `bytes` becomes `byte` or `binary`,
+`Timestamp` becomes `date-time` — which is why the two columns reject the same
+payloads.
 
-Core owns the option, the projection and the builder. The generator that walks
-a service and writes the results out is the CLI's (`codefly generate
-runnables`); the generic `SERVICE` invoker and receipt lookup belong to the
-orchestration runtime and the SDK.
+Depth is not the only bound, because it is not the one that binds. A payload
+whose members are themselves objects expands *multiplicatively*: at twelve
+levels of fanout three, under three kilobytes of source describes forty
+megabytes of schema, and sixteen levels exhausts memory before it finishes —
+while `MaxProjectionDepth` would allow twice that nesting. `MaxProjectionFields`
+bounds the projection at 10 000 fields in total, in both readers, because there
+is one profile. A `required` name the object does not declare is rejected for
+the same reason a type outside the profile is: the object closes
+`additionalProperties`, so the declaration is unsatisfiable, and projecting it
+anyway would hand back a contract silent about a key the owner marked mandatory.
+
+Reading the columns together says what a transcription has to spell, and the
+fixture pair is what enforces it. A proto3 field with implicit presence has a
+key that is always there, so it is `required` in the document; a message-typed
+or `optional` field has one that may be absent, so it is not. An `int64` is an
+`integer` of format `int64` and never the string proto3 JSON would carry it as:
+the bounded profile has a 64-bit integer of its own and does not borrow that
+encoding. An object's members are projected in the order the source spells
+them, because the profile's `fields` are an ordered list the package digest is
+taken over.
+
+### The REST reader
+
+`runnable.PackageFromOpenAPIOperation(document, location, owner, method, path)`
+reads the OpenAPI JSON an owner already publishes (`codefly generate
+contracts` writes one per HTTP endpoint) and derives the same package. An
+operation is eligible only if it is a `POST` or a `PUT`, carries no parameter
+outside `header` and `cookie`, has one `application/json` request body and
+exactly one `2xx` response with an `application/json` schema. Anything else is a
+refusal that names why, never a coercion: v1 keeps an operation's input as one
+JSON object, and folding a parameter into it is a later profile decision.
+
+The parameter locations are an **allow list**, not a pair of denied ones. The
+transport carries a header and a cookie, so they are no part of the payload;
+every other location names an input the contract would have to describe.
+Denying only `path` and `query` would let `body` and `formData` — which is how
+Swagger 2.0 spells a request body — pass in silence, and the derived contract
+would simply omit the operation's input.
+
+The document's version is checked rather than assumed, for the same reason.
+Swagger 2.0 puts a request body in an `in: body` parameter and a response schema
+on the response itself, so reading one as OpenAPI 3 finds no `requestBody` and
+reports exactly that — pointing at the wrong part of a document that plainly
+declares one. Core's own `OpenAPICombinator` still writes 2.0, so this is a
+document that turns up; it is refused as Swagger, by name.
+
+Both payload schemas must be `#/components/schemas/…` references. That is where
+`input_message` and `output_message` come from, and their job is to record the
+owner's published message identity so the reuse is auditable rather than
+implied by a matching shape — which an inline schema has nothing to record. A
+`$ref` is followed there and nowhere else: core reads the operation object as
+the document writes it, so a `$ref`'d path item, request body, response or
+parameter is refused rather than resolved.
+
+`x-codefly-operation` is the proto3 JSON form of `codefly.runnable.v0.Operation`
+— the same field names in either spelling, durations as strings such as `"30s"`,
+scopes as `WorkScopeV1` — decoded into that message rather than into a second
+schema, and held to the same bounds. A field the message does not declare is an
+error, so a misspelled policy field is never a policy silently left at zero. The
+one difference is the vocabulary a retry names: a REST operation names its
+retryable outcomes by HTTP status, spelled as the decimal number in a string.
+Each vocabulary is as closed as its own protocol makes it — `google.rpc.Code` is
+an enumeration, so a name outside it names nothing, while HTTP defines a status
+as any three-digit code in a class it defines, and a proxy in front of the owner
+does answer with unregistered ones.
+
+Core owns the markings, the projections and the builders. The generator that
+walks a service and writes the results out is the CLI's (`codefly generate
+runnables`), reading descriptors and OpenAPI as its two sources; the generic
+`SERVICE` invoker, the HTTP transport and the receipt lookup belong to the
+orchestration runtime and the SDKs.
 
 ## Agent protocol
 

@@ -1,0 +1,86 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "documents/runtime-worker",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/ingest/text": {
+      "post": {
+        "operationId": "ApplyText",
+        "summary": "Apply a text document to the store",
+        "x-codefly-operation": {
+          "attempt_timeout": "10s",
+          "total_timeout": "60s",
+          "max_attempts": 1,
+          "backoff": "1s",
+          "retryable_codes": ["503"],
+          "audience": "documents.ingestion",
+          "invoke_scopes": [
+            {"resource_kind": "documents", "actions": ["ingest", "read"]}
+          ],
+          "lookup_scopes": [
+            {"resource_kind": "documents", "actions": ["read"]}
+          ]
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ApplyTextRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the applied document",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ApplyTextResponse"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApplyTextRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "origin": {"type": "string"},
+          "container": {"type": "string"},
+          "ref": {"type": "string"},
+          "path": {"type": "string"},
+          "revision": {"type": "string"},
+          "commit": {"type": "string"},
+          "cursor": {"type": "integer", "format": "int64"},
+          "content_type": {"type": "string"},
+          "text": {"type": "string"}
+        },
+        "required": [
+          "origin", "container", "ref", "path", "revision", "commit",
+          "cursor", "content_type", "text"
+        ]
+      },
+      "ApplyTextResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reference": {"type": "string"},
+          "content_hash": {"type": "string"},
+          "effect_digest": {"type": "string"},
+          "minted": {"type": "boolean"},
+          "skipped": {"type": "boolean"},
+          "quarantined": {"type": "boolean"}
+        },
+        "required": [
+          "reference", "content_hash", "effect_digest",
+          "minted", "skipped", "quarantined"
+        ]
+      }
+    }
+  }
+}

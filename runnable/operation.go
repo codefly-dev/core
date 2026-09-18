@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,12 +68,52 @@ var grpcCodeNames = func() map[string]struct{} {
 	return names
 }()
 
+// CodeVocabulary is how an operation names the outcomes an attempt may be
+// retried on. A gRPC method names them by google.rpc.Code and a REST operation
+// by HTTP status, so the same policy field is read against the vocabulary of
+// the transport it was declared on rather than against one of them twice.
+type CodeVocabulary int
+
+const (
+	// GRPCStatusNames names a retryable outcome by its google.rpc.Code name,
+	// such as "UNAVAILABLE". It is the zero value because the method option is
+	// where an operation is declared unless a marker says otherwise.
+	GRPCStatusNames CodeVocabulary = iota
+	// HTTPStatusCodes names a retryable outcome by its HTTP status, spelled as
+	// the decimal number in a string, such as "503".
+	HTTPStatusCodes
+)
+
+// names reports whether the vocabulary defines a code by this spelling. Each
+// set is as closed as its own protocol makes it: google.rpc.Code is an
+// enumeration, so a name outside it names nothing, while HTTP defines a status
+// as any three-digit code in a class it defines and servers and proxies do
+// return unregistered ones. Holding the second to a registry would refuse a
+// policy that retries on a status a real deployment answers with.
+func (v CodeVocabulary) names(code string) bool {
+	if v == HTTPStatusCodes {
+		status, err := strconv.Atoi(code)
+		return err == nil && code == strconv.Itoa(status) && status >= 100 && status <= 599
+	}
+	_, defined := grpcCodeNames[code]
+	return defined
+}
+
+func (v CodeVocabulary) String() string {
+	if v == HTTPStatusCodes {
+		return "HTTP status"
+	}
+	return "gRPC status code name"
+}
+
 // OperationSpec is the execution policy and authority one marked method
 // declares. It is deliberately not part of the package the method derives: the
 // package is the contract, and policy and authority are installed with the
 // binding, so two installations of one contract may differ in both.
 type OperationSpec struct {
-	// Method is the method the option was read from, as "/pkg.Service/Method".
+	// Method is the operation the policy was read from, as the transport
+	// spells it: "/pkg.Service/Method" for a gRPC method, "POST /path" for a
+	// REST one.
 	Method string
 	// AttemptTimeout bounds one attempt.
 	AttemptTimeout time.Duration
@@ -83,8 +124,11 @@ type OperationSpec struct {
 	MaxAttempts uint32
 	// Backoff is the delay before the second attempt.
 	Backoff time.Duration
-	// RetryableCodes are the gRPC status code names an attempt may be retried on.
+	// RetryableCodes are the outcomes an attempt may be retried on, spelled in
+	// the vocabulary Codes names.
 	RetryableCodes []string
+	// Codes is the vocabulary RetryableCodes are spelled in.
+	Codes CodeVocabulary
 	// Audience is the trust boundary the runtime mints authority for.
 	Audience string
 	// InvokeScopes are the scopes bound for the call.
@@ -238,8 +282,8 @@ func (s *OperationSpec) Validate() error {
 	}
 	seen := make(map[string]struct{}, len(s.RetryableCodes))
 	for _, name := range s.RetryableCodes {
-		if _, known := grpcCodeNames[name]; !known {
-			return fmt.Errorf("%w: %s names retryable code %q, which is not a gRPC status code name", ErrInvalid, s.Method, name)
+		if !s.Codes.names(name) {
+			return fmt.Errorf("%w: %s names retryable code %q, which is not a %s", ErrInvalid, s.Method, name, s.Codes)
 		}
 		if _, repeated := seen[name]; repeated {
 			return fmt.Errorf("%w: %s names retryable code %q twice", ErrInvalid, s.Method, name)
