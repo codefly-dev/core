@@ -9,7 +9,6 @@ import "codefly/base/v0/readiness.proto";
 
 import "codefly/services/agent/v0/agent.proto";
 
-import "codefly/observability/v0/inventory.proto";
 import "codefly/observability/v0/dependencies.proto";
 import "codefly/observability/v0/logs.proto";
 

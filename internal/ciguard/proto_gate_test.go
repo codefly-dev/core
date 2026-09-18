@@ -54,6 +54,27 @@ var makefileBufPin = regexp.MustCompile(`(?m)^BUF_VERSION\s*[:?]?=\s*([0-9]+\.[0
 // something else entirely.
 var makefileBufRun = regexp.MustCompile(`github\.com/bufbuild/buf/cmd/buf@v\$\(BUF_VERSION\)`)
 
+// makefileBufVersion reads the one BUF_VERSION the Makefile declares.
+//
+// Exactly one declaration: make takes the last assignment, this regex takes the
+// first, so a second one is a pin that reads equal to every guard here and runs
+// different.
+func makefileBufVersion(t *testing.T) string {
+	t.Helper()
+
+	makefile, err := os.ReadFile(filepath.Join(repoRoot(t), "Makefile"))
+	require.NoError(t, err)
+
+	pins := makefileBufPin.FindAllSubmatch(makefile, -1)
+	require.Len(t, pins, 1,
+		"the Makefile must declare BUF_VERSION exactly once (found %d), or `make "+
+			"buf-lint`, `make buf-breaking` and `make buf-install` cannot be pinned to "+
+			"the buf CI and the companion run. make uses the last assignment; this "+
+			"guard would read the first.",
+		len(pins))
+	return string(pins[0][1])
+}
+
 // CI's buf, the buf the proto companion bakes, and the buf the Makefile targets
 // run must all be the same one. The companion generates every consumer's
 // bindings; CI decides whether a schema change is allowed to land; the Makefile
@@ -82,21 +103,12 @@ func TestWorkflowBufMatchesTheCompanionImage(t *testing.T) {
 	makefile, err := os.ReadFile(filepath.Join(root, "Makefile"))
 	require.NoError(t, err)
 
-	// Exactly one declaration: make takes the last assignment, this regex takes
-	// the first, so a second one is a pin that reads equal here and runs
-	// different.
-	pins := makefileBufPin.FindAllSubmatch(makefile, -1)
-	require.Len(t, pins, 1,
-		"the Makefile must declare BUF_VERSION exactly once (found %d), or `make "+
-			"buf-lint`, `make buf-breaking` and `make buf-install` cannot be pinned to "+
-			"the buf CI and the companion run. make uses the last assignment; this "+
-			"guard would read the first.",
-		len(pins))
-	require.Equal(t, want, string(pins[0][1]),
+	pinned := makefileBufVersion(t)
+	require.Equal(t, want, pinned,
 		"the Makefile pins buf %s but companions/proto/Dockerfile bakes %s. A local "+
 			"`make buf-breaking` would then answer from a different buf than the gate "+
 			"that decides whether the schema lands.",
-		string(pins[0][1]), want)
+		pinned, want)
 
 	// The pin has to be what the recipes actually run. Checking the declaration
 	// alone leaves the hole open: `BUF := go run .../buf@v1.73.0` beside

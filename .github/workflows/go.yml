@@ -43,7 +43,7 @@ jobs:
           # TestWorkflowBufMatchesTheCompanionImage fails when the two drift.
           # Left unset, the action installs 1.50.0 — its own default, not the
           # latest.
-          version: 1.71.0
+          version: 1.73.0
           github_token: ${{ github.token }}
 
       - name: proto breaking-change guard

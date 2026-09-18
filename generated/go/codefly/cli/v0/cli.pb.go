@@ -1132,7 +1132,7 @@ var File_codefly_cli_v0_cli_proto protoreflect.FileDescriptor
 
 const file_codefly_cli_v0_cli_proto_rawDesc = "" +
 	"\n" +
-	"\x18codefly/cli/v0/cli.proto\x12\x0ecodefly.cli.v0\x1a\x1dcodefly/base/v0/network.proto\x1a\x1fcodefly/base/v0/workspace.proto\x1a#codefly/base/v0/configuration.proto\x1a\x1fcodefly/base/v0/readiness.proto\x1a%codefly/services/agent/v0/agent.proto\x1a(codefly/observability/v0/inventory.proto\x1a+codefly/observability/v0/dependencies.proto\x1a#codefly/observability/v0/logs.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"2\n" +
+	"\x18codefly/cli/v0/cli.proto\x12\x0ecodefly.cli.v0\x1a\x1dcodefly/base/v0/network.proto\x1a\x1fcodefly/base/v0/workspace.proto\x1a#codefly/base/v0/configuration.proto\x1a\x1fcodefly/base/v0/readiness.proto\x1a%codefly/services/agent/v0/agent.proto\x1a+codefly/observability/v0/dependencies.proto\x1a#codefly/observability/v0/logs.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"2\n" +
 	"\x1aGetAgentInformationRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\"U\n" +
 	"\x12MultiGraphResponse\x12?\n" +

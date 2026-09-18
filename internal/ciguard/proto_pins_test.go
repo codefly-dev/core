@@ -79,6 +79,41 @@ var bsrGeneratedSDKCommit = regexp.MustCompile(`-[0-9]{14}-([0-9a-f]{12})\.[0-9]
 
 const protovalidateGeneratedSDK = "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go"
 
+const protobufGo = "google.golang.org/protobuf"
+
+// Buf and protobuf-go publish the upstream protobuf release that supplies
+// their Well-Known Types, but neither version includes that release and neither
+// module records the other's version. This table relates release pairs whose
+// source metadata names the same upstream release: datawkt.Version in buf and
+// protobufVersion in protobuf-go's integration_test.go.
+var bufProtobufGoVersions = map[string]string{
+	"1.73.0": "v1.36.12", // protobuf 35.1
+}
+
+// Buf resolves google/protobuf imports from sources embedded in its binary;
+// the Go runtime registers the same files from protobuf-go. A schema that uses
+// editions or an option type defined by descriptor.proto is compiled against
+// the first copy and read against the second, so the copies must come from the
+// same upstream protobuf release.
+func TestWellKnownTypePinsAgree(t *testing.T) {
+	bufVersion := makefileBufVersion(t)
+	protobufGoVersion := goModRequirement(t, protobufGo)
+
+	required, ok := bufProtobufGoVersions[bufVersion]
+	require.True(t, ok,
+		"buf %s has no verified protobuf-go pairing. Read datawkt.Version in the "+
+			"buf release and protobufVersion in protobuf-go's integration_test.go, then "+
+			"add the pair only when both name the same upstream protobuf release.",
+		bufVersion)
+	require.Equal(t, required, protobufGoVersion,
+		"buf %s embeds Well-Known Types paired with %s, but go.mod requires %s. "+
+			"Buf compiles google/protobuf imports against the first copy and the Go "+
+			"runtime registers the second. Choose releases whose source metadata names "+
+			"the same upstream protobuf release, then record that verified pair in "+
+			"bufProtobufGoVersions.",
+		bufVersion, required, protobufGoVersion)
+}
+
 // buf.lock and go.mod must name the same protovalidate commit.
 //
 // go.mod leads, and that is forced rather than chosen: its version rises on its

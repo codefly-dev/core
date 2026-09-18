@@ -28,7 +28,7 @@ RUN apk add --no-cache git python3 py3-pip nodejs npm protobuf
 # cleanup at the end actually takes effect in the final image layer.
 # Each binary is copied out individually in the runtime stage; the
 # module cache is not.
-RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@v1.71.0 && \
+RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@v1.73.0 && \
     go install -ldflags="-s -w" google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 && \
     go install -ldflags="-s -w" google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1 && \
     go install -ldflags="-s -w" github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.29.0 && \
