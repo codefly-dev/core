@@ -64,7 +64,11 @@ CI additionally runs, and all of these are runnable locally:
 | `./scripts/check_cgo_free.sh` (`make check-cgo-free`) | cgo creep outside `code/semantic` |
 | `./scripts/check_version_tag.sh` (`make check-version-tag`) | `version/info.codefly.yaml` vs. published tags |
 | `./scripts/govulncheck.sh` | unsuppressed vulns that have an upstream fix |
-| `cd proto && buf breaking --against "../.git#ref=origin/main,subdir=proto"` | schema breaks, `PACKAGE` rules |
+| `make buf-breaking` (and `make buf-lint`) | schema breaks, `PACKAGE` rules |
+
+Run buf through those targets, never a bare `buf`: they pin the version CI's
+gate and the companion's generator both use, so a local check is a verdict on
+the gate rather than on whatever is on `PATH`.
 
 `GOFLAGS ?= -timeout=300s` is exported by the `Makefile` so no test run hangs.
 Tests with the `proto_companion_required` tag are **not** in CI — they need an

@@ -45,8 +45,11 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
   package is not. Run the same check before pushing:
 
   ```bash
-  git fetch origin main
-  cd proto && buf breaking --against "../.git#ref=origin/main,subdir=proto"
+  make buf-breaking
   ```
-- `buf lint` before committing.
+- `make buf-lint` before committing.
+- Both targets run the buf version pinned in the `Makefile`, which
+  `internal/ciguard` holds equal to the workflow's and the companion's. A bare
+  `buf` answers from whatever is on `PATH`, which is not the buf deciding
+  whether the schema lands.
 - Validation uses CEL via protovalidate (field constraints in the `.proto`s).
