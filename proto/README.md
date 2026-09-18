@@ -35,6 +35,34 @@ belongs.
 Python bindings (for the CLI) are produced via `generated/buf.gen.yaml` where
 the BSR remote plugins are reachable.
 
+## External schema dependencies
+
+`buf.yaml` names googleapis and protovalidate, and `buf.lock` pins the BSR
+commit each one resolves to. Those same descriptors reach the Go build a second
+time, from `go.mod`: `buf/validate/validate.proto` through
+`buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go`, and the googleapis
+files through `google.golang.org/genproto`. buf generates the bindings against
+the first pin; the Go runtime registers the schemas from the second.
+
+`go.mod` leads. Its versions move on their own — Dependabot proposes them, and
+minimum version selection raises the protovalidate SDK whenever anything else
+requiring it bumps — while `buf.lock` moves only here:
+
+```bash
+make buf-dep-update
+```
+
+Run it after any bump of the protovalidate SDK, and commit the `buf.lock`
+change with it. `internal/ciguard` holds the two protovalidate commits equal, so
+a bump that leaves `buf.lock` behind is red rather than silent; a schema
+compiled from `proto/` and a descriptor embedded in a `.pb.go` would otherwise
+differ in field options alone, which reads as stale bindings and is not.
+
+googleapis has no such pair to hold: BSR mirrors `googleapis/googleapis` while
+`genproto` is Google's own generation of it, published under unrelated commit
+ids. The files this module imports from it are frozen surfaces and are
+descriptor-identical across both today.
+
 ## BSR
 
 The module keeps its `buf.build/codefly-dev/proto` name so it can still be

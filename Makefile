@@ -51,6 +51,17 @@ buf-lint:
 buf-install:
 	go install github.com/bufbuild/buf/cmd/buf@v$(BUF_VERSION)
 
+# proto/buf.lock pins the BSR commits buf resolves the external schemas from;
+# go.mod pins the generated SDKs the Go runtime registers the same descriptors
+# from. Only this target moves the first, and go.mod's side moves on its own —
+# Dependabot proposes it, and minimum version selection raises it whenever
+# another module requiring the same SDK bumps — so buf.lock is the side brought
+# back alongside. internal/ciguard's TestProtovalidatePinsAgree is red while
+# they disagree.
+.PHONY: buf-dep-update
+buf-dep-update:
+	cd proto && $(BUF) dep update
+
 # The remote holding the canonical repo, which is not always `origin`: on a fork
 # checkout `origin` is the fork, whose main can be arbitrarily stale, and a
 # baseline taken from it reports clean on a real break. Checked, not assumed.

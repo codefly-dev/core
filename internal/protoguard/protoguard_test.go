@@ -26,9 +26,12 @@
 // The comparison also has a second input. Option bytes on our fields are
 // parsed here against the protovalidate and googleapis descriptors that go.mod
 // pins, while the committed bytes were serialized by buf against the BSR
-// commits proto/buf.lock pins. Nothing links those two pins, so moving one
-// without the other lands as a diff confined to field options; the failure
-// message names that cause alongside staleness rather than asserting one.
+// commits proto/buf.lock pins. internal/ciguard holds the two protovalidate
+// pins on the same BSR commit, so that half cannot drift silently. googleapis
+// reaches the two sides from different publishers of the same upstream and
+// shares no identifier between them, so nothing can hold it that way; a file
+// the two snapshot differently would land here as a diff confined to field
+// options, which the failure message names alongside staleness.
 package protoguard
 
 import (
@@ -204,10 +207,11 @@ func TestGeneratedBindingsMatchTheSchema(t *testing.T) {
 				"Usually they are stale — regenerate with `%s` and commit the result "+
 				"alongside the .proto change.\n"+
 				"If this .proto was not touched, suspect the other input: field options "+
-				"are parsed here against the protovalidate and googleapis descriptors "+
-				"go.mod pins, which nothing keeps in step with the BSR commits "+
-				"proto/buf.lock pins, and moving one alone shows up as a diff confined "+
-				"to options.\n(-proto +generated/go)\n%s", path, regenerate, diff)
+				"are parsed here against the googleapis descriptors go.mod takes from "+
+				"genproto, which share no commit id with the BSR snapshot proto/buf.lock "+
+				"names and that buf generated against, so a file those two publishers "+
+				"snapshot differently shows up as a diff confined to options.\n"+
+				"(-proto +generated/go)\n%s", path, regenerate, diff)
 		}
 	}
 }
