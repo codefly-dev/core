@@ -86,12 +86,37 @@ var agentDownloadClient = &http.Client{
 // fetchRelease issues the asset GET under the caller's context, so cancelling
 // it aborts the transfer at any point — including mid-body, which no timeout
 // on the request can cover.
+//
+// It does not check the host: callers must pass a URL they have already put
+// through ValidURL, as Download does. The check lives there rather than here
+// because the tests that cover the stall and cancellation paths have to reach
+// a local server.
 func fetchRelease(ctx context.Context, releaseURL string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	return agentDownloadClient.Do(req)
+}
+
+// writeArchive streams body into f and closes it. extractTarGz reopens the
+// archive by path, so the write handle must not outlive the copy — every
+// return here closes it, including the ones that fail.
+func writeArchive(f *os.File, body io.Reader, size int64) error {
+	defer func() { _ = f.Close() }()
+
+	bar := pb.Full.Start64(size)
+	bar.Set(pb.Bytes, true) // Display in bytes instead of default kilobytes
+
+	if _, err := io.Copy(bar.NewProxyWriter(f), body); err != nil {
+		return err
+	}
+	bar.Finish()
+
+	// Closed here rather than only by the defer: a write error that surfaces
+	// at close must reach the caller instead of appearing after the archive
+	// has already been extracted.
+	return f.Close()
 }
 
 func Download(ctx context.Context, p *resources.Agent) error {
@@ -134,22 +159,9 @@ func Download(ctx context.Context, p *resources.Agent) error {
 			w.Error("cannot remove temp file", wool.ErrField(err))
 		}
 	}(tmp.Name())
-	// Get the content size from the header
-	size := resp.ContentLength
-
-	// Create progress bar
-	bar := pb.Full.Start64(size)
-	bar.Set(pb.Bytes, true) // Display in bytes instead of default kilobytes
-
-	// Wrap the output file writer with the progress bar to track writes
-	writer := bar.NewProxyWriter(tmp)
-
-	// Copy the response body to the file while updating the progress bar
-	_, err = io.Copy(writer, resp.Body)
-	if err != nil {
+	if err = writeArchive(tmp, resp.Body, resp.ContentLength); err != nil {
 		return w.Wrapf(err, "cannot copy agent")
 	}
-	bar.Finish()
 
 	tmpDir, err := os.MkdirTemp("", "agent-*")
 	if err != nil {

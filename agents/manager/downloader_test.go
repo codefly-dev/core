@@ -6,6 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,5 +144,84 @@ func TestAgentDownloadClientBoundsStallsWithoutCappingTheTransfer(t *testing.T) 
 	// release CDN for the life of the process.
 	if transport.IdleConnTimeout == 0 {
 		t.Fatal("IdleConnTimeout is unset — idle connections never expire")
+	}
+}
+
+// A download killed by the caller's context must stay distinguishable from an
+// agent that genuinely does not exist: Load maps both onto
+// ErrAgentBinaryNotFound, and a caller deciding whether to retry — or whether
+// to stay quiet because the user pressed Ctrl-C — can only tell them apart if
+// the cause survives the wrap.
+func TestLoadKeepsTheCancellationCauseBehindErrAgentBinaryNotFound(t *testing.T) {
+	t.Setenv("AGENT_NIX_FLAKE", "")
+	t.Setenv("AGENT_REGISTRY", "")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := Load(ctx, &resources.Agent{
+		Kind:      resources.ServiceAgent,
+		Publisher: "codefly.dev",
+		Name:      "definitely-not-a-real-agent-xyz",
+		Version:   "9.9.9",
+	}, WithoutSandbox(), WithoutPrincipal())
+	if err == nil {
+		t.Fatal("expected the cancelled download to fail the load")
+	}
+	if !errors.Is(err, ErrAgentBinaryNotFound) {
+		t.Errorf("callers still switch on ErrAgentBinaryNotFound: %v", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("got %v — the cancellation cause was flattened out of the chain", err)
+	}
+}
+
+// errReader fails partway through, the shape a transfer aborted by the
+// caller's context presents to the copy.
+type errReader struct{ err error }
+
+func (r errReader) Read([]byte) (int, error) { return 0, r.err }
+
+// The archive is reopened by path for extraction, so the write handle has to
+// be closed by the time writeArchive returns. It was leaked on every call —
+// success and failure alike — which a second Close proves by reporting the
+// handle was still open.
+func TestWriteArchiveClosesItsHandle(t *testing.T) {
+	payload := "agent archive bytes"
+	path := filepath.Join(t.TempDir(), "agent.tar.gz")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeArchive(f, strings.NewReader(payload), int64(len(payload))); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("second Close returned %v — writeArchive left the descriptor open", err)
+	}
+
+	// The close must not cost bytes: extraction reads this path afterwards.
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != payload {
+		t.Fatalf("archive holds %q, want %q", got, payload)
+	}
+}
+
+func TestWriteArchiveClosesItsHandleWhenTheTransferFails(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "agent.tar.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = writeArchive(f, errReader{err: context.Canceled}, 1024)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v, want the transfer failure to reach the caller", err)
+	}
+	if err := f.Close(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("second Close returned %v — a failed transfer leaked the descriptor", err)
 	}
 }

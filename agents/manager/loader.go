@@ -726,7 +726,12 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 				return nil, w.Wrapf(ErrAgentBinaryNotFound, "no verified remote resolution is enabled for agent kind %s", p.Kind)
 			}
 			if err := Download(ctx, p); err != nil {
-				return nil, w.Wrapf(fmt.Errorf("%w: %v", ErrAgentBinaryNotFound, err),
+				// Both causes stay in the chain: the download now honours the
+				// caller's context, so this error can mean "the caller gave up"
+				// (Ctrl-C, or a deadline scoped to the handshake) rather than
+				// "no binary exists anywhere", and only the caller can tell
+				// those apart well enough to decide whether retrying helps.
+				return nil, w.Wrapf(fmt.Errorf("%w: %w", ErrAgentBinaryNotFound, err),
 					"cannot download agent (tried Nix + OCI + GitHub)")
 			}
 		}
