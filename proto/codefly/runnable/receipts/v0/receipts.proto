@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package codefly.runnable.receipts.v0;
+
+import "google/rpc/status.proto";
+
+// Receipts answers the one question a RECOVERY_RECEIPT operation's recovery
+// asks its owner: what did this effect commit? It is generic over every
+// operation a module publishes, so an owner declaring no
+// codefly.runnable.v0.Operation lookup_method needs no per-method lookup RPC.
+//
+// The tenant is deliberately absent from every request below: it comes from the
+// verified Work Context the call carries, so one tenant cannot name another's
+// effect. Authority is the operation's lookup_scopes, which are a read-only
+// subset of its invoke_scopes — recovering an outcome never carries more
+// authority than producing it did. Binding those scopes to the operation named
+// in the request is the server's job, and LookupRequest.method says why.
+service Receipts {
+  // Lookup answers with the receipt one invocation's effect committed.
+  //
+  // No receipt is NOT_FOUND, and a recovery treats that as inconclusive, never
+  // as "the effect did not happen": a swept receipt is indistinguishable from
+  // one that never existed, which is why retention has to exceed the runtime's
+  // maximum recovery horizon.
+  rpc Lookup(LookupRequest) returns (LookupResponse);
+}
+
+// LookupRequest names one effect attempted on one operation.
+message LookupRequest {
+  // effect_id is the identity every attempt of one invocation presented.
+  string effect_id = 1;
+  // method is the operation the effect was attempted on, spelled
+  // "/package.Service/Method". It keys the receipt together with effect_id
+  // rather than describing it: an effect_id recorded under another method is
+  // NOT_FOUND here, never answered with that other method's receipt.
+  //
+  // It is also the authorization subject, and it is request data while the
+  // scopes authorizing it are Work Context data. A server must therefore
+  // reject a method whose lookup_scopes the presented context does not cover.
+  // Accept the method unchecked and a caller holding lookup authority for one
+  // operation reads another operation's receipt from inside its own tenant,
+  // which the Work Context alone does not stop.
+  string method = 2;
+}
+
+// LookupResponse carries the one terminal outcome the effect committed, opaque
+// to the runtime adapter relaying it and decoded by whoever holds the
+// operation's contract.
+message LookupResponse {
+  // outcome is what the effect committed, and exactly one arm is set. It is a
+  // oneof because the two ways of answering without one are both wrong: an
+  // absent payload reported as an empty response decodes into a zero-valued
+  // success the effect never returned, and a committed rejection reported as
+  // NOT_FOUND reads as inconclusive, so the recovery re-runs the very effect
+  // the receipt exists to keep from running twice.
+  oneof outcome {
+    // response is the committed response in protobuf wire encoding, encoded as
+    // the operation's own output message. Zero bytes is a valid committed
+    // response — an operation whose output message is empty commits one — so
+    // it is the arm being set, never its length, that says the effect
+    // succeeded.
+    bytes response = 1;
+    // status is the terminal non-OK outcome an operation that durably records
+    // its rejection committed, such as a create that commits a deduplication
+    // marker and answers ALREADY_EXISTS. A recovery replays it to the caller
+    // verbatim: a committed rejection is an answer, not an absence. Detail
+    // beyond the code and message travels in status.details, which is where a
+    // codefly.base.v0.Failure belongs when the owner sends one.
+    google.rpc.Status status = 2;
+  }
+}
