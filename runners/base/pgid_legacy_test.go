@@ -89,6 +89,30 @@ func TestReaperReapsLegacyGroupWhenOwnerPidReused(t *testing.T) {
 	}
 }
 
+func TestReaperReapsLegacyGroupWhoseLeaderReadsPastTheRecord(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	pid, authPath := spawnOrphanedGroup(t, false)
+	defer cleanupOrphanedGroup(pid, authPath)
+	if err := os.Remove(authPath); err != nil {
+		t.Fatal(err)
+	}
+	leaderStart, err := processStartUnixSeconds(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := legacyRecordPath(t, pid, ".pgid")
+	// Leave room for the one-second variation possible between /proc reads.
+	writeLegacyRecord(t, legacyPath, pid, deadPID, leaderStart-2)
+
+	if err := ReapStaleProcessGroups(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertGroupDead(t, pid)
+	if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("reaped legacy record still exists: %v", err)
+	}
+}
+
 func TestReaperSIGKILLsStubbornLegacyLeader(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	pid := spawnOrphanedStubbornLeader(t)
@@ -194,12 +218,8 @@ func spawnOrphanedStubbornLeader(t *testing.T) int {
 	return pid
 }
 
-// spawnOwnerAfterSecond starts a live helper process whose start second, as
-// observed through processStartUnixSeconds (the reaper's own clock), is
-// strictly greater than after. Gating on that clock — rather than wall-clock
-// time.Now — keeps the "reused owner PID" scenario deterministic: /proc
-// truncates the kernel's clock-tick start time to whole seconds, so a process
-// launched a wall-clock second past `after` can still read back as `after`.
+// spawnOwnerAfterSecond starts a live helper whose observed start second leads
+// after by more than the one-second variation possible between /proc reads.
 func spawnOwnerAfterSecond(t *testing.T, after int64) *exec.Cmd {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -214,7 +234,7 @@ func spawnOwnerAfterSecond(t *testing.T, after int64) *exec.Cmd {
 			_ = owner.Wait()
 			t.Fatal(err)
 		}
-		if start > after {
+		if start > after+1 {
 			t.Cleanup(func() {
 				_ = owner.Process.Kill()
 				_ = owner.Wait()
@@ -224,7 +244,7 @@ func spawnOwnerAfterSecond(t *testing.T, after int64) *exec.Cmd {
 		_ = owner.Process.Kill()
 		_ = owner.Wait()
 		if time.Now().After(deadline) {
-			t.Fatalf("owner process start second %d never advanced past %d", start, after)
+			t.Fatalf("owner process start second %d never led %d by more than a second", start, after)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

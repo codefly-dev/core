@@ -98,10 +98,10 @@ const (
 	groupAuthBytes    = 32
 	groupAuthEnv      = "CODEFLY_PROCESS_GROUP_AUTH"
 	// legacyStartCorroborationSkew bounds how far a legacy record's recorded
-	// spawn second may trail the leader's wall-clock start second before the
-	// two stop corroborating. The record's `started` is stamped just after the
-	// child forks, so the genuine leader's start second is at or a hair below
-	// it; a recycled pgid's leader starts strictly later and fails this gate.
+	// spawn second may differ from the live leader's start second. A genuine
+	// leader can read a second earlier or later because its start time is
+	// derived from boot time and start ticks; a recycled pgid's leader falls
+	// outside this window.
 	legacyStartCorroborationSkew int64 = 5
 )
 
@@ -1162,10 +1162,11 @@ func legacyOwnerAlive(parent int, started int64) (bool, error) {
 
 // legacyLeaderCorroborates authenticates a legacy record — which predates the
 // authentication token — by matching the live leader's wall-clock start second
-// against the record's spawn second. A recycled pgid's leader always starts
-// after the record was written and fails this gate. leader must be the process
-// whose PID equals the recorded pgid; a group whose leader has exited (only
-// descendants survive) cannot be corroborated and is never signaled.
+// against the record's spawn second, within legacyStartCorroborationSkew either
+// way. A recycled pgid's leader starts far later than the record and falls
+// outside that window. leader must be the process whose PID equals the recorded
+// pgid; a group whose leader has exited (only descendants survive) cannot be
+// corroborated and is never signaled.
 func legacyLeaderCorroborates(leader processIdentity, started int64) (bool, error) {
 	if leader.pgid != leader.pid {
 		return false, nil
@@ -1177,7 +1178,11 @@ func legacyLeaderCorroborates(leader processIdentity, started int64) (bool, erro
 		}
 		return false, err
 	}
-	return startSecond <= started && started-startSecond <= legacyStartCorroborationSkew, nil
+	drift := started - startSecond
+	if drift < 0 {
+		drift = -drift
+	}
+	return drift <= legacyStartCorroborationSkew, nil
 }
 
 func processStartUnixSeconds(pid int) (int64, error) {
