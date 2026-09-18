@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cheggaaa/pb/v3"
 	"github.com/codefly-dev/core/resources"
@@ -60,6 +62,33 @@ func Downloaded(ctx context.Context, p *resources.Agent) (bool, error) {
 	return exists, nil
 }
 
+// agentDownloadClient bounds the ways a release download can stall before the
+// asset starts flowing — an unreachable host, a TLS handshake that never
+// completes, a proxy that swallows the response. It deliberately sets no
+// client-wide Timeout: once headers are in, a large asset over a slow link is
+// legitimate, and the caller's context is what ends it early.
+var agentDownloadClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	},
+}
+
+// fetchRelease issues the asset GET under the caller's context, so cancelling
+// it aborts the transfer at any point — including mid-body, which no timeout
+// on the request can cover.
+func fetchRelease(ctx context.Context, releaseURL string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	return agentDownloadClient.Do(req)
+}
+
 func Download(ctx context.Context, p *resources.Agent) error {
 	w := wool.Get(ctx).In("agents.Download", wool.Field("agent", p.Identifier()))
 	registration, err := resources.AgentKindRegistrationFor(p.Kind)
@@ -79,8 +108,7 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	w.Info(fmt.Sprintf("Downloading agent %s", p.Identifier()))
 	w.Debug("downloading", wool.Field("agent", p.Identifier()), wool.Field("url", releaseURL).Debug())
 
-	// #nosec G107
-	resp, err := http.Get(releaseURL)
+	resp, err := fetchRelease(ctx, releaseURL)
 	if err != nil {
 		return w.Wrapf(err, "cannot download agent")
 	}
