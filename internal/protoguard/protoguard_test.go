@@ -56,6 +56,7 @@ import (
 	_ "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
 	_ "github.com/codefly-dev/core/generated/go/codefly/mcp/v0"
 	_ "github.com/codefly-dev/core/generated/go/codefly/observability/v0"
+	_ "github.com/codefly-dev/core/generated/go/codefly/runnable/receipts/v0"
 	_ "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
 	_ "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	_ "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
