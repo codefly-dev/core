@@ -141,6 +141,18 @@ another order is the same release. A resolved execution-plan fingerprint
 (`docs/design/execution-plan.md`) identifies a plan, not bytes; the package
 digest is what proves two builds are the same executable.
 
+`runnable.CanonicalJSON(message)` returns that form — `protojson` with
+`UseProtoNames`, object keys sorted, whitespace removed — and `digestOf` is its
+only other caller, so a consumer that must reproduce these bytes never
+marshals a second time on its own. `codefly generate runnables` writes them as
+`runnable-package.json` and its `--check` mode diffs the committed file against
+a freshly derived one, which `protojson` alone cannot do: it deliberately
+varies its whitespace. That makes the **byte form**, not only the digest taken
+over it, a contract across every consuming repo. `runnable/testdata/canonical`
+pins it: changing the normalization turns every committed file into spurious
+`--check` drift and every unchanged re-registration into `ErrConflict`, so it
+is a versioned decision reviewed here, never an incidental one.
+
 `runnable.CompareRelease(existing, incoming)` is the registration rule: same
 identity and same digest is an idempotent registration (`nil`); same identity
 and a different digest is `ErrConflict`. A new version is a different release
