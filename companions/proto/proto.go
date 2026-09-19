@@ -200,6 +200,16 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot generate with buf")
 	}
 
+	// The plugins' Go is not the Go consumers commit; see FormatGoOutputs.
+	templateDir := path.Join(g.Dir, "proto")
+	hostRoot, containerRoot := g.Dir, ""
+	if runner.Backend() == companion.BackendDocker {
+		containerRoot = "/workspace"
+	}
+	if err = FormatGoOutputs(ctx, runner, templateDir, "buf.gen.yaml", hostRoot, containerRoot); err != nil {
+		return w.Wrapf(err, "cannot format generated Go")
+	}
+
 	if err = g.emitOpenAPIArtifacts(ctx, runner); err != nil {
 		return w.Wrapf(err, "cannot emit OpenAPI artifacts")
 	}

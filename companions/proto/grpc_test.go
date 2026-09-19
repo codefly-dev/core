@@ -5,6 +5,7 @@ package proto_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -48,6 +49,13 @@ func TestGenerateGoGRPC(t *testing.T) {
 	for _, name := range []string{"app_svc_api.pb.go", "app_svc_api_grpc.pb.go"} {
 		require.FileExists(t, filepath.Join(destination, name))
 	}
+	img, err := proto.CompanionImage(ctx)
+	require.NoError(t, err)
+	output, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
+		"--volume", destination+":/workspace/output", "--workdir", "/workspace/output",
+		"--entrypoint", "goimports", img.FullName(), "-d", ".").CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	require.Empty(t, output, "GenerateGRPC returned Go that still needs the companion's formatting pass")
 
 	// api.proto imports google/api/annotations.proto, and protoc-gen-go names
 	// its package absolutely: a local copy would be a second registration of
