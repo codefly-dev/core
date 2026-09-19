@@ -48,7 +48,7 @@ func uses(snapshot *updatev0.ContractSnapshot, ids ...string) []*updatev0.Contra
 	for _, id := range ids {
 		for _, item := range snapshot.Items {
 			if item.Id == id {
-				result = append(result, &updatev0.ContractUse{Item: id, Digest: item.Digest})
+				result = append(result, &updatev0.ContractUse{Item: id, Digest: item.Digest, Dependencies: slices.Clone(item.Dependencies)})
 			}
 		}
 	}
@@ -94,6 +94,89 @@ func TestVerdictDependsOnPinnedConsumer(t *testing.T) {
 	result = moduleupdate.Evaluate(diff, pin)
 	require.Equal(t, updatev0.Verdict_VERDICT_SAFE, result.Verdict)
 	require.Empty(t, result.Breaking)
+}
+
+func TestCandidateRestoresPinnedClientContract(t *testing.T) {
+	for _, id := range []string{get, account} {
+		t.Run(id, func(t *testing.T) {
+			sdkSnapshot, pin := fixture(t)
+			baseline := proto.Clone(sdkSnapshot).(*updatev0.ContractSnapshot)
+			baseline.Version = "1.1.0"
+			change(id)(baseline)
+			var err error
+			baseline, err = moduleupdate.PrepareSnapshot(baseline)
+			require.NoError(t, err)
+			pin.Version, pin.SnapshotDigest = baseline.Version, baseline.Digest
+			candidate := proto.Clone(sdkSnapshot).(*updatev0.ContractSnapshot)
+			candidate.Version = "1.2.0"
+			candidate, err = moduleupdate.PrepareSnapshot(candidate)
+			require.NoError(t, err)
+			diff, err := moduleupdate.BuildReleaseDiff(baseline, candidate)
+			require.NoError(t, err)
+			result := moduleupdate.Evaluate(diff, pin)
+			require.Equal(t, updatev0.Verdict_VERDICT_SAFE, result.Verdict, result)
+			require.Empty(t, result.Breaking)
+			change(id)(candidate)
+			candidate, err = moduleupdate.PrepareSnapshot(candidate)
+			require.NoError(t, err)
+			diff, err = moduleupdate.BuildReleaseDiff(baseline, candidate)
+			require.NoError(t, err)
+			require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, moduleupdate.Evaluate(diff, pin).Verdict)
+		})
+	}
+}
+
+func TestCandidateDependenciesMustMatchClientExpectations(t *testing.T) {
+	baseline, pin := fixture(t)
+	diff := release(t, baseline, func(s *updatev0.ContractSnapshot) {
+		for _, item := range s.Items {
+			if item.Id == get {
+				item.Dependencies = []string{registration}
+			}
+		}
+	})
+	result := moduleupdate.Evaluate(diff, pin)
+	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
+	require.Contains(t, result.Breaking[0].Reason, "candidate dependencies differ")
+	// A client generated for the candidate has independently pinned its new closure.
+	pin.Clients[0].Uses = uses(diff.After, get, registration)
+	result = moduleupdate.Evaluate(diff, pin)
+	require.Equal(t, updatev0.Verdict_VERDICT_SAFE, result.Verdict, result)
+}
+
+func TestAlreadyPinnedAddedCapabilityIsNotNewToConsumer(t *testing.T) {
+	baseline, pin := fixture(t)
+	diff := release(t, baseline, func(s *updatev0.ContractSnapshot) {
+		s.Items = append(s.Items, &updatev0.ContractItem{Id: "new/rpc", Digest: changedDigest})
+	})
+	pin.Clients[0].Uses = uses(diff.After, "new/rpc")
+	result := moduleupdate.Evaluate(diff, pin)
+	require.Equal(t, updatev0.Verdict_VERDICT_SAFE, result.Verdict, result)
+	require.Empty(t, result.Capabilities)
+}
+
+func TestExplicitUniversalPinUsesCandidateDependencyClosure(t *testing.T) {
+	baseline, pin := fixture(t)
+	for _, item := range baseline.Items {
+		if item.Id == registration {
+			item.Dependencies = []string{list}
+		}
+	}
+	var err error
+	baseline, err = moduleupdate.PrepareSnapshot(baseline)
+	require.NoError(t, err)
+	pin.SnapshotDigest = baseline.Digest
+	diff := release(t, baseline, func(s *updatev0.ContractSnapshot) {
+		s.Items = slices.DeleteFunc(s.Items, func(item *updatev0.ContractItem) bool { return item.Id == list })
+		for _, item := range s.Items {
+			if item.Id == registration {
+				item.Dependencies = nil
+			}
+		}
+	})
+	pin.Uses = uses(diff.After, registration)
+	result := moduleupdate.Evaluate(diff, pin)
+	require.Equal(t, updatev0.Verdict_VERDICT_SAFE, result.Verdict, result)
 }
 
 func TestVerdictChanges(t *testing.T) {

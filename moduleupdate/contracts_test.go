@@ -78,6 +78,6 @@ func TestDifferentClientVersionsAndStableResultOrder(t *testing.T) {
 	actual := moduleupdate.Evaluate(diff, pin)
 	require.True(t, proto.Equal(expected, actual))
 	for _, item := range actual.Breaking {
-		require.Equal(t, "used contract changed", item.Reason)
+		require.Contains(t, item.Reason, "candidate contract differs from the pinned client contract")
 	}
 }

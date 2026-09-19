@@ -64,7 +64,7 @@ func TestUpdateEvidenceMustMatchPackagedSources(t *testing.T) {
 	writeFile(t, filepath.Join(afterRoot, moduleupdate.ReleaseDiffFileName), string(data))
 	pin := &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "deployment", Module: testPackage, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
 	for _, item := range before.Items {
-		pin.Uses = append(pin.Uses, &updatev0.ContractUse{Item: item.Id, Digest: item.Digest})
+		pin.Uses = append(pin.Uses, &updatev0.ContractUse{Item: item.Id, Digest: item.Digest, Dependencies: item.Dependencies})
 	}
 	check := func(root string) *updatev0.UpdateResult {
 		release, trust := buildRelease(t, root, "0.2.0", strings.Repeat("a", 40))

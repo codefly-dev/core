@@ -590,7 +590,9 @@ type ContractUse struct {
 	// item is the exact contract identity.
 	Item string `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
 	// digest is the expected canonical contract digest.
-	Digest        string `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	Digest string `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	// dependencies binds the dependency set expected by this client contract.
+	Dependencies  []string `protobuf:"bytes,3,rep,name=dependencies,proto3" json:"dependencies,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -637,6 +639,13 @@ func (x *ContractUse) GetDigest() string {
 		return x.Digest
 	}
 	return ""
+}
+
+func (x *ContractUse) GetDependencies() []string {
+	if x != nil {
+		return x.Dependencies
+	}
+	return nil
 }
 
 // ClientPin records the used surface of one exact generated client release.
@@ -1029,10 +1038,11 @@ const file_codefly_update_v0_update_proto_rawDesc = "" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12;\n" +
 	"\x06before\x18\x02 \x01(\v2#.codefly.update.v0.ContractSnapshotR\x06before\x129\n" +
 	"\x05after\x18\x03 \x01(\v2#.codefly.update.v0.ContractSnapshotR\x05after\x12;\n" +
-	"\achanges\x18\x04 \x03(\v2!.codefly.update.v0.ContractChangeR\achanges\"9\n" +
+	"\achanges\x18\x04 \x03(\v2!.codefly.update.v0.ContractChangeR\achanges\"]\n" +
 	"\vContractUse\x12\x12\n" +
 	"\x04item\x18\x01 \x01(\tR\x04item\x12\x16\n" +
-	"\x06digest\x18\x02 \x01(\tR\x06digest\"m\n" +
+	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\"\n" +
+	"\fdependencies\x18\x03 \x03(\tR\fdependencies\"m\n" +
 	"\tClientPin\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x122\n" +

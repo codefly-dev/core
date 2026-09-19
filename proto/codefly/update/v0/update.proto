@@ -96,6 +96,8 @@ message ContractUse {
   string item = 1;
   // digest is the expected canonical contract digest.
   string digest = 2;
+  // dependencies binds the dependency set expected by this client contract.
+  repeated string dependencies = 3;
 }
 
 // ClientPin records the used surface of one exact generated client release.

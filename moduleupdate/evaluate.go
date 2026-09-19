@@ -41,19 +41,35 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 	}
 	before, after := indexItems(diff.Before), indexItems(diff.After)
 	used := make(map[string][]*updatev0.AffectedItem)
-	checkUses := func(uses []*updatev0.ContractUse, client, version string) {
+	checkUses := func(uses []*updatev0.ContractUse, client, version string, checkClosure bool) {
 		declared := make(map[string]bool)
 		for _, use := range uses {
 			id := use.GetItem()
 			affected := &updatev0.AffectedItem{Item: id, Client: client, ClientVersion: version}
 			old := before[id]
+			next := after[id]
+			dependencies := slices.Clone(use.GetDependencies())
+			slices.Sort(dependencies)
+			candidateDependencies := slices.Clone(next.GetDependencies())
+			slices.Sort(candidateDependencies)
 			switch {
-			case use == nil || old == nil:
-				affected.Reason = "could not determine: used contract is absent from the baseline"
+			case use == nil || !digestPattern.MatchString(use.Digest):
+				affected.Reason = "could not determine: used contract requires an expected digest"
+			case next == nil && old != nil:
+				affected.Reason = "used contract was removed"
+			case next == nil:
+				affected.Reason = "could not determine: used contract is absent from the candidate"
 			case declared[id]:
 				affected.Reason = "could not determine: used contract is duplicated"
-			case use.Digest != old.Digest:
-				affected.Reason = "could not determine: pinned contract digest differs from the baseline"
+			case use.Digest != next.Digest:
+				affected.Reason = "could not determine: candidate contract differs from the pinned client contract"
+			case !slices.Equal(dependencies, candidateDependencies):
+				affected.Reason = "could not determine: candidate dependencies differ from the pinned client contract"
+			}
+			if next != nil {
+				affected.Documentation = next.Documentation
+			} else if old != nil {
+				affected.Documentation = old.Documentation
 			}
 			if affected.Reason != "" {
 				result.Breaking = append(result.Breaking, affected)
@@ -61,8 +77,11 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 			declared[id] = true
 			used[id] = append(used[id], affected)
 		}
+		if !checkClosure {
+			return
+		}
 		for _, use := range uses {
-			if item := before[use.GetItem()]; item != nil {
+			if item := after[use.GetItem()]; item != nil {
 				for _, dependency := range item.Dependencies {
 					if !declared[dependency] {
 						result.Breaking = append(result.Breaking, &updatev0.AffectedItem{
@@ -74,7 +93,7 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 			}
 		}
 	}
-	checkUses(pin.Uses, "", "")
+	checkUses(pin.Uses, "", "", true)
 	clients := make(map[string]bool)
 	for _, client := range pin.Clients {
 		key := client.GetName() + "\x00" + client.GetVersion()
@@ -86,7 +105,7 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 			continue
 		}
 		clients[key] = true
-		checkUses(client.Uses, client.Name, client.Version)
+		checkUses(client.Uses, client.Name, client.Version, true)
 	}
 	// Requirements apply without a client pin, including their dependency closure.
 	required := make(map[string]bool)
@@ -96,8 +115,8 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 			return
 		}
 		required[id] = true
-		if len(used[id]) == 0 {
-			used[id] = []*updatev0.AffectedItem{{Item: id}}
+		if len(used[id]) > 0 {
+			return
 		}
 		for _, dependency := range before[id].Dependencies {
 			includeRequired(dependency)
@@ -108,34 +127,27 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 			includeRequired(item.Id)
 		}
 	}
+	for id := range required {
+		if len(used[id]) == 0 {
+			item := before[id]
+			// The module baseline supplies expectations for implicit universal uses.
+			checkUses([]*updatev0.ContractUse{{Item: id, Digest: item.Digest, Dependencies: item.Dependencies}}, "", "", false)
+		}
+	}
 	for _, change := range diff.Changes {
 		old, next := before[change.Item], after[change.Item]
-		if next != nil && next.RequiredByAll && (old == nil || !old.RequiredByAll) {
+		if next != nil && next.RequiredByAll && (old == nil || !old.RequiredByAll) && len(used[change.Item]) == 0 {
 			result.Breaking = append(result.Breaking, &updatev0.AffectedItem{
 				Item: next.Id, Documentation: next.Documentation,
 				Reason: "could not determine: release introduces a requirement for every consumer",
 			})
 			continue
 		}
-		if change.Kind == updatev0.ChangeKind_CHANGE_KIND_ADDED {
+		if change.Kind == updatev0.ChangeKind_CHANGE_KIND_ADDED && len(used[change.Item]) == 0 {
 			result.Capabilities = append(result.Capabilities, &updatev0.AffectedItem{
 				Item: next.Id, Documentation: next.Documentation, Reason: "new optional contract",
 			})
 			continue
-		}
-		for _, use := range used[change.Item] {
-			documentation := old.Documentation
-			if next != nil {
-				documentation = next.Documentation
-			}
-			reason := "used contract changed"
-			if change.Kind == updatev0.ChangeKind_CHANGE_KIND_REMOVED {
-				reason = "used contract was removed"
-			}
-			result.Breaking = append(result.Breaking, &updatev0.AffectedItem{
-				Item: change.Item, Client: use.Client, ClientVersion: use.ClientVersion,
-				Reason: reason, Documentation: documentation,
-			})
 		}
 	}
 	result.Verdict = updatev0.Verdict_VERDICT_SAFE

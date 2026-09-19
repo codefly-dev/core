@@ -53,7 +53,10 @@ does not newly require this artifact.
 A `ConsumerPin` binds the consumer identity, module version, and baseline
 snapshot digest. Versions must be full semantic versions (an optional `v` is
 accepted) or immutable 40/64-character hexadecimal revisions. Exact SDK/client
-versions carry expected contract digests and the dependency-closed used surface.
+versions carry expected contract digests, expected dependency sets, and the
+dependency-closed used surface. These expectations are compared with the
+candidate, not the old module: a release that restores the pinned SDK's exact
+contract can be SAFE even when the baseline was incompatible.
 Direct non-SDK usage is declared separately. Multiple versions of a client may
 coexist. A generated client with no more precise usage evidence must declare
 its entire exposed surface.
@@ -67,14 +70,16 @@ generators and their conformance tests own that assertion.
 
 `Evaluate` and `EvaluateJSON` apply these rules:
 
-- SAFE: no used item changed and no optional item was added. Removing or changing
+- SAFE: the candidate satisfies every pinned expectation and no unused optional item was added. Removing or changing
   a contract this consumer does not use can be safe.
 - NEW CAPABILITY: optional items were added and no used contract changed. The
   result names the additions and preserves their documentation pointers.
-- BREAKING: a used item's digest, dependencies, or applicability changed, or it
-  was removed. The result names the item and affected client/version. New
-  universal requirements are BREAKING even without SDK usage. Existing universal
-  requirements and their transitive dependencies apply to every consumer.
+- BREAKING: a candidate item or its dependency set fails to satisfy the pinned
+  expectation, or the item was removed. The result names the item and affected
+  client/version. Universal requirements and their transitive dependencies
+  apply even without SDK usage; the module baseline supplies expectations where
+  the consumer has no explicit pin. A newly universal requirement must have an
+  explicit satisfied expectation before the update can be safe.
 
 Malformed input, unknown schema/fields, incomplete coverage, mismatched module
 or baseline, stale SDK digests, missing usage dependencies, and a fabricated or
@@ -82,7 +87,7 @@ truncated diff all yield BREAKING with `could not determine` and the reason.
 BREAKING takes precedence over new capabilities, but both lists are retained.
 A valid explicit declaration of no usage is different from missing evidence.
 
-Every changed used item is treated conservatively: this version does not prove
+Every candidate differing from a used item's pinned expectation is treated conservatively: this version does not prove
 that a changed protobuf field or OpenAPI schema remains source/wire compatible.
 It may therefore require review for an actually compatible used-type change.
 A publisher cannot label a change safe to override the comparison.
