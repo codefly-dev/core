@@ -213,7 +213,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	}
 
 	name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
-	return runBuf(ctx, name, image, tmpDir, spec.destination, depUpdate, generateArgs, before)
+	return runBuf(ctx, name, image, tmpDir, spec.destination, spec.language == languages.GO, depUpdate, generateArgs, before)
 }
 
 // removeForeignOutput deletes the generated trees for the namespaces the

@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -32,10 +33,9 @@ import (
 // consumer needs nothing on the host to get the committed shape back.
 
 // GoOutputRoots returns every output directory the buf template at
-// templateDir/templateName declares that holds generated Go, as absolute host
-// paths. A relative `out` is resolved against templateDir, which is where buf
-// resolves it. Directories the template names that do not exist or hold no
-// Go — a TypeScript or OpenAPI output — are not roots.
+// templateDir/templateName declares that contains generated Go, as absolute
+// host paths. A relative `out` is resolved against templateDir, which is where
+// buf resolves it.
 func GoOutputRoots(templateDir, templateName string) ([]string, error) {
 	contents, err := os.ReadFile(filepath.Join(templateDir, templateName))
 	if err != nil {
@@ -60,14 +60,14 @@ func GoOutputRoots(templateDir, templateName string) ([]string, error) {
 		if !filepath.IsAbs(root) {
 			root = filepath.Join(templateDir, root)
 		}
-		hasGo, err := containsGoFile(root)
+		files, err := generatedGoFiles(root)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
 			return nil, fmt.Errorf("inspect output %s: %w", root, err)
 		}
-		if hasGo {
+		if len(files) > 0 {
 			seen[root] = struct{}{}
 		}
 	}
@@ -80,22 +80,44 @@ func GoOutputRoots(templateDir, templateName string) ([]string, error) {
 	return roots, nil
 }
 
-func containsGoFile(root string) (bool, error) {
-	found := false
-	err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, err error) error {
+// generatedGoFiles returns only files that identify themselves as generated.
+// An output directory is not necessarily generator-owned: Buf permits `out`
+// to be a broad source root containing handwritten Go. The standard generated
+// code notice is the ownership boundary that lets us format generated files
+// without rewriting their neighbours.
+func generatedGoFiles(root string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(root, func(file string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if found || entry.IsDir() {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
 			return nil
 		}
-		if strings.HasSuffix(entry.Name(), ".go") {
-			found = true
-			return filepath.SkipAll
+		contents, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		if hasGeneratedCodeNotice(contents) {
+			files = append(files, file)
 		}
 		return nil
 	})
-	return found, err
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func hasGeneratedCodeNotice(contents []byte) bool {
+	for _, line := range bytes.Split(contents, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if bytes.HasPrefix(line, []byte("// Code generated")) && bytes.HasSuffix(line, []byte("DO NOT EDIT.")) {
+			return true
+		}
+	}
+	return false
 }
 
 // ProcessRunner is what the formatting pass needs from a companion: the
@@ -106,8 +128,9 @@ type ProcessRunner interface {
 	NewProcess(bin string, args ...string) (base.Proc, error)
 }
 
-// FormatGoOutputs runs goimports over every Go output root the template
-// declares, inside the companion.
+// FormatGoOutputs runs goimports over generated Go files in every output root
+// the template declares, inside the companion. Handwritten Go in those roots
+// is not passed to the formatter.
 //
 // hostRoot is the host directory the companion mounts at containerRoot; each
 // root is reached through that mapping. For a backend that runs on the host
@@ -142,15 +165,41 @@ func FormatGoOutputs(ctx context.Context, runner ProcessRunner, templateDir, tem
 			}
 			dir = path.Join(containerRoot, filepath.ToSlash(rel))
 		}
-		w.Info("goimports", wool.Field("dir", dir))
-		proc, err := runner.NewProcess("goimports", "-w", ".")
+		if err := FormatGeneratedGoRoot(ctx, runner, root, dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// FormatGeneratedGoRoot formats generated Go files under hostRoot through the
+// same directory mounted at runnerRoot. Handwritten Go in a shared output root
+// is deliberately excluded by generatedGoFiles.
+func FormatGeneratedGoRoot(ctx context.Context, runner ProcessRunner, hostRoot, runnerRoot string) error {
+	w := wool.Get(ctx).In("proto.FormatGeneratedGoRoot", wool.DirField(hostRoot))
+	files, err := generatedGoFiles(hostRoot)
+	if err != nil {
+		return w.Wrapf(err, "inspect generated Go")
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	args := []string{"-w"}
+	for _, file := range files {
+		rel, err := filepath.Rel(hostRoot, file)
 		if err != nil {
-			return w.Wrapf(err, "cannot create goimports process")
+			return w.Wrapf(err, "locate generated Go file %s", file)
 		}
-		proc.WithDir(dir)
-		if err := proc.Run(ctx); err != nil {
-			return w.Wrapf(err, "goimports failed in %s", dir)
-		}
+		args = append(args, filepath.ToSlash(rel))
+	}
+	w.Info("goimports", wool.Field("dir", runnerRoot))
+	proc, err := runner.NewProcess("goimports", args...)
+	if err != nil {
+		return w.Wrapf(err, "cannot create goimports process")
+	}
+	proc.WithDir(runnerRoot)
+	if err := proc.Run(ctx); err != nil {
+		return w.Wrapf(err, "goimports failed in %s", runnerRoot)
 	}
 	return nil
 }
