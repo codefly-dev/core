@@ -57,6 +57,10 @@ that has no serialization or compatibility meaning. An exception at a public
 boundary must be explicit and documented; convenience alone is not an
 exception.
 
+Per-consumer module update evidence and verdicts use `codefly.update.v0`.
+See [module updates](module-updates.md) for the offline comparison, authenticated
+release artifacts, usage completeness requirements, and delivery ownership.
+
 A module package carries the descriptor set and OpenAPI document of every
 interface endpoint under `contracts/api/`, catalogued in
 `contracts/api/catalog.codefly.json` (`codefly/module-api-contracts/v1`).
