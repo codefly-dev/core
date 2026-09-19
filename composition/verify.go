@@ -1,18 +1,73 @@
 package composition
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+
+	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	"github.com/codefly-dev/core/moduleupdate"
 )
 
 type TrustPolicy struct {
 	Repositories map[string]string
 	Signers      map[string]ed25519.PublicKey
+}
+
+// ContractDiff reads update evidence from the authenticated module archive.
+// A digest in an unattested sidecar is not proof that a release contains it.
+func (release *VerifiedRelease) ContractDiff() (*updatev0.ReleaseDiff, error) {
+	if release == nil || release.release == nil {
+		return nil, errors.New("verified module release is required")
+	}
+	reader := tar.NewReader(bytes.NewReader(release.release.Artifact))
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("module release is missing %s", moduleupdate.ReleaseDiffFileName)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if header.Name != moduleupdate.ReleaseDiffFileName {
+			continue
+		}
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			return nil, err
+		}
+		diff, err := moduleupdate.ParseReleaseDiff(data)
+		if err != nil {
+			return nil, err
+		}
+		if diff.After.Module != release.manifest.ID || diff.After.Version != release.manifest.Version {
+			return nil, fmt.Errorf("%w: contract diff does not describe the verified module release", ErrPackageIdentity)
+		}
+		return diff, nil
+	}
+}
+
+func (release *VerifiedRelease) EvaluateUpdate(pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
+	diff, err := release.ContractDiff()
+	if err != nil {
+		result := &updatev0.UpdateResult{
+			Consumer: pin.GetConsumer(), Module: pin.GetModule(), FromVersion: pin.GetVersion(),
+			Verdict:  updatev0.Verdict_VERDICT_BREAKING,
+			Breaking: []*updatev0.AffectedItem{{Reason: "could not determine: " + err.Error()}},
+		}
+		if release != nil && release.manifest != nil {
+			result.ToVersion = release.manifest.Version
+		}
+		return result
+	}
+	return moduleupdate.Evaluate(diff, pin)
 }
 
 func DecodeSignature(encoded []byte) ([]byte, error) {

@@ -1,0 +1,17 @@
+schema_version: 1
+module: example/accounts
+version: 1.0.0
+complete: true
+items:
+  - id: /accounts.v1.Accounts/Get
+    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    dependencies: [accounts.v1.Account]
+  - id: /accounts.v1.Accounts/List
+    digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    dependencies: [accounts.v1.Account]
+  - id: accounts.v1.Account
+    digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  - id: registration/publisher-authorization
+    digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+    required_by_all: true
+    documentation: https://example.com/contracts/registration
