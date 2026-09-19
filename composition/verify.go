@@ -8,11 +8,74 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+
+	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	"github.com/codefly-dev/core/moduleupdate"
+	"google.golang.org/protobuf/proto"
 )
 
 type TrustPolicy struct {
 	Repositories map[string]string
 	Signers      map[string]ed25519.PublicKey
+}
+
+// ContractDiff reads update evidence from the authenticated module archive.
+// A digest in an unattested sidecar is not proof that a release contains it.
+func (release *VerifiedRelease) ContractDiff() (*updatev0.ReleaseDiff, error) {
+	if release == nil || release.release == nil {
+		return nil, errors.New("verified module release is required")
+	}
+	root, err := os.MkdirTemp("", "codefly-update-evidence-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(root) }()
+	if err := ExtractArchive(context.Background(), release.release.Artifact, root); err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(root, moduleupdate.ReleaseDiffFileName))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("module release is missing %s", moduleupdate.ReleaseDiffFileName)
+	}
+	if err != nil {
+		return nil, err
+	}
+	diff, err := moduleupdate.ParseReleaseDiff(data)
+	if err != nil {
+		return nil, err
+	}
+	if diff.After.Module != release.manifest.ID || diff.After.Version != release.manifest.Version {
+		return nil, fmt.Errorf("%w: contract diff does not describe the verified module release", ErrPackageIdentity)
+	}
+	actual, err := BuildPackageContractSnapshot(root)
+	if err != nil {
+		return nil, fmt.Errorf("derive packaged contracts: %w", err)
+	}
+	expected, err := moduleupdate.PrepareSnapshot(diff.After)
+	if err != nil {
+		return nil, err
+	}
+	if !proto.Equal(actual, expected) {
+		return nil, fmt.Errorf("candidate contract snapshot does not match packaged contract sources")
+	}
+	return diff, nil
+}
+
+func (release *VerifiedRelease) EvaluateUpdate(pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
+	diff, err := release.ContractDiff()
+	if err != nil {
+		result := &updatev0.UpdateResult{
+			Consumer: pin.GetConsumer(), Module: pin.GetModule(), FromVersion: pin.GetVersion(),
+			Verdict:  updatev0.Verdict_VERDICT_BREAKING,
+			Breaking: []*updatev0.AffectedItem{{Reason: "could not determine: " + err.Error()}},
+		}
+		if release != nil && release.manifest != nil {
+			result.ToVersion = release.manifest.Version
+		}
+		return result
+	}
+	return moduleupdate.Evaluate(diff, pin)
 }
 
 func DecodeSignature(encoded []byte) ([]byte, error) {

@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package codefly.update.v0;
+
+import "google/protobuf/struct.proto";
+
+// BehavioralContracts is the module's non-API contract source of truth.
+message BehavioralContracts {
+  // schema_version is 1 for this format.
+  uint32 schema_version = 1;
+  // complete explicitly declares coverage, including an intentionally empty set.
+  bool complete = 2;
+  // contracts describes registration, authorization, and other behavioral rules.
+  repeated BehavioralContract contracts = 3;
+}
+
+// BehavioralContract declares canonical content rather than an asserted digest.
+message BehavioralContract {
+  // id is namespaced under behavior/ in the derived snapshot.
+  string id = 1;
+  // contract is the public behavior that implementations must conform to.
+  google.protobuf.Struct contract = 2;
+  // dependencies are full derived item identities.
+  repeated string dependencies = 3;
+  // required_by_all applies this contract to every consumer.
+  bool required_by_all = 4;
+  // documentation points to adoption instructions.
+  string documentation = 5;
+}
+
+// ContractItem is one independently addressable part of a module's public surface.
+message ContractItem {
+  // id names the exact RPC, type, endpoint, or behavioral requirement.
+  string id = 1;
+  // digest is the sha256-prefixed digest of the producer's canonical contract.
+  string digest = 2;
+  // dependencies names other items required by this item, including request and response types.
+  repeated string dependencies = 3;
+  // required_by_all marks a requirement that applies even without SDK usage.
+  bool required_by_all = 4;
+  // documentation points to the public contract or adoption instructions.
+  string documentation = 5;
+}
+
+// ContractSnapshot describes all public contracts at one exact module version.
+message ContractSnapshot {
+  // schema_version is 1 for this artifact format.
+  uint32 schema_version = 1;
+  // module is the published module identity, independent of deployment aliases.
+  string module = 2;
+  // version is an exact release version or immutable source revision.
+  string version = 3;
+  // complete asserts coverage of SDK and non-SDK public contracts.
+  bool complete = 4;
+  // items is the set of exposed contracts.
+  repeated ContractItem items = 5;
+  // digest binds the normalized snapshot, excluding this field.
+  string digest = 6;
+}
+
+// ChangeKind identifies a structural contract delta, without a consumer verdict.
+enum ChangeKind {
+  // CHANGE_KIND_UNSPECIFIED is invalid evidence.
+  CHANGE_KIND_UNSPECIFIED = 0;
+  // CHANGE_KIND_ADDED introduces a public contract.
+  CHANGE_KIND_ADDED = 1;
+  // CHANGE_KIND_REMOVED withdraws a public contract.
+  CHANGE_KIND_REMOVED = 2;
+  // CHANGE_KIND_MODIFIED changes a digest, dependency, or applicability.
+  CHANGE_KIND_MODIFIED = 3;
+}
+
+// ContractChange identifies an item changed between the included snapshots.
+message ContractChange {
+  // item is the exact contract identity.
+  string item = 1;
+  // kind describes the structural change.
+  ChangeKind kind = 2;
+}
+
+// ReleaseDiff carries enough evidence to recompute its entire delta offline.
+message ReleaseDiff {
+  // schema_version is 1 for this artifact format.
+  uint32 schema_version = 1;
+  // before is the exact baseline; absent baselines cannot establish safety.
+  ContractSnapshot before = 2;
+  // after is the candidate release's public surface.
+  ContractSnapshot after = 3;
+  // changes is verified against both snapshots before computing a verdict.
+  repeated ContractChange changes = 4;
+}
+
+// ContractUse binds a used item to the contract a consumer was built against.
+message ContractUse {
+  // item is the exact contract identity.
+  string item = 1;
+  // digest is the expected canonical contract digest.
+  string digest = 2;
+}
+
+// ClientPin records the used surface of one exact generated client release.
+message ClientPin {
+  // name is the client package identity.
+  string name = 1;
+  // version is the exact client release or immutable revision.
+  string version = 2;
+  // uses includes the transitive dependencies of every used item.
+  repeated ContractUse uses = 3;
+}
+
+// ConsumerPin describes one consumer's dependency on one module release.
+message ConsumerPin {
+  // schema_version is 1 for this artifact format.
+  uint32 schema_version = 1;
+  // consumer identifies the deployment or solution receiving the result.
+  string consumer = 2;
+  // module is the published module identity.
+  string module = 3;
+  // version is the exact currently pinned module release.
+  string version = 4;
+  // snapshot_digest binds the module baseline independently of its version label.
+  string snapshot_digest = 5;
+  // usage_complete asserts that all client and non-client usage is declared.
+  bool usage_complete = 6;
+  // clients lists exact client pins and their used surfaces.
+  repeated ClientPin clients = 7;
+  // uses lists direct non-client usage and its transitive dependencies.
+  repeated ContractUse uses = 8;
+}
+
+// Verdict is relative to one consumer's pinned contracts.
+enum Verdict {
+  // VERDICT_UNSPECIFIED must never authorize an update.
+  VERDICT_UNSPECIFIED = 0;
+  // VERDICT_SAFE means none of the declared used contracts moved.
+  VERDICT_SAFE = 1;
+  // VERDICT_NEW_CAPABILITY means optional public contracts were added.
+  VERDICT_NEW_CAPABILITY = 2;
+  // VERDICT_BREAKING means a used contract changed or safety could not be determined.
+  VERDICT_BREAKING = 3;
+}
+
+// AffectedItem explains a break or an optional capability.
+message AffectedItem {
+  // item names the RPC, type, endpoint, or behavioral requirement, when known.
+  string item = 1;
+  // client names the affected SDK package, if any.
+  string client = 2;
+  // client_version identifies the affected SDK pin.
+  string client_version = 3;
+  // reason explains the change or exactly which evidence is missing.
+  string reason = 4;
+  // documentation points to the public contract or adoption instructions.
+  string documentation = 5;
+}
+
+// UpdateResult is shared by offline checks and fleet delivery adapters.
+message UpdateResult {
+  // consumer identifies the recipient.
+  string consumer = 1;
+  // module identifies the updated module.
+  string module = 2;
+  // from_version identifies the consumer's current module pin.
+  string from_version = 3;
+  // to_version identifies the candidate release.
+  string to_version = 4;
+  // verdict is conservative; missing evidence produces BREAKING.
+  Verdict verdict = 5;
+  // breaking lists used changes and unknowns requiring work before updating.
+  repeated AffectedItem breaking = 6;
+  // capabilities lists optional new public surface, even if another item breaks.
+  repeated AffectedItem capabilities = 7;
+}

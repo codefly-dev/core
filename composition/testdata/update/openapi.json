@@ -1,0 +1,1 @@
+{"openapi":"3.0.3","info":{"title":"Accounts","version":"1.0.0"},"paths":{"/accounts":{"get":{"responses":{"200":{"description":"Account","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Account"}}}}}}}},"components":{"schemas":{"Account":{"type":"object","properties":{"name":{"type":"string"}}}}}}

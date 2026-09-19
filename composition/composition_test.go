@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/google/go-github/v89/github"
 	"github.com/stretchr/testify/require"
 )
@@ -31,6 +33,66 @@ type releaseFixture struct {
 	verified *VerifiedRelease
 	trust    TrustPolicy
 	root     string
+}
+
+func TestVerifiedReleaseContractDiff(t *testing.T) {
+	baselineRoot, candidateRoot := t.TempDir(), t.TempDir()
+	writeUpdateSources(t, baselineRoot, "0.1.0", false)
+	writeUpdateSources(t, candidateRoot, "0.2.0", true)
+	baseline, err := BuildPackageContractSnapshot(baselineRoot)
+	require.NoError(t, err)
+	candidate, err := BuildPackageContractSnapshot(candidateRoot)
+	require.NoError(t, err)
+	diff, err := moduleupdate.BuildReleaseDiff(baseline, candidate)
+	require.NoError(t, err)
+	data, err := moduleupdate.MarshalReleaseDiff(diff)
+	require.NoError(t, err)
+	fixture := newReleaseFixture(t, "0.2.0", strings.Repeat("a", 40), func(root string) {
+		writeUpdateSources(t, root, "0.2.0", true)
+		writeFile(t, filepath.Join(root, moduleupdate.ReleaseDiffFileName), string(data))
+	})
+	loaded, err := fixture.verified.ContractDiff()
+	require.NoError(t, err)
+	require.Equal(t, "0.2.0", loaded.After.Version)
+	result := fixture.verified.EvaluateUpdate(&updatev0.ConsumerPin{
+		SchemaVersion: 1, Consumer: "deployment", Module: testPackage, Version: baseline.Version,
+		SnapshotDigest: baseline.Digest, UsageComplete: true,
+	})
+	require.Equal(t, updatev0.Verdict_VERDICT_NEW_CAPABILITY, result.Verdict)
+	require.Equal(t, "api/accounts/rest#GET /watch", result.Capabilities[0].Item)
+
+	t.Run("missing evidence", func(t *testing.T) {
+		fixture := newReleaseFixture(t, "0.2.0", strings.Repeat("b", 40), nil)
+		_, err := fixture.verified.ContractDiff()
+		require.ErrorContains(t, err, "missing contracts/update.codefly.json")
+		result := fixture.verified.EvaluateUpdate(nil)
+		require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
+		require.Equal(t, "0.2.0", result.ToVersion)
+		require.Contains(t, result.Breaking[0].Reason, "could not determine: module release is missing")
+	})
+	t.Run("wrong release identity", func(t *testing.T) {
+		fixture := newReleaseFixture(t, "0.3.0", strings.Repeat("b", 40), func(root string) {
+			writeFile(t, filepath.Join(root, moduleupdate.ReleaseDiffFileName), string(data))
+		})
+		_, err := fixture.verified.ContractDiff()
+		require.ErrorIs(t, err, ErrPackageIdentity)
+	})
+	t.Run("omitted delta", func(t *testing.T) {
+		fixture := newReleaseFixture(t, "0.2.0", strings.Repeat("b", 40), func(root string) {
+			var document map[string]any
+			require.NoError(t, json.Unmarshal(data, &document))
+			delete(document, "changes")
+			tampered, err := json.Marshal(document)
+			require.NoError(t, err)
+			writeFile(t, filepath.Join(root, moduleupdate.ReleaseDiffFileName), string(tampered))
+		})
+		_, err := fixture.verified.ContractDiff()
+		require.ErrorContains(t, err, "delta")
+	})
+	t.Run("unverified", func(t *testing.T) {
+		_, err := new(VerifiedRelease).ContractDiff()
+		require.ErrorContains(t, err, "verified module release is required")
+	})
 }
 
 func TestArchiveRejectsMaliciousEntries(t *testing.T) {
