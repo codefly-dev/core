@@ -36,7 +36,7 @@ check-coverage: install-go-test-coverage
 #
 # Invoked through `go run`, so the version is fixed by construction and a stray
 # buf on PATH cannot be what answers.
-BUF_VERSION := 1.71.0
+BUF_VERSION := 1.73.0
 BUF := go run github.com/bufbuild/buf/cmd/buf@v$(BUF_VERSION)
 
 .PHONY: buf-lint

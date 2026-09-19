@@ -17,6 +17,14 @@ image the agents pull. `companion_plugins_test.go` keeps the two definitions
 pinned to the same tool versions. Publishing is
 [`docs/runbooks/publish-companions.md`](../../docs/runbooks/publish-companions.md).
 
+After changing buf, bump the image version and build it, then run
+`go test ./internal/ciguard -tags=nix_required,proto_companion_required` from
+the repository root. These checks evaluate the Nix compiler on both Linux
+architectures and execute buf in the selected Docker image; a matching
+Dockerfile alone does not update an already published or cached image.
+`nix build .#buf` in this directory verifies buf's source and dependency hashes
+without rebuilding the other companion tools (requires a Linux builder).
+
 `protoc-gen-es` is the one tool version this repository does not get to choose
 on its own — it has to match the `@bufbuild/protobuf` runtime consumers pin, or
 their committed `*_pb.ts` drift. The current pin, why it is where it is, and how

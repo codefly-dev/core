@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/mod/modfile"
 	"gopkg.in/yaml.v3"
@@ -78,6 +79,60 @@ func goModRequirement(t *testing.T, path string) string {
 var bsrGeneratedSDKCommit = regexp.MustCompile(`-[0-9]{14}-([0-9a-f]{12})\.[0-9]+$`)
 
 const protovalidateGeneratedSDK = "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go"
+
+const protobufGo = "google.golang.org/protobuf"
+
+// Buf and protobuf-go publish the upstream protobuf release that supplies
+// their Well-Known Types, but neither version includes that release and neither
+// module records the other's version. This table relates release pairs whose
+// source metadata names the same upstream release: datawkt.Version in buf and
+// protobufVersion in protobuf-go's integration_test.go. Record the first image
+// shipping the compiler too: rebuilding an old tag locally can make the image
+// test pass while publishing skips that tag and consumers retain the old buf.
+var bufProtobufGoVersions = map[string]struct {
+	protobufGoVersion   string
+	minCompanionVersion string
+}{
+	"1.73.0": {"v1.36.12", "0.0.15"}, // protobuf 35.1
+}
+
+// Buf resolves google/protobuf imports from sources embedded in its binary;
+// the Go runtime registers the same files from protobuf-go. A schema that uses
+// editions or an option type defined by descriptor.proto is compiled against
+// the first copy and read against the second, so the copies must come from the
+// same upstream protobuf release.
+func TestWellKnownTypePinsAgree(t *testing.T) {
+	bufVersion := makefileBufVersion(t)
+	protobufGoVersion := goModRequirement(t, protobufGo)
+
+	required, ok := bufProtobufGoVersions[bufVersion]
+	require.True(t, ok,
+		"buf %s has no verified protobuf-go pairing. Read datawkt.Version in the "+
+			"buf release and protobufVersion in protobuf-go's integration_test.go, then "+
+			"add the pair only when both name the same upstream protobuf release, and record the new companion image version shipping it.",
+		bufVersion)
+	require.Equal(t, required.protobufGoVersion, protobufGoVersion,
+		"buf %s embeds Well-Known Types paired with %s, but go.mod requires %s. "+
+			"Buf compiles google/protobuf imports against the first copy and the Go "+
+			"runtime registers the second. Choose releases whose source metadata names "+
+			"the same upstream protobuf release, then record that verified pair in "+
+			"bufProtobufGoVersions.",
+		bufVersion, required.protobufGoVersion, protobufGoVersion)
+
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "companions", "proto", "info.codefly.yaml"))
+	require.NoError(t, err)
+	var image struct {
+		Version string `yaml:"version"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &image))
+	selected, err := semver.NewVersion(image.Version)
+	require.NoError(t, err)
+	minimum, err := semver.NewVersion(required.minCompanionVersion)
+	require.NoError(t, err)
+	require.False(t, selected.LessThan(minimum),
+		"buf %s first ships in proto companion %s, but consumers still select %s; bump info.codefly.yaml and publish the new image, since existing tags are cached and publishing skips them",
+		bufVersion, minimum, selected)
+}
 
 // buf.lock and go.mod must name the same protovalidate commit.
 //
