@@ -6,6 +6,11 @@ the agent release, and the `v0` protobuf package namespace. Implementations can
 compile the schema under `proto/codefly/services/agent/v0` in any language;
 sharing Core's Go implementation is not a compatibility requirement.
 
+`startup_protocol_version` names the stdout handshake used to discover the gRPC
+endpoint. It must match the host before lifecycle compatibility can be checked.
+The manifest records both versions; the startup parser and contract checker
+share one startup-version constant, tested against the release manifest.
+
 Protocol **1** uses the existing authenticated agent discovery and
 Builder/Runtime lifecycle RPCs. The host calls `GetAgentInformation` before
 dispatching lifecycle operations. It accepts only its supported protocol
@@ -64,6 +69,10 @@ capability. Advertising support never bypasses the ownership check.
 The version-tag workflow attaches it to the GitHub release and compares it
 with the latest reachable stable release tag. Release notes explicitly report
 introduction, unchanged compatibility, protocol changes, or capability changes.
+Startup changes also require compatible agents and are reported separately.
+Publication resumes an existing draft after interruption and verifies the
+uploaded manifest before publishing. Retrying a published release verifies its
+manifest without replacing it; a missing or different artifact is an error.
 Keep the manifest, schema, implementation, and this document together when
 changing the contract. CLI releases must additionally state their required
 capabilities; a Core server advertisement cannot determine CLI run policy.

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codefly-dev/core/agents/contract"
 	executionv1 "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -38,7 +39,7 @@ import (
 
 // ProtocolVersion is the strict stdout handshake contract. Version 2 removes
 // the ambiguous numeric-port endpoint used by pre-UDS agents.
-const ProtocolVersion = 2
+const ProtocolVersion = contract.StartupProtocolVersion
 
 // WorkDirEnvironment is the manager-to-agent source attachment boundary.
 // The value names the service declaration root selected for this agent

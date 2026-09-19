@@ -23,7 +23,7 @@ plugins:
     opt: paths=source_relative
 
   # PYTHON
-  - plugin: buf.build/protocolbuffers/python
+  - plugin: buf.build/protocolbuffers/python:v36.1
     out: python/codefly-cli/codefly_cli
-  - plugin: buf.build/grpc/python
+  - plugin: buf.build/grpc/python:v1.63.0
     out: python/codefly-cli/codefly_cli

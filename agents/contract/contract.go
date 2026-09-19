@@ -13,6 +13,8 @@ import (
 
 const ContainerRecoveryScope = "container-recovery-scope/v1"
 
+const StartupProtocolVersion = 2
+
 //go:embed contract.json
 var manifest []byte
 
@@ -34,6 +36,9 @@ func Check(advertised *agentv0.AgentContract, required ...string) error {
 	}
 	if advertised.ProtocolVersion != current.ProtocolVersion {
 		return fmt.Errorf("agent declares CLI-agent protocol version %d; host requires version %d", advertised.ProtocolVersion, current.ProtocolVersion)
+	}
+	if advertised.StartupProtocolVersion != StartupProtocolVersion {
+		return fmt.Errorf("agent declares startup protocol version %d; host requires version %d", advertised.StartupProtocolVersion, StartupProtocolVersion)
 	}
 	for _, capability := range required {
 		if !slices.Contains(advertised.Capabilities, capability) {

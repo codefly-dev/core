@@ -1371,9 +1371,12 @@ type AgentContract struct {
 	// container-recovery-scope/v1 promises inherited scope validation, the
 	// codefly-container-recovery-scope acknowledgement header on discovery, and
 	// scoped ownership labels on containers created through the Docker runner.
-	Capabilities  []string `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Capabilities []string `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// startup_protocol_version identifies the required stdout handshake format
+	// used to discover the gRPC endpoint before querying this contract.
+	StartupProtocolVersion uint32 `protobuf:"varint,3,opt,name=startup_protocol_version,json=startupProtocolVersion,proto3" json:"startup_protocol_version,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *AgentContract) Reset() {
@@ -1418,6 +1421,13 @@ func (x *AgentContract) GetCapabilities() []string {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *AgentContract) GetStartupProtocolVersion() uint32 {
+	if x != nil {
+		return x.StartupProtocolVersion
+	}
+	return 0
 }
 
 // AgentInformation is the manifest and documentation surface returned by an agent.
@@ -2046,10 +2056,11 @@ const file_codefly_services_agent_v0_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
 	"\x04tags\x18\x04 \x03(\tR\x04tags\x12\x16\n" +
-	"\x06prompt\x18\x05 \x01(\tR\x06prompt\"^\n" +
+	"\x06prompt\x18\x05 \x01(\tR\x06prompt\"\x98\x01\n" +
 	"\rAgentContract\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\"\n" +
-	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\"\xfa\x06\n" +
+	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x128\n" +
+	"\x18startup_protocol_version\x18\x03 \x01(\rR\x16startupProtocolVersion\"\xfa\x06\n" +
 	"\x10AgentInformation\x12Y\n" +
 	"\x14runtime_requirements\x18\x01 \x03(\v2\".codefly.services.agent.v0.RuntimeB\x02\x18\x01R\x13runtimeRequirements\x12I\n" +
 	"\fcapabilities\x18\x02 \x03(\v2%.codefly.services.agent.v0.CapabilityR\fcapabilities\x12A\n" +

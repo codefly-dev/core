@@ -284,6 +284,9 @@ message AgentContract {
   // codefly-container-recovery-scope acknowledgement header on discovery, and
   // scoped ownership labels on containers created through the Docker runner.
   repeated string capabilities = 2;
+  // startup_protocol_version identifies the required stdout handshake format
+  // used to discover the gRPC endpoint before querying this contract.
+  uint32 startup_protocol_version = 3;
 }
 
 // AgentInformation is the manifest and documentation surface returned by an agent.

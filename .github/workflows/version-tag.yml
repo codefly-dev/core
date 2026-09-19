@@ -29,6 +29,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: core-version-tag-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
 jobs:
   tag:
     if: github.event.workflow_run.conclusion == 'success'
@@ -73,9 +77,5 @@ jobs:
             echo "tagged ${SHA} as ${tag}"
           fi
 
-          # A retry after tagging must still publish the compatibility record.
-          if gh release view "$tag" >/dev/null 2>&1; then
-            exit 0
-          fi
-          gh release create "$tag" agents/contract/contract.json \
-            --verify-tag --title "$tag" --notes-file /tmp/agent-contract-release.md
+          python3 scripts/agent_contract_release.py --version "$version" \
+            --publish --repo "$GITHUB_REPOSITORY"

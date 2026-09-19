@@ -1,4 +1,5 @@
 {
   "protocolVersion": 1,
-  "capabilities": ["container-recovery-scope/v1"]
+  "capabilities": ["container-recovery-scope/v1"],
+  "startupProtocolVersion": 2
 }
