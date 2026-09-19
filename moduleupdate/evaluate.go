@@ -15,18 +15,27 @@ func EvaluateJSON(release, consumer []byte) *updatev0.UpdateResult {
 	if err := protojson.Unmarshal(consumer, pin); err != nil {
 		return undetermined(new(updatev0.UpdateResult), fmt.Errorf("decode consumer pin: %w", err))
 	}
-	diff, err := ParseReleaseDiff(release)
-	if err != nil {
+	diff := new(updatev0.ReleaseDiff)
+	if err := protojson.Unmarshal(release, diff); err != nil {
 		return undetermined(resultFor(nil, pin), err)
 	}
 	return Evaluate(diff, pin)
 }
 
 func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
-	result := resultFor(diff, pin)
-	if err := ValidateReleaseDiff(diff); err != nil {
-		return undetermined(result, err)
+	prepared, err := PrepareReleaseDiff(diff)
+	if err != nil {
+		return undetermined(resultFor(diff, pin), err)
 	}
+	return prepared.Evaluate(pin)
+}
+
+func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
+	if prepared == nil || prepared.diff == nil {
+		return undetermined(resultFor(nil, pin), fmt.Errorf("prepared release is required"))
+	}
+	diff := prepared.diff
+	result := resultFor(diff, pin)
 	if !diff.Before.Complete || !diff.After.Complete {
 		return undetermined(result, fmt.Errorf("public contract coverage is incomplete"))
 	}
@@ -39,7 +48,7 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 	if pin.Module != diff.Before.Module || pin.Version != diff.Before.Version || pin.SnapshotDigest != diff.Before.Digest {
 		return undetermined(result, fmt.Errorf("consumer module/version/snapshot digest does not match the release baseline"))
 	}
-	before, after := indexItems(diff.Before), indexItems(diff.After)
+	before, after := prepared.before, prepared.after
 	used := make(map[string][]*updatev0.AffectedItem)
 	checkUses := func(uses []*updatev0.ContractUse, client, version string, checkClosure bool) {
 		declared := make(map[string]bool)
@@ -122,10 +131,8 @@ func Evaluate(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.U
 			includeRequired(dependency)
 		}
 	}
-	for _, item := range diff.Before.Items {
-		if item.RequiredByAll {
-			includeRequired(item.Id)
-		}
+	for _, id := range prepared.requiredRoots {
+		includeRequired(id)
 	}
 	for id := range required {
 		if len(used[id]) == 0 {

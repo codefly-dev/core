@@ -1,6 +1,7 @@
 package moduleupdate_test
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -34,6 +35,73 @@ func TestSnapshotRejectsInvalidEvidence(t *testing.T) {
 	}
 	_, err := moduleupdate.PrepareSnapshot(nil)
 	require.Error(t, err)
+}
+
+func TestPreparedReleaseOwnsItsEvidence(t *testing.T) {
+	baseline, pin := fixture(t)
+	diff := release(t, baseline, change(get))
+	prepared, err := moduleupdate.PrepareReleaseDiff(diff)
+	require.NoError(t, err)
+	expected := prepared.Evaluate(pin)
+	diff.After.Items = nil
+	diff.Before.Items = nil
+	diff.Changes = nil
+	results := make(chan *updatev0.UpdateResult, 32)
+	for range cap(results) {
+		go func() { results <- prepared.Evaluate(pin) }()
+	}
+	for range cap(results) {
+		result := <-results
+		require.True(t, proto.Equal(expected, result))
+		result.Breaking[0].Reason = "mutated result"
+	}
+	require.True(t, proto.Equal(expected, prepared.Evaluate(pin)))
+	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, new(moduleupdate.PreparedRelease).Evaluate(pin).Verdict)
+}
+
+func benchmarkRelease(b testing.TB, size int) (*updatev0.ReleaseDiff, *updatev0.ConsumerPin) {
+	b.Helper()
+	before := &updatev0.ContractSnapshot{SchemaVersion: 1, Module: "example/accounts", Version: "1.0.0", Complete: true}
+	for i := range size {
+		before.Items = append(before.Items, &updatev0.ContractItem{Id: fmt.Sprintf("item/%d", i), Digest: changedDigest})
+	}
+	before, err := moduleupdate.PrepareSnapshot(before)
+	require.NoError(b, err)
+	after := proto.Clone(before).(*updatev0.ContractSnapshot)
+	after.Version = "1.1.0"
+	after, err = moduleupdate.PrepareSnapshot(after)
+	require.NoError(b, err)
+	diff, err := moduleupdate.BuildReleaseDiff(before, after)
+	require.NoError(b, err)
+	return diff, &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "deployment", Module: before.Module, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
+}
+
+func TestPreparedEvaluationAllocationsDoNotGrowWithUnusedSurface(t *testing.T) {
+	allocations := func(size int) float64 {
+		diff, pin := benchmarkRelease(t, size)
+		prepared, err := moduleupdate.PrepareReleaseDiff(diff)
+		require.NoError(t, err)
+		return testing.AllocsPerRun(10, func() { prepared.Evaluate(pin) })
+	}
+	require.LessOrEqual(t, allocations(2000), allocations(10)+2)
+}
+
+func BenchmarkReleaseEvaluation(b *testing.B) {
+	diff, pin := benchmarkRelease(b, 2000)
+	prepared, err := moduleupdate.PrepareReleaseDiff(diff)
+	require.NoError(b, err)
+	b.Run("unprepared", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			moduleupdate.Evaluate(diff, pin)
+		}
+	})
+	b.Run("prepared", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			prepared.Evaluate(pin)
+		}
+	})
 }
 
 func TestReleaseDiffIdentityAndCanonicalChanges(t *testing.T) {

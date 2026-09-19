@@ -21,6 +21,28 @@ const ReleaseDiffFileName = "contracts/update.codefly.json"
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
+// PreparedRelease owns immutable, validated evidence reusable across consumers.
+type PreparedRelease struct {
+	diff          *updatev0.ReleaseDiff
+	before        map[string]*updatev0.ContractItem
+	after         map[string]*updatev0.ContractItem
+	requiredRoots []string
+}
+
+func PrepareReleaseDiff(diff *updatev0.ReleaseDiff) (*PreparedRelease, error) {
+	normalized, err := normalizeReleaseDiff(diff)
+	if err != nil {
+		return nil, err
+	}
+	prepared := &PreparedRelease{diff: normalized, before: indexItems(normalized.Before), after: indexItems(normalized.After)}
+	for _, item := range normalized.Before.Items {
+		if item.RequiredByAll {
+			prepared.requiredRoots = append(prepared.requiredRoots, item.Id)
+		}
+	}
+	return prepared, nil
+}
+
 // PrepareSnapshot normalizes a copy and binds it to a digest. Producers must
 // derive item digests and dependencies from the public contract source of truth.
 func PrepareSnapshot(snapshot *updatev0.ContractSnapshot) (*updatev0.ContractSnapshot, error) {
@@ -120,30 +142,31 @@ func BuildReleaseDiff(before, after *updatev0.ContractSnapshot) (*updatev0.Relea
 }
 
 func ValidateReleaseDiff(diff *updatev0.ReleaseDiff) error {
+	_, err := normalizeReleaseDiff(diff)
+	return err
+}
+
+func normalizeReleaseDiff(diff *updatev0.ReleaseDiff) (*updatev0.ReleaseDiff, error) {
 	if diff == nil || diff.SchemaVersion != 1 {
-		return fmt.Errorf("release diff requires schema version 1")
+		return nil, fmt.Errorf("release diff requires schema version 1")
 	}
 	if _, err := runnable.CanonicalJSON(diff); err != nil {
-		return err
+		return nil, err
 	}
 	expected, err := BuildReleaseDiff(diff.Before, diff.After)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	actual := proto.Clone(diff).(*updatev0.ReleaseDiff)
-	actual.Before, actual.After = expected.Before, expected.After
-	slices.SortFunc(actual.Changes, func(a, b *updatev0.ContractChange) int { return strings.Compare(a.GetItem(), b.GetItem()) })
-	if !proto.Equal(actual, expected) {
-		return fmt.Errorf("release changes do not match the complete snapshot delta")
+	actual := slices.Clone(diff.Changes)
+	slices.SortFunc(actual, func(a, b *updatev0.ContractChange) int { return strings.Compare(a.GetItem(), b.GetItem()) })
+	if !slices.EqualFunc(actual, expected.Changes, func(a, b *updatev0.ContractChange) bool { return proto.Equal(a, b) }) {
+		return nil, fmt.Errorf("release changes do not match the complete snapshot delta")
 	}
-	return nil
+	return expected, nil
 }
 
 func MarshalReleaseDiff(diff *updatev0.ReleaseDiff) ([]byte, error) {
-	if err := ValidateReleaseDiff(diff); err != nil {
-		return nil, err
-	}
-	normalized, err := BuildReleaseDiff(diff.Before, diff.After)
+	normalized, err := normalizeReleaseDiff(diff)
 	if err != nil {
 		return nil, err
 	}
@@ -155,10 +178,7 @@ func ParseReleaseDiff(data []byte) (*updatev0.ReleaseDiff, error) {
 	if err := protojson.Unmarshal(data, diff); err != nil {
 		return nil, fmt.Errorf("decode release diff: %w", err)
 	}
-	if err := ValidateReleaseDiff(diff); err != nil {
-		return nil, err
-	}
-	return diff, nil
+	return normalizeReleaseDiff(diff)
 }
 
 func indexItems(snapshot *updatev0.ContractSnapshot) map[string]*updatev0.ContractItem {

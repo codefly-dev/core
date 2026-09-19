@@ -94,6 +94,13 @@ A publisher cannot label a change safe to override the comparison.
 
 For authenticated module artifacts, call `VerifiedRelease.EvaluateUpdate(pin)`;
 it also turns missing or invalid archive evidence into a named BREAKING result.
+Successful archive/source preparation is cached on the immutable verified
+release; transient preparation errors remain retryable. `ContractDiff` returns
+a copy so callers cannot modify the cached evidence. For fleet evaluation of
+already authenticated snapshots, `PrepareReleaseDiff` returns an immutable
+`PreparedRelease`; its `Evaluate` method shares validation and indexes across
+consumers and concurrent calls. Caller mutations of the input or a returned
+result cannot change that prepared evidence.
 Acquisition/signature failures happen before a `VerifiedRelease` exists and must
 likewise block the caller's update. Raw `Evaluate`/`EvaluateJSON` are for already
 authenticated evidence or local analysis; self-consistent hashes are not trust.

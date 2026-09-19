@@ -6,6 +6,10 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
+
+	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	"github.com/codefly-dev/core/moduleupdate"
 )
 
 const (
@@ -247,6 +251,9 @@ type VerifiedRelease struct {
 	provenance *Provenance
 	manifest   *PackageManifest
 	digest     string
+	updateMu   sync.Mutex
+	updateDiff *updatev0.ReleaseDiff
+	update     *moduleupdate.PreparedRelease
 }
 
 type CollisionKind string

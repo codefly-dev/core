@@ -61,6 +61,25 @@ func TestVerifiedReleaseContractDiff(t *testing.T) {
 	require.Equal(t, updatev0.Verdict_VERDICT_NEW_CAPABILITY, result.Verdict)
 	require.Equal(t, "api/accounts/rest#GET /watch", result.Capabilities[0].Item)
 
+	t.Run("cached evidence is isolated and needs no filesystem", func(t *testing.T) {
+		loaded.After.Items = nil
+		t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "unavailable"))
+		again, err := fixture.verified.ContractDiff()
+		require.NoError(t, err)
+		require.NotEmpty(t, again.After.Items)
+	})
+	t.Run("transient preparation errors are retryable", func(t *testing.T) {
+		fresh, err := VerifyRelease(fixture.release, testPackage, "0.2.0", fixture.trust)
+		require.NoError(t, err)
+		t.Run("unavailable temporary storage", func(t *testing.T) {
+			t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "unavailable"))
+			_, err := fresh.ContractDiff()
+			require.Error(t, err)
+		})
+		_, err = fresh.ContractDiff()
+		require.NoError(t, err)
+	})
+
 	t.Run("missing evidence", func(t *testing.T) {
 		fixture := newReleaseFixture(t, "0.2.0", strings.Repeat("b", 40), nil)
 		_, err := fixture.verified.ContractDiff()

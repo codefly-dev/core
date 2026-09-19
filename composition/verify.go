@@ -23,9 +23,34 @@ type TrustPolicy struct {
 // ContractDiff reads update evidence from the authenticated module archive.
 // A digest in an unattested sidecar is not proof that a release contains it.
 func (release *VerifiedRelease) ContractDiff() (*updatev0.ReleaseDiff, error) {
-	if release == nil || release.release == nil {
-		return nil, errors.New("verified module release is required")
+	if err := release.prepareUpdate(); err != nil {
+		return nil, err
 	}
+	return proto.Clone(release.updateDiff).(*updatev0.ReleaseDiff), nil
+}
+
+func (release *VerifiedRelease) prepareUpdate() error {
+	if release == nil || release.release == nil {
+		return errors.New("verified module release is required")
+	}
+	release.updateMu.Lock()
+	defer release.updateMu.Unlock()
+	if release.update != nil {
+		return nil
+	}
+	diff, err := release.readContractDiff()
+	if err != nil {
+		return err
+	}
+	prepared, err := moduleupdate.PrepareReleaseDiff(diff)
+	if err != nil {
+		return err
+	}
+	release.updateDiff, release.update = diff, prepared
+	return nil
+}
+
+func (release *VerifiedRelease) readContractDiff() (*updatev0.ReleaseDiff, error) {
 	root, err := os.MkdirTemp("", "codefly-update-evidence-*")
 	if err != nil {
 		return nil, err
@@ -63,7 +88,7 @@ func (release *VerifiedRelease) ContractDiff() (*updatev0.ReleaseDiff, error) {
 }
 
 func (release *VerifiedRelease) EvaluateUpdate(pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
-	diff, err := release.ContractDiff()
+	err := release.prepareUpdate()
 	if err != nil {
 		result := &updatev0.UpdateResult{
 			Consumer: pin.GetConsumer(), Module: pin.GetModule(), FromVersion: pin.GetVersion(),
@@ -75,7 +100,7 @@ func (release *VerifiedRelease) EvaluateUpdate(pin *updatev0.ConsumerPin) *updat
 		}
 		return result
 	}
-	return moduleupdate.Evaluate(diff, pin)
+	return release.update.Evaluate(pin)
 }
 
 func DecodeSignature(encoded []byte) ([]byte, error) {
