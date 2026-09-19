@@ -7,16 +7,59 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/tklauser/go-sysconf"
 	"golang.org/x/sys/unix"
 )
 
 var errProcessNotFound = errors.New("process not found")
+
+// processStartUnixSeconds uses the kernel's boot timestamp, not wall clock
+// minus a separately sampled uptime. Scheduling between those observations
+// can otherwise make the same process appear younger on a later read.
+func processStartUnixSeconds(pid int) (int64, error) {
+	identity, err := readLinuxProcessStat(pid)
+	if err != nil {
+		return 0, err
+	}
+	if identity.startID > math.MaxInt64 {
+		return 0, errors.New("process start ticks exceed timestamp range")
+	}
+	startTicks := int64(identity.startID)
+	ticks, err := sysconf.Sysconf(sysconf.SC_CLK_TCK)
+	if err != nil {
+		return 0, fmt.Errorf("read process clock frequency: %w", err)
+	}
+	if ticks <= 0 {
+		return 0, errors.New("process clock frequency is not positive")
+	}
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return 0, err
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != "btime" {
+			continue
+		}
+		boot, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil || boot <= 0 {
+			return 0, errors.New("invalid kernel boot timestamp")
+		}
+		seconds := startTicks / ticks
+		if boot > math.MaxInt64-seconds {
+			return 0, errors.New("process start exceeds timestamp range")
+		}
+		return boot + seconds, nil
+	}
+	return 0, errors.New("kernel boot timestamp is missing")
+}
 
 type processIdentity struct {
 	pid        int

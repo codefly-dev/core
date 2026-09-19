@@ -68,15 +68,9 @@ func TestReaperReapsLegacyGroupWhenOwnerPidReused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A live owner that started strictly after the record was written cannot be
-	// the process that spawned the leader — it is a recycled PID, so the group
-	// is orphaned and must still be reaped. The reaper compares the owner's
-	// start second as reported by processStartUnixSeconds (derived from /proc,
-	// which truncates the kernel's clock-tick start time to whole seconds), so
-	// gate the spawn on that same clock rather than wall-clock time.Now: a
-	// wall-clock second past leaderStart can still read back as leaderStart
-	// from /proc, which would make the reaper preserve the group.
-	owner := spawnOwnerAfterSecond(t, leaderStart)
+	// Only an owner born beyond the uncertainty window proves PID reuse.
+	// Gate on the kernel timestamp used by the reaper, not wall-clock time.
+	owner := spawnOwnerAfterSecond(t, leaderStart+legacyStartCorroborationSkew)
 	legacyPath := legacyRecordPath(t, pid, ".pgid")
 	writeLegacyRecord(t, legacyPath, pid, owner.Process.Pid, leaderStart)
 
@@ -86,6 +80,138 @@ func TestReaperReapsLegacyGroupWhenOwnerPidReused(t *testing.T) {
 	assertGroupDead(t, pid)
 	if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("reaped legacy record still exists: %v", err)
+	}
+}
+
+func TestReaperPreservesLegacyGroupWhoseLeaderReadsPastTheRecord(t *testing.T) {
+	for _, seconds := range []int64{1, 2, legacyStartCorroborationSkew, legacyStartCorroborationSkew + 1} {
+		t.Run(strconv.FormatInt(seconds, 10), func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			pid, authPath := spawnOrphanedGroup(t, false)
+			defer cleanupOrphanedGroup(pid, authPath)
+			if err := os.Remove(authPath); err != nil {
+				t.Fatal(err)
+			}
+			leaderStart, err := processStartUnixSeconds(pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacyPath := legacyRecordPath(t, pid, ".pgid")
+			// This is also the state left by a pgid recycled seconds after its
+			// old group exited. The record cannot distinguish reuse from drift.
+			writeLegacyRecord(t, legacyPath, pid, deadPID, leaderStart-seconds)
+			if err := ReapStaleProcessGroups(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			assertGroupAlive(t, pid)
+			if _, err := os.Stat(legacyPath); err != nil {
+				t.Fatalf("ambiguous legacy record was not retained: %v", err)
+			}
+		})
+	}
+}
+
+func TestLegacyOwnerAlivePreservesUncertainStart(t *testing.T) {
+	owner := exec.Command("sleep", "30")
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = owner.Process.Kill()
+		_ = owner.Wait()
+	}()
+	start, err := processStartUnixSeconds(owner.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, drift := range []int64{0, 1, legacyStartCorroborationSkew, legacyStartCorroborationSkew + 1} {
+		alive, err := legacyOwnerAlive(owner.Process.Pid, start-drift)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := drift <= legacyStartCorroborationSkew; alive != want {
+			t.Fatalf("owner drift %d: alive=%v, want %v", drift, alive, want)
+		}
+	}
+}
+
+func TestProcessStartUnixSecondsRemainsStable(t *testing.T) {
+	before := time.Now().Unix()
+	child := exec.Command("sleep", "30")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	}()
+	start, err := processStartUnixSeconds(child.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Linux exposes whole boot seconds and whole start ticks separately, so
+	// truncation can put a newly forked process one second before the wall clock.
+	if start < before-1 || start > time.Now().Unix() {
+		t.Fatalf("process start %d is outside its observed birth interval", start)
+	}
+	// Cross a wall-clock second while reading the same real process birth.
+	for range 12 {
+		time.Sleep(100 * time.Millisecond)
+		observed, err := processStartUnixSeconds(child.Process.Pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if observed != start {
+			t.Fatalf("unchanged process start moved from %d to %d", start, observed)
+		}
+	}
+	if err := child.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = child.Wait()
+	if _, err := processStartUnixSeconds(child.Process.Pid); !errors.Is(err, errProcessNotFound) {
+		t.Fatalf("reaped process start returned %v, want process not found", err)
+	}
+}
+
+func TestReaperPreservesLegacyGroupWithUncertainLiveOwner(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	pidPath := filepath.Join(t.TempDir(), "pid")
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	owner := registryHelperCommand("live-owner")
+	owner.Env = append(owner.Env, processGroupPIDFileEnv+"="+pidPath, processGroupReadyFileEnv+"="+readyPath)
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = owner.Process.Signal(syscall.SIGTERM)
+		_ = owner.Wait()
+	}()
+	waitForTestFile(t, readyPath)
+	waitForTestFile(t, pidPath)
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(recordPath(t, pid)); err != nil {
+		t.Fatal(err)
+	}
+	start, err := processStartUnixSeconds(owner.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := legacyRecordPath(t, pid, ".pgid")
+	writeLegacyRecord(t, legacyPath, pid, owner.Process.Pid, start-1)
+	if err := ReapStaleProcessGroups(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertGroupAlive(t, pid)
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("live owner's legacy record was not retained: %v", err)
 	}
 }
 
@@ -194,12 +320,8 @@ func spawnOrphanedStubbornLeader(t *testing.T) int {
 	return pid
 }
 
-// spawnOwnerAfterSecond starts a live helper process whose start second, as
-// observed through processStartUnixSeconds (the reaper's own clock), is
-// strictly greater than after. Gating on that clock — rather than wall-clock
-// time.Now — keeps the "reused owner PID" scenario deterministic: /proc
-// truncates the kernel's clock-tick start time to whole seconds, so a process
-// launched a wall-clock second past `after` can still read back as `after`.
+// spawnOwnerAfterSecond starts a live helper whose kernel start second is
+// strictly after the supplied boundary.
 func spawnOwnerAfterSecond(t *testing.T, after int64) *exec.Cmd {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
