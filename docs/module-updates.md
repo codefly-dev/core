@@ -7,13 +7,13 @@ or deployment changes. Its public messages live in
 
 ## Evidence and publication
 
-A producer derives a `ContractSnapshot` from the complete module interface,
+`composition.BuildPackageContractSnapshot` derives a `ContractSnapshot` from the complete packaged interface,
 including non-SDK behavior such as registration, authorization, configuration,
 and frontend integration. Each item has a stable identity (an RPC, type,
 endpoint, or named behavioral requirement), a SHA-256 digest of its canonical
 contract, and its dependencies. RPC items must include dependencies on request
 and response types; dependencies may be cyclic. Identity and canonicalization
-rules belong to the source-specific generator and must remain stable across
+rules are shared by publication and archive verification and must remain stable across
 releases. A changed canonicalization is unknown compatibility, not a safe bump.
 
 `PrepareSnapshot` validates and sorts a copy, then hashes the canonical protobuf
@@ -29,10 +29,21 @@ do not change a contract's compatibility.
 delta. The publisher includes that file in the module archive before signing
 its provenance. `composition.VerifiedRelease.ContractDiff` reads only from the
 authenticated archive and checks that the candidate module/version matches its
-manifest. A loose sidecar digest does not authenticate a release.
+manifest. It independently derives the candidate snapshot from the packaged
+sources and rejects stale evidence even when the archive signature is valid.
+A loose sidecar digest does not authenticate a release.
 
-These functions compute and consume the artifact; they do not extract source
-contracts or invoke `codefly publish`. Publication integration is tracked in
+The shared derivation validates catalog/manifest/file agreement and reads actual
+protobuf methods, reachable types and OpenAPI operations/references. IDs are
+`api/<service>/<endpoint>#<symbol>`; endpoint context and referenced types are
+dependencies. Remote OpenAPI references and unresolved sources block derivation.
+Non-API source declarations are required in `contracts/behavior.codefly.json`,
+using `BehavioralContracts` with explicit completeness and canonical content.
+Their IDs are `behavior/<id>`. An empty declaration must explicitly be complete;
+missing source files never imply no behavioral requirements. Behavioral
+implementations still need conformance tests against their declared contracts.
+
+These functions do not invoke `codefly publish`. Publication integration is tracked in
 [CLI #753](https://github.com/codefly-dev/cli/issues/753). Existing releases
 without evidence produce BREAKING when checked; ordinary release verification
 does not newly require this artifact.

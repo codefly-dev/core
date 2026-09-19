@@ -13,6 +13,7 @@ import (
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -136,6 +137,152 @@ func (Verdict) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{1}
 }
 
+// BehavioralContracts is the module's non-API contract source of truth.
+type BehavioralContracts struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// schema_version is 1 for this format.
+	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	// complete explicitly declares coverage, including an intentionally empty set.
+	Complete bool `protobuf:"varint,2,opt,name=complete,proto3" json:"complete,omitempty"`
+	// contracts describes registration, authorization, and other behavioral rules.
+	Contracts     []*BehavioralContract `protobuf:"bytes,3,rep,name=contracts,proto3" json:"contracts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BehavioralContracts) Reset() {
+	*x = BehavioralContracts{}
+	mi := &file_codefly_update_v0_update_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BehavioralContracts) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BehavioralContracts) ProtoMessage() {}
+
+func (x *BehavioralContracts) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_update_v0_update_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BehavioralContracts.ProtoReflect.Descriptor instead.
+func (*BehavioralContracts) Descriptor() ([]byte, []int) {
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *BehavioralContracts) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *BehavioralContracts) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *BehavioralContracts) GetContracts() []*BehavioralContract {
+	if x != nil {
+		return x.Contracts
+	}
+	return nil
+}
+
+// BehavioralContract declares canonical content rather than an asserted digest.
+type BehavioralContract struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id is namespaced under behavior/ in the derived snapshot.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// contract is the public behavior that implementations must conform to.
+	Contract *structpb.Struct `protobuf:"bytes,2,opt,name=contract,proto3" json:"contract,omitempty"`
+	// dependencies are full derived item identities.
+	Dependencies []string `protobuf:"bytes,3,rep,name=dependencies,proto3" json:"dependencies,omitempty"`
+	// required_by_all applies this contract to every consumer.
+	RequiredByAll bool `protobuf:"varint,4,opt,name=required_by_all,json=requiredByAll,proto3" json:"required_by_all,omitempty"`
+	// documentation points to adoption instructions.
+	Documentation string `protobuf:"bytes,5,opt,name=documentation,proto3" json:"documentation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BehavioralContract) Reset() {
+	*x = BehavioralContract{}
+	mi := &file_codefly_update_v0_update_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BehavioralContract) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BehavioralContract) ProtoMessage() {}
+
+func (x *BehavioralContract) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_update_v0_update_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BehavioralContract.ProtoReflect.Descriptor instead.
+func (*BehavioralContract) Descriptor() ([]byte, []int) {
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *BehavioralContract) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *BehavioralContract) GetContract() *structpb.Struct {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *BehavioralContract) GetDependencies() []string {
+	if x != nil {
+		return x.Dependencies
+	}
+	return nil
+}
+
+func (x *BehavioralContract) GetRequiredByAll() bool {
+	if x != nil {
+		return x.RequiredByAll
+	}
+	return false
+}
+
+func (x *BehavioralContract) GetDocumentation() string {
+	if x != nil {
+		return x.Documentation
+	}
+	return ""
+}
+
 // ContractItem is one independently addressable part of a module's public surface.
 type ContractItem struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -155,7 +302,7 @@ type ContractItem struct {
 
 func (x *ContractItem) Reset() {
 	*x = ContractItem{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[0]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -167,7 +314,7 @@ func (x *ContractItem) String() string {
 func (*ContractItem) ProtoMessage() {}
 
 func (x *ContractItem) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[0]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -180,7 +327,7 @@ func (x *ContractItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractItem.ProtoReflect.Descriptor instead.
 func (*ContractItem) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{0}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ContractItem) GetId() string {
@@ -239,7 +386,7 @@ type ContractSnapshot struct {
 
 func (x *ContractSnapshot) Reset() {
 	*x = ContractSnapshot{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[1]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -251,7 +398,7 @@ func (x *ContractSnapshot) String() string {
 func (*ContractSnapshot) ProtoMessage() {}
 
 func (x *ContractSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[1]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -264,7 +411,7 @@ func (x *ContractSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractSnapshot.ProtoReflect.Descriptor instead.
 func (*ContractSnapshot) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{1}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ContractSnapshot) GetSchemaVersion() uint32 {
@@ -322,7 +469,7 @@ type ContractChange struct {
 
 func (x *ContractChange) Reset() {
 	*x = ContractChange{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[2]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -334,7 +481,7 @@ func (x *ContractChange) String() string {
 func (*ContractChange) ProtoMessage() {}
 
 func (x *ContractChange) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[2]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -347,7 +494,7 @@ func (x *ContractChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractChange.ProtoReflect.Descriptor instead.
 func (*ContractChange) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{2}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ContractChange) GetItem() string {
@@ -381,7 +528,7 @@ type ReleaseDiff struct {
 
 func (x *ReleaseDiff) Reset() {
 	*x = ReleaseDiff{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[3]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -393,7 +540,7 @@ func (x *ReleaseDiff) String() string {
 func (*ReleaseDiff) ProtoMessage() {}
 
 func (x *ReleaseDiff) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[3]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -406,7 +553,7 @@ func (x *ReleaseDiff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseDiff.ProtoReflect.Descriptor instead.
 func (*ReleaseDiff) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{3}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ReleaseDiff) GetSchemaVersion() uint32 {
@@ -450,7 +597,7 @@ type ContractUse struct {
 
 func (x *ContractUse) Reset() {
 	*x = ContractUse{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[4]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -462,7 +609,7 @@ func (x *ContractUse) String() string {
 func (*ContractUse) ProtoMessage() {}
 
 func (x *ContractUse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[4]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -475,7 +622,7 @@ func (x *ContractUse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractUse.ProtoReflect.Descriptor instead.
 func (*ContractUse) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{4}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ContractUse) GetItem() string {
@@ -507,7 +654,7 @@ type ClientPin struct {
 
 func (x *ClientPin) Reset() {
 	*x = ClientPin{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[5]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -519,7 +666,7 @@ func (x *ClientPin) String() string {
 func (*ClientPin) ProtoMessage() {}
 
 func (x *ClientPin) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[5]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -532,7 +679,7 @@ func (x *ClientPin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientPin.ProtoReflect.Descriptor instead.
 func (*ClientPin) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{5}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ClientPin) GetName() string {
@@ -581,7 +728,7 @@ type ConsumerPin struct {
 
 func (x *ConsumerPin) Reset() {
 	*x = ConsumerPin{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[6]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -593,7 +740,7 @@ func (x *ConsumerPin) String() string {
 func (*ConsumerPin) ProtoMessage() {}
 
 func (x *ConsumerPin) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[6]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -606,7 +753,7 @@ func (x *ConsumerPin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsumerPin.ProtoReflect.Descriptor instead.
 func (*ConsumerPin) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{6}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ConsumerPin) GetSchemaVersion() uint32 {
@@ -684,7 +831,7 @@ type AffectedItem struct {
 
 func (x *AffectedItem) Reset() {
 	*x = AffectedItem{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[7]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -696,7 +843,7 @@ func (x *AffectedItem) String() string {
 func (*AffectedItem) ProtoMessage() {}
 
 func (x *AffectedItem) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[7]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -709,7 +856,7 @@ func (x *AffectedItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AffectedItem.ProtoReflect.Descriptor instead.
 func (*AffectedItem) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{7}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *AffectedItem) GetItem() string {
@@ -770,7 +917,7 @@ type UpdateResult struct {
 
 func (x *UpdateResult) Reset() {
 	*x = UpdateResult{}
-	mi := &file_codefly_update_v0_update_proto_msgTypes[8]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -782,7 +929,7 @@ func (x *UpdateResult) String() string {
 func (*UpdateResult) ProtoMessage() {}
 
 func (x *UpdateResult) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_update_v0_update_proto_msgTypes[8]
+	mi := &file_codefly_update_v0_update_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -795,7 +942,7 @@ func (x *UpdateResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateResult.ProtoReflect.Descriptor instead.
 func (*UpdateResult) Descriptor() ([]byte, []int) {
-	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{8}
+	return file_codefly_update_v0_update_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UpdateResult) GetConsumer() string {
@@ -851,7 +998,17 @@ var File_codefly_update_v0_update_proto protoreflect.FileDescriptor
 
 const file_codefly_update_v0_update_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecodefly/update/v0/update.proto\x12\x11codefly.update.v0\"\xa8\x01\n" +
+	"\x1ecodefly/update/v0/update.proto\x12\x11codefly.update.v0\x1a\x1cgoogle/protobuf/struct.proto\"\x9d\x01\n" +
+	"\x13BehavioralContracts\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x1a\n" +
+	"\bcomplete\x18\x02 \x01(\bR\bcomplete\x12C\n" +
+	"\tcontracts\x18\x03 \x03(\v2%.codefly.update.v0.BehavioralContractR\tcontracts\"\xcb\x01\n" +
+	"\x12BehavioralContract\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x123\n" +
+	"\bcontract\x18\x02 \x01(\v2\x17.google.protobuf.StructR\bcontract\x12\"\n" +
+	"\fdependencies\x18\x03 \x03(\tR\fdependencies\x12&\n" +
+	"\x0frequired_by_all\x18\x04 \x01(\bR\rrequiredByAll\x12$\n" +
+	"\rdocumentation\x18\x05 \x01(\tR\rdocumentation\"\xa8\x01\n" +
 	"\fContractItem\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\"\n" +
@@ -930,37 +1087,42 @@ func file_codefly_update_v0_update_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_update_v0_update_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_codefly_update_v0_update_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_codefly_update_v0_update_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_codefly_update_v0_update_proto_goTypes = []any{
-	(ChangeKind)(0),          // 0: codefly.update.v0.ChangeKind
-	(Verdict)(0),             // 1: codefly.update.v0.Verdict
-	(*ContractItem)(nil),     // 2: codefly.update.v0.ContractItem
-	(*ContractSnapshot)(nil), // 3: codefly.update.v0.ContractSnapshot
-	(*ContractChange)(nil),   // 4: codefly.update.v0.ContractChange
-	(*ReleaseDiff)(nil),      // 5: codefly.update.v0.ReleaseDiff
-	(*ContractUse)(nil),      // 6: codefly.update.v0.ContractUse
-	(*ClientPin)(nil),        // 7: codefly.update.v0.ClientPin
-	(*ConsumerPin)(nil),      // 8: codefly.update.v0.ConsumerPin
-	(*AffectedItem)(nil),     // 9: codefly.update.v0.AffectedItem
-	(*UpdateResult)(nil),     // 10: codefly.update.v0.UpdateResult
+	(ChangeKind)(0),             // 0: codefly.update.v0.ChangeKind
+	(Verdict)(0),                // 1: codefly.update.v0.Verdict
+	(*BehavioralContracts)(nil), // 2: codefly.update.v0.BehavioralContracts
+	(*BehavioralContract)(nil),  // 3: codefly.update.v0.BehavioralContract
+	(*ContractItem)(nil),        // 4: codefly.update.v0.ContractItem
+	(*ContractSnapshot)(nil),    // 5: codefly.update.v0.ContractSnapshot
+	(*ContractChange)(nil),      // 6: codefly.update.v0.ContractChange
+	(*ReleaseDiff)(nil),         // 7: codefly.update.v0.ReleaseDiff
+	(*ContractUse)(nil),         // 8: codefly.update.v0.ContractUse
+	(*ClientPin)(nil),           // 9: codefly.update.v0.ClientPin
+	(*ConsumerPin)(nil),         // 10: codefly.update.v0.ConsumerPin
+	(*AffectedItem)(nil),        // 11: codefly.update.v0.AffectedItem
+	(*UpdateResult)(nil),        // 12: codefly.update.v0.UpdateResult
+	(*structpb.Struct)(nil),     // 13: google.protobuf.Struct
 }
 var file_codefly_update_v0_update_proto_depIdxs = []int32{
-	2,  // 0: codefly.update.v0.ContractSnapshot.items:type_name -> codefly.update.v0.ContractItem
-	0,  // 1: codefly.update.v0.ContractChange.kind:type_name -> codefly.update.v0.ChangeKind
-	3,  // 2: codefly.update.v0.ReleaseDiff.before:type_name -> codefly.update.v0.ContractSnapshot
-	3,  // 3: codefly.update.v0.ReleaseDiff.after:type_name -> codefly.update.v0.ContractSnapshot
-	4,  // 4: codefly.update.v0.ReleaseDiff.changes:type_name -> codefly.update.v0.ContractChange
-	6,  // 5: codefly.update.v0.ClientPin.uses:type_name -> codefly.update.v0.ContractUse
-	7,  // 6: codefly.update.v0.ConsumerPin.clients:type_name -> codefly.update.v0.ClientPin
-	6,  // 7: codefly.update.v0.ConsumerPin.uses:type_name -> codefly.update.v0.ContractUse
-	1,  // 8: codefly.update.v0.UpdateResult.verdict:type_name -> codefly.update.v0.Verdict
-	9,  // 9: codefly.update.v0.UpdateResult.breaking:type_name -> codefly.update.v0.AffectedItem
-	9,  // 10: codefly.update.v0.UpdateResult.capabilities:type_name -> codefly.update.v0.AffectedItem
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	3,  // 0: codefly.update.v0.BehavioralContracts.contracts:type_name -> codefly.update.v0.BehavioralContract
+	13, // 1: codefly.update.v0.BehavioralContract.contract:type_name -> google.protobuf.Struct
+	4,  // 2: codefly.update.v0.ContractSnapshot.items:type_name -> codefly.update.v0.ContractItem
+	0,  // 3: codefly.update.v0.ContractChange.kind:type_name -> codefly.update.v0.ChangeKind
+	5,  // 4: codefly.update.v0.ReleaseDiff.before:type_name -> codefly.update.v0.ContractSnapshot
+	5,  // 5: codefly.update.v0.ReleaseDiff.after:type_name -> codefly.update.v0.ContractSnapshot
+	6,  // 6: codefly.update.v0.ReleaseDiff.changes:type_name -> codefly.update.v0.ContractChange
+	8,  // 7: codefly.update.v0.ClientPin.uses:type_name -> codefly.update.v0.ContractUse
+	9,  // 8: codefly.update.v0.ConsumerPin.clients:type_name -> codefly.update.v0.ClientPin
+	8,  // 9: codefly.update.v0.ConsumerPin.uses:type_name -> codefly.update.v0.ContractUse
+	1,  // 10: codefly.update.v0.UpdateResult.verdict:type_name -> codefly.update.v0.Verdict
+	11, // 11: codefly.update.v0.UpdateResult.breaking:type_name -> codefly.update.v0.AffectedItem
+	11, // 12: codefly.update.v0.UpdateResult.capabilities:type_name -> codefly.update.v0.AffectedItem
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_codefly_update_v0_update_proto_init() }
@@ -974,7 +1136,7 @@ func file_codefly_update_v0_update_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_update_v0_update_proto_rawDesc), len(file_codefly_update_v0_update_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

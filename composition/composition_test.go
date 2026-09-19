@@ -36,20 +36,19 @@ type releaseFixture struct {
 }
 
 func TestVerifiedReleaseContractDiff(t *testing.T) {
-	baseline, err := moduleupdate.PrepareSnapshot(&updatev0.ContractSnapshot{
-		SchemaVersion: 1, Module: testPackage, Version: "0.1.0", Complete: true,
-	})
+	baselineRoot, candidateRoot := t.TempDir(), t.TempDir()
+	writeUpdateSources(t, baselineRoot, "0.1.0", false)
+	writeUpdateSources(t, candidateRoot, "0.2.0", true)
+	baseline, err := BuildPackageContractSnapshot(baselineRoot)
 	require.NoError(t, err)
-	candidate, err := moduleupdate.PrepareSnapshot(&updatev0.ContractSnapshot{
-		SchemaVersion: 1, Module: testPackage, Version: "0.2.0", Complete: true,
-		Items: []*updatev0.ContractItem{{Id: "/accounts.v1.Accounts/Get", Digest: APIContractDigest([]byte("contract"))}},
-	})
+	candidate, err := BuildPackageContractSnapshot(candidateRoot)
 	require.NoError(t, err)
 	diff, err := moduleupdate.BuildReleaseDiff(baseline, candidate)
 	require.NoError(t, err)
 	data, err := moduleupdate.MarshalReleaseDiff(diff)
 	require.NoError(t, err)
 	fixture := newReleaseFixture(t, "0.2.0", strings.Repeat("a", 40), func(root string) {
+		writeUpdateSources(t, root, "0.2.0", true)
 		writeFile(t, filepath.Join(root, moduleupdate.ReleaseDiffFileName), string(data))
 	})
 	loaded, err := fixture.verified.ContractDiff()
@@ -60,7 +59,7 @@ func TestVerifiedReleaseContractDiff(t *testing.T) {
 		SnapshotDigest: baseline.Digest, UsageComplete: true,
 	})
 	require.Equal(t, updatev0.Verdict_VERDICT_NEW_CAPABILITY, result.Verdict)
-	require.Equal(t, "/accounts.v1.Accounts/Get", result.Capabilities[0].Item)
+	require.Equal(t, "api/accounts/rest#GET /watch", result.Capabilities[0].Item)
 
 	t.Run("missing evidence", func(t *testing.T) {
 		fixture := newReleaseFixture(t, "0.2.0", strings.Repeat("b", 40), nil)

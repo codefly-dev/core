@@ -1,19 +1,18 @@
 package composition
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"os"
+	"path/filepath"
 
 	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
 	"github.com/codefly-dev/core/moduleupdate"
+	"google.golang.org/protobuf/proto"
 )
 
 type TrustPolicy struct {
@@ -27,31 +26,40 @@ func (release *VerifiedRelease) ContractDiff() (*updatev0.ReleaseDiff, error) {
 	if release == nil || release.release == nil {
 		return nil, errors.New("verified module release is required")
 	}
-	reader := tar.NewReader(bytes.NewReader(release.release.Artifact))
-	for {
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("module release is missing %s", moduleupdate.ReleaseDiffFileName)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if header.Name != moduleupdate.ReleaseDiffFileName {
-			continue
-		}
-		data, err := io.ReadAll(reader)
-		if err != nil {
-			return nil, err
-		}
-		diff, err := moduleupdate.ParseReleaseDiff(data)
-		if err != nil {
-			return nil, err
-		}
-		if diff.After.Module != release.manifest.ID || diff.After.Version != release.manifest.Version {
-			return nil, fmt.Errorf("%w: contract diff does not describe the verified module release", ErrPackageIdentity)
-		}
-		return diff, nil
+	root, err := os.MkdirTemp("", "codefly-update-evidence-*")
+	if err != nil {
+		return nil, err
 	}
+	defer func() { _ = os.RemoveAll(root) }()
+	if err := ExtractArchive(context.Background(), release.release.Artifact, root); err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(root, moduleupdate.ReleaseDiffFileName))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("module release is missing %s", moduleupdate.ReleaseDiffFileName)
+	}
+	if err != nil {
+		return nil, err
+	}
+	diff, err := moduleupdate.ParseReleaseDiff(data)
+	if err != nil {
+		return nil, err
+	}
+	if diff.After.Module != release.manifest.ID || diff.After.Version != release.manifest.Version {
+		return nil, fmt.Errorf("%w: contract diff does not describe the verified module release", ErrPackageIdentity)
+	}
+	actual, err := BuildPackageContractSnapshot(root)
+	if err != nil {
+		return nil, fmt.Errorf("derive packaged contracts: %w", err)
+	}
+	expected, err := moduleupdate.PrepareSnapshot(diff.After)
+	if err != nil {
+		return nil, err
+	}
+	if !proto.Equal(actual, expected) {
+		return nil, fmt.Errorf("candidate contract snapshot does not match packaged contract sources")
+	}
+	return diff, nil
 }
 
 func (release *VerifiedRelease) EvaluateUpdate(pin *updatev0.ConsumerPin) *updatev0.UpdateResult {

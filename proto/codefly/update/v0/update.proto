@@ -2,6 +2,32 @@ syntax = "proto3";
 
 package codefly.update.v0;
 
+import "google/protobuf/struct.proto";
+
+// BehavioralContracts is the module's non-API contract source of truth.
+message BehavioralContracts {
+  // schema_version is 1 for this format.
+  uint32 schema_version = 1;
+  // complete explicitly declares coverage, including an intentionally empty set.
+  bool complete = 2;
+  // contracts describes registration, authorization, and other behavioral rules.
+  repeated BehavioralContract contracts = 3;
+}
+
+// BehavioralContract declares canonical content rather than an asserted digest.
+message BehavioralContract {
+  // id is namespaced under behavior/ in the derived snapshot.
+  string id = 1;
+  // contract is the public behavior that implementations must conform to.
+  google.protobuf.Struct contract = 2;
+  // dependencies are full derived item identities.
+  repeated string dependencies = 3;
+  // required_by_all applies this contract to every consumer.
+  bool required_by_all = 4;
+  // documentation points to adoption instructions.
+  string documentation = 5;
+}
+
 // ContractItem is one independently addressable part of a module's public surface.
 message ContractItem {
   // id names the exact RPC, type, endpoint, or behavioral requirement.
