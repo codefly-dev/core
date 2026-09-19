@@ -80,13 +80,15 @@ package by bare path even when that package's name is not its path's last
 element. Consumers run goimports over that and gate their checked-in bindings
 on the result — the stdlib group split off, the alias added.
 
-So the companion runs `goimports -w` itself, inside the image, over every
-output directory the template declares that holds Go
+So the companion runs `goimports -w` itself, inside the image, over the
+generated Go files in every output directory the template declares
 (`companions/proto.FormatGoOutputs`). Its output is the committed shape, and a
 consumer needs nothing on the host to reproduce a clean tree. goimports is
 pinned in both build definitions like a plugin, because a formatter that moves
 moves every consumer's tree; `TestDockerfilePinsGoimports` and
-`TestFlakePinsGoimports` hold the two to the same version.
+`TestFlakePinsGoimports` hold the two to the same version. Output directories
+may also contain handwritten Go, so only files carrying Go's standard
+`Code generated … DO NOT EDIT.` ownership notice are formatted.
 
 ## Versioning
 

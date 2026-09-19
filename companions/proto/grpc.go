@@ -222,7 +222,7 @@ func templateRustConfiguration(ctx context.Context, bufDir string) error {
 // runBuf sets up the proto companion over a prepared temp dir and runs buf.
 // before, when set, runs after the runner is initialized but before buf
 // generate (used by the Python facade path to strip the descriptor image).
-func runBuf(ctx context.Context, name string, image *resources.DockerImage, tmpDir, destination string, depUpdate bool, generateArgs []string, before func(context.Context, companion.CompanionRunner) error) error {
+func runBuf(ctx context.Context, name string, image *resources.DockerImage, tmpDir, destination string, formatGo bool, depUpdate bool, generateArgs []string, before func(context.Context, companion.CompanionRunner) error) error {
 	w := wool.Get(ctx).In("runBuf", wool.DirField(tmpDir), wool.DirField(destination))
 
 	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
@@ -271,6 +271,14 @@ func runBuf(ctx context.Context, name string, image *resources.DockerImage, tmpD
 	}
 	if err = proc.Run(ctx); err != nil {
 		return w.Wrapf(err, "cannot generate with buf")
+	}
+	if formatGo {
+		// The template writes to /workspace/output, which is a separate bind
+		// mount from tmpDir. Discover files through the host destination while
+		// running goimports against the corresponding path in the companion.
+		if err = FormatGeneratedGoRoot(ctx, runner, destination, "/workspace/output"); err != nil {
+			return w.Wrapf(err, "cannot format generated Go")
+		}
 	}
 	return nil
 }
