@@ -273,6 +273,19 @@ message AgentTechnique {
   string prompt = 5;
 }
 
+// AgentContract versions the CLI-agent lifecycle protocol independently of Core.
+message AgentContract {
+  // protocol_version is the incompatible-change generation, starting at 1.
+  // Zero or an absent contract means undeclared, never inferred from a build.
+  uint32 protocol_version = 1;
+  // capabilities are stable, versioned feature identifiers. Hosts require a
+  // subset for an operation and ignore unknown extra capabilities.
+  // container-recovery-scope/v1 promises inherited scope validation, the
+  // codefly-container-recovery-scope acknowledgement header on discovery, and
+  // scoped ownership labels on containers created through the Docker runner.
+  repeated string capabilities = 2;
+}
+
 // AgentInformation is the manifest and documentation surface returned by an agent.
 message AgentInformation {
   // runtime_requirements preserves existing SDK construction and wire decoding.
@@ -308,6 +321,8 @@ message AgentInformation {
   // effective_inputs_versions lists supported discovery schemas; absent means
   // conservative service selection and no persistent result reuse.
   repeated uint32 effective_inputs_versions = 11;
+  // contract declares wire compatibility, not the agent's linked Core version.
+  AgentContract contract = 12;
 }
 
 // AgentInformationRequest asks an agent to describe its capabilities and settings.

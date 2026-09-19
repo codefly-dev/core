@@ -132,6 +132,8 @@ carried here:
 ## Workflow
 
 - Branch and PR; never commit to `main`. Conventional Commits for the title.
+- Agent protocol changes update `agents/contract/contract.json`; releases report
+  its compatibility separately from Core's version. See [`docs/agent-contract.md`](docs/agent-contract.md).
 - `internal/ciguard` holds the meta-invariants, including this file's length
   budget and each skill's frontmatter contract. It runs under `go test ./...`,
   so CI enforces it with no workflow change.

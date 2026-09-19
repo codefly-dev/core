@@ -160,6 +160,9 @@ service-dependencies:
 
 ## Agent Model
 
+The [CLI-agent contract](agent-contract.md) versions protocol compatibility and
+required capabilities independently of the Core library release.
+
 An agent is a **plugin binary** that implements the development API for a specific service type. When the CLI needs to start a Go gRPC service, it spawns the `go-grpc` agent process, connects over gRPC, and calls `Runtime.Load() → Init() → Start()`.
 
 ```

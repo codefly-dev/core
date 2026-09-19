@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codefly-dev/core/agents/contract"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/stretchr/testify/require"
@@ -47,8 +48,14 @@ func TestAgentAcknowledgesInheritedContainerRecoveryOverGRPC(t *testing.T) {
 			defer cancel()
 			ctx = metadata.AppendToOutgoingContext(ctx, AuthMetadataKey, "recovery-test")
 			var headers metadata.MD
-			_, err = agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
+			info, err := agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
 			require.NoError(t, err)
+			require.NoError(t, contract.Check(info.GetContract(), contract.ContainerRecoveryScope))
+			require.NoError(t, contract.Check(info.GetContract(), "fixture-feature/v1"))
+			again, err := agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+			require.NoError(t, err)
+			require.Equal(t, info.GetContract().GetCapabilities(), again.GetContract().GetCapabilities())
+			require.ErrorContains(t, contract.Check(info.GetContract(), "unsupported/v1"), "does not implement required capability")
 			if valid {
 				require.Equal(t, []string{recoveryscope.Acknowledgement()}, headers.Get(recoveryscope.Header))
 			} else {

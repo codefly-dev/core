@@ -39,6 +39,7 @@ jobs:
           # Tag exactly the commit that passed CI, not whatever main has moved
           # on to since.
           ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
 
       - name: cut the tag declared by version/info.codefly.yaml
         env:
@@ -58,12 +59,23 @@ jobs:
           # practice (the module proxy caches them), and re-pointing one is how
           # a commit ends up carrying two versions — 80611ae already carries
           # both v0.3.21 and v0.3.24, which makes `git describe` ambiguous.
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
-            echo "${tag} already exists — bump version/info.codefly.yaml to release a change."
-            exit 0
+          python3 scripts/agent_contract_release.py --version "$version" > /tmp/agent-contract-release.md
+
+          if tagged_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null); then
+            if [ "$tagged_sha" != "$SHA" ]; then
+              echo "${tag} already exists — bump version/info.codefly.yaml to release a change."
+              exit 0
+            fi
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${tag}" \
+              -f sha="${SHA}"
+            echo "tagged ${SHA} as ${tag}"
           fi
 
-          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref="refs/tags/${tag}" \
-            -f sha="${SHA}"
-          echo "tagged ${SHA} as ${tag}"
+          # A retry after tagging must still publish the compatibility record.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            exit 0
+          fi
+          gh release create "$tag" agents/contract/contract.json \
+            --verify-tag --title "$tag" --notes-file /tmp/agent-contract-release.md
