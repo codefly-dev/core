@@ -406,7 +406,12 @@ func TestPreviousAdvertisementSchema(t *testing.T) {
 	descriptor := protodesc.ToFileDescriptorProto(agent.File_codefly_services_agent_v0_agent_proto)
 	for _, message := range descriptor.MessageType {
 		if message.GetName() == "AgentInformation" {
-			message.Field = message.Field[:len(message.Field)-1]
+			for i, field := range message.Field {
+				if field.GetName() == "effective_inputs_versions" {
+					message.Field = message.Field[:i]
+					break
+				}
+			}
 		}
 	}
 	descriptor.Service[0].Method = descriptor.Service[0].Method[1:]
@@ -415,7 +420,11 @@ func TestPreviousAdvertisementSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := &agent.AgentInformation{EffectiveInputsVersions: []uint32{1}, Validation: &agent.ValidationCapabilities{ArtifactBuild: &agent.ValidationOperationCapability{Supported: true}}}
+	original := &agent.AgentInformation{
+		EffectiveInputsVersions: []uint32{1},
+		Validation:              &agent.ValidationCapabilities{ArtifactBuild: &agent.ValidationOperationCapability{Supported: true}},
+		Contract:                &agent.AgentContract{ProtocolVersion: 1, Capabilities: []string{"container-recovery-scope/v1"}},
+	}
 	body, err := proto.Marshal(original)
 	if err != nil {
 		t.Fatal(err)
@@ -432,7 +441,7 @@ func TestPreviousAdvertisementSchema(t *testing.T) {
 	if err := proto.Unmarshal(body, roundtrip); err != nil {
 		t.Fatal(err)
 	}
-	if !proto.Equal(roundtrip.Validation, original.Validation) || len(roundtrip.EffectiveInputsVersions) != 0 {
+	if !proto.Equal(roundtrip.Validation, original.Validation) || len(roundtrip.EffectiveInputsVersions) != 0 || roundtrip.Contract != nil {
 		t.Fatal("additive advertisement broke previous schema")
 	}
 }

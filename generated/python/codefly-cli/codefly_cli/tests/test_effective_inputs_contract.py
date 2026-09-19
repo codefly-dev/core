@@ -8,6 +8,19 @@ from codefly.services.agent.v0 import agent_pb2, agent_pb2_grpc, inputs_pb2
 
 
 class EffectiveInputsContractTest(unittest.TestCase):
+    def test_go_agent_contract_wire(self):
+        wire = bytes.fromhex(
+            "62210801121b636f6e7461696e65722d7265636f766572792d73636f70652f76311802"
+        )
+        declaration = agent_pb2.AgentContract(
+            protocol_version=1,
+            startup_protocol_version=2,
+            capabilities=["container-recovery-scope/v1"],
+        )
+        message = agent_pb2.AgentInformation(contract=declaration)
+        self.assertEqual(message.SerializeToString(), wire)
+        self.assertEqual(agent_pb2.AgentInformation.FromString(wire), message)
+
     def test_published_runtime_requirements_api(self):
         self.assertEqual(agent_pb2.Runtime.NIX, 8)
         self.assertEqual(agent_pb2.Runtime.RUST, 9)

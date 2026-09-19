@@ -118,6 +118,9 @@ jobs:
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: agent contract release notes
+        run: python3 -m unittest discover -s scripts -p test_agent_contract_release.py
+
       - name: version/tag drift guard
         # version/info.codefly.yaml is embedded into the binary and gates every
         # package install through composition's minimum-codefly-version check,
@@ -200,6 +203,16 @@ jobs:
         # deterministic, adds uv to PATH. uv provisions its own Python on
         # demand, so no separate python setup is needed.
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+
+      - name: Python agent contract SDK
+        env:
+          PYTHONPATH: generated/python/codefly-cli/codefly_cli
+        run: >-
+          uv run --no-project --with protobuf==7.36.1 --with grpcio==1.83.1
+          --with googleapis-common-protos==1.75.3
+          python -m unittest discover
+          -s generated/python/codefly-cli/codefly_cli/tests
+          -p test_effective_inputs_contract.py
 
       - name: Install Nix
         # Strict — nix is core to the platform; if it doesn't install,

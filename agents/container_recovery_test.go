@@ -3,7 +3,6 @@ package agents
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codefly-dev/core/agents/contract"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/runners/recoveryscope"
 	"github.com/stretchr/testify/require"
@@ -25,14 +25,24 @@ func TestAgentAcknowledgesInheritedContainerRecoveryOverGRPC(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	scope := recoveryscope.Marker(os.Getpid(), strings.Repeat("a", 64), strings.Repeat("b", 64))
 	t.Setenv(recoveryscope.EnvironmentVariable, scope)
-	for _, valid := range []bool{true, false} {
-		t.Run(fmt.Sprint(valid), func(t *testing.T) {
+	for _, tc := range []struct {
+		name, declaration, wantError string
+		invalidScope                 bool
+	}{
+		{name: "default server declaration", declaration: "absent"},
+		{name: "explicit declaration"},
+		{name: "invalid scope", invalidScope: true},
+		{name: "future declaration is preserved", declaration: "future", wantError: "host requires version 1"},
+		{name: "zero declaration is preserved", declaration: "undeclared", wantError: "does not declare"},
+		{name: "missing recovery is preserved", declaration: "no-recovery", wantError: "does not implement required capability"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			marker := scope
-			if !valid {
+			if tc.invalidScope {
 				marker = "0:invalid"
 			}
 			command := exec.Command(binary)
-			command.Env = append(os.Environ(), "CODEFLY_AGENT_TOKEN=recovery-test", "CODEFLY_AGENT_UDS_PATH=", recoveryscope.EnvironmentVariable+"="+marker)
+			command.Env = append(os.Environ(), "CODEFLY_AGENT_TOKEN=recovery-test", "CODEFLY_AGENT_UDS_PATH=", recoveryscope.EnvironmentVariable+"="+marker, "TEST_AGENT_CONTRACT="+tc.declaration)
 			stdout, err := command.StdoutPipe()
 			require.NoError(t, err)
 			var stderr bytes.Buffer
@@ -47,9 +57,22 @@ func TestAgentAcknowledgesInheritedContainerRecoveryOverGRPC(t *testing.T) {
 			defer cancel()
 			ctx = metadata.AppendToOutgoingContext(ctx, AuthMetadataKey, "recovery-test")
 			var headers metadata.MD
-			_, err = agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
+			info, err := agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
 			require.NoError(t, err)
-			if valid {
+			checkErr := contract.Check(info.GetContract(), contract.ContainerRecoveryScope)
+			if tc.wantError == "" {
+				require.NoError(t, checkErr)
+			} else {
+				require.ErrorContains(t, checkErr, tc.wantError)
+			}
+			if tc.declaration != "absent" {
+				require.Contains(t, info.GetContract().GetCapabilities(), "fixture-feature/v1")
+			}
+			again, err := agentv0.NewAgentClient(conn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+			require.NoError(t, err)
+			require.Equal(t, info.GetContract().GetCapabilities(), again.GetContract().GetCapabilities())
+
+			if !tc.invalidScope {
 				require.Equal(t, []string{recoveryscope.Acknowledgement()}, headers.Get(recoveryscope.Header))
 			} else {
 				require.Empty(t, headers.Get(recoveryscope.Header))

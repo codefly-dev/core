@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/manager"
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/failures"
@@ -417,6 +418,9 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot get agent information: %v", service.Agent)
 	}
+	if err := contract.Check(info.GetContract()); err != nil {
+		return nil, w.Wrapf(err, "incompatible agent: %v", service.Agent)
+	}
 
 	instance.Capabilities = info.Capabilities
 	instance.Info = info
@@ -491,6 +495,29 @@ func (instance *Instance) CheckCapabilities(capability agentv0.Capability_Type) 
 		}
 	}
 	return fmt.Errorf("missing capability %v", capability)
+}
+
+func (instance *Instance) RequireAgentCapabilities(required ...string) error {
+	if err := contract.Check(instance.Info.GetContract(), required...); err != nil {
+		return fmt.Errorf("agent for %s: %w", instance.Unique(), err)
+	}
+	return nil
+}
+
+// RequireContainerRecoveryScope checks support before checking this run's
+// acknowledgement. The expected identity belongs to the flow, not the current
+// process environment, which another concurrent flow can overwrite.
+func (instance *Instance) RequireContainerRecoveryScope(expected string) error {
+	if err := instance.RequireAgentCapabilities(contract.ContainerRecoveryScope); err != nil {
+		return err
+	}
+	if expected == "" {
+		return fmt.Errorf("container recovery requires a resolved scope for %s", instance.Unique())
+	}
+	if instance.ContainerRecoveryScope != expected {
+		return fmt.Errorf("agent for %s implements %s but did not acknowledge this run's container recovery scope", instance.Unique(), contract.ContainerRecoveryScope)
+	}
+	return nil
 }
 
 func (instance *Instance) WithWorkspace(workspace *resources.Workspace) {
