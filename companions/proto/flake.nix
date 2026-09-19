@@ -84,6 +84,23 @@
           meta.mainProgram = "protoc-gen-es";
         };
 
+        # The compiler's embedded WKTs must match the Go runtime, just as in
+        # the Dockerfile and Makefile. The locked nixpkgs buf is older; override
+        # only this package rather than moving every tool in the companion.
+        pinnedBuf = (pkgs.buf.override {
+          # buf 1.73 requires Go >= 1.26.7; nixpkgs' default builder is 1.26.5.
+          buildGoModule = pkgs.buildGo127Module;
+        }).overrideAttrs (finalAttrs: _: {
+          version = "1.73.0";
+          src = pkgs.fetchFromGitHub {
+            owner = "bufbuild";
+            repo = "buf";
+            tag = "v${finalAttrs.version}";
+            hash = "sha256-L4d37MQL2pVpt8nV8lxWlUYqxCAkl9KRz2hmJNuOu+o=";
+          };
+          vendorHash = "sha256-3ijHv25dS62wzqw+yPxlsZ34GALNIf3Azdjm9hVenW8=";
+        });
+
         # The other two TypeScript generators — openapi-typescript and
         # swagger2openapi — pinned by ./ts-generators (package.json +
         # package-lock.json) and built with buildNpmPackage, the
@@ -171,7 +188,7 @@
         # (apk → nixpkgs).
         protoTools = with pkgs; [
           # Core build chain
-          buf
+          pinnedBuf
           protobuf
           # gRPC-Gateway plugins (built into nixpkgs as separate
           # packages; the Dockerfile builds these from source via
@@ -261,6 +278,7 @@
         packages = {
           default = dockerImage;
           inherit dockerImage streamDockerImage;
+          buf = pinnedBuf;
         };
 
         # Dev shell agents use to run buf etc. interactively. Same
