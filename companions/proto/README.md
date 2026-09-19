@@ -71,6 +71,23 @@ needs no Linux builder VM, which is why the publish workflow uses it.
 | `grpcio-tools` (python)       | `grpc_python_plugin` for Python bindings |
 | `node` + `npm`                | TypeScript generators                    |
 
+## Generation ends with a formatting pass
+
+`buf generate` is not the last step. The Go the plugins emit differs from the
+Go every consumer commits: protoc-gen-go leaves the stdlib imports sorted in
+among the third-party ones, and protoc-gen-grpc-gateway imports a sibling
+package by bare path even when that package's name is not its path's last
+element. Consumers run goimports over that and gate their checked-in bindings
+on the result — the stdlib group split off, the alias added.
+
+So the companion runs `goimports -w` itself, inside the image, over every
+output directory the template declares that holds Go
+(`companions/proto.FormatGoOutputs`). Its output is the committed shape, and a
+consumer needs nothing on the host to reproduce a clean tree. goimports is
+pinned in both build definitions like a plugin, because a formatter that moves
+moves every consumer's tree; `TestDockerfilePinsGoimports` and
+`TestFlakePinsGoimports` hold the two to the same version.
+
 ## Versioning
 
 `info.codefly.yaml` carries the image version (`0.0.10` at time of
