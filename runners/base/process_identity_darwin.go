@@ -17,6 +17,14 @@ import (
 
 var errProcessNotFound = errors.New("process not found")
 
+func processStartUnixSeconds(pid int) (int64, error) {
+	info, err := readDarwinProcessInfo(pid)
+	if err != nil {
+		return 0, err
+	}
+	return info.Proc.P_starttime.Sec, nil
+}
+
 type processIdentity struct {
 	pid        int
 	pgid       int

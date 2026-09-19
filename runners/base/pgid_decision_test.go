@@ -43,7 +43,12 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 		signal.Ignore(syscall.SIGTERM)
 		writeTestFile(t, os.Getenv(processGroupReadyFileEnv), "ready")
 		select {}
-	case "owner", "stubborn-owner":
+	case "owner", "stubborn-owner", "live-owner":
+		var stopping chan os.Signal
+		if os.Getenv(processGroupRoleEnv) == "live-owner" {
+			stopping = armTerminationSignal()
+			defer signal.Stop(stopping)
+		}
 		leaderRole := "member"
 		if os.Getenv(processGroupRoleEnv) == "stubborn-owner" {
 			leaderRole = "ignores-term"
@@ -56,6 +61,11 @@ func TestProcessGroupRegistryHelper(t *testing.T) {
 		pid := leader.Process.Pid
 		writeTestFile(t, os.Getenv(processGroupPIDFileEnv), strconv.Itoa(pid))
 		waitForTestFile(t, os.Getenv(processGroupReadyFileEnv))
+		if os.Getenv(processGroupRoleEnv) == "live-owner" {
+			<-stopping
+			_ = leader.Process.Kill()
+			_ = leader.Wait()
+		}
 	case "leaderless-owner":
 		leader := registryHelperCommand("leader-with-member")
 		leader.Env = append(leader.Env,

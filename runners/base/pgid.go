@@ -98,10 +98,10 @@ const (
 	groupAuthBytes    = 32
 	groupAuthEnv      = "CODEFLY_PROCESS_GROUP_AUTH"
 	// legacyStartCorroborationSkew bounds how far a legacy record's recorded
-	// spawn second may differ from the live leader's start second. A genuine
-	// leader can read a second earlier or later because its start time is
-	// derived from boot time and start ticks; a recycled pgid's leader falls
-	// outside this window.
+	// spawn second may trail the live leader's start second. This only permits
+	// an earlier leader: a later start may be a recycled pgid, even within one
+	// second. Live owners get the same uncertainty allowance toward preserving
+	// their groups, never toward authorizing termination.
 	legacyStartCorroborationSkew int64 = 5
 )
 
@@ -1140,31 +1140,29 @@ func reconcileLegacyRecord(ctx context.Context, path, name string, pgid int) (le
 
 // legacyOwnerAlive reports whether the recorded owner is still the process that
 // spawned the group. A genuine owner forked the leader and stamped `started`
-// just after, so it cannot be younger than the record. A live PID that
-// post-dates the record is a recycled PID, not the original owner — the group
-// is orphaned and eligible for reaping. The legacy format carries no owner boot
-// or start identity, so this second-granularity start comparison is the only
-// available discriminator; it errs toward preserving (treating an ambiguous
-// same-second PID as the live owner) rather than risking a live managed group.
+// just after. The legacy format carries no owner boot or start identity, and
+// clock corrections can move the observed start past the recorded second.
+// Preserve a live owner within the uncertainty window; only a later start
+// beyond it is evidence of a recycled owner PID.
 func legacyOwnerAlive(parent int, started int64) (bool, error) {
 	if parent <= 0 {
 		return false, nil
 	}
 	startSecond, err := processStartUnixSeconds(parent)
 	if err != nil {
-		if errors.Is(err, process.ErrorProcessNotRunning) {
+		if errors.Is(err, errProcessNotFound) {
 			return false, nil
 		}
 		return false, err
 	}
-	return startSecond <= started, nil
+	return startSecond <= started || startSecond-started <= legacyStartCorroborationSkew, nil
 }
 
 // legacyLeaderCorroborates authenticates a legacy record — which predates the
 // authentication token — by matching the live leader's wall-clock start second
-// against the record's spawn second, within legacyStartCorroborationSkew either
-// way. A recycled pgid's leader starts far later than the record and falls
-// outside that window. leader must be the process whose PID equals the recorded
+// against the record's spawn second. A leader observed after that second may
+// be a recycled pgid, however small the difference, so it cannot authorize
+// termination. leader must be the process whose PID equals the recorded
 // pgid; a group whose leader has exited (only descendants survive) cannot be
 // corroborated and is never signaled.
 func legacyLeaderCorroborates(leader processIdentity, started int64) (bool, error) {
@@ -1173,28 +1171,12 @@ func legacyLeaderCorroborates(leader processIdentity, started int64) (bool, erro
 	}
 	startSecond, err := processStartUnixSeconds(leader.pid)
 	if err != nil {
-		if errors.Is(err, process.ErrorProcessNotRunning) {
+		if errors.Is(err, errProcessNotFound) {
 			return false, nil
 		}
 		return false, err
 	}
-	drift := started - startSecond
-	if drift < 0 {
-		drift = -drift
-	}
-	return drift <= legacyStartCorroborationSkew, nil
-}
-
-func processStartUnixSeconds(pid int) (int64, error) {
-	proc, err := process.NewProcess(int32(pid))
-	if err != nil {
-		return 0, err
-	}
-	createdMillis, err := proc.CreateTime()
-	if err != nil {
-		return 0, err
-	}
-	return createdMillis / 1000, nil
+	return startSecond <= started && started-startSecond <= legacyStartCorroborationSkew, nil
 }
 
 func terminateLegacyGroup(ctx context.Context, pgid int, started int64) error {
