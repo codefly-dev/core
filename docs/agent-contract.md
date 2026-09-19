@@ -31,9 +31,11 @@ ownership labels on containers created through Core's Docker runner. See
 `runners/recoveryscope` and `runners/dockerrun` for the marker and label formats.
 An implementation must provide all three behaviors before advertising it.
 
-`agents.Serve` owns this implementation and stamps its protocol generation and
-capability into successful discovery responses, preserving plugin-defined
-extra capabilities. It advertises support even when this particular process
+`agents.Serve` supplies its implementation's contract only when a handler
+leaves the contract absent. An explicit declaration is authoritative, including
+its protocol version and omitted capabilities. Plugins extending the shared
+contract can start from `contract.Current()` and add their own capabilities.
+The shared implementation advertises support even when this particular process
 received no valid scope. Handwritten servers must declare their own contract
 and implement the behavior; importing the generated types alone promises
 nothing.

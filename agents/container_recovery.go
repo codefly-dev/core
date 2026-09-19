@@ -24,9 +24,9 @@ func containerRecoveryInterceptor() grpc.UnaryServerInterceptor {
 		if err == nil && info.FullMethod == agentv0.Agent_GetAgentInformation_FullMethodName {
 			// Agent handlers may return shared metadata across concurrent calls.
 			advertisement := proto.Clone(response.(*agentv0.AgentInformation)).(*agentv0.AgentInformation)
-			capabilities := advertisement.GetContract().GetCapabilities()
-			advertisement.Contract = contract.Current()
-			advertisement.Contract.Capabilities = append(advertisement.Contract.Capabilities, capabilities...)
+			if advertisement.Contract == nil {
+				advertisement.Contract = contract.Current()
+			}
 			return advertisement, nil
 		}
 		return response, err
