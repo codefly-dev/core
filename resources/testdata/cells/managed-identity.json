@@ -18,7 +18,7 @@
       "password_auth": false,
       "transport": {
         "mode": "proxy",
-        "image": "us-central1-docker.pkg.dev/obinh-usc1/images/db-proxy:1.33.9",
+        "image": "us-central1-docker.pkg.dev/obinh-usc1/images/db-proxy@sha256:a8e9fa7c7344e1e4907354c9c59b08f758b881a26e5e17c51f179f2505f530f0",
         "args": ["--private-ip", "--auto-iam-authn", "obinh-usc1:us-central1:platform"],
         "local_port": 5432
       },
