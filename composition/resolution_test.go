@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -65,6 +66,36 @@ func TestCompositionRequiresActualHostVersionInsteadOfLinkedCore(t *testing.T) {
 	_, err := registry.engine.Update(t.Context(), dir, selection.Version, true)
 	require.ErrorContains(t, err, "host tool version is required")
 	require.NoFileExists(t, filepath.Join(dir, LockFileName))
+}
+
+func TestConcurrentUpdatesRejectStaleQualifiedBaseline(t *testing.T) {
+	r := newSelectionRegistry(t)
+	t.Cleanup(func() { require.NoError(t, removeCacheTree(r.engine.ProjectRoot)) })
+	r.engine.ToolVersion = "1.0.0"
+	barrier := t.TempDir()
+	entered, release := filepath.Join(barrier, "entered"), filepath.Join(barrier, "release")
+	manifest := selectionManifest("example/concurrent", "1.0.0")
+	manifest.Contracts[ContractComposition] = "2.0"
+	manifest.Generators = []PackageCommand{{Name: "wait", Command: []string{"sh", "-c", fmt.Sprintf("touch %q; while [ ! -f %q ]; do sleep 0.01; done", entered, release)}}}
+	first := r.publish(t, manifest)
+	manifest.Version = "1.1.0"
+	manifest.Generators = nil
+	second := r.publish(t, manifest)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, DescriptorFileName), "kind: composed-module\nname: consumer\nbase:\n  id: example/concurrent\n  version: '^1.0.0'\n")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := r.engine.Update(ctx, dir, first.Version, true); done <- err }()
+	t.Cleanup(func() { writeFile(t, release, "") })
+	require.Eventually(t, func() bool { _, err := os.Stat(entered); return err == nil }, 5*time.Second, 10*time.Millisecond)
+	result, err := r.engine.Update(ctx, dir, second.Version, true)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	completed := readFile(t, filepath.Join(dir, LockFileName))
+	writeFile(t, release, "")
+	require.ErrorContains(t, <-done, "module lock changed during qualification")
+	require.Equal(t, completed, readFile(t, filepath.Join(dir, LockFileName)))
 }
 
 func TestCompositionToolRequirementUsesHostVersionIndependentlyOfCore(t *testing.T) {
@@ -409,6 +440,67 @@ func TestConfigurationIdentityDoesNotExposeSecretValues(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestProductInputsInvalidateDeploymentQualification(t *testing.T) {
+	for _, change := range []string{"binding", "removed suite", "command", "edited file", "deleted file", "renamed file"} {
+		t.Run(change, func(t *testing.T) {
+			f := nestedSelectionFixture(t, "lifecycle")
+			f.options.ProductRoot = t.TempDir()
+			input := filepath.Join(f.options.ProductRoot, "tests", "input.txt")
+			writeFile(t, input, "original")
+			f.descriptor.Contributions.Tests = []IntegrationContribution{{Path: "tests", Command: []string{"go", "test", "./..."}}}
+			f.descriptor.Bindings = []Binding{{Plugin: "frontend", Alias: "store", Target: BindingTarget{Module: "saas", Service: "store"}}}
+			before, err := f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
+			require.NoError(t, err)
+			record, err := f.registry.engine.CheckDeploymentInputs(t.Context(), before, runtimeInputs())
+			require.NoError(t, err)
+			now := time.Now()
+			statement, err := json.Marshal(Qualification{Schema: "codefly/deployment-qualification/v1", SelectionIdentity: before.Identity(), RuntimeIdentity: record.RuntimeIdentity, BindingIdentity: record.BindingIdentity, Kind: "functional", Signer: "reviewer", ExpiresAt: now.Add(time.Hour)})
+			require.NoError(t, err)
+			policy := DeploymentPolicy{RequiredQualifications: []string{"functional"}, QualificationSigners: map[string]map[string]ed25519.PublicKey{"functional": {"reviewer": f.registry.key.Public().(ed25519.PublicKey)}}}
+			switch change {
+			case "binding":
+				f.descriptor.Bindings[0].Target.Module = "documents"
+			case "removed suite":
+				f.descriptor.Contributions.Tests = nil
+			case "command":
+				f.descriptor.Contributions.Tests[0].Command[0] = "different-runner"
+			case "edited file":
+				writeFile(t, input, "edited")
+			case "deleted file":
+				require.NoError(t, os.Remove(input))
+			case "renamed file":
+				require.NoError(t, os.Rename(input, input+".renamed"))
+			}
+			after, err := f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
+			require.NoError(t, err)
+			require.NotEqual(t, before.Identity(), after.Identity())
+			inputs := runtimeInputs()
+			inputs.Qualifications = []SignedQualification{{Statement: statement, Signature: ed25519.Sign(f.registry.key, statement)}}
+			_, err = f.registry.engine.AdmitDeployment(t.Context(), after, inputs, policy, now)
+			require.ErrorContains(t, err, "different inputs")
+			if strings.HasSuffix(change, "file") {
+				_, err = f.registry.engine.CheckDeploymentInputs(t.Context(), before, runtimeInputs())
+				require.ErrorIs(t, err, ErrDigestMismatch)
+			} else {
+				require.NoError(t, before.CheckLocalInputs(), "resolved descriptor must not alias the caller")
+			}
+		})
+	}
+}
+
+func TestProductContributionsRequireActualFiles(t *testing.T) {
+	f := nestedSelectionFixture(t, "lifecycle")
+	f.descriptor.Contributions.Tests = []IntegrationContribution{{Path: "tests", Command: []string{"go", "test"}}}
+	_, err := f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
+	require.ErrorContains(t, err, "absolute product root")
+	f.options.ProductRoot = t.TempDir()
+	_, err = f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.NoError(t, os.Symlink(t.TempDir(), filepath.Join(f.options.ProductRoot, "tests")))
+	_, err = f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
+	require.ErrorContains(t, err, "symlink")
+}
+
 func TestDerivedOutputsRequireOwnerAuthorizedExactBuildInputs(t *testing.T) {
 	f := nestedSelectionFixture(t, "build")
 	f.descriptor.Replacements = []Replacement{{Target: "modules/saas/services/store/agent", Release: f.newAgent, Rationale: "new compiler"}}
@@ -482,6 +574,11 @@ func TestUpstreamCatchUpRequiresFullResolutionAndPreservesRequirements(t *testin
 	require.Empty(t, proposal.Descriptor.Replacements)
 	require.Len(t, f.descriptor.Replacements, 1)
 	require.NotEqual(t, previous.Identity(), proposal.WithoutOverrideIdentity)
+	f.descriptor.Replacements[0].Requirements = map[string]string{"configuration": "^1.0.0"}
+	proposal, err = f.registry.engine.ProposeOverrideRemoval(ctx, previous, f.descriptor, newRoot, f.options, target)
+	require.NoError(t, err, "repeating an inherited requirement does not change effective constraints")
+	require.Empty(t, proposal.Descriptor.Replacements)
+	require.Equal(t, "^1.0.0", f.descriptor.Replacements[0].Requirements["configuration"])
 	f.descriptor.Replacements[0].Requirements = map[string]string{"configuration": "1.0.0"}
 	_, err = f.registry.engine.ProposeOverrideRemoval(ctx, previous, f.descriptor, newRoot, f.options, target)
 	require.ErrorContains(t, err, "not equivalent")

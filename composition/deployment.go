@@ -103,6 +103,9 @@ func (engine *Engine) CheckDeploymentInputs(ctx context.Context, resolved *Resol
 	if len(resolved.local) != 0 {
 		return nil, errors.New("local development substitutions cannot be deployed, regardless of Git state")
 	}
+	if err := resolved.checkProductInputs(); err != nil {
+		return nil, err
+	}
 	for _, component := range resolved.record.Components {
 		if _, err := verifyMetadata(resolved.metadata[component.Target].attestation, component.Selected, engine.Trust); err != nil {
 			return nil, fmt.Errorf("%s: recheck release authority: %w", component.Target, err)

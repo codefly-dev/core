@@ -27,6 +27,7 @@ type ArtifactRequest struct {
 }
 
 type ResolutionOptions struct {
+	ProductRoot           string
 	ConfigurationIdentity string
 	LocalCheckouts        map[string]string
 	SourceBuilds          []string
@@ -58,6 +59,7 @@ type ResolutionRecord struct {
 	Schema                string                `json:"schema"`
 	Product               string                `json:"product"`
 	ConfigurationIdentity string                `json:"configurationIdentity"`
+	ProductInputIdentity  string                `json:"productInputIdentity"`
 	Components            []ResolvedComponent   `json:"components"`
 	Differences           []SelectionDifference `json:"differences,omitempty"`
 	Acquisitions          []Acquisition         `json:"acquisitions,omitempty"`
@@ -73,10 +75,12 @@ type BuildRequirement struct {
 }
 
 type ResolvedComposition struct {
-	record   ResolutionRecord
-	identity string
-	local    map[string]string
-	metadata map[string]*verifiedMetadata
+	record            ResolutionRecord
+	identity          string
+	local             map[string]string
+	metadata          map[string]*verifiedMetadata
+	productRoot       string
+	productDescriptor *Descriptor
 }
 
 func (resolved *ResolvedComposition) Identity() string { return resolved.identity }
@@ -115,6 +119,25 @@ func (engine *Engine) ResolveComposition(ctx context.Context, descriptor *Descri
 	resolved := &ResolvedComposition{
 		record: ResolutionRecord{Schema: "codefly/composition-selection/v1", Product: descriptor.Name, ConfigurationIdentity: options.ConfigurationIdentity},
 		local:  make(map[string]string), metadata: make(map[string]*verifiedMetadata),
+	}
+	product := *descriptor
+	product.Modules, product.Services, product.Replacements = ModuleInstances{}, Services{}, nil
+	data, err := json.Marshal(product)
+	if err != nil {
+		return nil, err
+	}
+	product = Descriptor{}
+	if err := json.Unmarshal(data, &product); err != nil {
+		return nil, err
+	}
+	slices.SortFunc(product.Bindings, func(a, b Binding) int { return strings.Compare(a.Plugin+"/"+a.Alias, b.Plugin+"/"+b.Alias) })
+	if len(contributionPaths(&product)) > 0 && !filepath.IsAbs(options.ProductRoot) {
+		return nil, errors.New("product contributions require an absolute product root")
+	}
+	resolved.productRoot, resolved.productDescriptor = options.ProductRoot, &product
+	resolved.record.ProductInputIdentity, err = CompositionDigest(options.ProductRoot, &product)
+	if err != nil {
+		return nil, err
 	}
 	replacements := make(map[string]Replacement)
 	for _, replacement := range descriptor.Replacements {
@@ -326,11 +349,14 @@ func (engine *Engine) ResolveComposition(ctx context.Context, descriptor *Descri
 		}
 		return left.ReplacesArtifact < right.ReplacesArtifact
 	})
-	data, err := json.Marshal(resolved.record)
+	data, err = json.Marshal(resolved.record)
 	if err != nil {
 		return nil, err
 	}
 	resolved.identity = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+	if err := resolved.CheckLocalInputs(); err != nil {
+		return nil, err
+	}
 	return resolved, nil
 }
 

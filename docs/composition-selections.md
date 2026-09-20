@@ -73,6 +73,11 @@ The immutable resolved value exports a defensive-copy `ResolutionRecord` and
 one deterministic identity. It includes original and selected releases, owner
 provenance, inherited/additional requirements, selected services, local content,
 acquisitions, build inputs, differences and a protected configuration identity.
+It also binds product contributions, test commands and service bindings through
+`ProductInputIdentity`. Products with contributions must supply an absolute
+`ResolutionOptions.ProductRoot`; contribution bytes, names and executable modes
+are hashed, including test inputs. Resolution and deployment admission reject
+input drift. No product checkout is needed when no contributions are declared.
 `ConfigurationIdentity` uses HMAC-SHA-256 with a caller-owned 256-bit minimum key;
 the key is neither stored nor returned. Keep that key stable and private across
 resolutions. Deployment target bindings are identified separately.
@@ -111,6 +116,8 @@ with and without a replacement and compares effective inputs. Moved targets,
 changed requirements and different artifacts prevent removal. Its result is a
 proposal, not a mutation or deployment approval; the new full selection needs
 its own compatibility checks and qualification.
+Repeated inherited requirements do not prevent removal: equivalence compares
+deduplicated effective constraints, while the record retains their provenance.
 
 ## Consumer contract evidence
 
@@ -120,6 +127,10 @@ signers. The statement binds the instance, actual composition digest, complete
 usage and expiry. Updating a module verifies both the usage statement and the
 actual signed baseline/candidate before executing candidate generators. Changing
 consumer inputs during tests prevents projection/lock publication.
+Update and rollback publication serialize on the module lock and compare the
+current selection with the baseline observed before qualification. A competing
+commit invalidates a stale operation instead of allowing it to overwrite the
+new selection. The operation must resolve and qualify again.
 
 `BuildPackageContractEvidence` derives canonical source bytes alongside the
 existing snapshots. `PrepareReleaseDiffWithSources` and

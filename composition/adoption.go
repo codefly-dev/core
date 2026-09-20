@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 type UpstreamAdoption struct {
@@ -84,16 +86,37 @@ func (engine *Engine) ProposeOverrideRemoval(ctx context.Context, previous *Reso
 
 func effectiveSelectionIdentity(record ResolutionRecord) string {
 	record.Differences = nil
+	requirements := make([]map[string][]string, len(record.Components))
 	for index := range record.Components {
-		record.Components[index].Inherited = ReleaseSelection{}
-		record.Components[index].DefaultOwner = ReleaseSelection{}
+		component := &record.Components[index]
+		required := make(map[string][]string)
+		for _, declarations := range []map[string]string{component.Requirements, component.AdditionalRequirements} {
+			for name, value := range declarations {
+				constraint, _ := semver.NewConstraint(value)
+				required[name] = append(required[name], constraint.String())
+			}
+		}
+		for name, constraints := range required {
+			slices.Sort(constraints)
+			required[name] = slices.Compact(constraints)
+		}
+		requirements[index] = required
+		component.Requirements, component.AdditionalRequirements = nil, nil
+		component.Inherited = ReleaseSelection{}
+		component.DefaultOwner = ReleaseSelection{}
 	}
-	return structuredIdentity(record)
+	return structuredIdentity(struct {
+		Record       ResolutionRecord
+		Requirements []map[string][]string
+	}{record, requirements})
 }
 
 func (resolved *ResolvedComposition) CheckLocalInputs() error {
 	if resolved == nil || resolved.identity == "" {
 		return errors.New("resolved composition is required")
+	}
+	if err := resolved.checkProductInputs(); err != nil {
+		return err
 	}
 	for _, component := range resolved.record.Components {
 		source, local := resolved.local[component.Target]
@@ -107,6 +130,17 @@ func (resolved *ResolvedComposition) CheckLocalInputs() error {
 		if digest != component.LocalContent {
 			return fmt.Errorf("%w: local content for %s changed after resolution", ErrDigestMismatch, component.Target)
 		}
+	}
+	return nil
+}
+
+func (resolved *ResolvedComposition) checkProductInputs() error {
+	digest, err := CompositionDigest(resolved.productRoot, resolved.productDescriptor)
+	if err != nil {
+		return err
+	}
+	if digest != resolved.record.ProductInputIdentity {
+		return fmt.Errorf("%w: product contributions changed after resolution", ErrDigestMismatch)
 	}
 	return nil
 }

@@ -215,15 +215,10 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	if !apply || len(report.BlockedReasons) > 0 {
 		return result, nil
 	}
-	if err := promoteProjection(ctx, staging, namespace.ProjectionDir, candidate); err != nil {
+	if err := commitModuleLock(ctx, moduleDir, current, candidate, func() error {
+		return promoteProjection(ctx, staging, namespace.ProjectionDir, candidate)
+	}); err != nil {
 		return nil, err
-	}
-	lockData, err := MarshalLock(candidate)
-	if err != nil {
-		return nil, err
-	}
-	if err := shared.WriteFileAtomic(ctx, filepath.Join(moduleDir, LockFileName), lockData, 0o644); err != nil {
-		return nil, fmt.Errorf("atomically update module lock: %w", err)
 	}
 	result.Applied = true
 	return result, nil
@@ -439,6 +434,10 @@ func (engine *Engine) Source(ctx context.Context, moduleDir string, options Mate
 }
 
 func (engine *Engine) Rollback(ctx context.Context, moduleDir string, priorLock []byte) (*Materialization, error) {
+	current, err := loadOptionalLock(moduleDir)
+	if err != nil {
+		return nil, err
+	}
 	lock, err := ParseLock(priorLock)
 	if err != nil {
 		return nil, err
@@ -474,14 +473,53 @@ func (engine *Engine) Rollback(ctx context.Context, moduleDir string, priorLock 
 	if err != nil {
 		return nil, err
 	}
-	canonical, err := MarshalLock(lock)
-	if err != nil {
-		return nil, err
-	}
-	if err := shared.WriteFileAtomic(ctx, filepath.Join(moduleDir, LockFileName), canonical, 0o644); err != nil {
+	if err := commitModuleLock(ctx, moduleDir, current, lock, nil); err != nil {
 		return nil, err
 	}
 	return materialized, nil
+}
+
+func commitModuleLock(ctx context.Context, moduleDir string, expected, next *Lock, activate func() error) (returnErr error) {
+	data, err := MarshalLock(next)
+	if err != nil {
+		return err
+	}
+	lock := flock.New(filepath.Join(moduleDir, "."+LockFileName+".update.lock"), flock.SetPermissions(0o600))
+	defer func() { returnErr = errors.Join(returnErr, lock.Close()) }()
+	locked, err := lock.TryLockContext(ctx, 10*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("module update lock was not acquired")
+	}
+	current, err := loadOptionalLock(moduleDir)
+	if err != nil {
+		return err
+	}
+	if (current == nil) != (expected == nil) || (current != nil && !locksEqual(current, expected)) {
+		return errors.New("module lock changed during qualification; resolve and qualify against the current selection")
+	}
+	descriptor, err := LoadDescriptor(moduleDir)
+	if err != nil {
+		return err
+	}
+	digest, err := CompositionDigest(moduleDir, descriptor)
+	if err != nil {
+		return err
+	}
+	if digest != next.CompositionDigest {
+		return errors.New("composition inputs changed during qualification")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if activate != nil {
+		if err := activate(); err != nil {
+			return err
+		}
+	}
+	return shared.WriteFileAtomic(ctx, filepath.Join(moduleDir, LockFileName), data, 0o644)
 }
 
 func (engine *Engine) resolveMaterializationSource(ctx context.Context, descriptor *Descriptor, lock *Lock, namespace string, ci bool) (*resolvedMaterializationSource, error) {

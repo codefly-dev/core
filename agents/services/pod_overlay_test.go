@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -893,4 +894,64 @@ func TestProjectWorkloadIdentitySerializesConflictingWriters(t *testing.T) {
 	annotations := mappingChild(mappingChild(account.Content[0], "metadata"), "annotations")
 	labels := mappingChild(mappingChild(workloadPodTemplate(workload.Content[0]), "metadata"), "labels")
 	require.Equal(t, mappingScalar(annotations, "identity.example/principal"), mappingScalar(labels, "identity.example/principal"))
+}
+
+func TestProjectWorkloadIdentityCancellationAtPublicationIsAtomic(t *testing.T) {
+	dir := t.TempDir()
+	var kustomization strings.Builder
+	kustomization.WriteString("resources:\n")
+	const count = 150
+	for i := 0; i < count; i++ {
+		name := fmt.Sprintf("%04d.yaml", i)
+		fmt.Fprintf(&kustomization, "- %s\n", name)
+		body := fmt.Sprintf("apiVersion: v1\nkind: Pod\nmetadata:\n  name: pod-%d\n  namespace: app\nspec:\n  containers:\n  - name: app\n    image: example:1\n", i)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte(kustomization.String()), 0o600))
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			data, _ := os.ReadFile(filepath.Join(dir, "0000.yaml"))
+			if strings.Contains(string(data), "serviceAccountName:") {
+				cancel()
+				return
+			}
+			time.Sleep(100 * time.Microsecond)
+		}
+	}()
+	err := ProjectWorkloadIdentity(ctx, dir, "app", "identity", declaredIdentity())
+	cancel()
+	<-done
+	require.NoError(t, err, "an observed published workload must mean the entire tree committed")
+	for i := 0; i < count; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("%04d.yaml", i))
+		data, err := os.ReadFile(name)
+		require.NoError(t, err)
+		require.Contains(t, string(data), "serviceAccountName: identity")
+		info, err := os.Stat(name)
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
+	require.FileExists(t, filepath.Join(dir, "serviceaccount.yaml"))
+	data, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "serviceaccount.yaml")
+}
+
+func TestWorkloadTreeExchangeFailurePreservesDestination(t *testing.T) {
+	dir := renderedWorkloadTree(t)
+	before, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	require.Error(t, exchangeWorkloadTree(filepath.Join(t.TempDir(), "absent"), dir))
+	after, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, before, after)
 }

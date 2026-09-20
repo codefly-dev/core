@@ -46,3 +46,9 @@ and implicit delivery paths are removed. The producer must emit the resolved
 Codefly environment directly, and the CLI import fixtures must move with it.
 No compatibility shim reads infra-base's private format. Producers and CLI must
 qualify against the published Core contract before release.
+
+Workload identity projection validates a staged manifest tree and atomically
+exchanges it with the destination on Linux and macOS. Cancellation before the
+exchange leaves the destination unchanged; after publication the complete tree
+is committed. Filesystems without atomic directory exchange fail without a
+per-file publication fallback. Existing file and directory permissions survive.

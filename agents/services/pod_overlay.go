@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/shared"
 	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
 	"sigs.k8s.io/kustomize/api/krusty"
@@ -144,6 +143,8 @@ func (o *PodTemplateOverlay) AttachWorkloadIdentity(identity *resources.Environm
 // leaves the pods on the namespace default, where token minting has no identity:
 // the deploy reports success and the connection fails at runtime, which is the
 // one outcome a caller post-processing a tree cannot detect for itself.
+// Publication exchanges the complete tree atomically; cancellation before the
+// exchange leaves the destination unchanged.
 func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAccountName string, identity *resources.EnvironmentWorkloadIdentity) (returnErr error) {
 	if identity == nil {
 		return nil
@@ -169,13 +170,14 @@ func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAcc
 	if !locked {
 		return fmt.Errorf("workload identity projection lock was not acquired")
 	}
-	staging, err := os.MkdirTemp("", "codefly-workload-identity-*")
+	staging, err := os.MkdirTemp(filepath.Dir(baseDir), "."+filepath.Base(baseDir)+".identity-*")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
 	originals := make(map[string][]byte)
 	modes := make(map[string]os.FileMode)
+	directories := make(map[string]os.FileMode)
 	err = filepath.WalkDir(baseDir, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -188,7 +190,12 @@ func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAcc
 			return err
 		}
 		if entry.IsDir() {
-			return os.MkdirAll(filepath.Join(staging, relative), 0o755)
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			directories[relative] = info.Mode().Perm()
+			return os.MkdirAll(filepath.Join(staging, relative), 0o700)
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -293,7 +300,6 @@ func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAcc
 	if !bound {
 		return fmt.Errorf("workload identity %q bound no workload in kustomization", identity.Principal)
 	}
-	updates := make(map[string][]byte)
 	err = filepath.WalkDir(staging, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil || entry.IsDir() {
 			return walkErr
@@ -302,20 +308,24 @@ func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAcc
 		if err != nil {
 			return err
 		}
-		data, err := os.ReadFile(path)
+		mode, existed := modes[relative]
+		if !existed {
+			mode = 0o644
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			return err
+		}
+		file, err := os.Open(path)
 		if err != nil {
 			return err
 		}
-		if !bytes.Equal(data, originals[relative]) {
-			updates[relative] = data
-		}
-		return nil
+		return errors.Join(file.Sync(), file.Close())
 	})
 	if err != nil {
 		return err
 	}
 	err = filepath.WalkDir(baseDir, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil || entry.IsDir() {
+		if walkErr != nil {
 			return walkErr
 		}
 		relative, err := filepath.Rel(baseDir, path)
@@ -325,6 +335,12 @@ func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAcc
 		info, err := entry.Info()
 		if err != nil {
 			return err
+		}
+		if entry.IsDir() {
+			if mode, existed := directories[relative]; !existed || mode != info.Mode().Perm() {
+				return fmt.Errorf("workload identity input %s changed during projection", relative)
+			}
+			return nil
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("workload identity input %s is not a regular file", relative)
@@ -345,28 +361,22 @@ func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAcc
 		}
 	}
 	var paths []string
-	for relative := range updates {
-		current, err := os.ReadFile(filepath.Join(baseDir, relative))
-		_, existed := originals[relative]
-		if (existed && (err != nil || !bytes.Equal(current, originals[relative]))) || (!existed && !errors.Is(err, os.ErrNotExist)) {
+	for relative := range directories {
+		if info, err := os.Lstat(filepath.Join(baseDir, relative)); err != nil || !info.IsDir() {
 			return fmt.Errorf("workload identity input %s changed during projection", relative)
 		}
 		paths = append(paths, relative)
 	}
-	sort.Strings(paths)
+	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
 	for _, relative := range paths {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		mode := modes[relative]
-		if mode == 0 {
-			mode = 0o644
-		}
-		if err := shared.WriteFileAtomic(ctx, filepath.Join(baseDir, relative), updates[relative], mode); err != nil {
+		if err := os.Chmod(filepath.Join(staging, relative), directories[relative]); err != nil {
 			return err
 		}
 	}
-	return nil
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return exchangeWorkloadTree(staging, baseDir)
 }
 
 // dns1123Subdomain matches a Kubernetes ServiceAccount name.
