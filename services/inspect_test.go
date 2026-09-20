@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codefly-dev/core/agents/manager"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/shared"
 	"github.com/stretchr/testify/require"
 )
 
@@ -202,4 +204,83 @@ func TestCachedAgentDoesNotSubstituteAnEarlierSelection(t *testing.T) {
 		_, err = LoadAgent(ctx, &original, "fixture/peer")
 		require.NoError(t, err)
 	})
+}
+
+func TestUpdateAgentValidatesBeforeChangingTheSelection(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	t.Setenv(manager.AgentSourceEnv, "local")
+	binary := filepath.Join(t.TempDir(), "agent")
+	output, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../agents/testdata/recoveryagent").CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	candidate := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "peer", Version: "2.0.0"}
+	installed, err := candidate.Path(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(installed), 0o755))
+	require.NoError(t, os.Symlink(binary, installed))
+	for _, declaration := range []string{"future", "undeclared", "compatible"} {
+		t.Run(declaration, func(t *testing.T) {
+			t.Setenv("TEST_AGENT_CONTRACT", declaration)
+			original := *candidate
+			original.Version = "1.0.0"
+			service := &resources.Service{Name: "peer", Agent: &original}
+			dir := t.TempDir()
+			require.NoError(t, service.SaveAtDir(t.Context(), dir))
+			before := readServiceSelection(t, dir)
+			updated, err := UpdateAgent(t.Context(), service)
+			if declaration != "compatible" {
+				require.ErrorContains(t, err, "incompatible agent")
+				require.Nil(t, updated)
+				require.Equal(t, "1.0.0", service.Agent.Version)
+				require.Equal(t, before, readServiceSelection(t, dir))
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "1.0.0", updated.From)
+				require.Equal(t, "2.0.0", updated.To)
+				require.Equal(t, "2.0.0", service.Agent.Version)
+				loaded, err := resources.LoadServiceFromDir(t.Context(), dir)
+				require.NoError(t, err)
+				require.Equal(t, "2.0.0", loaded.Agent.Version)
+			}
+			require.Equal(t, "1.0.0", original.Version)
+		})
+	}
+	t.Run("overwrite-refused", func(t *testing.T) {
+		original := *candidate
+		original.Version = "1.0.0"
+		service := &resources.Service{Name: "peer", Agent: &original}
+		dir := t.TempDir()
+		require.NoError(t, service.SaveAtDir(t.Context(), dir))
+		before := readServiceSelection(t, dir)
+		ctx := shared.WithOverride(t.Context(), shared.SkipAll())
+		updated, err := UpdateAgent(ctx, service)
+		require.ErrorContains(t, err, "requires replacing")
+		require.Nil(t, updated)
+		require.Same(t, &original, service.Agent)
+		require.Equal(t, "1.0.0", original.Version)
+		require.Equal(t, before, readServiceSelection(t, dir))
+	})
+	t.Run("write-failure", func(t *testing.T) {
+		t.Setenv("TEST_AGENT_CONTRACT", "compatible")
+		original := *candidate
+		original.Version = "1.0.0"
+		service := &resources.Service{Name: "peer", Agent: &original}
+		dir := t.TempDir()
+		require.NoError(t, service.SaveAtDir(t.Context(), dir))
+		configurationPath := filepath.Join(dir, resources.ServiceConfigurationName)
+		require.NoError(t, os.Rename(configurationPath, configurationPath+".preserved"))
+		require.NoError(t, os.Mkdir(configurationPath, 0o700))
+		updated, err := UpdateAgent(t.Context(), service)
+		require.Error(t, err)
+		require.Nil(t, updated)
+		require.Same(t, &original, service.Agent)
+		require.Equal(t, "1.0.0", original.Version)
+		require.FileExists(t, configurationPath+".preserved")
+	})
+}
+
+func readServiceSelection(t *testing.T, dir string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	return data
 }

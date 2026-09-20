@@ -12,6 +12,7 @@ import (
 	"github.com/codefly-dev/core/failures"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/runners/recoveryscope"
+	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -554,18 +555,32 @@ type UpdateInformation struct {
 
 func UpdateAgent(ctx context.Context, service *resources.Service) (*UpdateInformation, error) {
 	w := wool.Get(ctx).In("ServiceInstance::Update")
-	agentVersion := service.Agent.Version
+	original := service.Agent
+	candidate := *original
 	info := &UpdateInformation{}
 	// Fetch the latest agent version
-	_, err := manager.PinToLatestRelease(ctx, service.Agent)
+	_, err := manager.PinToLatestRelease(ctx, &candidate)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
-	if service.Agent.Version != agentVersion {
-		info.AgentUpdate = &AgentUpdate{Name: service.Agent.Name, From: agentVersion, To: service.Agent.Version}
+	if candidate.Version == original.Version {
+		return info, nil
 	}
+	configurationPath, err := resources.Path[resources.Service](ctx, service.Dir())
+	if err != nil {
+		return nil, err
+	}
+	if !shared.GetOverride(ctx).Replace(configurationPath) {
+		return nil, fmt.Errorf("agent update requires replacing %s", configurationPath)
+	}
+	if _, _, err := InspectAgent(ctx, &candidate); err != nil {
+		return nil, w.Wrapf(err, "cannot admit agent update")
+	}
+	info.AgentUpdate = &AgentUpdate{Name: candidate.Name, From: original.Version, To: candidate.Version}
+	service.Agent = &candidate
 	err = service.Save(ctx)
 	if err != nil {
+		service.Agent = original
 		return nil, w.Wrap(err)
 	}
 	return info, nil

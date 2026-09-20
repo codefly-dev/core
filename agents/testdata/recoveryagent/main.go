@@ -31,7 +31,16 @@ var information = func() *agentv0.AgentInformation {
 		declaration.Capabilities = nil
 	}
 	declaration.Capabilities = append(declaration.Capabilities, "fixture-feature/v1")
-	return &agentv0.AgentInformation{Contract: declaration}
+	info := &agentv0.AgentInformation{Contract: declaration}
+	switch os.Getenv("TEST_AGENT_CONTRACT") {
+	case "sdk-compatible":
+		info.Capabilities = []*agentv0.Capability{{Type: agentv0.Capability_BUILDER}, {Type: agentv0.Capability_RUNTIME}}
+	case "sdk-no-builder":
+		info.Capabilities = []*agentv0.Capability{{Type: agentv0.Capability_RUNTIME}}
+	case "sdk-no-runtime":
+		info.Capabilities = []*agentv0.Capability{{Type: agentv0.Capability_BUILDER}}
+	}
+	return info
 }()
 
 func (server) GetAgentInformation(context.Context, *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {

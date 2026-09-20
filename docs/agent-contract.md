@@ -62,6 +62,10 @@ Connection and instance caches retain the admitted selection. A request for a
 different agent or version under an occupied service key fails without stopping
 the active process; its owner must call `services.ClearAgent` before replacing
 it. Mutating the caller's resource does not relabel an already-running agent.
+The direct SDK launcher performs the same live protocol check and requires its
+Builder and Runtime capabilities before creating a service. Agent updates inspect
+the candidate before changing a saved selection; a rejected candidate or failed
+configuration write leaves the previous in-memory selection intact.
 Callers use `Instance.RequireAgentCapabilities`
 before dispatching operations that require optional features. Core does not
 choose a CLI run's requirements. The CLI adoption, including replacing its
