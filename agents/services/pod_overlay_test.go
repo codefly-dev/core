@@ -619,26 +619,89 @@ func TestAddKustomizeResourceIsIdempotent(t *testing.T) {
 	require.Equal(t, 1, strings.Count(string(content), "serviceaccount.yaml"))
 }
 
-// TestAttachWorkloadIdentityRendersDeclaredAttachment walks the whole seam a
-// deployment does: a cell's declared identity becomes a pod overlay, which
-// renders a ServiceAccount carrying the platform's annotations and a workload
-// bound to it with the platform's labels. Nothing in the path interprets the
-// keys, so a cell on any platform wires its own identity webhook by declaring
-// it.
-func TestAttachWorkloadIdentityRendersDeclaredAttachment(t *testing.T) {
-	identity := &resources.EnvironmentWorkloadIdentity{
+// TestProjectWorkloadIdentityRendersDeclaredAttachment walks the whole seam a
+// deployment does: a cell's declared identity is projected onto an
+// already-rendered tree, which gains a ServiceAccount carrying the platform's
+// annotations and a workload bound to it with the platform's labels. Nothing in
+// the path interprets the keys, so a cell on any platform wires its own identity
+// webhook by declaring it.
+func TestProjectWorkloadIdentityRendersDeclaredAttachment(t *testing.T) {
+	dir := renderedWorkloadTree(t)
+	err := ProjectWorkloadIdentity(context.Background(), dir, "lodestar", "store", declaredIdentity())
+	require.NoError(t, err)
+
+	serviceAccount, err := os.ReadFile(filepath.Join(dir, "serviceaccount.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(serviceAccount), "name: store")
+	require.Contains(t, string(serviceAccount), "namespace: lodestar")
+	require.Contains(t, string(serviceAccount), "iam.gke.io/gcp-service-account: platform-db@obinh-usc1.iam.gserviceaccount.com")
+	require.Contains(t, string(serviceAccount), "app.kubernetes.io/managed-by: codefly")
+
+	rendered, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(rendered), "serviceAccountName: store")
+	require.Contains(t, string(rendered), `obin.ai/workload-identity: "true"`)
+	require.Contains(t, string(rendered), "image: example/store")
+
+	// The ServiceAccount is wired into the kustomization of the directory it was
+	// written to, so a tree whose overlay includes that base picks it up.
+	kustomization, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(kustomization), "serviceaccount.yaml")
+}
+
+// A stamp that binds no workload leaves the pods on the namespace default, where
+// token minting has no identity — a deploy that succeeds and a connection that
+// fails. The projection must refuse rather than return quietly, because a caller
+// post-processing a rendered tree cannot detect it afterwards.
+func TestProjectWorkloadIdentityRefusesWhenNothingBound(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("resources: []\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "service.yaml"), []byte("apiVersion: v1\nkind: Service\nmetadata:\n  name: store\n"), 0o644))
+
+	err := ProjectWorkloadIdentity(context.Background(), dir, "lodestar", "store", declaredIdentity())
+	require.ErrorContains(t, err, "bound no workload")
+}
+
+// A caller projects per service without first asking whether the environment
+// declares an identity, so an absent one changes nothing and writes nothing.
+func TestProjectWorkloadIdentityWithoutIdentityIsNoOp(t *testing.T) {
+	dir := renderedWorkloadTree(t)
+	before, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+
+	require.NoError(t, ProjectWorkloadIdentity(context.Background(), dir, "lodestar", "store", nil))
+
+	after, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after))
+	_, err = os.Stat(filepath.Join(dir, "serviceaccount.yaml"))
+	require.True(t, os.IsNotExist(err), "no ServiceAccount should be written without a declared identity")
+}
+
+// An identity with no name to bind it to would render a ServiceAccount the pods
+// never reference.
+func TestProjectWorkloadIdentityRequiresAName(t *testing.T) {
+	dir := renderedWorkloadTree(t)
+	err := ProjectWorkloadIdentity(context.Background(), dir, "lodestar", "", declaredIdentity())
+	require.ErrorContains(t, err, "requires a name")
+}
+
+func declaredIdentity() *resources.EnvironmentWorkloadIdentity {
+	return &resources.EnvironmentWorkloadIdentity{
 		Kind:        "gcp-service-account",
 		Principal:   "platform-db@obinh-usc1.iam.gserviceaccount.com",
 		Annotations: map[string]string{"iam.gke.io/gcp-service-account": "platform-db@obinh-usc1.iam.gserviceaccount.com"},
 		Labels:      map[string]string{"obin.ai/workload-identity": "true"},
 	}
-	overlay := &PodTemplateOverlay{}
-	overlay.AttachWorkloadIdentity(identity)
-	overlay.DefaultServiceAccountName("store")
-	require.NoError(t, overlay.Validate())
+}
 
+// renderedWorkloadTree is a kustomize base as an agent leaves it: a workload and
+// the kustomization that lists it.
+func renderedWorkloadTree(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("resources: []\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("resources:\n  - deployment.yaml\n"), 0o644))
 	manifest := `apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -655,25 +718,7 @@ spec:
           image: example/store
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "deployment.yaml"), []byte(manifest), 0o644))
-
-	require.NoError(t, emitWorkloadServiceAccount(context.Background(), dir, "lodestar", overlay.ServiceAccount))
-	result, err := applyPodOverlay(context.Background(), dir, overlay)
-	require.NoError(t, err)
-	require.True(t, result.boundServiceAccount)
-
-	serviceAccount, err := os.ReadFile(filepath.Join(dir, "serviceaccount.yaml"))
-	require.NoError(t, err)
-	require.Contains(t, string(serviceAccount), "name: store")
-	require.Contains(t, string(serviceAccount), "iam.gke.io/gcp-service-account: platform-db@obinh-usc1.iam.gserviceaccount.com")
-
-	rendered, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
-	require.NoError(t, err)
-	require.Contains(t, string(rendered), "serviceAccountName: store")
-	require.Contains(t, string(rendered), `obin.ai/workload-identity: "true"`)
-
-	kustomization, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
-	require.NoError(t, err)
-	require.Contains(t, string(kustomization), "serviceaccount.yaml")
+	return dir
 }
 
 // An agent that already set a key keeps its value: the cell's attachment adds,
