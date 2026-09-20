@@ -277,6 +277,12 @@ the composition input. Each agent or generator owns its subdirectories; Core
 does not choose framework build paths or create framework-specific directories.
 The namespace, module and locked composition identity isolate these roots.
 
+Projection activation retains immutable revisions for existing readers. On
+Darwin it also retains superseded `.projection-link-*` symlinks: unlinking a
+symlink during pathname resolution can fail a concurrent read with `EINVAL`.
+These links and revisions have the same lifetime as the composition namespace;
+do not sweep them while its consumers are running.
+
 `workspace.codefly.yaml`'s `modules:` answers where a module named X comes from —
 source, version, checkout location. It does not say which modules take part in a
 given run: that is derived by `Workspace.ResolveModuleClosure`, which starts from

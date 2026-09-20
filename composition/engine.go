@@ -604,15 +604,21 @@ func promoteProjection(staging, destination string, lock *Lock) error {
 	if err := os.Symlink(target, linkPath); err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(linkPath) }()
+	activated := false
+	defer func() {
+		if !activated {
+			_ = os.Remove(linkPath)
+		}
+	}()
 	if info, statErr := os.Lstat(destination); statErr == nil && info.Mode()&os.ModeSymlink == 0 {
 		return errors.New("composed projection destination is not an atomic link")
 	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}
-	if err := os.Rename(linkPath, destination); err != nil {
+	if err := activateProjectionLink(linkPath, destination); err != nil {
 		return fmt.Errorf("activate composed projection: %w", err)
 	}
+	activated = true
 	return nil
 }
 
