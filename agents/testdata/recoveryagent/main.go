@@ -20,6 +20,10 @@ var information = func() *agentv0.AgentInformation {
 		return &agentv0.AgentInformation{}
 	case "future":
 		declaration.ProtocolVersion++
+	case "future-startup":
+		declaration.StartupProtocolVersion++
+	case "undeclared-startup":
+		declaration.StartupProtocolVersion = 0
 	case "undeclared":
 		declaration.ProtocolVersion = 0
 	case "no-recovery":

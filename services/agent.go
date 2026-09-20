@@ -8,8 +8,10 @@ import (
 	"sync"
 
 	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/manager"
 	coreservices "github.com/codefly-dev/core/agents/services"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
@@ -28,13 +30,29 @@ var (
 	// connKeyGenerations lets one completed flow evict only the service agents
 	// it owned without invalidating unrelated parallel launches.
 	connKeyGenerations = make(map[string]uint64)
-	managerLoad        = manager.Load
+	managerLoad        = loadCompatibleAgent
 )
 
 type connLoad struct {
 	done chan struct{}
 	conn *manager.AgentConn
 	err  error
+}
+
+func loadCompatibleAgent(ctx context.Context, agent *resources.Agent, options ...manager.LoadOption) (*manager.AgentConn, error) {
+	conn, err := manager.Load(ctx, agent, options...)
+	if err != nil {
+		return nil, err
+	}
+	info, err := agentv0.NewAgentClient(conn.GRPCConn()).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+	if err == nil {
+		err = contract.Check(info.GetContract())
+	}
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("admit agent %s: %w", agent, err)
+	}
+	return conn, nil
 }
 
 // ServiceCacheKey is the per-SERVICE cache key for an agent connection. Two

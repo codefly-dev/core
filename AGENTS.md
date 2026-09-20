@@ -109,6 +109,8 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   fall back. Agent-specific selection, settings and cleanup belong to the agent;
   Core transports declarations and implements generic contracts. See
   [`docs/agent-contract.md`](docs/agent-contract.md).
+  Shared language/framework tooling may remain when explicitly invoked by its
+  consumers; it must not choose agents or impose agent runtime policy.
 - **Ports come from `network.ToNamedPort()` or `RuntimeManager`.** Never
   hardcode one, always track allocations — a missing dedup once assigned the
   same port twice.

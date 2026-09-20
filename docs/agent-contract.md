@@ -38,6 +38,10 @@ release metadata cannot change the verdict. Framework build paths, native
 product cleanup and source-to-agent mappings belong to their owning plugins,
 not to compatibility enforcement in Core or the CLI.
 
+Shared language/framework tooling can live in Core when consumers explicitly
+invoke it. That does not authorize host-side agent selection, compatibility
+rules, framework-specific runtime paths or product-specific recovery policy.
+
 `startup_protocol_version` names the stdout handshake used to discover the gRPC
 endpoint. It must match the host before lifecycle compatibility can be checked.
 The manifest records both versions; the startup parser and contract checker
@@ -52,8 +56,9 @@ or version zero is undeclared, never evidence inferred from a Core version or
 an acknowledgement header. Existing operation-specific advertisements such as
 validation and build-cache support remain authoritative for those operations.
 
-Core's `services.Load` rejects undeclared or incompatible protocol versions
-before returning an instance. Callers use `Instance.RequireAgentCapabilities`
+Core's `services.LoadAgent` rejects undeclared or incompatible protocol versions
+before caching a connection, including for callers that bypass `services.Load`.
+Callers use `Instance.RequireAgentCapabilities`
 before dispatching operations that require optional features. Core does not
 choose a CLI run's requirements. The CLI adoption, including replacing its
 existing recovery check and publishing CLI compatibility notes, is tracked in
