@@ -127,7 +127,7 @@ func TestRustGenerationHonorsDestinationLockThroughSymlink(t *testing.T) {
 	writeRustOutput(t, dest, "api/api.rs", "existing output")
 	alias := filepath.Join(t.TempDir(), "alias")
 	require.NoError(t, os.Symlink(dest, alias))
-	lock := flock.New(dest + ".rust.lock")
+	lock := flock.New(filepath.Join(dest, rustOutputLock))
 	require.NoError(t, lock.Lock())
 	t.Cleanup(func() { require.NoError(t, lock.Close()) })
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
@@ -141,7 +141,7 @@ func TestRustGenerationHonorsDestinationLockThroughSymlink(t *testing.T) {
 }
 
 func TestRustPublicationRejectsInvalidOwnership(t *testing.T) {
-	for _, body := range []string{`{`, `{"../outside":"hash"}`, `{"/outside":"hash"}`, `{".codefly-rust-output.json":"hash"}`} {
+	for _, body := range []string{`{`, `{"../outside":"hash"}`, `{"/outside":"hash"}`, `{".codefly-rust-output.json":"hash"}`, `{".codefly-rust-output.lock":"hash"}`} {
 		dest, stage := t.TempDir(), t.TempDir()
 		writeRustOutput(t, dest, rustOutputManifest, body)
 		writeRustOutput(t, stage, "api/api.rs", "generated")

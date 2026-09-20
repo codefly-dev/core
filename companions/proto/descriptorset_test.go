@@ -92,7 +92,11 @@ import "google/rpc/status.proto";`, 1)
 			name = "descriptor-set"
 		}
 		t.Run(name, func(t *testing.T) {
-			dest := t.TempDir()
+			parent := t.TempDir()
+			dest := filepath.Join(parent, "output")
+			require.NoError(t, os.Mkdir(dest, 0o750))
+			require.NoError(t, os.Chmod(parent, 0o550))
+			t.Cleanup(func() { require.NoError(t, os.Chmod(parent, 0o750)) })
 			request := proto.ClientRequest{Language: languages.RUST, Destination: dest, Module: "rest"}
 			if descriptors {
 				request.DescriptorSet = plainDescriptorSetFor(t, ctx, source)

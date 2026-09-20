@@ -17,6 +17,7 @@ import (
 )
 
 const rustOutputManifest = ".codefly-rust-output.json"
+const rustOutputLock = ".codefly-rust-output.lock"
 
 func generateRustOutput(ctx context.Context, destination string, generate func(string) error) error {
 	destination, err := filepath.Abs(destination)
@@ -27,7 +28,7 @@ func generateRustOutput(ctx context.Context, destination string, generate func(s
 	if err != nil {
 		return err
 	}
-	lock := flock.New(destination+".rust.lock", flock.SetPermissions(0o600))
+	lock := flock.New(filepath.Join(destination, rustOutputLock), flock.SetPermissions(0o600))
 	locked, err := lock.TryLockContext(ctx, 50*time.Millisecond)
 	if err != nil {
 		return err
@@ -36,7 +37,7 @@ func generateRustOutput(ctx context.Context, destination string, generate func(s
 		return ctx.Err()
 	}
 	defer lock.Close()
-	stage, err := os.MkdirTemp(filepath.Dir(destination), ".rust-output-*")
+	stage, err := os.MkdirTemp(destination, ".rust-output-*")
 	if err != nil {
 		return err
 	}
@@ -95,7 +96,7 @@ func publishRustOutput(destination, stage string) error {
 	}
 	names := make([]string, 0, len(paths))
 	for name := range paths {
-		if !fs.ValidPath(name) || name == "." || name == rustOutputManifest {
+		if !fs.ValidPath(name) || name == "." || name == rustOutputManifest || name == rustOutputLock {
 			return fmt.Errorf("invalid Rust output path: %q", name)
 		}
 		info, err := root.Lstat(name)
