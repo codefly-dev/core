@@ -1,16 +1,20 @@
 package composition
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
 	"github.com/codefly-dev/core/internal/testgit"
 	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"gopkg.in/yaml.v3"
@@ -115,7 +119,7 @@ func TestLocalMaterializationRejectsSourceMutationDuringGeneration(t *testing.T)
 }
 
 func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
-	for _, scenario := range []string{"compatible skipped release", "removed route", "configuration changed", "missing usage", "stale usage", "tampered baseline"} {
+	for _, scenario := range []string{"compatible skipped release", "optional REST parameter", "required REST parameter", "transitive REST type", "removed route", "configuration changed", "missing usage", "stale usage", "tampered baseline", "unsigned usage", "other consumer", "other instance", "expired usage", "stale inputs"} {
 		t.Run(scenario, func(t *testing.T) {
 			project := t.TempDir()
 			t.Cleanup(func() { _ = removeCacheTree(project) })
@@ -124,6 +128,22 @@ func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
 			beforeRoot, afterRoot := t.TempDir(), t.TempDir()
 			writeUpdateSources(t, beforeRoot, "0.1.0", false)
 			writeUpdateSources(t, afterRoot, "0.9.0", true)
+			if scenario == "optional REST parameter" || scenario == "required REST parameter" {
+				path := filepath.Join(afterRoot, "contracts/api/openapi.json")
+				var document map[string]any
+				require.NoError(t, json.Unmarshal([]byte(readFile(t, path)), &document))
+				operation := document["paths"].(map[string]any)["/accounts"].(map[string]any)["get"].(map[string]any)
+				operation["parameters"] = []any{map[string]any{"name": "limit", "in": "query", "required": scenario == "required REST parameter", "schema": map[string]any{"type": "integer"}}}
+				data, err := json.Marshal(document)
+				require.NoError(t, err)
+				writeFile(t, path, string(data))
+				updateAPIDigest(t, afterRoot)
+			}
+			if scenario == "transitive REST type" {
+				path := filepath.Join(afterRoot, "contracts/api/openapi.json")
+				writeFile(t, path, strings.ReplaceAll(readFile(t, path), `"type":"string"`, `"type":"integer"`))
+				updateAPIDigest(t, afterRoot)
+			}
 			if scenario == "removed route" {
 				for _, name := range []string{APIContractCatalogFileName, "contracts/api/openapi.json"} {
 					writeFile(t, filepath.Join(afterRoot, name), strings.ReplaceAll(readFile(t, filepath.Join(afterRoot, name)), `"/accounts"`, `"/health"`))
@@ -136,6 +156,13 @@ func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
 			}
 			before, err := BuildPackageContractSnapshot(beforeRoot)
 			require.NoError(t, err)
+			marker := filepath.Join(project, "generator-invoked")
+			candidateManifest, err := LoadPackageManifest(afterRoot)
+			require.NoError(t, err)
+			candidateManifest.Generators = []PackageCommand{{Name: "mark-generation", Command: []string{"sh", "-c", `printf invoked > "$1"`, "sh", marker}}}
+			manifestData, err := yaml.Marshal(candidateManifest)
+			require.NoError(t, err)
+			writeFile(t, filepath.Join(afterRoot, PackageManifestFileName), string(manifestData))
 			first, trust := buildRelease(t, beforeRoot, "0.1.0", strings.Repeat("a", 40))
 			second, _ := buildRelease(t, afterRoot, "0.9.0", strings.Repeat("b", 40))
 			resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": first, "0.9.0": second}}
@@ -153,7 +180,30 @@ func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
 				pin.Version = "0.8.0"
 			}
 			if scenario != "missing usage" {
-				engine.ConsumerPins = map[string]*updatev0.ConsumerPin{"saas": pin}
+				key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{91}, 32))
+				pinData, err := protojson.Marshal(pin)
+				require.NoError(t, err)
+				statement := ConsumerUsageStatement{Schema: "codefly/consumer-usage/v1", Instance: "saas", CompositionDigest: initial.Lock.CompositionDigest, Pin: pinData, Signer: "consumer-workflow", ExpiresAt: time.Now().Add(time.Hour)}
+				switch scenario {
+				case "other instance":
+					statement.Instance = "documents"
+				case "expired usage":
+					statement.ExpiresAt = time.Now().Add(-time.Hour)
+				case "stale inputs":
+					statement.CompositionDigest = "sha256:" + strings.Repeat("b", 64)
+				}
+				data, err := json.Marshal(statement)
+				require.NoError(t, err)
+				signed := SignedConsumerUsage{Statement: data, Signature: ed25519.Sign(key, data)}
+				if scenario == "unsigned usage" {
+					signed.Signature = nil
+				}
+				engine.ConsumerPins = map[string]SignedConsumerUsage{"saas": signed}
+				consumer := "product"
+				if scenario == "other consumer" {
+					consumer = "other-product"
+				}
+				engine.ConsumerAuthorities = map[string]ConsumerUsageAuthority{"saas": {Consumer: consumer, Signers: map[string]ed25519.PublicKey{"consumer-workflow": key.Public().(ed25519.PublicKey)}}}
 			}
 			if scenario == "tampered baseline" {
 				first.Signature[0] ^= 0xff
@@ -161,11 +211,11 @@ func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
 			result, err := engine.Update(t.Context(), moduleDir, "0.9.0", true)
 			require.NoError(t, err)
 			switch scenario {
-			case "compatible skipped release":
+			case "compatible skipped release", "optional REST parameter":
 				require.True(t, result.Applied, result.Report.String())
 				require.Equal(t, updatev0.Verdict_VERDICT_NEW_CAPABILITY, result.Report.ConsumerCompatibility.Verdict)
 				require.Equal(t, "0.9.0", result.Lock.Version)
-			case "removed route":
+			case "removed route", "required REST parameter", "transitive REST type":
 				require.False(t, result.Applied)
 				require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Report.ConsumerCompatibility.Verdict)
 			default:
@@ -173,9 +223,57 @@ func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
 				require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Report.ConsumerCompatibility.Verdict)
 			}
 			if !result.Applied {
+				require.NoFileExists(t, marker, "rejected usage/compatibility must not run candidate generators")
 				require.Equal(t, original, readFile(t, filepath.Join(moduleDir, LockFileName)))
 				require.True(t, projectionMatches(initial.Projection, initial.Lock))
+			} else {
+				require.FileExists(t, marker)
 			}
+		})
+	}
+}
+
+func TestQualificationCannotPublishAfterConsumerInputsChange(t *testing.T) {
+	for _, change := range []string{"fixture", "descriptor"} {
+		t.Run(change, func(t *testing.T) {
+			project, moduleDir, packageDir := t.TempDir(), t.TempDir(), t.TempDir()
+			t.Cleanup(func() { _ = removeCacheTree(project) })
+			writeUpdateSources(t, packageDir, "0.1.0", false)
+			release, trust := buildRelease(t, packageDir, "0.1.0", strings.Repeat("a", 40))
+			engine := NewEngine(project, &fixtureResolver{releases: map[string]*Release{"0.1.0": release}}, trust)
+			engine.ToolVersion = "0.3.40"
+			marker := filepath.Join(project, "change-inputs")
+			replacementPath := filepath.Join(project, "changed-descriptor.yaml")
+			command := `if test -f "$1"; then printf changed > fixture.txt; fi`
+			if change == "descriptor" {
+				command = `if test -f "$1"; then cp "$2" "$CODEFLY_COMPOSITION_CONSUMER/module.codefly.yaml"; fi`
+			}
+			descriptor := &Descriptor{Kind: DescriptorKind, Name: "saas", Base: Base{ID: testPackage, Version: "^0.1"}, Contributions: Contributions{Tests: []IntegrationContribution{{Path: "suite", Command: []string{"sh", "-c", command, "sh", marker, replacementPath}}}}}
+			data, err := yaml.Marshal(descriptor)
+			require.NoError(t, err)
+			changedDescriptor := *descriptor
+			changedDescriptor.Services.Include = []string{"accounts"}
+			changedData, err := yaml.Marshal(changedDescriptor)
+			require.NoError(t, err)
+			writeFile(t, replacementPath, string(changedData))
+			writeFile(t, filepath.Join(moduleDir, DescriptorFileName), string(data))
+			writeFile(t, filepath.Join(moduleDir, "suite", "fixture.txt"), "original")
+			initial, err := engine.Update(t.Context(), moduleDir, "0.1.0", true)
+			require.NoError(t, err)
+			require.True(t, initial.Applied)
+			prior := readFile(t, filepath.Join(moduleDir, LockFileName))
+			writeFile(t, marker, "change")
+			result, err := engine.Update(t.Context(), moduleDir, "0.1.0", true)
+			require.NoError(t, err)
+			require.False(t, result.Applied)
+			require.Contains(t, result.Report.BlockedReasons, "composition inputs changed during qualification")
+			require.Equal(t, prior, readFile(t, filepath.Join(moduleDir, LockFileName)))
+			require.True(t, projectionMatches(initial.Projection, initial.Lock))
+			writeFile(t, filepath.Join(moduleDir, DescriptorFileName), string(data))
+			writeFile(t, filepath.Join(moduleDir, "suite", "fixture.txt"), "original")
+			_, err = engine.Materialize(t.Context(), moduleDir, MaterializeOptions{Namespace: "verification"})
+			require.ErrorContains(t, err, "composition inputs changed during materialization")
+			require.Equal(t, prior, readFile(t, filepath.Join(moduleDir, LockFileName)))
 		})
 	}
 }
@@ -305,7 +403,7 @@ func TestProtobufContractSourceDerivesTypesAndRejectsStaleCatalog(t *testing.T) 
 	require.NoError(t, err)
 	endpoint := APIContractEndpoint{Package: "accounts.v1", Services: ProtobufServices(set, "accounts.v1")}
 	var items []*updatev0.ContractItem
-	require.NoError(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items))
+	require.NoError(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items, nil))
 	require.Len(t, items, 2)
 	require.Equal(t, "api/accounts/grpc#accounts.v1.Account", items[0].Id)
 	require.Contains(t, items[1].Dependencies, items[0].Id)
@@ -314,10 +412,10 @@ func TestProtobufContractSourceDerivesTypesAndRejectsStaleCatalog(t *testing.T) 
 	data, err = proto.Marshal(set)
 	require.NoError(t, err)
 	items = nil
-	require.NoError(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items))
+	require.NoError(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items, nil))
 	require.NotEqual(t, original, items[0].Digest)
 	set.File[0].Service[0].Method = nil
 	data, err = proto.Marshal(set)
 	require.NoError(t, err)
-	require.ErrorContains(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items), "catalog procedures")
+	require.ErrorContains(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items, nil), "catalog procedures")
 }

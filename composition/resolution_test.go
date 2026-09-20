@@ -50,7 +50,7 @@ func newSelectionRegistry(t *testing.T) *selectionRegistry {
 }
 
 func selectionManifest(id, version string) *PackageManifest {
-	return &PackageManifest{Kind: PackageKind, Schema: PackageSchema, ID: id, Version: version, MinimumCodeflyVersion: ">=0.3.40", ArtifactRoots: []string{"contracts"}, Contracts: map[string]string{ContractComposition: "1.0"}, Provides: map[string]string{"interface": "1.0.0", "configuration": "1.0.0"}}
+	return &PackageManifest{Kind: PackageKind, Schema: PackageSchema, ID: id, Version: version, MinimumCodeflyVersion: ">=0.3.40", ArtifactRoots: []string{"contracts"}, Contracts: map[string]string{ContractComposition: "1.0"}, Provides: map[string]string{"interface": "1.0.0", "configuration": "1.0.0"}, RequiredQualifications: &[]string{"functional"}}
 }
 
 func fixtureArtifact(name string, purpose ArtifactPurpose, content string) ReleaseArtifact {
@@ -320,6 +320,10 @@ func TestDeploymentAdmissionBindsActualBytesQualificationAndTarget(t *testing.T)
 	approved, err := f.registry.engine.AdmitDeployment(ctx, resolved, inputs, policy, now)
 	require.NoError(t, err)
 	require.NotEmpty(t, approved.Identity())
+	approvalRecord := approved.Record()
+	require.Equal(t, now, approvalRecord.ApprovedAt)
+	require.Equal(t, qualification.ExpiresAt, approvalRecord.ValidUntil)
+	require.Len(t, approvalRecord.Qualifications, 1)
 	for _, scenario := range []string{"private image", "missing", "duplicate", "stale evidence", "target change", "revoked signer"} {
 		t.Run(scenario, func(t *testing.T) {
 			inputs := runtimeInputs()
@@ -469,4 +473,48 @@ func TestSinglePackageEntryPointsCannotIgnoreNestedSelections(t *testing.T) {
 	f.registry.mu.Lock()
 	defer f.registry.mu.Unlock()
 	require.Empty(t, f.registry.requests)
+}
+
+func TestReplacementAdmissionCannotOmitCompatibilityOrOwnerQualification(t *testing.T) {
+	for _, scenario := range []string{"replacement compatibility", "owner stateful", "missing owner declaration", "explicit empty owner declaration"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := nestedSelectionFixture(t, "lifecycle")
+			if scenario == "replacement compatibility" {
+				f.descriptor.Replacements = []Replacement{{Target: "modules/saas/services/store/agent", Release: f.newAgent, Rationale: "qualified candidate"}}
+			} else {
+				metadata, err := verifyMetadata(f.registry.metadata[f.root], f.root, f.registry.engine.Trust)
+				require.NoError(t, err)
+				metadata.manifest.RequiredQualifications = &[]string{"stateful"}
+				if scenario == "missing owner declaration" {
+					metadata.manifest.RequiredQualifications = nil
+				}
+				if scenario == "explicit empty owner declaration" {
+					metadata.manifest.RequiredQualifications = &[]string{}
+				}
+				f.root = f.registry.publish(t, metadata.manifest)
+			}
+			resolved, err := f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
+			require.NoError(t, err)
+			record, err := f.registry.engine.CheckDeploymentInputs(t.Context(), resolved, runtimeInputs())
+			require.NoError(t, err)
+			now := time.Now()
+			qualification := Qualification{Schema: "codefly/deployment-qualification/v1", SelectionIdentity: resolved.Identity(), RuntimeIdentity: record.RuntimeIdentity, BindingIdentity: record.BindingIdentity, Kind: "functional", Signer: "reviewer", ExpiresAt: now.Add(time.Hour)}
+			data, err := json.Marshal(qualification)
+			require.NoError(t, err)
+			inputs := runtimeInputs()
+			inputs.Qualifications = []SignedQualification{{Statement: data, Signature: ed25519.Sign(f.registry.key, data)}}
+			policy := DeploymentPolicy{RequiredQualifications: []string{"functional"}, QualificationSigners: map[string]map[string]ed25519.PublicKey{"functional": {"reviewer": f.registry.key.Public().(ed25519.PublicKey)}}}
+			_, err = f.registry.engine.AdmitDeployment(t.Context(), resolved, inputs, policy, now)
+			switch scenario {
+			case "replacement compatibility":
+				require.ErrorContains(t, err, "component-compatibility qualification is missing")
+			case "owner stateful":
+				require.ErrorContains(t, err, "stateful qualification is missing")
+			case "explicit empty owner declaration":
+				require.NoError(t, err)
+			default:
+				require.ErrorContains(t, err, "owner has not declared")
+			}
+		})
+	}
 }

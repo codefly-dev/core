@@ -90,10 +90,12 @@ BREAKING takes precedence over UNDETERMINED, which takes precedence over new
 capabilities. All three detail lists are retained separately.
 A valid explicit declaration of no usage is different from missing evidence.
 
-Every candidate differing from a used item's pinned expectation is treated conservatively: this version does not prove
-that a changed protobuf field or OpenAPI schema remains source/wire compatible.
-It may therefore require review for an actually compatible used-type change.
-A publisher cannot label a change safe to override the comparison.
+Digest-only evaluation cannot prove that a changed protobuf field or OpenAPI
+schema remains compatible. Source-aware evaluation additionally checks canonical
+source bytes against those digests and applies the supported rules described
+below. Unsupported changes remain UNDETERMINED, including changes to validation
+limits; JSON numeric requirements retain their exact values. A publisher cannot
+label a change safe to override the comparison.
 
 For authenticated module artifacts, call `VerifiedRelease.EvaluateUpdate(pin)`;
 it also turns missing or invalid archive evidence into a named UNDETERMINED result.
@@ -116,8 +118,10 @@ this comparison. The engine does not resolve tags or chain diffs implicitly.
 ## Composition updates and owner authority
 
 `Engine.Update` evaluates consumer usage before applying a release transition.
-The CLI supplies `Engine.ConsumerPins`, keyed by the composition descriptor's
-module instance name. Missing usage blocks adoption. The engine fetches and
+The CLI supplies signed statements in `Engine.ConsumerPins`, keyed by the
+composition descriptor's module instance name, and authorized consumer identities
+and keys in `Engine.ConsumerAuthorities`. Missing, unauthenticated, expired or
+input-mismatched usage blocks adoption before candidate generators run. The engine fetches and
 verifies the exact locked baseline, derives both snapshots from authenticated
 archives, and computes their complete diff rather than trusting an adjacent
 release's asserted baseline. The semantic report includes the structured consumer
@@ -206,13 +210,19 @@ PR #752; no additional tracker or release is implied.
    optional REST capability, a removed used route, changed authorization
    requirements, missing/stale usage and a tampered baseline. Protobuf tests
    derive transitive type identities and reject stale catalogs. Changed digests
-   remain UNDETERMINED rather than fabricated semantic breaks. Full structural
-   gRPC/REST compatibility analysis and functional/stateful upgrade qualification
-   still require implementation and representative owner/consumer runs.
+   alone remain UNDETERMINED rather than fabricated semantic breaks. Source-aware
+   evaluation now supports optional protobuf fields/REST parameters, required
+   REST parameters and incompatible transitive types, without changing existing
+   snapshot identities. Tests include actual protobuf encode/decode. Signed
+   consumer usage is bound to the consumer, instance, composition and expiry;
+   refusals happen before candidate generators. Unsupported schema/validation,
+   authorization and changed dependency-edge semantics remain undetermined.
+   Representative owner/consumer functional/stateful runs remain outstanding.
 7. **Versioning:** `ClassifyContractChange` and its tests share the supported
    structural rules, explicit uncertainty and 0.x/prerelease stages. CLI and
-   release CI do not yet consume it. Semantic qualification of changed contract
-   contents remains unsupported and visibly undetermined.
+   release CI do not yet consume it. `ClassifyContractChangeWithSources` shares
+   the supported source-level rules with consumer evaluation; unsupported content
+   changes remain visibly undetermined.
 8. **Upstream adoption:** `UpstreamAdoptions` exports owner/default/replacement
    facts and optional matching approval identity. `ProposeOverrideRemoval`
    re-resolves the full candidate with/without the replacement; signed fixtures
@@ -223,7 +233,7 @@ See [composition selections](composition-selections.md) for API contracts,
 signed metadata publication, derived-build authority and CLI integration duties.
 
 CLI migration specifically includes `pkg/composition/pinned.go`'s trust loader
-(flat signing keys must become package-bound), supplying actual consumer pins
+(flat signing keys must become package-bound), supplying signed actual consumer usage
 to `Engine.Update`, and displaying/blocking `VERDICT_UNDETERMINED`. The owner
 must supply authoritative keys and release metadata; a product declaration
 cannot grant itself that authority. Published-agent lifecycle qualification is

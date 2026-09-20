@@ -33,14 +33,15 @@ type Resolver interface {
 }
 
 type Engine struct {
-	ProjectRoot        string
-	ToolVersion        string
-	Resolver           Resolver
-	Trust              TrustPolicy
-	Materializer       *Materializer
-	Renderer           Renderer
-	SupportedContracts map[string][]string
-	ConsumerPins       map[string]*updatev0.ConsumerPin
+	ProjectRoot         string
+	ToolVersion         string
+	Resolver            Resolver
+	Trust               TrustPolicy
+	Materializer        *Materializer
+	Renderer            Renderer
+	SupportedContracts  map[string][]string
+	ConsumerPins        map[string]SignedConsumerUsage
+	ConsumerAuthorities map[string]ConsumerUsageAuthority
 }
 
 type UpdateResult struct {
@@ -145,6 +146,27 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 		return nil, err
 	}
 	candidate := lockForRelease(descriptor, verified, contracts, compositionDigest)
+	var consumerCompatibility *updatev0.UpdateResult
+	if current != nil && current.Version != candidate.Version {
+		var baselineManifest *PackageManifest
+		consumerCompatibility, baselineManifest = engine.evaluateConsumerUpdate(ctx, current, verified, descriptor.Name, compositionDigest)
+		switch consumerCompatibility.Verdict {
+		case updatev0.Verdict_VERDICT_SAFE, updatev0.Verdict_VERDICT_NEW_CAPABILITY:
+		default:
+			diff, err := LockDiff(current, candidate)
+			if err != nil {
+				return nil, err
+			}
+			report := &SemanticReport{Schema: "codefly/module-update-report/v2", Module: descriptor.Name, Package: candidate.Package, BeforeVersion: current.Version, AfterVersion: candidate.Version,
+				ConsumerCompatibility: consumerCompatibility, LockDiff: diff, BlockedReasons: []string{"consumer compatibility: " + consumerCompatibility.Verdict.String()}}
+			if baselineManifest != nil {
+				report = newSemanticReport(descriptor, current, candidate, baselineManifest, verified.manifest, nil, nil, nil)
+				report.ConsumerCompatibility, report.LockDiff = consumerCompatibility, diff
+				report.BlockedReasons = append(report.BlockedReasons, "consumer compatibility: "+consumerCompatibility.Verdict.String())
+			}
+			return &UpdateResult{Lock: candidate, Report: report}, nil
+		}
+	}
 	base, err := engine.materializer().Materialize(ctx, verified)
 	if err != nil {
 		return nil, err
@@ -173,17 +195,21 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 		return nil, fmt.Errorf("render current module composition for semantic report: %w", err)
 	}
 	report := newSemanticReport(descriptor, current, candidate, oldManifest, verified.manifest, oldCatalog, catalog, validations)
-	if current != nil && current.Version != candidate.Version {
-		report.ConsumerCompatibility = engine.evaluateConsumerUpdate(ctx, current, verified, engine.ConsumerPins[descriptor.Name])
-		switch report.ConsumerCompatibility.Verdict {
-		case updatev0.Verdict_VERDICT_SAFE, updatev0.Verdict_VERDICT_NEW_CAPABILITY:
-		default:
-			report.BlockedReasons = append(report.BlockedReasons, "consumer compatibility: "+report.ConsumerCompatibility.Verdict.String())
-		}
-	}
+	report.ConsumerCompatibility = consumerCompatibility
 	report.LockDiff, err = LockDiff(current, candidate)
 	if err != nil {
 		return nil, err
+	}
+	actualDescriptor, err := LoadDescriptor(moduleDir)
+	if err != nil {
+		return nil, err
+	}
+	actualDigest, err := CompositionDigest(moduleDir, actualDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	if actualDigest != compositionDigest {
+		report.BlockedReasons = append(report.BlockedReasons, "composition inputs changed during qualification")
 	}
 	result := &UpdateResult{Lock: candidate, Report: report, Projection: namespace.ProjectionDir, Namespace: namespace}
 	if !apply || len(report.BlockedReasons) > 0 {
@@ -203,15 +229,14 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	return result, nil
 }
 
-func (engine *Engine) evaluateConsumerUpdate(ctx context.Context, current *Lock, candidate *VerifiedRelease, pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
-	unknown := func(err error) *updatev0.UpdateResult {
+func (engine *Engine) evaluateConsumerUpdate(ctx context.Context, current *Lock, candidate *VerifiedRelease, instance, compositionDigest string) (*updatev0.UpdateResult, *PackageManifest) {
+	var pin *updatev0.ConsumerPin
+	var baselineManifest *PackageManifest
+	unknown := func(err error) (*updatev0.UpdateResult, *PackageManifest) {
 		return &updatev0.UpdateResult{
 			Consumer: pin.GetConsumer(), Module: current.Package, FromVersion: current.Version, ToVersion: candidate.manifest.Version,
 			Verdict: updatev0.Verdict_VERDICT_UNDETERMINED, Undetermined: []*updatev0.AffectedItem{{Reason: err.Error()}},
-		}
-	}
-	if pin == nil {
-		return unknown(errors.New("consumer usage evidence is required"))
+		}, baselineManifest
 	}
 	release, err := engine.Resolver.Fetch(ctx, current)
 	if err != nil {
@@ -221,19 +246,32 @@ func (engine *Engine) evaluateConsumerUpdate(ctx context.Context, current *Lock,
 	if err != nil {
 		return unknown(fmt.Errorf("authenticate consumer baseline: %w", err))
 	}
-	before, err := baseline.ContractSnapshot(ctx)
+	baselineManifest = baseline.manifest
+	signed, exists := engine.ConsumerPins[instance]
+	if !exists {
+		return unknown(errors.New("consumer usage evidence is required"))
+	}
+	pin, err = VerifyConsumerUsage(signed, engine.ConsumerAuthorities[instance], instance, compositionDigest, time.Now())
+	if err != nil {
+		return unknown(fmt.Errorf("authenticate consumer usage: %w", err))
+	}
+	before, err := baseline.ContractEvidence(ctx)
 	if err != nil {
 		return unknown(fmt.Errorf("derive consumer baseline: %w", err))
 	}
-	after, err := candidate.ContractSnapshot(ctx)
+	after, err := candidate.ContractEvidence(ctx)
 	if err != nil {
 		return unknown(fmt.Errorf("derive candidate contracts: %w", err))
 	}
-	diff, err := moduleupdate.BuildReleaseDiff(before, after)
+	diff, err := moduleupdate.BuildReleaseDiff(before.Snapshot, after.Snapshot)
 	if err != nil {
 		return unknown(err)
 	}
-	return moduleupdate.Evaluate(diff, pin)
+	prepared, err := moduleupdate.PrepareReleaseDiffWithSources(diff, before.Sources, after.Sources)
+	if err != nil {
+		return unknown(err)
+	}
+	return prepared.Evaluate(pin), baselineManifest
 }
 
 func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options MaterializeOptions) (*Materialization, error) {
@@ -320,6 +358,17 @@ func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options
 		if digest != resolved.lock.Artifact.Digest {
 			return nil, errors.New("local module content changed during materialization; retry against the current checkout")
 		}
+	}
+	actualDescriptor, err := LoadDescriptor(moduleDir)
+	if err != nil {
+		return nil, err
+	}
+	actualDigest, err := CompositionDigest(moduleDir, actualDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	if actualDigest != compositionDigest {
+		return nil, errors.New("composition inputs changed during materialization")
 	}
 	if err := writeProjectionMetadata(staging, resolved.lock, catalog); err != nil {
 		return nil, err

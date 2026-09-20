@@ -122,26 +122,27 @@ type BindingTarget struct {
 }
 
 type PackageManifest struct {
-	Kind                  string             `yaml:"kind" json:"kind"`
-	Schema                string             `yaml:"schema" json:"schema"`
-	ID                    string             `yaml:"id" json:"id"`
-	Version               string             `yaml:"version" json:"version"`
-	MinimumCodeflyVersion string             `yaml:"minimum-codefly-version" json:"minimumCodeflyVersion"`
-	ArtifactRoots         []string           `yaml:"artifact-roots" json:"artifactRoots"`
-	EntryPoints           []EntryPoint       `yaml:"entry-points,omitempty" json:"entryPoints,omitempty"`
-	Services              []ProvidedService  `yaml:"services,omitempty" json:"services,omitempty"`
-	Fixtures              []ProvidedFixture  `yaml:"fixtures,omitempty" json:"fixtures,omitempty"`
-	Contracts             map[string]string  `yaml:"contracts" json:"contracts"`
-	Generators            []PackageCommand   `yaml:"generators,omitempty" json:"generators,omitempty"`
-	Conformance           []PackageCommand   `yaml:"conformance,omitempty" json:"conformance,omitempty"`
-	Migrations            []PackageMigration `yaml:"migrations,omitempty" json:"migrations,omitempty"`
-	BreakingChanges       []string           `yaml:"breaking-changes,omitempty" json:"breakingChanges,omitempty"`
-	ReservedNamespaces    []string           `yaml:"reserved-namespaces,omitempty" json:"reservedNamespaces,omitempty"`
-	Claims                []Claim            `yaml:"claims,omitempty" json:"claims,omitempty"`
-	Modules               []ProvidedModule   `yaml:"modules,omitempty" json:"modules,omitempty"`
-	Provides              map[string]string  `yaml:"provides,omitempty" json:"provides,omitempty"`
-	ReleaseArtifacts      []ReleaseArtifact  `yaml:"release-artifacts,omitempty" json:"releaseArtifacts,omitempty"`
-	AllowDerivedBuilds    bool               `yaml:"allow-derived-builds,omitempty" json:"allowDerivedBuilds,omitempty"`
+	Kind                   string             `yaml:"kind" json:"kind"`
+	Schema                 string             `yaml:"schema" json:"schema"`
+	ID                     string             `yaml:"id" json:"id"`
+	Version                string             `yaml:"version" json:"version"`
+	MinimumCodeflyVersion  string             `yaml:"minimum-codefly-version" json:"minimumCodeflyVersion"`
+	ArtifactRoots          []string           `yaml:"artifact-roots" json:"artifactRoots"`
+	EntryPoints            []EntryPoint       `yaml:"entry-points,omitempty" json:"entryPoints,omitempty"`
+	Services               []ProvidedService  `yaml:"services,omitempty" json:"services,omitempty"`
+	Fixtures               []ProvidedFixture  `yaml:"fixtures,omitempty" json:"fixtures,omitempty"`
+	Contracts              map[string]string  `yaml:"contracts" json:"contracts"`
+	Generators             []PackageCommand   `yaml:"generators,omitempty" json:"generators,omitempty"`
+	Conformance            []PackageCommand   `yaml:"conformance,omitempty" json:"conformance,omitempty"`
+	Migrations             []PackageMigration `yaml:"migrations,omitempty" json:"migrations,omitempty"`
+	BreakingChanges        []string           `yaml:"breaking-changes,omitempty" json:"breakingChanges,omitempty"`
+	ReservedNamespaces     []string           `yaml:"reserved-namespaces,omitempty" json:"reservedNamespaces,omitempty"`
+	Claims                 []Claim            `yaml:"claims,omitempty" json:"claims,omitempty"`
+	Modules                []ProvidedModule   `yaml:"modules,omitempty" json:"modules,omitempty"`
+	Provides               map[string]string  `yaml:"provides,omitempty" json:"provides,omitempty"`
+	ReleaseArtifacts       []ReleaseArtifact  `yaml:"release-artifacts,omitempty" json:"releaseArtifacts,omitempty"`
+	AllowDerivedBuilds     bool               `yaml:"allow-derived-builds,omitempty" json:"allowDerivedBuilds,omitempty"`
+	RequiredQualifications *[]string          `yaml:"required-qualifications" json:"requiredQualifications"`
 }
 
 type EntryPoint struct {

@@ -73,7 +73,20 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 			case declared[id]:
 				affected.Reason = "could not determine: used contract is duplicated"
 			case use.Digest != next.Digest:
-				affected.Reason = "could not determine: candidate contract differs from the pinned client contract"
+				change, supported := prepared.semantic[id]
+				if !supported || old == nil || use.Digest != old.Digest || !slices.Equal(dependencies, old.Dependencies) {
+					affected.Reason = "could not determine: candidate contract differs from the pinned client contract"
+					break
+				}
+				switch change.level {
+				case ChangeMajor:
+					affected.Reason, incompatible = change.reason, true
+				case ChangeMinor:
+					result.Capabilities = append(result.Capabilities, &updatev0.AffectedItem{Item: id, Client: client, ClientVersion: version, Reason: change.reason})
+				case ChangePatch:
+				default:
+					affected.Reason = "could not determine: " + change.reason
+				}
 			case !slices.Equal(dependencies, candidateDependencies):
 				affected.Reason = "could not determine: candidate dependencies differ from the pinned client contract"
 			}

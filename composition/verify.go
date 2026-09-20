@@ -22,6 +22,14 @@ type TrustPolicy struct {
 }
 
 func (release *VerifiedRelease) ContractSnapshot(ctx context.Context) (*updatev0.ContractSnapshot, error) {
+	evidence, err := release.ContractEvidence(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return evidence.Snapshot, nil
+}
+
+func (release *VerifiedRelease) ContractEvidence(ctx context.Context) (*moduleupdate.ContractEvidence, error) {
 	if release == nil || release.release == nil {
 		return nil, errors.New("verified module release is required")
 	}
@@ -33,7 +41,7 @@ func (release *VerifiedRelease) ContractSnapshot(ctx context.Context) (*updatev0
 	if err := ExtractArchive(ctx, release.release.Artifact, root); err != nil {
 		return nil, err
 	}
-	return BuildPackageContractSnapshot(root)
+	return BuildPackageContractEvidence(root)
 }
 
 // ContractDiff reads update evidence from the authenticated module archive.

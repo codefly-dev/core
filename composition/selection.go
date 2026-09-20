@@ -171,6 +171,16 @@ func (descriptor *Descriptor) validateSelections() error {
 }
 
 func (manifest *PackageManifest) validateSelections() error {
+	if manifest.RequiredQualifications != nil {
+		if err := uniqueStrings("required qualification", *manifest.RequiredQualifications); err != nil {
+			return err
+		}
+		for _, kind := range *manifest.RequiredQualifications {
+			if err := validateIdentifier("required qualification", kind); err != nil {
+				return err
+			}
+		}
+	}
 	seen := make(map[string]bool)
 	for _, module := range manifest.Modules {
 		if err := validateInstanceName(module.Name); err != nil {

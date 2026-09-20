@@ -88,7 +88,10 @@ output bytes. The upstream artifact is never overwritten.
 
 `AdmitDeployment` additionally requires authenticated, unexpired qualification
 for the exact selection, actual output bytes and target bindings, under the
-caller's deployment policy. The approval record preserves signed evidence and
+caller's deployment policy and every owner's signed `required-qualifications`.
+Missing owner declarations are errors; an intentional empty list must be
+explicit. Replacements always require `component-compatibility` and `functional`
+qualification. The approval record preserves signed evidence and
 its validity window. Functional/stateful tests and rollout approval belong to
 the authorities configured in that policy. Callers must re-admit at deployment
 time, deploy immutable digests, and record observed running identities rather
@@ -101,6 +104,25 @@ with and without a replacement and compares effective inputs. Moved targets,
 changed requirements and different artifacts prevent removal. Its result is a
 proposal, not a mutation or deployment approval; the new full selection needs
 its own compatibility checks and qualification.
+
+## Consumer contract evidence
+
+`Engine.ConsumerPins` accepts `SignedConsumerUsage`, not unauthenticated pins.
+`ConsumerAuthorities` binds each instance to its expected consumer and usage
+signers. The statement binds the instance, actual composition digest, complete
+usage and expiry. Updating a module verifies both the usage statement and the
+actual signed baseline/candidate before executing candidate generators. Changing
+consumer inputs during tests prevents projection/lock publication.
+
+`BuildPackageContractEvidence` derives canonical source bytes alongside the
+existing snapshots. `PrepareReleaseDiffWithSources` and
+`ClassifyContractChangeWithSources` verify those bytes against item digests before
+applying supported rules. Snapshot identities are unchanged by adding this
+analysis. Supported rules cover simple optional protobuf field additions,
+removed/changed fields, optional/required OpenAPI parameters and incompatible
+transitive object types. Changed validation, authorization, dependency edges,
+oneofs, enums and unsupported schema semantics remain explicitly undetermined.
+This does not infer implementation correctness or stateful upgrade safety.
 
 ## Boundary tests and delivery
 

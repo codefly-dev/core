@@ -26,13 +26,22 @@ type ChangeClassification struct {
 // ClassifyContractChange describes publisher-wide contract changes, not whether
 // the implementation is correct or any particular consumer may adopt it.
 func ClassifyContractChange(diff *updatev0.ReleaseDiff) *ChangeClassification {
-	result := &ChangeClassification{Level: ChangeUndetermined}
 	prepared, err := PrepareReleaseDiff(diff)
+	return classifyPrepared(prepared, err)
+}
+
+func ClassifyContractChangeWithSources(diff *updatev0.ReleaseDiff, before, after map[string]ContractSource) *ChangeClassification {
+	prepared, err := PrepareReleaseDiffWithSources(diff, before, after)
+	return classifyPrepared(prepared, err)
+}
+
+func classifyPrepared(prepared *PreparedRelease, err error) *ChangeClassification {
+	result := &ChangeClassification{Level: ChangeUndetermined}
 	if err != nil {
 		result.Undetermined = []*updatev0.AffectedItem{{Reason: err.Error()}}
 		return result
 	}
-	diff = prepared.diff
+	diff := prepared.diff
 	result.BeforeStage = releaseStage(diff.Before.Version)
 	result.AfterStage = releaseStage(diff.After.Version)
 	if !diff.Before.Complete || !diff.After.Complete {
@@ -51,7 +60,14 @@ func ClassifyContractChange(diff *updatev0.ReleaseDiff) *ChangeClassification {
 				result.Level = ChangeMinor
 			}
 		case updatev0.ChangeKind_CHANGE_KIND_MODIFIED:
-			result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{Item: change.Item, Reason: "contract content or dependencies changed; digest evidence cannot classify semantic compatibility"})
+			semantic, exists := prepared.semantic[change.Item]
+			if !exists || semantic.level == ChangeUndetermined || (!prepared.before[change.Item].RequiredByAll && prepared.after[change.Item].RequiredByAll) {
+				result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{Item: change.Item, Reason: "contract content, dependencies or requirements need semantic qualification"})
+			} else if semantic.level == ChangeMajor {
+				result.Level = ChangeMajor
+			} else if semantic.level == ChangeMinor && result.Level == ChangePatch {
+				result.Level = ChangeMinor
+			}
 		}
 	}
 	if len(result.Undetermined) > 0 {

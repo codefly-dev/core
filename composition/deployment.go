@@ -221,6 +221,16 @@ func (engine *Engine) AdmitDeployment(ctx context.Context, resolved *ResolvedCom
 	if err := uniqueStrings("required qualification", policy.RequiredQualifications); err != nil {
 		return nil, err
 	}
+	required := slices.Clone(policy.RequiredQualifications)
+	for _, metadata := range resolved.metadata {
+		if metadata.manifest.RequiredQualifications == nil {
+			return nil, fmt.Errorf("%s: owner has not declared deployment qualification requirements", metadata.manifest.ID)
+		}
+		required = append(required, (*metadata.manifest.RequiredQualifications)...)
+	}
+	if len(resolved.record.Differences) != 0 {
+		required = append(required, "component-compatibility", "functional")
+	}
 	qualified := make(map[string]bool)
 	for _, signed := range inputs.Qualifications {
 		var statement Qualification
@@ -243,7 +253,7 @@ func (engine *Engine) AdmitDeployment(ctx context.Context, resolved *ResolvedCom
 		}
 		record.Qualifications = append(record.Qualifications, SignedQualification{Statement: slices.Clone(signed.Statement), Signature: slices.Clone(signed.Signature)})
 	}
-	for _, kind := range policy.RequiredQualifications {
+	for _, kind := range required {
 		if !qualified[kind] {
 			return nil, fmt.Errorf("required %s qualification is missing", kind)
 		}
