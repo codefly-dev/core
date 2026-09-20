@@ -124,6 +124,10 @@ release labels and semantic versions with prerelease/build metadata are valid;
 empty versions and path/URL delimiters are rejected. Parsing, protobuf conversion,
 cache path construction and GitHub release lookup enforce the same rule,
 including for directly constructed resource values.
+Versions cannot contain `__`: its last occurrence separates name from version
+in the cache filename. Names may contain it, and single underscores remain valid
+in release labels. This keeps accepted identities distinct without changing
+existing cache paths or silently interpreting an ambiguous selection.
 
 Agent downloads finish extraction before publishing a binary. Publication copies
 into a temporary file beside the destination, sets permissions, flushes and closes

@@ -390,6 +390,10 @@ func ValidateAgent(agent *basev0.Agent) error {
 			return fmt.Errorf("invalid agent %s: must start with an ASCII letter or digit and contain only letters, digits, '.', '_', '+', '-'", component.name)
 		}
 	}
+	// The final double underscore separates the cache name from its version.
+	if strings.Contains(agent.Version, "__") {
+		return fmt.Errorf("invalid agent version: '__' is reserved for the cache separator")
+	}
 	v, err := protovalidate.New()
 	if err != nil {
 		return err

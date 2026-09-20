@@ -57,6 +57,27 @@ func TestAgentIdentityBoundaries(t *testing.T) {
 	}
 }
 
+func TestAgentCacheSeparatorCannotAppearInVersion(t *testing.T) {
+	ctx := t.Context()
+	for _, registration := range resources.AgentKindRegistry() {
+		for _, version := range []string{"1__2", "1___2", "1__", "1.0.0+build__2"} {
+			a := &resources.Agent{Kind: registration.Resource, Publisher: "example.test", Name: "widget", Version: version}
+			_, err := a.Proto()
+			require.ErrorContains(t, err, "cache separator")
+			_, err = a.Path(ctx)
+			require.ErrorContains(t, err, "cache separator")
+			_, err = resources.ParseAgent(ctx, registration.Resource, a.Identifier())
+			require.ErrorContains(t, err, "cache separator")
+		}
+		for _, name := range []string{"widget", "widget_", "widget__1", "widget___1"} {
+			for _, version := range []string{"2", "1_2", "1.0.0+build.2"} {
+				_, err := resources.ParseAgent(ctx, registration.Resource, "example.test/"+name+":"+version)
+				require.NoError(t, err)
+			}
+		}
+	}
+}
+
 func TestAgentParse(t *testing.T) {
 	ctx := context.Background()
 	tcs := []struct {
