@@ -72,6 +72,12 @@ func AgentSourceLocal() bool {
 // This is the preferred resolution path for locally-built agents (via
 // "codefly agent build") that have no GitHub release.
 func FindLocalLatest(ctx context.Context, agent *resources.Agent) error {
+	if agent == nil {
+		return fmt.Errorf("agent is required")
+	}
+	if _, err := agent.Proto(); err != nil {
+		return err
+	}
 	w := wool.Get(ctx).In("agents.FindLocalLatest", wool.Field("agent", agent.Identifier()))
 
 	base := resources.AgentBase(ctx)
@@ -113,6 +119,13 @@ func findLocalLatestInDir(dir string, agent *resources.Agent) error {
 		verStr := strings.TrimPrefix(name, prefix)
 		v, err := semver.Make(verStr)
 		if err != nil {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			return fmt.Errorf("inspect local agent %s: %w", name, err)
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 			continue
 		}
 		if !found || v.GT(best) {
