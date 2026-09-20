@@ -2,10 +2,24 @@
   "schema": "codefly/cell/v1",
   "cell": "hosted-us-central1",
   "coordinate": "hosted/gcp/us-central1/US/staging",
-  "requires_capabilities": ["managed-identity-transport", "audit-sinks"],
-  "cluster": { "kind": "gke", "context": "obinh-usc1-gke", "private_api": true },
-  "dns": { "app_host_suffix": "staging.us-central1.gcp.obin.obin.ai" },
-  "registries": [ { "kind": "gar", "url": "us-central1-docker.pkg.dev/obinh-usc1/images", "public": false } ],
+  "requires_capabilities": [
+    "managed-identity-transport"
+  ],
+  "cluster": {
+    "kind": "gke",
+    "context": "obinh-usc1-gke",
+    "private_api": true
+  },
+  "dns": {
+    "app_host_suffix": "staging.us-central1.gcp.obin.obin.ai"
+  },
+  "registries": [
+    {
+      "kind": "gar",
+      "url": "us-central1-docker.pkg.dev/obinh-usc1/images",
+      "public": false
+    }
+  ],
   "databases": [
     {
       "engine": "postgres",
@@ -13,33 +27,38 @@
       "name": "platform",
       "fqdn": "10.20.11.7",
       "port": 5432,
-      "egress_cidrs": ["10.20.11.0/28"],
-      "database_names": ["unleash", "users"],
+      "egress_cidrs": [
+        "10.20.11.0/28"
+      ],
+      "database_names": [
+        "unleash",
+        "users"
+      ],
       "password_auth": false,
       "transport": {
         "mode": "proxy",
-        "image": "us-central1-docker.pkg.dev/obinh-usc1/images/db-proxy@sha256:a8e9fa7c7344e1e4907354c9c59b08f758b881a26e5e17c51f179f2505f530f0",
-        "args": ["--private-ip", "--auto-iam-authn", "obinh-usc1:us-central1:platform"],
         "local_port": 5432
       },
       "identity": {
         "kind": "gcp-service-account",
         "principal": "platform-db@obinh-usc1.iam.gserviceaccount.com",
-        "annotations": { "iam.gke.io/gcp-service-account": "platform-db@obinh-usc1.iam.gserviceaccount.com" },
-        "labels": { "obin.ai/workload-identity": "true" }
+        "annotations": {
+          "iam.gke.io/gcp-service-account": "platform-db@obinh-usc1.iam.gserviceaccount.com"
+        },
+        "labels": {
+          "obin.ai/workload-identity": "true"
+        }
       }
     }
   ],
-  "secret_stores": [ { "kind": "ClusterSecretStore", "name": "gcp-secret-manager" } ],
-  "audit_sinks": [
+  "secret_stores": [
     {
-      "name": "audit",
-      "kind": "bigquery-dataset",
-      "target": "obinh-usc1:audit_us",
-      "writer": { "kind": "gcp-service-account", "principal": "audit-writer@obinh-usc1.iam.gserviceaccount.com" },
-      "residency": "US",
-      "retention": { "days": 400, "locked": true }
+      "kind": "ClusterSecretStore",
+      "name": "gcp-secret-manager"
     }
   ],
-  "gitops": { "repo": "https://github.com/obin-ai/infra-base.git", "workloads_path_prefix": "delivery/hosted/staging" }
+  "gitops": {
+    "repo": "https://github.com/obin-ai/infra-base.git",
+    "workloads_path_prefix": "delivery/hosted/staging"
+  }
 }

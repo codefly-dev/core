@@ -37,7 +37,6 @@ type CellContract struct {
 	SecretStores []CellContractSecretStore `json:"secret_stores"`
 	Gitops       *CellContractGitops       `json:"gitops,omitempty"`
 	ObjectStores []CellContractObjectStore `json:"object_stores,omitempty"`
-	AuditSinks   []CellContractAuditSink   `json:"audit_sinks,omitempty"`
 
 	// RequiresCapabilities names the consumer behaviours this descriptor cannot
 	// work without. An unknown JSON field decodes to nothing, so a producer that
@@ -56,13 +55,10 @@ const (
 	// binding: port, transport mode and the exact runtime principal a workload
 	// authenticates as, carried through to the workload renderer.
 	CapabilityManagedIdentityTransport = "managed-identity-transport"
-	// CapabilityAuditSinks is the audit-sink collection and its delivery facts.
-	CapabilityAuditSinks = "audit-sinks"
 )
 
 var cellContractCapabilities = map[string]bool{
 	CapabilityManagedIdentityTransport: true,
-	CapabilityAuditSinks:               true,
 }
 
 type CellContractCluster struct {
@@ -146,11 +142,10 @@ const (
 // workload that would come up with no path to the database at all.
 type CellContractTransport struct {
 	Mode string `json:"mode"`
-	// Image and Args are the proxy the pod runs in TransportModeProxy, and
-	// LocalPort is the loopback port it listens on.
-	Image     string   `json:"image,omitempty"`
-	Args      []string `json:"args,omitempty"`
-	LocalPort int      `json:"local_port,omitempty"`
+	// LocalPort is the loopback port the workload connects to in
+	// TransportModeProxy. What runs the proxy, and with which image, is the
+	// renderer's to resolve from the mode — a container spec is not a cell fact.
+	LocalPort int `json:"local_port,omitempty"`
 }
 
 // CellContractIdentity is the exact runtime principal a workload authenticates
@@ -164,29 +159,6 @@ type CellContractIdentity struct {
 	Principal   string            `json:"principal"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 	Labels      map[string]string `json:"labels,omitempty"`
-}
-
-// CellContractAuditSink is one destination the cell delivers audit records to.
-// Kind is an open string naming the sink technology and Target the exact
-// destination the producer applied. Residency and Retention carry the producer's
-// approved data-handling facts: codefly transports them and infers neither — an
-// unapplied retention lock is `locked: false`, not an assumption — and never
-// synthesizes a connection string for the sink from its parts.
-type CellContractAuditSink struct {
-	Name      string                      `json:"name"`
-	Kind      string                      `json:"kind"`
-	Target    string                      `json:"target"`
-	Writer    *CellContractIdentity       `json:"writer,omitempty"`
-	Residency string                      `json:"residency,omitempty"`
-	Retention *CellContractAuditRetention `json:"retention,omitempty"`
-}
-
-// CellContractAuditRetention is the retention the producer applied to a sink.
-// Locked reports whether a retention lock is in force, which is an approval fact
-// only the producer holds.
-type CellContractAuditRetention struct {
-	Days   int  `json:"days"`
-	Locked bool `json:"locked"`
 }
 
 // CellContractSecretStore selects an External Secrets store the cell exposes.
@@ -262,11 +234,6 @@ func ParseCellContract(data []byte) (*CellContract, error) {
 			return nil, err
 		}
 	}
-	for _, sink := range c.AuditSinks {
-		if err := validateAuditSink(sink, c.Cell); err != nil {
-			return nil, err
-		}
-	}
 	// A delivery target is declared whole or not at all. Half of one leaves the
 	// rendered workloads pointing at an empty repo or the cell's root path, which
 	// reconciles somewhere other than where the owner decided they go.
@@ -311,35 +278,11 @@ func validateDatabaseAccess(db CellContractDatabase, cell string) error {
 	switch db.Transport.Mode {
 	case TransportModeDirect:
 	case TransportModeProxy:
-		if db.Transport.Image == "" {
-			return fmt.Errorf("database %q in cell %q declares a %s transport with no image", db.Name, cell, TransportModeProxy)
-		}
 		if db.Transport.LocalPort <= 0 || db.Transport.LocalPort > 65535 {
 			return fmt.Errorf("database %q in cell %q declares a %s transport with no usable local port", db.Name, cell, TransportModeProxy)
 		}
 	default:
 		return fmt.Errorf("database %q in cell %q declares transport mode %q, which this consumer does not implement", db.Name, cell, db.Transport.Mode)
-	}
-	return nil
-}
-
-// validateAuditSink refuses a sink codefly could only complete by inventing a
-// fact: a destination, or the writer allowed to reach it.
-func validateAuditSink(sink CellContractAuditSink, cell string) error {
-	if sink.Name == "" {
-		return fmt.Errorf("cell %q declares an audit sink with no name", cell)
-	}
-	if sink.Kind == "" {
-		return fmt.Errorf("audit sink %q in cell %q carries no kind", sink.Name, cell)
-	}
-	if sink.Target == "" {
-		return fmt.Errorf("audit sink %q in cell %q carries no target", sink.Name, cell)
-	}
-	if sink.Writer == nil || sink.Writer.Principal == "" {
-		return fmt.Errorf("audit sink %q in cell %q names no writer principal", sink.Name, cell)
-	}
-	if sink.Retention != nil && sink.Retention.Days <= 0 {
-		return fmt.Errorf("audit sink %q in cell %q declares a retention of %d days", sink.Name, cell, sink.Retention.Days)
 	}
 	return nil
 }
@@ -412,8 +355,6 @@ func (c *CellContract) ToEnvironment(envName, namespace string) (*Environment, e
 		if db.Transport != nil {
 			managed.Transport = &EnvironmentManagedTransport{
 				Mode:      db.Transport.Mode,
-				Image:     db.Transport.Image,
-				Args:      db.Transport.Args,
 				LocalPort: db.Transport.LocalPort,
 			}
 		}
@@ -429,16 +370,6 @@ func (c *CellContract) ToEnvironment(envName, namespace string) (*Environment, e
 		}
 		env.ManagedServices = map[string]EnvironmentManagedService{"store": managed}
 	}
-	for _, sink := range c.AuditSinks {
-		env.AuditSinks = append(env.AuditSinks, EnvironmentAuditSink{
-			Name:      sink.Name,
-			Kind:      sink.Kind,
-			Target:    sink.Target,
-			Writer:    sink.Writer.toEnvironment(),
-			Residency: sink.Residency,
-			Retention: sink.Retention.toEnvironment(),
-		})
-	}
 	return env, nil
 }
 
@@ -452,11 +383,4 @@ func (i *CellContractIdentity) toEnvironment() *EnvironmentWorkloadIdentity {
 		Annotations: i.Annotations,
 		Labels:      i.Labels,
 	}
-}
-
-func (r *CellContractAuditRetention) toEnvironment() *EnvironmentAuditRetention {
-	if r == nil {
-		return nil
-	}
-	return &EnvironmentAuditRetention{Days: r.Days, Locked: r.Locked}
 }

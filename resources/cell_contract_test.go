@@ -198,19 +198,6 @@ func TestParseAndMapManagedIdentityCell(t *testing.T) {
 	if ms.Transport == nil || ms.Transport.Mode != TransportModeProxy || ms.Transport.LocalPort != 5432 {
 		t.Fatalf("transport = %+v", ms.Transport)
 	}
-	if ms.Transport.Image != "us-central1-docker.pkg.dev/obinh-usc1/images/db-proxy@sha256:a8e9fa7c7344e1e4907354c9c59b08f758b881a26e5e17c51f179f2505f530f0" {
-		t.Errorf("transport image = %q", ms.Transport.Image)
-	}
-	if len(ms.Transport.Args) != 3 {
-		t.Errorf("transport args = %v", ms.Transport.Args)
-	}
-	// A transport image renders into a promotable workload, where every image
-	// must be pinned by digest. The contract does not enforce that — it is a
-	// renderer constraint, not a contract one — but this fixture reads as a
-	// worked example, and one carrying a tag would be refused at render.
-	if !digestPinned.MatchString(ms.Transport.Image) {
-		t.Errorf("transport image %q is not pinned by sha256 digest", ms.Transport.Image)
-	}
 	if ms.Identity == nil || ms.Identity.Principal != "platform-db@obinh-usc1.iam.gserviceaccount.com" {
 		t.Fatalf("identity = %+v", ms.Identity)
 	}
@@ -233,22 +220,6 @@ func TestParseAndMapManagedIdentityCell(t *testing.T) {
 		t.Errorf("service-secrets store = %+v", env.ServiceSecrets)
 	}
 
-	if len(env.AuditSinks) != 1 {
-		t.Fatalf("audit sinks = %+v", env.AuditSinks)
-	}
-	sink := env.AuditSinks[0]
-	if sink.Target != "obinh-usc1:audit_us" || sink.Kind != "bigquery-dataset" {
-		t.Errorf("audit sink destination = %+v", sink)
-	}
-	if sink.Writer == nil || sink.Writer.Principal != "audit-writer@obinh-usc1.iam.gserviceaccount.com" {
-		t.Errorf("audit writer = %+v", sink.Writer)
-	}
-	if sink.Residency != "US" {
-		t.Errorf("audit residency = %q", sink.Residency)
-	}
-	if sink.Retention == nil || sink.Retention.Days != 400 || !sink.Retention.Locked {
-		t.Errorf("audit retention = %+v", sink.Retention)
-	}
 	// The delivery target is the one the producer declared, not a default.
 	if env.Gitops == nil || env.Gitops.RepoURL != "https://github.com/obin-ai/infra-base.git" {
 		t.Fatalf("delivery repo = %+v", env.Gitops)
@@ -286,7 +257,7 @@ func TestEnvironmentSerializationPreservesTransportAndAudit(t *testing.T) {
 	if ms.Port != 5432 {
 		t.Errorf("port = %d", ms.Port)
 	}
-	if ms.Transport == nil || ms.Transport.Mode != TransportModeProxy || ms.Transport.Image == "" || ms.Transport.LocalPort != 5432 {
+	if ms.Transport == nil || ms.Transport.Mode != TransportModeProxy || ms.Transport.LocalPort != 5432 {
 		t.Errorf("transport = %+v", ms.Transport)
 	}
 	if ms.Identity == nil || ms.Identity.Principal != "platform-db@obinh-usc1.iam.gserviceaccount.com" {
@@ -294,16 +265,6 @@ func TestEnvironmentSerializationPreservesTransportAndAudit(t *testing.T) {
 	}
 	if ms.Identity.Annotations["iam.gke.io/gcp-service-account"] == "" || ms.Identity.Labels["obin.ai/workload-identity"] == "" {
 		t.Errorf("identity attachment = %+v", ms.Identity)
-	}
-	if len(reloaded.AuditSinks) != 1 {
-		t.Fatalf("audit sinks = %+v", reloaded.AuditSinks)
-	}
-	sink := reloaded.AuditSinks[0]
-	if sink.Target != "obinh-usc1:audit_us" || sink.Writer == nil || sink.Writer.Principal == "" {
-		t.Errorf("audit sink = %+v", sink)
-	}
-	if sink.Retention == nil || sink.Retention.Days != 400 || !sink.Retention.Locked {
-		t.Errorf("audit retention = %+v", sink.Retention)
 	}
 }
 
@@ -330,7 +291,6 @@ func TestRefusesIncompleteTransportBinding(t *testing.T) {
 		"passwordless without identity": prefix + `"password_auth":false,"port":5432}]}`,
 		"identity without principal":    prefix + `"password_auth":false,"port":5432,"identity":{"kind":"k"}}]}`,
 		"transport without port":        prefix + `"password_auth":true,"transport":{"mode":"direct"}}]}`,
-		"proxy without image":           prefix + `"password_auth":true,"port":5432,"transport":{"mode":"proxy","local_port":5432}}]}`,
 		"proxy without local port":      prefix + `"password_auth":true,"port":5432,"transport":{"mode":"proxy","image":"i"}}]}`,
 		"unimplemented mode":            prefix + `"password_auth":true,"port":5432,"transport":{"mode":"carrier-pigeon"}}]}`,
 		"out of range port":             prefix + `"password_auth":true,"port":70000}]}`,
@@ -339,45 +299,6 @@ func TestRefusesIncompleteTransportBinding(t *testing.T) {
 		if _, err := ParseCellContract([]byte(doc)); err == nil {
 			t.Errorf("%s: expected a transport-binding rejection", name)
 		}
-	}
-}
-
-// A sink codefly could only complete by inventing a destination or a writer is
-// refused; codefly never synthesizes either from the parts it has.
-func TestRefusesIncompleteAuditSink(t *testing.T) {
-	const prefix = `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"registries":[{"url":"a"}],"audit_sinks":[{`
-	docs := map[string]string{
-		"no name":             prefix + `"kind":"k","target":"t","writer":{"principal":"p"}}]}`,
-		"no kind":             prefix + `"name":"audit","target":"t","writer":{"principal":"p"}}]}`,
-		"no target":           prefix + `"name":"audit","kind":"k","writer":{"principal":"p"}}]}`,
-		"no writer":           prefix + `"name":"audit","kind":"k","target":"t"}]}`,
-		"writer no principal": prefix + `"name":"audit","kind":"k","target":"t","writer":{"kind":"k"}}]}`,
-		"unusable retention":  prefix + `"name":"audit","kind":"k","target":"t","writer":{"principal":"p"},"retention":{"days":0}}]}`,
-	}
-	for name, doc := range docs {
-		if _, err := ParseCellContract([]byte(doc)); err == nil {
-			t.Errorf("%s: expected an audit-sink rejection", name)
-		}
-	}
-}
-
-// A retention lock is an approval fact only the producer holds, so an unlocked
-// retention stays unlocked through the mapping.
-func TestDoesNotInferRetentionLock(t *testing.T) {
-	doc := `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"registries":[{"url":"a"}],"audit_sinks":[{"name":"audit","kind":"k","target":"t","writer":{"principal":"p"},"retention":{"days":30}}]}`
-	c, err := ParseCellContract([]byte(doc))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	env, err := c.ToEnvironment("staging", "lodestar")
-	if err != nil {
-		t.Fatalf("to environment: %v", err)
-	}
-	if len(env.AuditSinks) != 1 || env.AuditSinks[0].Retention == nil {
-		t.Fatalf("audit sinks = %+v", env.AuditSinks)
-	}
-	if env.AuditSinks[0].Retention.Locked {
-		t.Error("an unapplied retention lock must not be reported as locked")
 	}
 }
 
@@ -407,7 +328,7 @@ func TestDialHost(t *testing.T) {
 	proxied := EnvironmentManagedService{
 		ExternalName: "10.20.11.7",
 		Port:         5432,
-		Transport:    &EnvironmentManagedTransport{Mode: TransportModeProxy, Image: "i", LocalPort: 6543},
+		Transport:    &EnvironmentManagedTransport{Mode: TransportModeProxy, LocalPort: 6543},
 	}
 	if host, port := proxied.DialHost(); host != "127.0.0.1" || port != 6543 {
 		t.Errorf("proxied dial = %s:%d", host, port)
