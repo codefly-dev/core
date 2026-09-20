@@ -47,6 +47,75 @@ var (
 	protocGenEsFlakePin      = regexp.MustCompile(`protocGenEsVersion = "([0-9]+\.[0-9]+\.[0-9]+)"`)
 )
 
+// goimportsVersion is the goimports the companion bakes. The formatting pass
+// is part of generation (see FormatGoOutputs), so the formatter is pinned like
+// a plugin: a consumer's committed Go carries this version's shape, and a
+// formatter that moved with @latest would move every checked-in tree. Both
+// build definitions must bake the same one, or the image's behaviour depends on
+// which builder published it.
+const goimportsVersion = "0.50.0"
+
+var (
+	goimportsDockerfilePin = regexp.MustCompile(`golang\.org/x/tools/cmd/goimports@v([0-9]+\.[0-9]+\.[0-9]+)`)
+	goimportsFlakePin      = regexp.MustCompile(`goimportsVersion = "([0-9]+\.[0-9]+\.[0-9]+)"`)
+)
+
+func TestDockerfilePinsGoimports(t *testing.T) {
+	assertPinned(t, "Dockerfile", "goimports", goimportsDockerfilePin, goimportsVersion)
+}
+
+func TestFlakePinsGoimports(t *testing.T) {
+	assertPinned(t, "flake.nix", "goimports", goimportsFlakePin, goimportsVersion)
+}
+
+// The builder stage installing goimports proves nothing about the image; only
+// a COPY into the runtime stage puts it on the companion's PATH. This is the
+// same shape of gap TestBuildDefinitionsInstallGrpcioToolsInRuntime guards.
+func TestDockerfileShipsGoimportsInRuntime(t *testing.T) {
+	dockerfile, err := os.ReadFile("Dockerfile")
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	stages := regexp.MustCompile(`(?m)^FROM `).FindAllStringIndex(string(dockerfile), -1)
+	if len(stages) < 2 {
+		t.Fatalf("Dockerfile has %d FROM stages, expected the builder + runtime pair", len(stages))
+	}
+	runtimeStage := string(dockerfile)[stages[len(stages)-1][0]:]
+	if !regexp.MustCompile(`(?m)^COPY --from=builder /go/bin/goimports /usr/local/bin/`).MatchString(runtimeStage) {
+		t.Error("Dockerfile does not COPY goimports into the runtime stage; the companion would run `buf generate` and then fail its own formatting pass")
+	}
+	assertMentionsAll(t, "flake.nix", []string{"pinnedGoimports"})
+}
+
+// The runtime Go is not decoration: goimports names a package by running
+// `go list` in the consumer's module, and a Go older than that module's
+// go.mod requirement makes it refuse — after which goimports quietly formats
+// syntax only and emits no alias where a package's name is not its path's
+// last element. That is the committed shape, so every consumer drifts by
+// exactly those lines, and nothing errors. The builder stage's Go is the
+// ecosystem's; the runtime must carry that one, not whatever apk ships.
+func TestDockerfileRuntimeGoIsTheBuilderToolchain(t *testing.T) {
+	dockerfile, err := os.ReadFile("Dockerfile")
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	stages := regexp.MustCompile(`(?m)^FROM `).FindAllStringIndex(string(dockerfile), -1)
+	if len(stages) < 2 {
+		t.Fatalf("Dockerfile has %d FROM stages, expected the builder + runtime pair", len(stages))
+	}
+	runtimeStage := string(dockerfile)[stages[len(stages)-1][0]:]
+	if regexp.MustCompile(`(?m)^RUN apk add[^\n]*\bgo\b`).MatchString(runtimeStage) {
+		t.Error("Dockerfile installs go from apk in the runtime stage; that is the base alpine's Go, older than consumers' go.mod require, and goimports then degrades silently (see the runtime-dependencies note)")
+	}
+	if !regexp.MustCompile(`(?m)^COPY --from=builder /usr/local/go /usr/local/go`).MatchString(runtimeStage) {
+		t.Error("Dockerfile does not COPY the builder's Go toolchain into the runtime stage")
+	}
+	if !regexp.MustCompile(`(?m)^FROM golang:1\.27`).MatchString(string(dockerfile)) {
+		t.Error("the builder stage is not golang:1.27; the runtime Go it hands the formatter would not satisfy modules that require go 1.27")
+	}
+	assertMentionsAll(t, "flake.nix", []string{"go_1_27"})
+}
+
 func TestDockerfilePinsProtocGenEsToRuntimeVersion(t *testing.T) {
 	assertPinnedToRuntime(t, "Dockerfile", protocGenEsDockerfilePin)
 }
@@ -153,6 +222,21 @@ func assertMentionsAll(t *testing.T, file string, needles []string) {
 	}
 }
 
+func assertPinned(t *testing.T, file, tool string, pin *regexp.Regexp, want string) {
+	t.Helper()
+	content, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read %s: %v", file, err)
+	}
+	match := pin.FindSubmatch(content)
+	if match == nil {
+		t.Fatalf("%s no longer pins %s to an explicit version", file, tool)
+	}
+	if got := string(match[1]); got != want {
+		t.Fatalf("%s pins %s %s, but the companion contract is %s; the two build definitions and this constant must move together", file, tool, got, want)
+	}
+}
+
 func assertPinnedToRuntime(t *testing.T, file string, pin *regexp.Regexp) {
 	t.Helper()
 	content, err := os.ReadFile(file)
@@ -242,7 +326,7 @@ func TestTsFacadeLockfileMatchesTheRuntime(t *testing.T) {
 // neighbour — the reader then checks the wrong line, finds something plausible,
 // and moves on.
 var runbookCitations = map[string]string{
-	"Dockerfile:90": "@bufbuild/protoc-gen-es@",
+	"Dockerfile:98": "@bufbuild/protoc-gen-es@",
 	"flake.nix:51":  "protocGenEsVersion =",
 	"flake.nix:59":  "hash =",
 	"flake.nix:61":  "npmDepsHash =",

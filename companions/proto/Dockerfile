@@ -35,7 +35,8 @@ RUN go install -ldflags="-s -w" github.com/bufbuild/buf/cmd/buf@v1.73.0 && \
     go install -ldflags="-s -w" github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@v2.29.0 && \
     go install -ldflags="-s -w" connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.20.0 && \
     go install -ldflags="-s -w" github.com/go-swagger/go-swagger/cmd/swagger@v0.35.3 && \
-    go install -ldflags="-s -w" github.com/envoyproxy/protoc-gen-validate@v1.2.1
+    go install -ldflags="-s -w" github.com/envoyproxy/protoc-gen-validate@v1.2.1 && \
+    go install -ldflags="-s -w" golang.org/x/tools/cmd/goimports@v0.50.0
 
 # Go facade plugin (protoc-gen-codefly-facade-go), built from in-tree source.
 COPY companions/proto/facades/go /src/facade-go
@@ -64,11 +65,18 @@ FROM ${CODEFLY_BASE_IMAGE}
 #     binary from the builder without its .so neighbors produces
 #     "symbol not found" at first invocation.
 #   - go: required at runtime by `swagger generate client` to format
-#     generated source. Without it `gofmt` is unreachable and swagger
-#     bails with "go command required, not found". The Go-built plugins
-#     (buf, protoc-gen-*) are static so they don't need this — only
-#     swagger does, but it's the single tool that breaks the openapi
-#     pipeline if missing. Adds ~150 MB; unavoidable.
+#     generated source, and by goimports to name a package: it runs
+#     `go list` in the consumer's module, and refuses a module whose
+#     go.mod requires a newer Go than it is ("requires go >= 1.27.0
+#     (running go 1.23.9; GOTOOLCHAIN=local)"). It then falls back to
+#     syntax-only formatting and silently emits no alias where the
+#     package name is not the path's last element — which is the
+#     committed shape, so the companion's output drifts from every
+#     consumer by exactly those lines. The apk go is whatever the base
+#     alpine ships (1.23 on 3.21); the toolchain is COPYed from the
+#     builder below instead, so the runtime Go is the ecosystem's Go
+#     by construction. The Go-built plugins (buf, protoc-gen-*) are
+#     static and never need it. Adds ~270 MB; unavoidable.
 #   - Go-built plugins (buf, protoc-gen-*) ARE static (CGO_ENABLED=0
 #     by default for `go install`), so we COPY just those binaries
 #     without bringing the Go runtime.
@@ -81,7 +89,7 @@ ENV HOME=/tmp
 # is built here (not copied from the builder) so it is bound to this stage's
 # python — the builder's alpine ships a different python minor version, and a
 # venv is not portable across them.
-RUN apk add --no-cache nodejs npm protobuf go python3 py3-pip && \
+RUN apk add --no-cache nodejs npm protobuf python3 py3-pip && \
     python3 -m venv /venv && \
     /venv/bin/pip install --no-cache-dir protobuf grpcio-tools && \
     npm install -g \
@@ -90,6 +98,11 @@ RUN apk add --no-cache nodejs npm protobuf go python3 py3-pip && \
         @bufbuild/protoc-gen-es@2.11.0 && \
     npm cache clean --force
 
+# The builder's toolchain, not apk's: goimports and swagger both shell out
+# to `go`, and a Go older than what consumers' go.mod files require makes
+# goimports degrade silently (see the runtime-dependencies note above).
+COPY --from=builder /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH
 COPY --from=builder /go/bin/buf /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-go /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-go-grpc /usr/local/bin/
@@ -99,6 +112,11 @@ COPY --from=builder /go/bin/protoc-gen-validate /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-connect-go /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-codefly-facade-go /usr/local/bin/
 COPY --from=builder /go/bin/swagger /usr/local/bin/
+# goimports is part of generation, not a consumer's afterthought: every
+# consumer commits its Go bindings in goimports shape and gates on it, so the
+# companion formats what buf wrote before it hands the tree back. Pinned like
+# the plugins — a formatter that moves with @latest moves the committed shape.
+COPY --from=builder /go/bin/goimports /usr/local/bin/
 COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
 COPY --from=rust-builder /usr/local/cargo/bin/protoc-gen-prost /usr/local/bin/
 COPY --from=rust-builder /usr/local/cargo/bin/protoc-gen-tonic /usr/local/bin/

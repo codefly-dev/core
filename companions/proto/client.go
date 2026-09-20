@@ -205,7 +205,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	if spec.language == languages.RUST {
 		return generateRustOutput(ctx, spec.destination, func(output string) error {
 			name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
-			return runBuf(ctx, name, image, tmpDir, output, depUpdate, generateArgs, before)
+			return runBuf(ctx, name, image, tmpDir, output, false, depUpdate, generateArgs, before)
 		})
 	}
 
@@ -221,7 +221,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	}
 
 	name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
-	return runBuf(ctx, name, image, tmpDir, spec.destination, depUpdate, generateArgs, before)
+	return runBuf(ctx, name, image, tmpDir, spec.destination, spec.language == languages.GO, depUpdate, generateArgs, before)
 }
 
 // removeForeignOutput deletes the generated trees for the namespaces the

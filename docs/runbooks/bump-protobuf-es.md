@@ -63,7 +63,7 @@ Six places, and they must agree:
 |---|---|---|
 | `companions/proto/facades/ts/package.json` | `@bufbuild/protoplugin` | yes |
 | `companions/proto/facades/ts/package-lock.json` | the resolved `protoplugin` + `protobuf` closure | yes |
-| `companions/proto/Dockerfile:90` | `@bufbuild/protoc-gen-es@` installed via npm | yes |
+| `companions/proto/Dockerfile:98` | `@bufbuild/protoc-gen-es@` installed via npm | yes |
 | `companions/proto/flake.nix:51` | `protocGenEsVersion`, built from source | yes |
 | `companions/proto/flake.nix:59` | `hash` — the protobuf-es source tarball | **no** |
 | `companions/proto/flake.nix:61` | `npmDepsHash` — its npm dependency closure | **no** |
