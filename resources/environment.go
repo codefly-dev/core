@@ -138,10 +138,71 @@ func (ref EnvironmentSecretRemoteRef) MarshalYAML() (any, error) {
 // EnvironmentManagedService describes an environment-owned replacement for a
 // service that is otherwise part of the module graph.
 type EnvironmentManagedService struct {
-	Kind             string                              `yaml:"kind"`
-	ExternalName     string                              `yaml:"external-name"`
+	Kind         string `yaml:"kind"`
+	ExternalName string `yaml:"external-name"`
+	// Port is the port the managed endpoint listens on. Zero means the consumer
+	// falls back to whatever the engine's client defaults to.
+	Port             int                                 `yaml:"port,omitempty"`
 	EgressCIDRs      []string                            `yaml:"egress-cidrs,omitempty"`
 	SecretReferences []EnvironmentManagedSecretReference `yaml:"secret-references,omitempty"`
+	// Transport is how a workload reaches the endpoint. Nil means dialing
+	// ExternalName directly.
+	Transport *EnvironmentManagedTransport `yaml:"transport,omitempty"`
+	// Identity is the runtime principal a workload authenticates to this service
+	// as, for a service that takes no password.
+	Identity *EnvironmentWorkloadIdentity `yaml:"identity,omitempty"`
+}
+
+// EnvironmentManagedTransport is how a workload reaches a managed service: the
+// mode the renderer emits, and the proxy it runs beside the workload when the
+// mode calls for one.
+type EnvironmentManagedTransport struct {
+	Mode      string   `yaml:"mode"`
+	Image     string   `yaml:"image,omitempty"`
+	Args      []string `yaml:"args,omitempty"`
+	LocalPort int      `yaml:"local-port,omitempty"`
+}
+
+// EnvironmentWorkloadIdentity is the runtime principal a workload authenticates
+// as, and the platform's own means of attaching it. Annotations land on the
+// workload's ServiceAccount and Labels on its pod template, verbatim: a cell
+// declares whatever its identity webhook keys off and codefly stamps it without
+// interpreting the keys.
+type EnvironmentWorkloadIdentity struct {
+	Kind        string            `yaml:"kind,omitempty"`
+	Principal   string            `yaml:"principal"`
+	Annotations map[string]string `yaml:"annotations,omitempty"`
+	Labels      map[string]string `yaml:"labels,omitempty"`
+}
+
+// EnvironmentAuditSink is one destination this environment's audit records are
+// delivered to, sourced from the cell descriptor. Every field is a producer fact
+// carried verbatim; codefly neither derives a destination from its parts nor
+// infers whether the retention lock is approved.
+type EnvironmentAuditSink struct {
+	Name      string                       `yaml:"name"`
+	Kind      string                       `yaml:"kind"`
+	Target    string                       `yaml:"target"`
+	Writer    *EnvironmentWorkloadIdentity `yaml:"writer,omitempty"`
+	Residency string                       `yaml:"residency,omitempty"`
+	Retention *EnvironmentAuditRetention   `yaml:"retention,omitempty"`
+}
+
+// EnvironmentAuditRetention is the retention applied to an audit sink.
+type EnvironmentAuditRetention struct {
+	Days   int  `yaml:"days"`
+	Locked bool `yaml:"locked"`
+}
+
+// DialHost returns the host a workload's application connects to for this
+// managed service, and whether the connection is terminated by an in-pod proxy.
+// A proxy transport puts the authenticated private connection in a sidecar, so
+// the application dials loopback and the endpoint address never reaches it.
+func (s EnvironmentManagedService) DialHost() (string, int) {
+	if s.Transport != nil && s.Transport.Mode == TransportModeProxy {
+		return "127.0.0.1", s.Transport.LocalPort
+	}
+	return s.ExternalName, s.Port
 }
 
 // EnvironmentServiceSecrets declares the External Secrets store that resolves a
@@ -328,6 +389,11 @@ type Environment struct {
 
 	Ingress         []EnvironmentIngressRoute            `yaml:"ingress,omitempty"`
 	ManagedServices map[string]EnvironmentManagedService `yaml:"managed-services,omitempty"`
+
+	// AuditSinks are the destinations this environment's audit records are
+	// delivered to, sourced from the cell descriptor. CLI-side; not serialized to
+	// proto.
+	AuditSinks []EnvironmentAuditSink `yaml:"audit-sinks,omitempty"`
 
 	// Dns carries the environment's DNS contract, sourced from the cell
 	// descriptor (CellContract.DNS). Its AppHostSuffix lets the network layer

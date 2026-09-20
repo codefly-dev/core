@@ -618,3 +618,79 @@ func TestAddKustomizeResourceIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, strings.Count(string(content), "serviceaccount.yaml"))
 }
+
+// TestAttachWorkloadIdentityRendersDeclaredAttachment walks the whole seam a
+// deployment does: a cell's declared identity becomes a pod overlay, which
+// renders a ServiceAccount carrying the platform's annotations and a workload
+// bound to it with the platform's labels. Nothing in the path interprets the
+// keys, so a cell on any platform wires its own identity webhook by declaring
+// it.
+func TestAttachWorkloadIdentityRendersDeclaredAttachment(t *testing.T) {
+	identity := &resources.EnvironmentWorkloadIdentity{
+		Kind:        "gcp-service-account",
+		Principal:   "platform-db@obinh-usc1.iam.gserviceaccount.com",
+		Annotations: map[string]string{"iam.gke.io/gcp-service-account": "platform-db@obinh-usc1.iam.gserviceaccount.com"},
+		Labels:      map[string]string{"obin.ai/workload-identity": "true"},
+	}
+	overlay := &PodTemplateOverlay{}
+	overlay.AttachWorkloadIdentity(identity)
+	overlay.DefaultServiceAccountName("store")
+	require.NoError(t, overlay.Validate())
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("resources: []\n"), 0o644))
+	manifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: store
+  namespace: lodestar
+spec:
+  template:
+    metadata:
+      labels:
+        app: store
+    spec:
+      containers:
+        - name: store
+          image: example/store
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "deployment.yaml"), []byte(manifest), 0o644))
+
+	require.NoError(t, emitWorkloadServiceAccount(context.Background(), dir, "lodestar", overlay.ServiceAccount))
+	result, err := applyPodOverlay(context.Background(), dir, overlay)
+	require.NoError(t, err)
+	require.True(t, result.boundServiceAccount)
+
+	serviceAccount, err := os.ReadFile(filepath.Join(dir, "serviceaccount.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(serviceAccount), "name: store")
+	require.Contains(t, string(serviceAccount), "iam.gke.io/gcp-service-account: platform-db@obinh-usc1.iam.gserviceaccount.com")
+
+	rendered, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(rendered), "serviceAccountName: store")
+	require.Contains(t, string(rendered), `obin.ai/workload-identity: "true"`)
+
+	kustomization, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(kustomization), "serviceaccount.yaml")
+}
+
+// An agent that already set a key keeps its value: the cell's attachment adds,
+// it does not overwrite what the workload declared for itself.
+func TestAttachWorkloadIdentityKeepsCallerValues(t *testing.T) {
+	overlay := &PodTemplateOverlay{
+		ServiceAccount: &WorkloadServiceAccount{Name: "chosen", Annotations: map[string]string{"shared": "agent"}},
+		PodLabels:      map[string]string{"shared": "agent"},
+	}
+	overlay.AttachWorkloadIdentity(&resources.EnvironmentWorkloadIdentity{
+		Principal:   "p",
+		Annotations: map[string]string{"shared": "cell", "added": "cell"},
+		Labels:      map[string]string{"shared": "cell", "added": "cell"},
+	})
+	require.Equal(t, "chosen", overlay.ServiceAccount.Name)
+	require.Equal(t, "agent", overlay.ServiceAccount.Annotations["shared"])
+	require.Equal(t, "cell", overlay.ServiceAccount.Annotations["added"])
+	require.Equal(t, "agent", overlay.PodLabels["shared"])
+	require.Equal(t, "cell", overlay.PodLabels["added"])
+}
