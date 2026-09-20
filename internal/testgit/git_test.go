@@ -83,3 +83,30 @@ func TestCancellationKillsGitEditorChildren(t *testing.T) {
 		})
 	}
 }
+
+func TestExitedGitEditorLeavesNoDescendants(t *testing.T) {
+	for _, redirected := range []bool{false, true} {
+		t.Run(fmt.Sprint("redirected=", redirected), func(t *testing.T) {
+			dir := t.TempDir()
+			for _, args := range [][]string{{"init"}, {"commit", "--allow-empty", "-m", "initial"}} {
+				out, err := Run(t.Context(), dir, nil, args...)
+				require.NoError(t, err, "%s", out)
+			}
+			editor, pidPath := filepath.Join(dir, "editor"), filepath.Join(dir, "pid")
+			redirect := ""
+			if redirected {
+				redirect = " >/dev/null 2>&1"
+			}
+			script := "#!/bin/sh\nsh -c 'trap \"\" TERM; echo $$ > \"$TEST_GIT_EDITOR_PID\"; exec sleep 60'" + redirect + " &\nwhile [ ! -s \"$TEST_GIT_EDITOR_PID\" ]; do sleep 0.01; done\nexit 1\n"
+			require.NoError(t, os.WriteFile(editor, []byte(script), 0o755))
+			_, err := Run(t.Context(), dir, []string{"GIT_EDITOR=" + editor, "TEST_GIT_EDITOR_PID=" + pidPath}, "-c", "tag.gpgSign=true", "tag", "v1.0.0")
+			require.Error(t, err)
+			data, err := os.ReadFile(pidPath)
+			require.NoError(t, err)
+			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+			require.Eventually(t, func() bool { return syscall.Kill(pid, 0) == syscall.ESRCH }, 3*time.Second, 10*time.Millisecond)
+		})
+	}
+}
