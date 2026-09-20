@@ -53,6 +53,13 @@ digest validation and its install/cache locks. Existing single-package
 silently ignore replacements. CLI must route nested declarations to the resolver
 and its orchestration path, not remove this guard.
 
+For single-package execution, `Engine.ToolVersion` must identify the executing
+host. Core never substitutes its own release version. A package's explicit
+`minimum-codefly-version` tooling requirement remains enforced, separately from
+composition contract negotiation and live agent admission. Upgrading the linked
+Core library cannot satisfy or invalidate that requirement. Metadata-only
+resolution does not execute package tools and does not require a host version.
+
 ## Local development and identity
 
 `ResolutionOptions.LocalCheckouts` maps exact module targets to absolute paths.

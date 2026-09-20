@@ -53,6 +53,45 @@ func selectionManifest(id, version string) *PackageManifest {
 	return &PackageManifest{Kind: PackageKind, Schema: PackageSchema, ID: id, Version: version, MinimumCodeflyVersion: ">=0.3.40", ArtifactRoots: []string{"contracts"}, Contracts: map[string]string{ContractComposition: "1.0"}, Provides: map[string]string{"interface": "1.0.0", "configuration": "1.0.0"}, RequiredQualifications: &[]string{"functional"}}
 }
 
+func TestCompositionRequiresActualHostVersionInsteadOfLinkedCore(t *testing.T) {
+	registry := newSelectionRegistry(t)
+	t.Cleanup(func() { require.NoError(t, removeCacheTree(registry.engine.ProjectRoot)) })
+	manifest := selectionManifest("example/independent", "1.0.0")
+	manifest.Contracts[ContractComposition] = "2.0"
+	manifest.MinimumCodeflyVersion = ">=0.3.0"
+	selection := registry.publish(t, manifest)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, DescriptorFileName), "kind: composed-module\nname: consumer\nbase:\n  id: example/independent\n  version: '^1.0.0'\n")
+	_, err := registry.engine.Update(t.Context(), dir, selection.Version, true)
+	require.ErrorContains(t, err, "host tool version is required")
+	require.NoFileExists(t, filepath.Join(dir, LockFileName))
+}
+
+func TestCompositionToolRequirementUsesHostVersionIndependentlyOfCore(t *testing.T) {
+	registry := newSelectionRegistry(t)
+	t.Cleanup(func() { require.NoError(t, removeCacheTree(registry.engine.ProjectRoot)) })
+	manifest := selectionManifest("example/independent", "1.0.0")
+	manifest.Contracts[ContractComposition] = "2.0"
+	manifest.MinimumCodeflyVersion = ">=900.0.0"
+	selection := registry.publish(t, manifest)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, DescriptorFileName), "kind: composed-module\nname: consumer\nbase:\n  id: example/independent\n  version: '^1.0.0'\n")
+	registry.engine.ToolVersion = "899.0.0"
+	_, err := registry.engine.Update(t.Context(), dir, selection.Version, true)
+	require.ErrorIs(t, err, ErrContract)
+	require.NoFileExists(t, filepath.Join(dir, LockFileName))
+	registry.engine.ToolVersion = "900.0.0"
+	result, err := registry.engine.Update(t.Context(), dir, selection.Version, true)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	before := readFile(t, filepath.Join(dir, LockFileName))
+	registry.engine.ToolVersion = "901.0.0"
+	materialized, err := registry.engine.Materialize(t.Context(), dir, MaterializeOptions{CI: true})
+	require.NoError(t, err)
+	require.Equal(t, result.Projection, materialized.Projection)
+	require.Equal(t, before, readFile(t, filepath.Join(dir, LockFileName)))
+}
+
 func fixtureArtifact(name string, purpose ArtifactPurpose, content string) ReleaseArtifact {
 	return ReleaseArtifact{Name: name, Purpose: purpose, URI: "https://artifacts.example.test/" + name, Digest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(content)))}
 }

@@ -17,7 +17,6 @@ import (
 	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
 	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/codefly-dev/core/shared"
-	coreversion "github.com/codefly-dev/core/version"
 	"github.com/gofrs/flock"
 )
 
@@ -33,7 +32,8 @@ type Resolver interface {
 }
 
 type Engine struct {
-	ProjectRoot         string
+	ProjectRoot string
+	// ToolVersion is the executing host's version, not its linked Core version.
 	ToolVersion         string
 	Resolver            Resolver
 	Trust               TrustPolicy
@@ -834,15 +834,11 @@ func (engine *Engine) materializer() *Materializer {
 	return engine.Materializer
 }
 
-func (engine *Engine) toolVersion(ctx context.Context) (string, error) {
-	if engine.ToolVersion != "" {
-		return engine.ToolVersion, nil
+func (engine *Engine) toolVersion(_ context.Context) (string, error) {
+	if engine.ToolVersion == "" {
+		return "", errors.New("host tool version is required to check package tooling requirements; linked Core version is not host identity")
 	}
-	value, err := coreversion.Version(ctx)
-	if err != nil {
-		return "", fmt.Errorf("load Codefly version: %w", err)
-	}
-	return value, nil
+	return engine.ToolVersion, nil
 }
 
 func (engine *Engine) supportedContracts() map[string][]string {
