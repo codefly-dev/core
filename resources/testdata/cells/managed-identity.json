@@ -1,64 +1,21 @@
 {
-  "schema": "codefly/cell/v1",
-  "cell": "hosted-us-central1",
-  "coordinate": "hosted/gcp/us-central1/US/staging",
-  "requires_capabilities": [
-    "managed-identity-transport"
-  ],
-  "cluster": {
-    "kind": "gke",
-    "context": "obinh-usc1-gke",
-    "private_api": true
-  },
-  "dns": {
-    "app_host_suffix": "staging.us-central1.gcp.obin.obin.ai"
-  },
-  "registries": [
-    {
-      "kind": "gar",
-      "url": "us-central1-docker.pkg.dev/obinh-usc1/images",
-      "public": false
-    }
-  ],
-  "databases": [
-    {
-      "engine": "postgres",
-      "kind": "cloud-sql-postgres",
-      "name": "platform",
-      "fqdn": "10.20.11.7",
-      "port": 5432,
-      "egress_cidrs": [
-        "10.20.11.0/28"
-      ],
-      "database_names": [
-        "unleash",
-        "users"
-      ],
-      "password_auth": false,
-      "transport": {
-        "mode": "proxy",
-        "local_port": 5432
-      },
-      "identity": {
-        "kind": "gcp-service-account",
-        "principal": "platform-db@obinh-usc1.iam.gserviceaccount.com",
-        "annotations": {
-          "iam.gke.io/gcp-service-account": "platform-db@obinh-usc1.iam.gserviceaccount.com"
-        },
-        "labels": {
-          "obin.ai/workload-identity": "true"
+  "schema": "codefly/cell/v2",
+  "requires_capabilities": ["managed-service-identity"],
+  "environment": {
+    "name": "staging",
+    "namespace": "product",
+    "managed-services": {
+      "accounts": {
+        "kind": "external",
+        "external-name": "accounts.example",
+        "port": 8443,
+        "egress-cidrs": ["192.0.2.0/24"],
+        "identity": {
+          "principal": "accounts-client",
+          "annotations": {"identity.example/principal": "accounts-client"},
+          "labels": {"identity.example/enabled": "true"}
         }
       }
     }
-  ],
-  "secret_stores": [
-    {
-      "kind": "ClusterSecretStore",
-      "name": "gcp-secret-manager"
-    }
-  ],
-  "gitops": {
-    "repo": "https://github.com/obin-ai/infra-base.git",
-    "workloads_path_prefix": "delivery/hosted/staging"
   }
 }

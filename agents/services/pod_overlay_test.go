@@ -7,13 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestPodTemplateOverlayValidate(t *testing.T) {
@@ -687,6 +690,61 @@ func TestProjectWorkloadIdentityRequiresAName(t *testing.T) {
 	require.ErrorContains(t, err, "requires a name")
 }
 
+func TestProjectWorkloadIdentityRejectsConflictsWithoutWriting(t *testing.T) {
+	for _, scenario := range []string{"service account", "identity label", "unreferenced workload", "empty principal", "different namespace"} {
+		t.Run(scenario, func(t *testing.T) {
+			dir := renderedWorkloadTree(t)
+			identity := declaredIdentity()
+			path := filepath.Join(dir, "deployment.yaml")
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			switch scenario {
+			case "service account":
+				data = []byte(strings.Replace(string(data), "      containers:", "      serviceAccountName: other\n      containers:", 1))
+			case "identity label":
+				data = []byte(strings.Replace(string(data), "        app: store", "        app: store\n        obin.ai/workload-identity: \"false\"", 1))
+			case "unreferenced workload":
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("resources: []\n"), 0o644))
+			case "empty principal":
+				identity.Principal = ""
+			case "different namespace":
+				data = []byte(strings.Replace(string(data), "namespace: lodestar", "namespace: elsewhere", 1))
+			}
+			require.NoError(t, os.WriteFile(path, data, 0o644))
+			kustomization, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+			require.NoError(t, err)
+			require.Error(t, ProjectWorkloadIdentity(t.Context(), dir, "lodestar", "store", identity))
+			after, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, data, after)
+			after, err = os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+			require.NoError(t, err)
+			require.Equal(t, kustomization, after)
+			require.NoFileExists(t, filepath.Join(dir, "serviceaccount.yaml"))
+		})
+	}
+}
+
+func TestProjectWorkloadIdentityPreservesExistingServiceAccount(t *testing.T) {
+	dir := renderedWorkloadTree(t)
+	path := filepath.Join(dir, "serviceaccount.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: store
+  namespace: lodestar
+  annotations:
+    example.test/owner: retained
+imagePullSecrets:
+  - name: private-registry
+`), 0o644))
+	require.NoError(t, ProjectWorkloadIdentity(t.Context(), dir, "lodestar", "store", declaredIdentity()))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "private-registry")
+	require.Contains(t, string(data), "example.test/owner: retained")
+}
+
 func declaredIdentity() *resources.EnvironmentWorkloadIdentity {
 	return &resources.EnvironmentWorkloadIdentity{
 		Kind:        "gcp-service-account",
@@ -721,21 +779,118 @@ spec:
 	return dir
 }
 
-// An agent that already set a key keeps its value: the cell's attachment adds,
-// it does not overwrite what the workload declared for itself.
-func TestAttachWorkloadIdentityKeepsCallerValues(t *testing.T) {
+func TestAttachWorkloadIdentityRejectsConflictingCallerValues(t *testing.T) {
 	overlay := &PodTemplateOverlay{
 		ServiceAccount: &WorkloadServiceAccount{Name: "chosen", Annotations: map[string]string{"shared": "agent"}},
 		PodLabels:      map[string]string{"shared": "agent"},
 	}
-	overlay.AttachWorkloadIdentity(&resources.EnvironmentWorkloadIdentity{
+	err := overlay.AttachWorkloadIdentity(&resources.EnvironmentWorkloadIdentity{
 		Principal:   "p",
 		Annotations: map[string]string{"shared": "cell", "added": "cell"},
 		Labels:      map[string]string{"shared": "cell", "added": "cell"},
 	})
+	require.ErrorContains(t, err, "conflicts")
 	require.Equal(t, "chosen", overlay.ServiceAccount.Name)
 	require.Equal(t, "agent", overlay.ServiceAccount.Annotations["shared"])
-	require.Equal(t, "cell", overlay.ServiceAccount.Annotations["added"])
+	require.NotContains(t, overlay.ServiceAccount.Annotations, "added")
 	require.Equal(t, "agent", overlay.PodLabels["shared"])
-	require.Equal(t, "cell", overlay.PodLabels["added"])
+	require.NotContains(t, overlay.PodLabels, "added")
+}
+
+func TestAttachWorkloadIdentityRequiresAnOverlay(t *testing.T) {
+	var overlay *PodTemplateOverlay
+	require.Error(t, overlay.AttachWorkloadIdentity(declaredIdentity()))
+}
+
+func TestProjectWorkloadIdentityHandlesPodAndCronJob(t *testing.T) {
+	for _, kind := range []string{"Pod", "CronJob"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := renderedWorkloadTree(t)
+			pod := map[string]any{
+				"metadata": map[string]any{"labels": map[string]string{"app": "store"}},
+				"spec":     map[string]any{"containers": []any{map[string]any{"name": "store", "image": "example/store"}}},
+			}
+			var workload map[string]any
+			if kind == "Pod" {
+				workload = pod
+				workload["apiVersion"] = "v1"
+				workload["metadata"].(map[string]any)["name"] = "store"
+				workload["metadata"].(map[string]any)["namespace"] = "lodestar"
+			} else {
+				workload = map[string]any{
+					"apiVersion": "batch/v1",
+					"metadata":   map[string]any{"name": "store", "namespace": "lodestar"},
+					"spec":       map[string]any{"schedule": "0 * * * *", "jobTemplate": map[string]any{"spec": map[string]any{"template": pod}}},
+				}
+			}
+			workload["kind"] = kind
+			data, err := yaml.Marshal(workload)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "deployment.yaml"), data, 0o640))
+			require.NoError(t, os.Chmod(filepath.Join(dir, "deployment.yaml"), 0o640))
+			require.NoError(t, ProjectWorkloadIdentity(t.Context(), dir, "lodestar", "store", declaredIdentity()))
+			data, err = os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+			require.NoError(t, err)
+			var document yaml.Node
+			require.NoError(t, yaml.Unmarshal(data, &document))
+			template := workloadPodTemplate(document.Content[0])
+			require.Equal(t, "store", mappingScalar(mappingChild(template, "spec"), "serviceAccountName"))
+			require.Equal(t, "true", mappingScalar(mappingChild(mappingChild(template, "metadata"), "labels"), "obin.ai/workload-identity"))
+			info, err := os.Stat(filepath.Join(dir, "deployment.yaml"))
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+		})
+	}
+}
+
+func TestProjectWorkloadIdentityValidatesKustomizeTransformations(t *testing.T) {
+	dir := renderedWorkloadTree(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("namePrefix: production-\nnamespace: deployed\nresources:\n  - deployment.yaml\n"), 0o644))
+	require.NoError(t, ProjectWorkloadIdentity(t.Context(), dir, "lodestar", "store", declaredIdentity()))
+}
+
+func TestProjectWorkloadIdentityCancellationWhileLockedPreservesInputs(t *testing.T) {
+	dir := renderedWorkloadTree(t)
+	before, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	lock := flock.New(filepath.Join(filepath.Dir(dir), "."+filepath.Base(dir)+".identity.lock"))
+	require.NoError(t, lock.Lock())
+	t.Cleanup(func() { require.NoError(t, lock.Close()) })
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, ProjectWorkloadIdentity(ctx, dir, "lodestar", "store", declaredIdentity()), context.DeadlineExceeded)
+	after, err := os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.NoFileExists(t, filepath.Join(dir, "serviceaccount.yaml"))
+}
+
+func TestProjectWorkloadIdentitySerializesConflictingWriters(t *testing.T) {
+	dir := renderedWorkloadTree(t)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, principal := range []string{"first", "second"} {
+		go func() {
+			<-start
+			identity := &resources.EnvironmentWorkloadIdentity{
+				Principal:   principal,
+				Annotations: map[string]string{"identity.example/principal": principal},
+				Labels:      map[string]string{"identity.example/principal": principal},
+			}
+			results <- ProjectWorkloadIdentity(t.Context(), dir, "lodestar", "store", identity)
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	require.True(t, (first == nil) != (second == nil), "exactly one conflicting identity may win: %v, %v", first, second)
+	var account, workload yaml.Node
+	data, err := os.ReadFile(filepath.Join(dir, "serviceaccount.yaml"))
+	require.NoError(t, err)
+	require.NoError(t, yaml.Unmarshal(data, &account))
+	data, err = os.ReadFile(filepath.Join(dir, "deployment.yaml"))
+	require.NoError(t, err)
+	require.NoError(t, yaml.Unmarshal(data, &workload))
+	annotations := mappingChild(mappingChild(account.Content[0], "metadata"), "annotations")
+	labels := mappingChild(mappingChild(workloadPodTemplate(workload.Content[0]), "metadata"), "labels")
+	require.Equal(t, mappingScalar(annotations, "identity.example/principal"), mappingScalar(labels, "identity.example/principal"))
 }

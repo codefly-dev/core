@@ -1,386 +1,134 @@
 package resources
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
-// CellContractSchema is the cell-descriptor version this consumer understands.
-const CellContractSchema = "codefly/cell/v1"
+// CellContractSchema identifies the producer-independent environment contract.
+const CellContractSchema = "codefly/cell/v2"
 
-// CellContract is the cell descriptor codefly accepts from any platform. It
-// carries the facts an Environment needs to target a cell — cluster context,
-// image registries, managed databases and their egress CIDRs, the secret stores,
-// the app host suffix, the fleet workloads path — so an operator never hand-types
-// them into workspace.codefly.yaml. Hand-typing an egress CIDR wrong silently
-// drops all DB traffic at runtime; consuming the descriptor removes that class of
-// bug. codefly owns this contract; any platform conforms to it — infra-base's
-// `obinctl cell-contract <coordinate>` is producer #1, but a customer's
-// provisioner or a hand-written BYOC descriptor could be others.
-//
-// Resource collections are lists so a cell that gains a second registry or
-// database never forces a schema v2, and every kind is an open string (kind: aks,
-// auth: acr) so a gke/ecr/cloud-sql producer adds a value, not a codefly change —
-// codefly core carries no Azure or infra-base knowledge. The namespace is not a
-// published cell fact: codefly puts each module in its own namespace itself and
-// passes it into ToEnvironment. (infra-base #329.)
+// CellContract carries Codefly's existing Environment model, not a producer's
+// infrastructure inventory. Producers resolve endpoints, names and references;
+// importing this document never invents credentials or deployment paths.
 type CellContract struct {
-	Schema       string                    `json:"schema"`
-	Cell         string                    `json:"cell"`
-	Coordinate   string                    `json:"coordinate"`
-	Cluster      CellContractCluster       `json:"cluster"`
-	DNS          CellContractDNS           `json:"dns"`
-	Registries   []CellContractRegistry    `json:"registries"`
-	Databases    []CellContractDatabase    `json:"databases"`
-	SecretStores []CellContractSecretStore `json:"secret_stores"`
-	Gitops       *CellContractGitops       `json:"gitops,omitempty"`
-	ObjectStores []CellContractObjectStore `json:"object_stores,omitempty"`
-
-	// RequiresCapabilities names the consumer behaviours this descriptor cannot
-	// work without. An unknown JSON field decodes to nothing, so a producer that
-	// starts publishing a field an older consumer predates would otherwise get a
-	// workload deployed with exactly the part that makes it work missing, and no
-	// error anywhere. Declaring the capability turns that into a refusal at the
-	// seam. Values are open strings; this consumer implements
-	// cellContractCapabilities.
-	RequiresCapabilities []string `json:"requires_capabilities,omitempty"`
+	Schema               string      `yaml:"schema"`
+	Cell                 string      `yaml:"cell,omitempty"`
+	Coordinate           string      `yaml:"coordinate,omitempty"`
+	RequiresCapabilities []string    `yaml:"requires_capabilities,omitempty"`
+	Environment          Environment `yaml:"environment"`
 }
 
-// The capabilities this consumer implements, named in a descriptor's
-// RequiresCapabilities.
-const (
-	// CapabilityManagedIdentityTransport is the database transport/identity
-	// binding: port, transport mode and the exact runtime principal a workload
-	// authenticates as, carried through to the workload renderer.
-	CapabilityManagedIdentityTransport = "managed-identity-transport"
-)
+// CapabilityManagedServiceIdentity carries an endpoint's declared runtime identity.
+const CapabilityManagedServiceIdentity = "managed-service-identity"
 
-var cellContractCapabilities = map[string]bool{
-	CapabilityManagedIdentityTransport: true,
-}
-
-type CellContractCluster struct {
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-	Context    string `json:"context"`
-	PrivateAPI bool   `json:"private_api"`
-	AccessMode string `json:"access_mode"`
-}
-
-// CellContractRegistry is one image registry the cell pushes to. Kind is an open
-// string codefly switches on to authenticate (e.g. "acr" -> az acr login), never
-// an enum — a gke/ecr producer adds a value, not a code change.
-type CellContractRegistry struct {
-	Kind   string `json:"kind"`
-	URL    string `json:"url"`
-	Public bool   `json:"public"`
-}
-
-type CellContractDNS struct {
-	RegistrarZone string `json:"registrar_zone"`
-	AppHostSuffix string `json:"app_host_suffix"`
-}
-
-type CellContractGitops struct {
-	Repo                string `json:"repo"`
-	WorkloadsPathPrefix string `json:"workloads_path_prefix"`
-}
-
-// CellContractDatabase is one managed database instance the cell offers.
-// EgressCIDRs is the load-bearing fact — a wrong value silently drops all DB
-// traffic — so it is sourced here, not transcribed. Kind is an open string (e.g.
-// "azure-postgres-flexible"); DatabaseNames lists the connectable databases
-// inside the instance.
-type CellContractDatabase struct {
-	Engine        string   `json:"engine"`
-	Kind          string   `json:"kind"`
-	Name          string   `json:"name"`
-	FQDN          string   `json:"fqdn"`
-	Port          int      `json:"port,omitempty"`
-	EgressCIDRs   []string `json:"egress_cidrs"`
-	DatabaseNames []string `json:"database_names"`
-	// PasswordAuth is a pointer because absent and false mean different things.
-	// A descriptor that omits the key predates the passwordless capability — it
-	// is a password-auth instance, and the field carried no meaning when it was
-	// written. Only an explicit false declares a passwordless instance and opts
-	// into the identity rules below. Decoding absent as false would turn every
-	// descriptor already in circulation into a passwordless one with no
-	// identity, and refuse it.
-	PasswordAuth *bool `json:"password_auth,omitempty"`
-	// Transport declares how a workload reaches this instance when dialing the
-	// published endpoint directly is not it.
-	Transport *CellContractTransport `json:"transport,omitempty"`
-	// Identity is the exact runtime principal a workload authenticates as. It is
-	// required when PasswordAuth is explicitly false: a passwordless instance
-	// with no declared identity leaves the workload with no way to authenticate,
-	// and a runtime that cannot authenticate can come up and simply never
-	// register.
-	Identity *CellContractIdentity `json:"identity,omitempty"`
-}
-
-// passwordless reports whether the producer declared an instance that takes no
-// password. An omitted declaration is not one.
-func (db CellContractDatabase) passwordless() bool {
-	return db.PasswordAuth != nil && !*db.PasswordAuth
-}
-
-// Transport modes this consumer renders.
-const (
-	// TransportModeDirect dials the database endpoint from the workload.
-	TransportModeDirect = "direct"
-	// TransportModeProxy runs the declared proxy image beside the workload and
-	// dials it on loopback; the proxy holds the authenticated private connection.
-	TransportModeProxy = "proxy"
-)
-
-// CellContractTransport declares how a workload reaches a managed endpoint.
-// Unlike a kind — an open string this consumer only uses to select an auth
-// side-effect — a mode decides what the workload renderer must emit, so one this
-// consumer does not implement is refused rather than carried through to a
-// workload that would come up with no path to the database at all.
-type CellContractTransport struct {
-	Mode string `json:"mode"`
-	// LocalPort is the loopback port the workload connects to in
-	// TransportModeProxy. What runs the proxy, and with which image, is the
-	// renderer's to resolve from the mode — a container spec is not a cell fact.
-	LocalPort int `json:"local_port,omitempty"`
-}
-
-// CellContractIdentity is the exact runtime principal a workload authenticates
-// as. Principal is resolved by the producer — never a template codefly fills in
-// from a customer, account or region name. Annotations and Labels are the
-// platform's own attachment mechanism: codefly stamps them verbatim onto the
-// workload's ServiceAccount and pod template, which is what lets a cell on any
-// platform wire its identity webhook without codefly knowing what the keys mean.
-type CellContractIdentity struct {
-	Kind        string            `json:"kind"`
-	Principal   string            `json:"principal"`
-	Annotations map[string]string `json:"annotations,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-}
-
-// CellContractSecretStore selects an External Secrets store the cell exposes.
-// It is the wire (JSON) shape; ToEnvironment maps it to the Environment's
-// yaml-serialized EnvironmentSecretStoreReference — the two serialization
-// contracts are kept as separate types on purpose.
-type CellContractSecretStore struct {
-	Name string `json:"name"`
-	Kind string `json:"kind"`
-}
-
-// CellContractObjectStore is one managed object-storage endpoint. Kind is an open
-// string (e.g. "azure-blob"). Optional: a producer that resolves the endpoint
-// post-apply omits it.
-type CellContractObjectStore struct {
-	Kind string `json:"kind"`
-	URL  string `json:"url"`
-}
-
-// ParseCellContract decodes and validates a codefly/cell/v1 descriptor (e.g. the
-// JSON emitted by `obinctl cell-contract`, which conforms to this schema).
+// ParseCellContract reads JSON using the same field names as workspace YAML.
 func ParseCellContract(data []byte) (*CellContract, error) {
+	if !json.Valid(data) {
+		return nil, fmt.Errorf("cell contract must contain exactly one JSON value")
+	}
 	var c CellContract
-	if err := json.Unmarshal(data, &c); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&c); err != nil {
 		return nil, fmt.Errorf("decoding cell contract: %w", err)
 	}
-	if c.Schema != CellContractSchema {
-		return nil, fmt.Errorf("unsupported cell-contract schema %q (want %q)", c.Schema, CellContractSchema)
-	}
-	for _, capability := range c.RequiresCapabilities {
-		if !cellContractCapabilities[capability] {
-			return nil, fmt.Errorf("cell contract for %q requires capability %q, which this consumer does not implement", c.Cell, capability)
-		}
-	}
-	if c.Cluster.Context == "" {
-		return nil, fmt.Errorf("cell contract for %q carries no cluster context", c.Cell)
-	}
-	// A deploy target needs exactly one registry to push images to. Zero would
-	// leave env.Registry nil and silently fall back to the legacy hard-coded
-	// registry (wrong, and cross-tenant, for a BYOC cell); more than one has no
-	// single push target this consumer can pick. Public is informational (is that
-	// registry publicly reachable) — not a push/pull selector — so it is not read.
-	if len(c.Registries) != 1 {
-		return nil, fmt.Errorf("cell contract for %q carries %d registries; this consumer needs exactly one", c.Cell, len(c.Registries))
-	}
-	// The database and secret store collapse into Environment's single "store"
-	// managed service and single ServiceSecrets slot. Reject more than one rather
-	// than silently mapping index [0] and dropping the rest — a dropped database's
-	// egress CIDRs are exactly the silent DB-traffic outage this contract exists to
-	// prevent. The wire stays a list (no schema v2); teaching the consumer to map
-	// many is a codefly-internal change when a cell actually has two.
-	if len(c.Databases) > 1 {
-		return nil, fmt.Errorf("cell contract for %q carries %d databases; this consumer maps one", c.Cell, len(c.Databases))
-	}
-	if len(c.SecretStores) > 1 {
-		return nil, fmt.Errorf("cell contract for %q carries %d secret stores; this consumer maps one", c.Cell, len(c.SecretStores))
-	}
-	// Egress CIDRs gate all traffic to the managed database. An empty list means no
-	// traffic is allowed (the DB is silently unreachable), and a malformed CIDR
-	// matches nothing — validate at the seam instead of transcribing the failure
-	// downstream.
-	for i := range c.Databases {
-		db := c.Databases[i]
-		if len(db.EgressCIDRs) == 0 {
-			return nil, fmt.Errorf("database %q in cell %q carries no egress CIDRs", db.Name, c.Cell)
-		}
-		for _, cidr := range db.EgressCIDRs {
-			if _, _, err := net.ParseCIDR(cidr); err != nil {
-				return nil, fmt.Errorf("database %q in cell %q has invalid egress CIDR %q: %w", db.Name, c.Cell, cidr, err)
-			}
-		}
-		if err := validateDatabaseAccess(db, c.Cell); err != nil {
-			return nil, err
-		}
-	}
-	// A delivery target is declared whole or not at all. Half of one leaves the
-	// rendered workloads pointing at an empty repo or the cell's root path, which
-	// reconciles somewhere other than where the owner decided they go.
-	if c.Gitops != nil {
-		if c.Gitops.Repo == "" {
-			return nil, fmt.Errorf("cell contract for %q declares a delivery target with no repository", c.Cell)
-		}
-		if c.Gitops.WorkloadsPathPrefix == "" {
-			return nil, fmt.Errorf("cell contract for %q declares a delivery target with no workloads path prefix", c.Cell)
-		}
+	if err := c.validate(); err != nil {
+		return nil, err
 	}
 	return &c, nil
 }
 
-// validateDatabaseAccess refuses a transport/identity binding this consumer
-// cannot honor. Each rejection here is a deployment that would otherwise render
-// and start: a workload with no principal to authenticate as, a proxy with no
-// image to run, or a connection with no port to dial.
-func validateDatabaseAccess(db CellContractDatabase, cell string) error {
-	if db.Port < 0 || db.Port > 65535 {
-		return fmt.Errorf("database %q in cell %q has out-of-range port %d", db.Name, cell, db.Port)
+func (c *CellContract) validate() error {
+	if c.Schema != CellContractSchema {
+		return fmt.Errorf("unsupported cell-contract schema %q (want %q); producers must emit explicit Codefly environment declarations", c.Schema, CellContractSchema)
 	}
-	if db.passwordless() && (db.Identity == nil || db.Identity.Principal == "") {
-		return fmt.Errorf("database %q in cell %q is passwordless but declares no runtime identity principal", db.Name, cell)
-	}
-	// A producer that knows about identities knows to declare how the instance
-	// authenticates. Leaving it out is ambiguous in the one direction that fails
-	// silently: codefly would project the password secret reference for a
-	// workload that authenticates as its identity, or drop it for one that needs
-	// it.
-	if db.Identity != nil && db.PasswordAuth == nil {
-		return fmt.Errorf("database %q in cell %q declares a runtime identity but does not declare whether it takes a password", db.Name, cell)
-	}
-	// The port is engine-specific and the engine is an open string, so there is
-	// nothing to fall back to that would not be a guess baked into codefly.
-	if db.Port == 0 && (db.Transport != nil || db.passwordless()) {
-		return fmt.Errorf("database %q in cell %q declares a transport binding but no port", db.Name, cell)
-	}
-	if db.Transport == nil {
-		return nil
-	}
-	switch db.Transport.Mode {
-	case TransportModeDirect:
-	case TransportModeProxy:
-		if db.Transport.LocalPort <= 0 || db.Transport.LocalPort > 65535 {
-			return fmt.Errorf("database %q in cell %q declares a %s transport with no usable local port", db.Name, cell, TransportModeProxy)
+	for _, capability := range c.RequiresCapabilities {
+		if capability != CapabilityManagedServiceIdentity {
+			return fmt.Errorf("cell contract requires unsupported capability %q", capability)
 		}
-	default:
-		return fmt.Errorf("database %q in cell %q declares transport mode %q, which this consumer does not implement", db.Name, cell, db.Transport.Mode)
+	}
+	env := &c.Environment
+	if err := validateResourcePathComponent("environment name", env.Name); err != nil {
+		return err
+	}
+	if env.Namespace != "" {
+		if err := validateResourcePathComponent("namespace", env.Namespace); err != nil {
+			return err
+		}
+	}
+	if _, err := env.ConfigurationProfileName(); err != nil {
+		return err
+	}
+	if env.Cluster != nil && strings.TrimSpace(env.Cluster.Context) == "" {
+		return fmt.Errorf("declared cluster requires a context")
+	}
+	if env.Registry != nil && strings.TrimSpace(env.Registry.URL) == "" {
+		return fmt.Errorf("declared registry requires a URL")
+	}
+	if env.Gitops != nil && (strings.TrimSpace(env.Gitops.RepoURL) == "" || strings.TrimSpace(env.Gitops.Path) == "" || strings.TrimSpace(env.Gitops.Branch) == "") {
+		return fmt.Errorf("declared delivery target requires repository, path and branch")
+	}
+	if err := env.ServiceSecrets.Validate(); err != nil {
+		return err
+	}
+	if err := env.ResourceQuota.Validate(); err != nil {
+		return err
+	}
+	for name, service := range env.ManagedServices {
+		if err := validateResourcePathComponent("managed service", name); err != nil {
+			return err
+		}
+		if strings.TrimSpace(service.ExternalName) == "" || service.Port < 1 || service.Port > 65535 {
+			return fmt.Errorf("managed service %q requires an endpoint and port in 1..65535", name)
+		}
+		for _, cidr := range service.EgressCIDRs {
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				return fmt.Errorf("managed service %q has invalid egress CIDR %q: %w", name, cidr, err)
+			}
+		}
+		if service.Identity != nil && strings.TrimSpace(service.Identity.Principal) == "" {
+			return fmt.Errorf("managed service %q declares an identity without a principal", name)
+		}
+		seen := make(map[string]bool)
+		for _, ref := range service.SecretReferences {
+			if strings.TrimSpace(ref.Name) == "" || strings.TrimSpace(ref.RemoteKey) == "" {
+				return fmt.Errorf("managed service %q requires explicit secret names and remote keys", name)
+			}
+			if seen[ref.Name] {
+				return fmt.Errorf("managed service %q repeats secret %q", name, ref.Name)
+			}
+			seen[ref.Name] = true
+			if err := ref.SecretStore.validate("managed service " + name); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-// KnowsDatabase reports whether the cell's managed database exposes a logical
-// database of the given name. The connectable database name is app-supplied — the
-// cell only publishes what exists — so a caller resolving a service against this
-// cell validates the app's requested database here, turning a typo into a
-// config-time error instead of a runtime connection failure.
-func (c *CellContract) KnowsDatabase(name string) bool {
-	for i := range c.Databases {
-		for _, n := range c.Databases[i].DatabaseNames {
-			if n == name {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// ToEnvironment maps a cell descriptor into the deploy-target fields of an
-// Environment. envName is the environment identity sent to service agents (e.g.
-// "azure"); namespace is the k8s namespace the app deploys into — codefly puts
-// each module in its own namespace, so the descriptor never carries it. The
-// namespace becomes a directory component of the gitops path and a segment of the
-// managed secret's remote key, so it is confined to a single path component here,
-// the same guard every other resource name in this package passes. Resource
-// collections are single-instance (ParseCellContract rejects more), so index [0]
-// is taken; fields the descriptor does not carry are left zero so existing
-// workspace defaults apply.
+// ToEnvironment returns an independent configuration. The requested target must
+// match the declaration: changing a namespace must not silently retarget secrets
+// or delivery paths resolved for another environment.
 func (c *CellContract) ToEnvironment(envName, namespace string) (*Environment, error) {
-	if err := validateResourcePathComponent("namespace", namespace); err != nil {
+	if err := c.validate(); err != nil {
 		return nil, err
 	}
-	env := &Environment{
-		Name:      envName,
-		Namespace: namespace,
-		Cluster:   &EnvironmentCluster{Kind: c.Cluster.Kind, Context: c.Cluster.Context},
+	if c.Environment.Name != envName || c.Environment.Namespace != namespace {
+		return nil, fmt.Errorf("environment target %q/%q does not match declared target %q/%q", envName, namespace, c.Environment.Name, c.Environment.Namespace)
 	}
-	var store EnvironmentSecretStoreReference
-	if len(c.SecretStores) > 0 {
-		store = EnvironmentSecretStoreReference{Name: c.SecretStores[0].Name, Kind: c.SecretStores[0].Kind}
-		env.ServiceSecrets = &EnvironmentServiceSecrets{SecretStore: store}
+	data, err := yaml.Marshal(c.Environment)
+	if err != nil {
+		return nil, err
 	}
-	if c.Gitops != nil {
-		env.Gitops = &EnvironmentGitops{
-			RepoURL: c.Gitops.Repo,
-			Branch:  "main",
-			Path:    strings.TrimRight(c.Gitops.WorkloadsPathPrefix, "/") + "/" + namespace,
-		}
+	var env Environment
+	if err := yaml.Unmarshal(data, &env); err != nil {
+		return nil, err
 	}
-	if c.DNS.AppHostSuffix != "" {
-		env.Dns = &EnvironmentDNS{AppHostSuffix: c.DNS.AppHostSuffix}
-	}
-	if len(c.Registries) > 0 {
-		// Kind is codefly's auth selector (acr -> az acr login); the URL is opaque.
-		env.Registry = &EnvironmentRegistry{URL: c.Registries[0].URL, Auth: c.Registries[0].Kind}
-	}
-	if len(c.Databases) > 0 {
-		db := c.Databases[0]
-		managed := EnvironmentManagedService{
-			Kind:         db.Kind,
-			ExternalName: db.FQDN,
-			Port:         db.Port,
-			// The fact hand-typing gets wrong silently — sourced from the cell,
-			// not transcribed.
-			EgressCIDRs: db.EgressCIDRs,
-			Identity:    db.Identity.toEnvironment(),
-		}
-		if db.Transport != nil {
-			managed.Transport = &EnvironmentManagedTransport{
-				Mode:      db.Transport.Mode,
-				LocalPort: db.Transport.LocalPort,
-			}
-		}
-		// An instance that takes no password has no secret to project: the workload
-		// authenticates as its own identity instead, so projecting one here would
-		// bind the pod to a Secret the cell never writes and block it from starting.
-		if !db.passwordless() {
-			managed.SecretReferences = []EnvironmentManagedSecretReference{{
-				Name:        "secret-store",
-				RemoteKey:   namespace + "/store",
-				SecretStore: store,
-			}}
-		}
-		env.ManagedServices = map[string]EnvironmentManagedService{"store": managed}
-	}
-	return env, nil
-}
-
-func (i *CellContractIdentity) toEnvironment() *EnvironmentWorkloadIdentity {
-	if i == nil {
-		return nil
-	}
-	return &EnvironmentWorkloadIdentity{
-		Kind:        i.Kind,
-		Principal:   i.Principal,
-		Annotations: i.Annotations,
-		Labels:      i.Labels,
-	}
+	return &env, nil
 }
