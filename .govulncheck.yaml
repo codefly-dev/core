@@ -25,9 +25,11 @@ suppressions:
       via govulncheck traces: none reach plugins/authorization code —
       they are all package-init chains in the shared module graph.
       Re-reviewed against github.com/docker/docker v28.5.2 and the
-      2026-08-05 Go vulnerability database: traces remain package-init or
-      client-only paths and no fixed upstream version is published.
-    reviewed: 2026-08-05
+      2026-09-20 Go vulnerability database: traces remain package-init or
+      client-only paths. The dependency graph contains no Docker daemon or
+      authorization plugin packages. No fix is listed for this module path;
+      the advisory lists a fix only in github.com/moby/moby/v2.
+    reviewed: 2026-09-20
 
   - id: GO-2026-4883
     module: github.com/docker/docker
@@ -36,6 +38,8 @@ suppressions:
       validation; we never install Docker plugins via the API. Verified
       unreachable — no trace path reaches pkg/authorization/ code.
       Re-reviewed against github.com/docker/docker v28.5.2 and the
-      2026-08-05 Go vulnerability database: no trace reaches plugin install
-      or daemon-side privilege validation, and no fixed version is published.
-    reviewed: 2026-08-05
+      2026-09-20 Go vulnerability database: no trace reaches plugin install
+      or daemon-side privilege validation, and no Docker plugin implementation
+      is in the dependency graph. No fix is listed for this module path;
+      the advisory lists a fix only in github.com/moby/moby/v2.
+    reviewed: 2026-09-20
