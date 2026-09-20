@@ -77,3 +77,22 @@ needs no Linux builder VM, which is why the publish workflow uses it.
 writing). Bump via `scripts/tag.sh` — same convention as every other
 companion. Both the Dockerfile build and the Nix build read this
 value so the tag stays consistent.
+## Rust client imports
+
+The proto companion supplies local `protoc-gen-prost` and `protoc-gen-tonic`
+0.5.0, targeting prost/tonic 0.14. Rust clients retain googleapis and
+protovalidate message bindings beside the application's bindings. Standard
+`google.protobuf` types continue to resolve through `prost-types`.
+
+Client generation validates descriptor-set type references before invoking the
+plugins. Both source and descriptor-set generation are covered by a Cargo
+compile and encode/decode regression containing `google.rpc.Status` and
+`buf.validate.Violations`:
+
+```sh
+go test ./companions/proto -tags=proto_companion_required -run TestRustClientRetainsImportedMessageFields -timeout=180s
+```
+
+This requires the built proto companion and Cargo. The updated plugins ship in
+companion version 0.0.16; bumping the manifest alone does not publish that image.
+Use the [companion publication procedure](../../docs/runbooks/publish-companions.md).

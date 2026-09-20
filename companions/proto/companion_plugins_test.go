@@ -21,6 +21,19 @@ import (
 // content hashes — fail the Nix build rather than any test here.
 const protocGenEsRuntimeVersion = "2.11.0"
 
+func TestCompanionInstallsLocalRustPlugins(t *testing.T) {
+	for _, file := range []string{"Dockerfile", "flake.nix", "templates/rust/buf.gen.yaml.tmpl"} {
+		assertMentionsAll(t, file, []string{"protoc-gen-prost", "protoc-gen-tonic"})
+	}
+	content, err := os.ReadFile("templates/rust/buf.gen.yaml.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "buf.build/") {
+		t.Fatal("Rust generation must use the companion's local plugins")
+	}
+}
+
 // bumpRunbook records why the pin sits where it does and what moving it costs.
 // The guards below keep it honest, because a stale runbook is worse than none:
 // it still reads as current.
@@ -229,7 +242,7 @@ func TestTsFacadeLockfileMatchesTheRuntime(t *testing.T) {
 // neighbour — the reader then checks the wrong line, finds something plausible,
 // and moves on.
 var runbookCitations = map[string]string{
-	"Dockerfile:85": "@bufbuild/protoc-gen-es@",
+	"Dockerfile:90": "@bufbuild/protoc-gen-es@",
 	"flake.nix:51":  "protocGenEsVersion =",
 	"flake.nix:59":  "hash =",
 	"flake.nix:61":  "npmDepsHash =",

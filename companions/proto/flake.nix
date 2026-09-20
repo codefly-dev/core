@@ -195,6 +195,8 @@
           # `go install`).
           protoc-gen-go
           protoc-gen-go-grpc
+          protoc-gen-prost
+          protoc-gen-tonic
           # grpc-gateway ships both protoc-gen-grpc-gateway and
           # protoc-gen-openapiv2 binaries; there are no separate
           # top-level attrs for them (referencing them directly is an

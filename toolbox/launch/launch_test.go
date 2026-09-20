@@ -13,6 +13,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/manager"
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/internal/testgit"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/toolbox/launch"
@@ -22,14 +23,7 @@ import (
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
 	run := func(args ...string) {
-		gitArgs := append([]string{"-c", "commit.gpgsign=false"}, args...)
-		c := exec.Command("git", gitArgs...)
-		c.Dir = dir
-		c.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
-		)
-		out, err := c.CombinedOutput()
+		out, err := testgit.Run(t.Context(), dir, nil, args...)
 		require.NoError(t, err, "git %v: %s", args, out)
 	}
 	run("init")

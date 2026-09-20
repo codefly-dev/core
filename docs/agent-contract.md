@@ -112,4 +112,23 @@ capabilities; a Core server advertisement cannot determine CLI run policy.
 The first rollout requires agents to declare protocol 1. Previously published
 agents without a declaration are rejected during discovery, including native
 agents. They need a one-time adoption, not ongoing rebuilds for every Core
-release. This PR does not republish the fleet or bump Core's release version.
+release. Source adoption and official artifact publication are separate from
+qualification of the published agent in a consuming workflow.
+
+## Artifact identities and installation
+
+Publisher, name and version are individual path components. Each starts with an
+ASCII letter or digit and contains only letters, digits, `.`, `_`, `+` or `-`.
+This is a syntax constraint, not an identity or compatibility roster. Explicit
+release labels and semantic versions with prerelease/build metadata are valid;
+empty versions and path/URL delimiters are rejected. Parsing, protobuf conversion,
+cache path construction and GitHub release lookup enforce the same rule,
+including for directly constructed resource values.
+
+Agent downloads finish extraction before publishing a binary. Publication copies
+into a temporary file beside the destination, sets permissions, flushes and closes
+the file, then renames it atomically. Concurrent readers retain the old complete
+binary or open the new complete binary. An interrupted transfer or failed staging
+copy does not truncate an active installation. Installation does not establish
+protocol compatibility: authenticated live admission remains required before
+lifecycle operations.

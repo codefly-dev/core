@@ -9,6 +9,8 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+
+	"github.com/codefly-dev/core/internal/testgit"
 	"time"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
@@ -295,9 +297,7 @@ def test_project_built_from_git_version():
 		{"commit", "-m", "init"},
 		{"tag", "-m", "release", "v1.2.3"},
 	} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = root
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := testgit.Run(t.Context(), root, nil, args...); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}

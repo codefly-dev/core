@@ -90,7 +90,8 @@ type TypeScriptConfiguration struct {
 }
 
 type RustConfiguration struct {
-	Destination string
+	Destination    string
+	IncludeImports bool
 }
 
 // BufConfigurationOption tunes the rendered buf configuration. It is variadic so
@@ -112,8 +113,7 @@ func WithGoPackageOverrides(overrides map[string]string) BufConfigurationOption 
 }
 
 // WithIncludeImports asks buf to generate the imported files as well, for the
-// plugins whose output references them by a relative path. TypeScript only:
-// every other generator names a dropped file's package absolutely.
+// plugins whose output references them by a relative path.
 func WithIncludeImports(include bool) BufConfigurationOption {
 	return func(o *bufConfigurationOptions) { o.includeImports = include }
 }
@@ -144,7 +144,7 @@ func CreateBufConfiguration(ctx context.Context, bufDir string, service string, 
 		}
 		return nil
 	case languages.RUST:
-		err := templateRustConfiguration(ctx, bufDir)
+		err := templateRustConfiguration(ctx, bufDir, options.includeImports)
 		if err != nil {
 			return w.Wrapf(err, "cannot templatize")
 		}
@@ -206,11 +206,12 @@ func templateTypeScriptConfiguration(ctx context.Context, bufDir string, facade 
 	return nil
 }
 
-func templateRustConfiguration(ctx context.Context, bufDir string) error {
+func templateRustConfiguration(ctx context.Context, bufDir string, includeImports bool) error {
 	w := wool.Get(ctx).In("templateRustConfiguration", wool.Field("bufDir", bufDir))
 	templator := &templates.Templator{NameReplacer: templates.CutTemplateSuffix{}}
 	conf := RustConfiguration{
-		Destination: outputDir,
+		Destination:    outputDir,
+		IncludeImports: includeImports,
 	}
 	err := templator.CopyAndApply(ctx, rustFS, "templates/rust", bufDir, conf)
 	if err != nil {

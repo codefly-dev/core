@@ -144,7 +144,9 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	// Sources only: a descriptor set carries its foreign files already marked as
 	// buf image imports, and re-targeting them would put a second Timestamp next
 	// to the consumer's runtime one.
-	includeImports := len(spec.sources) > 0 && spec.language == languages.TYPESCRIPT
+	// Rust also needs imported bindings; prost keeps google.protobuf external
+	// through its default prost-types mapping.
+	includeImports := len(spec.sources) > 0 && (spec.language == languages.TYPESCRIPT || spec.language == languages.RUST)
 
 	if err = CreateBufConfiguration(ctx, tmpDir, spec.service, spec.language, spec.facade,
 		WithGoPackageOverrides(goPackageOverrides), WithIncludeImports(includeImports)); err != nil {

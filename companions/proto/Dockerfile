@@ -50,6 +50,11 @@ RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir grpcio-tools
 
 # --- Runtime stage: minimal alpine + the codefly base ---------------
 
+FROM rust:1.90-alpine AS rust-builder
+RUN apk add --no-cache musl-dev && \
+    cargo install --locked protoc-gen-prost --version 0.5.0 && \
+    cargo install --locked protoc-gen-tonic --version 0.5.0
+
 FROM ${CODEFLY_BASE_IMAGE}
 
 # Runtime dependencies:
@@ -95,6 +100,8 @@ COPY --from=builder /go/bin/protoc-gen-connect-go /usr/local/bin/
 COPY --from=builder /go/bin/protoc-gen-codefly-facade-go /usr/local/bin/
 COPY --from=builder /go/bin/swagger /usr/local/bin/
 COPY --from=builder /usr/bin/grpc_* /usr/local/bin/
+COPY --from=rust-builder /usr/local/cargo/bin/protoc-gen-prost /usr/local/bin/
+COPY --from=rust-builder /usr/local/cargo/bin/protoc-gen-tonic /usr/local/bin/
 
 # Facade plugin sources (Python scripts + the TS npm package).
 COPY companions/proto/facades/python /opt/codefly-facades/python

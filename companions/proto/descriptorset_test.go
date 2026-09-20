@@ -55,10 +55,15 @@ service RestService {
 // reproduce any of this.
 func plainDescriptorSet(t *testing.T, ctx context.Context) []byte {
 	t.Helper()
+	return plainDescriptorSetFor(t, ctx, restProto)
+}
+
+func plainDescriptorSetFor(t *testing.T, ctx context.Context, source string) []byte {
+	t.Helper()
 	dir := t.TempDir()
 	protoPath := filepath.Join(dir, filepath.FromSlash(restProtoPath))
 	require.NoError(t, os.MkdirAll(filepath.Dir(protoPath), 0755))
-	require.NoError(t, os.WriteFile(protoPath, []byte(restProto), 0600))
+	require.NoError(t, os.WriteFile(protoPath, []byte(source), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "buf.yaml"),
 		[]byte("version: v2\nmodules:\n  - path: .\ndeps:\n  - buf.build/googleapis/googleapis\n  - buf.build/bufbuild/protovalidate\n"), 0600))
 
@@ -71,6 +76,70 @@ func plainDescriptorSet(t *testing.T, ctx context.Context) []byte {
 	image, err := os.ReadFile(filepath.Join(dir, "image.binpb"))
 	require.NoError(t, err)
 	return image
+}
+
+func TestRustClientRetainsImportedMessageFields(t *testing.T) {
+	ctx := t.Context()
+	testutil.RequireProtoImage(t, ctx)
+	source := strings.Replace(restProto, `import "google/protobuf/timestamp.proto";`, `import "google/protobuf/timestamp.proto";
+import "google/rpc/status.proto";`, 1)
+	source = strings.Replace(source, "google.protobuf.Timestamp created_at = 1;", `google.protobuf.Timestamp created_at = 1;
+  google.rpc.Status status = 2;
+  buf.validate.Violations violations = 3;`, 1)
+	for _, descriptors := range []bool{false, true} {
+		name := "sources"
+		if descriptors {
+			name = "descriptor-set"
+		}
+		t.Run(name, func(t *testing.T) {
+			dest := t.TempDir()
+			request := proto.ClientRequest{Language: languages.RUST, Destination: dest, Module: "rest"}
+			if descriptors {
+				request.DescriptorSet = plainDescriptorSetFor(t, ctx, source)
+			} else {
+				request.Sources = []proto.Source{{Path: restProtoPath, Content: []byte(source)}}
+			}
+			require.NoError(t, proto.GenerateClient(ctx, request))
+			bindings, err := os.ReadFile(filepath.Join(dest, "saas/rest/v1/saas.rest.v1.rs"))
+			require.NoError(t, err)
+			require.Contains(t, string(bindings), "pub status:")
+			require.Contains(t, string(bindings), "pub violations:")
+			require.Contains(t, string(bindings), "::prost_types::Timestamp")
+			require.NoDirExists(t, filepath.Join(dest, "google/protobuf"))
+			require.NoError(t, os.WriteFile(filepath.Join(dest, "Cargo.toml"), []byte(`[package]
+name = "generated-imports-test"
+version = "0.0.0"
+edition = "2021"
+[dependencies]
+prost = "=0.14.1"
+prost-types = "=0.14.1"
+tonic = "=0.14.2"
+tonic-prost = "=0.14.2"
+[lib]
+path = "lib.rs"
+`), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dest, "lib.rs"), []byte(`pub mod google { pub mod rpc { include!("google/rpc/google.rpc.rs"); } }
+pub mod buf { pub mod validate { include!("buf/validate/buf.validate.rs"); } }
+pub mod saas { pub mod rest { pub mod v1 { include!("saas/rest/v1/saas.rest.v1.rs"); } } }
+#[test]
+fn imported_messages_round_trip() {
+    use prost::Message;
+    let value = saas::rest::v1::GetResponse {
+        created_at: Some(prost_types::Timestamp { seconds: 42, nanos: 7 }),
+        status: Some(google::rpc::Status { code: 9, message: "retained".into(), details: vec![] }),
+        violations: Some(buf::validate::Violations { violations: vec![] }),
+    };
+    let decoded = saas::rest::v1::GetResponse::decode(value.encode_to_vec().as_slice()).unwrap();
+    assert_eq!(decoded, value);
+    assert_eq!(decoded.status.unwrap().message, "retained");
+}
+`), 0o600))
+			command := exec.CommandContext(ctx, "cargo", "test", "--quiet")
+			command.Dir = dest
+			out, err := command.CombinedOutput()
+			require.NoError(t, err, "%s", out)
+		})
+	}
 }
 
 // TestGoClientFromPlainDescriptorSetOwnsOnlyItsOwnProtos is the test that fails

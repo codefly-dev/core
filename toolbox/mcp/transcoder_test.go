@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	toolboxv0 "github.com/codefly-dev/core/generated/go/codefly/services/toolbox/v0"
+	"github.com/codefly-dev/core/internal/testgit"
 	"github.com/codefly-dev/core/toolbox/git"
 	"github.com/codefly-dev/core/toolbox/mcp"
 )
@@ -26,29 +26,14 @@ import (
 // runGit invokes the git binary in dir with the given args; returns
 // the stdout/stderr-combined output on failure.
 func runGit(dir string, args ...string) error {
-	c := exec.Command("git", args...)
-	c.Dir = dir
-	if out, err := c.CombinedOutput(); err != nil {
+	if out, err := testgit.Run(context.Background(), dir, nil, args...); err != nil {
 		return &gitErr{args: args, out: string(out), err: err}
 	}
 	return nil
 }
 
-// runGitWithEnv is runGit but seeded with deterministic
-// author/committer identity so go-git tests don't depend on the
-// host's git config.
 func runGitWithEnv(dir string, args ...string) error {
-	gitArgs := append([]string{"-c", "commit.gpgsign=false"}, args...)
-	c := exec.Command("git", gitArgs...)
-	c.Dir = dir
-	c.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
-	)
-	if out, err := c.CombinedOutput(); err != nil {
-		return &gitErr{args: args, out: string(out), err: err}
-	}
-	return nil
+	return runGit(dir, args...)
 }
 
 func writeFile(dir, name, content string) error {
