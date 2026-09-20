@@ -206,6 +206,83 @@ func TestCachedAgentDoesNotSubstituteAnEarlierSelection(t *testing.T) {
 	})
 }
 
+func TestCachedAgentBindsExecutableContent(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	t.Setenv("TEST_AGENT_CONTRACT", "")
+	binaries := []string{filepath.Join(t.TempDir(), "original"), filepath.Join(t.TempDir(), "replacement")}
+	for _, binary := range binaries {
+		output, err := exec.CommandContext(t.Context(), "go", "build", "-ldflags=-buildid="+filepath.Base(binary), "-o", binary, "../agents/testdata/recoveryagent").CombinedOutput()
+		require.NoError(t, err, "%s", output)
+	}
+	selected := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "content", Version: "1.0.0"}
+	installed, err := selected.Path(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(installed), 0o755))
+	replace := func(binary string) {
+		t.Helper()
+		require.NoError(t, os.Symlink(binary, installed+".new"))
+		require.NoError(t, os.Rename(installed+".new", installed))
+	}
+	t.Run("cached clients", func(t *testing.T) {
+		t.Cleanup(ClearAgents)
+		replace(binaries[0])
+		service := &resources.Service{Name: "content", Agent: selected}
+		service.WithModule("fixture")
+		first, err := Load(t.Context(), nil, nil, service)
+		require.NoError(t, err)
+		require.NotEmpty(t, first.Agent.ProcessInfo.ArtifactDigest)
+		replace(binaries[1])
+		_, err = LoadAgent(t.Context(), selected, ServiceCacheKey(service))
+		require.ErrorContains(t, err, "agent artifact changed")
+		_, err = Load(t.Context(), nil, nil, service)
+		require.ErrorContains(t, err, "agent artifact changed")
+		_, err = LoadBuilder(t.Context(), service)
+		require.ErrorContains(t, err, "agent artifact changed")
+		_, err = LoadRuntime(t.Context(), service)
+		require.ErrorContains(t, err, "agent artifact changed")
+		_, err = LoadCode(t.Context(), service)
+		require.ErrorContains(t, err, "agent artifact changed")
+		_, err = first.Agent.GetAgentInformation(t.Context(), &agentv0.AgentInformationRequest{})
+		require.NoError(t, err, "refusing reuse must not stop the active agent")
+		replace(binaries[0])
+		same, err := Load(t.Context(), nil, nil, service)
+		require.NoError(t, err)
+		require.Same(t, first, same, "identical content remains reusable after atomic reinstallation")
+		replace(binaries[1])
+		ClearAgent(ServiceCacheKey(service))
+		next, err := Load(t.Context(), nil, nil, service)
+		require.NoError(t, err)
+		require.NotEqual(t, first.ProcessInfo.AgentPID, next.ProcessInfo.AgentPID)
+		require.NotEqual(t, first.Agent.ProcessInfo.ArtifactDigest, next.Agent.ProcessInfo.ArtifactDigest)
+	})
+	t.Run("replacement during startup", func(t *testing.T) {
+		t.Cleanup(ClearAgents)
+		replace(binaries[0])
+		gate := filepath.Join(t.TempDir(), "start")
+		t.Setenv("TEST_AGENT_START_GATE", gate)
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		done := make(chan error, 1)
+		go func() {
+			_, err := LoadAgent(ctx, selected, "fixture/content")
+			done <- err
+		}()
+		t.Cleanup(cancel)
+		require.Eventually(t, func() bool {
+			_, err := os.Stat(gate + ".started")
+			return err == nil
+		}, 10*time.Second, 10*time.Millisecond)
+		replace(binaries[1])
+		require.NoError(t, os.WriteFile(gate, nil, 0o600))
+		require.ErrorContains(t, <-done, "agent artifact changed during startup")
+		connCacheMu.Lock()
+		_, cached := connCache["fixture/content"]
+		connCacheMu.Unlock()
+		require.False(t, cached)
+		_, err := LoadAgent(ctx, selected, "fixture/content")
+		require.NoError(t, err)
+	})
+}
+
 func TestUpdateAgentValidatesBeforeChangingTheSelection(t *testing.T) {
 	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
 	t.Setenv(manager.AgentSourceEnv, "local")

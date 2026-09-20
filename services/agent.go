@@ -149,6 +149,9 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 		if err := checkAgentSelection(cacheKey, load.selection, *agent); err != nil {
 			return nil, err
 		}
+		if err := load.conn.CheckArtifact(ctx, agent); err != nil {
+			return nil, err
+		}
 		return load.conn, nil
 	}
 	if load, ok := connLoads[cacheKey]; ok {
@@ -158,6 +161,11 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 		}
 		select {
 		case <-load.done:
+			if load.err == nil {
+				if err := load.conn.CheckArtifact(ctx, agent); err != nil {
+					return nil, err
+				}
+			}
 			return load.conn, load.err
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -212,15 +220,18 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 }
 
 // getConn returns the cached connection for a cache key (see ServiceCacheKey).
-// Panics if not loaded. Callers MUST pass the SAME key LoadAgent was called with.
-func getConn(cacheKey string, agent *resources.Agent) (*manager.AgentConn, error) {
+// Callers MUST pass the SAME key LoadAgent was called with.
+func getConn(ctx context.Context, cacheKey string, agent *resources.Agent) (*manager.AgentConn, error) {
 	connCacheMu.Lock()
-	defer connCacheMu.Unlock()
 	load, ok := connCache[cacheKey]
+	connCacheMu.Unlock()
 	if !ok {
-		panic(fmt.Sprintf("agent connection %q not loaded -- call LoadAgent first", cacheKey))
+		return nil, fmt.Errorf("agent connection %q not loaded; call LoadAgent first", cacheKey)
 	}
 	if err := checkAgentSelection(cacheKey, load.selection, *agent); err != nil {
+		return nil, err
+	}
+	if err := load.conn.CheckArtifact(ctx, agent); err != nil {
 		return nil, err
 	}
 	return load.conn, nil

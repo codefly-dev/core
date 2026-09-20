@@ -161,3 +161,13 @@ binary or open the new complete binary. An interrupted transfer or failed stagin
 copy does not truncate an active installation. Installation does not establish
 protocol compatibility: authenticated live admission remains required before
 lifecycle operations.
+
+Running service connections bind both the explicit selection and the SHA-256
+digest of the executable admitted at startup. Reusing Agent, Builder, Runtime,
+Code, or Instance clients rechecks current executable content, including local
+symlink targets. Installing different bytes at the same version returns an
+error without killing the running agent. The flow owner must explicitly clear
+that service before admitting the replacement. Identical bytes remain reusable
+after atomic reinstallation. Startup also rejects a concurrently replaced
+executable before publishing the connection. These checks do not establish
+publisher authority or qualify a rebuilt runtime output.

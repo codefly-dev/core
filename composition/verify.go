@@ -17,7 +17,22 @@ import (
 
 type TrustPolicy struct {
 	Repositories map[string]string
-	Signers      map[string]ed25519.PublicKey
+	Signers      map[string]map[string]ed25519.PublicKey
+}
+
+func (release *VerifiedRelease) ContractSnapshot(ctx context.Context) (*updatev0.ContractSnapshot, error) {
+	if release == nil || release.release == nil {
+		return nil, errors.New("verified module release is required")
+	}
+	root, err := os.MkdirTemp("", "codefly-contract-snapshot-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(root) }()
+	if err := ExtractArchive(ctx, release.release.Artifact, root); err != nil {
+		return nil, err
+	}
+	return BuildPackageContractSnapshot(root)
 }
 
 // ContractDiff reads update evidence from the authenticated module archive.
@@ -92,8 +107,8 @@ func (release *VerifiedRelease) EvaluateUpdate(pin *updatev0.ConsumerPin) *updat
 	if err != nil {
 		result := &updatev0.UpdateResult{
 			Consumer: pin.GetConsumer(), Module: pin.GetModule(), FromVersion: pin.GetVersion(),
-			Verdict:  updatev0.Verdict_VERDICT_BREAKING,
-			Breaking: []*updatev0.AffectedItem{{Reason: "could not determine: " + err.Error()}},
+			Verdict:      updatev0.Verdict_VERDICT_UNDETERMINED,
+			Undetermined: []*updatev0.AffectedItem{{Reason: "could not determine: " + err.Error()}},
 		}
 		if release != nil && release.manifest != nil {
 			result.ToVersion = release.manifest.Version
@@ -126,7 +141,7 @@ func VerifyRelease(release *Release, expectedPackage, expectedVersion string, tr
 	if !exists || expectedRepository == "" || expectedRepository != release.Repository || expectedRepository != provenance.Repository {
 		return nil, fmt.Errorf("module release repository %q is not trusted for package %q", release.Repository, expectedPackage)
 	}
-	publicKey, exists := trust.Signers[provenance.SignatureIdentity]
+	publicKey, exists := trust.Signers[expectedPackage][provenance.SignatureIdentity]
 	signature := release.Signature
 	if len(signature) != ed25519.SignatureSize {
 		signature, _ = DecodeSignature(signature)

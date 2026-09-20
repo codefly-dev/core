@@ -49,6 +49,9 @@ func (server) GetAgentInformation(context.Context, *agentv0.AgentInformationRequ
 
 func main() {
 	if gate := os.Getenv("TEST_AGENT_START_GATE"); gate != "" {
+		if err := os.WriteFile(gate+".started", nil, 0o600); err != nil {
+			panic(err)
+		}
 		for {
 			if _, err := os.Stat(gate); err == nil {
 				break

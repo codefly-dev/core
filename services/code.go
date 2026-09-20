@@ -17,7 +17,7 @@ func LoadCode(ctx context.Context, service *resources.Service) (*coreservices.Co
 		return nil, wool.Get(ctx).NewError("agent cannot be nil")
 	}
 
-	conn, err := getConn(ServiceCacheKey(service), service.Agent)
+	conn, err := getConn(ctx, ServiceCacheKey(service), service.Agent)
 	if err != nil {
 		return nil, err
 	}

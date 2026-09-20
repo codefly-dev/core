@@ -36,6 +36,9 @@ func TestClearAgentInvalidatesOnlyOneServiceCache(t *testing.T) {
 	instancesMu.Unlock()
 
 	ClearAgent("module/one")
+	if _, err := getConn(t.Context(), "module/one", &resources.Agent{}); err == nil {
+		t.Fatal("a cleared connection must fail without panicking")
+	}
 
 	connCacheMu.Lock()
 	_, oneConn := connCache["module/one"]

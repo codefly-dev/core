@@ -182,6 +182,14 @@ func copyProjection(source, destination string) error {
 		if relative == cacheMarkerName {
 			return nil
 		}
+		// A linked checkout's .git file points back into the developer's repo;
+		// projections must neither inherit that authority nor copy VCS internals.
+		if relative == ".git" {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		target := filepath.Join(destination, relative)
 		if entry.Type()&os.ModeSymlink != 0 || (!entry.IsDir() && !entry.Type().IsRegular()) {
 			return fmt.Errorf("base cache contains unsafe path %q", relative)

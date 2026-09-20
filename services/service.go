@@ -404,6 +404,9 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 		if err := checkAgentSelection(identity.Unique(), cached.agentSelection, *service.Agent); err != nil {
 			return nil, err
 		}
+		if _, err := getConn(ctx, identity.Unique(), service.Agent); err != nil {
+			return nil, err
+		}
 		return cached, nil
 	}
 

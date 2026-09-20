@@ -8,12 +8,177 @@ import (
 	"testing"
 
 	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	"github.com/codefly-dev/core/internal/testgit"
 	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"gopkg.in/yaml.v3"
 )
+
+func TestIndependentLocalCheckoutsBindDirtyContentAndRestoreWithoutDeletingFiles(t *testing.T) {
+	project, released := t.TempDir(), t.TempDir()
+	t.Cleanup(func() { _ = removeCacheTree(project) })
+	writeUpdateSources(t, released, "0.1.0", false)
+	release, trust := buildRelease(t, released, "0.1.0", strings.Repeat("a", 40))
+	engine := NewEngine(project, &fixtureResolver{releases: map[string]*Release{"0.1.0": release}}, trust)
+	engine.ToolVersion = "0.3.40"
+	var modules, sources, locks []string
+	var local []*Materialization
+	for _, name := range []string{"saas", "documents"} {
+		moduleDir, source := filepath.Join(project, name), t.TempDir()
+		writeFile(t, filepath.Join(moduleDir, DescriptorFileName), "kind: composed-module\nname: "+name+"\nbase:\n  id: "+testPackage+"\n  version: '^0.1'\n")
+		initial, err := engine.Update(t.Context(), moduleDir, "0.1.0", true)
+		require.NoError(t, err)
+		require.True(t, initial.Applied)
+		writeUpdateSources(t, source, "0.1.0", false)
+		for _, args := range [][]string{{"init", "--quiet"}, {"add", "."}, {"commit", "--quiet", "-m", "fixture"}} {
+			output, err := testgit.Run(t.Context(), source, nil, args...)
+			require.NoError(t, err, "%s", output)
+		}
+		if name == "documents" {
+			checkout := filepath.Join(t.TempDir(), "checkout")
+			output, err := testgit.Run(t.Context(), source, nil, "worktree", "add", "--detach", checkout, "HEAD")
+			require.NoError(t, err, "%s", output)
+			source = checkout
+		}
+		writeFile(t, filepath.Join(source, "contracts", "dirty.txt"), "uncommitted "+name)
+		_, err = SetDevelopOverride(t.Context(), project, moduleDir, source)
+		require.NoError(t, err)
+		materialized, err := engine.Materialize(t.Context(), moduleDir, MaterializeOptions{Namespace: "dev"})
+		require.NoError(t, err)
+		require.Equal(t, "uncommitted "+name, readFile(t, filepath.Join(materialized.Projection, "contracts", "dirty.txt")))
+		require.NoDirExists(t, filepath.Join(materialized.Projection, ".git"))
+		require.NoFileExists(t, filepath.Join(materialized.Projection, ".git"))
+		modules, sources = append(modules, moduleDir), append(sources, source)
+		locks = append(locks, readFile(t, filepath.Join(moduleDir, LockFileName)))
+		local = append(local, materialized)
+	}
+	writeFile(t, filepath.Join(sources[0], ".git", "objects", "maintenance.lock"), "maintenance")
+	maintained, err := engine.Materialize(t.Context(), modules[0], MaterializeOptions{Namespace: "dev"})
+	require.NoError(t, err)
+	require.Equal(t, local[0].Namespace.Digest, maintained.Namespace.Digest)
+	writeFile(t, filepath.Join(sources[0], "contracts", "dirty.txt"), "second edit")
+	changed, err := engine.Materialize(t.Context(), modules[0], MaterializeOptions{Namespace: "dev"})
+	require.NoError(t, err)
+	require.NotEqual(t, local[0].Namespace.Digest, changed.Namespace.Digest)
+	require.Equal(t, "second edit", readFile(t, filepath.Join(changed.Projection, "contracts", "dirty.txt")))
+	unchanged, err := engine.Materialize(t.Context(), modules[1], MaterializeOptions{Namespace: "dev"})
+	require.NoError(t, err)
+	require.Equal(t, local[1].Namespace.Digest, unchanged.Namespace.Digest)
+	for i, name := range []string{"saas", "documents"} {
+		before, err := sourceTreeDigest(sources[i])
+		require.NoError(t, err)
+		require.NoError(t, ClearDevelopOverride(project, name))
+		restored, err := engine.Materialize(t.Context(), modules[i], MaterializeOptions{Namespace: "dev"})
+		require.NoError(t, err)
+		require.NotEqual(t, sources[i], restored.Source)
+		require.NoFileExists(t, filepath.Join(restored.Projection, "contracts", "dirty.txt"))
+		after, err := sourceTreeDigest(sources[i])
+		require.NoError(t, err)
+		require.Equal(t, before, after, "restoration cannot mutate the developer checkout")
+		require.Equal(t, locks[i], readFile(t, filepath.Join(modules[i], LockFileName)))
+		output, err := testgit.Run(t.Context(), sources[i], nil, "rev-parse", "--verify", "HEAD")
+		require.NoError(t, err, "%s", output)
+	}
+}
+
+func TestLocalMaterializationRejectsSourceMutationDuringGeneration(t *testing.T) {
+	project, released, source := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Cleanup(func() { _ = removeCacheTree(project) })
+	writeUpdateSources(t, released, "0.1.0", false)
+	writeUpdateSources(t, source, "0.1.0", false)
+	release, trust := buildRelease(t, released, "0.1.0", strings.Repeat("a", 40))
+	engine := NewEngine(project, &fixtureResolver{releases: map[string]*Release{"0.1.0": release}}, trust)
+	engine.ToolVersion = "0.3.40"
+	moduleDir := filepath.Join(project, "saas")
+	writeFile(t, filepath.Join(moduleDir, DescriptorFileName), "kind: composed-module\nname: saas\nbase:\n  id: "+testPackage+"\n  version: '^0.1'\n")
+	_, err := engine.Update(t.Context(), moduleDir, "0.1.0", true)
+	require.NoError(t, err)
+	originalLock := readFile(t, filepath.Join(moduleDir, LockFileName))
+	_, err = SetDevelopOverride(t.Context(), project, moduleDir, source)
+	require.NoError(t, err)
+	initial, err := engine.Materialize(t.Context(), moduleDir, MaterializeOptions{Namespace: "dev"})
+	require.NoError(t, err)
+	manifest, err := LoadPackageManifest(source)
+	require.NoError(t, err)
+	manifest.Generators = []PackageCommand{{Name: "edit-source", Command: []string{"sh", "-c", `printf changed > "$1"`, "edit", filepath.Join(source, "contracts", "edit.txt")}}}
+	data, err := yaml.Marshal(manifest)
+	require.NoError(t, err)
+	writeFile(t, filepath.Join(source, PackageManifestFileName), string(data))
+	result, err := engine.Materialize(t.Context(), moduleDir, MaterializeOptions{Namespace: "dev"})
+	require.ErrorContains(t, err, "local module content changed during materialization")
+	require.Nil(t, result)
+	require.Equal(t, "changed", readFile(t, filepath.Join(source, "contracts", "edit.txt")))
+	require.Equal(t, originalLock, readFile(t, filepath.Join(moduleDir, LockFileName)))
+	require.FileExists(t, filepath.Join(initial.Projection, PackageManifestFileName))
+}
+
+func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
+	for _, scenario := range []string{"compatible skipped release", "removed route", "configuration changed", "missing usage", "stale usage", "tampered baseline"} {
+		t.Run(scenario, func(t *testing.T) {
+			project := t.TempDir()
+			t.Cleanup(func() { _ = removeCacheTree(project) })
+			moduleDir := filepath.Join(project, "module")
+			writeFile(t, filepath.Join(moduleDir, DescriptorFileName), "kind: composed-module\nname: saas\nbase:\n  id: "+testPackage+"\n  version: '>=0.1.0 <1.0.0'\n")
+			beforeRoot, afterRoot := t.TempDir(), t.TempDir()
+			writeUpdateSources(t, beforeRoot, "0.1.0", false)
+			writeUpdateSources(t, afterRoot, "0.9.0", true)
+			if scenario == "removed route" {
+				for _, name := range []string{APIContractCatalogFileName, "contracts/api/openapi.json"} {
+					writeFile(t, filepath.Join(afterRoot, name), strings.ReplaceAll(readFile(t, filepath.Join(afterRoot, name)), `"/accounts"`, `"/health"`))
+				}
+				updateAPIDigest(t, afterRoot)
+			}
+			if scenario == "configuration changed" {
+				path := filepath.Join(afterRoot, BehavioralContractsFileName)
+				writeFile(t, path, strings.ReplaceAll(readFile(t, path), `"publisher_bound":true`, `"publisher_bound":false`))
+			}
+			before, err := BuildPackageContractSnapshot(beforeRoot)
+			require.NoError(t, err)
+			first, trust := buildRelease(t, beforeRoot, "0.1.0", strings.Repeat("a", 40))
+			second, _ := buildRelease(t, afterRoot, "0.9.0", strings.Repeat("b", 40))
+			resolver := &fixtureResolver{releases: map[string]*Release{"0.1.0": first, "0.9.0": second}}
+			engine := NewEngine(project, resolver, trust)
+			engine.ToolVersion = "0.3.40"
+			initial, err := engine.Update(t.Context(), moduleDir, "0.1.0", true)
+			require.NoError(t, err)
+			require.True(t, initial.Applied)
+			original := readFile(t, filepath.Join(moduleDir, LockFileName))
+			pin := &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: testPackage, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true}
+			for _, item := range before.Items {
+				pin.Uses = append(pin.Uses, &updatev0.ContractUse{Item: item.Id, Digest: item.Digest, Dependencies: item.Dependencies})
+			}
+			if scenario == "stale usage" {
+				pin.Version = "0.8.0"
+			}
+			if scenario != "missing usage" {
+				engine.ConsumerPins = map[string]*updatev0.ConsumerPin{"saas": pin}
+			}
+			if scenario == "tampered baseline" {
+				first.Signature[0] ^= 0xff
+			}
+			result, err := engine.Update(t.Context(), moduleDir, "0.9.0", true)
+			require.NoError(t, err)
+			switch scenario {
+			case "compatible skipped release":
+				require.True(t, result.Applied, result.Report.String())
+				require.Equal(t, updatev0.Verdict_VERDICT_NEW_CAPABILITY, result.Report.ConsumerCompatibility.Verdict)
+				require.Equal(t, "0.9.0", result.Lock.Version)
+			case "removed route":
+				require.False(t, result.Applied)
+				require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Report.ConsumerCompatibility.Verdict)
+			default:
+				require.False(t, result.Applied)
+				require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Report.ConsumerCompatibility.Verdict)
+			}
+			if !result.Applied {
+				require.Equal(t, original, readFile(t, filepath.Join(moduleDir, LockFileName)))
+				require.True(t, projectionMatches(initial.Projection, initial.Lock))
+			}
+		})
+	}
+}
 
 func writeUpdateSources(t *testing.T, root, version string, watch bool) {
 	t.Helper()
@@ -81,15 +246,15 @@ func TestUpdateEvidenceMustMatchPackagedSources(t *testing.T) {
 	}
 	updateAPIDigest(t, afterRoot)
 	result := check(afterRoot)
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
-	require.Contains(t, result.Breaking[0].Reason, "does not match packaged contract sources")
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+	require.Contains(t, result.Undetermined[0].Reason, "does not match packaged contract sources")
 
 	writeUpdateSources(t, afterRoot, "0.2.0", false)
 	behaviorPath := filepath.Join(afterRoot, BehavioralContractsFileName)
 	writeFile(t, behaviorPath, strings.ReplaceAll(readFile(t, behaviorPath), `"publisher_bound":true`, `"publisher_bound":false`))
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, check(afterRoot).Verdict)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, check(afterRoot).Verdict)
 	writeFile(t, behaviorPath, `{"schema_version":1}`)
-	require.Contains(t, check(afterRoot).Breaking[0].Reason, "complete coverage")
+	require.Contains(t, check(afterRoot).Undetermined[0].Reason, "complete coverage")
 }
 
 func updateAPIDigest(t *testing.T, root string) {

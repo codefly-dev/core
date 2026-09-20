@@ -3,12 +3,41 @@ package manager
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExecutableIdentityUsesContentNotPathOrTimestamps(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent")
+	require.NoError(t, os.WriteFile(path, []byte("first"), 0o755))
+	original, info, err := executableIdentity(t.Context(), path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, []byte("other"), 0o755))
+	require.NoError(t, os.Chtimes(path, info.ModTime(), info.ModTime()))
+	changed, _, err := executableIdentity(t.Context(), path)
+	require.NoError(t, err)
+	require.NotEqual(t, original, changed)
+	link := filepath.Join(t.TempDir(), "agent")
+	require.NoError(t, os.Symlink(path, link))
+	linked, _, err := executableIdentity(t.Context(), link)
+	require.NoError(t, err)
+	require.Equal(t, changed, linked)
+	require.NoError(t, os.Chmod(path, 0o644))
+	_, _, err = executableIdentity(t.Context(), path)
+	require.ErrorContains(t, err, "not a regular executable")
+	_, _, err = executableIdentity(t.Context(), t.TempDir())
+	require.ErrorContains(t, err, "not a regular executable")
+	fifo := filepath.Join(t.TempDir(), "fifo")
+	output, err := exec.CommandContext(t.Context(), "mkfifo", fifo).CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	require.NoError(t, os.Chmod(fifo, 0o755))
+	_, _, err = executableIdentity(t.Context(), fifo)
+	require.ErrorContains(t, err, "not a regular executable")
+}
 
 // makeAgent returns a service agent stub with the given publisher and name.
 func makeAgent(publisher, name string) *resources.Agent {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -57,16 +58,19 @@ const stderrCapacity = 64 * 1024
 
 // ProcessInfo carries metadata about the spawned agent process.
 type ProcessInfo struct {
-	PID int
+	PID            int
+	ArtifactDigest string
 }
 
 // AgentConn is a connection to a running agent process.
 // It owns the gRPC connection and the child process.
 type AgentConn struct {
-	conn  *grpc.ClientConn
-	cmd   *exec.Cmd
-	info  *ProcessInfo
-	group *runnersbase.TrackedProcessGroup
+	conn           *grpc.ClientConn
+	cmd            *exec.Cmd
+	info           *ProcessInfo
+	group          *runnersbase.TrackedProcessGroup
+	artifactPath   string
+	artifactDigest string
 
 	// runtimeDir is the private per-spawn directory containing the agent's
 	// Unix socket. It is removed after the child exits (including crashes) and
@@ -101,6 +105,66 @@ func (c *AgentConn) GRPCConn() *grpc.ClientConn { return c.conn }
 
 // ProcessInfo returns the agent's process metadata.
 func (c *AgentConn) ProcessInfo() *ProcessInfo { return c.info }
+
+func (c *AgentConn) ArtifactDigest() string { return c.artifactDigest }
+
+func (c *AgentConn) CheckArtifact(ctx context.Context, agent *resources.Agent) error {
+	path, err := agent.Path(ctx)
+	if err != nil {
+		return err
+	}
+	if path != c.artifactPath {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			path = c.artifactPath
+		}
+	}
+	digest, _, err := executableIdentity(ctx, path)
+	if err != nil {
+		return err
+	}
+	if digest != c.artifactDigest {
+		return fmt.Errorf("agent artifact changed for %s from %s to %s; clear this service's agent before loading its replacement", agent.Unique(), c.artifactDigest, digest)
+	}
+	return nil
+}
+
+func executableIdentity(ctx context.Context, path string) (string, os.FileInfo, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", nil, err
+	}
+	defer file.Close()
+	before, err := file.Stat()
+	if err != nil {
+		return "", nil, err
+	}
+	if !before.Mode().IsRegular() || before.Mode().Perm()&0o111 == 0 {
+		return "", nil, fmt.Errorf("agent artifact %s is not a regular executable", path)
+	}
+	hash := sha256.New()
+	buffer := make([]byte, 128*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", nil, err
+		}
+		n, err := file.Read(buffer)
+		_, _ = hash.Write(buffer[:n])
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", nil, err
+		}
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		return "", nil, err
+	}
+	if !os.SameFile(before, after) || before.Size() != after.Size() || before.ModTime() != after.ModTime() || before.Mode() != after.Mode() {
+		return "", nil, fmt.Errorf("agent artifact changed while reading %s", path)
+	}
+	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), after, nil
+}
 
 // gracefulShutdownTimeout is how long Close waits after SIGTERM for the
 // agent to exit cleanly before falling back to SIGKILL. Must be larger
@@ -737,6 +801,10 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		}
 	}
 
+	artifactDigest, artifactInfo, err := executableIdentity(ctx, bin)
+	if err != nil {
+		return nil, err
+	}
 	var verifiedProvider *providerartifact.Verified
 	if registration.Resolution.Local == resources.AgentResolutionVerifiedArtifact {
 		verifiedProvider, err = providerartifact.VerifyExecutable(bin, p)
@@ -1059,10 +1127,17 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	}
 
 	// --- Build result and register ---
+	currentDigest, currentInfo, err := executableIdentity(ctx, bin)
+	if err != nil || artifactDigest != currentDigest || !os.SameFile(artifactInfo, currentInfo) {
+		_ = conn.Close()
+		return nil, killAndDescribe(ErrAgentAdmission, fmt.Sprintf("agent artifact changed during startup: %v", err))
+	}
 	agentConn := &AgentConn{
+		artifactPath:        bin,
+		artifactDigest:      artifactDigest,
 		conn:                conn,
 		cmd:                 cmd,
-		info:                &ProcessInfo{PID: pid},
+		info:                &ProcessInfo{PID: pid, ArtifactDigest: artifactDigest},
 		group:               group,
 		runtimeDir:          udsRuntimeDir,
 		stderrBuf:           stderrBuf,

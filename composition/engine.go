@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	"github.com/codefly-dev/core/moduleupdate"
 	"github.com/codefly-dev/core/shared"
 	coreversion "github.com/codefly-dev/core/version"
 	"github.com/gofrs/flock"
@@ -38,6 +40,7 @@ type Engine struct {
 	Materializer       *Materializer
 	Renderer           Renderer
 	SupportedContracts map[string][]string
+	ConsumerPins       map[string]*updatev0.ConsumerPin
 }
 
 type UpdateResult struct {
@@ -164,6 +167,14 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 		return nil, fmt.Errorf("render current module composition for semantic report: %w", err)
 	}
 	report := newSemanticReport(descriptor, current, candidate, oldManifest, verified.manifest, oldCatalog, catalog, validations)
+	if current != nil && current.Version != candidate.Version {
+		report.ConsumerCompatibility = engine.evaluateConsumerUpdate(ctx, current, verified, engine.ConsumerPins[descriptor.Name])
+		switch report.ConsumerCompatibility.Verdict {
+		case updatev0.Verdict_VERDICT_SAFE, updatev0.Verdict_VERDICT_NEW_CAPABILITY:
+		default:
+			report.BlockedReasons = append(report.BlockedReasons, "consumer compatibility: "+report.ConsumerCompatibility.Verdict.String())
+		}
+	}
 	report.LockDiff, err = LockDiff(current, candidate)
 	if err != nil {
 		return nil, err
@@ -184,6 +195,39 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	}
 	result.Applied = true
 	return result, nil
+}
+
+func (engine *Engine) evaluateConsumerUpdate(ctx context.Context, current *Lock, candidate *VerifiedRelease, pin *updatev0.ConsumerPin) *updatev0.UpdateResult {
+	unknown := func(err error) *updatev0.UpdateResult {
+		return &updatev0.UpdateResult{
+			Consumer: pin.GetConsumer(), Module: current.Package, FromVersion: current.Version, ToVersion: candidate.manifest.Version,
+			Verdict: updatev0.Verdict_VERDICT_UNDETERMINED, Undetermined: []*updatev0.AffectedItem{{Reason: err.Error()}},
+		}
+	}
+	if pin == nil {
+		return unknown(errors.New("consumer usage evidence is required"))
+	}
+	release, err := engine.Resolver.Fetch(ctx, current)
+	if err != nil {
+		return unknown(fmt.Errorf("fetch consumer baseline: %w", err))
+	}
+	baseline, err := VerifyLockedRelease(release, current, engine.Trust)
+	if err != nil {
+		return unknown(fmt.Errorf("authenticate consumer baseline: %w", err))
+	}
+	before, err := baseline.ContractSnapshot(ctx)
+	if err != nil {
+		return unknown(fmt.Errorf("derive consumer baseline: %w", err))
+	}
+	after, err := candidate.ContractSnapshot(ctx)
+	if err != nil {
+		return unknown(fmt.Errorf("derive candidate contracts: %w", err))
+	}
+	diff, err := moduleupdate.BuildReleaseDiff(before, after)
+	if err != nil {
+		return unknown(err)
+	}
+	return moduleupdate.Evaluate(diff, pin)
 }
 
 func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options MaterializeOptions) (*Materialization, error) {
@@ -258,6 +302,15 @@ func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options
 	catalog, _, err := engine.Renderer.Render(ctx, resolved.path, moduleDir, staging, namespace, descriptor, resolved.manifest, lock.Contracts, inputs)
 	if err != nil {
 		return nil, err
+	}
+	if resolved.local {
+		digest, err := sourceTreeDigest(resolved.path)
+		if err != nil {
+			return nil, err
+		}
+		if digest != resolved.lock.Artifact.Digest {
+			return nil, errors.New("local module content changed during materialization; retry against the current checkout")
+		}
 	}
 	if err := writeProjectionMetadata(staging, resolved.lock, catalog); err != nil {
 		return nil, err
@@ -371,13 +424,13 @@ func (engine *Engine) resolveMaterializationSource(ctx context.Context, descript
 	if namespace == "dev" && !ci {
 		override, err := LoadDevelopOverride(engine.ProjectRoot, descriptor.Name)
 		if err == nil {
-			manifest, validationErr := validateDevelopSource(override, descriptor, lock)
-			if validationErr != nil {
-				return nil, validationErr
-			}
 			localDigest, digestErr := sourceTreeDigest(override.Source)
 			if digestErr != nil {
 				return nil, digestErr
+			}
+			manifest, validationErr := validateDevelopSource(override, descriptor, lock)
+			if validationErr != nil {
+				return nil, validationErr
 			}
 			effective := *lock
 			effective.Version = manifest.Version
@@ -445,7 +498,7 @@ func validateDevelopSource(override *DevelopOverride, descriptor *Descriptor, lo
 
 func sourceTreeDigest(source string) (string, error) {
 	hash := sha256.New()
-	if err := hashContribution(hash, source); err != nil {
+	if err := hashContribution(hash, source, ".git"); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil

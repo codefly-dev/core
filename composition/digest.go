@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 )
 
@@ -69,7 +70,7 @@ func contributionPaths(descriptor *Descriptor) []contributionPath {
 	return paths
 }
 
-func hashContribution(destination io.Writer, source string) error {
+func hashContribution(destination io.Writer, source string, excludedRootEntries ...string) error {
 	info, err := os.Lstat(source)
 	if err != nil {
 		return err
@@ -92,12 +93,18 @@ func hashContribution(destination io.Writer, source string) error {
 		if current == source {
 			return nil
 		}
-		if entry.Type()&os.ModeSymlink != 0 || (!entry.IsDir() && !entry.Type().IsRegular()) {
-			return errorsUnsafeContribution(current)
-		}
 		relative, err := filepath.Rel(source, current)
 		if err != nil {
 			return err
+		}
+		if slices.Contains(excludedRootEntries, relative) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || (!entry.IsDir() && !entry.Type().IsRegular()) {
+			return errorsUnsafeContribution(current)
 		}
 		names = append(names, filepath.ToSlash(relative))
 		return nil
