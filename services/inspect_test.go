@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -108,4 +109,97 @@ func TestIndependentAgentAdmission(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCachedAgentDoesNotSubstituteAnEarlierSelection(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	t.Setenv("TEST_AGENT_CONTRACT", "")
+	binary := filepath.Join(t.TempDir(), "agent")
+	output, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../agents/testdata/recoveryagent").CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	selected := resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "peer", Version: "1.0.0"}
+	for _, version := range []string{"1.0.0", "2.0.0"} {
+		installed := selected
+		installed.Version = version
+		path, err := installed.Path(t.Context())
+		require.NoError(t, err)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.Symlink(binary, path))
+	}
+	t.Run("connection", func(t *testing.T) {
+		t.Cleanup(ClearAgents)
+		original := selected
+		first, err := LoadAgent(t.Context(), &original, "fixture/peer")
+		require.NoError(t, err)
+		replacement := selected
+		replacement.Version = "2.0.0"
+		_, err = LoadAgent(t.Context(), &replacement, "fixture/peer")
+		require.ErrorContains(t, err, "agent selection changed")
+		same, err := LoadAgent(t.Context(), &original, "fixture/peer")
+		require.NoError(t, err)
+		require.Equal(t, first.ProcessInfo.PID, same.ProcessInfo.PID)
+		_, err = first.GetAgentInformation(t.Context(), &agentv0.AgentInformationRequest{})
+		require.NoError(t, err)
+		ClearAgent("fixture/peer")
+		upgraded, err := LoadAgent(t.Context(), &replacement, "fixture/peer")
+		require.NoError(t, err)
+		require.Equal(t, "2.0.0", upgraded.Agent.Version)
+		require.NotEqual(t, first.ProcessInfo.PID, upgraded.ProcessInfo.PID)
+	})
+	t.Run("instance", func(t *testing.T) {
+		t.Cleanup(ClearAgents)
+		original := selected
+		service := &resources.Service{Name: "peer", Agent: &original}
+		service.WithModule("fixture")
+		first, err := Load(t.Context(), nil, nil, service)
+		require.NoError(t, err)
+		service.Agent.Version = "2.0.0"
+		_, err = Load(t.Context(), nil, nil, service)
+		require.ErrorContains(t, err, "agent selection changed")
+		require.Equal(t, "1.0.0", first.Agent.Agent.Version)
+		_, err = LoadBuilder(t.Context(), service)
+		require.ErrorContains(t, err, "agent selection changed")
+		_, err = LoadRuntime(t.Context(), service)
+		require.ErrorContains(t, err, "agent selection changed")
+		_, err = LoadCode(t.Context(), service)
+		require.ErrorContains(t, err, "agent selection changed")
+		_, err = first.Agent.GetAgentInformation(t.Context(), &agentv0.AgentInformationRequest{})
+		require.NoError(t, err)
+		ClearAgent(ServiceCacheKey(service))
+		upgraded, err := Load(t.Context(), nil, nil, service)
+		require.NoError(t, err)
+		require.Equal(t, "2.0.0", upgraded.Agent.Agent.Version)
+		require.NotEqual(t, first.ProcessInfo.AgentPID, upgraded.ProcessInfo.AgentPID)
+	})
+	t.Run("in-flight", func(t *testing.T) {
+		t.Cleanup(ClearAgents)
+		gate := filepath.Join(t.TempDir(), "start")
+		t.Setenv("TEST_AGENT_START_GATE", gate)
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		original := selected
+		done := make(chan struct{})
+		var loadErr error
+		go func() {
+			_, loadErr = LoadAgent(ctx, &original, "fixture/peer")
+			close(done)
+		}()
+		t.Cleanup(func() { cancel(); <-done })
+		require.Eventually(t, func() bool {
+			connCacheMu.Lock()
+			defer connCacheMu.Unlock()
+			_, loading := connLoads["fixture/peer"]
+			return loading
+		}, 5*time.Second, 10*time.Millisecond)
+		replacement := selected
+		replacement.Version = "2.0.0"
+		requestCtx, requestCancel := context.WithTimeout(ctx, time.Second)
+		defer requestCancel()
+		_, err := LoadAgent(requestCtx, &replacement, "fixture/peer")
+		require.ErrorContains(t, err, "agent selection changed")
+		require.NoError(t, os.WriteFile(gate, nil, 0o600))
+		<-done
+		require.NoError(t, loadErr)
+		_, err = LoadAgent(ctx, &original, "fixture/peer")
+		require.NoError(t, err)
+	})
 }

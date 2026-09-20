@@ -17,10 +17,14 @@ func LoadCode(ctx context.Context, service *resources.Service) (*coreservices.Co
 		return nil, wool.Get(ctx).NewError("agent cannot be nil")
 	}
 
-	conn := getConn(ServiceCacheKey(service))
+	conn, err := getConn(ServiceCacheKey(service), service.Agent)
+	if err != nil {
+		return nil, err
+	}
 
 	codeAgent := coreservices.NewCodeAgentClient(conn.GRPCConn())
-	codeAgent.Agent = service.Agent
+	selection := *service.Agent
+	codeAgent.Agent = &selection
 	codeAgent.ProcessInfo = conn.ProcessInfo()
 
 	return codeAgent, nil

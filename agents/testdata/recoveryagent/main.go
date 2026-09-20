@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/codefly-dev/core/agents"
 	"github.com/codefly-dev/core/agents/contract"
@@ -37,4 +38,16 @@ func (server) GetAgentInformation(context.Context, *agentv0.AgentInformationRequ
 	return information, nil
 }
 
-func main() { agents.Serve(agents.PluginRegistration{Agent: server{}}) }
+func main() {
+	if gate := os.Getenv("TEST_AGENT_START_GATE"); gate != "" {
+		for {
+			if _, err := os.Stat(gate); err == nil {
+				break
+			} else if !os.IsNotExist(err) {
+				panic(err)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	agents.Serve(agents.PluginRegistration{Agent: server{}})
+}

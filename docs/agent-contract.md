@@ -58,6 +58,10 @@ validation and build-cache support remain authoritative for those operations.
 
 Core's `services.LoadAgent` rejects undeclared or incompatible protocol versions
 before caching a connection, including for callers that bypass `services.Load`.
+Connection and instance caches retain the admitted selection. A request for a
+different agent or version under an occupied service key fails without stopping
+the active process; its owner must call `services.ClearAgent` before replacing
+it. Mutating the caller's resource does not relabel an already-running agent.
 Callers use `Instance.RequireAgentCapabilities`
 before dispatching operations that require optional features. Core does not
 choose a CLI run's requirements. The CLI adoption, including replacing its

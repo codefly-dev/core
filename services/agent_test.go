@@ -15,7 +15,7 @@ import (
 
 func resetConnectionCacheForTest() {
 	connCacheMu.Lock()
-	connCache = make(map[string]*manager.AgentConn)
+	connCache = make(map[string]*connLoad)
 	connLoads = make(map[string]*connLoad)
 	connGeneration = 0
 	connKeyGenerations = make(map[string]uint64)

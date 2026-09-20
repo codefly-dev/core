@@ -39,8 +39,9 @@ type Instance struct {
 
 	Identity *resources.ServiceIdentity
 
-	Agent *services.ServiceAgent
-	Info  *agentv0.AgentInformation
+	Agent          *services.ServiceAgent
+	Info           *agentv0.AgentInformation
+	agentSelection resources.Agent
 	// ContainerRecoveryScope is the agent's authenticated gRPC acknowledgement,
 	// not a claim inferred from the CLI's own Core version.
 	ContainerRecoveryScope string
@@ -383,6 +384,9 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	if service == nil {
 		return nil, wool.Get(ctx).In("services.Load").NewError("service cannot be nil")
 	}
+	if service.Agent == nil {
+		return nil, wool.Get(ctx).In("services.Load").NewError("agent cannot be nil")
+	}
 	w := wool.Get(ctx).In("services.Load", wool.NameField(service.Name))
 	identity, err := service.Identity()
 	if err != nil {
@@ -393,6 +397,12 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	cached, ok := instances[identity.Unique()]
 	instancesMu.Unlock()
 	if ok {
+		if _, err := manager.ResolveLatest(ctx, service.Agent); err != nil {
+			return nil, err
+		}
+		if err := checkAgentSelection(identity.Unique(), cached.agentSelection, *service.Agent); err != nil {
+			return nil, err
+		}
 		return cached, nil
 	}
 
@@ -405,11 +415,12 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	}
 
 	instance := &Instance{
-		Workspace: workspace,
-		Service:   service,
-		Module:    module,
-		Identity:  identity,
-		Agent:     agent,
+		Workspace:      workspace,
+		Service:        service,
+		Module:         module,
+		Identity:       identity,
+		Agent:          agent,
+		agentSelection: *agent.Agent,
 	}
 	instance.ProcessInfo.AgentPID = agent.ProcessInfo.PID
 
@@ -435,6 +446,9 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	instancesMu.Lock()
 	if existing, found := instances[instance.Identity.Unique()]; found {
 		instancesMu.Unlock()
+		if err := checkAgentSelection(identity.Unique(), existing.agentSelection, instance.agentSelection); err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	instances[instance.Identity.Unique()] = instance

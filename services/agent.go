@@ -24,7 +24,7 @@ import (
 // first connection then leaks, no Close).
 var (
 	connCacheMu    sync.Mutex
-	connCache      = make(map[string]*manager.AgentConn)
+	connCache      = make(map[string]*connLoad)
 	connLoads      = make(map[string]*connLoad)
 	connGeneration uint64
 	// connKeyGenerations lets one completed flow evict only the service agents
@@ -34,9 +34,17 @@ var (
 )
 
 type connLoad struct {
-	done chan struct{}
-	conn *manager.AgentConn
-	err  error
+	done      chan struct{}
+	conn      *manager.AgentConn
+	err       error
+	selection resources.Agent
+}
+
+func checkAgentSelection(cacheKey string, admitted, requested resources.Agent) error {
+	if admitted != requested {
+		return fmt.Errorf("agent selection changed for %q from %s to %s; clear this service's agent before loading its replacement", cacheKey, admitted.Unique(), requested.Unique())
+	}
+	return nil
 }
 
 func loadCompatibleAgent(ctx context.Context, agent *resources.Agent, options ...manager.LoadOption) (*manager.AgentConn, error) {
@@ -114,13 +122,14 @@ func LoadAgent(ctx context.Context, agent *resources.Agent, cacheKey string) (*c
 		wool.Field("source", source),
 	)
 
-	conn, err := getOrCreateConn(ctx, cacheKey, agent)
+	selection := *agent
+	conn, err := getOrCreateConn(ctx, cacheKey, &selection)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
 
 	sa := coreservices.NewServiceAgentClient(conn.GRPCConn())
-	sa.Agent = agent
+	sa.Agent = &selection
 	sa.ProcessInfo = conn.ProcessInfo()
 
 	return sa, nil
@@ -135,12 +144,18 @@ func LoadAgent(ctx context.Context, agent *resources.Agent, cacheKey string) (*c
 // after ClearAgents from repopulating the freshly-cleared cache.
 func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agent) (*manager.AgentConn, error) {
 	connCacheMu.Lock()
-	if conn, ok := connCache[cacheKey]; ok {
+	if load, ok := connCache[cacheKey]; ok {
 		connCacheMu.Unlock()
-		return conn, nil
+		if err := checkAgentSelection(cacheKey, load.selection, *agent); err != nil {
+			return nil, err
+		}
+		return load.conn, nil
 	}
 	if load, ok := connLoads[cacheKey]; ok {
 		connCacheMu.Unlock()
+		if err := checkAgentSelection(cacheKey, load.selection, *agent); err != nil {
+			return nil, err
+		}
 		select {
 		case <-load.done:
 			return load.conn, load.err
@@ -148,7 +163,7 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 			return nil, ctx.Err()
 		}
 	}
-	load := &connLoad{done: make(chan struct{})}
+	load := &connLoad{done: make(chan struct{}), selection: *agent}
 	generation := connGeneration
 	keyGeneration := connKeyGenerations[cacheKey]
 	connLoads[cacheKey] = load
@@ -181,7 +196,7 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 		err = fmt.Errorf("agent connection cache was cleared while %q was loading", cacheKey)
 	}
 	if err == nil {
-		connCache[cacheKey] = conn
+		connCache[cacheKey] = load
 	}
 	load.conn, load.err = conn, err
 	if err != nil {
@@ -198,14 +213,17 @@ func getOrCreateConn(ctx context.Context, cacheKey string, agent *resources.Agen
 
 // getConn returns the cached connection for a cache key (see ServiceCacheKey).
 // Panics if not loaded. Callers MUST pass the SAME key LoadAgent was called with.
-func getConn(cacheKey string) *manager.AgentConn {
+func getConn(cacheKey string, agent *resources.Agent) (*manager.AgentConn, error) {
 	connCacheMu.Lock()
 	defer connCacheMu.Unlock()
-	conn, ok := connCache[cacheKey]
+	load, ok := connCache[cacheKey]
 	if !ok {
 		panic(fmt.Sprintf("agent connection %q not loaded -- call LoadAgent first", cacheKey))
 	}
-	return conn
+	if err := checkAgentSelection(cacheKey, load.selection, *agent); err != nil {
+		return nil, err
+	}
+	return load.conn, nil
 }
 
 // ClearAgents shuts down all active agent processes gracefully.
@@ -231,7 +249,7 @@ func getConn(cacheKey string) *manager.AgentConn {
 func ClearAgents() {
 	connCacheMu.Lock()
 	old := connCache
-	connCache = make(map[string]*manager.AgentConn)
+	connCache = make(map[string]*connLoad)
 	connLoads = make(map[string]*connLoad)
 	connKeyGenerations = make(map[string]uint64)
 	connGeneration++
@@ -241,9 +259,9 @@ func ClearAgents() {
 	instances = map[string]*Instance{}
 	instancesMu.Unlock()
 
-	for _, conn := range old {
-		if conn != nil {
-			conn.Close()
+	for _, load := range old {
+		if load != nil {
+			load.conn.Close()
 		}
 	}
 }
@@ -257,7 +275,7 @@ func ClearAgent(cacheKey string) {
 		return
 	}
 	connCacheMu.Lock()
-	conn := connCache[cacheKey]
+	load := connCache[cacheKey]
 	delete(connCache, cacheKey)
 	connKeyGenerations[cacheKey]++
 	connCacheMu.Unlock()
@@ -266,7 +284,7 @@ func ClearAgent(cacheKey string) {
 	delete(instances, cacheKey)
 	instancesMu.Unlock()
 
-	if conn != nil {
-		conn.Close()
+	if load != nil {
+		load.conn.Close()
 	}
 }
