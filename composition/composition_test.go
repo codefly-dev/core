@@ -619,7 +619,6 @@ func TestNamespaceSeparatesAllRuntimeState(t *testing.T) {
 	require.NotEqual(t, stable.ProjectionDir, dev.ProjectionDir)
 	require.NotEqual(t, stable.CacheDir, dev.CacheDir)
 	require.NotEqual(t, stable.BuildDir, dev.BuildDir)
-	require.NotEqual(t, stable.NextJSDir, dev.NextJSDir)
 	require.NotEqual(t, stable.RuntimeConfigDir, dev.RuntimeConfigDir)
 	require.NotEqual(t, stable.ContainerSuffix, dev.ContainerSuffix)
 	require.NotEqual(t, stable.PortSeed, dev.PortSeed)
@@ -647,12 +646,48 @@ func TestRendererRunsPackageAndConsumerSuites(t *testing.T) {
 	require.Len(t, validations, 4)
 	require.Equal(t, namespace.CacheDir, environmentValue(runner.specs[0].Env, "CODEFLY_COMPOSITION_CACHE"))
 	require.Equal(t, namespace.BuildDir, environmentValue(runner.specs[0].Env, "CODEFLY_COMPOSITION_BUILD"))
-	require.Equal(t, namespace.NextJSDir, environmentValue(runner.specs[0].Env, "CODEFLY_COMPOSITION_NEXTJS"))
 	require.Equal(t, namespace.RuntimeConfigDir, environmentValue(runner.specs[0].Env, "CODEFLY_COMPOSITION_RUNTIME_CONFIG"))
 	require.Equal(t, namespace.ContainerSuffix, environmentValue(runner.specs[0].Env, "CODEFLY_COMPOSITION_CONTAINER_SUFFIX"))
 	require.NotEmpty(t, environmentValue(runner.specs[0].Env, "CODEFLY_COMPOSITION_PORT_SEED"))
-	require.DirExists(t, namespace.NextJSDir)
+	require.DirExists(t, namespace.BuildDir)
 	require.DirExists(t, namespace.RuntimeConfigDir)
+}
+
+func TestCompositionBuildRootsAreOwnedByTheirConsumers(t *testing.T) {
+	ctx := t.Context()
+	projectRoot := t.TempDir()
+	moduleDir := t.TempDir()
+	base := t.TempDir()
+	manifest := &PackageManifest{ID: "example/module", Version: "1.0.0", Generators: []PackageCommand{{
+		Name: "generate", Command: []string{"sh", "-ec", `
+mkdir -p "$CODEFLY_COMPOSITION_BUILD/compiler-one" "$CODEFLY_COMPOSITION_BUILD/compiler-two"
+printf '%s' "$CODEFLY_COMPOSITION_PROJECTION" > "$CODEFLY_COMPOSITION_BUILD/compiler-one/artifact"
+cp "$CODEFLY_COMPOSITION_INPUT" "$CODEFLY_COMPOSITION_BUILD/compiler-two/input.json"
+`},
+	}}}
+	var builds []string
+	for _, name := range []string{"stable", "dev"} {
+		namespace, err := ResolveNamespace(projectRoot, moduleDir, name, "", validLock())
+		require.NoError(t, err)
+		require.NoError(t, namespace.Prepare())
+		entries, err := os.ReadDir(namespace.BuildDir)
+		require.NoError(t, err)
+		require.Empty(t, entries, "Core must not choose agent-owned build subdirectories")
+		projection := filepath.Join(t.TempDir(), "projection")
+		_, _, err = (Renderer{}).Render(ctx, base, moduleDir, projection, namespace, &Descriptor{Name: "module"}, manifest, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, projection, readFile(t, filepath.Join(namespace.BuildDir, "compiler-one", "artifact")))
+		var input struct {
+			Namespace map[string]any `json:"namespace"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(readFile(t, filepath.Join(namespace.BuildDir, "compiler-two", "input.json"))), &input))
+		require.Equal(t, namespace.BuildDir, input.Namespace["buildDir"])
+		require.NotContains(t, input.Namespace, "nextJSDir")
+		builds = append(builds, namespace.BuildDir)
+	}
+	require.NotEqual(t, builds[0], builds[1])
+	writeFile(t, filepath.Join(builds[1], "compiler-one", "artifact"), "changed")
+	require.NotEqual(t, "changed", readFile(t, filepath.Join(builds[0], "compiler-one", "artifact")))
 }
 
 func TestSemanticReportUsesExplicitDependenciesAndMigrationMetadata(t *testing.T) {

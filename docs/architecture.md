@@ -271,6 +271,12 @@ contribution or an external capability. See [dependency-kinds.md](dependency-kin
 
 ### The module list is a pin set, not a graph
 
+Composition namespaces expose generic cache, build and runtime roots. Generators
+receive the build root as `CODEFLY_COMPOSITION_BUILD` and `namespace.buildDir` in
+the composition input. Each agent or generator owns its subdirectories; Core
+does not choose framework build paths or create framework-specific directories.
+The namespace, module and locked composition identity isolate these roots.
+
 `workspace.codefly.yaml`'s `modules:` answers where a module named X comes from —
 source, version, checkout location. It does not say which modules take part in a
 given run: that is derived by `Workspace.ResolveModuleClosure`, which starts from

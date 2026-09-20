@@ -103,7 +103,6 @@ func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection
 		"CODEFLY_COMPOSITION_PROJECTION=" + projection,
 		"CODEFLY_COMPOSITION_CACHE=" + namespace.CacheDir,
 		"CODEFLY_COMPOSITION_BUILD=" + namespace.BuildDir,
-		"CODEFLY_COMPOSITION_NEXTJS=" + namespace.NextJSDir,
 		"CODEFLY_COMPOSITION_RUNTIME_CONFIG=" + namespace.RuntimeConfigDir,
 		"CODEFLY_COMPOSITION_CONTAINER_SUFFIX=" + namespace.ContainerSuffix,
 		"CODEFLY_COMPOSITION_PORT_SEED=" + strconv.FormatUint(uint64(namespace.PortSeed), 10),
