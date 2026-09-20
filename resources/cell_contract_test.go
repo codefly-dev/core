@@ -3,11 +3,16 @@ package resources
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
+
+// digestPinned matches an image reference pinned by digest, as a promotable
+// manifest requires.
+var digestPinned = regexp.MustCompile(`@sha256:[a-fA-F0-9]{64}$`)
 
 // loadCellFixture reads a real producer descriptor from testdata. The fixtures
 // are what `obinctl cell-contract <coordinate>` emits (infra-base is one
@@ -193,11 +198,18 @@ func TestParseAndMapManagedIdentityCell(t *testing.T) {
 	if ms.Transport == nil || ms.Transport.Mode != TransportModeProxy || ms.Transport.LocalPort != 5432 {
 		t.Fatalf("transport = %+v", ms.Transport)
 	}
-	if ms.Transport.Image != "us-central1-docker.pkg.dev/obinh-usc1/images/db-proxy:1.33.9" {
+	if ms.Transport.Image != "us-central1-docker.pkg.dev/obinh-usc1/images/db-proxy@sha256:a8e9fa7c7344e1e4907354c9c59b08f758b881a26e5e17c51f179f2505f530f0" {
 		t.Errorf("transport image = %q", ms.Transport.Image)
 	}
 	if len(ms.Transport.Args) != 3 {
 		t.Errorf("transport args = %v", ms.Transport.Args)
+	}
+	// A transport image renders into a promotable workload, where every image
+	// must be pinned by digest. The contract does not enforce that — it is a
+	// renderer constraint, not a contract one — but this fixture reads as a
+	// worked example, and one carrying a tag would be refused at render.
+	if !digestPinned.MatchString(ms.Transport.Image) {
+		t.Errorf("transport image %q is not pinned by sha256 digest", ms.Transport.Image)
 	}
 	if ms.Identity == nil || ms.Identity.Principal != "platform-db@obinh-usc1.iam.gserviceaccount.com" {
 		t.Fatalf("identity = %+v", ms.Identity)
