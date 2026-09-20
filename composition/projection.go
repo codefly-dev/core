@@ -55,6 +55,9 @@ type CompositionInput struct {
 }
 
 func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection string, namespace *Namespace, descriptor *Descriptor, manifest *PackageManifest, contracts map[string]string, inputs []CatalogInput) (*Catalog, []ValidationResult, error) {
+	if err := checkProjectionSelections(descriptor, manifest); err != nil {
+		return nil, nil, err
+	}
 	if renderer.Runner == nil {
 		renderer.Runner = ExecCommandRunner{}
 	}

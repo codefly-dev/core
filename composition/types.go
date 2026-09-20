@@ -64,12 +64,14 @@ var (
 )
 
 type Descriptor struct {
-	Kind          string        `yaml:"kind" json:"kind"`
-	Name          string        `yaml:"name" json:"name"`
-	Base          Base          `yaml:"base" json:"base"`
-	Services      Services      `yaml:"services,omitempty" json:"services,omitempty"`
-	Contributions Contributions `yaml:"contributions,omitempty" json:"contributions,omitempty"`
-	Bindings      []Binding     `yaml:"bindings,omitempty" json:"bindings,omitempty"`
+	Kind          string          `yaml:"kind" json:"kind"`
+	Name          string          `yaml:"name" json:"name"`
+	Base          Base            `yaml:"base" json:"base"`
+	Services      Services        `yaml:"services,omitempty" json:"services,omitempty"`
+	Contributions Contributions   `yaml:"contributions,omitempty" json:"contributions,omitempty"`
+	Bindings      []Binding       `yaml:"bindings,omitempty" json:"bindings,omitempty"`
+	Modules       ModuleInstances `yaml:"modules,omitempty" json:"modules,omitempty"`
+	Replacements  []Replacement   `yaml:"replacements,omitempty" json:"replacements,omitempty"`
 }
 
 type Base struct {
@@ -136,6 +138,10 @@ type PackageManifest struct {
 	BreakingChanges       []string           `yaml:"breaking-changes,omitempty" json:"breakingChanges,omitempty"`
 	ReservedNamespaces    []string           `yaml:"reserved-namespaces,omitempty" json:"reservedNamespaces,omitempty"`
 	Claims                []Claim            `yaml:"claims,omitempty" json:"claims,omitempty"`
+	Modules               []ProvidedModule   `yaml:"modules,omitempty" json:"modules,omitempty"`
+	Provides              map[string]string  `yaml:"provides,omitempty" json:"provides,omitempty"`
+	ReleaseArtifacts      []ReleaseArtifact  `yaml:"release-artifacts,omitempty" json:"releaseArtifacts,omitempty"`
+	AllowDerivedBuilds    bool               `yaml:"allow-derived-builds,omitempty" json:"allowDerivedBuilds,omitempty"`
 }
 
 type EntryPoint struct {
@@ -149,7 +155,10 @@ type ProvidedService struct {
 	// APIContracts lists the machine-readable contract of each exposed endpoint,
 	// as files inside an artifact root of the package. A consumer generates a
 	// client from these without checking out the producing repository.
-	APIContracts []ProvidedAPIContract `yaml:"api-contracts,omitempty" json:"apiContracts,omitempty"`
+	APIContracts     []ProvidedAPIContract `yaml:"api-contracts,omitempty" json:"apiContracts,omitempty"`
+	Agent            *ComponentDefault     `yaml:"agent,omitempty" json:"agent,omitempty"`
+	AgentUsage       string                `yaml:"agent-usage,omitempty" json:"agentUsage,omitempty"`
+	RuntimeArtifacts []string              `yaml:"runtime-artifacts,omitempty" json:"runtimeArtifacts,omitempty"`
 }
 
 // ProvidedAPIContract is one endpoint's contract inside the package.
@@ -235,6 +244,7 @@ type Provenance struct {
 	ArtifactMediaType string `json:"artifactMediaType"`
 	ArtifactDigest    string `json:"artifactDigest"`
 	SignatureIdentity string `json:"signatureIdentity"`
+	ManifestDigest    string `json:"manifestDigest,omitempty"`
 }
 
 type Release struct {

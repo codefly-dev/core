@@ -93,6 +93,9 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	if err != nil {
 		return nil, err
 	}
+	if err := checkProjectionSelections(descriptor, nil); err != nil {
+		return nil, err
+	}
 	inputs, err := LoadContributionInputs(moduleDir, descriptor)
 	if err != nil {
 		return nil, err
@@ -121,6 +124,9 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	}
 	verified, err := VerifyRelease(release, descriptor.Base.ID, targetVersion, engine.Trust)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkProjectionSelections(descriptor, verified.manifest); err != nil {
 		return nil, err
 	}
 	if err := rejectMovedTag(current, verified); err != nil {
@@ -235,6 +241,9 @@ func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options
 	if err != nil {
 		return nil, err
 	}
+	if err := checkProjectionSelections(descriptor, nil); err != nil {
+		return nil, err
+	}
 	inputs, err := LoadContributionInputs(moduleDir, descriptor)
 	if err != nil {
 		return nil, err
@@ -326,6 +335,9 @@ func (engine *Engine) Source(ctx context.Context, moduleDir string, options Mate
 	if err != nil {
 		return "", err
 	}
+	if err := checkProjectionSelections(descriptor, nil); err != nil {
+		return "", err
+	}
 	if _, err := LoadContributionInputs(moduleDir, descriptor); err != nil {
 		return "", err
 	}
@@ -384,6 +396,9 @@ func (engine *Engine) Rollback(ctx context.Context, moduleDir string, priorLock 
 	}
 	descriptor, err := LoadDescriptor(moduleDir)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkProjectionSelections(descriptor, nil); err != nil {
 		return nil, err
 	}
 	if lock.Module != descriptor.Name || lock.Package != descriptor.Base.ID {

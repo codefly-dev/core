@@ -157,19 +157,20 @@ This is a reconciliation, not a completion claim for Core #584. The expanded
 product-selection requirements remain in the existing Core PR #589 and CLI
 PR #752; no additional tracker or release is implied.
 
-1. **Defaults, requirements and selections:** `Descriptor`, `PackageManifest`
-   and `Lock` already separate a base constraint from an immutable selected
-   module release. Nested instance-scoped module/service/agent replacements,
-   resolved-versus-approved-versus-running selections, conflict checks and the
-   Team A/Team B acceptance scenario are still missing in Core. No intermediate
-   release or upstream manifest mutation has been introduced as a substitute.
-2. **Declarations-only acquisition:** `GitHubResolver` downloads release assets
-   and `BuildPackageContractSnapshot` reads packaged contracts. Core does not
-   yet compute the full participation/acquisition plan from nested declarations.
-   Existing `resources.ModuleResolution.Unverified` and the CLI's explicit Git
-   overlay path still exist. CLI must remove implicit dependency-source fallback
-   and prove no unused or recursive implementation checkout with recorded
-   acquisition requests; the current tests do not establish that behavior.
+1. **Defaults, requirements and selections:** `Engine.ResolveComposition` extends
+   `Descriptor`/`PackageManifest` with exact nested module and service-agent
+   replacements. Signed defaults, additional requirements, selected components,
+   output admission and deployment approvals remain distinct. The Team A/Team B
+   signed-HTTP fixture proves separate identities for independent replacements
+   inside the same upstream release and unchanged sibling/default selections.
+2. **Declarations-only acquisition:** `GitHubResolver.ResolveMetadata` downloads
+   only independently authenticated manifest/provenance/signature assets.
+   `ResolveComposition` computes participating instances, runtime/tooling assets
+   and explicit source builds. Recorded HTTP tests reject unused dependencies
+   and implementation archive acquisition. Missing metadata/artifacts are errors.
+   CLI still must route nested compositions to this API and remove implicit
+   dependency-source fallback in its orchestration; the old single-package
+   projection path now rejects nested selections rather than ignoring them.
 3. **Independent local checkouts:** `SetDevelopOverride`, `ClearDevelopOverride`
    and `Engine.Materialize` preserve the release lock while identifying local
    content. `TestIndependentLocalCheckoutsBindDirtyContentAndRestoreWithoutDeletingFiles`
@@ -181,20 +182,25 @@ PR #752; no additional tracker or release is implied.
    administrative pointer. Every other local source path remains in the digest.
    `TestLocalMaterializationRejectsSourceMutationDuringGeneration` runs a real
    generator and refuses publication after it changes the source. These are
-   module-instance tests, not nested product selection qualification.
+   supplemented by nested local-content/build-plan/restoration tests in
+   `resolution_test.go`, including rejection by deployment admission.
 4. **Deployment authority:** `VerifyRelease` now requires the selected package's
    authorized signer. Real signed fixtures reject tampering, another component's
-   signer and missing authority. A shared deployment gate covering private local
-   patches, self-published runtime images and unchanged-source derived builds is
-   still missing. A clean tree, digest or signature is not treated as that gate.
+   signer and missing authority. `CheckDeploymentInputs` verifies actual output
+   bytes and current component authorities; `AdmitDeployment` additionally
+   checks signed qualification for exact inputs and target bindings. Signed
+   owner-authorized derived-build fixtures reject private source, changed
+   selections, unauthorized builders and tampered output. CLI must integrate
+   these gates and owners must authorize their actual release/build workflows.
 5. **Effective identity:** service connection, in-flight and instance caches
    check the executable digest, not just agent name/version.
    `TestCachedAgentBindsExecutableContent` covers replaced bytes, startup races,
    preservation of the running process and explicit replacement. Projection
-   identities already include package and contribution content. The combined
-   product identity/difference record, protected configuration identities,
-   separate deployment bindings, derived outputs and approval/receipt binding
-   are still missing; connection tests do not qualify those caches.
+   identities already include package and contribution content. Resolution now
+   produces a combined product identity/difference record with protected HMAC
+   configuration identity. Deployment records bind actual/derived outputs and
+   separate targets to approval evidence. Downstream build caches and observed
+   running/rollback records still need to consume these identities.
 6. **Compatibility:** `TestEngineUpdateUsesAuthenticatedConsumerBaseline` proves
    real signed baseline/candidate evaluation for skipped releases, a compatible
    optional REST capability, a removed used route, changed authorization
@@ -207,9 +213,14 @@ PR #752; no additional tracker or release is implied.
    structural rules, explicit uncertainty and 0.x/prerelease stages. CLI and
    release CI do not yet consume it. Semantic qualification of changed contract
    contents remains unsupported and visibly undetermined.
-8. **Upstream adoption:** export of replacement rationale/qualification facts
-   and full re-resolution before removing caught-up overrides are not yet
-   implemented. No override-removal or GitHub-request automation is claimed.
+8. **Upstream adoption:** `UpstreamAdoptions` exports owner/default/replacement
+   facts and optional matching approval identity. `ProposeOverrideRemoval`
+   re-resolves the full candidate with/without the replacement; signed fixtures
+   reject changed requirements and moved targets. It proposes, never mutates
+   declarations or opens requests. New selections require new qualification.
+
+See [composition selections](composition-selections.md) for API contracts,
+signed metadata publication, derived-build authority and CLI integration duties.
 
 CLI migration specifically includes `pkg/composition/pinned.go`'s trust loader
 (flat signing keys must become package-bound), supplying actual consumer pins
