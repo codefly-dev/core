@@ -202,6 +202,12 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	if _, err = shared.CheckDirectoryOrCreate(ctx, spec.destination); err != nil {
 		return w.Wrapf(err, "cannot create destination")
 	}
+	if spec.language == languages.RUST {
+		return generateRustOutput(ctx, spec.destination, func(output string) error {
+			name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
+			return runBuf(ctx, name, image, tmpDir, output, depUpdate, generateArgs, before)
+		})
+	}
 
 	if includeImports {
 		// The run writes a tree for every namespace the sources import, which is

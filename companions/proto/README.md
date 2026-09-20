@@ -96,3 +96,11 @@ go test ./companions/proto -tags=proto_companion_required -run TestRustClientRet
 This requires the built proto companion and Cargo. The updated plugins ship in
 companion version 0.0.16; bumping the manifest alone does not publish that image.
 Use the [companion publication procedure](../../docs/runbooks/publish-companions.md).
+
+Rust generation stages output before publishing it. `.codefly-rust-output.json`
+records the generated files and their hashes; only unchanged, tracked files may
+be replaced or removed. Unrelated files are preserved. A collision with an
+untracked file or an edited binding is an error, including when adopting output
+created before ownership tracking. Generate into an empty output directory in
+that case; do not discard local edits. Failed generation leaves existing output
+untouched, and publication errors roll back changed files.

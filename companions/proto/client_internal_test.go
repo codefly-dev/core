@@ -2,12 +2,153 @@ package proto
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/codefly-dev/core/languages"
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/require"
 )
+
+func writeRustOutput(t *testing.T, dir, name, content string) {
+	t.Helper()
+	file := filepath.Join(dir, name)
+	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o750))
+	require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
+}
+
+func TestCanceledRustGenerationPreservesDestination(t *testing.T) {
+	dest := t.TempDir()
+	for _, name := range []string{"api/api.rs", "src/user.rs", "google/rpc/google.rpc.rs"} {
+		writeRustOutput(t, dest, name, "existing content")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err := GenerateClient(ctx, ClientRequest{Language: languages.RUST, Destination: dest,
+		Sources: []Source{{Path: "api.proto", Content: []byte(`syntax = "proto3"; package api; message Response { string value = 1; }`)}}})
+	require.Error(t, err)
+	for _, name := range []string{"api/api.rs", "src/user.rs", "google/rpc/google.rpc.rs"} {
+		data, err := os.ReadFile(filepath.Join(dest, name))
+		require.NoError(t, err)
+		require.Equal(t, "existing content", string(data))
+	}
+}
+
+func TestRustPublicationOwnsFilesNotDirectories(t *testing.T) {
+	dest := t.TempDir()
+	writeRustOutput(t, dest, "src/user.rs", "user content")
+	first := t.TempDir()
+	writeRustOutput(t, first, "api/api.rs", "old generated")
+	writeRustOutput(t, first, "google/rpc/google.rpc.rs", "old import")
+	require.NoError(t, publishRustOutput(dest, first))
+	writeRustOutput(t, dest, "google/rpc/user.rs", "user content")
+	second := t.TempDir()
+	writeRustOutput(t, second, "api/api.rs", "new generated")
+	require.NoError(t, publishRustOutput(dest, second))
+	require.NoFileExists(t, filepath.Join(dest, "google/rpc/google.rpc.rs"))
+	for _, name := range []string{"src/user.rs", "google/rpc/user.rs"} {
+		data, err := os.ReadFile(filepath.Join(dest, name))
+		require.NoError(t, err)
+		require.Equal(t, "user content", string(data))
+	}
+	data, err := os.ReadFile(filepath.Join(dest, "api/api.rs"))
+	require.NoError(t, err)
+	require.Equal(t, "new generated", string(data))
+}
+
+func TestRustPublicationRejectsEditsAndUnownedCollisions(t *testing.T) {
+	for _, owned := range []bool{false, true} {
+		t.Run(fmt.Sprint(owned), func(t *testing.T) {
+			dest := t.TempDir()
+			if owned {
+				first := t.TempDir()
+				writeRustOutput(t, first, "api/api.rs", "generated")
+				require.NoError(t, publishRustOutput(dest, first))
+			}
+			writeRustOutput(t, dest, "api/api.rs", "user edit")
+			stage := t.TempDir()
+			writeRustOutput(t, stage, "api/api.rs", "replacement")
+			writeRustOutput(t, stage, "aaa/new.rs", "new output")
+			require.ErrorContains(t, publishRustOutput(dest, stage), "unowned or edited")
+			data, err := os.ReadFile(filepath.Join(dest, "api/api.rs"))
+			require.NoError(t, err)
+			require.Equal(t, "user edit", string(data))
+			require.NoFileExists(t, filepath.Join(dest, "aaa/new.rs"))
+		})
+	}
+}
+
+func TestRustPublicationDoesNotPruneEditedImports(t *testing.T) {
+	dest, first := t.TempDir(), t.TempDir()
+	writeRustOutput(t, first, "google/rpc/google.rpc.rs", "generated import")
+	require.NoError(t, publishRustOutput(dest, first))
+	writeRustOutput(t, dest, "google/rpc/google.rpc.rs", "edited import")
+	require.ErrorContains(t, publishRustOutput(dest, t.TempDir()), "unowned or edited")
+	data, err := os.ReadFile(filepath.Join(dest, "google/rpc/google.rpc.rs"))
+	require.NoError(t, err)
+	require.Equal(t, "edited import", string(data))
+}
+
+func TestRustPublicationRollsBackPartialFailure(t *testing.T) {
+	dest := t.TempDir()
+	first := t.TempDir()
+	writeRustOutput(t, first, "aaa/old.rs", "old output")
+	require.NoError(t, publishRustOutput(dest, first))
+	manifest, err := os.ReadFile(filepath.Join(dest, rustOutputManifest))
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink("missing-target", filepath.Join(dest, "zzz")))
+	stage := t.TempDir()
+	writeRustOutput(t, stage, "aaa/old.rs", "replacement")
+	writeRustOutput(t, stage, "zzz/new.rs", "cannot publish")
+	require.Error(t, publishRustOutput(dest, stage))
+	data, err := os.ReadFile(filepath.Join(dest, "aaa/old.rs"))
+	require.NoError(t, err)
+	require.Equal(t, "old output", string(data))
+	data, err = os.ReadFile(filepath.Join(dest, rustOutputManifest))
+	require.NoError(t, err)
+	require.Equal(t, manifest, data)
+	require.NoFileExists(t, filepath.Join(dest, "zzz/new.rs"))
+}
+
+func TestRustPublicationRejectsEscapingSymlink(t *testing.T) {
+	dest, stage, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(dest, "api")))
+	writeRustOutput(t, stage, "api/api.rs", "generated")
+	require.Error(t, publishRustOutput(dest, stage))
+	require.NoFileExists(t, filepath.Join(outside, "api.rs"))
+}
+
+func TestRustGenerationHonorsDestinationLockThroughSymlink(t *testing.T) {
+	dest, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	writeRustOutput(t, dest, "api/api.rs", "existing output")
+	alias := filepath.Join(t.TempDir(), "alias")
+	require.NoError(t, os.Symlink(dest, alias))
+	lock := flock.New(dest + ".rust.lock")
+	require.NoError(t, lock.Lock())
+	t.Cleanup(func() { require.NoError(t, lock.Close()) })
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	err = GenerateClient(ctx, ClientRequest{Language: languages.RUST, Destination: alias,
+		Sources: []Source{{Path: "api.proto", Content: []byte(`syntax = "proto3"; package api; message Response {}`)}}})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	data, err := os.ReadFile(filepath.Join(dest, "api/api.rs"))
+	require.NoError(t, err)
+	require.Equal(t, "existing output", string(data))
+}
+
+func TestRustPublicationRejectsInvalidOwnership(t *testing.T) {
+	for _, body := range []string{`{`, `{"../outside":"hash"}`, `{"/outside":"hash"}`, `{".codefly-rust-output.json":"hash"}`} {
+		dest, stage := t.TempDir(), t.TempDir()
+		writeRustOutput(t, dest, rustOutputManifest, body)
+		writeRustOutput(t, stage, "api/api.rs", "generated")
+		require.Error(t, publishRustOutput(dest, stage))
+		require.NoFileExists(t, filepath.Join(dest, "api/api.rs"))
+	}
+}
 
 // TestRemoveUnownedOutput pins what a TypeScript run is allowed to keep in its
 // destination. Asking buf for the imports means the run writes a tree per

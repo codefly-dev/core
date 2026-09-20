@@ -106,6 +106,19 @@ import "google/rpc/status.proto";`, 1)
 			require.Contains(t, string(bindings), "pub violations:")
 			require.Contains(t, string(bindings), "::prost_types::Timestamp")
 			require.NoDirExists(t, filepath.Join(dest, "google/protobuf"))
+			unrelated := filepath.Join(dest, "src", "user.rs")
+			require.NoError(t, os.MkdirAll(filepath.Dir(unrelated), 0o750))
+			require.NoError(t, os.WriteFile(unrelated, []byte("user source"), 0o600))
+			broken := proto.ClientRequest{Language: languages.RUST, Destination: dest,
+				Sources: []proto.Source{{Path: "api.proto", Content: []byte("invalid proto")}}}
+			require.Error(t, proto.GenerateClient(ctx, broken))
+			unchanged, err := os.ReadFile(filepath.Join(dest, "saas/rest/v1/saas.rest.v1.rs"))
+			require.NoError(t, err)
+			require.Equal(t, bindings, unchanged)
+			require.NoError(t, proto.GenerateClient(ctx, request))
+			unchanged, err = os.ReadFile(unrelated)
+			require.NoError(t, err)
+			require.Equal(t, "user source", string(unchanged))
 			require.NoError(t, os.WriteFile(filepath.Join(dest, "Cargo.toml"), []byte(`[package]
 name = "generated-imports-test"
 version = "0.0.0"
