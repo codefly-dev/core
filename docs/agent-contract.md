@@ -6,6 +6,38 @@ the agent release, and the `v0` protobuf package namespace. Implementations can
 compile the schema under `proto/codefly/services/agent/v0` in any language;
 sharing Core's Go implementation is not a compatibility requirement.
 
+## No static agent compatibility knowledge
+
+Core and the CLI know their own supported protocols, not which named agent
+releases are compatible. Compatibility is a runtime verdict on the actual
+process's authenticated advertisement. There must be no agent-name exception,
+minimum agent-release table, linked-Core comparison, or compiled fleet roster
+in that decision. A binary built independently, in another language, or against
+an older Core is accepted when it implements the required protocol. A newer
+binary with an unsupported or missing declaration is rejected before work.
+
+Artifact selection and compatibility are different. A user may select an
+immutable artifact for reproducibility; that selection is never proof of
+compatibility and is never rewritten merely because the host upgraded. Do not
+replace a rejected selection with another release behind the user's back.
+Automatic selection must use agent-owned declarations, not a host-maintained
+list of named agents and approved versions. Ambiguity requires an explicit
+selection, not a guessed default.
+
+Changing Core or the CLI without changing the wire contract must not require
+rebuilding, republishing, or repinning agents. Do not bump the protocol just
+because a library release was cut. Real incompatible protocol changes require
+explicit adoption, checked at runtime; optional capabilities are required only
+by operations that use them. Generic runtime checks remain mandatory even for
+artifacts that passed release qualification.
+
+Review every compatibility change with an unknown agent identity, independently
+versioned builds, missing and unsupported protocol declarations, absent required
+capabilities, and unknown extra capabilities. Tests must show that identity and
+release metadata cannot change the verdict. Framework build paths, native
+product cleanup and source-to-agent mappings belong to their owning plugins,
+not to compatibility enforcement in Core or the CLI.
+
 `startup_protocol_version` names the stdout handshake used to discover the gRPC
 endpoint. It must match the host before lifecycle compatibility can be checked.
 The manifest records both versions; the startup parser and contract checker

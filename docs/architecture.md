@@ -167,6 +167,15 @@ service-dependencies:
 The [CLI-agent contract](agent-contract.md) versions protocol compatibility and
 required capabilities independently of the Core library release.
 
+Core and the CLI must not carry concrete-agent compatibility tables or infer
+compatibility from release pins. They check the running process's advertised
+protocol and operation requirements over the generic boundary before work.
+An unchanged protocol requires no fleet rebuild or repinning when Core or the
+CLI releases. Agent names and artifact versions are opaque selection metadata,
+not compatibility policy. Agent-specific selection, configuration, framework
+paths and cleanup stay with the owning plugin; see the ownership and review
+rules in [the compatibility contract](agent-contract.md#no-static-agent-compatibility-knowledge).
+
 An agent is a **plugin binary** that implements the development API for a specific service type. When the CLI needs to start a Go gRPC service, it spawns the `go-grpc` agent process, connects over gRPC, and calls `Runtime.Load() → Init() → Start()`.
 
 ```

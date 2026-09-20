@@ -481,7 +481,7 @@ message GetSourceManifestRequest {
 message DiscoverCodeUnitsRequest {}
 
 // CodeUnitInfo describes one source boundary and the evidence that established
-// it. Unsupported ecosystems remain present and bind to the generic runtime.
+// it. Source evidence does not select an agent or establish compatibility.
 message CodeUnitInfo {
   // path is relative to the Code service root; "." identifies the root itself.
   string path = 1;
@@ -494,13 +494,14 @@ message CodeUnitInfo {
   repeated string languages = 4;
   // manifest_paths are root-relative declaration files supporting the result.
   repeated string manifest_paths = 5;
-  // runtime_agent is the unversioned Codefly service-agent family. Unknown or
-  // mixed ecosystems bind to "generic"; the host owns immutable version pins.
+  // runtime_agent is an optional explicit agent selection supplied by a plugin.
+  // Structural discovery leaves it empty; hosts must not infer an agent or its
+  // compatibility from a language or manifest. Inspect the selected agent at runtime.
   string runtime_agent = 6;
 }
 
 // DiscoverCodeUnitsResponse returns a deterministic, complete structural
-// inventory. A markerless source tree is represented by one generic root unit.
+// inventory. A markerless source tree is represented by one unknown root unit.
 message DiscoverCodeUnitsResponse {
   // code_units is the complete structural inventory. A markerless tree yields
   // exactly one generic root unit rather than an empty list.

@@ -17,9 +17,14 @@ import (
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
+const (
+	codeUnitPython     = "python"
+	codeUnitTypeScript = "typescript"
+	codeUnitDotNet     = "dotnet"
+)
+
 type codeUnitDeclaration struct {
 	language       string
-	runtimeAgent   string
 	priority       int
 	aggregatesTree bool
 	requiresSource bool
@@ -48,33 +53,32 @@ type codeUnitAccumulator struct {
 	primaryPriority int
 	languages       map[string]struct{}
 	manifests       map[string]struct{}
-	runtimeAgents   map[string]struct{}
 }
 
 // codeUnitDeclarations is the single structural ecosystem registry for
-// Codefly. Entries identify source boundaries and runtime families only; they
+// Codefly. Entries identify source boundaries and languages only; they
 // never encode native commands. Order is the deterministic primary-language
 // precedence for a genuinely co-located polyglot boundary.
 var codeUnitDeclarations = []codeUnitDeclaration{
-	{language: "go", runtimeAgent: "go", priority: 10, match: exactManifest("go.mod")},
-	{language: "python", runtimeAgent: "python", priority: 20, match: exactManifest("pyproject.toml", "setup.py", "setup.cfg")},
+	{language: "go", priority: 10, match: exactManifest("go.mod")},
+	{language: codeUnitPython, priority: 20, match: exactManifest("pyproject.toml", "setup.py", "setup.cfg")},
 	// Dependency inventories are valid roots and useful evidence beside a
 	// strong Python declaration, but a nested requirements file alone is often
 	// a fixture or input to the enclosing project. Require source in that
 	// subtree before promoting it to an independently executable code unit.
-	{language: "python", runtimeAgent: "python", priority: 20, requiresSource: true, match: exactManifest("uv.lock", "requirements.in", "requirements.txt")},
-	{language: "typescript", runtimeAgent: "nextjs", priority: 30, match: exactManifest("package.json")},
-	{language: "rust", runtimeAgent: "rust", priority: 40, match: exactManifest("Cargo.toml")},
-	{language: "swift", runtimeAgent: "swift", priority: 50, match: exactManifest("Package.swift")},
-	{language: "jvm", runtimeAgent: "generic", priority: 60, match: exactManifest("pom.xml", "build.gradle", "build.gradle.kts")},
-	{language: "dotnet", runtimeAgent: "generic", priority: 70, aggregatesTree: true, match: manifestSuffix(".sln")},
-	{language: "dotnet", runtimeAgent: "generic", priority: 71, match: manifestSuffix(".csproj", ".fsproj", ".vbproj")},
-	{language: "ruby", runtimeAgent: "generic", priority: 80, match: exactManifest("Gemfile")},
-	{language: "php", runtimeAgent: "generic", priority: 90, match: exactManifest("composer.json")},
-	{language: "elixir", runtimeAgent: "generic", priority: 100, match: exactManifest("mix.exs")},
-	{language: "cpp", runtimeAgent: "generic", priority: 110, match: exactManifest("CMakeLists.txt")},
-	{language: "zig", runtimeAgent: "generic", priority: 120, match: exactManifest("build.zig", "build.zig.zon")},
-	{language: "haskell", runtimeAgent: "generic", priority: 130, match: manifestSuffix(".cabal")},
+	{language: codeUnitPython, priority: 20, requiresSource: true, match: exactManifest("uv.lock", "requirements.in", "requirements.txt")},
+	{language: codeUnitTypeScript, priority: 30, match: exactManifest("package.json")},
+	{language: "rust", priority: 40, match: exactManifest("Cargo.toml")},
+	{language: "swift", priority: 50, match: exactManifest("Package.swift")},
+	{language: "jvm", priority: 60, match: exactManifest("pom.xml", "build.gradle", "build.gradle.kts")},
+	{language: codeUnitDotNet, priority: 70, aggregatesTree: true, match: manifestSuffix(".sln")},
+	{language: codeUnitDotNet, priority: 71, match: manifestSuffix(".csproj", ".fsproj", ".vbproj")},
+	{language: "ruby", priority: 80, match: exactManifest("Gemfile")},
+	{language: "php", priority: 90, match: exactManifest("composer.json")},
+	{language: "elixir", priority: 100, match: exactManifest("mix.exs")},
+	{language: "cpp", priority: 110, match: exactManifest("CMakeLists.txt")},
+	{language: "zig", priority: 120, match: exactManifest("build.zig", "build.zig.zon")},
+	{language: "haskell", priority: 130, match: manifestSuffix(".cabal")},
 }
 
 func exactManifest(names ...string) func(string) bool {
@@ -185,7 +189,7 @@ func (s *DefaultCodeServer) scanCodeUnitDeclarations(ctx context.Context) ([]dis
 func retainSourceBackedDeclarations(declarations []discoveredDeclaration, pythonSourceDirectories []string) []discoveredDeclaration {
 	strongPythonDirectories := make(map[string]struct{})
 	for _, declaration := range declarations {
-		if declaration.language == "python" && !declaration.requiresSource {
+		if declaration.language == codeUnitPython && !declaration.requiresSource {
 			strongPythonDirectories[declaration.directory] = struct{}{}
 		}
 	}
@@ -255,7 +259,7 @@ func resolveNodeDeclarationLanguages(declarations []discoveredDeclaration, sourc
 		}
 		observed := evidence[owner]
 		switch source.language {
-		case "typescript":
+		case codeUnitTypeScript:
 			observed.typescript = true
 		case "javascript":
 			observed.javascript = true
@@ -265,7 +269,7 @@ func resolveNodeDeclarationLanguages(declarations []discoveredDeclaration, sourc
 	for i, observed := range evidence {
 		switch {
 		case observed.typescript:
-			declarations[i].language = "typescript"
+			declarations[i].language = codeUnitTypeScript
 		case observed.javascript:
 			declarations[i].language = "javascript"
 		}
@@ -279,7 +283,7 @@ func isNodePackageDeclaration(declaration discoveredDeclaration) bool {
 func nodeSourceLanguage(name string) string {
 	switch strings.ToLower(filepath.Ext(name)) {
 	case ".ts", ".tsx", ".mts", ".cts":
-		return "typescript"
+		return codeUnitTypeScript
 	case ".js", ".jsx", ".mjs", ".cjs":
 		return "javascript"
 	default:
@@ -319,7 +323,7 @@ func assembleCodeUnits(sourceDir string, declarations []discoveredDeclaration) [
 	if len(declarations) == 0 {
 		return []*codev0.CodeUnitInfo{{
 			Path: ".", Name: filepath.Base(filepath.Clean(sourceDir)),
-			PrimaryLanguage: "unknown", Languages: []string{"unknown"}, RuntimeAgent: "generic",
+			PrimaryLanguage: "unknown", Languages: []string{"unknown"},
 		}}
 	}
 	sort.Slice(declarations, func(i, j int) bool {
@@ -345,13 +349,12 @@ func assembleCodeUnits(sourceDir string, declarations []discoveredDeclaration) [
 		if group == nil {
 			group = &codeUnitAccumulator{
 				path: unitPath, primaryPriority: int(^uint(0) >> 1),
-				languages: make(map[string]struct{}), manifests: make(map[string]struct{}), runtimeAgents: make(map[string]struct{}),
+				languages: make(map[string]struct{}), manifests: make(map[string]struct{}),
 			}
 			groups[unitPath] = group
 		}
 		group.languages[declaration.language] = struct{}{}
 		group.manifests[declaration.manifest] = struct{}{}
-		group.runtimeAgents[declaration.runtimeAgent] = struct{}{}
 		if declaration.priority < group.primaryPriority {
 			group.primaryPriority = declaration.priority
 			group.primaryLanguage = declaration.language
@@ -368,19 +371,13 @@ func assembleCodeUnits(sourceDir string, declarations []discoveredDeclaration) [
 		group := groups[path]
 		languages := sortedSet(group.languages)
 		manifests := sortedSet(group.manifests)
-		runtimeAgent := "generic"
-		if len(group.runtimeAgents) == 1 {
-			for agent := range group.runtimeAgents {
-				runtimeAgent = agent
-			}
-		}
 		name := filepath.Base(filepath.FromSlash(path))
 		if path == "." {
 			name = filepath.Base(filepath.Clean(sourceDir))
 		}
 		units = append(units, &codev0.CodeUnitInfo{
 			Path: path, Name: name, PrimaryLanguage: group.primaryLanguage,
-			Languages: languages, ManifestPaths: manifests, RuntimeAgent: runtimeAgent,
+			Languages: languages, ManifestPaths: manifests,
 		})
 	}
 	return units

@@ -32,6 +32,7 @@ func TestCheck(t *testing.T) {
 			err := Check(tc.advertised, tc.required...)
 			if tc.wantError != "" {
 				require.ErrorContains(t, err, tc.wantError)
+				require.ErrorIs(t, err, ErrIncompatible)
 			} else {
 				require.NoError(t, err)
 			}

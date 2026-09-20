@@ -9,7 +9,7 @@ import (
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
-func TestDefaultCodeServerDiscoversSupportedAndGenericCodeUnits(t *testing.T) {
+func TestDefaultCodeServerDiscoversLanguagesWithoutSelectingAgents(t *testing.T) {
 	root := t.TempDir()
 	files := []string{
 		"src/api/go.mod",
@@ -61,16 +61,16 @@ func TestDefaultCodeServerDiscoversSupportedAndGenericCodeUnits(t *testing.T) {
 		languages       []string
 		manifests       []string
 	}{
-		"src/ads":           {language: "jvm", agent: "generic", languages: []string{"jvm"}, manifests: []string{"src/ads/build.gradle"}},
-		"src/api":           {language: "go", agent: "go", languages: []string{"go"}, manifests: []string{"src/api/go.mod"}},
-		"src/cart":          {language: "dotnet", agent: "generic", languages: []string{"dotnet"}, manifests: []string{"src/cart/cart.sln", "src/cart/src/cart.csproj", "src/cart/tests/cart.tests.csproj"}},
-		"src/mixed":         {language: "go", agent: "generic", languages: []string{"go", "typescript"}, manifests: []string{"src/mixed/go.mod", "src/mixed/package.json"}},
-		"src/javascript":    {language: "javascript", agent: "nextjs", languages: []string{"javascript"}, manifests: []string{"src/javascript/package.json"}},
-		"src/typescript":    {language: "typescript", agent: "nextjs", languages: []string{"typescript"}, manifests: []string{"src/typescript/package.json"}},
-		"src/nested":        {language: "typescript", agent: "nextjs", languages: []string{"typescript"}, manifests: []string{"src/nested/package.json"}},
-		"src/nested/worker": {language: "javascript", agent: "nextjs", languages: []string{"javascript"}, manifests: []string{"src/nested/worker/package.json"}},
-		"src/input-only":    {language: "python", agent: "python", languages: []string{"python"}, manifests: []string{"src/input-only/requirements.in"}},
-		"src/worker":        {language: "python", agent: "python", languages: []string{"python"}, manifests: []string{"src/worker/pyproject.toml", "src/worker/requirements.txt"}},
+		"src/ads":           {language: "jvm", languages: []string{"jvm"}, manifests: []string{"src/ads/build.gradle"}},
+		"src/api":           {language: "go", languages: []string{"go"}, manifests: []string{"src/api/go.mod"}},
+		"src/cart":          {language: "dotnet", languages: []string{"dotnet"}, manifests: []string{"src/cart/cart.sln", "src/cart/src/cart.csproj", "src/cart/tests/cart.tests.csproj"}},
+		"src/mixed":         {language: "go", languages: []string{"go", "typescript"}, manifests: []string{"src/mixed/go.mod", "src/mixed/package.json"}},
+		"src/javascript":    {language: "javascript", languages: []string{"javascript"}, manifests: []string{"src/javascript/package.json"}},
+		"src/typescript":    {language: "typescript", languages: []string{"typescript"}, manifests: []string{"src/typescript/package.json"}},
+		"src/nested":        {language: "typescript", languages: []string{"typescript"}, manifests: []string{"src/nested/package.json"}},
+		"src/nested/worker": {language: "javascript", languages: []string{"javascript"}, manifests: []string{"src/nested/worker/package.json"}},
+		"src/input-only":    {language: "python", languages: []string{"python"}, manifests: []string{"src/input-only/requirements.in"}},
+		"src/worker":        {language: "python", languages: []string{"python"}, manifests: []string{"src/worker/pyproject.toml", "src/worker/requirements.txt"}},
 	}
 	for _, unit := range units {
 		expected, ok := want[unit.GetPath()]
@@ -100,7 +100,7 @@ func TestDefaultCodeServerKeepsRequirementsOnlyRepositoryAsPython(t *testing.T) 
 		t.Fatal(err)
 	}
 	units := response.GetDiscoverCodeUnits().GetCodeUnits()
-	if len(units) != 1 || units[0].GetPath() != "." || units[0].GetPrimaryLanguage() != "python" || units[0].GetRuntimeAgent() != "python" {
+	if len(units) != 1 || units[0].GetPath() != "." || units[0].GetPrimaryLanguage() != "python" || units[0].GetRuntimeAgent() != "" {
 		t.Fatalf("requirements-only root = %+v, want one Python unit", units)
 	}
 }
@@ -134,7 +134,7 @@ func TestDefaultCodeServerDoesNotPromoteWeakNestedPythonFixtureInsideStrongUnit(
 	}
 }
 
-func TestDefaultCodeServerDiscoversMarkerlessRootAsGeneric(t *testing.T) {
+func TestDefaultCodeServerDiscoversMarkerlessRootWithoutSelectingAnAgent(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("source\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -146,7 +146,7 @@ func TestDefaultCodeServerDiscoversMarkerlessRootAsGeneric(t *testing.T) {
 		t.Fatal(err)
 	}
 	units := response.GetDiscoverCodeUnits().GetCodeUnits()
-	if len(units) != 1 || units[0].GetPath() != "." || units[0].GetPrimaryLanguage() != "unknown" || units[0].GetRuntimeAgent() != "generic" {
-		t.Fatalf("markerless units = %+v, want one generic root", units)
+	if len(units) != 1 || units[0].GetPath() != "." || units[0].GetPrimaryLanguage() != "unknown" || units[0].GetRuntimeAgent() != "" {
+		t.Fatalf("markerless units = %+v, want one unbound root", units)
 	}
 }
