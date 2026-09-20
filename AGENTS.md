@@ -101,6 +101,14 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
 
 ## Rules that bite
 
+- **Core and the CLI have no concrete-agent compatibility knowledge.** Check
+  the running agent's advertised wire/startup protocol and operation capabilities
+  at runtime, before work. Never gate on agent names, release pins, linked Core
+  versions, or a compiled compatibility roster. Unchanged protocols require no
+  fleet rebuild or repinning. Missing declarations are errors, not permission to
+  fall back. Agent-specific selection, settings and cleanup belong to the agent;
+  Core transports declarations and implements generic contracts. See
+  [`docs/agent-contract.md`](docs/agent-contract.md).
 - **Ports come from `network.ToNamedPort()` or `RuntimeManager`.** Never
   hardcode one, always track allocations — a missing dedup once assigned the
   same port twice.

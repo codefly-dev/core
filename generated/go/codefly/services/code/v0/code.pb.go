@@ -2544,7 +2544,7 @@ func (*DiscoverCodeUnitsRequest) Descriptor() ([]byte, []int) {
 }
 
 // CodeUnitInfo describes one source boundary and the evidence that established
-// it. Unsupported ecosystems remain present and bind to the generic runtime.
+// it. Source evidence does not select an agent or establish compatibility.
 type CodeUnitInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// path is relative to the Code service root; "." identifies the root itself.
@@ -2558,8 +2558,9 @@ type CodeUnitInfo struct {
 	Languages []string `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
 	// manifest_paths are root-relative declaration files supporting the result.
 	ManifestPaths []string `protobuf:"bytes,5,rep,name=manifest_paths,json=manifestPaths,proto3" json:"manifest_paths,omitempty"`
-	// runtime_agent is the unversioned Codefly service-agent family. Unknown or
-	// mixed ecosystems bind to "generic"; the host owns immutable version pins.
+	// runtime_agent is an optional explicit agent selection supplied by a plugin.
+	// Structural discovery leaves it empty; hosts must not infer an agent or its
+	// compatibility from a language or manifest. Inspect the selected agent at runtime.
 	RuntimeAgent  string `protobuf:"bytes,6,opt,name=runtime_agent,json=runtimeAgent,proto3" json:"runtime_agent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2638,7 +2639,7 @@ func (x *CodeUnitInfo) GetRuntimeAgent() string {
 }
 
 // DiscoverCodeUnitsResponse returns a deterministic, complete structural
-// inventory. A markerless source tree is represented by one generic root unit.
+// inventory. A markerless source tree is represented by one unknown root unit.
 type DiscoverCodeUnitsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// code_units is the complete structural inventory. A markerless tree yields
