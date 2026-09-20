@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/codefly-dev/core/shared"
 	coreversion "github.com/codefly-dev/core/version"
+	"github.com/gofrs/flock"
 )
 
 type ResolveRequest struct {
@@ -170,7 +172,7 @@ func (engine *Engine) Update(ctx context.Context, moduleDir, targetVersion strin
 	if !apply || len(report.BlockedReasons) > 0 {
 		return result, nil
 	}
-	if err := promoteProjection(staging, namespace.ProjectionDir, candidate); err != nil {
+	if err := promoteProjection(ctx, staging, namespace.ProjectionDir, candidate); err != nil {
 		return nil, err
 	}
 	lockData, err := MarshalLock(candidate)
@@ -260,7 +262,7 @@ func (engine *Engine) Materialize(ctx context.Context, moduleDir string, options
 	if err := writeProjectionMetadata(staging, resolved.lock, catalog); err != nil {
 		return nil, err
 	}
-	if err := promoteProjection(staging, namespace.ProjectionDir, resolved.lock); err != nil {
+	if err := promoteProjection(ctx, staging, namespace.ProjectionDir, resolved.lock); err != nil {
 		return nil, err
 	}
 	return &Materialization{Source: resolved.path, Projection: namespace.ProjectionDir, Namespace: namespace}, nil
@@ -543,7 +545,7 @@ func projectionMatchesMode(projection string, lock *Lock, requireReadOnly bool) 
 	return !requireReadOnly || treeReadOnly(projection) == nil
 }
 
-func promoteProjection(staging, destination string, lock *Lock) error {
+func promoteProjection(ctx context.Context, staging, destination string, lock *Lock) (returnErr error) {
 	if !projectionMatchesMode(staging, lock, false) {
 		return errors.New("candidate projection failed content verification")
 	}
@@ -559,6 +561,15 @@ func promoteProjection(staging, destination string, lock *Lock) error {
 	revisions := filepath.Join(parent, ".revisions")
 	if err := os.MkdirAll(revisions, 0o755); err != nil {
 		return err
+	}
+	promotionLock := flock.New(filepath.Join(revisions, ".promotion.lock"), flock.SetPermissions(0o600))
+	defer func() { returnErr = errors.Join(returnErr, promotionLock.Close()) }()
+	locked, err := promotionLock.TryLockContext(ctx, 10*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("projection promotion lock was not acquired")
 	}
 	revision := filepath.Join(revisions, strings.TrimPrefix(marker.Digest, "sha256:"))
 	if projectionMatches(revision, lock) {
