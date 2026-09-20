@@ -401,3 +401,42 @@ func TestDialHost(t *testing.T) {
 		t.Errorf("proxied dial = %s:%d", host, port)
 	}
 }
+
+// A descriptor written before the passwordless capability existed omits
+// password_auth entirely — the field carried no meaning then, and every
+// descriptor already in circulation is shaped this way. Decoding absent as false
+// would read it as a passwordless instance with no identity and refuse it, which
+// breaks `codefly environment import` for every existing cell. Absent is not a
+// declaration: it means password auth, and the store secret reference is still
+// projected.
+func TestAcceptsDescriptorWithoutAuthDeclaration(t *testing.T) {
+	c, err := ParseCellContract(loadCellFixture(t, "no-auth-declaration.json"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	env, err := c.ToEnvironment("azure", "lodestar")
+	if err != nil {
+		t.Fatalf("to environment: %v", err)
+	}
+	ms, ok := env.ManagedServices["store"]
+	if !ok {
+		t.Fatalf("no managed store service; got %+v", env.ManagedServices)
+	}
+	if len(ms.SecretReferences) != 1 || ms.SecretReferences[0].RemoteKey != "lodestar/store" {
+		t.Errorf("secret references = %+v (an undeclared auth mode must keep the password handoff)", ms.SecretReferences)
+	}
+	if ms.Identity != nil {
+		t.Errorf("identity = %+v (none was declared)", ms.Identity)
+	}
+}
+
+// A producer that knows about identities knows to declare how the instance
+// authenticates. Leaving it out is ambiguous in the direction that fails
+// silently — the password secret reference projected for a workload that
+// authenticates as its identity, or dropped for one that needs it.
+func TestRefusesIdentityWithoutAuthDeclaration(t *testing.T) {
+	doc := `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"registries":[{"url":"a"}],"databases":[{"name":"a","egress_cidrs":["10.0.0.0/28"],"port":5432,"identity":{"kind":"k","principal":"p"}}]}`
+	if _, err := ParseCellContract([]byte(doc)); err == nil {
+		t.Fatal("expected a rejection for an identity with no declared auth mode")
+	}
+}

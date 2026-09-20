@@ -105,15 +105,29 @@ type CellContractDatabase struct {
 	Port          int      `json:"port,omitempty"`
 	EgressCIDRs   []string `json:"egress_cidrs"`
 	DatabaseNames []string `json:"database_names"`
-	PasswordAuth  bool     `json:"password_auth"`
+	// PasswordAuth is a pointer because absent and false mean different things.
+	// A descriptor that omits the key predates the passwordless capability — it
+	// is a password-auth instance, and the field carried no meaning when it was
+	// written. Only an explicit false declares a passwordless instance and opts
+	// into the identity rules below. Decoding absent as false would turn every
+	// descriptor already in circulation into a passwordless one with no
+	// identity, and refuse it.
+	PasswordAuth *bool `json:"password_auth,omitempty"`
 	// Transport declares how a workload reaches this instance when dialing the
 	// published endpoint directly is not it.
 	Transport *CellContractTransport `json:"transport,omitempty"`
 	// Identity is the exact runtime principal a workload authenticates as. It is
-	// required when PasswordAuth is false: a passwordless instance with no
-	// declared identity leaves the workload with no way to authenticate, and a
-	// runtime that cannot authenticate can come up and simply never register.
+	// required when PasswordAuth is explicitly false: a passwordless instance
+	// with no declared identity leaves the workload with no way to authenticate,
+	// and a runtime that cannot authenticate can come up and simply never
+	// register.
 	Identity *CellContractIdentity `json:"identity,omitempty"`
+}
+
+// passwordless reports whether the producer declared an instance that takes no
+// password. An omitted declaration is not one.
+func (db CellContractDatabase) passwordless() bool {
+	return db.PasswordAuth != nil && !*db.PasswordAuth
 }
 
 // Transport modes this consumer renders.
@@ -275,14 +289,20 @@ func validateDatabaseAccess(db CellContractDatabase, cell string) error {
 	if db.Port < 0 || db.Port > 65535 {
 		return fmt.Errorf("database %q in cell %q has out-of-range port %d", db.Name, cell, db.Port)
 	}
-	if !db.PasswordAuth {
-		if db.Identity == nil || db.Identity.Principal == "" {
-			return fmt.Errorf("database %q in cell %q is passwordless but declares no runtime identity principal", db.Name, cell)
-		}
+	if db.passwordless() && (db.Identity == nil || db.Identity.Principal == "") {
+		return fmt.Errorf("database %q in cell %q is passwordless but declares no runtime identity principal", db.Name, cell)
+	}
+	// A producer that knows about identities knows to declare how the instance
+	// authenticates. Leaving it out is ambiguous in the one direction that fails
+	// silently: codefly would project the password secret reference for a
+	// workload that authenticates as its identity, or drop it for one that needs
+	// it.
+	if db.Identity != nil && db.PasswordAuth == nil {
+		return fmt.Errorf("database %q in cell %q declares a runtime identity but does not declare whether it takes a password", db.Name, cell)
 	}
 	// The port is engine-specific and the engine is an open string, so there is
 	// nothing to fall back to that would not be a guess baked into codefly.
-	if db.Port == 0 && (db.Transport != nil || !db.PasswordAuth) {
+	if db.Port == 0 && (db.Transport != nil || db.passwordless()) {
 		return fmt.Errorf("database %q in cell %q declares a transport binding but no port", db.Name, cell)
 	}
 	if db.Transport == nil {
@@ -400,7 +420,7 @@ func (c *CellContract) ToEnvironment(envName, namespace string) (*Environment, e
 		// An instance that takes no password has no secret to project: the workload
 		// authenticates as its own identity instead, so projecting one here would
 		// bind the pod to a Secret the cell never writes and block it from starting.
-		if db.PasswordAuth {
+		if !db.passwordless() {
 			managed.SecretReferences = []EnvironmentManagedSecretReference{{
 				Name:        "secret-store",
 				RemoteKey:   namespace + "/store",
