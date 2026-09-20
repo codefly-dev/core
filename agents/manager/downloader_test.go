@@ -114,23 +114,26 @@ func TestDownloadRejectsUnsafeIdentityBeforeNetwork(t *testing.T) {
 func TestAmbiguousCacheIdentityCannotLoadInstalledBinary(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
-	installed, err := resources.ParseAgent(ctx, resources.ServiceAgent, "example.test/widget__1:2")
+	registration, err := resources.AgentKindRegistrationFor(resources.ServiceAgent)
 	require.NoError(t, err)
-	location, err := installed.Path(ctx)
-	require.NoError(t, err)
+	location := filepath.Join(resources.AgentBase(ctx), "agents", registration.InstallSubdirectory, "example.test", "widget__1__2")
 	require.NoError(t, os.MkdirAll(filepath.Dir(location), 0o750))
 	marker := filepath.Join(t.TempDir(), "executed")
 	require.NoError(t, os.WriteFile(location, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o755))
-	other := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget", Version: "1__2"}
-	downloaded, err := Downloaded(ctx, other)
-	require.ErrorContains(t, err, "cache separator")
-	require.False(t, downloaded)
-	conn, err := Load(ctx, other, WithoutSandbox(), WithoutPrincipal())
-	require.Nil(t, conn)
-	require.ErrorContains(t, err, "cache separator")
-	require.NoFileExists(t, marker)
-	_, err = DownloadURL(other)
-	require.ErrorContains(t, err, "cache separator")
+	for _, other := range []*resources.Agent{
+		{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget", Version: "1__2"},
+		{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget__1", Version: "2"},
+	} {
+		downloaded, err := Downloaded(ctx, other)
+		require.ErrorContains(t, err, "cache separator")
+		require.False(t, downloaded)
+		conn, err := Load(ctx, other, WithoutSandbox(), WithoutPrincipal())
+		require.Nil(t, conn)
+		require.ErrorContains(t, err, "cache separator")
+		require.NoFileExists(t, marker)
+		_, err = DownloadURL(other)
+		require.ErrorContains(t, err, "cache separator")
+	}
 }
 
 // stalledServer accepts the connection and then holds the handler until the
