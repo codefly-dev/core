@@ -104,6 +104,44 @@ func (o *PodTemplateOverlay) AttachWorkloadIdentity(identity *resources.Environm
 	}
 }
 
+// ProjectWorkloadIdentity attaches a cell's declared runtime identity to an
+// already-rendered manifest tree: it writes the codefly-owned ServiceAccount
+// into baseDir, wires it into that same directory's kustomization, and stamps
+// serviceAccountName and the identity's labels onto every pod-template workload
+// found there. It is the post-render counterpart to AttachWorkloadIdentity, for
+// a consumer that post-processes a tree an agent rendered rather than building
+// the overlay itself.
+//
+// A nil identity is a no-op, so a caller can run it per service without first
+// asking whether the environment declares one.
+//
+// It fails when the stamp bound no workload. An identity that lands nowhere
+// leaves the pods on the namespace default, where token minting has no identity:
+// the deploy reports success and the connection fails at runtime, which is the
+// one outcome a caller post-processing a tree cannot detect for itself.
+func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAccountName string, identity *resources.EnvironmentWorkloadIdentity) error {
+	if identity == nil {
+		return nil
+	}
+	overlay := &PodTemplateOverlay{}
+	overlay.AttachWorkloadIdentity(identity)
+	overlay.DefaultServiceAccountName(serviceAccountName)
+	if err := overlay.Validate(); err != nil {
+		return err
+	}
+	if err := emitWorkloadServiceAccount(ctx, baseDir, namespace, overlay.ServiceAccount); err != nil {
+		return err
+	}
+	result, err := applyPodOverlay(ctx, baseDir, overlay)
+	if err != nil {
+		return err
+	}
+	if !result.boundServiceAccount {
+		return fmt.Errorf("workload identity %q bound no workload in %s: no manifest there carries a pod template", identity.Principal, baseDir)
+	}
+	return nil
+}
+
 // dns1123Subdomain matches a Kubernetes ServiceAccount name.
 var dns1123Subdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
