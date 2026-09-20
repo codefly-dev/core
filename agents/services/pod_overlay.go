@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/codefly-dev/core/resources"
 	"gopkg.in/yaml.v3"
 )
 
@@ -67,6 +68,40 @@ type ConfigMount struct {
 type WorkloadServiceAccount struct {
 	Name        string
 	Annotations map[string]string
+}
+
+// AttachWorkloadIdentity binds a cell's declared runtime identity to the
+// workload: the identity's annotations land on the codefly-owned ServiceAccount
+// and its labels on the pod template, both verbatim. Doing it from the declared
+// contract is what keeps the identity out of every agent's template and out of
+// per-cell branches here — codefly stamps keys it does not interpret, so a cell
+// on any platform wires its own identity webhook by declaring it.
+//
+// Values the caller already set win, so an agent that sets its own label is not
+// overwritten by the cell's.
+func (o *PodTemplateOverlay) AttachWorkloadIdentity(identity *resources.EnvironmentWorkloadIdentity) {
+	if o == nil || identity == nil {
+		return
+	}
+	if o.ServiceAccount == nil {
+		o.ServiceAccount = &WorkloadServiceAccount{}
+	}
+	if len(identity.Annotations) > 0 && o.ServiceAccount.Annotations == nil {
+		o.ServiceAccount.Annotations = make(map[string]string, len(identity.Annotations))
+	}
+	for key, value := range identity.Annotations {
+		if _, taken := o.ServiceAccount.Annotations[key]; !taken {
+			o.ServiceAccount.Annotations[key] = value
+		}
+	}
+	if len(identity.Labels) > 0 && o.PodLabels == nil {
+		o.PodLabels = make(map[string]string, len(identity.Labels))
+	}
+	for key, value := range identity.Labels {
+		if _, taken := o.PodLabels[key]; !taken {
+			o.PodLabels[key] = value
+		}
+	}
 }
 
 // dns1123Subdomain matches a Kubernetes ServiceAccount name.

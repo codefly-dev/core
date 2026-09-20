@@ -37,6 +37,32 @@ type CellContract struct {
 	SecretStores []CellContractSecretStore `json:"secret_stores"`
 	Gitops       *CellContractGitops       `json:"gitops,omitempty"`
 	ObjectStores []CellContractObjectStore `json:"object_stores,omitempty"`
+	AuditSinks   []CellContractAuditSink   `json:"audit_sinks,omitempty"`
+
+	// RequiresCapabilities names the consumer behaviours this descriptor cannot
+	// work without. An unknown JSON field decodes to nothing, so a producer that
+	// starts publishing a field an older consumer predates would otherwise get a
+	// workload deployed with exactly the part that makes it work missing, and no
+	// error anywhere. Declaring the capability turns that into a refusal at the
+	// seam. Values are open strings; this consumer implements
+	// cellContractCapabilities.
+	RequiresCapabilities []string `json:"requires_capabilities,omitempty"`
+}
+
+// The capabilities this consumer implements, named in a descriptor's
+// RequiresCapabilities.
+const (
+	// CapabilityManagedIdentityTransport is the database transport/identity
+	// binding: port, transport mode and the exact runtime principal a workload
+	// authenticates as, carried through to the workload renderer.
+	CapabilityManagedIdentityTransport = "managed-identity-transport"
+	// CapabilityAuditSinks is the audit-sink collection and its delivery facts.
+	CapabilityAuditSinks = "audit-sinks"
+)
+
+var cellContractCapabilities = map[string]bool{
+	CapabilityManagedIdentityTransport: true,
+	CapabilityAuditSinks:               true,
 }
 
 type CellContractCluster struct {
@@ -76,9 +102,77 @@ type CellContractDatabase struct {
 	Kind          string   `json:"kind"`
 	Name          string   `json:"name"`
 	FQDN          string   `json:"fqdn"`
+	Port          int      `json:"port,omitempty"`
 	EgressCIDRs   []string `json:"egress_cidrs"`
 	DatabaseNames []string `json:"database_names"`
 	PasswordAuth  bool     `json:"password_auth"`
+	// Transport declares how a workload reaches this instance when dialing the
+	// published endpoint directly is not it.
+	Transport *CellContractTransport `json:"transport,omitempty"`
+	// Identity is the exact runtime principal a workload authenticates as. It is
+	// required when PasswordAuth is false: a passwordless instance with no
+	// declared identity leaves the workload with no way to authenticate, and a
+	// runtime that cannot authenticate can come up and simply never register.
+	Identity *CellContractIdentity `json:"identity,omitempty"`
+}
+
+// Transport modes this consumer renders.
+const (
+	// TransportModeDirect dials the database endpoint from the workload.
+	TransportModeDirect = "direct"
+	// TransportModeProxy runs the declared proxy image beside the workload and
+	// dials it on loopback; the proxy holds the authenticated private connection.
+	TransportModeProxy = "proxy"
+)
+
+// CellContractTransport declares how a workload reaches a managed endpoint.
+// Unlike a kind — an open string this consumer only uses to select an auth
+// side-effect — a mode decides what the workload renderer must emit, so one this
+// consumer does not implement is refused rather than carried through to a
+// workload that would come up with no path to the database at all.
+type CellContractTransport struct {
+	Mode string `json:"mode"`
+	// Image and Args are the proxy the pod runs in TransportModeProxy, and
+	// LocalPort is the loopback port it listens on.
+	Image     string   `json:"image,omitempty"`
+	Args      []string `json:"args,omitempty"`
+	LocalPort int      `json:"local_port,omitempty"`
+}
+
+// CellContractIdentity is the exact runtime principal a workload authenticates
+// as. Principal is resolved by the producer — never a template codefly fills in
+// from a customer, account or region name. Annotations and Labels are the
+// platform's own attachment mechanism: codefly stamps them verbatim onto the
+// workload's ServiceAccount and pod template, which is what lets a cell on any
+// platform wire its identity webhook without codefly knowing what the keys mean.
+type CellContractIdentity struct {
+	Kind        string            `json:"kind"`
+	Principal   string            `json:"principal"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+}
+
+// CellContractAuditSink is one destination the cell delivers audit records to.
+// Kind is an open string naming the sink technology and Target the exact
+// destination the producer applied. Residency and Retention carry the producer's
+// approved data-handling facts: codefly transports them and infers neither — an
+// unapplied retention lock is `locked: false`, not an assumption — and never
+// synthesizes a connection string for the sink from its parts.
+type CellContractAuditSink struct {
+	Name      string                      `json:"name"`
+	Kind      string                      `json:"kind"`
+	Target    string                      `json:"target"`
+	Writer    *CellContractIdentity       `json:"writer,omitempty"`
+	Residency string                      `json:"residency,omitempty"`
+	Retention *CellContractAuditRetention `json:"retention,omitempty"`
+}
+
+// CellContractAuditRetention is the retention the producer applied to a sink.
+// Locked reports whether a retention lock is in force, which is an approval fact
+// only the producer holds.
+type CellContractAuditRetention struct {
+	Days   int  `json:"days"`
+	Locked bool `json:"locked"`
 }
 
 // CellContractSecretStore selects an External Secrets store the cell exposes.
@@ -107,6 +201,11 @@ func ParseCellContract(data []byte) (*CellContract, error) {
 	}
 	if c.Schema != CellContractSchema {
 		return nil, fmt.Errorf("unsupported cell-contract schema %q (want %q)", c.Schema, CellContractSchema)
+	}
+	for _, capability := range c.RequiresCapabilities {
+		if !cellContractCapabilities[capability] {
+			return nil, fmt.Errorf("cell contract for %q requires capability %q, which this consumer does not implement", c.Cell, capability)
+		}
 	}
 	if c.Cluster.Context == "" {
 		return nil, fmt.Errorf("cell contract for %q carries no cluster context", c.Cell)
@@ -145,8 +244,84 @@ func ParseCellContract(data []byte) (*CellContract, error) {
 				return nil, fmt.Errorf("database %q in cell %q has invalid egress CIDR %q: %w", db.Name, c.Cell, cidr, err)
 			}
 		}
+		if err := validateDatabaseAccess(db, c.Cell); err != nil {
+			return nil, err
+		}
+	}
+	for _, sink := range c.AuditSinks {
+		if err := validateAuditSink(sink, c.Cell); err != nil {
+			return nil, err
+		}
+	}
+	// A delivery target is declared whole or not at all. Half of one leaves the
+	// rendered workloads pointing at an empty repo or the cell's root path, which
+	// reconciles somewhere other than where the owner decided they go.
+	if c.Gitops != nil {
+		if c.Gitops.Repo == "" {
+			return nil, fmt.Errorf("cell contract for %q declares a delivery target with no repository", c.Cell)
+		}
+		if c.Gitops.WorkloadsPathPrefix == "" {
+			return nil, fmt.Errorf("cell contract for %q declares a delivery target with no workloads path prefix", c.Cell)
+		}
 	}
 	return &c, nil
+}
+
+// validateDatabaseAccess refuses a transport/identity binding this consumer
+// cannot honor. Each rejection here is a deployment that would otherwise render
+// and start: a workload with no principal to authenticate as, a proxy with no
+// image to run, or a connection with no port to dial.
+func validateDatabaseAccess(db CellContractDatabase, cell string) error {
+	if db.Port < 0 || db.Port > 65535 {
+		return fmt.Errorf("database %q in cell %q has out-of-range port %d", db.Name, cell, db.Port)
+	}
+	if !db.PasswordAuth {
+		if db.Identity == nil || db.Identity.Principal == "" {
+			return fmt.Errorf("database %q in cell %q is passwordless but declares no runtime identity principal", db.Name, cell)
+		}
+	}
+	// The port is engine-specific and the engine is an open string, so there is
+	// nothing to fall back to that would not be a guess baked into codefly.
+	if db.Port == 0 && (db.Transport != nil || !db.PasswordAuth) {
+		return fmt.Errorf("database %q in cell %q declares a transport binding but no port", db.Name, cell)
+	}
+	if db.Transport == nil {
+		return nil
+	}
+	switch db.Transport.Mode {
+	case TransportModeDirect:
+	case TransportModeProxy:
+		if db.Transport.Image == "" {
+			return fmt.Errorf("database %q in cell %q declares a %s transport with no image", db.Name, cell, TransportModeProxy)
+		}
+		if db.Transport.LocalPort <= 0 || db.Transport.LocalPort > 65535 {
+			return fmt.Errorf("database %q in cell %q declares a %s transport with no usable local port", db.Name, cell, TransportModeProxy)
+		}
+	default:
+		return fmt.Errorf("database %q in cell %q declares transport mode %q, which this consumer does not implement", db.Name, cell, db.Transport.Mode)
+	}
+	return nil
+}
+
+// validateAuditSink refuses a sink codefly could only complete by inventing a
+// fact: a destination, or the writer allowed to reach it.
+func validateAuditSink(sink CellContractAuditSink, cell string) error {
+	if sink.Name == "" {
+		return fmt.Errorf("cell %q declares an audit sink with no name", cell)
+	}
+	if sink.Kind == "" {
+		return fmt.Errorf("audit sink %q in cell %q carries no kind", sink.Name, cell)
+	}
+	if sink.Target == "" {
+		return fmt.Errorf("audit sink %q in cell %q carries no target", sink.Name, cell)
+	}
+	if sink.Writer == nil || sink.Writer.Principal == "" {
+		return fmt.Errorf("audit sink %q in cell %q names no writer principal", sink.Name, cell)
+	}
+	if sink.Retention != nil && sink.Retention.Days <= 0 {
+		return fmt.Errorf("audit sink %q in cell %q declares a retention of %d days", sink.Name, cell, sink.Retention.Days)
+	}
+	return nil
 }
 
 // KnowsDatabase reports whether the cell's managed database exposes a logical
@@ -205,20 +380,63 @@ func (c *CellContract) ToEnvironment(envName, namespace string) (*Environment, e
 	}
 	if len(c.Databases) > 0 {
 		db := c.Databases[0]
-		env.ManagedServices = map[string]EnvironmentManagedService{
-			"store": {
-				Kind:         db.Kind,
-				ExternalName: db.FQDN,
-				// The fact hand-typing gets wrong silently — sourced from the cell,
-				// not transcribed.
-				EgressCIDRs: db.EgressCIDRs,
-				SecretReferences: []EnvironmentManagedSecretReference{{
-					Name:        "secret-store",
-					RemoteKey:   namespace + "/store",
-					SecretStore: store,
-				}},
-			},
+		managed := EnvironmentManagedService{
+			Kind:         db.Kind,
+			ExternalName: db.FQDN,
+			Port:         db.Port,
+			// The fact hand-typing gets wrong silently — sourced from the cell,
+			// not transcribed.
+			EgressCIDRs: db.EgressCIDRs,
+			Identity:    db.Identity.toEnvironment(),
 		}
+		if db.Transport != nil {
+			managed.Transport = &EnvironmentManagedTransport{
+				Mode:      db.Transport.Mode,
+				Image:     db.Transport.Image,
+				Args:      db.Transport.Args,
+				LocalPort: db.Transport.LocalPort,
+			}
+		}
+		// An instance that takes no password has no secret to project: the workload
+		// authenticates as its own identity instead, so projecting one here would
+		// bind the pod to a Secret the cell never writes and block it from starting.
+		if db.PasswordAuth {
+			managed.SecretReferences = []EnvironmentManagedSecretReference{{
+				Name:        "secret-store",
+				RemoteKey:   namespace + "/store",
+				SecretStore: store,
+			}}
+		}
+		env.ManagedServices = map[string]EnvironmentManagedService{"store": managed}
+	}
+	for _, sink := range c.AuditSinks {
+		env.AuditSinks = append(env.AuditSinks, EnvironmentAuditSink{
+			Name:      sink.Name,
+			Kind:      sink.Kind,
+			Target:    sink.Target,
+			Writer:    sink.Writer.toEnvironment(),
+			Residency: sink.Residency,
+			Retention: sink.Retention.toEnvironment(),
+		})
 	}
 	return env, nil
+}
+
+func (i *CellContractIdentity) toEnvironment() *EnvironmentWorkloadIdentity {
+	if i == nil {
+		return nil
+	}
+	return &EnvironmentWorkloadIdentity{
+		Kind:        i.Kind,
+		Principal:   i.Principal,
+		Annotations: i.Annotations,
+		Labels:      i.Labels,
+	}
+}
+
+func (r *CellContractAuditRetention) toEnvironment() *EnvironmentAuditRetention {
+	if r == nil {
+		return nil
+	}
+	return &EnvironmentAuditRetention{Days: r.Days, Locked: r.Locked}
 }
