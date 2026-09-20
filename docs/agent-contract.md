@@ -128,6 +128,18 @@ agents. They need a one-time adoption, not ongoing rebuilds for every Core
 release. Source adoption and official artifact publication are separate from
 qualification of the published agent in a consuming workflow.
 
+For release qualification, use `codefly agent install` to populate an isolated
+`CODEFLY_HOME` with the official selections in the rollout inventory, then run:
+
+```sh
+GOWORK=off CODEFLY_HOME=/path/to/qualification-cache go test ./services \
+  -tags=published_agents_required -run TestPublishedAgentsDeclareRuntimeContract -count=1 -v
+```
+
+This checks every selected executable in that cache through authenticated live
+admission. Record download failures separately: an absent artifact is not a
+passing qualification. The inventory is release evidence, never a runtime roster.
+
 ## Artifact identities and installation
 
 Publisher, name and version are individual path components. Each starts with an
