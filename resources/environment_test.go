@@ -75,12 +75,23 @@ func serviceConfigDeclaration(serviceName string) string {
 `
 }
 
-// A service-secrets or service-config entry naming a real service passes the
-// graph check.
+func serviceIdentityDeclaration(serviceName string) string {
+	return `    service-identity:
+      default:
+        principal: platform-prod-workload
+      services:
+        ` + serviceName + `:
+          principal: accounts-prod
+`
+}
+
+// A service-secrets, service-config or service-identity entry naming a real
+// service passes the graph check.
 func TestValidateEnvironmentsAllowsKnownService(t *testing.T) {
 	for name, declaration := range map[string]string{
-		"service-secrets": serviceSecretsDeclaration("accounts"),
-		"service-config":  serviceConfigDeclaration("accounts"),
+		"service-secrets":  serviceSecretsDeclaration("accounts"),
+		"service-config":   serviceConfigDeclaration("accounts"),
+		"service-identity": serviceIdentityDeclaration("accounts"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
@@ -95,12 +106,14 @@ func TestValidateEnvironmentsAllowsKnownService(t *testing.T) {
 	}
 }
 
-// A typo'd service name (here "accunts") would silently drop the secret override
-// or the resolved values at projection time; the graph check must reject it.
+// A typo'd service name (here "accunts") would silently drop the secret override,
+// the resolved values, or the identity the workload authenticates as at
+// projection time; the graph check must reject it.
 func TestValidateEnvironmentsRejectsUnknownService(t *testing.T) {
 	for name, declaration := range map[string]string{
-		"service-secrets": serviceSecretsDeclaration("accunts"),
-		"service-config":  serviceConfigDeclaration("accunts"),
+		"service-secrets":  serviceSecretsDeclaration("accunts"),
+		"service-config":   serviceConfigDeclaration("accunts"),
+		"service-identity": serviceIdentityDeclaration("accunts"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
@@ -576,7 +589,118 @@ environments:
 	}
 }
 
-// Workspace load refuses the same collision the cell contract does, and accepts
+// An environment declares what its services authenticate as without declaring
+// any managed service for them to consume, and resolution keys by consuming
+// service: the entry for a service that names one, the environment-wide default
+// for every service that does not.
+func TestEnvironmentServiceIdentityLoadsFromWorkspace(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-identity:
+      default:
+        kind: azure-workload-identity
+        principal: platform-prod
+        annotations:
+          azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+        labels:
+          azure.workload.identity/use: "true"
+      services:
+        billing:
+          principal: billing-prod
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := loaded.Environments[0]
+	if env.ManagedServices != nil {
+		t.Fatalf("managed-services = %+v, want nil", env.ManagedServices)
+	}
+	accounts := env.WorkloadIdentity("accounts")
+	if accounts == nil || accounts.Principal != "platform-prod" || accounts.Kind != "azure-workload-identity" {
+		t.Fatalf("accounts identity = %+v, want the environment default", accounts)
+	}
+	if accounts.Annotations["azure.workload.identity/client-id"] != "00000000-0000-0000-0000-000000000000" ||
+		accounts.Labels["azure.workload.identity/use"] != "true" {
+		t.Fatalf("attachments were not carried verbatim: %+v", accounts)
+	}
+	billing := env.WorkloadIdentity("billing")
+	if billing == nil || billing.Principal != "billing-prod" {
+		t.Fatalf("billing identity = %+v, want its own entry", billing)
+	}
+}
+
+// Absence is the valid "this environment projects no identity" state.
+func TestEnvironmentServiceIdentityAbsentIsNil(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Environments[0].ServiceIdentity != nil {
+		t.Fatalf("service-identity = %+v, want nil", loaded.Environments[0].ServiceIdentity)
+	}
+	if got := loaded.Environments[0].WorkloadIdentity("accounts"); got != nil {
+		t.Fatalf("identity = %+v, want none", got)
+	}
+}
+
+// Workspace YAML drops unknown keys, so a mistyped `default:` leaves a block
+// that declares an identity and attaches none; an entry bound to no principal is
+// the same failure one level down. Both would otherwise leave the pods on the
+// namespace default where token minting has no identity, and the first signal is
+// a secret lookup failing in-cluster.
+func TestEnvironmentServiceIdentityRejectsIncompleteDeclaration(t *testing.T) {
+	for name, block := range map[string]string{
+		"dropped default key": `    service-identity:
+      defualt:
+        principal: platform-prod
+`,
+		"no principal": `    service-identity:
+      services:
+        accounts:
+          kind: azure-workload-identity
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+` + block
+			if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+			if err == nil {
+				t.Fatal("expected load to fail")
+			}
+			if !strings.Contains(err.Error(), "service-identity") {
+				t.Fatalf("error = %v, want it to name the offending block", err)
+			}
+		})
+	}
+}
+
+// Workspace load refuses the same collision the coordinate contract does, and accepts
 // the same key under two different services, which is not a collision at all.
 func TestEnvironmentRefusesKeyDeclaredAsBothValueAndSecret(t *testing.T) {
 	workspaceWith := func(configService string) string {

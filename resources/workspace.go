@@ -444,12 +444,14 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 }
 
 // ValidateEnvironments cross-checks environment declarations that name services
-// against the workspace's actual service graph. Service-secret overrides and
-// service-config values are keyed by service name; a key that matches no loaded
-// service is otherwise a silent no-op at projection time — the service keeps the
-// default "<service>/<key>" remote paths and receives none of the declared
-// values, so a typo'd name resolves the wrong secret, or drops a value the
-// workload needs, with nothing catching it earlier.
+// against the workspace's actual service graph. Service-secret overrides,
+// service-config values and service-identity entries are keyed by service name;
+// a key that matches no loaded service is otherwise a silent no-op at projection
+// time — the service keeps the default "<service>/<key>" remote paths, receives
+// none of the declared values, and falls back to the environment-wide identity
+// or none at all, so a typo'd name resolves the wrong secret, drops a value the
+// workload needs, or authenticates as the wrong principal, with nothing catching
+// it earlier.
 // Loading the graph is why this is a pass separate from postLoad, mirroring
 // ValidateServiceDependencies.
 func (workspace *Workspace) ValidateEnvironments(ctx context.Context) error {
@@ -533,6 +535,9 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 		}
 		if err := env.ServiceConfig.Validate(); err != nil {
 			return w.Wrapf(err, "environment %q has invalid service-config", env.Name)
+		}
+		if err := env.ServiceIdentity.Validate(); err != nil {
+			return w.Wrapf(err, "environment %q has invalid service-identity", env.Name)
 		}
 		if err := env.validateServiceKeyCollisions(); err != nil {
 			return w.Wrapf(err, "environment %q declares conflicting service keys", env.Name)

@@ -167,6 +167,93 @@ type EnvironmentWorkloadIdentity struct {
 	Labels      map[string]string `yaml:"labels,omitempty"`
 }
 
+// validate reports whether a declared identity names the principal a
+// ServiceAccount authenticates as and keys every attachment it stamps. label
+// names the offending block so an identity that would reach the cluster as a
+// keyless annotation, or as a ServiceAccount bound to no principal, fails at
+// load instead. A nil receiver is a valid "not declared" state.
+func (identity *EnvironmentWorkloadIdentity) validate(label string) error {
+	if identity == nil {
+		return nil
+	}
+	if strings.TrimSpace(identity.Principal) == "" {
+		return fmt.Errorf("%s declares an identity without a principal", label)
+	}
+	for key := range identity.Annotations {
+		if strings.TrimSpace(key) == "" {
+			return fmt.Errorf("%s: identity annotation name cannot be empty", label)
+		}
+	}
+	for key := range identity.Labels {
+		if strings.TrimSpace(key) == "" {
+			return fmt.Errorf("%s: identity label name cannot be empty", label)
+		}
+	}
+	return nil
+}
+
+// EnvironmentServiceIdentity declares what an environment's regular services
+// authenticate as. It is the identity home for a workload that consumes no
+// environment-owned managed service: EnvironmentManagedService.Identity reaches a
+// workload only through a managed service it consumes, so a service whose
+// declarations are service-config and service-secrets alone would otherwise have
+// nowhere to say what it authenticates as and would land on the namespace
+// default, where token minting has no identity — its projected ExternalSecret
+// then cannot reach the store.
+//
+// Default is the identity every service takes, which is the shape of an
+// environment federating one principal to a namespace. Services names the ones
+// that differ, and an entry there replaces the default outright rather than
+// merging into it: a merge offers no way to drop an inherited annotation, so the
+// service that needed a different principal keeps the default's attachments.
+type EnvironmentServiceIdentity struct {
+	Default  *EnvironmentWorkloadIdentity           `yaml:"default,omitempty"`
+	Services map[string]EnvironmentWorkloadIdentity `yaml:"services,omitempty"`
+}
+
+// Validate checks the structural invariants of a declared service-identity
+// block. A non-nil block naming neither a default nor a service attaches nothing
+// while claiming to declare an identity, which is the silent failure this block
+// exists to remove. A nil receiver is a valid "not declared" state.
+func (i *EnvironmentServiceIdentity) Validate() error {
+	if i == nil {
+		return nil
+	}
+	if i.Default == nil && len(i.Services) == 0 {
+		return fmt.Errorf("service-identity declares neither a default nor any service")
+	}
+	if err := i.Default.validate("service-identity default"); err != nil {
+		return err
+	}
+	for name, identity := range i.Services {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("service-identity: service name cannot be empty")
+		}
+		if err := identity.validate(fmt.Sprintf("service-identity service %q", name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WorkloadIdentity returns what a service authenticates as in this environment,
+// or nil when nothing is declared for it. A per-service entry wins over the
+// environment-wide default.
+//
+// It resolves service-identity alone. A managed service's own identity is keyed
+// by that managed service, and which services consume it is not something an
+// Environment can see, so composing the two belongs to the consumer that knows
+// the service graph.
+func (env *Environment) WorkloadIdentity(service string) *EnvironmentWorkloadIdentity {
+	if env == nil || env.ServiceIdentity == nil {
+		return nil
+	}
+	if identity, declared := env.ServiceIdentity.Services[service]; declared {
+		return &identity
+	}
+	return env.ServiceIdentity.Default
+}
+
 // EnvironmentServiceSecrets declares the External Secrets store that resolves a
 // regular (app) service's secret-service-configurations for an environment. It is
 // the app-service counterpart to EnvironmentManagedService.SecretReferences: the
@@ -384,7 +471,7 @@ func (env *Environment) validateServiceKeyCollisions() error {
 // keys declarations by. A name matching no loaded service is a silent no-op at
 // projection time, so ValidateEnvironments cross-checks every such block.
 func (env *Environment) serviceScopedNames() map[string][]string {
-	names := make(map[string][]string, 2)
+	names := make(map[string][]string, 3)
 	if env.ServiceSecrets != nil {
 		for name := range env.ServiceSecrets.Services {
 			names["service-secrets"] = append(names["service-secrets"], name)
@@ -393,6 +480,11 @@ func (env *Environment) serviceScopedNames() map[string][]string {
 	if env.ServiceConfig != nil {
 		for name := range env.ServiceConfig.Services {
 			names["service-config"] = append(names["service-config"], name)
+		}
+	}
+	if env.ServiceIdentity != nil {
+		for name := range env.ServiceIdentity.Services {
+			names["service-identity"] = append(names["service-identity"], name)
 		}
 	}
 	return names
@@ -462,6 +554,12 @@ type Environment struct {
 	// the workspace's own configuration flow alone. CLI-side; not serialized to
 	// proto.
 	ServiceConfig *EnvironmentServiceConfig `yaml:"service-config,omitempty"`
+
+	// ServiceIdentity declares what this environment's regular services
+	// authenticate as, independently of whether they also consume a managed
+	// service. Absent, no identity is projected for them and their pods keep the
+	// namespace default service account. CLI-side; not serialized to proto.
+	ServiceIdentity *EnvironmentServiceIdentity `yaml:"service-identity,omitempty"`
 
 	// ResourceQuota, when set, renders a ResourceQuota (and an optional
 	// LimitRange of container defaults) into this environment's namespace so one

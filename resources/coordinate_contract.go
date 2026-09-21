@@ -29,6 +29,10 @@ type CoordinateContract struct {
 // CapabilityManagedServiceIdentity carries an endpoint's declared runtime identity.
 const CapabilityManagedServiceIdentity = "managed-service-identity"
 
+// CapabilityServiceIdentity carries a consuming service's own runtime identity,
+// declared under service-identity rather than through a managed service.
+const CapabilityServiceIdentity = "service-identity"
+
 // ParseCoordinateContract reads JSON using the same field names as workspace YAML.
 func ParseCoordinateContract(data []byte) (*CoordinateContract, error) {
 	if !json.Valid(data) {
@@ -51,7 +55,9 @@ func (c *CoordinateContract) validate() error {
 		return fmt.Errorf("unsupported coordinate-contract schema %q (want %q); producers must emit explicit Codefly environment declarations", c.Schema, CoordinateContractSchema)
 	}
 	for _, capability := range c.RequiresCapabilities {
-		if capability != CapabilityManagedServiceIdentity {
+		switch capability {
+		case CapabilityManagedServiceIdentity, CapabilityServiceIdentity:
+		default:
 			return fmt.Errorf("coordinate contract requires unsupported capability %q", capability)
 		}
 	}
@@ -82,6 +88,9 @@ func (c *CoordinateContract) validate() error {
 	if err := env.ServiceConfig.Validate(); err != nil {
 		return err
 	}
+	if err := env.ServiceIdentity.Validate(); err != nil {
+		return err
+	}
 	if err := env.validateServiceKeyCollisions(); err != nil {
 		return err
 	}
@@ -100,8 +109,8 @@ func (c *CoordinateContract) validate() error {
 				return fmt.Errorf("managed service %q has invalid egress CIDR %q: %w", name, cidr, err)
 			}
 		}
-		if service.Identity != nil && strings.TrimSpace(service.Identity.Principal) == "" {
-			return fmt.Errorf("managed service %q declares an identity without a principal", name)
+		if err := service.Identity.validate(fmt.Sprintf("managed service %q", name)); err != nil {
+			return err
 		}
 		seen := make(map[string]bool)
 		for _, ref := range service.SecretReferences {

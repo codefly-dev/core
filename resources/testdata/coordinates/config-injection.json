@@ -1,5 +1,6 @@
 {
   "schema": "codefly/coordinate/v1",
+  "requires_capabilities": ["service-identity"],
   "environment": {
     "name": "staging",
     "namespace": "product",
@@ -21,6 +22,16 @@
       "secret-store": {"name": "app-secrets", "kind": "SecretStore"},
       "services": {
         "api": {"remote-keys": {"DATABASE_PASSWORD": {"key": "product/api", "property": "password"}}}
+      }
+    },
+    "service-identity": {
+      "default": {
+        "principal": "product-staging-workload",
+        "annotations": {"identity.example/principal": "product-staging-workload"},
+        "labels": {"identity.example/enabled": "true"}
+      },
+      "services": {
+        "worker": {"principal": "product-staging-worker"}
       }
     }
   }

@@ -30,6 +30,12 @@ Producers must supply:
   it does not assert that the service is passwordless.
 - Any workload identity principal and opaque annotation/label attachments.
   Identities and secret references can coexist. Core does not infer an auth mode.
+  There are two homes, for two questions. A managed service's `identity` is
+  reachable only through a managed service the workload consumes; what a workload
+  authenticates as regardless of that goes under `service-identity`, keyed the way
+  `service-config` and `service-secrets` are — an environment-wide `default` plus
+  the services that differ. A per-service entry replaces the default rather than
+  merging into it, so an entry can drop an inherited annotation.
 - Any application secret mappings through the existing `service-secrets` model.
 - Any resolved non-secret values through `service-config`, keyed by consuming
   service and then by the exact key the service reads. The producer resolves the
@@ -52,8 +58,10 @@ CLI still validates the selected operation, service graph and deployment target.
 Local secret resolution and deployed secret projection remain separate consumers
 of the existing configuration model; secret values do not belong in descriptors.
 
-Unknown fields and required capabilities are rejected. A producer declaring a
-workload identity uses `requires_capabilities: ["managed-service-identity"]`.
+Unknown fields and required capabilities are rejected. A producer declaring an
+identity on a managed service uses
+`requires_capabilities: ["managed-service-identity"]`; one declaring a consuming
+service's own identity uses `["service-identity"]`.
 Proxy containers, image choices and loopback routing are not part of this contract.
 
 ## Configuration and secret injection
@@ -61,7 +69,18 @@ Proxy containers, image choices and loopback routing are not part of this contra
 Injecting a workload's configuration and secrets needs four declarations and no
 others: the target (`name`, `namespace`, `cluster.context`), resolved values
 under `service-config`, secret references under `service-secrets`, and a workload
-identity. `resources/testdata/coordinates/config-injection.json` is that whole shape.
+identity under `service-identity`.
+`resources/testdata/coordinates/config-injection.json` is that whole shape.
+
+The fourth is why `service-identity` exists rather than being read off a managed
+service. A descriptor for this flow declares no `managed-services`, so an
+identity carried there would be unreachable: the consumer renders no
+ServiceAccount, the pod keeps the namespace default, and the ExternalSecret that
+did render cannot authenticate to the store. Nothing fails at import or at
+render, and the first signal is in-cluster. `Environment.WorkloadIdentity(service)`
+resolves the per-service entry or the default; composing that with a managed
+service's own identity belongs to the consumer, which knows which services
+consume what — an `Environment` does not.
 
 A producer emitting for this path populates nothing else. `managed-services`,
 `registry`, `ingress`, `resource-quota` and `dns` serve other flows and are

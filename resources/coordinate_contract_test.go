@@ -112,6 +112,105 @@ func TestCoordinateContractCarriesResolvedServiceConfig(t *testing.T) {
 	}
 }
 
+// A descriptor declaring no managed service still has a home for the identity
+// its workloads authenticate as, and resolves it per consuming service: the
+// environment-wide default for the services that do not name one, the entry for
+// the one that does. Without this, the fourth declaration of the injection flow
+// has nowhere to live and the projection falls back to the namespace default
+// service account with nothing reporting it.
+func TestCoordinateContractResolvesServiceIdentityWithoutManagedService(t *testing.T) {
+	contract, err := ParseCoordinateContract(loadCoordinateFixture(t, "config-injection.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := contract.ToEnvironment("staging", "product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env.ManagedServices) != 0 {
+		t.Fatalf("identity arrived through managed-service inventory: %+v", env.ManagedServices)
+	}
+	api := env.WorkloadIdentity("api")
+	if api == nil || api.Principal != "product-staging-workload" {
+		t.Fatalf("api identity = %+v, want the environment default", api)
+	}
+	if api.Annotations["identity.example/principal"] != "product-staging-workload" ||
+		api.Labels["identity.example/enabled"] != "true" {
+		t.Fatalf("default attachments were not carried verbatim: %+v", api)
+	}
+	worker := env.WorkloadIdentity("worker")
+	if worker == nil || worker.Principal != "product-staging-worker" {
+		t.Fatalf("worker identity = %+v, want its own entry", worker)
+	}
+	if len(worker.Annotations) != 0 || len(worker.Labels) != 0 {
+		t.Fatalf("per-service entry inherited the default's attachments: %+v", worker)
+	}
+}
+
+// An environment declaring nothing about identity resolves to none rather than
+// to a zero-valued principal a consumer would project as a real ServiceAccount.
+func TestWorkloadIdentityIsAbsentWhenUndeclared(t *testing.T) {
+	contract, err := ParseCoordinateContract(loadCoordinateFixture(t, "password-auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := contract.ToEnvironment("staging", "product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := env.WorkloadIdentity("api"); got != nil {
+		t.Fatalf("undeclared identity resolved to %+v", got)
+	}
+	if got := (*Environment)(nil).WorkloadIdentity("api"); got != nil {
+		t.Fatalf("nil environment resolved to %+v", got)
+	}
+}
+
+func TestCoordinateContractRejectsIncompleteServiceIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{
+			"neither default nor service",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{}}}`,
+			"neither a default nor any service",
+		},
+		{
+			"default without principal",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"default":{"kind":"azure"}}}}`,
+			"service-identity default declares an identity without a principal",
+		},
+		{
+			"service without principal",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"services":{"api":{"principal":" "}}}}}`,
+			`service-identity service "api" declares an identity without a principal`,
+		},
+		{
+			"unkeyed annotation",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"default":{"principal":"p","annotations":{"":"v"}}}}}`,
+			"annotation name cannot be empty",
+		},
+		{
+			"unkeyed label",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"default":{"principal":"p","labels":{"":"v"}}}}}`,
+			"label name cannot be empty",
+		},
+		{
+			"unknown field",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"defualt":{"principal":"p"}}}}`,
+			"not found",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseCoordinateContract([]byte(tc.data)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
 func TestCoordinateContractRejectsUnresolvedServiceConfig(t *testing.T) {
 	cases := []struct {
 		name        string
