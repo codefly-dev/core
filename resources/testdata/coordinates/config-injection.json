@@ -31,7 +31,11 @@
         "labels": {"identity.example/enabled": "true"}
       },
       "services": {
-        "worker": {"principal": "product-staging-worker"}
+        "worker": {
+          "principal": "product-staging-worker",
+          "annotations": {"identity.example/principal": "product-staging-worker"},
+          "labels": {"identity.example/enabled": "true"}
+        }
       }
     }
   }

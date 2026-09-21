@@ -34,8 +34,13 @@ Producers must supply:
   reachable only through a managed service the workload consumes; what a workload
   authenticates as regardless of that goes under `service-identity`, keyed the way
   `service-config` and `service-secrets` are — an environment-wide `default` plus
-  the services that differ. A per-service entry replaces the default rather than
-  merging into it, so an entry can drop an inherited annotation.
+  the services that differ. A per-service entry replaces the default outright: an
+  override is total, and must restate the annotations and labels it still needs.
+  A principal whose platform attachment is missing authenticates as nothing, so an
+  override that carries only a principal is a declaration that cannot work where
+  the identity webhook keys off a label. Unknown keys in either block are refused
+  rather than dropped: a mistyped `services` would otherwise leave a valid
+  `default` standing and silently collapse every override onto it.
 - Any application secret mappings through the existing `service-secrets` model.
 - Any resolved non-secret values through `service-config`, keyed by consuming
   service and then by the exact key the service reads. The producer resolves the

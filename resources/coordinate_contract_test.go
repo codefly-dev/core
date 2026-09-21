@@ -142,8 +142,55 @@ func TestCoordinateContractResolvesServiceIdentityWithoutManagedService(t *testi
 	if worker == nil || worker.Principal != "product-staging-worker" {
 		t.Fatalf("worker identity = %+v, want its own entry", worker)
 	}
-	if len(worker.Annotations) != 0 || len(worker.Labels) != 0 {
-		t.Fatalf("per-service entry inherited the default's attachments: %+v", worker)
+	// An override is total, so it carries its own attachments. Asserting on the
+	// values rather than on emptiness is what distinguishes a self-sufficient
+	// override from one that silently lost the platform attachment it needs.
+	if worker.Annotations["identity.example/principal"] != "product-staging-worker" {
+		t.Fatalf("override did not carry its own annotations: %+v", worker.Annotations)
+	}
+	if worker.Labels["identity.example/enabled"] != "true" {
+		t.Fatalf("override did not carry the label its identity webhook keys off: %+v", worker.Labels)
+	}
+}
+
+// A resolved identity must share nothing with the declaration. The default is
+// shared by every service that does not override it, so a consumer stamping onto
+// what it resolved for one service would otherwise change what every later
+// service authenticates as — and a shallow copy is not enough, because the
+// Annotations and Labels maps stay shared.
+func TestWorkloadIdentityDoesNotAliasTheDeclaration(t *testing.T) {
+	env := &Environment{
+		ServiceIdentity: &EnvironmentServiceIdentity{
+			Default: &EnvironmentWorkloadIdentity{
+				Principal:   "default-principal",
+				Annotations: map[string]string{"a": "default"},
+				Labels:      map[string]string{"l": "default"},
+			},
+			Services: map[string]EnvironmentWorkloadIdentity{
+				"worker": {
+					Principal:   "worker-principal",
+					Annotations: map[string]string{"a": "worker"},
+					Labels:      map[string]string{"l": "worker"},
+				},
+			},
+		},
+	}
+	for _, service := range []string{"api", "worker"} {
+		identity := env.WorkloadIdentity(service)
+		identity.Principal = "hijacked"
+		identity.Annotations["a"] = "hijacked"
+		identity.Labels["l"] = "hijacked"
+	}
+	if got := env.ServiceIdentity.Default; got.Principal != "default-principal" ||
+		got.Annotations["a"] != "default" || got.Labels["l"] != "default" {
+		t.Errorf("default was mutated through a resolved identity: %+v", got)
+	}
+	if got := env.ServiceIdentity.Services["worker"]; got.Principal != "worker-principal" ||
+		got.Annotations["a"] != "worker" || got.Labels["l"] != "worker" {
+		t.Errorf("per-service entry was mutated through a resolved identity: %+v", got)
+	}
+	if got := env.WorkloadIdentity("billing"); got.Principal != "default-principal" {
+		t.Errorf("a write for one service leaked into another: billing resolves to %q", got.Principal)
 	}
 }
 
@@ -198,9 +245,28 @@ func TestCoordinateContractRejectsIncompleteServiceIdentity(t *testing.T) {
 			"label name cannot be empty",
 		},
 		{
-			"unknown field",
+			"mistyped default",
 			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"defualt":{"principal":"p"}}}}`,
-			"not found",
+			`unknown service-identity field "defualt"`,
+		},
+		{
+			// The failure this block exists to prevent, one level up: a dropped
+			// `services` leaves a valid default, so every override silently
+			// collapses onto it and the workload authenticates as the wrong
+			// principal instead of none.
+			"mistyped services",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"default":{"principal":"p"},"servces":{"api":{"principal":"q"}}}}}`,
+			`unknown service-identity field "servces"`,
+		},
+		{
+			"mistyped annotations",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"default":{"principal":"p","annotatons":{"a":"b"}}}}}`,
+			`unknown workload identity field "annotatons"`,
+		},
+		{
+			"traversing service name",
+			`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-identity":{"services":{"../evil":{"principal":"p"}}}}}`,
+			"must be a single path component",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -346,7 +412,7 @@ func TestCoordinateContractValidatesExplicitSecretReferences(t *testing.T) {
 }
 
 func TestCellEnvironmentOwnsItsConfiguration(t *testing.T) {
-	for _, fixture := range []string{"password-auth.json", "managed-identity.json"} {
+	for _, fixture := range []string{"password-auth.json", "managed-identity.json", "config-injection.json"} {
 		contract, err := ParseCoordinateContract(loadCoordinateFixture(t, fixture))
 		if err != nil {
 			t.Fatal(err)
@@ -360,10 +426,27 @@ func TestCellEnvironmentOwnsItsConfiguration(t *testing.T) {
 			t.Fatal(err)
 		}
 		service := first.ManagedServices["accounts"]
-		service.EgressCIDRs[0] = "0.0.0.0/0"
+		if len(service.EgressCIDRs) > 0 {
+			service.EgressCIDRs[0] = "0.0.0.0/0"
+		}
 		if service.Identity != nil {
 			service.Identity.Annotations["identity.example/principal"] = "other"
 			service.Identity.Labels["identity.example/enabled"] = "false"
+		}
+		// Both resolution paths: "worker" has its own entry, "api" falls through to
+		// the environment-wide default, which every other service also resolves to.
+		for _, consumer := range []string{"api", "worker"} {
+			identity := first.WorkloadIdentity(consumer)
+			if identity == nil {
+				continue
+			}
+			identity.Principal = "other"
+			for key := range identity.Annotations {
+				identity.Annotations[key] = "other"
+			}
+			for key := range identity.Labels {
+				identity.Labels[key] = "false"
+			}
 		}
 		if len(service.SecretReferences) > 0 {
 			service.SecretReferences[0].RemoteKey = "other"

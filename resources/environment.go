@@ -2,7 +2,9 @@ package resources
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -192,6 +194,51 @@ func (identity *EnvironmentWorkloadIdentity) validate(label string) error {
 	return nil
 }
 
+// rejectUnknownKeys reports any key of a mapping node that is not one of
+// permitted. Workspace YAML drops unknown keys, which is right for a block whose
+// absence is inert but wrong for one whose partial presence changes behaviour.
+func rejectUnknownKeys(node *yaml.Node, label string, permitted ...string) error {
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for index := 0; index < len(node.Content); index += 2 {
+		key := node.Content[index].Value
+		if !slices.Contains(permitted, key) {
+			return fmt.Errorf("unknown %s field %q", label, key)
+		}
+	}
+	return nil
+}
+
+// UnmarshalYAML refuses an unknown key instead of dropping it, for the same
+// reason the enclosing block does: a mistyped `annotations` or `labels` is
+// dropped by workspace YAML, leaving a principal whose platform attachment never
+// lands, so the identity webhook never fires and the workload authenticates as
+// nothing.
+func (identity *EnvironmentWorkloadIdentity) UnmarshalYAML(node *yaml.Node) error {
+	if err := rejectUnknownKeys(node, "workload identity", "kind", "principal", "annotations", "labels"); err != nil {
+		return err
+	}
+	type plain EnvironmentWorkloadIdentity
+	return node.Decode((*plain)(identity))
+}
+
+// clone returns a copy that shares nothing with the declaration, so a consumer
+// stamping onto a resolved identity cannot write back into the environment it
+// came from. The maps matter as much as the struct: a shallow copy still shares
+// Annotations and Labels, and the environment-wide default is shared by every
+// service that does not override it, so one such write changes what every later
+// service resolves to.
+func (identity *EnvironmentWorkloadIdentity) clone() *EnvironmentWorkloadIdentity {
+	if identity == nil {
+		return nil
+	}
+	copied := *identity
+	copied.Annotations = maps.Clone(identity.Annotations)
+	copied.Labels = maps.Clone(identity.Labels)
+	return &copied
+}
+
 // EnvironmentServiceIdentity declares what an environment's regular services
 // authenticate as. It is the identity home for a workload that consumes no
 // environment-owned managed service: EnvironmentManagedService.Identity reaches a
@@ -203,12 +250,29 @@ func (identity *EnvironmentWorkloadIdentity) validate(label string) error {
 //
 // Default is the identity every service takes, which is the shape of an
 // environment federating one principal to a namespace. Services names the ones
-// that differ, and an entry there replaces the default outright rather than
-// merging into it: a merge offers no way to drop an inherited annotation, so the
-// service that needed a different principal keeps the default's attachments.
+// that differ, and an entry there replaces the default outright: an override is
+// total, so it states its own attachments rather than inheriting a subset of
+// someone else's. The cost is that an override must restate the annotations and
+// labels it still needs — a principal whose platform attachment is missing
+// authenticates as nothing — which is why a declared override carries them.
 type EnvironmentServiceIdentity struct {
 	Default  *EnvironmentWorkloadIdentity           `yaml:"default,omitempty"`
 	Services map[string]EnvironmentWorkloadIdentity `yaml:"services,omitempty"`
+}
+
+// UnmarshalYAML refuses an unknown key instead of dropping it. Workspace YAML is
+// lenient everywhere else, and the emptiness check cannot cover this block: a
+// mistyped `services` leaves a valid `default` standing, so every service
+// silently resolves to the default principal. That is worse than the missing
+// identity this block exists to prevent — the workload authenticates as the
+// wrong principal, so the secret store denies it in-cluster rather than anything
+// reporting an absent identity.
+func (i *EnvironmentServiceIdentity) UnmarshalYAML(node *yaml.Node) error {
+	if err := rejectUnknownKeys(node, "service-identity", "default", "services"); err != nil {
+		return err
+	}
+	type plain EnvironmentServiceIdentity
+	return node.Decode((*plain)(i))
 }
 
 // Validate checks the structural invariants of a declared service-identity
@@ -226,8 +290,8 @@ func (i *EnvironmentServiceIdentity) Validate() error {
 		return err
 	}
 	for name, identity := range i.Services {
-		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("service-identity: service name cannot be empty")
+		if err := validateResourcePathComponent("service-identity service", name); err != nil {
+			return err
 		}
 		if err := identity.validate(fmt.Sprintf("service-identity service %q", name)); err != nil {
 			return err
@@ -238,7 +302,8 @@ func (i *EnvironmentServiceIdentity) Validate() error {
 
 // WorkloadIdentity returns what a service authenticates as in this environment,
 // or nil when nothing is declared for it. A per-service entry wins over the
-// environment-wide default.
+// environment-wide default. The result is independent of the declaration, so
+// both paths behave the same way under mutation by a caller.
 //
 // It resolves service-identity alone. A managed service's own identity is keyed
 // by that managed service, and which services consume it is not something an
@@ -249,9 +314,9 @@ func (env *Environment) WorkloadIdentity(service string) *EnvironmentWorkloadIde
 		return nil
 	}
 	if identity, declared := env.ServiceIdentity.Services[service]; declared {
-		return &identity
+		return identity.clone()
 	}
-	return env.ServiceIdentity.Default
+	return env.ServiceIdentity.Default.clone()
 }
 
 // EnvironmentServiceSecrets declares the External Secrets store that resolves a

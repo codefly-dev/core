@@ -667,25 +667,45 @@ environments:
 // namespace default where token minting has no identity, and the first signal is
 // a secret lookup failing in-cluster.
 func TestEnvironmentServiceIdentityRejectsIncompleteDeclaration(t *testing.T) {
-	for name, block := range map[string]string{
-		"dropped default key": `    service-identity:
+	for _, tc := range []struct {
+		name  string
+		block string
+		want  string
+	}{
+		{"dropped default key", `    service-identity:
       defualt:
         principal: platform-prod
-`,
-		"no principal": `    service-identity:
+`, `unknown service-identity field "defualt"`},
+		{"no principal", `    service-identity:
       services:
         accounts:
           kind: azure-workload-identity
-`,
+`, "service-identity"},
+		// A valid default standing beside a mistyped `services` is the one case
+		// the emptiness check cannot catch: the block loads, and every service
+		// that meant to override silently authenticates as the default.
+		{"dropped services key", `    service-identity:
+      default:
+        principal: platform-prod
+      servces:
+        accounts:
+          principal: accounts-prod
+`, `unknown service-identity field "servces"`},
+		{"dropped annotations key", `    service-identity:
+      default:
+        principal: platform-prod
+        annotatons:
+          azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000000"
+`, `unknown workload identity field "annotatons"`},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			workspace := `name: platform
 layout: modules
 environments:
   - name: prod
     namespace: platform
-` + block
+` + tc.block
 			if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -693,8 +713,8 @@ environments:
 			if err == nil {
 				t.Fatal("expected load to fail")
 			}
-			if !strings.Contains(err.Error(), "service-identity") {
-				t.Fatalf("error = %v, want it to name the offending block", err)
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want it to contain %q", err, tc.want)
 			}
 		})
 	}
