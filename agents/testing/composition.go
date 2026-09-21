@@ -111,8 +111,10 @@ func AssertKustomizeTemplates(t *testing.T, templates fs.FS, parameters any) str
 // AssertKustomizeTemplatesWithOverlay is AssertKustomizeTemplates with a pod
 // template overlay threaded through the deployment, so an agent can assert that
 // its manifests render serviceAccountName (and the SA object) when a module opts
-// into a per-service identity. A name-less ServiceAccount is keyed off the
-// service name, mirroring DeployKustomize.
+// into a per-service identity. The overlay is normalized exactly as
+// DeployKustomize normalizes it — a name-less ServiceAccount is keyed off the
+// service name, and config mounts get their derived volume names and ReadOnly
+// defaults — so the helper renders the shape the production path guarantees.
 func AssertKustomizeTemplatesWithOverlay(t *testing.T, templates fs.FS, parameters any, overlay *services.PodTemplateOverlay) string {
 	t.Helper()
 	AssertKubernetesManifestContract(t)
@@ -181,6 +183,7 @@ func assertKustomizeProfile(
 		},
 	}
 	overlay.DefaultServiceAccountName(base.Information.Service.Name.DNSCase)
+	overlay.DefaultConfigMounts()
 	if err := overlay.Validate(); err != nil {
 		t.Fatalf("invalid pod overlay: %v", err)
 	}
@@ -400,6 +403,16 @@ spec:
 				1,
 			),
 			contains: "uses prohibited volume type",
+		},
+		{
+			name: "unnamed volume",
+			manifest: strings.Replace(
+				restrictedDeploymentManifest,
+				"      containers:",
+				"      volumes:\n        - name:\n          configMap:\n            name: example-service-config\n      containers:",
+				1,
+			),
+			contains: "must set a name",
 		},
 		{
 			name: "probe host access",

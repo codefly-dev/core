@@ -643,6 +643,12 @@ func (object *kubernetesManifestObject) validatePodSpec(
 	for index, rawVolume := range volumes {
 		volume, ok := rawVolume.(map[string]any)
 		if ok {
+			// A volume no container can reference by name is dead weight the
+			// API server rejects, and it is what a template renders when it
+			// consumes an un-normalized overlay.
+			if stringValue(volume, "name") == "" {
+				violations = append(violations, fmt.Sprintf("%s.spec.volumes[%d] must set a name", ref, index))
+			}
 			for source := range volume {
 				if source == "name" {
 					continue
