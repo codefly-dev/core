@@ -10,9 +10,10 @@ are exactly the workspace YAML keys. There is no second environment model.
 `coordinate` is an optional opaque provenance label; the document is named for
 its subject, and "cell" is not a word the model has.
 
-The previous spelling `codefly/cell/v2` is accepted for one release and reported
-by `UsesDeprecatedSchema`. The alias is on the name, never on the shape: such a
-document is parsed by the same grammar, and no section is back-ported to it.
+There is one spelling. A document naming itself `codefly/cell/v1` or
+`codefly/cell/v2` is refused: under a strict parser the alternative to an error
+is a silent guess, and a permanent fallback is how a retired word outlives every
+decision to retire it.
 
 Examples accepted by Core are in `resources/testdata/coordinates/managed-identity.json`
 and `resources/testdata/coordinates/password-auth.json`. They are contract fixtures,

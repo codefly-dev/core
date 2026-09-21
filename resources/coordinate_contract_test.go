@@ -302,32 +302,16 @@ func TestCoordinateContractRefusesRetargetingAndDirectInvalidValues(t *testing.T
 	}
 }
 
-// The rename keeps one grammar and two spellings for one release. A document
-// naming itself the retired way parses identically and says so, which is what a
-// caller surfaces so a producer renames before the alias is removed.
-func TestCoordinateContractAcceptsTheRetiredSpellingForOneRelease(t *testing.T) {
-	current := loadCoordinateFixture(t, "managed-identity.json")
-	retired := []byte(strings.Replace(string(current), `"codefly/coordinate/v1"`, `"codefly/cell/v2"`, 1))
-
-	fresh, err := ParseCoordinateContract(current)
-	if err != nil {
-		t.Fatalf("current spelling: %v", err)
-	}
-	if fresh.UsesDeprecatedSchema() {
-		t.Error("the current spelling must not be reported as deprecated")
-	}
-
-	old, err := ParseCoordinateContract(retired)
-	if err != nil {
-		t.Fatalf("retired spelling must parse for one release: %v", err)
-	}
-	if !old.UsesDeprecatedSchema() {
-		t.Error("the retired spelling must be reported so a producer learns to rename")
-	}
-
-	// Same grammar, not an older one: the alias is on the name only.
-	fresh.Schema, old.Schema = "", ""
-	if !reflect.DeepEqual(fresh, old) {
-		t.Error("the retired spelling selected a different grammar")
+// The rename left one spelling. Both retired ones are refused, so a document
+// naming itself the old way fails loudly instead of being silently guessed at.
+func TestCoordinateContractRefusesEveryRetiredSpelling(t *testing.T) {
+	for _, retired := range []string{"codefly/cell/v1", "codefly/cell/v2"} {
+		t.Run(retired, func(t *testing.T) {
+			data := strings.Replace(string(loadCoordinateFixture(t, "managed-identity.json")), `"codefly/coordinate/v1"`, `"`+retired+`"`, 1)
+			_, err := ParseCoordinateContract([]byte(data))
+			if err == nil || !strings.Contains(err.Error(), "unsupported coordinate-contract schema") {
+				t.Fatalf("%s was not refused: %v", retired, err)
+			}
+		})
 	}
 }

@@ -15,12 +15,6 @@ import (
 // coordinate, and "cell" is not a word the model has.
 const CoordinateContractSchema = "codefly/coordinate/v1"
 
-// deprecatedCellContractSchema is the spelling this contract shipped under
-// before the rename. It selects the same grammar, never an older one, and is
-// accepted for one release so producer and consumer can rename in either order.
-// Removing it is filed; an alias with no filed removal never goes away.
-const deprecatedCellContractSchema = "codefly/cell/v2"
-
 // CoordinateContract carries Codefly's existing Environment model, not a
 // producer's infrastructure inventory. Producers resolve endpoints, names and
 // references; importing this document never invents credentials or deployment
@@ -52,15 +46,8 @@ func ParseCoordinateContract(data []byte) (*CoordinateContract, error) {
 	return &c, nil
 }
 
-// UsesDeprecatedSchema reports that the document named itself with the retired
-// spelling. The grammar applied is the same either way; a caller surfaces this
-// so a producer learns to rename before the alias is removed.
-func (c *CoordinateContract) UsesDeprecatedSchema() bool {
-	return c.Schema == deprecatedCellContractSchema
-}
-
 func (c *CoordinateContract) validate() error {
-	if c.Schema != CoordinateContractSchema && c.Schema != deprecatedCellContractSchema {
+	if c.Schema != CoordinateContractSchema {
 		return fmt.Errorf("unsupported coordinate-contract schema %q (want %q); producers must emit explicit Codefly environment declarations", c.Schema, CoordinateContractSchema)
 	}
 	for _, capability := range c.RequiresCapabilities {
