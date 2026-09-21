@@ -9,9 +9,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/artifactexecution"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
 	"google.golang.org/grpc"
@@ -20,6 +24,21 @@ import (
 type executor struct {
 	mode   string
 	digest string
+}
+
+type agentExecutor struct {
+	agentv0.UnimplementedAgentServer
+	*executor
+}
+
+func (s *agentExecutor) GetAgentInformation(context.Context, *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
+	declaration := contract.Current()
+	if s.mode == "missing-protocol" {
+		declaration = &agentv0.AgentContract{}
+	} else if s.mode == "future-protocol" {
+		declaration.ProtocolVersion++
+	}
+	return &agentv0.AgentInformation{Contract: declaration}, nil
 }
 
 type builderExecutor struct {
@@ -46,7 +65,11 @@ func (s *builderExecutor) BuildCapabilities(context.Context, *builderv0.BuildCap
 }
 
 func (s *solutionExecutor) GetSolutionInformation(_ context.Context, request *solutionv0.GetSolutionInformationRequest) (*solutionv0.GetSolutionInformationResponse, error) {
-	return &solutionv0.GetSolutionInformationResponse{Artifact: &solutionv0.SolutionArtifact{Publisher: request.GetArtifact().GetPublisher(), Name: request.GetArtifact().GetName(), Version: request.GetArtifact().GetVersion(), ArtifactDigest: s.digest}, Capabilities: &solutionv0.SolutionCapabilities{SupportsRender: true, ExecutionContracts: s.contracts()}}, nil
+	digest := s.digest
+	if s.mode == "wrong-executor" {
+		digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	}
+	return &solutionv0.GetSolutionInformationResponse{Artifact: &solutionv0.SolutionArtifact{Publisher: request.GetArtifact().GetPublisher(), Name: request.GetArtifact().GetName(), Version: request.GetArtifact().GetVersion(), ArtifactDigest: digest}, Capabilities: &solutionv0.SolutionCapabilities{SupportsRender: s.mode != "no-render", ExecutionContracts: s.contracts()}}, nil
 }
 
 func (s *executor) emit(execution *basev0.ArtifactExecution, protocol, directory string) (*basev0.ArtifactExecutionReceipt, error) {
@@ -107,6 +130,23 @@ func main() {
 	mode := flag.String("mode", "supported", "operation contract mode")
 	address := flag.String("address-file", "", "write listening address here")
 	flag.Parse()
+	if value := os.Getenv("EXECUTOR_TEST_MODE"); value != "" {
+		*mode = value
+	}
+	if marker := os.Getenv("EXECUTOR_START_MARKER"); marker != "" {
+		if err := os.WriteFile(marker, []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
+			panic(err)
+		}
+	}
+	if *mode == "no-handshake" {
+		time.Sleep(time.Minute)
+		return
+	}
+	if *mode == "legacy-handshake" {
+		fmt.Println("1|127.0.0.1:1")
+		time.Sleep(time.Minute)
+		return
+	}
 	path, err := os.Executable()
 	if err != nil {
 		panic(err)
@@ -116,6 +156,10 @@ func main() {
 		panic(err)
 	}
 	s := &executor{mode: *mode, digest: fmt.Sprintf("sha256:%x", sha256.Sum256(data))}
+	if *address == "" {
+		agents.Serve(agents.PluginRegistration{Agent: &agentExecutor{executor: s}, Builder: &builderExecutor{executor: s}, Solution: &solutionExecutor{executor: s}})
+		return
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		panic(err)

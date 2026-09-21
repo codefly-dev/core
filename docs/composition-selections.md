@@ -151,14 +151,37 @@ Derived inputs use the signed derived URI and digest, never upstream locations.
 For multi-instance orchestration use `Engine.PrepareArtifactExecutions` to
 authenticate runtime streams once and return a bound request per selected service.
 
+For an acquired native executable, call
+`manager.LoadArtifact(ctx, absolutePath, prepared.Request(), options...)`. This
+does not take an `Agent`, infer release coordinates, download missing content or
+mutate an active installation. It verifies the selected SHA-256 over a private
+copy of the executable before spawning through the shared authenticated/tracked
+loader. The acquired file need not have executable permissions and remains
+untouched. Per-connection cleanup removes only the private copy and owned process.
+Concurrent instances can use different executors without intermediate tags.
+
+This entry point accepts executable bytes, not an archive, OCI manifest or image.
+Their digests are not interchangeable. Packaged executors require a separately
+declared executable artifact; there is no unpacking or source-build fallback.
+Sandbox/principal choices remain mandatory. Exact executors must expose the live
+generic `Agent.GetAgentInformation` contract as well as the chosen Builder or
+Solution operation capability. Unknown/missing protocols and operation contracts
+are rejected before returning the connection. That connection only permits
+inspection and the exact prepared execution/protocol; it is not a general agent
+connection or a deployment authorization.
+
 CLI passes that request to Builder `BuildRequest.execution`, Builder
 `DeploymentRequest.execution`, or Solution `RenderRequest.execution`, according
 to the declared protocol. It must supply the corresponding effective
 configuration and target values used to produce the protected identities. A
 digest does not carry those values or authorize inventing them. Solution's
 legacy `artifact_reference` must be empty on bound calls. Builder's verified
-process artifact digest and Solution's verified package identity respectively
-must match the declared executor; these representations are not interchangeable.
+process artifact digest must match the declared executor. On the exact-artifact
+path, Solution's `SolutionArtifact.artifact_digest` identifies those same selected
+executable bytes; publisher/name/version are not invented from URI or cache path.
+Use the identity returned by the live digest-bound `GetSolutionInformation`
+probe for `RenderRequest.context.artifact`. The legacy installed-provider/package
+loader keeps its distinct manifest/package verification requirements.
 
 Bound calls require absolute caller-owned staging directories: Build and Deploy
 use `output_directory`; Solution uses `destination`. These calls stage outputs
