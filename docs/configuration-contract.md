@@ -4,13 +4,18 @@ Codefly defines the configuration contract. Infrastructure producers, including
 infra-base, emit it. Core and CLI do not understand a producer's resource
 inventory, database engine conventions, proxy mode, or credential naming scheme.
 
-`resources.CellContract` schema `codefly/cell/v2` wraps the existing
+`resources.CoordinateContract` schema `codefly/coordinate/v1` wraps the existing
 `resources.Environment` model under `environment`. JSON keys inside that object
 are exactly the workspace YAML keys. There is no second environment model.
-`cell` and `coordinate` are optional opaque provenance labels.
+`coordinate` is an optional opaque provenance label; the document is named for
+its subject, and "cell" is not a word the model has.
 
-Examples accepted by Core are in `resources/testdata/cells/managed-identity.json`
-and `resources/testdata/cells/password-auth.json`. They are contract fixtures,
+The previous spelling `codefly/cell/v2` is accepted for one release and reported
+by `UsesDeprecatedSchema`. The alias is on the name, never on the shape: such a
+document is parsed by the same grammar, and no section is back-ported to it.
+
+Examples accepted by Core are in `resources/testdata/coordinates/managed-identity.json`
+and `resources/testdata/coordinates/password-auth.json`. They are contract fixtures,
 not claims that a particular infrastructure producer already emits this format.
 
 Producers must supply:
@@ -55,7 +60,7 @@ Proxy containers, image choices and loopback routing are not part of this contra
 Injecting a workload's configuration and secrets needs four declarations and no
 others: the target (`name`, `namespace`, `cluster.context`), resolved values
 under `service-config`, secret references under `service-secrets`, and a workload
-identity. `resources/testdata/cells/config-injection.json` is that whole shape.
+identity. `resources/testdata/coordinates/config-injection.json` is that whole shape.
 
 A producer emitting for this path populates nothing else. `managed-services`,
 `registry`, `ingress`, `resource-quota` and `dns` serve other flows and are

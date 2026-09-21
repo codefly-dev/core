@@ -1,5 +1,5 @@
 {
-  "schema": "codefly/cell/v2",
+  "schema": "codefly/coordinate/v1",
   "environment": {
     "name": "staging",
     "namespace": "product",

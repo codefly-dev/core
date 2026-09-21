@@ -11,19 +11,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func loadCellFixture(t *testing.T, name string) []byte {
+func loadCoordinateFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "cells", name))
+	data, err := os.ReadFile(filepath.Join("testdata", "coordinates", name))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return data
 }
 
-func TestCellContractCarriesExplicitEnvironment(t *testing.T) {
+func TestCoordinateContractCarriesExplicitEnvironment(t *testing.T) {
 	for _, fixture := range []string{"password-auth.json", "managed-identity.json", "config-injection.json"} {
 		t.Run(fixture, func(t *testing.T) {
-			contract, err := ParseCellContract(loadCellFixture(t, fixture))
+			contract, err := ParseCoordinateContract(loadCoordinateFixture(t, fixture))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -52,8 +52,8 @@ func TestCellContractCarriesExplicitEnvironment(t *testing.T) {
 	}
 }
 
-func TestCellContractDoesNotInferAuthentication(t *testing.T) {
-	contract, err := ParseCellContract(loadCellFixture(t, "password-auth.json"))
+func TestCoordinateContractDoesNotInferAuthentication(t *testing.T) {
+	contract, err := ParseCoordinateContract(loadCoordinateFixture(t, "password-auth.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,8 +80,8 @@ func TestCellContractDoesNotInferAuthentication(t *testing.T) {
 // Config and secret injection needs target, config, secrets and identity only: a
 // producer emitting for that flow declares no managed services, registry,
 // ingress or delivery target, and the contract must admit it without them.
-func TestCellContractCarriesResolvedServiceConfig(t *testing.T) {
-	contract, err := ParseCellContract(loadCellFixture(t, "config-injection.json"))
+func TestCoordinateContractCarriesResolvedServiceConfig(t *testing.T) {
+	contract, err := ParseCoordinateContract(loadCoordinateFixture(t, "config-injection.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestCellContractCarriesResolvedServiceConfig(t *testing.T) {
 	}
 }
 
-func TestCellContractRejectsUnresolvedServiceConfig(t *testing.T) {
+func TestCoordinateContractRejectsUnresolvedServiceConfig(t *testing.T) {
 	cases := []struct {
 		name        string
 		field       string
@@ -124,8 +124,8 @@ func TestCellContractRejectsUnresolvedServiceConfig(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			data := strings.Replace(string(loadCellFixture(t, "config-injection.json")), tc.field, tc.replacement, 1)
-			if _, err := ParseCellContract([]byte(data)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			data := strings.Replace(string(loadCoordinateFixture(t, "config-injection.json")), tc.field, tc.replacement, 1)
+			if _, err := ParseCoordinateContract([]byte(data)); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("want %q, got %v", tc.want, err)
 			}
 		})
@@ -134,10 +134,10 @@ func TestCellContractRejectsUnresolvedServiceConfig(t *testing.T) {
 		data string
 		want string
 	}{
-		{`{"schema":"codefly/cell/v2","environment":{"name":"x","service-config":{}}}`, "declares no services"},
-		{`{"schema":"codefly/cell/v2","environment":{"name":"x","service-config":{"services":{"api":{}}}}}`, `service "api" declares no values`},
+		{`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-config":{}}}`, "declares no services"},
+		{`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-config":{"services":{"api":{}}}}}`, `service "api" declares no values`},
 	} {
-		if _, err := ParseCellContract([]byte(tc.data)); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, err := ParseCoordinateContract([]byte(tc.data)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("want %q, got %v", tc.want, err)
 		}
 	}
@@ -147,16 +147,16 @@ func TestCellContractRejectsUnresolvedServiceConfig(t *testing.T) {
 // container, where one silently overwrites the other. The contract refuses it
 // rather than resolving it; the same key under a different service does not
 // collide, and config-injection.json already carries that case.
-func TestCellContractRefusesKeyDeclaredAsBothValueAndSecret(t *testing.T) {
-	data := strings.Replace(string(loadCellFixture(t, "config-injection.json")), `"DATABASE_PASSWORD"`, `"DATABASE_PORT"`, 1)
-	_, err := ParseCellContract([]byte(data))
+func TestCoordinateContractRefusesKeyDeclaredAsBothValueAndSecret(t *testing.T) {
+	data := strings.Replace(string(loadCoordinateFixture(t, "config-injection.json")), `"DATABASE_PASSWORD"`, `"DATABASE_PORT"`, 1)
+	_, err := ParseCoordinateContract([]byte(data))
 	if err == nil || !strings.Contains(err.Error(), `"DATABASE_PORT"`) || !strings.Contains(err.Error(), `service "api"`) {
 		t.Fatalf("want a collision refusal naming the service and key, got %v", err)
 	}
 }
 
-func TestCellContractSupportsLocalConfiguration(t *testing.T) {
-	contract, err := ParseCellContract([]byte(`{"schema":"codefly/cell/v2","environment":{"name":"local","configuration-profile":"development","secrets":[{"kind":"provider","account":"team"}]}}`))
+func TestCoordinateContractSupportsLocalConfiguration(t *testing.T) {
+	contract, err := ParseCoordinateContract([]byte(`{"schema":"codefly/coordinate/v1","environment":{"name":"local","configuration-profile":"development","secrets":[{"kind":"provider","account":"team"}]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,14 +169,14 @@ func TestCellContractSupportsLocalConfiguration(t *testing.T) {
 	}
 }
 
-func TestCellContractRejectsInvalidDeclarations(t *testing.T) {
+func TestCoordinateContractRejectsInvalidDeclarations(t *testing.T) {
 	cases := []struct {
 		name        string
 		field       string
 		replacement string
 		want        string
 	}{
-		{"old schema", `"codefly/cell/v2"`, `"codefly/cell/v1"`, "unsupported cell-contract schema"},
+		{"retired schema", `"codefly/coordinate/v1"`, `"codefly/cell/v1"`, "unsupported coordinate-contract schema"},
 		{"capability", `"managed-service-identity"`, `"unknown-capability"`, "unsupported capability"},
 		{"principal", `"principal": "accounts-client"`, `"principal": " "`, "principal"},
 		{"endpoint", `"external-name": "accounts.example"`, `"external-name": ""`, "endpoint"},
@@ -190,42 +190,42 @@ func TestCellContractRejectsInvalidDeclarations(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			data := strings.Replace(string(loadCellFixture(t, "managed-identity.json")), tc.field, tc.replacement, 1)
-			if _, err := ParseCellContract([]byte(data)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			data := strings.Replace(string(loadCoordinateFixture(t, "managed-identity.json")), tc.field, tc.replacement, 1)
+			if _, err := ParseCoordinateContract([]byte(data)); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("want %q, got %v", tc.want, err)
 			}
 		})
 	}
 	for _, data := range []string{
-		`{"schema":"codefly/cell/v2","environment":{"name":"x","cluster":{}}}`,
-		`{"schema":"codefly/cell/v2","environment":{"name":"x","registry":{}}}`,
-		`{"schema":"codefly/cell/v2","environment":{"name":"x","gitops":{"repo-url":"url","path":"path"}}}`,
-		`{"schema":"codefly/cell/v2","environment":{"name":"x","service-secrets":{"secret-store":{}}}}`,
-		`{"schema":"codefly/cell/v2","environment":{}}`,
+		`{"schema":"codefly/coordinate/v1","environment":{"name":"x","cluster":{}}}`,
+		`{"schema":"codefly/coordinate/v1","environment":{"name":"x","registry":{}}}`,
+		`{"schema":"codefly/coordinate/v1","environment":{"name":"x","gitops":{"repo-url":"url","path":"path"}}}`,
+		`{"schema":"codefly/coordinate/v1","environment":{"name":"x","service-secrets":{"secret-store":{}}}}`,
+		`{"schema":"codefly/coordinate/v1","environment":{}}`,
 		`null`, `{} {}`,
 	} {
-		if _, err := ParseCellContract([]byte(data)); err == nil {
+		if _, err := ParseCoordinateContract([]byte(data)); err == nil {
 			t.Fatalf("accepted incomplete configuration: %s", data)
 		}
 	}
 }
 
-func TestCellContractRejectsProducerInventory(t *testing.T) {
-	if _, err := ParseCellContract(loadCellFixture(t, "no-auth-declaration.json")); err == nil {
+func TestCoordinateContractRejectsProducerInventory(t *testing.T) {
+	if _, err := ParseCoordinateContract(loadCoordinateFixture(t, "no-auth-declaration.json")); err == nil {
 		t.Fatal("accepted legacy inventory instead of requiring producer migration")
 	}
 	for _, field := range []string{`"transport":{"mode":"proxy"}`, `"audit_sinks":[]`, `"password_auth":false`, `"databases":[]`, `"port_typo":1`} {
-		data := strings.Replace(string(loadCellFixture(t, "managed-identity.json")), `"port": 8443`, `"port": 8443,`+field, 1)
-		if _, err := ParseCellContract([]byte(data)); err == nil || !strings.Contains(err.Error(), "not found") {
+		data := strings.Replace(string(loadCoordinateFixture(t, "managed-identity.json")), `"port": 8443`, `"port": 8443,`+field, 1)
+		if _, err := ParseCoordinateContract([]byte(data)); err == nil || !strings.Contains(err.Error(), "not found") {
 			t.Fatalf("expected unknown-field rejection for %s, got %v", field, err)
 		}
 	}
 }
 
-func TestCellContractValidatesExplicitSecretReferences(t *testing.T) {
+func TestCoordinateContractValidatesExplicitSecretReferences(t *testing.T) {
 	for _, field := range []string{"name", "remote-key", "secret-store"} {
 		var raw map[string]any
-		if err := json.Unmarshal(loadCellFixture(t, "password-auth.json"), &raw); err != nil {
+		if err := json.Unmarshal(loadCoordinateFixture(t, "password-auth.json"), &raw); err != nil {
 			t.Fatal(err)
 		}
 		env := raw["environment"].(map[string]any)
@@ -236,19 +236,19 @@ func TestCellContractValidatesExplicitSecretReferences(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := ParseCellContract(data); err == nil {
+		if _, err := ParseCoordinateContract(data); err == nil {
 			t.Fatalf("accepted reference missing %s", field)
 		}
 	}
-	data := strings.Replace(string(loadCellFixture(t, "password-auth.json")), `"property": "token"`, `"property": "token", "proprety": "other"`, 1)
-	if _, err := ParseCellContract([]byte(data)); err == nil {
+	data := strings.Replace(string(loadCoordinateFixture(t, "password-auth.json")), `"property": "token"`, `"property": "token", "proprety": "other"`, 1)
+	if _, err := ParseCoordinateContract([]byte(data)); err == nil {
 		t.Fatal("accepted unknown field inside custom secret reference decoder")
 	}
 }
 
 func TestCellEnvironmentOwnsItsConfiguration(t *testing.T) {
 	for _, fixture := range []string{"password-auth.json", "managed-identity.json"} {
-		contract, err := ParseCellContract(loadCellFixture(t, fixture))
+		contract, err := ParseCoordinateContract(loadCoordinateFixture(t, fixture))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -284,8 +284,8 @@ func TestCellEnvironmentOwnsItsConfiguration(t *testing.T) {
 	}
 }
 
-func TestCellContractRefusesRetargetingAndDirectInvalidValues(t *testing.T) {
-	contract, err := ParseCellContract(loadCellFixture(t, "managed-identity.json"))
+func TestCoordinateContractRefusesRetargetingAndDirectInvalidValues(t *testing.T) {
+	contract, err := ParseCoordinateContract(loadCoordinateFixture(t, "managed-identity.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,5 +299,35 @@ func TestCellContractRefusesRetargetingAndDirectInvalidValues(t *testing.T) {
 	contract.Environment.ManagedServices["accounts"] = service
 	if _, err := contract.ToEnvironment("staging", "product"); err == nil {
 		t.Fatal("directly constructed invalid value bypassed admission")
+	}
+}
+
+// The rename keeps one grammar and two spellings for one release. A document
+// naming itself the retired way parses identically and says so, which is what a
+// caller surfaces so a producer renames before the alias is removed.
+func TestCoordinateContractAcceptsTheRetiredSpellingForOneRelease(t *testing.T) {
+	current := loadCoordinateFixture(t, "managed-identity.json")
+	retired := []byte(strings.Replace(string(current), `"codefly/coordinate/v1"`, `"codefly/cell/v2"`, 1))
+
+	fresh, err := ParseCoordinateContract(current)
+	if err != nil {
+		t.Fatalf("current spelling: %v", err)
+	}
+	if fresh.UsesDeprecatedSchema() {
+		t.Error("the current spelling must not be reported as deprecated")
+	}
+
+	old, err := ParseCoordinateContract(retired)
+	if err != nil {
+		t.Fatalf("retired spelling must parse for one release: %v", err)
+	}
+	if !old.UsesDeprecatedSchema() {
+		t.Error("the retired spelling must be reported so a producer learns to rename")
+	}
+
+	// Same grammar, not an older one: the alias is on the name only.
+	fresh.Schema, old.Schema = "", ""
+	if !reflect.DeepEqual(fresh, old) {
+		t.Error("the retired spelling selected a different grammar")
 	}
 }
