@@ -624,10 +624,10 @@ func TestAddKustomizeResourceIsIdempotent(t *testing.T) {
 }
 
 // TestProjectWorkloadIdentityRendersDeclaredAttachment walks the whole seam a
-// deployment does: a cell's declared identity is projected onto an
+// deployment does: an environment's declared identity is projected onto an
 // already-rendered tree, which gains a ServiceAccount carrying the platform's
 // annotations and a workload bound to it with the platform's labels. Nothing in
-// the path interprets the keys, so a cell on any platform wires its own identity
+// the path interprets the keys, so an environment on any platform wires its own identity
 // webhook by declaring it.
 func TestProjectWorkloadIdentityRendersDeclaredAttachment(t *testing.T) {
 	dir := renderedWorkloadTree(t)
@@ -787,8 +787,8 @@ func TestAttachWorkloadIdentityRejectsConflictingCallerValues(t *testing.T) {
 	}
 	err := overlay.AttachWorkloadIdentity(&resources.EnvironmentWorkloadIdentity{
 		Principal:   "p",
-		Annotations: map[string]string{"shared": "cell", "added": "cell"},
-		Labels:      map[string]string{"shared": "cell", "added": "cell"},
+		Annotations: map[string]string{"shared": "platform", "added": "platform"},
+		Labels:      map[string]string{"shared": "platform", "added": "platform"},
 	})
 	require.ErrorContains(t, err, "conflicts")
 	require.Equal(t, "chosen", overlay.ServiceAccount.Name)

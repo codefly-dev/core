@@ -76,12 +76,12 @@ type WorkloadServiceAccount struct {
 	Annotations map[string]string
 }
 
-// AttachWorkloadIdentity binds a cell's declared runtime identity to the
+// AttachWorkloadIdentity binds an environment's declared runtime identity to the
 // workload: the identity's annotations land on the codefly-owned ServiceAccount
 // and its labels on the pod template, both verbatim. Doing it from the declared
 // contract is what keeps the identity out of every agent's template and out of
-// per-cell branches here — codefly stamps keys it does not interpret, so a cell
-// on any platform wires its own identity webhook by declaring it.
+// per-environment branches here — codefly stamps keys it does not interpret, so an
+// environment on any platform wires its own identity webhook by declaring it.
 //
 // Conflicting declarations are errors, not permission to choose an identity.
 func (o *PodTemplateOverlay) AttachWorkloadIdentity(identity *resources.EnvironmentWorkloadIdentity) error {
@@ -128,7 +128,7 @@ func (o *PodTemplateOverlay) AttachWorkloadIdentity(identity *resources.Environm
 	return nil
 }
 
-// ProjectWorkloadIdentity attaches a cell's declared runtime identity to an
+// ProjectWorkloadIdentity attaches an environment's declared runtime identity to an
 // already-rendered manifest tree: it writes the codefly-owned ServiceAccount
 // into baseDir, wires it into that same directory's kustomization, and stamps
 // serviceAccountName and the identity's labels onto every pod-template workload
