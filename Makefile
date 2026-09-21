@@ -19,9 +19,17 @@ check-cgo-free:
 check-version-tag:
 	./scripts/check_version_tag.sh
 
+# go-test-coverage must be the one the workflow's coverage gate runs: at
+# @latest the local check answers from whatever upstream tagged that morning,
+# so it stops being a verdict on the gate the moment the two diverge — silently,
+# because nothing looks broken while they happen to coincide.
+# internal/ciguard's TestWorkflowCoverageToolMatchesTheMakefile fails when this
+# pin and the action pinned in the workflow disagree.
+GO_TEST_COVERAGE_VERSION := v2.19.0
+
 .PHONY: install-go-test-coverage
 install-go-test-coverage:
-	go install github.com/vladopajic/go-test-coverage/v2@latest
+	go install github.com/vladopajic/go-test-coverage/v2@$(GO_TEST_COVERAGE_VERSION)
 
 .PHONY: check-coverage
 check-coverage: install-go-test-coverage
