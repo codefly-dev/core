@@ -176,7 +176,7 @@ func TestCoordinateContractRejectsInvalidDeclarations(t *testing.T) {
 		replacement string
 		want        string
 	}{
-		{"retired schema", `"codefly/coordinate/v1"`, `"codefly/cell/v1"`, "unsupported coordinate-contract schema"},
+		{"unsupported version", `"codefly/coordinate/v1"`, `"codefly/coordinate/v2"`, "unsupported coordinate-contract schema"},
 		{"capability", `"managed-service-identity"`, `"unknown-capability"`, "unsupported capability"},
 		{"principal", `"principal": "accounts-client"`, `"principal": " "`, "principal"},
 		{"endpoint", `"external-name": "accounts.example"`, `"external-name": ""`, "endpoint"},
@@ -299,19 +299,5 @@ func TestCoordinateContractRefusesRetargetingAndDirectInvalidValues(t *testing.T
 	contract.Environment.ManagedServices["accounts"] = service
 	if _, err := contract.ToEnvironment("staging", "product"); err == nil {
 		t.Fatal("directly constructed invalid value bypassed admission")
-	}
-}
-
-// The rename left one spelling. Both retired ones are refused, so a document
-// naming itself the old way fails loudly instead of being silently guessed at.
-func TestCoordinateContractRefusesEveryRetiredSpelling(t *testing.T) {
-	for _, retired := range []string{"codefly/cell/v1", "codefly/cell/v2"} {
-		t.Run(retired, func(t *testing.T) {
-			data := strings.Replace(string(loadCoordinateFixture(t, "managed-identity.json")), `"codefly/coordinate/v1"`, `"`+retired+`"`, 1)
-			_, err := ParseCoordinateContract([]byte(data))
-			if err == nil || !strings.Contains(err.Error(), "unsupported coordinate-contract schema") {
-				t.Fatalf("%s was not refused: %v", retired, err)
-			}
-		})
 	}
 }
