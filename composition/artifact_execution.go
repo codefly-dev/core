@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/codefly-dev/core/artifactexecution"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -314,18 +315,9 @@ func VerifyArtifactExecutionDirectory(ctx context.Context, prepared *PreparedArt
 		if !info.Mode().IsRegular() {
 			return nil, errors.New("execution output must be a regular file")
 		}
-		file, err := root.Open(output.Path)
+		file, err := openExecutionOutput(root, output.Path)
 		if err != nil {
 			return nil, err
-		}
-		info, err = file.Stat()
-		if err != nil {
-			_ = file.Close()
-			return nil, err
-		}
-		if !info.Mode().IsRegular() {
-			_ = file.Close()
-			return nil, errors.New("execution output must be a regular file")
 		}
 		err = verifyExecutionContent(ctx, file, output.Digest)
 		closeErr := file.Close()
@@ -337,6 +329,22 @@ func VerifyArtifactExecutionDirectory(ctx context.Context, prepared *PreparedArt
 		}
 	}
 	return verifiedExecution(prepared, receipt), nil
+}
+
+func openExecutionOutput(root *os.Root, path string) (*os.File, error) {
+	// The path can become a FIFO after inspection; do not wait for its writer.
+	file, err := root.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err == nil && !info.Mode().IsRegular() {
+		err = errors.New("execution output must be a regular file")
+	}
+	if err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	return file, nil
 }
 
 func VerifyArtifactExecution(ctx context.Context, prepared *PreparedArtifactExecution, receipt *basev0.ArtifactExecutionReceipt, outputs []ExecutionOutputInput) (*VerifiedArtifactExecution, error) {
