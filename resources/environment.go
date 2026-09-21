@@ -198,6 +198,23 @@ type EnvironmentServiceSecretMapping struct {
 	Defaults *EnvironmentSecretRemoteRef `yaml:"defaults,omitempty"`
 }
 
+// EnvironmentServiceConfig declares resolved, non-secret configuration values
+// for an environment's regular services. It is the non-secret twin of
+// EnvironmentServiceSecrets and keys entries the same way — by the consuming
+// service, then by the exact key the service reads — except that the value
+// travels in the declaration instead of a reference into a secret store. The
+// producer resolves it; codefly injects it and derives none of it, so nothing
+// here names a producer's own inventory.
+type EnvironmentServiceConfig struct {
+	Services map[string]EnvironmentServiceConfigMapping `yaml:"services,omitempty"`
+}
+
+// EnvironmentServiceConfigMapping holds one service's resolved values keyed by
+// the configuration key that consumes them.
+type EnvironmentServiceConfigMapping struct {
+	Values map[string]string `yaml:"values,omitempty"`
+}
+
 // EnvironmentResourceQuota sizes the ResourceQuota rendered into an
 // environment's namespace. Requests and Limits map to the ResourceQuota's hard
 // requests.cpu/requests.memory and limits.cpu/limits.memory; Pods caps the pod
@@ -305,6 +322,82 @@ func (s *EnvironmentServiceSecrets) Validate() error {
 	return nil
 }
 
+// Validate checks the structural invariants of a declared service-config block.
+// Workspace YAML tolerates unknown keys, so a mistyped `values:` (or `services:`)
+// leaves a block that declares a service and injects nothing into it — the
+// workload then starts missing exactly the value it was handed over for. An
+// empty value is the same failure one level down: a producer that failed to
+// resolve a host injects "" and the service dials nothing. Both fail at load
+// instead. A nil receiver is a valid "not declared" state.
+func (c *EnvironmentServiceConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if len(c.Services) == 0 {
+		return fmt.Errorf("service-config declares no services")
+	}
+	for name, mapping := range c.Services {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("service-config: service name cannot be empty")
+		}
+		if len(mapping.Values) == 0 {
+			return fmt.Errorf("service-config service %q declares no values", name)
+		}
+		for key, value := range mapping.Values {
+			if strings.TrimSpace(key) == "" {
+				return fmt.Errorf("service-config service %q: value name cannot be empty", name)
+			}
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("service-config service %q: value %q is empty", name, key)
+			}
+		}
+	}
+	return nil
+}
+
+// validateServiceKeyCollisions refuses a key one service declares both as a
+// resolved value and as a secret reference. Each renders an entry of that name
+// into the same container, so one silently overwrites the other and the workload
+// starts with a plausible wrong value rather than failing. Choosing a winner
+// here would only move that silence into codefly. It compares against explicit
+// remote-keys: a service-secrets `defaults` template covers whichever of the
+// service's own keys are declared secret, which this receiver cannot see.
+func (env *Environment) validateServiceKeyCollisions() error {
+	if env.ServiceConfig == nil || env.ServiceSecrets == nil {
+		return nil
+	}
+	for name, config := range env.ServiceConfig.Services {
+		secrets, declared := env.ServiceSecrets.Services[name]
+		if !declared {
+			continue
+		}
+		for key := range config.Values {
+			if _, collides := secrets.RemoteKeys[key]; collides {
+				return fmt.Errorf("service %q declares %q as both a service-config value and a service-secrets remote key", name, key)
+			}
+		}
+	}
+	return nil
+}
+
+// serviceScopedNames lists, per yaml block, the service names an environment
+// keys declarations by. A name matching no loaded service is a silent no-op at
+// projection time, so ValidateEnvironments cross-checks every such block.
+func (env *Environment) serviceScopedNames() map[string][]string {
+	names := make(map[string][]string, 2)
+	if env.ServiceSecrets != nil {
+		for name := range env.ServiceSecrets.Services {
+			names["service-secrets"] = append(names["service-secrets"], name)
+		}
+	}
+	if env.ServiceConfig != nil {
+		for name := range env.ServiceConfig.Services {
+			names["service-config"] = append(names["service-config"], name)
+		}
+	}
+	return names
+}
+
 // secretTemplatePlaceholder matches any "{…}" token in a defaults template.
 var secretTemplatePlaceholder = regexp.MustCompile(`\{[^{}]*\}`)
 
@@ -363,6 +456,12 @@ type Environment struct {
 	// rendered and secret-<service> stays an operator precondition. CLI-side; not
 	// serialized to proto.
 	ServiceSecrets *EnvironmentServiceSecrets `yaml:"service-secrets,omitempty"`
+
+	// ServiceConfig declares resolved non-secret values this environment's
+	// regular services consume. Absent, services take their configuration from
+	// the workspace's own configuration flow alone. CLI-side; not serialized to
+	// proto.
+	ServiceConfig *EnvironmentServiceConfig `yaml:"service-config,omitempty"`
 
 	// ResourceQuota, when set, renders a ResourceQuota (and an optional
 	// LimitRange of container defaults) into this environment's namespace so one

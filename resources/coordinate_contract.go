@@ -10,15 +10,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// CellContractSchema identifies the producer-independent environment contract.
-const CellContractSchema = "codefly/cell/v2"
+// CoordinateContractSchema identifies the producer-independent environment
+// contract. The document is named for its subject: a deployment is named by its
+// coordinate, and "cell" is not a word the model has.
+const CoordinateContractSchema = "codefly/coordinate/v1"
 
-// CellContract carries Codefly's existing Environment model, not a producer's
-// infrastructure inventory. Producers resolve endpoints, names and references;
-// importing this document never invents credentials or deployment paths.
-type CellContract struct {
+// deprecatedCellContractSchema is the spelling this contract shipped under
+// before the rename. It selects the same grammar, never an older one, and is
+// accepted for one release so producer and consumer can rename in either order.
+// Removing it is filed; an alias with no filed removal never goes away.
+const deprecatedCellContractSchema = "codefly/cell/v2"
+
+// CoordinateContract carries Codefly's existing Environment model, not a
+// producer's infrastructure inventory. Producers resolve endpoints, names and
+// references; importing this document never invents credentials or deployment
+// paths.
+type CoordinateContract struct {
 	Schema               string      `yaml:"schema"`
-	Cell                 string      `yaml:"cell,omitempty"`
 	Coordinate           string      `yaml:"coordinate,omitempty"`
 	RequiresCapabilities []string    `yaml:"requires_capabilities,omitempty"`
 	Environment          Environment `yaml:"environment"`
@@ -27,16 +35,16 @@ type CellContract struct {
 // CapabilityManagedServiceIdentity carries an endpoint's declared runtime identity.
 const CapabilityManagedServiceIdentity = "managed-service-identity"
 
-// ParseCellContract reads JSON using the same field names as workspace YAML.
-func ParseCellContract(data []byte) (*CellContract, error) {
+// ParseCoordinateContract reads JSON using the same field names as workspace YAML.
+func ParseCoordinateContract(data []byte) (*CoordinateContract, error) {
 	if !json.Valid(data) {
-		return nil, fmt.Errorf("cell contract must contain exactly one JSON value")
+		return nil, fmt.Errorf("coordinate contract must contain exactly one JSON value")
 	}
-	var c CellContract
+	var c CoordinateContract
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&c); err != nil {
-		return nil, fmt.Errorf("decoding cell contract: %w", err)
+		return nil, fmt.Errorf("decoding coordinate contract: %w", err)
 	}
 	if err := c.validate(); err != nil {
 		return nil, err
@@ -44,13 +52,20 @@ func ParseCellContract(data []byte) (*CellContract, error) {
 	return &c, nil
 }
 
-func (c *CellContract) validate() error {
-	if c.Schema != CellContractSchema {
-		return fmt.Errorf("unsupported cell-contract schema %q (want %q); producers must emit explicit Codefly environment declarations", c.Schema, CellContractSchema)
+// UsesDeprecatedSchema reports that the document named itself with the retired
+// spelling. The grammar applied is the same either way; a caller surfaces this
+// so a producer learns to rename before the alias is removed.
+func (c *CoordinateContract) UsesDeprecatedSchema() bool {
+	return c.Schema == deprecatedCellContractSchema
+}
+
+func (c *CoordinateContract) validate() error {
+	if c.Schema != CoordinateContractSchema && c.Schema != deprecatedCellContractSchema {
+		return fmt.Errorf("unsupported coordinate-contract schema %q (want %q); producers must emit explicit Codefly environment declarations", c.Schema, CoordinateContractSchema)
 	}
 	for _, capability := range c.RequiresCapabilities {
 		if capability != CapabilityManagedServiceIdentity {
-			return fmt.Errorf("cell contract requires unsupported capability %q", capability)
+			return fmt.Errorf("coordinate contract requires unsupported capability %q", capability)
 		}
 	}
 	env := &c.Environment
@@ -75,6 +90,12 @@ func (c *CellContract) validate() error {
 		return fmt.Errorf("declared delivery target requires repository, path and branch")
 	}
 	if err := env.ServiceSecrets.Validate(); err != nil {
+		return err
+	}
+	if err := env.ServiceConfig.Validate(); err != nil {
+		return err
+	}
+	if err := env.validateServiceKeyCollisions(); err != nil {
 		return err
 	}
 	if err := env.ResourceQuota.Validate(); err != nil {
@@ -115,7 +136,7 @@ func (c *CellContract) validate() error {
 // ToEnvironment returns an independent configuration. The requested target must
 // match the declaration: changing a namespace must not silently retarget secrets
 // or delivery paths resolved for another environment.
-func (c *CellContract) ToEnvironment(envName, namespace string) (*Environment, error) {
+func (c *CoordinateContract) ToEnvironment(envName, namespace string) (*Environment, error) {
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
