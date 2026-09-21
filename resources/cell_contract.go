@@ -80,6 +80,9 @@ func (c *CellContract) validate() error {
 	if err := env.ServiceConfig.Validate(); err != nil {
 		return err
 	}
+	if err := env.validateServiceKeyCollisions(); err != nil {
+		return err
+	}
 	if err := env.ResourceQuota.Validate(); err != nil {
 		return err
 	}

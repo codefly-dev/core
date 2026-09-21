@@ -576,6 +576,51 @@ environments:
 	}
 }
 
+// Workspace load refuses the same collision the cell contract does, and accepts
+// the same key under two different services, which is not a collision at all.
+func TestEnvironmentRefusesKeyDeclaredAsBothValueAndSecret(t *testing.T) {
+	workspaceWith := func(configService string) string {
+		return `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-config:
+      services:
+        ` + configService + `:
+          values:
+            DATABASE_HOST: accounts.database.example
+    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        accounts:
+          remote-keys:
+            DATABASE_HOST: accounts/prod/host
+`
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspaceWith("accounts")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err == nil {
+		t.Fatal("expected load to refuse a key declared as both a value and a secret")
+	}
+	if !strings.Contains(err.Error(), "DATABASE_HOST") || !strings.Contains(err.Error(), "accounts") {
+		t.Fatalf("error = %v, want it to name the service and the key", err)
+	}
+
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, resources.WorkspaceConfigurationName), []byte(workspaceWith("billing")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resources.LoadWorkspaceFromDir(context.Background(), other); err != nil {
+		t.Fatalf("same key under two services = %v, want nil", err)
+	}
+}
+
 // A managed secret reference may name a property inside a structured remote
 // document, alongside its remote key.
 func TestEnvironmentManagedSecretReferenceDecodesProperty(t *testing.T) {

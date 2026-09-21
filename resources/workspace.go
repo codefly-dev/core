@@ -534,6 +534,9 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 		if err := env.ServiceConfig.Validate(); err != nil {
 			return w.Wrapf(err, "environment %q has invalid service-config", env.Name)
 		}
+		if err := env.validateServiceKeyCollisions(); err != nil {
+			return w.Wrapf(err, "environment %q declares conflicting service keys", env.Name)
+		}
 		if err := env.ResourceQuota.Validate(); err != nil {
 			return w.Wrapf(err, "environment %q has invalid resource-quota", env.Name)
 		}

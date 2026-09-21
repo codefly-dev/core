@@ -143,6 +143,18 @@ func TestCellContractRejectsUnresolvedServiceConfig(t *testing.T) {
 	}
 }
 
+// A key declared on both sides renders two entries of the same name into one
+// container, where one silently overwrites the other. The contract refuses it
+// rather than resolving it; the same key under a different service does not
+// collide, and config-injection.json already carries that case.
+func TestCellContractRefusesKeyDeclaredAsBothValueAndSecret(t *testing.T) {
+	data := strings.Replace(string(loadCellFixture(t, "config-injection.json")), `"DATABASE_PASSWORD"`, `"DATABASE_PORT"`, 1)
+	_, err := ParseCellContract([]byte(data))
+	if err == nil || !strings.Contains(err.Error(), `"DATABASE_PORT"`) || !strings.Contains(err.Error(), `service "api"`) {
+		t.Fatalf("want a collision refusal naming the service and key, got %v", err)
+	}
+}
+
 func TestCellContractSupportsLocalConfiguration(t *testing.T) {
 	contract, err := ParseCellContract([]byte(`{"schema":"codefly/cell/v2","environment":{"name":"local","configuration-profile":"development","secrets":[{"kind":"provider","account":"team"}]}}`))
 	if err != nil {

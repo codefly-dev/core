@@ -29,6 +29,14 @@ Producers must supply:
   service and then by the exact key the service reads. The producer resolves the
   value; Core carries it verbatim and derives none of it. A declared service with
   nothing to inject, or a value that resolved to empty, is refused at load.
+
+Values and secret references are two blocks, not one dictionary of either-or
+entries: a resolved value belongs in `service-config`, a reference in
+`service-secrets`. One service declaring the same key in both is refused rather
+than resolved — both render an entry of that name into one container, where one
+silently overwrites the other. The refusal compares explicit `remote-keys`; a
+`defaults` template covers whichever of a service's own keys are declared
+secret, which the environment block alone cannot see.
 - Resolved delivery repository, branch and path when declaring a GitOps target.
   Core neither appends the namespace nor chooses a branch.
 

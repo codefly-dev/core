@@ -355,6 +355,31 @@ func (c *EnvironmentServiceConfig) Validate() error {
 	return nil
 }
 
+// validateServiceKeyCollisions refuses a key one service declares both as a
+// resolved value and as a secret reference. Each renders an entry of that name
+// into the same container, so one silently overwrites the other and the workload
+// starts with a plausible wrong value rather than failing. Choosing a winner
+// here would only move that silence into codefly. It compares against explicit
+// remote-keys: a service-secrets `defaults` template covers whichever of the
+// service's own keys are declared secret, which this receiver cannot see.
+func (env *Environment) validateServiceKeyCollisions() error {
+	if env.ServiceConfig == nil || env.ServiceSecrets == nil {
+		return nil
+	}
+	for name, config := range env.ServiceConfig.Services {
+		secrets, declared := env.ServiceSecrets.Services[name]
+		if !declared {
+			continue
+		}
+		for key := range config.Values {
+			if _, collides := secrets.RemoteKeys[key]; collides {
+				return fmt.Errorf("service %q declares %q as both a service-config value and a service-secrets remote key", name, key)
+			}
+		}
+	}
+	return nil
+}
+
 // serviceScopedNames lists, per yaml block, the service names an environment
 // keys declarations by. A name matching no loaded service is a silent no-op at
 // projection time, so ValidateEnvironments cross-checks every such block.
