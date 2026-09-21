@@ -34,8 +34,9 @@ inside a full archive must have the same digest. Metadata-only resolution never
 downloads that archive. Old releases without signed metadata fail explicitly;
 there is no source-checkout or whole-archive fallback.
 
-The owner manifest declares named `release-artifacts` with purpose, location and
-digest. Selected services name their required runtime artifacts. Lifecycle-agent
+The owner manifest declares named `release-artifacts` with purpose, location,
+digest and an explicit `media-type` when used in execution. Selected services
+name their required runtime artifacts. Lifecycle-agent
 artifacts are separate from deployed runtime outputs. Clients and additional
 contracts are acquired only when explicitly requested. A missing artifact is an
 error, not permission to recursively clone or build source.
@@ -92,8 +93,9 @@ not deployment approval.
 
 An unchanged-source rebuild requires `SignedDerivedOutput` from a separately
 configured, component-bound `TrustPolicy.BuildSigners` identity. The signed
-statement binds the complete selection identity, exact owner source and output
-digest. The trusted builder must verify the acquired source/tooling and attest
+statement binds the complete selection identity, exact owner source, prepared
+build execution identity, output digest and acquisition URI. The trusted builder
+must verify the acquired source/tooling and attest
 what it actually built; a product cannot authorize its own builder. Derived
 provenance is retained separately even if a reproducible rebuild has identical
 output bytes. The upstream artifact is never overwritten.
@@ -106,8 +108,87 @@ explicit. Replacements always require `component-compatibility` and `functional`
 qualification. The approval record preserves signed evidence and
 its validity window. Functional/stateful tests and rollout approval belong to
 the authorities configured in that policy. Callers must re-admit at deployment
-time, deploy immutable digests, and record observed running identities rather
+time, apply only the verified render outputs, deploy immutable digests, and record observed running identities rather
 than reporting approval as proof that anything is running.
+
+## Artifact execution
+
+Each selected service declares `artifact-operations` in its owner's signed
+`PackageManifest`. These extend the existing manifest, not a separate language:
+
+```yaml
+artifact-operations:
+  - operation: render
+    protocol: codefly.builder.deploy/v1
+    executor:
+      target: services/api/agent
+      name: renderer
+    inputs:
+      application:
+        name: runtime
+    outputs:
+      manifests: application/yaml
+```
+
+Artifact references name a declared artifact in the same module (omitted
+`target`) or a descendant instance relative to that module. The resolver binds
+them to the actual selected instance releases, including scoped replacements.
+It never derives a renderer or a media type from an artifact's name or URI.
+An undeclared artifact or nonparticipating target fails; render cannot acquire
+implementation source. Source inputs require an explicitly selected build.
+Builds consuming another pending derived output are rejected, not silently
+given the inherited runtime output. Build output media types must match the
+runtime outputs they replace. Every service runtime artifact must feed render.
+
+`ResolutionRecord.Operations` exposes resolved executor/input acquisitions and
+named output media types. `Engine.PrepareArtifactExecution` rechecks authority
+and local content, and for render authenticates actual runtime bytes through
+`CheckDeploymentInputs`. It returns an immutable prepared value whose `Request()`
+is a defensive-copy `base.v0.ArtifactExecution`. The deterministic identity binds
+selection, instance/service, operation protocol, executor bytes, input artifact
+identities, protected configuration, target bindings and output declarations.
+Derived inputs use the signed derived URI and digest, never upstream locations.
+For multi-instance orchestration use `Engine.PrepareArtifactExecutions` to
+authenticate runtime streams once and return a bound request per selected service.
+
+CLI passes that request to Builder `BuildRequest.execution`, Builder
+`DeploymentRequest.execution`, or Solution `RenderRequest.execution`, according
+to the declared protocol. It must supply the corresponding effective
+configuration and target values used to produce the protected identities. A
+digest does not carry those values or authorize inventing them. Solution's
+legacy `artifact_reference` must be empty on bound calls. Builder's verified
+process artifact digest and Solution's verified package identity respectively
+must match the declared executor; these representations are not interchangeable.
+
+Bound calls require absolute caller-owned staging directories: Build and Deploy
+use `output_directory`; Solution uses `destination`. These calls stage outputs
+only, never apply workloads or publish releases. The live capability gate and
+receipt check are in `services.BuilderAgent` and `solution.Client`. Existing
+unbound calls retain their separate behavior but cannot manufacture admission
+for a resolved composition. Missing/future capabilities refuse before dispatch.
+
+The response's execution receipt maps each declared output name to its media
+type, SHA-256 digest and relative regular-file path. Directory outputs must be
+packaged explicitly. `VerifyArtifactExecutionDirectory` opens these paths within
+the staging root, rejects undeclared/nonregular files and hashes actual bytes.
+`VerifyArtifactExecution` also supports
+caller-owned readers, which must supply the corresponding actual output bytes.
+Both reject missing, duplicate, mismatched or additional outputs. The returned
+sealed `VerifiedArtifactExecution` values go into `DeploymentInputs.Executions`.
+
+`CheckDeploymentInputs` without executions validates runtime inputs only. With
+executions it also computes `DeploymentRecord.ExecutionIdentity`. Qualifications
+must sign that identity. `AdmitDeployment` requires a verified render operation
+for every selected service and binds the resulting output identities into the
+approval. Metadata without explicit render mappings cannot be deployed through
+this path. A valid receipt is not approval; changed output bytes require new
+qualification even when the selected runtime bytes are unchanged.
+
+CLI owns acquiring, invoking, keeping staged files isolated from writers,
+checking their bytes again at the apply boundary and recording actual rollout
+state. Owner executors must implement and advertise `artifact-execution/v1`;
+merely linking Core cannot satisfy it. No framework/provider-specific policy or
+new environment wrapper is introduced by this contract.
 
 `UpstreamAdoptions` exports the owner, inherited/replacement selections,
 requirements, rationale and an optional matching approval identity. Core does
@@ -149,6 +230,12 @@ It checks instance isolation, unchanged upstream metadata, deterministic
 identities, recorded metadata-only acquisitions, contract conflicts, dirty
 content, restoration, exact derived builds, runtime tampering, revoked keys,
 stale evidence, target changes and full upstream catch-up resolution.
+`composition/artifact_execution_test.go` checks signed declaration resolution,
+output-byte verification, directory containment and approval binding.
+`agents/services/artifact_execution_test.go` builds a separate protocol peer and
+exercises Build, Deploy and Solution Render over TCP, including missing/future
+capabilities and bad acknowledgements. That fixture qualifies the host boundary,
+not the implementation or publication of any production agent.
 
 Owners must publish the signed metadata and declared artifacts. CLI must wire
 resolution, acquisition, trusted configuration identity, authenticated consumer

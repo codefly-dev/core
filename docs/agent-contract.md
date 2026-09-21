@@ -109,8 +109,16 @@ capability. Advertising support never bypasses the ownership check.
   unchanged. An unchanged contract requires no agent rebuild solely because
   Core changed.
 
-`agents/contract/contract.json` is the protobuf-JSON release manifest for
-`AgentContract` and the embedded source of the shared server's advertisement.
+`agents/contract/contract.json` is the JSON release manifest. Its
+`protocolVersion`, `startupProtocolVersion` and `capabilities` fields supply
+the shared server's `AgentContract` advertisement. `operationContracts` records
+host-supported optional operation contracts, not capabilities automatically
+advertised by executors. `artifact-execution/v1` must be truthfully advertised
+on the live Builder `BuildCapabilities` or Solution `GetSolutionInformation`
+probe before selection-bound operations. A successful response must acknowledge
+the exact request identity and every named output digest and relative file path.
+Embedding a newer Core server does not implement or advertise this behavior.
+See [composition selections](composition-selections.md#artifact-execution).
 The version-tag workflow attaches it to the GitHub release and compares it
 with the latest reachable stable release tag. Release notes explicitly report
 introduction, unchanged compatibility, protocol changes, or capability changes.

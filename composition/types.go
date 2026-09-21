@@ -156,10 +156,11 @@ type ProvidedService struct {
 	// APIContracts lists the machine-readable contract of each exposed endpoint,
 	// as files inside an artifact root of the package. A consumer generates a
 	// client from these without checking out the producing repository.
-	APIContracts     []ProvidedAPIContract `yaml:"api-contracts,omitempty" json:"apiContracts,omitempty"`
-	Agent            *ComponentDefault     `yaml:"agent,omitempty" json:"agent,omitempty"`
-	AgentUsage       string                `yaml:"agent-usage,omitempty" json:"agentUsage,omitempty"`
-	RuntimeArtifacts []string              `yaml:"runtime-artifacts,omitempty" json:"runtimeArtifacts,omitempty"`
+	APIContracts       []ProvidedAPIContract `yaml:"api-contracts,omitempty" json:"apiContracts,omitempty"`
+	Agent              *ComponentDefault     `yaml:"agent,omitempty" json:"agent,omitempty"`
+	AgentUsage         string                `yaml:"agent-usage,omitempty" json:"agentUsage,omitempty"`
+	RuntimeArtifacts   []string              `yaml:"runtime-artifacts,omitempty" json:"runtimeArtifacts,omitempty"`
+	ArtifactOperations []ArtifactOperation   `yaml:"artifact-operations,omitempty" json:"artifactOperations,omitempty"`
 }
 
 // ProvidedAPIContract is one endpoint's contract inside the package.

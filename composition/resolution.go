@@ -56,14 +56,15 @@ type SelectionDifference struct {
 }
 
 type ResolutionRecord struct {
-	Schema                string                `json:"schema"`
-	Product               string                `json:"product"`
-	ConfigurationIdentity string                `json:"configurationIdentity"`
-	ProductInputIdentity  string                `json:"productInputIdentity"`
-	Components            []ResolvedComponent   `json:"components"`
-	Differences           []SelectionDifference `json:"differences,omitempty"`
-	Acquisitions          []Acquisition         `json:"acquisitions,omitempty"`
-	Builds                []BuildRequirement    `json:"builds,omitempty"`
+	Schema                string                      `json:"schema"`
+	Product               string                      `json:"product"`
+	ConfigurationIdentity string                      `json:"configurationIdentity"`
+	ProductInputIdentity  string                      `json:"productInputIdentity"`
+	Components            []ResolvedComponent         `json:"components"`
+	Differences           []SelectionDifference       `json:"differences,omitempty"`
+	Acquisitions          []Acquisition               `json:"acquisitions,omitempty"`
+	Builds                []BuildRequirement          `json:"builds,omitempty"`
+	Operations            []ResolvedArtifactOperation `json:"operations,omitempty"`
 }
 
 type BuildRequirement struct {
@@ -325,6 +326,9 @@ func (engine *Engine) ResolveComposition(ctx context.Context, descriptor *Descri
 				}
 			}
 		}
+	}
+	if err := resolved.resolveArtifactOperations(); err != nil {
+		return nil, err
 	}
 	sort.Slice(resolved.record.Components, func(i, j int) bool {
 		return resolved.record.Components[i].Target < resolved.record.Components[j].Target

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codefly-dev/core/artifactexecution"
 	"github.com/google/go-github/v89/github"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -124,7 +125,7 @@ func TestCompositionToolRequirementUsesHostVersionIndependentlyOfCore(t *testing
 }
 
 func fixtureArtifact(name string, purpose ArtifactPurpose, content string) ReleaseArtifact {
-	return ReleaseArtifact{Name: name, Purpose: purpose, URI: "https://artifacts.example.test/" + name, Digest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(content)))}
+	return ReleaseArtifact{Name: name, Purpose: purpose, URI: "https://artifacts.example.test/" + name, Digest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(content))), MediaType: "application/octet-stream"}
 }
 
 func (registry *selectionRegistry) publish(t *testing.T, manifest *PackageManifest) ReleaseSelection {
@@ -189,6 +190,10 @@ func nestedSelectionFixture(t *testing.T, usage string) *nestedFixture {
 	module.AllowDerivedBuilds = true
 	module.ReleaseArtifacts = []ReleaseArtifact{fixtureArtifact("store", ArtifactRuntime, "owner runtime"), fixtureArtifact("source", ArtifactSource, "owner source"), fixtureArtifact("sdk", ArtifactClient, "owner SDK")}
 	module.Services = []ProvidedService{{Name: "store", AgentUsage: usage, Agent: &ComponentDefault{Release: oldAgent, Requirements: map[string]string{"configuration": "^1.0.0"}}, RuntimeArtifacts: []string{"store"}}}
+	module.Services[0].ArtifactOperations = []ArtifactOperation{
+		{Operation: "render", Protocol: artifactexecution.BuilderRender, Executor: ArtifactReference{Target: "services/store/agent", Name: "tool"}, Inputs: map[string]ArtifactReference{"runtime": {Name: "store"}}, Outputs: map[string]string{"manifests": "application/yaml"}},
+		{Operation: "build", Protocol: artifactexecution.BuilderBuild, Executor: ArtifactReference{Target: "services/store/agent", Name: "builder"}, Inputs: map[string]ArtifactReference{"source": {Name: "source"}}, Outputs: map[string]string{"store": "application/octet-stream"}},
+	}
 	selectedModule := r.publish(t, module)
 	base := selectionManifest("example/lodestar", "1.3.0")
 	for _, name := range []string{"saas", "documents", "unused"} {
@@ -377,15 +382,15 @@ func TestDeploymentAdmissionBindsActualBytesQualificationAndTarget(t *testing.T)
 	ctx := context.Background()
 	resolved, err := f.registry.engine.ResolveComposition(ctx, f.descriptor, f.root, f.options)
 	require.NoError(t, err)
-	record, err := f.registry.engine.CheckDeploymentInputs(ctx, resolved, runtimeInputs())
+	record, err := f.registry.engine.CheckDeploymentInputs(ctx, resolved, f.executedInputs(t, resolved))
 	require.NoError(t, err)
 	now := time.Now().UTC()
-	qualification := Qualification{Schema: "codefly/deployment-qualification/v1", SelectionIdentity: resolved.Identity(), RuntimeIdentity: record.RuntimeIdentity, BindingIdentity: record.BindingIdentity, Kind: "functional", Signer: "reviewer", ExpiresAt: now.Add(time.Hour)}
+	qualification := Qualification{Schema: "codefly/deployment-qualification/v1", SelectionIdentity: resolved.Identity(), RuntimeIdentity: record.RuntimeIdentity, BindingIdentity: record.BindingIdentity, ExecutionIdentity: record.ExecutionIdentity, Kind: "functional", Signer: "reviewer", ExpiresAt: now.Add(time.Hour)}
 	statement, err := json.Marshal(qualification)
 	require.NoError(t, err)
 	signed := SignedQualification{Statement: statement, Signature: ed25519.Sign(f.registry.key, statement)}
 	policy := DeploymentPolicy{RequiredQualifications: []string{"functional"}, QualificationSigners: map[string]map[string]ed25519.PublicKey{"functional": {"reviewer": f.registry.key.Public().(ed25519.PublicKey)}}}
-	inputs := runtimeInputs()
+	inputs := f.executedInputs(t, resolved)
 	inputs.Qualifications = []SignedQualification{signed}
 	approved, err := f.registry.engine.AdmitDeployment(ctx, resolved, inputs, policy, now)
 	require.NoError(t, err)
@@ -396,7 +401,7 @@ func TestDeploymentAdmissionBindsActualBytesQualificationAndTarget(t *testing.T)
 	require.Len(t, approvalRecord.Qualifications, 1)
 	for _, scenario := range []string{"private image", "missing", "duplicate", "stale evidence", "target change", "revoked signer"} {
 		t.Run(scenario, func(t *testing.T) {
-			inputs := runtimeInputs()
+			inputs := f.executedInputs(t, resolved)
 			inputs.Qualifications = []SignedQualification{signed}
 			switch scenario {
 			case "private image":
@@ -419,7 +424,7 @@ func TestDeploymentAdmissionBindsActualBytesQualificationAndTarget(t *testing.T)
 			require.Error(t, err)
 		})
 	}
-	inputs = runtimeInputs()
+	inputs = f.executedInputs(t, resolved)
 	inputs.Qualifications = []SignedQualification{signed}
 	_, err = f.registry.engine.AdmitDeployment(ctx, resolved, inputs, policy, now.Add(2*time.Hour))
 	require.ErrorContains(t, err, "expired")
@@ -451,10 +456,10 @@ func TestProductInputsInvalidateDeploymentQualification(t *testing.T) {
 			f.descriptor.Bindings = []Binding{{Plugin: "frontend", Alias: "store", Target: BindingTarget{Module: "saas", Service: "store"}}}
 			before, err := f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
 			require.NoError(t, err)
-			record, err := f.registry.engine.CheckDeploymentInputs(t.Context(), before, runtimeInputs())
+			record, err := f.registry.engine.CheckDeploymentInputs(t.Context(), before, f.executedInputs(t, before))
 			require.NoError(t, err)
 			now := time.Now()
-			statement, err := json.Marshal(Qualification{Schema: "codefly/deployment-qualification/v1", SelectionIdentity: before.Identity(), RuntimeIdentity: record.RuntimeIdentity, BindingIdentity: record.BindingIdentity, Kind: "functional", Signer: "reviewer", ExpiresAt: now.Add(time.Hour)})
+			statement, err := json.Marshal(Qualification{Schema: "codefly/deployment-qualification/v1", SelectionIdentity: before.Identity(), RuntimeIdentity: record.RuntimeIdentity, BindingIdentity: record.BindingIdentity, ExecutionIdentity: record.ExecutionIdentity, Kind: "functional", Signer: "reviewer", ExpiresAt: now.Add(time.Hour)})
 			require.NoError(t, err)
 			policy := DeploymentPolicy{RequiredQualifications: []string{"functional"}, QualificationSigners: map[string]map[string]ed25519.PublicKey{"functional": {"reviewer": f.registry.key.Public().(ed25519.PublicKey)}}}
 			switch change {
@@ -474,7 +479,7 @@ func TestProductInputsInvalidateDeploymentQualification(t *testing.T) {
 			after, err := f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
 			require.NoError(t, err)
 			require.NotEqual(t, before.Identity(), after.Identity())
-			inputs := runtimeInputs()
+			inputs := f.executedInputs(t, after)
 			inputs.Qualifications = []SignedQualification{{Statement: statement, Signature: ed25519.Sign(f.registry.key, statement)}}
 			_, err = f.registry.engine.AdmitDeployment(t.Context(), after, inputs, policy, now)
 			require.ErrorContains(t, err, "different inputs")
@@ -509,8 +514,10 @@ func TestDerivedOutputsRequireOwnerAuthorizedExactBuildInputs(t *testing.T) {
 	resolved, err := f.registry.engine.ResolveComposition(ctx, f.descriptor, f.root, f.options)
 	require.NoError(t, err)
 	build := resolved.Record().Builds[0]
-	statement := DerivedOutput{Schema: "codefly/derived-output/v1", SelectionIdentity: resolved.Identity(), Target: build.Target, Artifact: build.ReplacesArtifact, SourceIdentity: build.SourceIdentity, Digest: fixtureArtifact("derived", ArtifactRuntime, "derived output").Digest, Signer: "owner-builder"}
-	for _, scenario := range []string{"authorized", "private source", "different selection", "unauthorized builder", "tampered bytes", "missing attestation"} {
+	prepared, err := f.registry.engine.PrepareArtifactExecution(ctx, resolved, build.Target, build.Service, "build", DeploymentInputs{})
+	require.NoError(t, err)
+	statement := DerivedOutput{Schema: "codefly/derived-output/v1", SelectionIdentity: resolved.Identity(), Target: build.Target, Artifact: build.ReplacesArtifact, SourceIdentity: build.SourceIdentity, ExecutionIdentity: prepared.Request().Identity, URI: "https://artifacts.example.test/derived", Digest: fixtureArtifact("derived", ArtifactRuntime, "derived output").Digest, Signer: "owner-builder"}
+	for _, scenario := range []string{"authorized", "private source", "different selection", "different execution", "invalid URI", "unauthorized builder", "tampered bytes", "missing attestation"} {
 		t.Run(scenario, func(t *testing.T) {
 			candidate := statement
 			inputs := runtimeInputs()
@@ -521,6 +528,10 @@ func TestDerivedOutputsRequireOwnerAuthorizedExactBuildInputs(t *testing.T) {
 				candidate.SourceIdentity = fixtureArtifact("source", ArtifactSource, "private patch").Digest
 			case "different selection":
 				candidate.SelectionIdentity = f.root.Digest
+			case "different execution":
+				candidate.ExecutionIdentity = f.root.Digest
+			case "invalid URI":
+				candidate.URI = "file:///private/image"
 			case "unauthorized builder":
 				key = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, 32))
 			case "tampered bytes":
@@ -542,6 +553,13 @@ func TestDerivedOutputsRequireOwnerAuthorizedExactBuildInputs(t *testing.T) {
 					require.Equal(t, &statement, artifact.Derived)
 				}
 			}
+			inputs = runtimeInputs()
+			inputs.Runtime[0].Content = strings.NewReader("derived output")
+			inputs.Derived = []SignedDerivedOutput{{Statement: data, Signature: ed25519.Sign(key, data)}}
+			render, err := f.registry.engine.PrepareArtifactExecution(ctx, resolved, build.Target, build.Service, "render", inputs)
+			require.NoError(t, err)
+			require.Equal(t, statement.URI, render.Request().Inputs[0].Uri)
+			require.Equal(t, statement.Digest, render.Request().Inputs[0].Digest)
 		})
 	}
 }
@@ -631,13 +649,13 @@ func TestReplacementAdmissionCannotOmitCompatibilityOrOwnerQualification(t *test
 			}
 			resolved, err := f.registry.engine.ResolveComposition(t.Context(), f.descriptor, f.root, f.options)
 			require.NoError(t, err)
-			record, err := f.registry.engine.CheckDeploymentInputs(t.Context(), resolved, runtimeInputs())
+			record, err := f.registry.engine.CheckDeploymentInputs(t.Context(), resolved, f.executedInputs(t, resolved))
 			require.NoError(t, err)
 			now := time.Now()
-			qualification := Qualification{Schema: "codefly/deployment-qualification/v1", SelectionIdentity: resolved.Identity(), RuntimeIdentity: record.RuntimeIdentity, BindingIdentity: record.BindingIdentity, Kind: "functional", Signer: "reviewer", ExpiresAt: now.Add(time.Hour)}
+			qualification := Qualification{Schema: "codefly/deployment-qualification/v1", SelectionIdentity: resolved.Identity(), RuntimeIdentity: record.RuntimeIdentity, BindingIdentity: record.BindingIdentity, ExecutionIdentity: record.ExecutionIdentity, Kind: "functional", Signer: "reviewer", ExpiresAt: now.Add(time.Hour)}
 			data, err := json.Marshal(qualification)
 			require.NoError(t, err)
-			inputs := runtimeInputs()
+			inputs := f.executedInputs(t, resolved)
 			inputs.Qualifications = []SignedQualification{{Statement: data, Signature: ed25519.Sign(f.registry.key, data)}}
 			policy := DeploymentPolicy{RequiredQualifications: []string{"functional"}, QualificationSigners: map[string]map[string]ed25519.PublicKey{"functional": {"reviewer": f.registry.key.Public().(ed25519.PublicKey)}}}
 			_, err = f.registry.engine.AdmitDeployment(t.Context(), resolved, inputs, policy, now)

@@ -26,7 +26,9 @@ type DerivedOutput struct {
 	Target            string `json:"target"`
 	Artifact          string `json:"artifact"`
 	SourceIdentity    string `json:"sourceIdentity"`
+	ExecutionIdentity string `json:"executionIdentity"`
 	Digest            string `json:"digest"`
+	URI               string `json:"uri"`
 	Signer            string `json:"signer"`
 }
 
@@ -39,6 +41,7 @@ type Qualification struct {
 	Schema            string    `json:"schema"`
 	SelectionIdentity string    `json:"selectionIdentity"`
 	RuntimeIdentity   string    `json:"runtimeIdentity"`
+	ExecutionIdentity string    `json:"executionIdentity"`
 	BindingIdentity   string    `json:"bindingIdentity"`
 	Kind              string    `json:"kind"`
 	Signer            string    `json:"signer"`
@@ -56,6 +59,7 @@ type DeploymentPolicy struct {
 }
 
 type DeploymentInputs struct {
+	Executions     []*VerifiedArtifactExecution
 	Runtime        []RuntimeInput
 	Derived        []SignedDerivedOutput
 	Bindings       map[string]string
@@ -70,6 +74,8 @@ type RuntimeArtifactIdentity struct {
 }
 
 type DeploymentRecord struct {
+	Executions        []ArtifactExecutionRecord `json:"executions"`
+	ExecutionIdentity string                    `json:"executionIdentity"`
 	SelectionIdentity string                    `json:"selectionIdentity"`
 	RuntimeIdentity   string                    `json:"runtimeIdentity"`
 	BindingIdentity   string                    `json:"bindingIdentity"`
@@ -142,6 +148,16 @@ func (engine *Engine) CheckDeploymentInputs(ctx context.Context, resolved *Resol
 		if statement.Schema != "codefly/derived-output/v1" || statement.SelectionIdentity != resolved.identity || statement.SourceIdentity != build.SourceIdentity || !digestPattern.MatchString(statement.Digest) {
 			return nil, errors.New("derived output does not attest the exact selected owner source and build inputs")
 		}
+		if err := validateArtifactURI(statement.URI); err != nil {
+			return nil, err
+		}
+		prepared, err := resolved.prepareArtifactExecution(build.Target, build.Service, "build", nil)
+		if err != nil {
+			return nil, err
+		}
+		if statement.ExecutionIdentity != prepared.request.Identity {
+			return nil, errors.New("derived output does not bind the selected build execution")
+		}
 		identity := key(statement.Target, statement.Artifact)
 		if _, exists := derived[identity]; exists {
 			return nil, errors.New("duplicate derived output")
@@ -207,6 +223,11 @@ func (engine *Engine) CheckDeploymentInputs(ctx context.Context, resolved *Resol
 	})
 	record.RuntimeIdentity = structuredIdentity(record.Artifacts)
 	record.BindingIdentity = structuredIdentity(record.Bindings)
+	if len(inputs.Executions) != 0 {
+		if err := resolved.checkExecutionOutputs(record, inputs.Executions); err != nil {
+			return nil, err
+		}
+	}
 	return record, nil
 }
 
@@ -214,6 +235,11 @@ func (engine *Engine) AdmitDeployment(ctx context.Context, resolved *ResolvedCom
 	record, err := engine.CheckDeploymentInputs(ctx, resolved, inputs)
 	if err != nil {
 		return nil, err
+	}
+	if record.ExecutionIdentity == "" {
+		if err := resolved.checkExecutionOutputs(record, inputs.Executions); err != nil {
+			return nil, err
+		}
 	}
 	if now.IsZero() {
 		return nil, errors.New("deployment admission time is required")
@@ -244,7 +270,7 @@ func (engine *Engine) AdmitDeployment(ctx context.Context, resolved *ResolvedCom
 		if len(publicKey) != ed25519.PublicKeySize || !ed25519.Verify(publicKey, signed.Statement, signed.Signature) {
 			return nil, ErrSignature
 		}
-		if statement.Schema != "codefly/deployment-qualification/v1" || statement.SelectionIdentity != record.SelectionIdentity || statement.RuntimeIdentity != record.RuntimeIdentity || statement.BindingIdentity != record.BindingIdentity || !statement.ExpiresAt.After(now) {
+		if statement.Schema != "codefly/deployment-qualification/v1" || statement.SelectionIdentity != record.SelectionIdentity || statement.RuntimeIdentity != record.RuntimeIdentity || statement.ExecutionIdentity != record.ExecutionIdentity || statement.BindingIdentity != record.BindingIdentity || !statement.ExpiresAt.After(now) {
 			return nil, errors.New("deployment qualification is expired or belongs to different inputs or target bindings")
 		}
 		if qualified[statement.Kind] {

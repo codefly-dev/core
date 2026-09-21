@@ -196,6 +196,12 @@ PR #752; no additional tracker or release is implied.
    owner-authorized derived-build fixtures reject private source, changed
    selections, unauthorized builders and tampered output. CLI must integrate
    these gates and owners must authorize their actual release/build workflows.
+   Selection-bound build/render mappings now connect these inputs to the
+   existing agent RPCs. Admission also requires verified render outputs and
+   qualification signed over their `ExecutionIdentity`; runtime-input approval
+   alone cannot authorize a deployment. Directory verification rejects extra
+   files, escaped paths and modified bytes. Real-process protocol tests reject
+   unsupported executors before dispatch and incorrect acknowledgements afterward.
 5. **Effective identity:** service connection, in-flight and instance caches
    check the executable digest, not just agent name/version.
    `TestCachedAgentBindsExecutableContent` covers replaced bytes, startup races,
@@ -217,6 +223,10 @@ PR #752; no additional tracker or release is implied.
    consumer usage is bound to the consumer, instance, composition and expiry;
    refusals happen before candidate generators. Unsupported schema/validation,
    authorization and changed dependency-edge semantics remain undetermined.
+   OpenAPI parameter comparisons merge path-level declarations with operation
+   overrides. Narrowing an inherited enum no longer looks like a new optional
+   capability; the signed-package regression preserves the old lock/projection
+   and proves the refused candidate generator never executes.
    Representative owner/consumer functional/stateful runs remain outstanding.
 7. **Versioning:** `ClassifyContractChange` and its tests share the supported
    structural rules, explicit uncertainty and 0.x/prerelease stages. CLI and
@@ -301,12 +311,16 @@ Compared on 20 September 2026 with the handbook's
   establish health. Product-reviewed desired state, one writer per target and
   observed running/rollback receipts remain downstream responsibilities.
 
-The inspected CLI #752 command/package tree has no callers of
-`ResolveComposition`, `AdmitDeployment` or `ProposeOverrideRemoval`. Its trust
-loader and generic environment import adoption do not close that orchestration
-gap. CLI must connect acquisition, exact-input qualification, shared deployment
-admission and running-state reporting before the handbook's product scenario is
-established. Agent owners must publish truthful protocol declarations; real CLI
+Re-inspected CLI #752 at `dbd6d2ca`: `pkg/composition/selection.go` now calls
+`ResolveComposition` and `ProposeOverrideRemoval`; `admission.go` calls
+`AdmitDeployment`, and `compatibility.go` authenticates consumer usage before
+evaluation. The earlier no-callers observation is superseded. Multi-instance
+deployment remains blocked at effect boundaries pending consumption of the
+typed artifact-execution binding described in
+[composition selections](composition-selections.md#artifact-execution).
+CLI still must connect staging, output verification, exact-output qualification,
+apply-time revalidation and running-state reporting before the handbook's product
+scenario is established. Agent owners must publish truthful protocol declarations; real CLI
 engine/gateway tests still reject installed Python, Next.js and generic agents
 without them. No release, private-patch exception or admission bypass follows
 from green Core tests.

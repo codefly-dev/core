@@ -3,6 +3,7 @@ syntax = "proto3";
 package codefly.services.solution.v0;
 
 import "buf/validate/validate.proto";
+import "codefly/base/v0/artifact_execution.proto";
 import "codefly/base/v0/failure.proto";
 import "google/protobuf/descriptor.proto";
 
@@ -134,6 +135,8 @@ message SolutionCapabilities {
   bool supports_package = 3;
   // supports_render declares Render support.
   bool supports_render = 4;
+  // execution_contracts lists artifact execution bindings honored by Render.
+  repeated string execution_contracts = 5;
 }
 
 // GetSolutionInformationRequest identifies the binary asking to advertise.
@@ -220,6 +223,10 @@ message RenderRequest {
   string destination = 3;
   // values are executor-defined render inputs.
   map<string, string> values = 4;
+  // execution supplies authoritative selected artifacts for composition rendering.
+  // When present, artifact_reference must be empty; values remain configuration,
+  // never an alternative artifact selection language.
+  codefly.base.v0.ArtifactExecution execution = 5;
 }
 
 // RenderResponse reports the rendered manifests.
@@ -228,4 +235,6 @@ message RenderResponse {
   repeated string rendered_paths = 1 [(buf.validate.field).repeated.max_items = 10000];
   // diagnostics are bounded neutral diagnostics.
   repeated codefly.base.v0.FailureDiagnostic diagnostics = 2 [(buf.validate.field).repeated.max_items = 100];
+  // execution acknowledges the exact applied selection and emitted output bytes.
+  codefly.base.v0.ArtifactExecutionReceipt execution = 3;
 }

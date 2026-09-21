@@ -4,10 +4,18 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/codefly-dev/core/artifactexecution"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
+	require.Equal(t, []string{artifactexecution.Contract}, SupportedOperationContracts())
+	require.NotContains(t, Current().Capabilities, artifactexecution.Contract)
+	SupportedOperationContracts()[0] = "changed"
+	require.Equal(t, []string{artifactexecution.Contract}, SupportedOperationContracts())
+}
 
 func TestCheck(t *testing.T) {
 	for _, tc := range []struct {

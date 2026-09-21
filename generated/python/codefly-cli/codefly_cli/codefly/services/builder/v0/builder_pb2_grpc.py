@@ -6,7 +6,7 @@ from codefly.services.agent.v0 import communicate_pb2 as codefly_dot_services_do
 from codefly.services.builder.v0 import builder_pb2 as codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2
 
 
-class BuilderStub:
+class BuilderStub(object):
     """Builder is responsible for:
     - creation
     - Docker build
@@ -66,6 +66,21 @@ class BuilderStub:
                 request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.AuditRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.AuditResponse.FromString,
                 _registered_method=True)
+        self.SBOM = channel.unary_unary(
+                '/codefly.services.builder.v0.Builder/SBOM',
+                request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.SBOMRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.SBOMResponse.FromString,
+                _registered_method=True)
+        self.Package = channel.unary_unary(
+                '/codefly.services.builder.v0.Builder/Package',
+                request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.PackageRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.PackageResponse.FromString,
+                _registered_method=True)
+        self.RunnableBuildInputs = channel.unary_unary(
+                '/codefly.services.builder.v0.Builder/RunnableBuildInputs',
+                request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.RunnableBuildInputsRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.RunnableBuildInputsResponse.FromString,
+                _registered_method=True)
         self.Upgrade = channel.unary_unary(
                 '/codefly.services.builder.v0.Builder/Upgrade',
                 request_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.UpgradeRequest.SerializeToString,
@@ -83,7 +98,7 @@ class BuilderStub:
                 _registered_method=True)
 
 
-class BuilderServicer:
+class BuilderServicer(object):
     """Builder is responsible for:
     - creation
     - Docker build
@@ -128,7 +143,7 @@ class BuilderServicer:
         raise NotImplementedError('Method not implemented!')
 
     def Build(self, request, context):
-        """Build compiles or packages the service artifact.
+        """Build creates the deployable service artifact, usually a container image.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -150,6 +165,28 @@ class BuilderServicer:
 
     def Audit(self, request, context):
         """Audit runs dependency and image vulnerability checks.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SBOM(self, request, context):
+        """SBOM returns an authoritative CycloneDX inventory for the loaded service.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Package(self, request, context):
+        """Package emits portable source release artifacts through the owning plugin.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RunnableBuildInputs(self, request, context):
+        """RunnableBuildInputs generates the harness and reports the build inputs of
+        the loaded runnable.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -230,6 +267,21 @@ def add_BuilderServicer_to_server(servicer, server):
                     request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.AuditRequest.FromString,
                     response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.AuditResponse.SerializeToString,
             ),
+            'SBOM': grpc.unary_unary_rpc_method_handler(
+                    servicer.SBOM,
+                    request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.SBOMRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.SBOMResponse.SerializeToString,
+            ),
+            'Package': grpc.unary_unary_rpc_method_handler(
+                    servicer.Package,
+                    request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.PackageRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.PackageResponse.SerializeToString,
+            ),
+            'RunnableBuildInputs': grpc.unary_unary_rpc_method_handler(
+                    servicer.RunnableBuildInputs,
+                    request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.RunnableBuildInputsRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.RunnableBuildInputsResponse.SerializeToString,
+            ),
             'Upgrade': grpc.unary_unary_rpc_method_handler(
                     servicer.Upgrade,
                     request_deserializer=codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.UpgradeRequest.FromString,
@@ -249,11 +301,10 @@ def add_BuilderServicer_to_server(servicer, server):
     generic_handler = grpc.method_handlers_generic_handler(
             'codefly.services.builder.v0.Builder', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('codefly.services.builder.v0.Builder', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class Builder:
+class Builder(object):
     """Builder is responsible for:
     - creation
     - Docker build
@@ -495,6 +546,87 @@ class Builder:
             '/codefly.services.builder.v0.Builder/Audit',
             codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.AuditRequest.SerializeToString,
             codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.AuditResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SBOM(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.builder.v0.Builder/SBOM',
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.SBOMRequest.SerializeToString,
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.SBOMResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Package(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.builder.v0.Builder/Package',
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.PackageRequest.SerializeToString,
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.PackageResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RunnableBuildInputs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.builder.v0.Builder/RunnableBuildInputs',
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.RunnableBuildInputsRequest.SerializeToString,
+            codefly_dot_services_dot_builder_dot_v0_dot_builder__pb2.RunnableBuildInputsResponse.FromString,
             options,
             channel_credentials,
             insecure,

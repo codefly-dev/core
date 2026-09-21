@@ -33,7 +33,16 @@ nothing on `PATH`. codefly-dev/cli#744 tracks pinning it in the tool, where it
 belongs.
 
 Python bindings (for the CLI) are produced via `generated/buf.gen.yaml` where
-the BSR remote plugins are reachable.
+the BSR remote plugins are reachable. The owning command supports that template:
+
+```bash
+codefly generate proto --proto ./proto --output ./generated --local --template buf.gen.yaml --path codefly/base/v0/artifact_execution.proto --path codefly/services/builder/v0/builder.proto --path codefly/services/solution/v0/solution.proto --path codefly/base/v0/runnable.proto
+codefly generate proto --proto ./proto --output ./generated --local
+```
+
+The second command restores the pinned local Go plugin output after the shared
+remote template. Include new transitive Python imports: Builder references
+`runnable.proto`, so regenerating Builder alone is not a complete Python SDK.
 
 ## External schema dependencies
 
@@ -72,9 +81,11 @@ consumers do not — they import `github.com/codefly-dev/core/generated/go/...`.
 ## Rules
 
 - All codefly services are `v0` (still evolving); Mind services are `v1`.
-- This is pre-customer: breaking changes are normal and compatibility shims are
-  not carried. Update core source/bindings and every aggregate-workspace
-  consumer together so the workspace and released artifact set stay atomic.
+- Breaking contracts require explicit adoption by their actual consumers.
+  Unchanged contracts do not require fleet rebuilding or repinning. Optional
+  operation contracts require truthful live executor capabilities; regenerated
+  bindings alone do not advertise implementation. Keep source and bindings
+  together, separately from immutable artifact selections and release authority.
 - CI runs `buf breaking` against `main` under the `PACKAGE` rules, so a removal
   or a type change is caught while moving a message between files in the same
   package is not. Run it before pushing:

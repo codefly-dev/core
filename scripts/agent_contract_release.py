@@ -50,6 +50,12 @@ def release_notes(version):
                 lines.append("Removed: " + ", ".join(f"`{cap}`" for cap in sorted(removed)) + ".")
             lines.append("Republish agents only when a run requires capabilities they do not advertise; "
                          "hosts requiring removed capabilities cannot use this advertisement.")
+    operations = set(current.get("operationContracts", []))
+    if operations:
+        lines.extend(["", "Host-supported operation contracts: " +
+                      ", ".join(f"`{name}`" for name in sorted(operations)) + ".",
+                      "This is not an executor advertisement. Selected executors must implement and "
+                      "advertise the required operation contract before dispatch."])
     lines.extend(["", "The CLI selects required capabilities for each operation. "
                   "A matching protocol does not replace capability checks or this run's recovery-scope acknowledgement.", ""])
     return "\n".join(lines)

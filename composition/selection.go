@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/codefly-dev/core/artifactexecution"
 )
 
 type ReleaseSelection struct {
@@ -61,10 +62,24 @@ const (
 )
 
 type ReleaseArtifact struct {
-	Name    string          `yaml:"name" json:"name"`
-	Purpose ArtifactPurpose `yaml:"purpose" json:"purpose"`
-	URI     string          `yaml:"uri" json:"uri"`
-	Digest  string          `yaml:"digest" json:"digest"`
+	Name      string          `yaml:"name" json:"name"`
+	Purpose   ArtifactPurpose `yaml:"purpose" json:"purpose"`
+	URI       string          `yaml:"uri" json:"uri"`
+	Digest    string          `yaml:"digest" json:"digest"`
+	MediaType string          `yaml:"media-type,omitempty" json:"mediaType,omitempty"`
+}
+
+type ArtifactReference struct {
+	Target string `yaml:"target,omitempty" json:"target,omitempty"`
+	Name   string `yaml:"name" json:"name"`
+}
+
+type ArtifactOperation struct {
+	Operation string                       `yaml:"operation" json:"operation"`
+	Protocol  string                       `yaml:"protocol" json:"protocol"`
+	Executor  ArtifactReference            `yaml:"executor" json:"executor"`
+	Inputs    map[string]ArtifactReference `yaml:"inputs" json:"inputs"`
+	Outputs   map[string]string            `yaml:"outputs" json:"outputs"`
 }
 
 func (selection ReleaseSelection) validate() error {
@@ -225,6 +240,11 @@ func (manifest *PackageManifest) validateSelections() error {
 	}
 	seen = make(map[string]bool)
 	for _, artifact := range manifest.ReleaseArtifacts {
+		if artifact.MediaType != "" {
+			if err := artifactexecution.ValidateMediaType(artifact.MediaType); err != nil {
+				return err
+			}
+		}
 		if err := validateInstanceName(artifact.Name); err != nil {
 			return err
 		}
@@ -237,15 +257,52 @@ func (manifest *PackageManifest) validateSelections() error {
 		default:
 			return fmt.Errorf("unsupported artifact purpose %q", artifact.Purpose)
 		}
-		location, err := url.Parse(artifact.URI)
-		if err != nil || (location.Scheme != "https" && location.Scheme != "oci") || location.Host == "" || location.User != nil || location.RawQuery != "" || location.Fragment != "" {
-			return fmt.Errorf("artifact %s requires an HTTPS or OCI location without credentials, query or fragment", artifact.Name)
+		if err := validateArtifactURI(artifact.URI); err != nil {
+			return fmt.Errorf("artifact %s: %w", artifact.Name, err)
 		}
 		if !digestPattern.MatchString(artifact.Digest) {
 			return fmt.Errorf("artifact %s requires a content digest", artifact.Name)
 		}
 	}
 	for _, service := range manifest.Services {
+		operations := make(map[string]bool)
+		for _, operation := range service.ArtifactOperations {
+			if operations[operation.Operation] || (operation.Operation != "build" && operation.Operation != "render") {
+				return fmt.Errorf("service %s has invalid or duplicate artifact operation", service.Name)
+			}
+			operations[operation.Operation] = true
+			if operation.Operation == "build" && operation.Protocol != artifactexecution.BuilderBuild || operation.Operation == "render" && operation.Protocol != artifactexecution.BuilderRender && operation.Protocol != artifactexecution.SolutionRender {
+				return fmt.Errorf("unsupported artifact operation protocol %s", operation.Protocol)
+			}
+			if len(operation.Inputs) == 0 || len(operation.Outputs) == 0 {
+				return fmt.Errorf("service %s operation requires explicit inputs and outputs", service.Name)
+			}
+			refs := []ArtifactReference{operation.Executor}
+			for name, reference := range operation.Inputs {
+				if err := validateInstanceName(name); err != nil {
+					return err
+				}
+				refs = append(refs, reference)
+			}
+			for _, reference := range refs {
+				if reference.Target != "" {
+					if err := validateTarget(reference.Target); err != nil {
+						return err
+					}
+				}
+				if err := validateInstanceName(reference.Name); err != nil {
+					return err
+				}
+			}
+			for name, media := range operation.Outputs {
+				if err := validateInstanceName(name); err != nil {
+					return err
+				}
+				if err := artifactexecution.ValidateMediaType(media); err != nil {
+					return err
+				}
+			}
+		}
 		if err := uniqueStrings("runtime artifact", service.RuntimeArtifacts); err != nil {
 			return err
 		}
@@ -260,6 +317,14 @@ func (manifest *PackageManifest) validateSelections() error {
 				return fmt.Errorf("service %s requires unpublished runtime artifact %s", service.Name, name)
 			}
 		}
+	}
+	return nil
+}
+
+func validateArtifactURI(value string) error {
+	location, err := url.Parse(value)
+	if err != nil || (location.Scheme != "https" && location.Scheme != "oci") || location.Host == "" || location.User != nil || location.RawQuery != "" || location.ForceQuery || location.Fragment != "" {
+		return errors.New("artifact requires an HTTPS or OCI location without credentials, query or fragment")
 	}
 	return nil
 }
