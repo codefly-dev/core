@@ -2329,7 +2329,7 @@ Each of the brief's 40 scenarios is answered with expected behavior, the enforce
 
 ### Scenario 28: The policy backend is unavailable [permissions]
 - Expected: Every decision denies (fail-closed); no remote mutation, local state, config, or secret-sink write occurs.
-- Enforcement point: SaasPDP.failClosedDecision denies on backend error (pdp_saas.go:297-311, FailClosed defaults true); GatewayEvaluator returns err and never allows on backend failure (gateway.go:104-108, 148-153); callback 5xx→deny (callback.go:408-413, 493-507). CRITICAL CAVEAT: fail-closed only holds once a PDP is actually consulted; the CLI supervisor path today has no PDP (WithoutPrincipal), so absence of wiring is fail-OPEN, not fail-closed.
+- Enforcement point: SaasPDP.failClosedDecision denies on backend error by default, including direct struct construction; only explicit FailOpen=true permits backend failures. GatewayEvaluator returns err and never allows on backend failure (gateway.go:104-108, 148-153); callback 5xx→deny (callback.go:408-413, 493-507). CRITICAL CAVEAT: fail-closed only holds once a PDP is actually consulted; the CLI supervisor path today has no PDP (WithoutPrincipal), so absence of wiring is fail-OPEN, not fail-closed.
 - Durable evidence: FailClosedTotal metric + Warn 'PDP fail-closed' log (observability.go:202-205); admitted-but-failed receipt.
 - Recovery: Retry once the backend is reachable; no compensation needed because no effect occurred (invariant 33). The proposal must ensure the provider coordinator always consults a PDP so 'unavailable' means deny, not skip.
 

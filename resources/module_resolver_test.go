@@ -3,9 +3,10 @@ package resources_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/codefly-dev/core/internal/testgit"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
@@ -558,11 +559,7 @@ func writeAPIService(t *testing.T, moduleDir string) {
 
 func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
-	out, err := cmd.CombinedOutput()
+	out, err := testgit.Run(t.Context(), dir, nil, args...)
 	require.NoError(t, err, "git %v: %s", args, string(out))
 }
 

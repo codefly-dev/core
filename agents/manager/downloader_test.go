@@ -9,11 +9,132 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/codefly-dev/core/resources"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCopyFilePublishesCompleteExecutable(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "installed")
+	require.NoError(t, os.WriteFile(target, []byte("old executable"), 0o755))
+	active, err := os.Open(target)
+	require.NoError(t, err)
+	defer active.Close()
+	source := filepath.Join(t.TempDir(), "new")
+	require.NoError(t, os.WriteFile(source, []byte("new executable"), 0o755))
+	require.NoError(t, CopyFile(source, target))
+	previous, err := io.ReadAll(active)
+	require.NoError(t, err)
+	require.Equal(t, "old executable", string(previous))
+	current, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, "new executable", string(current))
+	info, err := os.Stat(target)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+}
+
+func TestCopyFileFailurePreservesInstall(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "installed")
+	require.NoError(t, os.WriteFile(target, []byte("active"), 0o755))
+	for _, source := range []string{filepath.Join(dir, "missing"), t.TempDir()} {
+		require.Error(t, CopyFile(source, target))
+		content, err := os.ReadFile(target)
+		require.NoError(t, err)
+		require.Equal(t, "active", string(content))
+	}
+	source := filepath.Join(t.TempDir(), "new")
+	require.NoError(t, os.WriteFile(source, []byte("replacement"), 0o755))
+	require.Error(t, CopyFile(source, dir))
+	entries, err := os.ReadDir(filepath.Dir(dir))
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.False(t, strings.HasPrefix(entry.Name(), ".agent-install-"))
+	}
+}
+
+func TestConcurrentInstallReadersSeeWholeFiles(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "installed")
+	payloads := []string{strings.Repeat("a", 1<<20), strings.Repeat("b", 1<<20)}
+	require.NoError(t, os.WriteFile(target, []byte(payloads[0]), 0o755))
+	var writers sync.WaitGroup
+	done := make(chan struct{})
+	for index, payload := range payloads {
+		source := filepath.Join(t.TempDir(), "source")
+		require.NoError(t, os.WriteFile(source, []byte(payload), 0o755))
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			for range 20 {
+				if err := CopyFile(source, target); err != nil {
+					t.Errorf("writer %d: %v", index, err)
+					return
+				}
+			}
+		}()
+	}
+	go func() { writers.Wait(); close(done) }()
+	defer writers.Wait()
+	for {
+		content, err := os.ReadFile(target)
+		require.NoError(t, err)
+		require.True(t, string(content) == payloads[0] || string(content) == payloads[1], "reader observed a partial or mixed executable")
+		select {
+		case <-done:
+			return
+		default:
+		}
+	}
+}
+
+func TestDownloadRejectsUnsafeIdentityBeforeNetwork(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, registration := range resources.AgentKindRegistry() {
+		a := &resources.Agent{Kind: registration.Resource, Publisher: "example.test", Name: "../../../outside", Version: "1.0.0"}
+		_, err := DownloadURL(a)
+		require.ErrorContains(t, err, "invalid agent name")
+		if registration.AutoDownload {
+			err = Download(ctx, a)
+			require.ErrorContains(t, err, "invalid agent name")
+			require.NotErrorIs(t, err, context.Canceled)
+		}
+	}
+}
+
+func TestAmbiguousCacheIdentityCannotLoadInstalledBinary(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	registration, err := resources.AgentKindRegistrationFor(resources.ServiceAgent)
+	require.NoError(t, err)
+	location := filepath.Join(resources.AgentBase(ctx), "agents", registration.InstallSubdirectory, "example.test", "widget__1__2")
+	require.NoError(t, os.MkdirAll(filepath.Dir(location), 0o750))
+	marker := filepath.Join(t.TempDir(), "executed")
+	require.NoError(t, os.WriteFile(location, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o755))
+	for _, other := range []*resources.Agent{
+		{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget", Version: "1__2"},
+		{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "widget__1", Version: "2"},
+	} {
+		downloaded, err := Downloaded(ctx, other)
+		require.ErrorContains(t, err, "cache separator")
+		require.False(t, downloaded)
+		conn, err := Load(ctx, other, WithoutSandbox(), WithoutPrincipal())
+		require.Nil(t, conn)
+		require.ErrorContains(t, err, "cache separator")
+		require.NoFileExists(t, marker)
+		_, err = DownloadURL(other)
+		require.ErrorContains(t, err, "cache separator")
+	}
+}
 
 // stalledServer accepts the connection and then holds the handler until the
 // test ends or the client goes away — the blackholing-proxy shape that used to

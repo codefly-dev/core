@@ -10,13 +10,16 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"slices"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/manager"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	"github.com/codefly-dev/core/network"
@@ -183,6 +186,21 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 	}
 
 	grpcConn := agentConn.GRPCConn()
+	info, err := agentv0.NewAgentClient(grpcConn).GetAgentInformation(ctx, &agentv0.AgentInformationRequest{})
+	if err != nil {
+		agentConn.Close()
+		return fmt.Errorf("inspect agent %s: %w", agentName, err)
+	}
+	if err := contract.Check(info.GetContract()); err != nil {
+		agentConn.Close()
+		return fmt.Errorf("admit agent %s: %w", agentName, err)
+	}
+	for _, required := range []agentv0.Capability_Type{agentv0.Capability_BUILDER, agentv0.Capability_RUNTIME} {
+		if !slices.ContainsFunc(info.Capabilities, func(capability *agentv0.Capability) bool { return capability.GetType() == required }) {
+			agentConn.Close()
+			return fmt.Errorf("agent %s is missing capability %s", agentName, required)
+		}
+	}
 	builder := builderv0.NewBuilderClient(grpcConn)
 	runtime := runtimev0.NewRuntimeClient(grpcConn)
 

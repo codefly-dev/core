@@ -1,6 +1,6 @@
 # Per-consumer module update contracts
 
-`moduleupdate` computes SAFE, NEW CAPABILITY, or BREAKING from a release's
+`moduleupdate` computes SAFE, NEW CAPABILITY, BREAKING, or UNDETERMINED from a release's
 contract evidence and one consumer's exact pins. It performs no network access
 or deployment changes. Its public messages live in
 `proto/codefly/update/v0/update.proto`; Go consumers use the generated bindings.
@@ -45,7 +45,7 @@ implementations still need conformance tests against their declared contracts.
 
 These functions do not invoke `codefly publish`. Publication integration is tracked in
 [CLI #753](https://github.com/codefly-dev/cli/issues/753). Existing releases
-without evidence produce BREAKING when checked; ordinary release verification
+without evidence produce UNDETERMINED when checked; ordinary release verification
 does not newly require this artifact.
 
 ## Consumer usage and verdicts
@@ -74,26 +74,31 @@ generators and their conformance tests own that assertion.
   a contract this consumer does not use can be safe.
 - NEW CAPABILITY: optional items were added and no used contract changed. The
   result names the additions and preserves their documentation pointers.
-- BREAKING: a candidate item or its dependency set fails to satisfy the pinned
-  expectation, or the item was removed. The result names the item and affected
-  client/version. Universal requirements and their transitive dependencies
+- BREAKING: a used contract was removed. The result names the item and affected
+  client/version. Changed digests alone are not proof of incompatibility.
+- UNDETERMINED: required evidence is missing, stale or unsupported, including
+  candidate content or dependencies that differ from pinned expectations.
+  Universal requirements and their transitive dependencies
   apply even without SDK usage; the module baseline supplies expectations where
   the consumer has no explicit pin. A newly universal requirement must have an
   explicit satisfied expectation before the update can be safe.
 
 Malformed input, unknown schema/fields, incomplete coverage, mismatched module
 or baseline, stale SDK digests, missing usage dependencies, and a fabricated or
-truncated diff all yield BREAKING with `could not determine` and the reason.
-BREAKING takes precedence over new capabilities, but both lists are retained.
+truncated diff all yield UNDETERMINED with `could not determine` and the reason.
+BREAKING takes precedence over UNDETERMINED, which takes precedence over new
+capabilities. All three detail lists are retained separately.
 A valid explicit declaration of no usage is different from missing evidence.
 
-Every candidate differing from a used item's pinned expectation is treated conservatively: this version does not prove
-that a changed protobuf field or OpenAPI schema remains source/wire compatible.
-It may therefore require review for an actually compatible used-type change.
-A publisher cannot label a change safe to override the comparison.
+Digest-only evaluation cannot prove that a changed protobuf field or OpenAPI
+schema remains compatible. Source-aware evaluation additionally checks canonical
+source bytes against those digests and applies the supported rules described
+below. Unsupported changes remain UNDETERMINED, including changes to validation
+limits; JSON numeric requirements retain their exact values. A publisher cannot
+label a change safe to override the comparison.
 
 For authenticated module artifacts, call `VerifiedRelease.EvaluateUpdate(pin)`;
-it also turns missing or invalid archive evidence into a named BREAKING result.
+it also turns missing or invalid archive evidence into a named UNDETERMINED result.
 Successful archive/source preparation is cached on the immutable verified
 release; transient preparation errors remain retryable. `ContractDiff` returns
 a copy so callers cannot modify the cached evidence. For fleet evaluation of
@@ -110,6 +115,143 @@ the publisher/checker must construct a diff from that baseline's authenticated
 snapshot to the target snapshot. An adjacent-release diff cannot stand in for
 this comparison. The engine does not resolve tags or chain diffs implicitly.
 
+## Composition updates and owner authority
+
+`Engine.Update` evaluates consumer usage before applying a release transition.
+The CLI supplies signed statements in `Engine.ConsumerPins`, keyed by the
+composition descriptor's module instance name, and authorized consumer identities
+and keys in `Engine.ConsumerAuthorities`. Missing, unauthenticated, expired or
+input-mismatched usage blocks adoption before candidate generators run. The engine fetches and
+verifies the exact locked baseline, derives both snapshots from authenticated
+archives, and computes their complete diff rather than trusting an adjacent
+release's asserted baseline. The semantic report includes the structured consumer
+verdict and does not apply an unknown or breaking result. Initial selection and
+same-release projection work explicitly report that no release transition was
+evaluated. Projection readiness is not deployment approval or behavioral proof.
+
+`TrustPolicy.Signers` is keyed first by package identity, then signing identity.
+The package's configured repository and its authorized signer must both match;
+a signer trusted for another package cannot authorize a release by claiming the
+expected repository. CLI trust configuration must migrate to the package-scoped
+map. This API is an intentional source change, not a global-signer fallback.
+Trust configuration belongs to the component authority, never to a product
+replacement declaration. This verification alone is not deployment admission:
+local checkouts and derived runtime outputs need their own input-bound gate.
+
+## Publisher-wide classification
+
+`moduleupdate.ClassifyContractChange` is the shared structural classifier for
+authenticated snapshots. Unchanged supported contracts classify as patch-level;
+optional additions as minor; removals, including non-schema contracts, as major.
+A changed digest, dependency set or universal requirement whose semantics cannot
+be established returns `undetermined` with reasons. Incomplete coverage also
+returns uncertainty. A patch-level contract result does not prove a functional
+fix: implementations and stateful upgrades still require qualification.
+
+Classification is publisher-wide, independent of a particular consumer's usage.
+An unused removed RPC can require a publisher major while that consumer remains
+compatible. No parent release is classified merely from a child's version.
+The result explicitly identifies stable, development (0.x), prerelease,
+development-prerelease and immutable-revision stages; none implies safety.
+CLI release CI must consume this result instead of adding another classifier.
+
+## Independent-upgrade requirement evidence
+
+This is a reconciliation, not a completion claim for Core #584. The expanded
+product-selection requirements remain in the existing Core PR #589 and CLI
+PR #752; no additional tracker or release is implied.
+
+1. **Defaults, requirements and selections:** `Engine.ResolveComposition` extends
+   `Descriptor`/`PackageManifest` with exact nested module and service-agent
+   replacements. Signed defaults, additional requirements, selected components,
+   output admission and deployment approvals remain distinct. The Team A/Team B
+   signed-HTTP fixture proves separate identities for independent replacements
+   inside the same upstream release and unchanged sibling/default selections.
+2. **Declarations-only acquisition:** `GitHubResolver.ResolveMetadata` downloads
+   only independently authenticated manifest/provenance/signature assets.
+   `ResolveComposition` computes participating instances, runtime/tooling assets
+   and explicit source builds. Recorded HTTP tests reject unused dependencies
+   and implementation archive acquisition. Missing metadata/artifacts are errors.
+   CLI still must route nested compositions to this API and remove implicit
+   dependency-source fallback in its orchestration; the old single-package
+   projection path now rejects nested selections rather than ignoring them.
+3. **Independent local checkouts:** `SetDevelopOverride`, `ClearDevelopOverride`
+   and `Engine.Materialize` preserve the release lock while identifying local
+   content. `TestIndependentLocalCheckoutsBindDirtyContentAndRestoreWithoutDeletingFiles`
+   exercises two independently initialized Git repositories, uncommitted edits,
+   same-path invalidation, sibling isolation and restoration without mutation.
+   It also covers a linked worktree. VCS `.git` files/directories are neither
+   projected nor part of the local content digest: background Git maintenance
+   is not a source edit, and a projection must not inherit the worktree's Git
+   administrative pointer. Every other local source path remains in the digest.
+   `TestLocalMaterializationRejectsSourceMutationDuringGeneration` runs a real
+   generator and refuses publication after it changes the source. These are
+   supplemented by nested local-content/build-plan/restoration tests in
+   `resolution_test.go`, including rejection by deployment admission.
+4. **Deployment authority:** `VerifyRelease` now requires the selected package's
+   authorized signer. Real signed fixtures reject tampering, another component's
+   signer and missing authority. `CheckDeploymentInputs` verifies actual output
+   bytes and current component authorities; `AdmitDeployment` additionally
+   checks signed qualification for exact inputs and target bindings. Signed
+   owner-authorized derived-build fixtures reject private source, changed
+   selections, unauthorized builders and tampered output. CLI must integrate
+   these gates and owners must authorize their actual release/build workflows.
+   Selection-bound build/render mappings now connect these inputs to the
+   existing agent RPCs. Admission also requires verified render outputs and
+   qualification signed over their `ExecutionIdentity`; runtime-input approval
+   alone cannot authorize a deployment. Directory verification rejects extra
+   files, escaped paths and modified bytes. Real-process protocol tests reject
+   unsupported executors before dispatch and incorrect acknowledgements afterward.
+5. **Effective identity:** service connection, in-flight and instance caches
+   check the executable digest, not just agent name/version.
+   `TestCachedAgentBindsExecutableContent` covers replaced bytes, startup races,
+   preservation of the running process and explicit replacement. Projection
+   identities already include package and contribution content. Resolution now
+   produces a combined product identity/difference record with protected HMAC
+   configuration identity. Deployment records bind actual/derived outputs and
+   separate targets to approval evidence. Downstream build caches and observed
+   running/rollback records still need to consume these identities.
+6. **Compatibility:** `TestEngineUpdateUsesAuthenticatedConsumerBaseline` proves
+   real signed baseline/candidate evaluation for skipped releases, a compatible
+   optional REST capability, a removed used route, changed authorization
+   requirements, missing/stale usage and a tampered baseline. Protobuf tests
+   derive transitive type identities and reject stale catalogs. Changed digests
+   alone remain UNDETERMINED rather than fabricated semantic breaks. Source-aware
+   evaluation now supports optional protobuf fields/REST parameters, required
+   REST parameters and incompatible transitive types, without changing existing
+   snapshot identities. Tests include actual protobuf encode/decode. Signed
+   consumer usage is bound to the consumer, instance, composition and expiry;
+   refusals happen before candidate generators. Unsupported schema/validation,
+   authorization and changed dependency-edge semantics remain undetermined.
+   OpenAPI parameter comparisons merge path-level declarations with operation
+   overrides. Narrowing an inherited enum no longer looks like a new optional
+   capability; the signed-package regression preserves the old lock/projection
+   and proves the refused candidate generator never executes.
+   Representative owner/consumer functional/stateful runs remain outstanding.
+7. **Versioning:** `ClassifyContractChange` and its tests share the supported
+   structural rules, explicit uncertainty and 0.x/prerelease stages. CLI and
+   release CI do not yet consume it. `ClassifyContractChangeWithSources` shares
+   the supported source-level rules with consumer evaluation; unsupported content
+   changes remain visibly undetermined.
+8. **Upstream adoption:** `UpstreamAdoptions` exports owner/default/replacement
+   facts and optional matching approval identity. `ProposeOverrideRemoval`
+   re-resolves the full candidate with/without the replacement; signed fixtures
+   reject changed requirements and moved targets. It proposes, never mutates
+   declarations or opens requests. New selections require new qualification.
+
+See [composition selections](composition-selections.md) for API contracts,
+signed metadata publication, derived-build authority and CLI integration duties.
+
+CLI #752 now consumes the Core implementation through a published Go pseudo-version
+and loads package-bound signing keys; signed HTTP regressions reject authority
+borrowed from another package. Remaining migration includes supplying signed actual
+consumer usage to `Engine.Update` and displaying/blocking `VERDICT_UNDETERMINED`. The owner
+must supply authoritative keys and release metadata; a product declaration
+cannot grant itself that authority. Published-agent lifecycle qualification is
+separate from independently built protocol fixtures. The last official-service
+admission run rejected all 17 installed releases for missing declarations; this
+work does not forge declarations or republish those agents.
+
 ## Distribution decision and outstanding acceptance
 
 Use A first: shared offline core/CLI computation, with the existing GitHub App
@@ -122,7 +264,7 @@ compatibility under declared evidence; it is not authority to deploy or a claim
 about health, migrations, credentials, or undeclared behavior.
 
 This core implementation does **not** complete the cross-repository acceptance
-criteria of #578. There is no new running fan-out service or production CLI
+criteria originally recorded in #578. There is no new running fan-out service or production CLI
 command in this repository. The remaining owner work is:
 
 - [CLI #753](https://github.com/codefly-dev/cli/issues/753): contract/usage
@@ -138,5 +280,53 @@ The checked-in YAML is a synthetic contract scenario, not a recording of that
 chain. Tests exercise per-consumer differences, transitive type changes,
 universal registration requirements, conservative unknowns, deterministic JSON,
 and real signed-archive verification. No deployed-cell or real-chain update is
-claimed from those tests. The core PR remains draft pending these integration
-and acceptance gates; a merge must not close #578 prematurely.
+claimed from those tests. Core #584 and CLI #753 retain the outstanding
+qualification; the Core PR remains draft pending these integration and acceptance gates.
+
+## Handbook delivery and selection review
+
+Compared on 20 September 2026 with the handbook's
+`decisions/consumer-owned-component-selection.md`,
+`decisions/delivery-per-product.md` and
+`design/composing-running-updating-delivering-review/release-scenarios.md`:
+
+- **Independent selection:** signed nested-resolution fixtures exercise different
+  product replacements without ancestor tags, unchanged siblings, metadata-only
+  participation and refusal of missing artifacts. Exact artifact pins remain
+  integrity inputs, not linked-Core compatibility gates.
+- **Actual inputs:** the resolved identity now includes product bindings, test
+  commands and contribution content. Edited, deleted or renamed files and removed
+  suites invalidate signed qualification. Concurrent update/rollback publication
+  compares the qualified lock baseline under a writer lock, preventing an older
+  operation from overwriting a completed selection.
+- **Owner authority and local work:** signed fixtures reject cross-package keys,
+  private/local deployment inputs and stale evidence. Independent local checkouts
+  retain recorded releases and developer files. These are library-boundary proofs,
+  not proof that a product command uses those checks.
+- **Upstream catch-up:** full re-resolution compares effective requirements and
+  artifacts. Repeated inherited constraints do not obstruct removal; stronger
+  replacement requirements still do. Removing an override requires fresh approval.
+- **Delivery ownership:** workload identity publication exchanges the complete
+  generated tree atomically on Linux/macOS. This does not apply a deployment or
+  establish health. Product-reviewed desired state, one writer per target and
+  observed running/rollback receipts remain downstream responsibilities.
+
+Re-inspected CLI #752 at `dbd6d2ca`: `pkg/composition/selection.go` now calls
+`ResolveComposition` and `ProposeOverrideRemoval`; `admission.go` calls
+`AdmitDeployment`, and `compatibility.go` authenticates consumer usage before
+evaluation. The earlier no-callers observation is superseded. Multi-instance
+deployment remains blocked at effect boundaries pending consumption of the
+typed artifact-execution binding described in
+[composition selections](composition-selections.md#artifact-execution).
+CLI still must connect staging, output verification, exact-output qualification,
+apply-time revalidation and running-state reporting before the handbook's product
+scenario is established. Agent owners must publish truthful protocol declarations; real CLI
+engine/gateway tests still reject installed Python, Next.js and generic agents
+without them. No release, private-patch exception or admission bypass follows
+from green Core tests.
+
+The handbook acceptance table predates these Core APIs: its "missing in Core"
+claims for nested selections, admission, effective identity and override removal
+are stale. Its end-to-end "unverified" conclusion remains correct. No live
+product deployment, retained-data upgrade, release approval or GitOps cutover was
+performed for this review.

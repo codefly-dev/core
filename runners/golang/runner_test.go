@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/codefly-dev/core/internal/testgit"
 	"time"
 
 	"github.com/codefly-dev/core/resources"
@@ -281,12 +283,10 @@ func TestNixRunWithMod(t *testing.T) {
 	require.NoError(t, cpCmd.Run())
 
 	// Initialize a git repo so nix can see the flake
-	cmd := exec.Command("git", "init")
-	cmd.Dir = tmpDir
-	require.NoError(t, cmd.Run())
-	cmd = exec.Command("git", "add", "-A")
-	cmd.Dir = tmpDir
-	require.NoError(t, cmd.Run())
+	for _, args := range [][]string{{"init"}, {"add", "-A"}} {
+		out, err := testgit.Run(t.Context(), tmpDir, nil, args...)
+		require.NoError(t, err, "%s", out)
+	}
 
 	env, err := golang.NewNixGoRunner(ctx, tmpDir, "mod")
 	require.NoError(t, err)

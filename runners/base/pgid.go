@@ -588,15 +588,23 @@ func CommandSummary(argv []string) string {
 
 // RemoveIfDead removes this registration only when it still names the same
 // record and the process group is empty.
-func (group *TrackedProcessGroup) RemoveIfDead() (returnErr error) {
+func (group *TrackedProcessGroup) RemoveIfDead() error {
+	return group.RemoveIfDeadContext(context.Background())
+}
+
+// RemoveIfDeadContext bounds the registry-lock wait during confirmed shutdown.
+func (group *TrackedProcessGroup) RemoveIfDeadContext(ctx context.Context) (returnErr error) {
 	if group == nil {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	dir, err := pgidStateDir()
 	if err != nil {
 		return err
 	}
-	lock, err := acquireRegistryLock(context.Background(), dir)
+	lock, err := acquireRegistryLock(ctx, dir)
 	if err != nil {
 		return fmt.Errorf("lock process-group registry: %w", err)
 	}

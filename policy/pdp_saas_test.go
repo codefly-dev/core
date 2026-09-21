@@ -80,7 +80,7 @@ func TestSaasPDP_FailOpen_ExplicitOptIn(t *testing.T) {
 	be.Err = errors.New("transient fault")
 	metrics := &policy.PDPMetrics{}
 	pdp := policy.NewSaasPDP(be).WithMetrics(metrics)
-	pdp.FailClosed = false // operator explicitly opted into fail-open
+	pdp.FailOpen = true
 
 	d := pdp.Evaluate(context.Background(), &policy.PDPRequest{
 		Tool: "git.status",
@@ -92,7 +92,7 @@ func TestSaasPDP_FailOpen_ExplicitOptIn(t *testing.T) {
 	require.True(t, d.Allow)
 	require.Contains(t, d.Reason, "WARNING",
 		"fail-open allows MUST surface a WARNING in the reason for audit grep")
-	require.Contains(t, d.Reason, "FailClosed=false")
+	require.Contains(t, d.Reason, "FailOpen=true")
 
 	// Accounting: fail-open produces an Allow, NOT a fail-closed
 	// deny. Metrics reflect the user-facing outcome.

@@ -71,9 +71,55 @@ needs no Linux builder VM, which is why the publish workflow uses it.
 | `grpcio-tools` (python)       | `grpc_python_plugin` for Python bindings |
 | `node` + `npm`                | TypeScript generators                    |
 
+## Generation ends with a formatting pass
+
+`buf generate` is not the last step. The Go the plugins emit differs from the
+Go every consumer commits: protoc-gen-go leaves the stdlib imports sorted in
+among the third-party ones, and protoc-gen-grpc-gateway imports a sibling
+package by bare path even when that package's name is not its path's last
+element. Consumers run goimports over that and gate their checked-in bindings
+on the result — the stdlib group split off, the alias added.
+
+So the companion runs `goimports -w` itself, inside the image, over the
+generated Go files in every output directory the template declares
+(`companions/proto.FormatGoOutputs`). Its output is the committed shape, and a
+consumer needs nothing on the host to reproduce a clean tree. goimports is
+pinned in both build definitions like a plugin, because a formatter that moves
+moves every consumer's tree; `TestDockerfilePinsGoimports` and
+`TestFlakePinsGoimports` hold the two to the same version. Output directories
+may also contain handwritten Go, so only files carrying Go's standard
+`Code generated … DO NOT EDIT.` ownership notice are formatted.
+
 ## Versioning
 
 `info.codefly.yaml` carries the image version (`0.0.10` at time of
 writing). Bump via `scripts/tag.sh` — same convention as every other
 companion. Both the Dockerfile build and the Nix build read this
 value so the tag stays consistent.
+## Rust client imports
+
+The proto companion supplies local `protoc-gen-prost` and `protoc-gen-tonic`
+0.5.0, targeting prost/tonic 0.14. Rust clients retain googleapis and
+protovalidate message bindings beside the application's bindings. Standard
+`google.protobuf` types continue to resolve through `prost-types`.
+
+Client generation validates descriptor-set type references before invoking the
+plugins. Both source and descriptor-set generation are covered by a Cargo
+compile and encode/decode regression containing `google.rpc.Status` and
+`buf.validate.Violations`:
+
+```sh
+go test ./companions/proto -tags=proto_companion_required -run TestRustClientRetainsImportedMessageFields -timeout=180s
+```
+
+This requires the built proto companion and Cargo. The updated plugins ship in
+companion version 0.0.16; bumping the manifest alone does not publish that image.
+Use the [companion publication procedure](../../docs/runbooks/publish-companions.md).
+
+Rust generation stages output before publishing it. `.codefly-rust-output.json`
+records the generated files and their hashes; only unchanged, tracked files may
+be replaced or removed. Unrelated files are preserved. A collision with an
+untracked file or an edited binding is an error, including when adopting output
+created before ownership tracking. Generate into an empty output directory in
+that case; do not discard local edits. Failed generation leaves existing output
+untouched, and publication errors roll back changed files.

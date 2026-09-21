@@ -26,6 +26,18 @@ import (
 // KubernetesManifestContractVersion identifies the policy recorded in deployment output.
 const KubernetesManifestContractVersion = "codefly.dev/kubernetes-manifest/v1"
 
+// AnnotationAPIServerAccess is how a workload declares that it calls the
+// Kubernetes API server, which is the only reason to project a service account
+// token into a pod. Conformance reads it so that projecting the token is a
+// reviewed choice rather than an impossible one; a workload that does not
+// declare it must still refuse the projection.
+const AnnotationAPIServerAccess = "codefly.dev/api-server-access"
+
+// APIServerAccessRequired is the only accepted value of AnnotationAPIServerAccess.
+// Any other value fails: under a conformance check the alternative to an error
+// is a silent guess about whether a workload meant to reach the API server.
+const APIServerAccessRequired = "required"
+
 // IsRestrictedOutputProfile reports whether a profile selects the secret-free,
 // digest-pinned, policy-restricted contract. It accepts the transport-neutral
 // RESTRICTED_PORTABLE_V1 profile and its deprecated PROMOTABLE_GITOPS_V1
@@ -534,16 +546,48 @@ func (object *kubernetesManifestObject) podSpec() (map[string]any, bool, bool) {
 	}
 }
 
-func (object *kubernetesManifestObject) validatePodAnnotations() []string {
-	var metadata map[string]any
+// validateServiceAccountTokenProjection keeps the default — no projected token —
+// while letting a workload that genuinely calls the API server say so. An
+// undeclared workload is refused exactly as before; a declaring workload must
+// actually project, because a declaration that changes nothing is one nobody
+// revisits and everybody inherits.
+func (object *kubernetesManifestObject) validateServiceAccountTokenProjection(podSpec map[string]any) []string {
+	ref := object.reference()
+	annotations, _ := mapValue(object.podMetadata(), "annotations")
+	declaration, declared := annotations[AnnotationAPIServerAccess].(string)
+	automount, set := podSpec["automountServiceAccountToken"].(bool)
+
+	if !declared {
+		if !set || automount {
+			return []string{fmt.Sprintf("%s must set automountServiceAccountToken: false, or declare %s: %s", ref, AnnotationAPIServerAccess, APIServerAccessRequired)}
+		}
+		return nil
+	}
+	if declaration != APIServerAccessRequired {
+		return []string{fmt.Sprintf("%s declares %s: %q, which is not %q", ref, AnnotationAPIServerAccess, declaration, APIServerAccessRequired)}
+	}
+	if !set || !automount {
+		return []string{fmt.Sprintf("%s declares %s but does not set automountServiceAccountToken: true", ref, AnnotationAPIServerAccess)}
+	}
+	return nil
+}
+
+func (object *kubernetesManifestObject) podMetadata() map[string]any {
 	switch object.kind {
 	case "Pod":
-		metadata, _ = mapValue(object.value, "metadata")
+		metadata, _ := mapValue(object.value, "metadata")
+		return metadata
 	case "CronJob":
-		metadata, _ = nestedMap(object.value, "spec", "jobTemplate", "spec", "template", "metadata")
+		metadata, _ := nestedMap(object.value, "spec", "jobTemplate", "spec", "template", "metadata")
+		return metadata
 	default:
-		metadata, _ = nestedMap(object.value, "spec", "template", "metadata")
+		metadata, _ := nestedMap(object.value, "spec", "template", "metadata")
+		return metadata
 	}
+}
+
+func (object *kubernetesManifestObject) validatePodAnnotations() []string {
+	metadata := object.podMetadata()
 	annotations, _ := mapValue(metadata, "annotations")
 	var violations []string
 	for key, rawValue := range annotations {
@@ -565,9 +609,7 @@ func (object *kubernetesManifestObject) validatePodSpec(
 ) []string {
 	ref := object.reference()
 	var violations []string
-	if automount, exists := podSpec["automountServiceAccountToken"].(bool); !exists || automount {
-		violations = append(violations, fmt.Sprintf("%s must set automountServiceAccountToken: false", ref))
-	}
+	violations = append(violations, object.validateServiceAccountTokenProjection(podSpec)...)
 	for _, field := range []string{"hostNetwork", "hostPID", "hostIPC"} {
 		if boolValue(podSpec, field) {
 			violations = append(violations, fmt.Sprintf("%s must not enable %s", ref, field))

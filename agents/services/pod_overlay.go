@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,8 +11,14 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/codefly-dev/core/resources"
+	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/kustomize/api/krusty"
+	"sigs.k8s.io/kustomize/api/types"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
 )
 
 // PodTemplateOverlay is the shared, typed model for the pod/workload
@@ -67,6 +74,309 @@ type ConfigMount struct {
 type WorkloadServiceAccount struct {
 	Name        string
 	Annotations map[string]string
+}
+
+// AttachWorkloadIdentity binds a cell's declared runtime identity to the
+// workload: the identity's annotations land on the codefly-owned ServiceAccount
+// and its labels on the pod template, both verbatim. Doing it from the declared
+// contract is what keeps the identity out of every agent's template and out of
+// per-cell branches here — codefly stamps keys it does not interpret, so a cell
+// on any platform wires its own identity webhook by declaring it.
+//
+// Conflicting declarations are errors, not permission to choose an identity.
+func (o *PodTemplateOverlay) AttachWorkloadIdentity(identity *resources.EnvironmentWorkloadIdentity) error {
+	if identity == nil {
+		return nil
+	}
+	if o == nil {
+		return fmt.Errorf("workload identity requires an overlay")
+	}
+	if strings.TrimSpace(identity.Principal) == "" {
+		return fmt.Errorf("workload identity requires a principal")
+	}
+	for key, value := range identity.Labels {
+		if existing, ok := o.PodLabels[key]; ok && existing != value {
+			return fmt.Errorf("workload identity conflicts with pod label %q", key)
+		}
+	}
+	if o.ServiceAccount != nil {
+		for key, value := range identity.Annotations {
+			if existing, ok := o.ServiceAccount.Annotations[key]; ok && existing != value {
+				return fmt.Errorf("workload identity conflicts with service account annotation %q", key)
+			}
+		}
+	}
+	if o.ServiceAccount == nil {
+		o.ServiceAccount = &WorkloadServiceAccount{}
+	}
+	if len(identity.Annotations) > 0 && o.ServiceAccount.Annotations == nil {
+		o.ServiceAccount.Annotations = make(map[string]string, len(identity.Annotations))
+	}
+	for key, value := range identity.Annotations {
+		if _, taken := o.ServiceAccount.Annotations[key]; !taken {
+			o.ServiceAccount.Annotations[key] = value
+		}
+	}
+	if len(identity.Labels) > 0 && o.PodLabels == nil {
+		o.PodLabels = make(map[string]string, len(identity.Labels))
+	}
+	for key, value := range identity.Labels {
+		if _, taken := o.PodLabels[key]; !taken {
+			o.PodLabels[key] = value
+		}
+	}
+	return nil
+}
+
+// ProjectWorkloadIdentity attaches a cell's declared runtime identity to an
+// already-rendered manifest tree: it writes the codefly-owned ServiceAccount
+// into baseDir, wires it into that same directory's kustomization, and stamps
+// serviceAccountName and the identity's labels onto every pod-template workload
+// found there. It is the post-render counterpart to AttachWorkloadIdentity, for
+// a consumer that post-processes a tree an agent rendered rather than building
+// the overlay itself.
+//
+// A nil identity is a no-op, so a caller can run it per service without first
+// asking whether the environment declares one.
+//
+// It fails when the stamp bound no workload. An identity that lands nowhere
+// leaves the pods on the namespace default, where token minting has no identity:
+// the deploy reports success and the connection fails at runtime, which is the
+// one outcome a caller post-processing a tree cannot detect for itself.
+// Publication exchanges the complete tree atomically; cancellation before the
+// exchange leaves the destination unchanged.
+func ProjectWorkloadIdentity(ctx context.Context, baseDir, namespace, serviceAccountName string, identity *resources.EnvironmentWorkloadIdentity) (returnErr error) {
+	if identity == nil {
+		return nil
+	}
+	overlay := &PodTemplateOverlay{}
+	if err := overlay.AttachWorkloadIdentity(identity); err != nil {
+		return err
+	}
+	overlay.DefaultServiceAccountName(serviceAccountName)
+	if err := overlay.Validate(); err != nil {
+		return err
+	}
+	baseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return err
+	}
+	lock := flock.New(filepath.Join(filepath.Dir(baseDir), "."+filepath.Base(baseDir)+".identity.lock"), flock.SetPermissions(0o600))
+	defer func() { returnErr = errors.Join(returnErr, lock.Close()) }()
+	locked, err := lock.TryLockContext(ctx, 10*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return fmt.Errorf("workload identity projection lock was not acquired")
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(baseDir), "."+filepath.Base(baseDir)+".identity-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
+	originals := make(map[string][]byte)
+	modes := make(map[string]os.FileMode)
+	directories := make(map[string]os.FileMode)
+	err = filepath.WalkDir(baseDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(baseDir, path)
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			directories[relative] = info.Mode().Perm()
+			return os.MkdirAll(filepath.Join(staging, relative), 0o700)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("workload identity input %s is not a regular file", relative)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		originals[relative], modes[relative] = data, info.Mode().Perm()
+		return os.WriteFile(filepath.Join(staging, relative), data, 0o600)
+	})
+	if err != nil {
+		return err
+	}
+	if err := emitWorkloadServiceAccount(ctx, staging, namespace, overlay.ServiceAccount); err != nil {
+		return err
+	}
+	result, err := applyPodOverlay(ctx, staging, overlay)
+	if err != nil {
+		return err
+	}
+	if !result.boundServiceAccount {
+		return fmt.Errorf("workload identity %q bound no workload in %s: no manifest there carries a pod template", identity.Principal, baseDir)
+	}
+	kustomizationPath := filepath.Join(staging, "kustomization.yaml")
+	kustomizationData, err := os.ReadFile(kustomizationPath)
+	if err != nil {
+		return err
+	}
+	var kustomization map[string]any
+	if err := yaml.Unmarshal(kustomizationData, &kustomization); err != nil {
+		return err
+	}
+	// Origin tracking identifies the emitted account after name/namespace transforms.
+	// This option is validation-only; the caller's kustomization is preserved.
+	kustomization["buildMetadata"] = []string{types.OriginAnnotations}
+	validationData, err := yaml.Marshal(kustomization)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(kustomizationPath, validationData, 0o600); err != nil {
+		return err
+	}
+	built, err := krusty.MakeKustomizer(krusty.MakeDefaultOptions()).Run(filesys.MakeFsOnDisk(), staging)
+	if err != nil {
+		return fmt.Errorf("render workload identity: %w", err)
+	}
+	if err := os.WriteFile(kustomizationPath, kustomizationData, 0o600); err != nil {
+		return err
+	}
+	resolvedAccount := ""
+	resolvedNamespace := ""
+	for _, resource := range built.Resources() {
+		origin, err := resource.GetOrigin()
+		if err != nil {
+			return err
+		}
+		if resource.GetKind() != "ServiceAccount" || origin == nil || origin.Path != "serviceaccount.yaml" || origin.Repo != "" {
+			continue
+		}
+		for key, value := range identity.Annotations {
+			if resource.GetAnnotations()[key] != value {
+				return fmt.Errorf("workload identity conflicts with rendered service account annotation %q", key)
+			}
+		}
+		resolvedAccount = resource.GetName()
+		resolvedNamespace = resource.GetNamespace()
+	}
+	if resolvedAccount == "" {
+		return fmt.Errorf("workload identity service account is absent from the rendered kustomization")
+	}
+	bound := false
+	for _, resource := range built.Resources() {
+		data, err := resource.AsYAML()
+		if err != nil {
+			return err
+		}
+		var document yaml.Node
+		if err := yaml.Unmarshal(data, &document); err != nil {
+			return err
+		}
+		root := document.Content[0]
+		template := workloadPodTemplate(root)
+		if template == nil {
+			continue
+		}
+		if resource.GetNamespace() != resolvedNamespace || mappingScalar(mappingChild(template, "spec"), "serviceAccountName") != resolvedAccount {
+			return fmt.Errorf("workload %q does not bind declared service account %q", mappingScalar(mappingChild(root, "metadata"), "name"), resolvedAccount)
+		}
+		labels := mappingChild(mappingChild(template, "metadata"), "labels")
+		for key, value := range identity.Labels {
+			if mappingScalar(labels, key) != value {
+				return fmt.Errorf("workload identity conflicts with rendered pod label %q", key)
+			}
+		}
+		bound = true
+	}
+	if !bound {
+		return fmt.Errorf("workload identity %q bound no workload in kustomization", identity.Principal)
+	}
+	err = filepath.WalkDir(staging, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		relative, err := filepath.Rel(staging, path)
+		if err != nil {
+			return err
+		}
+		mode, existed := modes[relative]
+		if !existed {
+			mode = 0o644
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			return err
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		return errors.Join(file.Sync(), file.Close())
+	})
+	if err != nil {
+		return err
+	}
+	err = filepath.WalkDir(baseDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(baseDir, path)
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if mode, existed := directories[relative]; !existed || mode != info.Mode().Perm() {
+				return fmt.Errorf("workload identity input %s changed during projection", relative)
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("workload identity input %s is not a regular file", relative)
+		}
+		current, err := os.ReadFile(path)
+		original, existed := originals[relative]
+		if !info.Mode().IsRegular() || !existed || err != nil || !bytes.Equal(current, original) || info.Mode().Perm() != modes[relative] {
+			return fmt.Errorf("workload identity input %s changed during projection", relative)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for relative := range originals {
+		if _, err := os.Lstat(filepath.Join(baseDir, relative)); err != nil {
+			return fmt.Errorf("workload identity input %s changed during projection: %w", relative, err)
+		}
+	}
+	var paths []string
+	for relative := range directories {
+		if info, err := os.Lstat(filepath.Join(baseDir, relative)); err != nil || !info.IsDir() {
+			return fmt.Errorf("workload identity input %s changed during projection", relative)
+		}
+		paths = append(paths, relative)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
+	for _, relative := range paths {
+		if err := os.Chmod(filepath.Join(staging, relative), directories[relative]); err != nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return exchangeWorkloadTree(staging, baseDir)
 }
 
 // dns1123Subdomain matches a Kubernetes ServiceAccount name.
@@ -233,11 +543,53 @@ func emitWorkloadServiceAccount(_ context.Context, baseDir, namespace string, sa
 		}
 		metadata["annotations"] = annotations
 	}
-	document, err := yaml.Marshal(map[string]any{
+	value := map[string]any{
 		"apiVersion": "v1",
 		"kind":       "ServiceAccount",
 		"metadata":   metadata,
-	})
+	}
+	path := filepath.Join(baseDir, "serviceaccount.yaml")
+	if existing, err := os.ReadFile(path); err == nil {
+		var current map[string]any
+		decoder := yaml.NewDecoder(bytes.NewReader(existing))
+		if err := decoder.Decode(&current); err != nil {
+			return fmt.Errorf("read existing service account: %w", err)
+		}
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			return fmt.Errorf("serviceaccount.yaml must contain exactly one ServiceAccount")
+		}
+		currentMetadata, ok := current["metadata"].(map[string]any)
+		if !ok || current["kind"] != "ServiceAccount" || current["apiVersion"] != "v1" || currentMetadata["name"] != sa.Name {
+			return fmt.Errorf("serviceaccount.yaml conflicts with declared service account %q", sa.Name)
+		}
+		if existingNamespace, exists := currentMetadata["namespace"]; exists && existingNamespace != namespace {
+			return fmt.Errorf("serviceaccount.yaml conflicts with declared namespace %q", namespace)
+		}
+		for _, field := range []string{"annotations", "labels"} {
+			additions, _ := metadata[field].(map[string]any)
+			entries, ok := currentMetadata[field].(map[string]any)
+			if raw, exists := currentMetadata[field]; exists && raw != nil && !ok {
+				return fmt.Errorf("service account %s must be a mapping", field)
+			}
+			if entries == nil {
+				entries = make(map[string]any)
+			}
+			for key, value := range additions {
+				if existing, exists := entries[key]; exists && existing != value {
+					return fmt.Errorf("service account %s conflicts at %q", field, key)
+				}
+				entries[key] = value
+			}
+			if len(entries) > 0 {
+				currentMetadata[field] = entries
+			}
+		}
+		currentMetadata["namespace"] = namespace
+		value = current
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	document, err := yaml.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("marshal service account: %w", err)
 	}
@@ -247,17 +599,27 @@ func emitWorkloadServiceAccount(_ context.Context, baseDir, namespace string, sa
 	return addKustomizeResource(filepath.Join(baseDir, "kustomization.yaml"), "serviceaccount.yaml")
 }
 
-// podTemplateWorkloadKinds are the Kubernetes kinds whose pod template lives at
-// spec.template — every first-party service agent renders one of these
-// (Deployment for stateless services, StatefulSet for postgres/redis). Binding
-// the pod identity here, rather than in each agent's template, is what lets all
-// agents inherit the overlay from core.
+// podTemplateWorkloadKinds have a pod template at spec.template.
 var podTemplateWorkloadKinds = map[string]bool{
 	"Deployment":  true,
 	"StatefulSet": true,
 	"DaemonSet":   true,
 	"ReplicaSet":  true,
 	"Job":         true,
+}
+
+func workloadPodTemplate(root *yaml.Node) *yaml.Node {
+	kind := mappingScalar(root, "kind")
+	if kind == "Pod" {
+		return root
+	}
+	if kind == "CronJob" {
+		return mappingChild(mappingChild(mappingChild(mappingChild(root, "spec"), "jobTemplate"), "spec"), "template")
+	}
+	if podTemplateWorkloadKinds[kind] {
+		return mappingChild(mappingChild(root, "spec"), "template")
+	}
+	return nil
 }
 
 // podOverlayResult reports what applyPodOverlay did across the base tree.
@@ -368,10 +730,7 @@ func applyPodOverlayToDocument(root *yaml.Node, overlay *PodTemplateOverlay) (ch
 	if root == nil || root.Kind != yaml.MappingNode {
 		return false, false, nil
 	}
-	if !podTemplateWorkloadKinds[mappingScalar(root, "kind")] {
-		return false, false, nil
-	}
-	template := mappingChild(mappingChild(root, "spec"), "template")
+	template := workloadPodTemplate(root)
 	if template == nil || template.Kind != yaml.MappingNode {
 		return false, false, nil
 	}

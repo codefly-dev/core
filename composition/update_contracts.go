@@ -26,6 +26,15 @@ const BehavioralContractsFileName = "contracts/behavior.codefly.json"
 // BuildPackageContractSnapshot derives evidence from the same packaged sources
 // used to generate clients. A release's asserted item digests are never inputs.
 func BuildPackageContractSnapshot(root string) (*updatev0.ContractSnapshot, error) {
+	evidence, err := BuildPackageContractEvidence(root)
+	if err != nil {
+		return nil, err
+	}
+	return evidence.Snapshot, nil
+}
+
+func BuildPackageContractEvidence(root string) (*moduleupdate.ContractEvidence, error) {
+	sources := make(map[string]moduleupdate.ContractSource)
 	manifest, err := LoadPackageManifest(root)
 	if err != nil {
 		return nil, err
@@ -59,9 +68,9 @@ func BuildPackageContractSnapshot(root string) (*updatev0.ContractSnapshot, erro
 		items := []*updatev0.ContractItem{{Id: prefix, Digest: APIContractDigest(context)}}
 		switch endpoint.Kind {
 		case APIContractKindProtobuf:
-			err = protobufContractItems(endpoint, prefix, data, &items)
+			err = protobufContractItems(endpoint, prefix, data, &items, sources)
 		case APIContractKindOpenAPI:
-			err = openAPIContractItems(endpoint, prefix, data, &items)
+			err = openAPIContractItems(endpoint, prefix, data, &items, sources)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("derive %s: %w", prefix, err)
@@ -98,10 +107,14 @@ func BuildPackageContractSnapshot(root string) (*updatev0.ContractSnapshot, erro
 		return nil, err
 	}
 	snapshot.Items = append(snapshot.Items, &updatev0.ContractItem{Id: "package/contracts", Digest: APIContractDigest(requirements), RequiredByAll: true})
-	return moduleupdate.PrepareSnapshot(snapshot)
+	normalized, err := moduleupdate.PrepareSnapshot(snapshot)
+	if err != nil {
+		return nil, err
+	}
+	return &moduleupdate.ContractEvidence{Snapshot: normalized, Sources: sources}, nil
 }
 
-func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []byte, items *[]*updatev0.ContractItem) error {
+func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []byte, items *[]*updatev0.ContractItem, sources map[string]moduleupdate.ContractSource) error {
 	set := new(descriptorpb.FileDescriptorSet)
 	if err := proto.Unmarshal(data, set); err != nil {
 		return err
@@ -155,6 +168,9 @@ func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []b
 			return err
 		}
 		item.Digest = APIContractDigest(canonical)
+		if sources != nil {
+			sources[item.Id] = moduleupdate.ContractSource{Format: moduleupdate.SourceProtobuf, Content: canonical}
+		}
 		slices.Sort(item.Dependencies)
 		item.Dependencies = slices.Compact(item.Dependencies)
 		*items = append(*items, item)
@@ -196,7 +212,7 @@ func contractFileContext(descriptor protoreflect.FileDescriptor) *descriptorpb.F
 
 var openAPIMethods = []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 
-func openAPIContractItems(endpoint APIContractEndpoint, prefix string, data []byte, items *[]*updatev0.ContractItem) error {
+func openAPIContractItems(endpoint APIContractEndpoint, prefix string, data []byte, items *[]*updatev0.ContractItem, sources map[string]moduleupdate.ContractSource) error {
 	var document map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
@@ -251,6 +267,9 @@ func openAPIContractItems(endpoint APIContractEndpoint, prefix string, data []by
 						return nil, err
 					}
 					*items = append(*items, &updatev0.ContractItem{Id: prefix + ref, Digest: APIContractDigest(canonical), Dependencies: nested})
+					if sources != nil && (strings.HasPrefix(ref, "#/components/schemas/") || strings.HasPrefix(ref, "#/definitions/")) {
+						sources[prefix+ref] = moduleupdate.ContractSource{Format: moduleupdate.SourceOpenAPISchema, Content: canonical}
+					}
 				} else {
 					nested, err := refs(child)
 					if err != nil {
@@ -323,6 +342,9 @@ func openAPIContractItems(endpoint APIContractEndpoint, prefix string, data []by
 			}
 			routes = append(routes, APIContractRoute{Method: strings.ToUpper(method), Path: path})
 			*items = append(*items, &updatev0.ContractItem{Id: prefix + "#" + strings.ToUpper(method) + " " + path, Digest: APIContractDigest(canonical), Dependencies: append(dependencies, prefix, prefix+"#context")})
+			if sources != nil {
+				sources[prefix+"#"+strings.ToUpper(method)+" "+path] = moduleupdate.ContractSource{Format: moduleupdate.SourceOpenAPIOperation, Content: canonical}
+			}
 		}
 	}
 	expected := slices.Clone(endpoint.Routes)

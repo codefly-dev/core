@@ -1,5 +1,6 @@
 {
   "protocolVersion": 1,
   "capabilities": ["container-recovery-scope/v1"],
-  "startupProtocolVersion": 2
+  "startupProtocolVersion": 2,
+  "operationContracts": ["artifact-execution/v1"]
 }

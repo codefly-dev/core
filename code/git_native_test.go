@@ -3,9 +3,10 @@ package code
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/codefly-dev/core/internal/testgit"
 )
 
 func TestNativeGit_OpenAndLog(t *testing.T) {
@@ -83,18 +84,11 @@ func TestNativeGit_Branches(t *testing.T) {
 	dir := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		// Inline identity so the commit works on a runner with no global config.
-		cmd.Env = append(cmd.Environ(),
-			"GIT_AUTHOR_NAME=codefly", "GIT_AUTHOR_EMAIL=test@codefly.dev",
-			"GIT_COMMITTER_NAME=codefly", "GIT_COMMITTER_EMAIL=test@codefly.dev")
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := testgit.Run(t.Context(), dir, nil, args...); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
 	git("init", "-b", "main")
-	git("config", "commit.gpgsign", "false")
 	git("commit", "--allow-empty", "-m", "init")
 
 	ng := OpenNativeGit(dir)
@@ -119,17 +113,11 @@ func newNativeGitTestRepo(t *testing.T) *NativeGit {
 	}
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(cmd.Environ(),
-			"GIT_AUTHOR_NAME=codefly", "GIT_AUTHOR_EMAIL=test@codefly.dev",
-			"GIT_COMMITTER_NAME=codefly", "GIT_COMMITTER_EMAIL=test@codefly.dev")
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := testgit.Run(t.Context(), dir, nil, args...); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
 	git("init", "-b", "main")
-	git("config", "commit.gpgsign", "false")
 	git("add", "go.mod")
 	git("commit", "-m", "init")
 

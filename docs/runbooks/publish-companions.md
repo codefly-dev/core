@@ -97,6 +97,19 @@ anonymous pull. After the first push of each package:
 3. **Manage Actions access → Add repository → `codefly-dev/cli`**, role
    `Write`, so later pushes from the publishing workflow keep the package.
 
+Successful `docker login` does not prove package write access. If the workflow
+fails with `permission_denied: write_package`, check **Manage Actions access**
+on the named package, even when it is public or linked to `codefly-dev/core`.
+The publishing repository is `codefly-dev/cli`; its `GITHUB_TOKEN` needs both
+the workflow's `packages: write` permission and access to that package.
+An administrator grants the package access in GitHub's settings; replacing a
+token or making a public package public again does not grant it.
+
+After correcting access, dispatch the workflow with the full Core commit SHA
+whose companion inputs were tested. If multiple PRs selected the same new
+companion version, reconcile their contents before publishing. Never rerun an
+older build under a tag that has since been published with different inputs.
+
 Verify without credentials:
 
 ```sh

@@ -27,6 +27,7 @@ type PreparedRelease struct {
 	before        map[string]*updatev0.ContractItem
 	after         map[string]*updatev0.ContractItem
 	requiredRoots []string
+	semantic      map[string]semanticChange
 }
 
 func PrepareReleaseDiff(diff *updatev0.ReleaseDiff) (*PreparedRelease, error) {

@@ -2,6 +2,9 @@ package ciguard
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,6 +50,26 @@ func TestAgentContextRootStaysWithinItsBudget(t *testing.T) {
 		"%s is %d lines, over the %d-line cap. Move procedure into .claude/skills/, "+
 			"or context into a nested AGENTS.md beside what it describes. Do not append.",
 		agentContextFile, lines, maxRootLines)
+}
+
+func TestBaseRunnerDoesNotOwnPostgresRecovery(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join(repoRoot(t), "runners", "base", "*.go"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		require.NoError(t, err)
+		ast.Inspect(file, func(node ast.Node) bool {
+			if identifier, ok := node.(*ast.Ident); ok {
+				require.NotContains(t, strings.ToLower(identifier.Name), "postgres",
+					"%s: agent-specific recovery belongs in its agent", path)
+			}
+			return true
+		})
+	}
 }
 
 // One canonical source: CLAUDE.md points at AGENTS.md instead of drifting from

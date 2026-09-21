@@ -26,8 +26,10 @@ package solution
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/codefly-dev/core/artifactexecution"
 	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -165,7 +167,35 @@ func (c *Client) Render(ctx context.Context, ceiling Ceiling, in *solutionv0.Ren
 	if err := enforce(solutionv0.Solution_Render_FullMethodName, ceiling); err != nil {
 		return nil, err
 	}
-	return c.inner.Render(withCeiling(ctx, ceiling), in, opts...)
+	if execution := in.GetExecution(); execution != nil {
+		if !filepath.IsAbs(in.GetDestination()) {
+			return nil, fmt.Errorf("bound render requires an absolute staging destination")
+		}
+		if in.GetArtifactReference() != "" {
+			return nil, fmt.Errorf("bound rendering cannot also select an artifact_reference")
+		}
+		artifact := in.GetContext().GetArtifact()
+		if artifact == nil || artifact.GetArtifactDigest() == "" {
+			return nil, fmt.Errorf("verified solution executor identity is required")
+		}
+		information, err := c.GetSolutionInformation(ctx, CeilingInspect(), &solutionv0.GetSolutionInformationRequest{Artifact: artifact}, opts...)
+		if err != nil {
+			return nil, err
+		}
+		if !proto.Equal(artifact, information.GetArtifact()) || !information.GetCapabilities().GetSupportsRender() {
+			return nil, fmt.Errorf("solution executor did not acknowledge its identity and render support")
+		}
+		if err := artifactexecution.Check(execution, artifactexecution.SolutionRender, artifact.ArtifactDigest, information.GetCapabilities().GetExecutionContracts()); err != nil {
+			return nil, err
+		}
+	}
+	response, err := c.inner.Render(withCeiling(ctx, ceiling), in, opts...)
+	if err == nil {
+		if err := artifactexecution.CheckReceipt(in.GetExecution(), response.GetExecution()); err != nil {
+			return nil, err
+		}
+	}
+	return response, err
 }
 
 // enforce refuses an over-ceiling dispatch from Client itself, so the ceiling

@@ -101,6 +101,11 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
 
 ## Rules that bite
 
+- **Codefly defines generic configuration; producers conform to it.** Infra-base
+  and other producers emit Codefly's environment, endpoint, secret-reference and
+  identity declarations. Never translate their private inventories or infer
+  service names, credentials, transport modes or delivery paths in Core/CLI.
+  See [`docs/configuration-contract.md`](docs/configuration-contract.md).
 - **Core and the CLI have no concrete-agent compatibility knowledge.** Check
   the running agent's advertised wire/startup protocol and operation capabilities
   at runtime, before work. Never gate on agent names, release pins, linked Core
@@ -109,6 +114,13 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   fall back. Agent-specific selection, settings and cleanup belong to the agent;
   Core transports declarations and implements generic contracts. See
   [`docs/agent-contract.md`](docs/agent-contract.md).
+  Shared language/framework tooling may remain when explicitly invoked by its
+  consumers; it must not choose agents or impose agent runtime policy.
+- **Product replacements never rewrite owner releases.** Resolve exact instances
+  from signed metadata; no implicit dependency-source acquisition. Local inputs
+  are development-only. Deployment admits owner output or authorized unchanged-
+  source builds with input-bound qualification; see
+  [`docs/composition-selections.md`](docs/composition-selections.md).
 - **Ports come from `network.ToNamedPort()` or `RuntimeManager`.** Never
   hardcode one, always track allocations — a missing dedup once assigned the
   same port twice.

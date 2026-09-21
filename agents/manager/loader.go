@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -57,16 +58,20 @@ const stderrCapacity = 64 * 1024
 
 // ProcessInfo carries metadata about the spawned agent process.
 type ProcessInfo struct {
-	PID int
+	PID            int
+	ArtifactDigest string
 }
 
 // AgentConn is a connection to a running agent process.
 // It owns the gRPC connection and the child process.
 type AgentConn struct {
-	conn  *grpc.ClientConn
-	cmd   *exec.Cmd
-	info  *ProcessInfo
-	group *runnersbase.TrackedProcessGroup
+	conn           *grpc.ClientConn
+	cmd            *exec.Cmd
+	info           *ProcessInfo
+	group          *runnersbase.TrackedProcessGroup
+	artifactPath   string
+	artifactDigest string
+	executableDir  string
 
 	// runtimeDir is the private per-spawn directory containing the agent's
 	// Unix socket. It is removed after the child exits (including crashes) and
@@ -93,6 +98,7 @@ type AgentConn struct {
 
 	closeOnce             sync.Once
 	runtimeDirCleanupOnce sync.Once
+	runtimeDirCleanupErr  error
 	activeIdentity        string
 }
 
@@ -101,6 +107,66 @@ func (c *AgentConn) GRPCConn() *grpc.ClientConn { return c.conn }
 
 // ProcessInfo returns the agent's process metadata.
 func (c *AgentConn) ProcessInfo() *ProcessInfo { return c.info }
+
+func (c *AgentConn) ArtifactDigest() string { return c.artifactDigest }
+
+func (c *AgentConn) CheckArtifact(ctx context.Context, agent *resources.Agent) error {
+	path, err := agent.Path(ctx)
+	if err != nil {
+		return err
+	}
+	if path != c.artifactPath {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			path = c.artifactPath
+		}
+	}
+	digest, _, err := executableIdentity(ctx, path)
+	if err != nil {
+		return err
+	}
+	if digest != c.artifactDigest {
+		return fmt.Errorf("agent artifact changed for %s from %s to %s; clear this service's agent before loading its replacement", agent.Unique(), c.artifactDigest, digest)
+	}
+	return nil
+}
+
+func executableIdentity(ctx context.Context, path string) (string, os.FileInfo, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", nil, err
+	}
+	defer file.Close()
+	before, err := file.Stat()
+	if err != nil {
+		return "", nil, err
+	}
+	if !before.Mode().IsRegular() || before.Mode().Perm()&0o111 == 0 {
+		return "", nil, fmt.Errorf("agent artifact %s is not a regular executable", path)
+	}
+	hash := sha256.New()
+	buffer := make([]byte, 128*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", nil, err
+		}
+		n, err := file.Read(buffer)
+		_, _ = hash.Write(buffer[:n])
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", nil, err
+		}
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		return "", nil, err
+	}
+	if !os.SameFile(before, after) || before.Size() != after.Size() || before.ModTime() != after.ModTime() || before.Mode() != after.Mode() {
+		return "", nil, fmt.Errorf("agent artifact changed while reading %s", path)
+	}
+	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), after, nil
+}
 
 // gracefulShutdownTimeout is how long Close waits after SIGTERM for the
 // agent to exit cleanly before falling back to SIGKILL. Must be larger
@@ -123,8 +189,38 @@ const gracefulShutdownTimeout = 30 * time.Second
 //
 // cmd.Wait must only be called once — the reaper owns it. We observe
 // completion via the `done` channel the reaper closes.
+// For selected artifacts, use CloseAndWait to observe group-cleanup failures
+// before accepting staged outputs; Close can only log those failures.
 func (c *AgentConn) Close() {
+	if c.executableDir != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		defer cancel()
+		if err := c.CloseAndWait(ctx); err != nil {
+			wool.Get(ctx).In("AgentConn.Close").Warn("artifact executor cleanup failed", wool.Field("error", err.Error()))
+		}
+		return
+	}
 	c.closeOnce.Do(c.close)
+}
+
+// CloseAndWait confirms that the authenticated process group has stopped before
+// releasing its files. Callers accepting staged outputs must check the error.
+// Use a fresh bounded context when the operation's context has been cancelled.
+// A termination failure retains the registration and permits a cleanup retry.
+func (c *AgentConn) CloseAndWait(ctx context.Context) error {
+	if c.group == nil || c.done == nil {
+		return fmt.Errorf("cannot confirm shutdown without a tracked process group and reaper")
+	}
+	if err := c.group.Terminate(ctx); err != nil {
+		return fmt.Errorf("terminate executor process group: %w", err)
+	}
+	select {
+	case <-c.done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	c.closeOnce.Do(c.close)
+	return errors.Join(c.group.RemoveIfDeadContext(ctx), c.cleanupRuntimeDir())
 }
 
 func (c *AgentConn) close() {
@@ -195,12 +291,16 @@ func (c *AgentConn) killProcessGroup() {
 	}
 }
 
-func (c *AgentConn) cleanupRuntimeDir() {
+func (c *AgentConn) cleanupRuntimeDir() error {
 	c.runtimeDirCleanupOnce.Do(func() {
 		if c.runtimeDir != "" {
-			_ = os.RemoveAll(c.runtimeDir)
+			c.runtimeDirCleanupErr = os.RemoveAll(c.runtimeDir)
+		}
+		if c.executableDir != "" {
+			c.runtimeDirCleanupErr = errors.Join(c.runtimeDirCleanupErr, os.RemoveAll(c.executableDir))
 		}
 	})
+	return c.runtimeDirCleanupErr
 }
 
 // closeLogWriter closes the WithLogWriter sink if it is an io.Closer.
@@ -302,6 +402,8 @@ func CleanupAll() {
 type LoadOption func(*loadConfig)
 
 type loadConfig struct {
+	executableDir  string
+	executionGate  grpc.UnaryClientInterceptor
 	startupTimeout time.Duration
 	dialTimeout    time.Duration
 	logWriter      io.Writer // if set, agent stderr is teed to this writer in real time
@@ -362,6 +464,33 @@ func defaultLoadConfig() loadConfig {
 		startupTimeout: DefaultStartupTimeout,
 		dialTimeout:    DefaultDialTimeout,
 	}
+}
+
+func configureLoad(opts []LoadOption) (loadConfig, error) {
+	cfg := defaultLoadConfig()
+	for _, o := range opts {
+		o(&cfg)
+	}
+	if !cfg.sandboxChoiceMade {
+		return cfg, fmt.Errorf("%w: manager.Load requires WithSandbox or WithoutSandbox", ErrAgentAdmission)
+	}
+	if !cfg.principalChoiceMade {
+		return cfg, fmt.Errorf("%w: manager.Load requires WithPrincipal or WithoutPrincipal", ErrAgentAdmission)
+	}
+	if cfg.principal != nil {
+		if err := cfg.principal.Validate(); err != nil {
+			return cfg, fmt.Errorf("%w: invalid principal: %v", ErrAgentAdmission, err)
+		}
+		if cfg.principal.IsExpired() {
+			return cfg, fmt.Errorf("%w: principal credential is expired", ErrAgentAdmission)
+		}
+	}
+	if cfg.productionAdmission {
+		if err := validateProductionAdmission(&cfg); err != nil {
+			return cfg, err
+		}
+	}
+	return cfg, nil
 }
 
 // WithStartupTimeout overrides the default time Load waits for the
@@ -665,28 +794,9 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	sweepStaleAgentSocketsOnce()
 	w := wool.Get(ctx).In("manager.Load", wool.Field("agent", p.Identifier()))
 
-	cfg := defaultLoadConfig()
-	for _, o := range opts {
-		o(&cfg)
-	}
-	if !cfg.sandboxChoiceMade {
-		return nil, fmt.Errorf("%w: manager.Load requires WithSandbox or WithoutSandbox", ErrAgentAdmission)
-	}
-	if !cfg.principalChoiceMade {
-		return nil, fmt.Errorf("%w: manager.Load requires WithPrincipal or WithoutPrincipal", ErrAgentAdmission)
-	}
-	if cfg.principal != nil {
-		if err := cfg.principal.Validate(); err != nil {
-			return nil, fmt.Errorf("%w: invalid principal: %v", ErrAgentAdmission, err)
-		}
-		if cfg.principal.IsExpired() {
-			return nil, fmt.Errorf("%w: principal credential is expired", ErrAgentAdmission)
-		}
-	}
-	if cfg.productionAdmission {
-		if err := validateProductionAdmission(&cfg); err != nil {
-			return nil, err
-		}
+	cfg, err := configureLoad(opts)
+	if err != nil {
+		return nil, err
 	}
 	bin, err := p.Path(ctx)
 	if err != nil {
@@ -737,6 +847,10 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		}
 	}
 
+	artifactDigest, artifactInfo, err := executableIdentity(ctx, bin)
+	if err != nil {
+		return nil, err
+	}
 	var verifiedProvider *providerartifact.Verified
 	if registration.Resolution.Local == resources.AgentResolutionVerifiedArtifact {
 		verifiedProvider, err = providerartifact.VerifyExecutable(bin, p)
@@ -744,6 +858,18 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 			return nil, fmt.Errorf("%w: provider artifact verification failed: %v", ErrAgentAdmission, err)
 		}
 	}
+	return spawnAgent(ctx, bin, p.Unique(), string(p.Kind), artifactDigest, artifactInfo, verifiedProvider, cfg)
+}
+
+func spawnAgent(ctx context.Context, bin, identity, telemetryName, artifactDigest string, artifactInfo os.FileInfo, verifiedProvider *providerartifact.Verified, cfg loadConfig) (*AgentConn, error) {
+	sweepStaleAgentSocketsOnce()
+	w := wool.Get(ctx).In("manager.Load", wool.Field("agent", identity))
+	loadSucceeded := false
+	defer func() {
+		if !loadSucceeded && cfg.executableDir != "" {
+			_ = os.RemoveAll(cfg.executableDir)
+		}
+	}()
 
 	// --- Spawn the agent binary ---
 	// Use exec.Command (NOT CommandContext) because the agent process must
@@ -786,6 +912,11 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// failed load, process exit, and Close.
 	udsPath := ""
 	udsRuntimeDir := ""
+	defer func() {
+		if !loadSucceeded && udsRuntimeDir != "" {
+			_ = os.RemoveAll(udsRuntimeDir)
+		}
+	}()
 	if cfg.useUDS && runtime.GOOS != "windows" {
 		// The owner pid in the prefix lets a later CLI safely sweep directories
 		// left by a crash. MkdirTemp creates the directory with mode 0700.
@@ -894,20 +1025,16 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// downstream sites use `if err := …; err != nil` (shadowed) and
 	// `killAndDescribe(...)` which returns without touching outer state,
 	// so an `err != nil` check would silently miss every failure path.
-	loadSucceeded := false
 	defer func() {
 		if !loadSucceeded && permsCallback != nil {
 			_ = permsCallback.Close()
-		}
-		if !loadSucceeded && udsRuntimeDir != "" {
-			_ = os.RemoveAll(udsRuntimeDir)
 		}
 	}()
 
 	if ep := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); ep != "" {
 		cmd.Env = append(cmd.Env,
 			"OTEL_EXPORTER_OTLP_ENDPOINT="+ep,
-			"OTEL_SERVICE_NAME=codefly-agent-"+string(p.Kind),
+			"OTEL_SERVICE_NAME=codefly-agent-"+telemetryName,
 		)
 	}
 
@@ -1030,6 +1157,10 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	// rejects calls without it (Unauthenticated). Health checks are
 	// exempt on the server side, so the readiness probe below works
 	// even if metadata propagation has a corner case.
+	interceptors := []grpc.UnaryClientInterceptor{solution.EnforcingClientInterceptor()}
+	if cfg.executionGate != nil {
+		interceptors = append(interceptors, cfg.executionGate)
+	}
 	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
@@ -1038,7 +1169,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		// Solution RPC whose declared effect/network policy exceeds the ceiling
 		// stamped on the call context by solution.Client. No-ops for every
 		// other service, so it is safe on every agent connection.
-		grpc.WithChainUnaryInterceptor(solution.EnforcingClientInterceptor()),
+		grpc.WithChainUnaryInterceptor(interceptors...),
 		grpcconfig.TypedMessageClientDialOption(),
 	)
 	if err != nil {
@@ -1059,10 +1190,18 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	}
 
 	// --- Build result and register ---
+	currentDigest, currentInfo, err := executableIdentity(ctx, bin)
+	if err != nil || artifactDigest != currentDigest || !os.SameFile(artifactInfo, currentInfo) {
+		_ = conn.Close()
+		return nil, killAndDescribe(ErrAgentAdmission, fmt.Sprintf("agent artifact changed during startup: %v", err))
+	}
 	agentConn := &AgentConn{
+		executableDir:       cfg.executableDir,
+		artifactPath:        bin,
+		artifactDigest:      artifactDigest,
 		conn:                conn,
 		cmd:                 cmd,
-		info:                &ProcessInfo{PID: pid},
+		info:                &ProcessInfo{PID: pid, ArtifactDigest: artifactDigest},
 		group:               group,
 		runtimeDir:          udsRuntimeDir,
 		stderrBuf:           stderrBuf,
@@ -1070,7 +1209,7 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 		permissionsCallback: permsCallback, // nil when WithPermissionsCallback wasn't passed
 		logWriter:           cfg.logWriter, // closed on Close so ForwardLogs unblocks (nil-safe)
 	}
-	registerActive(p.Unique(), agentConn)
+	registerActive(identity, agentConn)
 
 	// Reaper goroutine: waits for the process to exit and logs unexpected
 	// terminations. This prevents zombie processes when the agent dies on
@@ -1081,7 +1220,11 @@ func Load(ctx context.Context, p *resources.Agent, opts ...LoadOption) (*AgentCo
 	go func() {
 		defer close(agentConn.done)
 		defer unregisterActive(agentConn)
-		defer agentConn.cleanupRuntimeDir()
+		defer func() {
+			if agentConn.executableDir == "" || !group.Alive() {
+				_ = agentConn.cleanupRuntimeDir()
+			}
+		}()
 		waitErr := cmd.Wait()
 		// cmd.Wait has returned, so exec's stderr copier is done and no
 		// more writes reach logWriter — safe to close it now. This unblocks

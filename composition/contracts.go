@@ -31,6 +31,9 @@ func validateContracts(descriptor *Descriptor, manifest *PackageManifest, lock *
 	if err := manifest.Validate(); err != nil {
 		return err
 	}
+	if err := checkProjectionSelections(descriptor, manifest); err != nil {
+		return err
+	}
 	if err := lock.Validate(); err != nil {
 		return err
 	}

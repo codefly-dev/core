@@ -38,6 +38,10 @@ release metadata cannot change the verdict. Framework build paths, native
 product cleanup and source-to-agent mappings belong to their owning plugins,
 not to compatibility enforcement in Core or the CLI.
 
+Shared language/framework tooling can live in Core when consumers explicitly
+invoke it. That does not authorize host-side agent selection, compatibility
+rules, framework-specific runtime paths or product-specific recovery policy.
+
 `startup_protocol_version` names the stdout handshake used to discover the gRPC
 endpoint. It must match the host before lifecycle compatibility can be checked.
 The manifest records both versions; the startup parser and contract checker
@@ -52,8 +56,17 @@ or version zero is undeclared, never evidence inferred from a Core version or
 an acknowledgement header. Existing operation-specific advertisements such as
 validation and build-cache support remain authoritative for those operations.
 
-Core's `services.Load` rejects undeclared or incompatible protocol versions
-before returning an instance. Callers use `Instance.RequireAgentCapabilities`
+Core's `services.LoadAgent` rejects undeclared or incompatible protocol versions
+before caching a connection, including for callers that bypass `services.Load`.
+Connection and instance caches retain the admitted selection. A request for a
+different agent or version under an occupied service key fails without stopping
+the active process; its owner must call `services.ClearAgent` before replacing
+it. Mutating the caller's resource does not relabel an already-running agent.
+The direct SDK launcher performs the same live protocol check and requires its
+Builder and Runtime capabilities before creating a service. Agent updates inspect
+the candidate before changing a saved selection; a rejected candidate or failed
+configuration write leaves the previous in-memory selection intact.
+Callers use `Instance.RequireAgentCapabilities`
 before dispatching operations that require optional features. Core does not
 choose a CLI run's requirements. The CLI adoption, including replacing its
 existing recovery check and publishing CLI compatibility notes, is tracked in
@@ -96,8 +109,16 @@ capability. Advertising support never bypasses the ownership check.
   unchanged. An unchanged contract requires no agent rebuild solely because
   Core changed.
 
-`agents/contract/contract.json` is the protobuf-JSON release manifest for
-`AgentContract` and the embedded source of the shared server's advertisement.
+`agents/contract/contract.json` is the JSON release manifest. Its
+`protocolVersion`, `startupProtocolVersion` and `capabilities` fields supply
+the shared server's `AgentContract` advertisement. `operationContracts` records
+host-supported optional operation contracts, not capabilities automatically
+advertised by executors. `artifact-execution/v1` must be truthfully advertised
+on the live Builder `BuildCapabilities` or Solution `GetSolutionInformation`
+probe before selection-bound operations. A successful response must acknowledge
+the exact request identity and every named output digest and relative file path.
+Embedding a newer Core server does not implement or advertise this behavior.
+See [composition selections](composition-selections.md#artifact-execution).
 The version-tag workflow attaches it to the GitHub release and compares it
 with the latest reachable stable release tag. Release notes explicitly report
 introduction, unchanged compatibility, protocol changes, or capability changes.
@@ -112,4 +133,49 @@ capabilities; a Core server advertisement cannot determine CLI run policy.
 The first rollout requires agents to declare protocol 1. Previously published
 agents without a declaration are rejected during discovery, including native
 agents. They need a one-time adoption, not ongoing rebuilds for every Core
-release. This PR does not republish the fleet or bump Core's release version.
+release. Source adoption and official artifact publication are separate from
+qualification of the published agent in a consuming workflow.
+
+For release qualification, use `codefly agent install` to populate an isolated
+`CODEFLY_HOME` with the official selections in the rollout inventory, then run:
+
+```sh
+GOWORK=off CODEFLY_HOME=/path/to/qualification-cache go test ./services \
+  -tags=published_agents_required -run TestPublishedAgentsDeclareRuntimeContract -count=1 -v
+```
+
+This checks every selected executable in that cache through authenticated live
+admission. Record download failures separately: an absent artifact is not a
+passing qualification. The inventory is release evidence, never a runtime roster.
+
+## Artifact identities and installation
+
+Publisher, name and version are individual path components. Each starts with an
+ASCII letter or digit and contains only letters, digits, `.`, `_`, `+` or `-`.
+This is a syntax constraint, not an identity or compatibility roster. Explicit
+release labels and semantic versions with prerelease/build metadata are valid;
+empty versions and path/URL delimiters are rejected. Parsing, protobuf conversion,
+cache path construction and GitHub release lookup enforce the same rule,
+including for directly constructed resource values.
+Names and versions cannot contain `__`, the cache filename separator. This
+rejects both interpretations of previously colliding cache entries rather than
+trusting their contents. Single underscores remain valid in names and release
+labels. Existing unambiguous cache paths are unchanged.
+
+Agent downloads finish extraction before publishing a binary. Publication copies
+into a temporary file beside the destination, sets permissions, flushes and closes
+the file, then renames it atomically. Concurrent readers retain the old complete
+binary or open the new complete binary. An interrupted transfer or failed staging
+copy does not truncate an active installation. Installation does not establish
+protocol compatibility: authenticated live admission remains required before
+lifecycle operations.
+
+Running service connections bind both the explicit selection and the SHA-256
+digest of the executable admitted at startup. Reusing Agent, Builder, Runtime,
+Code, or Instance clients rechecks current executable content, including local
+symlink targets. Installing different bytes at the same version returns an
+error without killing the running agent. The flow owner must explicitly clear
+that service before admitting the replacement. Identical bytes remain reusable
+after atomic reinstallation. Startup also rejects a concurrently replaced
+executable before publishing the connection. These checks do not establish
+publisher authority or qualify a rebuilt runtime output.

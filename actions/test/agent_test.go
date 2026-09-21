@@ -7,5 +7,6 @@ func agentTest() *basev0.Agent {
 		Kind:      basev0.Agent_SERVICE,
 		Name:      "test-agent",
 		Publisher: "codefly",
+		Version:   "1.0.0",
 	}
 }

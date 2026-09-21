@@ -44,6 +44,9 @@ func (descriptor *Descriptor) Validate() error {
 	if descriptor.Kind != DescriptorKind {
 		return fmt.Errorf("composition descriptor kind must be %q", DescriptorKind)
 	}
+	if err := descriptor.validateSelections(); err != nil {
+		return err
+	}
 	if err := validateIdentifier("module name", descriptor.Name); err != nil {
 		return err
 	}
@@ -343,6 +346,9 @@ func (manifest *PackageManifest) Validate() error {
 	if manifest.Kind != PackageKind || manifest.Schema != PackageSchema {
 		return fmt.Errorf("module package manifest must have kind %q and schema %q", PackageKind, PackageSchema)
 	}
+	if err := manifest.validateSelections(); err != nil {
+		return err
+	}
 	if err := validateIdentifier("package id", manifest.ID); err != nil {
 		return err
 	}
@@ -587,6 +593,9 @@ func ParseProvenance(data []byte) (*Provenance, error) {
 		provenance.ArtifactMediaType != ArtifactMediaType || !digestPattern.MatchString(provenance.ArtifactDigest) ||
 		provenance.SignatureIdentity == "" {
 		return nil, errors.New("module provenance is incomplete or invalid")
+	}
+	if provenance.ManifestDigest != "" && !digestPattern.MatchString(provenance.ManifestDigest) {
+		return nil, errors.New("module provenance manifest digest is invalid")
 	}
 	return &provenance, nil
 }

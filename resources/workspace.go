@@ -444,18 +444,19 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 }
 
 // ValidateEnvironments cross-checks environment declarations that name services
-// against the workspace's actual service graph. Service-secret overrides are keyed
-// by service name (Environment.ServiceSecrets.Services); a key that matches no
-// loaded service is otherwise a silent no-op at projection time — the service
-// keeps the default "<service>/<key>" remote paths, so a typo'd name resolves the
-// wrong secret or fails at in-cluster sync with nothing catching it earlier.
+// against the workspace's actual service graph. Service-secret overrides and
+// service-config values are keyed by service name; a key that matches no loaded
+// service is otherwise a silent no-op at projection time — the service keeps the
+// default "<service>/<key>" remote paths and receives none of the declared
+// values, so a typo'd name resolves the wrong secret, or drops a value the
+// workload needs, with nothing catching it earlier.
 // Loading the graph is why this is a pass separate from postLoad, mirroring
 // ValidateServiceDependencies.
 func (workspace *Workspace) ValidateEnvironments(ctx context.Context) error {
 	w := wool.Get(ctx).In("Workspace::ValidateEnvironments", wool.NameField(workspace.Name))
 	needsGraph := false
 	for _, env := range workspace.Environments {
-		if env != nil && env.ServiceSecrets != nil && len(env.ServiceSecrets.Services) > 0 {
+		if env != nil && len(env.serviceScopedNames()) > 0 {
 			needsGraph = true
 			break
 		}
@@ -472,12 +473,14 @@ func (workspace *Workspace) ValidateEnvironments(ctx context.Context) error {
 		known[svc.Name] = struct{}{}
 	}
 	for _, env := range workspace.Environments {
-		if env == nil || env.ServiceSecrets == nil {
+		if env == nil {
 			continue
 		}
-		for name := range env.ServiceSecrets.Services {
-			if _, ok := known[name]; !ok {
-				return w.Wrap(fmt.Errorf("environment %q service-secrets references unknown service %q", env.Name, name))
+		for block, names := range env.serviceScopedNames() {
+			for _, name := range names {
+				if _, ok := known[name]; !ok {
+					return w.Wrap(fmt.Errorf("environment %q %s references unknown service %q", env.Name, block, name))
+				}
 			}
 		}
 	}
@@ -527,6 +530,12 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 		}
 		if err := env.ServiceSecrets.Validate(); err != nil {
 			return w.Wrapf(err, "environment %q has invalid service-secrets", env.Name)
+		}
+		if err := env.ServiceConfig.Validate(); err != nil {
+			return w.Wrapf(err, "environment %q has invalid service-config", env.Name)
+		}
+		if err := env.validateServiceKeyCollisions(); err != nil {
+			return w.Wrapf(err, "environment %q declares conflicting service keys", env.Name)
 		}
 		if err := env.ResourceQuota.Validate(); err != nil {
 			return w.Wrapf(err, "environment %q has invalid resource-quota", env.Name)
