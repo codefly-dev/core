@@ -51,6 +51,17 @@ srv := codeserver.New(root) // + optional code.ServerOption values
   `CGO_ENABLED=0`. Source-semantics operations report an unsupported-operation
   failure.
 
+`GetProjectInfo` is the exception, because it is not a source-semantics
+operation: it reports dependencies, packages and file hashes, and only its
+per-file import inventory needs a parser. Go takes that inventory with
+`go/parser` from the standard library; every other language needs the analyzer,
+since a scanner cannot distinguish a syntax error from a complete file and
+would certify a partial inventory as whole. An analyzer-free server therefore
+answers `GetProjectInfo` with everything else intact and sets
+`source_files_omitted`, which tells the caller the inventory was not taken here
+rather than that the project has none. Without that flag an empty list is
+authoritative, so a consumer filling the gap itself must check it.
+
 The switch cannot live in package `code` itself: `code/semantic` imports `code`,
 so a `code` → `code/semantic` import would be a cycle. `code/codeserver` is the
 package that depends on both.
