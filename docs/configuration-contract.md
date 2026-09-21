@@ -25,6 +25,10 @@ Producers must supply:
 - Any workload identity principal and opaque annotation/label attachments.
   Identities and secret references can coexist. Core does not infer an auth mode.
 - Any application secret mappings through the existing `service-secrets` model.
+- Any resolved non-secret values through `service-config`, keyed by consuming
+  service and then by the exact key the service reads. The producer resolves the
+  value; Core carries it verbatim and derives none of it. A declared service with
+  nothing to inject, or a value that resolved to empty, is refused at load.
 - Resolved delivery repository, branch and path when declaring a GitOps target.
   Core neither appends the namespace nor chooses a branch.
 
@@ -37,6 +41,20 @@ of the existing configuration model; secret values do not belong in descriptors.
 Unknown fields and required capabilities are rejected. A producer declaring a
 workload identity uses `requires_capabilities: ["managed-service-identity"]`.
 Proxy containers, image choices and loopback routing are not part of this contract.
+
+## Configuration and secret injection
+
+Injecting a workload's configuration and secrets needs four declarations and no
+others: the target (`name`, `namespace`, `cluster.context`), resolved values
+under `service-config`, secret references under `service-secrets`, and a workload
+identity. `resources/testdata/cells/config-injection.json` is that whole shape.
+
+A producer emitting for this path populates nothing else. `managed-services`,
+`registry`, `ingress`, `resource-quota` and `dns` serve other flows and are
+correctly absent here; a producer's own inventory — database engines, store
+isolation tiers, cloud and location, operator cluster access — has no home in
+this contract by design, and a non-secret value does not become one by being
+routed through a secret store to find somewhere to live.
 
 ## Migration
 

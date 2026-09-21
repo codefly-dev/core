@@ -21,7 +21,7 @@ func loadCellFixture(t *testing.T, name string) []byte {
 }
 
 func TestCellContractCarriesExplicitEnvironment(t *testing.T) {
-	for _, fixture := range []string{"password-auth.json", "managed-identity.json"} {
+	for _, fixture := range []string{"password-auth.json", "managed-identity.json", "config-injection.json"} {
 		t.Run(fixture, func(t *testing.T) {
 			contract, err := ParseCellContract(loadCellFixture(t, fixture))
 			if err != nil {
@@ -74,6 +74,72 @@ func TestCellContractDoesNotInferAuthentication(t *testing.T) {
 	}
 	if env.ServiceSecrets.Services["api"].RemoteKeys["API_KEY"].Property != "token" {
 		t.Fatal("lost application secret configuration")
+	}
+}
+
+// Config and secret injection needs target, config, secrets and identity only: a
+// producer emitting for that flow declares no managed services, registry,
+// ingress or delivery target, and the contract must admit it without them.
+func TestCellContractCarriesResolvedServiceConfig(t *testing.T) {
+	contract, err := ParseCellContract(loadCellFixture(t, "config-injection.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := contract.ToEnvironment("staging", "product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env.ManagedServices) != 0 || env.Registry != nil || env.Gitops != nil {
+		t.Fatalf("import invented infrastructure inventory: %+v", env)
+	}
+	api := env.ServiceConfig.Services["api"].Values
+	if api["DATABASE_HOST"] != "product-staging.database.example" || api["DATABASE_PORT"] != "6432" {
+		t.Fatalf("api values = %+v", api)
+	}
+	if got := env.ServiceConfig.Services["worker"].Values["DATABASE_HOST"]; got != "product-staging.database.example" {
+		t.Fatalf("worker DATABASE_HOST = %q", got)
+	}
+	if got := env.ServiceSecrets.Services["api"].RemoteKeys["DATABASE_PASSWORD"].Property; got != "password" {
+		t.Fatalf("secret half of the same service = %q", got)
+	}
+	api["DATABASE_HOST"] = "other.example"
+	second, err := contract.ToEnvironment("staging", "product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ServiceConfig.Services["api"].Values["DATABASE_HOST"] != "product-staging.database.example" {
+		t.Fatal("mutating an imported value changed the source declaration")
+	}
+}
+
+func TestCellContractRejectsUnresolvedServiceConfig(t *testing.T) {
+	cases := []struct {
+		name        string
+		field       string
+		replacement string
+		want        string
+	}{
+		{"empty value", `"6432"`, `""`, `value "DATABASE_PORT" is empty`},
+		{"unknown field", `"values"`, `"value"`, "not found"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := strings.Replace(string(loadCellFixture(t, "config-injection.json")), tc.field, tc.replacement, 1)
+			if _, err := ParseCellContract([]byte(data)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want %q, got %v", tc.want, err)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		data string
+		want string
+	}{
+		{`{"schema":"codefly/cell/v2","environment":{"name":"x","service-config":{}}}`, "declares no services"},
+		{`{"schema":"codefly/cell/v2","environment":{"name":"x","service-config":{"services":{"api":{}}}}}`, `service "api" declares no values`},
+	} {
+		if _, err := ParseCellContract([]byte(tc.data)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("want %q, got %v", tc.want, err)
+		}
 	}
 }
 
