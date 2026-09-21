@@ -2284,10 +2284,19 @@ type GetProjectInfoResponse struct {
 	FileHashes map[string]string `protobuf:"bytes,6,rep,name=file_hashes,json=fileHashes,proto3" json:"file_hashes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // path -> SHA-256 for change detection
 	// source_files preserves per-file import evidence produced by the owning
 	// language inspector. An empty list is authoritative only when the
-	// enclosing CodeResponse carries no failure.
-	SourceFiles   []*SourceFileInfo `protobuf:"bytes,8,rep,name=source_files,json=sourceFiles,proto3" json:"source_files,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// enclosing CodeResponse carries no failure and source_files_omitted is
+	// false.
+	SourceFiles []*SourceFileInfo `protobuf:"bytes,8,rep,name=source_files,json=sourceFiles,proto3" json:"source_files,omitempty"`
+	// source_files_omitted reports that this responder does not inspect source
+	// imports for the project's language, so source_files carries no evidence
+	// and the caller must produce the inventory itself. It separates "this
+	// project has no source files" from "this inventory was not taken here",
+	// which an empty list alone cannot express. Import extraction requires a
+	// real parser for every language except Go, so a responder built without
+	// one reports the omission instead of failing the whole inspection.
+	SourceFilesOmitted bool `protobuf:"varint,9,opt,name=source_files_omitted,json=sourceFilesOmitted,proto3" json:"source_files_omitted,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GetProjectInfoResponse) Reset() {
@@ -2367,6 +2376,13 @@ func (x *GetProjectInfoResponse) GetSourceFiles() []*SourceFileInfo {
 		return x.SourceFiles
 	}
 	return nil
+}
+
+func (x *GetProjectInfoResponse) GetSourceFilesOmitted() bool {
+	if x != nil {
+		return x.SourceFilesOmitted
+	}
+	return false
 }
 
 // GetSemanticIndexRequest asks the attached Codefly agent to project its
@@ -4654,7 +4670,7 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\x0eSourceFileInfo\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\aimports\x18\x02 \x03(\tR\aimports\"\x17\n" +
-	"\x15GetProjectInfoRequest\"\x80\x04\n" +
+	"\x15GetProjectInfoRequest\"\xb2\x04\n" +
 	"\x16GetProjectInfoResponse\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\tR\x06module\x12\x1a\n" +
 	"\blanguage\x18\x02 \x01(\tR\blanguage\x12)\n" +
@@ -4663,7 +4679,8 @@ const file_codefly_services_code_v0_code_proto_rawDesc = "" +
 	"\fdependencies\x18\x05 \x03(\v2$.codefly.services.code.v0.DependencyR\fdependencies\x12a\n" +
 	"\vfile_hashes\x18\x06 \x03(\v2@.codefly.services.code.v0.GetProjectInfoResponse.FileHashesEntryR\n" +
 	"fileHashes\x12K\n" +
-	"\fsource_files\x18\b \x03(\v2(.codefly.services.code.v0.SourceFileInfoR\vsourceFiles\x1a=\n" +
+	"\fsource_files\x18\b \x03(\v2(.codefly.services.code.v0.SourceFileInfoR\vsourceFiles\x120\n" +
+	"\x14source_files_omitted\x18\t \x01(\bR\x12sourceFilesOmitted\x1a=\n" +
 	"\x0fFileHashesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\a\x10\bR\x05error\"\x19\n" +

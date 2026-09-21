@@ -2,13 +2,14 @@
 package contract
 
 import (
+	"bytes"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -23,13 +24,28 @@ var ErrIncompatible = errors.New("incompatible agent contract")
 //go:embed contract.json
 var manifest []byte
 
-var current = func() *agentv0.AgentContract {
-	var value agentv0.AgentContract
-	if err := protojson.Unmarshal(manifest, &value); err != nil {
+type releaseManifest struct {
+	ProtocolVersion        uint32   `json:"protocolVersion"`
+	Capabilities           []string `json:"capabilities"`
+	StartupProtocolVersion uint32   `json:"startupProtocolVersion"`
+	OperationContracts     []string `json:"operationContracts"`
+}
+
+var release = func() releaseManifest {
+	var value releaseManifest
+	decoder := json.NewDecoder(bytes.NewReader(manifest))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
 		panic(err)
 	}
-	return &value
+	return value
 }()
+
+var current = &agentv0.AgentContract{ProtocolVersion: release.ProtocolVersion, Capabilities: release.Capabilities, StartupProtocolVersion: release.StartupProtocolVersion}
+
+// SupportedOperationContracts reports host support, not executor adoption.
+// Executors advertise only contracts they implement on their operation probes.
+func SupportedOperationContracts() []string { return slices.Clone(release.OperationContracts) }
 
 func Current() *agentv0.AgentContract {
 	return proto.Clone(current).(*agentv0.AgentContract)

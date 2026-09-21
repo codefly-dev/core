@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
 )
 
 type ValidationStatus string
@@ -37,22 +38,23 @@ type Delta struct {
 }
 
 type SemanticReport struct {
-	Schema          string                  `json:"schema"`
-	Module          string                  `json:"module"`
-	Package         string                  `json:"package"`
-	BeforeVersion   string                  `json:"beforeVersion,omitempty"`
-	AfterVersion    string                  `json:"afterVersion"`
-	Contracts       []ContractChange        `json:"contracts"`
-	Services        Delta                   `json:"services"`
-	Endpoints       Delta                   `json:"endpoints"`
-	Fixtures        Delta                   `json:"fixtures"`
-	Dependencies    Delta                   `json:"dependencies"`
-	Migrations      Delta                   `json:"migrations"`
-	BreakingChanges []string                `json:"breakingChanges,omitempty"`
-	Deltas          map[CollisionKind]Delta `json:"deltas"`
-	Validations     []ValidationResult      `json:"validations"`
-	BlockedReasons  []string                `json:"blockedReasons,omitempty"`
-	LockDiff        string                  `json:"lockDiff"`
+	Schema                string                  `json:"schema"`
+	Module                string                  `json:"module"`
+	Package               string                  `json:"package"`
+	BeforeVersion         string                  `json:"beforeVersion,omitempty"`
+	AfterVersion          string                  `json:"afterVersion"`
+	Contracts             []ContractChange        `json:"contracts"`
+	Services              Delta                   `json:"services"`
+	Endpoints             Delta                   `json:"endpoints"`
+	Fixtures              Delta                   `json:"fixtures"`
+	Dependencies          Delta                   `json:"dependencies"`
+	Migrations            Delta                   `json:"migrations"`
+	BreakingChanges       []string                `json:"breakingChanges,omitempty"`
+	Deltas                map[CollisionKind]Delta `json:"deltas"`
+	Validations           []ValidationResult      `json:"validations"`
+	BlockedReasons        []string                `json:"blockedReasons,omitempty"`
+	LockDiff              string                  `json:"lockDiff"`
+	ConsumerCompatibility *updatev0.UpdateResult  `json:"consumerCompatibility,omitempty"`
 }
 
 func (report *SemanticReport) JSON() ([]byte, error) {
@@ -65,6 +67,16 @@ func (report *SemanticReport) String() string {
 	output.WriteString("Compatibility\n")
 	for _, change := range report.Contracts {
 		fmt.Fprintf(&output, "  %-24s %-12s %s\n", change.Contract, displayVersion(change.Before)+" -> "+change.After, change.Compatibility)
+	}
+	if report.ConsumerCompatibility != nil {
+		fmt.Fprintf(&output, "  consumer usage           %s\n", report.ConsumerCompatibility.Verdict)
+		for _, items := range [][]*updatev0.AffectedItem{report.ConsumerCompatibility.Breaking, report.ConsumerCompatibility.Undetermined} {
+			for _, item := range items {
+				fmt.Fprintf(&output, "    %s: %s\n", item.Item, item.Reason)
+			}
+		}
+	} else {
+		output.WriteString("  consumer usage           not evaluated\n")
 	}
 	output.WriteString("\nProduct projection\n")
 	fmt.Fprintf(&output, "  %-24s +%d / -%d\n", "services", len(report.Services.Added), len(report.Services.Removed))
@@ -81,7 +93,7 @@ func (report *SemanticReport) String() string {
 		fmt.Fprintf(&output, "  %-24s %s\n", validation.Name, validation.Status)
 	}
 	if len(report.BlockedReasons) == 0 {
-		output.WriteString("\nResult: ready\n")
+		output.WriteString("\nResult: projection ready; deployment qualification is separate\n")
 	} else {
 		output.WriteString("\nResult: blocked — " + strings.Join(report.BlockedReasons, "; ") + "\n")
 	}

@@ -119,6 +119,13 @@ func (ref *EnvironmentSecretRemoteRef) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		return node.Decode(&ref.Key)
 	}
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i < len(node.Content); i += 2 {
+			if key := node.Content[i].Value; key != "key" && key != "property" {
+				return fmt.Errorf("unknown secret reference field %q", key)
+			}
+		}
+	}
 	type plain EnvironmentSecretRemoteRef
 	return node.Decode((*plain)(ref))
 }
@@ -138,10 +145,26 @@ func (ref EnvironmentSecretRemoteRef) MarshalYAML() (any, error) {
 // EnvironmentManagedService describes an environment-owned replacement for a
 // service that is otherwise part of the module graph.
 type EnvironmentManagedService struct {
-	Kind             string                              `yaml:"kind"`
-	ExternalName     string                              `yaml:"external-name"`
+	Kind         string `yaml:"kind"`
+	ExternalName string `yaml:"external-name"`
+	// Port is the explicitly selected endpoint port; Core never infers it from Kind.
+	Port             int                                 `yaml:"port,omitempty"`
 	EgressCIDRs      []string                            `yaml:"egress-cidrs,omitempty"`
 	SecretReferences []EnvironmentManagedSecretReference `yaml:"secret-references,omitempty"`
+	// Identity is independent of any explicitly declared secret references.
+	Identity *EnvironmentWorkloadIdentity `yaml:"identity,omitempty"`
+}
+
+// EnvironmentWorkloadIdentity is the runtime principal a workload authenticates
+// as, and the platform's own means of attaching it. Annotations land on the
+// workload's ServiceAccount and Labels on its pod template, verbatim: a cell
+// declares whatever its identity webhook keys off and codefly stamps it without
+// interpreting the keys.
+type EnvironmentWorkloadIdentity struct {
+	Kind        string            `yaml:"kind,omitempty"`
+	Principal   string            `yaml:"principal"`
+	Annotations map[string]string `yaml:"annotations,omitempty"`
+	Labels      map[string]string `yaml:"labels,omitempty"`
 }
 
 // EnvironmentServiceSecrets declares the External Secrets store that resolves a
@@ -173,6 +196,23 @@ type EnvironmentServiceSecretMapping struct {
 	// (replaced by the service name); absent, codefly's default "<service>/<key>"
 	// applies.
 	Defaults *EnvironmentSecretRemoteRef `yaml:"defaults,omitempty"`
+}
+
+// EnvironmentServiceConfig declares resolved, non-secret configuration values
+// for an environment's regular services. It is the non-secret twin of
+// EnvironmentServiceSecrets and keys entries the same way — by the consuming
+// service, then by the exact key the service reads — except that the value
+// travels in the declaration instead of a reference into a secret store. The
+// producer resolves it; codefly injects it and derives none of it, so nothing
+// here names a producer's own inventory.
+type EnvironmentServiceConfig struct {
+	Services map[string]EnvironmentServiceConfigMapping `yaml:"services,omitempty"`
+}
+
+// EnvironmentServiceConfigMapping holds one service's resolved values keyed by
+// the configuration key that consumes them.
+type EnvironmentServiceConfigMapping struct {
+	Values map[string]string `yaml:"values,omitempty"`
 }
 
 // EnvironmentResourceQuota sizes the ResourceQuota rendered into an
@@ -282,6 +322,82 @@ func (s *EnvironmentServiceSecrets) Validate() error {
 	return nil
 }
 
+// Validate checks the structural invariants of a declared service-config block.
+// Workspace YAML tolerates unknown keys, so a mistyped `values:` (or `services:`)
+// leaves a block that declares a service and injects nothing into it — the
+// workload then starts missing exactly the value it was handed over for. An
+// empty value is the same failure one level down: a producer that failed to
+// resolve a host injects "" and the service dials nothing. Both fail at load
+// instead. A nil receiver is a valid "not declared" state.
+func (c *EnvironmentServiceConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if len(c.Services) == 0 {
+		return fmt.Errorf("service-config declares no services")
+	}
+	for name, mapping := range c.Services {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("service-config: service name cannot be empty")
+		}
+		if len(mapping.Values) == 0 {
+			return fmt.Errorf("service-config service %q declares no values", name)
+		}
+		for key, value := range mapping.Values {
+			if strings.TrimSpace(key) == "" {
+				return fmt.Errorf("service-config service %q: value name cannot be empty", name)
+			}
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("service-config service %q: value %q is empty", name, key)
+			}
+		}
+	}
+	return nil
+}
+
+// validateServiceKeyCollisions refuses a key one service declares both as a
+// resolved value and as a secret reference. Each renders an entry of that name
+// into the same container, so one silently overwrites the other and the workload
+// starts with a plausible wrong value rather than failing. Choosing a winner
+// here would only move that silence into codefly. It compares against explicit
+// remote-keys: a service-secrets `defaults` template covers whichever of the
+// service's own keys are declared secret, which this receiver cannot see.
+func (env *Environment) validateServiceKeyCollisions() error {
+	if env.ServiceConfig == nil || env.ServiceSecrets == nil {
+		return nil
+	}
+	for name, config := range env.ServiceConfig.Services {
+		secrets, declared := env.ServiceSecrets.Services[name]
+		if !declared {
+			continue
+		}
+		for key := range config.Values {
+			if _, collides := secrets.RemoteKeys[key]; collides {
+				return fmt.Errorf("service %q declares %q as both a service-config value and a service-secrets remote key", name, key)
+			}
+		}
+	}
+	return nil
+}
+
+// serviceScopedNames lists, per yaml block, the service names an environment
+// keys declarations by. A name matching no loaded service is a silent no-op at
+// projection time, so ValidateEnvironments cross-checks every such block.
+func (env *Environment) serviceScopedNames() map[string][]string {
+	names := make(map[string][]string, 2)
+	if env.ServiceSecrets != nil {
+		for name := range env.ServiceSecrets.Services {
+			names["service-secrets"] = append(names["service-secrets"], name)
+		}
+	}
+	if env.ServiceConfig != nil {
+		for name := range env.ServiceConfig.Services {
+			names["service-config"] = append(names["service-config"], name)
+		}
+	}
+	return names
+}
+
 // secretTemplatePlaceholder matches any "{…}" token in a defaults template.
 var secretTemplatePlaceholder = regexp.MustCompile(`\{[^{}]*\}`)
 
@@ -329,8 +445,7 @@ type Environment struct {
 	Ingress         []EnvironmentIngressRoute            `yaml:"ingress,omitempty"`
 	ManagedServices map[string]EnvironmentManagedService `yaml:"managed-services,omitempty"`
 
-	// Dns carries the environment's DNS contract, sourced from the cell
-	// descriptor (CellContract.DNS). Its AppHostSuffix lets the network layer
+	// Dns carries the environment's DNS contract. Its AppHostSuffix lets the network layer
 	// derive an external endpoint's public host from declared config instead of
 	// a local dns.codefly.yaml, keeping a promotable render value-free. CLI-side;
 	// not serialized to proto.
@@ -341,6 +456,12 @@ type Environment struct {
 	// rendered and secret-<service> stays an operator precondition. CLI-side; not
 	// serialized to proto.
 	ServiceSecrets *EnvironmentServiceSecrets `yaml:"service-secrets,omitempty"`
+
+	// ServiceConfig declares resolved non-secret values this environment's
+	// regular services consume. Absent, services take their configuration from
+	// the workspace's own configuration flow alone. CLI-side; not serialized to
+	// proto.
+	ServiceConfig *EnvironmentServiceConfig `yaml:"service-config,omitempty"`
 
 	// ResourceQuota, when set, renders a ResourceQuota (and an optional
 	// LimitRange of container defaults) into this environment's namespace so one
@@ -355,8 +476,7 @@ type Environment struct {
 	Secrets []*EnvironmentSecretProvider `yaml:"secrets,omitempty"`
 }
 
-// EnvironmentDNS is the environment's DNS contract, sourced from a cell
-// descriptor (CellContractDNS).
+// EnvironmentDNS is the environment's DNS contract.
 type EnvironmentDNS struct {
 	// AppHostSuffix is the public host suffix an app's external endpoints hang
 	// off of in this cell (e.g. "staging.eastus2.azure.example.com"). Empty means

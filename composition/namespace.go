@@ -16,7 +16,6 @@ type Namespace struct {
 	ProjectionDir    string `json:"projectionDir"`
 	CacheDir         string `json:"cacheDir"`
 	BuildDir         string `json:"buildDir"`
-	NextJSDir        string `json:"nextJSDir"`
 	RuntimeConfigDir string `json:"runtimeConfigDir"`
 	ContainerSuffix  string `json:"containerSuffix"`
 	PortSeed         uint32 `json:"portSeed"`
@@ -44,7 +43,6 @@ func ResolveNamespace(projectRoot, moduleDir, name, lockPath string, lock *Lock)
 		ProjectionDir:    filepath.Join(projectRoot, ".codefly", "composed", name, lock.Module, leaf),
 		CacheDir:         filepath.Join(root, "cache"),
 		BuildDir:         filepath.Join(root, "build"),
-		NextJSDir:        filepath.Join(root, "build", "next"),
 		RuntimeConfigDir: filepath.Join(root, "runtime"),
 		ContainerSuffix:  name + "-" + leaf[:12],
 		PortSeed:         binary.BigEndian.Uint32(digestBytes[:4]),
@@ -52,7 +50,7 @@ func ResolveNamespace(projectRoot, moduleDir, name, lockPath string, lock *Lock)
 }
 
 func (namespace *Namespace) Prepare() error {
-	for _, directory := range []string{namespace.CacheDir, namespace.BuildDir, namespace.NextJSDir, namespace.RuntimeConfigDir} {
+	for _, directory := range []string{namespace.CacheDir, namespace.BuildDir, namespace.RuntimeConfigDir} {
 		if err := os.MkdirAll(directory, 0o755); err != nil {
 			return err
 		}

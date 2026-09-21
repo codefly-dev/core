@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package codefly.base.v0;
+
+// ArtifactExecutionInput binds an executor input slot to a selected artifact.
+message ArtifactExecutionInput {
+  // name is the input slot declared by the component owner.
+  string name = 1;
+  // target is the absolute composition instance path; empty identifies the root.
+  string target = 2;
+  // artifact is the artifact name in the selected component release.
+  string artifact = 3;
+  // uri is the declared acquisition location, never a type discriminator.
+  string uri = 4;
+  // media_type explicitly identifies the artifact representation.
+  string media_type = 5;
+  // digest identifies the exact selected content.
+  string digest = 6;
+}
+
+// ArtifactExecutionOutput identifies one named output representation and content.
+message ArtifactExecutionOutput {
+  // name is the output slot declared by the component owner.
+  string name = 1;
+  // media_type explicitly identifies the output representation.
+  string media_type = 2;
+  // digest is empty in a request and required in its execution receipt.
+  string digest = 3;
+  // path is empty in requests; receipts name a regular file relative to the
+  // caller-owned output directory. Directories must be packaged explicitly.
+  string path = 4;
+}
+
+// ArtifactExecution carries the resolved inputs for one build or render call.
+// Executors must reject unsupported contracts before writing outputs, consume
+// these bindings without substituting inherited defaults, and acknowledge the
+// identity only after honoring every input and producing every named output.
+// Bound operations only stage outputs; they must not apply workloads or publish
+// releases. The host verifies bytes and obtains deployment admission separately.
+message ArtifactExecution {
+  // contract_version identifies the execution binding semantics.
+  string contract_version = 1;
+  // identity is the deterministic digest of this message with identity cleared.
+  string identity = 2;
+  // selection_identity identifies the entire resolved composition.
+  string selection_identity = 3;
+  // target is the module instance whose service is being operated on.
+  string target = 4;
+  // service is the exact selected service within target.
+  string service = 5;
+  // protocol identifies the declared operation protocol, not an agent name.
+  string protocol = 6;
+  // executor_digest identifies the selected executor artifact.
+  string executor_digest = 7;
+  // configuration_identity binds protected effective configuration inputs.
+  string configuration_identity = 8;
+  // binding_identity separately identifies deployment target bindings.
+  string binding_identity = 9;
+  // inputs maps declared slots to immutable artifacts, sorted by slot name.
+  repeated ArtifactExecutionInput inputs = 10;
+  // outputs declares the exact required output slots, sorted by slot name.
+  repeated ArtifactExecutionOutput outputs = 11;
+}
+
+// ArtifactExecutionReceipt acknowledges applied inputs and produced outputs.
+// It is execution evidence, not rollout authorization or proof of running state.
+message ArtifactExecutionReceipt {
+  // identity must match the exact ArtifactExecution request identity.
+  string identity = 1;
+  // outputs contains exactly the requested outputs with their content digests.
+  repeated ArtifactExecutionOutput outputs = 2;
+}

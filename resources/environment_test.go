@@ -11,11 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// writeServiceSecretsWorkspace lays down a modules-layout workspace with a single
-// module "saas" owning service "accounts", plus an environment whose
-// service-secrets names serviceName. It is the real graph ValidateEnvironments
-// cross-checks against.
-func writeServiceSecretsWorkspace(t *testing.T, serviceName string) string {
+// writeServiceScopedWorkspace lays down a modules-layout workspace with a single
+// module "saas" owning service "accounts", plus an environment carrying
+// envDeclarations. It is the real graph ValidateEnvironments cross-checks
+// against.
+func writeServiceScopedWorkspace(t *testing.T, envDeclarations string) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
@@ -26,15 +26,7 @@ modules:
 environments:
   - name: prod
     namespace: platform
-    service-secrets:
-      secret-store:
-        name: azure-keyvault-prod
-        kind: ClusterSecretStore
-      services:
-        ` + serviceName + `:
-          remote-keys:
-            workos-client-secret: workos/prod/client-secret
-`,
+` + envDeclarations,
 		filepath.Join("modules", "saas", resources.ModuleConfigurationName): `kind: module
 name: saas
 services:
@@ -62,34 +54,68 @@ agent:
 	return root
 }
 
-// A service-secrets override that names a real service passes the graph check.
+func serviceSecretsDeclaration(serviceName string) string {
+	return `    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        ` + serviceName + `:
+          remote-keys:
+            workos-client-secret: workos/prod/client-secret
+`
+}
+
+func serviceConfigDeclaration(serviceName string) string {
+	return `    service-config:
+      services:
+        ` + serviceName + `:
+          values:
+            DATABASE_HOST: accounts.database.example
+`
+}
+
+// A service-secrets or service-config entry naming a real service passes the
+// graph check.
 func TestValidateEnvironmentsAllowsKnownService(t *testing.T) {
-	ctx := context.Background()
-	root := writeServiceSecretsWorkspace(t, "accounts")
-	ws, err := resources.LoadWorkspaceFromDir(ctx, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.ValidateEnvironments(ctx); err != nil {
-		t.Fatalf("ValidateEnvironments = %v, want nil", err)
+	for name, declaration := range map[string]string{
+		"service-secrets": serviceSecretsDeclaration("accounts"),
+		"service-config":  serviceConfigDeclaration("accounts"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			ws, err := resources.LoadWorkspaceFromDir(ctx, writeServiceScopedWorkspace(t, declaration))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ws.ValidateEnvironments(ctx); err != nil {
+				t.Fatalf("ValidateEnvironments = %v, want nil", err)
+			}
+		})
 	}
 }
 
-// A typo'd service name (here "accunts") would silently drop the override at
-// projection time; the graph check must reject it instead.
+// A typo'd service name (here "accunts") would silently drop the secret override
+// or the resolved values at projection time; the graph check must reject it.
 func TestValidateEnvironmentsRejectsUnknownService(t *testing.T) {
-	ctx := context.Background()
-	root := writeServiceSecretsWorkspace(t, "accunts")
-	ws, err := resources.LoadWorkspaceFromDir(ctx, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = ws.ValidateEnvironments(ctx)
-	if err == nil {
-		t.Fatal("expected ValidateEnvironments to reject unknown service")
-	}
-	if !strings.Contains(err.Error(), "accunts") {
-		t.Fatalf("error = %v, want it to mention the unknown service", err)
+	for name, declaration := range map[string]string{
+		"service-secrets": serviceSecretsDeclaration("accunts"),
+		"service-config":  serviceConfigDeclaration("accunts"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			ws, err := resources.LoadWorkspaceFromDir(ctx, writeServiceScopedWorkspace(t, declaration))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = ws.ValidateEnvironments(ctx)
+			if err == nil {
+				t.Fatal("expected ValidateEnvironments to reject unknown service")
+			}
+			if !strings.Contains(err.Error(), "accunts") || !strings.Contains(err.Error(), name) {
+				t.Fatalf("error = %v, want it to name the block and the unknown service", err)
+			}
+		})
 	}
 }
 
@@ -448,6 +474,150 @@ environments:
 	}
 	if !strings.Contains(err.Error(), "{sevice}") {
 		t.Fatalf("error = %v, want it to name the offending placeholder", err)
+	}
+}
+
+func TestEnvironmentServiceConfigLoadsFromWorkspace(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-config:
+      services:
+        accounts:
+          values:
+            DATABASE_HOST: accounts.database.example
+            DATABASE_PORT: "6432"
+        billing:
+          values:
+            DATABASE_HOST: billing.database.example
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := loaded.Environments[0].ServiceConfig
+	if config == nil {
+		t.Fatal("service-config did not load")
+	}
+	accounts := config.Services["accounts"].Values
+	if accounts["DATABASE_HOST"] != "accounts.database.example" || accounts["DATABASE_PORT"] != "6432" {
+		t.Fatalf("accounts values = %+v", accounts)
+	}
+	if got := config.Services["billing"].Values["DATABASE_HOST"]; got != "billing.database.example" {
+		t.Fatalf("billing DATABASE_HOST = %q", got)
+	}
+}
+
+// Absence is the valid "this environment hands over no resolved values" state.
+func TestEnvironmentServiceConfigAbsentIsNil(t *testing.T) {
+	root := t.TempDir()
+	workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+`
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Environments[0].ServiceConfig != nil {
+		t.Fatalf("service-config = %+v, want nil", loaded.Environments[0].ServiceConfig)
+	}
+}
+
+// Workspace YAML drops unknown keys, so a mistyped `values:` (here `value:`)
+// leaves a service declared with nothing to inject, and an unresolved value
+// leaves the workload dialing "". Both must fail at load rather than start a
+// service missing exactly what it was handed over.
+func TestEnvironmentServiceConfigRejectsNothingToInject(t *testing.T) {
+	for name, block := range map[string]string{
+		"dropped values key": `    service-config:
+      services:
+        accounts:
+          value:
+            DATABASE_HOST: accounts.database.example
+`,
+		"unresolved value": `    service-config:
+      services:
+        accounts:
+          values:
+            DATABASE_HOST: ""
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			workspace := `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+` + block
+			if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspace), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+			if err == nil {
+				t.Fatal("expected load to fail")
+			}
+			if !strings.Contains(err.Error(), "accounts") {
+				t.Fatalf("error = %v, want it to name the offending service", err)
+			}
+		})
+	}
+}
+
+// Workspace load refuses the same collision the cell contract does, and accepts
+// the same key under two different services, which is not a collision at all.
+func TestEnvironmentRefusesKeyDeclaredAsBothValueAndSecret(t *testing.T) {
+	workspaceWith := func(configService string) string {
+		return `name: platform
+layout: modules
+environments:
+  - name: prod
+    namespace: platform
+    service-config:
+      services:
+        ` + configService + `:
+          values:
+            DATABASE_HOST: accounts.database.example
+    service-secrets:
+      secret-store:
+        name: azure-keyvault-prod
+        kind: ClusterSecretStore
+      services:
+        accounts:
+          remote-keys:
+            DATABASE_HOST: accounts/prod/host
+`
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, resources.WorkspaceConfigurationName), []byte(workspaceWith("accounts")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resources.LoadWorkspaceFromDir(context.Background(), root)
+	if err == nil {
+		t.Fatal("expected load to refuse a key declared as both a value and a secret")
+	}
+	if !strings.Contains(err.Error(), "DATABASE_HOST") || !strings.Contains(err.Error(), "accounts") {
+		t.Fatalf("error = %v, want it to name the service and the key", err)
+	}
+
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, resources.WorkspaceConfigurationName), []byte(workspaceWith("billing")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resources.LoadWorkspaceFromDir(context.Background(), other); err != nil {
+		t.Fatalf("same key under two services = %v, want nil", err)
 	}
 }
 

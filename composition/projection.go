@@ -55,6 +55,9 @@ type CompositionInput struct {
 }
 
 func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection string, namespace *Namespace, descriptor *Descriptor, manifest *PackageManifest, contracts map[string]string, inputs []CatalogInput) (*Catalog, []ValidationResult, error) {
+	if err := checkProjectionSelections(descriptor, manifest); err != nil {
+		return nil, nil, err
+	}
 	if renderer.Runner == nil {
 		renderer.Runner = ExecCommandRunner{}
 	}
@@ -103,7 +106,6 @@ func (renderer Renderer) Render(ctx context.Context, base, moduleDir, projection
 		"CODEFLY_COMPOSITION_PROJECTION=" + projection,
 		"CODEFLY_COMPOSITION_CACHE=" + namespace.CacheDir,
 		"CODEFLY_COMPOSITION_BUILD=" + namespace.BuildDir,
-		"CODEFLY_COMPOSITION_NEXTJS=" + namespace.NextJSDir,
 		"CODEFLY_COMPOSITION_RUNTIME_CONFIG=" + namespace.RuntimeConfigDir,
 		"CODEFLY_COMPOSITION_CONTAINER_SUFFIX=" + namespace.ContainerSuffix,
 		"CODEFLY_COMPOSITION_PORT_SEED=" + strconv.FormatUint(uint64(namespace.PortSeed), 10),
@@ -181,6 +183,14 @@ func copyProjection(source, destination string) error {
 			return err
 		}
 		if relative == cacheMarkerName {
+			return nil
+		}
+		// A linked checkout's .git file points back into the developer's repo;
+		// projections must neither inherit that authority nor copy VCS internals.
+		if relative == ".git" {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		target := filepath.Join(destination, relative)

@@ -3,11 +3,14 @@ package services
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	dockerhelpers "github.com/codefly-dev/core/agents/helpers/docker"
 	"github.com/codefly-dev/core/agents/manager"
+	"github.com/codefly-dev/core/artifactexecution"
 	"github.com/codefly-dev/core/resources"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"google.golang.org/grpc"
 )
@@ -29,6 +32,12 @@ func NewBuilderAgentClient(conn *grpc.ClientConn) *BuilderAgent {
 // Build checks selection support before dispatch, then requires acknowledgement
 // when the agent executes the image build. Recipe execution belongs to the caller.
 func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, opts ...grpc.CallOption) (*builderv0.BuildResponse, error) {
+	if req.GetExecution() != nil && !filepath.IsAbs(req.GetOutputDirectory()) {
+		return nil, fmt.Errorf("bound build requires an absolute staging directory")
+	}
+	if err := b.checkExecution(ctx, req.GetExecution(), artifactexecution.BuilderBuild, opts...); err != nil {
+		return nil, err
+	}
 	cache := req.GetBuildContext().GetDockerBuildContext().GetCache()
 	if cache != nil {
 		if _, err := dockerhelpers.CacheArguments(cache, RecipeBuildPlatforms()); err != nil {
@@ -52,5 +61,46 @@ func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, o
 	if selected != "" && err == nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildPlan() == nil && resp.GetBuildxBuilder() != selected {
 		return nil, fmt.Errorf("builder agent did not acknowledge requested Buildx builder %q; upgrade the agent", selected)
 	}
+	if err == nil && req.GetExecution() != nil {
+		if resp.GetState().GetState() != builderv0.BuildStatus_SUCCESS {
+			return nil, fmt.Errorf("bound build did not succeed: %s", resp.GetState().GetMessage())
+		}
+		if err := artifactexecution.CheckReceipt(req.GetExecution(), resp.GetExecution()); err != nil {
+			return nil, err
+		}
+	}
 	return resp, err
+}
+
+func (b *BuilderAgent) checkExecution(ctx context.Context, execution *basev0.ArtifactExecution, protocol string, opts ...grpc.CallOption) error {
+	if execution == nil {
+		return nil
+	}
+	if b.ProcessInfo == nil {
+		return fmt.Errorf("verified executor process identity is required")
+	}
+	capabilities, err := b.BuildCapabilities(ctx, &builderv0.BuildCapabilitiesRequest{}, opts...)
+	if err != nil {
+		return fmt.Errorf("cannot verify artifact execution support before dispatch: %w", err)
+	}
+	return artifactexecution.Check(execution, protocol, b.ProcessInfo.ArtifactDigest, capabilities.GetExecutionContracts())
+}
+
+func (b *BuilderAgent) Deploy(ctx context.Context, req *builderv0.DeploymentRequest, opts ...grpc.CallOption) (*builderv0.DeploymentResponse, error) {
+	if req.GetExecution() != nil && !filepath.IsAbs(req.GetOutputDirectory()) {
+		return nil, fmt.Errorf("bound render requires an absolute staging directory")
+	}
+	if err := b.checkExecution(ctx, req.GetExecution(), artifactexecution.BuilderRender, opts...); err != nil {
+		return nil, err
+	}
+	response, err := b.BuilderClient.Deploy(ctx, req, opts...)
+	if err == nil && req.GetExecution() != nil {
+		if response.GetState().GetState() != builderv0.DeploymentStatus_SUCCESS {
+			return nil, fmt.Errorf("bound render did not succeed: %s", response.GetState().GetMessage())
+		}
+		if err := artifactexecution.CheckReceipt(req.GetExecution(), response.GetExecution()); err != nil {
+			return nil, err
+		}
+	}
+	return response, err
 }

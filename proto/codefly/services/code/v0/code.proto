@@ -449,8 +449,17 @@ message GetProjectInfoResponse {
   map<string, string> file_hashes = 6;  // path -> SHA-256 for change detection
   // source_files preserves per-file import evidence produced by the owning
   // language inspector. An empty list is authoritative only when the
-  // enclosing CodeResponse carries no failure.
+  // enclosing CodeResponse carries no failure and source_files_omitted is
+  // false.
   repeated SourceFileInfo source_files = 8;
+  // source_files_omitted reports that this responder does not inspect source
+  // imports for the project's language, so source_files carries no evidence
+  // and the caller must produce the inventory itself. It separates "this
+  // project has no source files" from "this inventory was not taken here",
+  // which an empty list alone cannot express. Import extraction requires a
+  // real parser for every language except Go, so a responder built without
+  // one reports the omission instead of failing the whole inspection.
+  bool source_files_omitted = 9;
 }
 
 // GetSemanticIndexRequest asks the attached Codefly agent to project its

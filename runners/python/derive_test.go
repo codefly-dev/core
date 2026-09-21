@@ -2,10 +2,11 @@ package python
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/codefly-dev/core/internal/testgit"
 )
 
 // DeriveFormula is how a formula-less Test "just runs the project's tests": the
@@ -133,10 +134,7 @@ build-backend = "setuptools.build_meta"
 func gitCommitAt(t *testing.T, dir, iso string) {
 	t.Helper()
 	run := func(env []string, args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), env...)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := testgit.Run(t.Context(), dir, env, args...); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}

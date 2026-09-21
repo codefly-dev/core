@@ -358,8 +358,10 @@ type SolutionCapabilities struct {
 	SupportsPackage bool `protobuf:"varint,3,opt,name=supports_package,json=supportsPackage,proto3" json:"supports_package,omitempty"`
 	// supports_render declares Render support.
 	SupportsRender bool `protobuf:"varint,4,opt,name=supports_render,json=supportsRender,proto3" json:"supports_render,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// execution_contracts lists artifact execution bindings honored by Render.
+	ExecutionContracts []string `protobuf:"bytes,5,rep,name=execution_contracts,json=executionContracts,proto3" json:"execution_contracts,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SolutionCapabilities) Reset() {
@@ -418,6 +420,13 @@ func (x *SolutionCapabilities) GetSupportsRender() bool {
 		return x.SupportsRender
 	}
 	return false
+}
+
+func (x *SolutionCapabilities) GetExecutionContracts() []string {
+	if x != nil {
+		return x.ExecutionContracts
+	}
+	return nil
 }
 
 // GetSolutionInformationRequest identifies the binary asking to advertise.
@@ -908,7 +917,11 @@ type RenderRequest struct {
 	// destination is the gitops repository path manifests are rendered into.
 	Destination string `protobuf:"bytes,3,opt,name=destination,proto3" json:"destination,omitempty"`
 	// values are executor-defined render inputs.
-	Values        map[string]string `protobuf:"bytes,4,rep,name=values,proto3" json:"values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Values map[string]string `protobuf:"bytes,4,rep,name=values,proto3" json:"values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// execution supplies authoritative selected artifacts for composition rendering.
+	// When present, artifact_reference must be empty; values remain configuration,
+	// never an alternative artifact selection language.
+	Execution     *v0.ArtifactExecution `protobuf:"bytes,5,opt,name=execution,proto3" json:"execution,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -971,13 +984,22 @@ func (x *RenderRequest) GetValues() map[string]string {
 	return nil
 }
 
+func (x *RenderRequest) GetExecution() *v0.ArtifactExecution {
+	if x != nil {
+		return x.Execution
+	}
+	return nil
+}
+
 // RenderResponse reports the rendered manifests.
 type RenderResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// rendered_paths are the manifest paths written relative to the destination.
 	RenderedPaths []string `protobuf:"bytes,1,rep,name=rendered_paths,json=renderedPaths,proto3" json:"rendered_paths,omitempty"`
 	// diagnostics are bounded neutral diagnostics.
-	Diagnostics   []*v0.FailureDiagnostic `protobuf:"bytes,2,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	Diagnostics []*v0.FailureDiagnostic `protobuf:"bytes,2,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	// execution acknowledges the exact applied selection and emitted output bytes.
+	Execution     *v0.ArtifactExecutionReceipt `protobuf:"bytes,3,opt,name=execution,proto3" json:"execution,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1026,6 +1048,13 @@ func (x *RenderResponse) GetDiagnostics() []*v0.FailureDiagnostic {
 	return nil
 }
 
+func (x *RenderResponse) GetExecution() *v0.ArtifactExecutionReceipt {
+	if x != nil {
+		return x.Execution
+	}
+	return nil
+}
+
 var file_codefly_services_solution_v0_solution_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
@@ -1049,7 +1078,7 @@ var File_codefly_services_solution_v0_solution_proto protoreflect.FileDescriptor
 
 const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"\n" +
-	"+codefly/services/solution/v0/solution.proto\x12\x1ccodefly.services.solution.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1dcodefly/base/v0/failure.proto\x1a google/protobuf/descriptor.proto\"\xa9\x01\n" +
+	"+codefly/services/solution/v0/solution.proto\x12\x1ccodefly.services.solution.v0\x1a\x1bbuf/validate/validate.proto\x1a(codefly/base/v0/artifact_execution.proto\x1a\x1dcodefly/base/v0/failure.proto\x1a google/protobuf/descriptor.proto\"\xa9\x01\n" +
 	"\x14SolutionMethodPolicy\x12K\n" +
 	"\anetwork\x18\x01 \x01(\x0e21.codefly.services.solution.v0.SolutionNetworkModeR\anetwork\x12D\n" +
 	"\x06effect\x18\x02 \x01(\x0e2,.codefly.services.solution.v0.SolutionEffectR\x06effect\"\xb0\x01\n" +
@@ -1062,12 +1091,13 @@ const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"\x0fSolutionContext\x12\x1c\n" +
 	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12 \n" +
 	"\venvironment\x18\x02 \x01(\tR\venvironment\x12J\n" +
-	"\bartifact\x18\x03 \x01(\v2..codefly.services.solution.v0.SolutionArtifactR\bartifact\"\xbc\x01\n" +
+	"\bartifact\x18\x03 \x01(\v2..codefly.services.solution.v0.SolutionArtifactR\bartifact\"\xed\x01\n" +
 	"\x14SolutionCapabilities\x12'\n" +
 	"\x0fsupports_create\x18\x01 \x01(\bR\x0esupportsCreate\x12'\n" +
 	"\x0fsupports_update\x18\x02 \x01(\bR\x0esupportsUpdate\x12)\n" +
 	"\x10supports_package\x18\x03 \x01(\bR\x0fsupportsPackage\x12'\n" +
-	"\x0fsupports_render\x18\x04 \x01(\bR\x0esupportsRender\"k\n" +
+	"\x0fsupports_render\x18\x04 \x01(\bR\x0esupportsRender\x12/\n" +
+	"\x13execution_contracts\x18\x05 \x03(\tR\x12executionContracts\"k\n" +
 	"\x1dGetSolutionInformationRequest\x12J\n" +
 	"\bartifact\x18\x01 \x01(\v2..codefly.services.solution.v0.SolutionArtifactR\bartifact\"\x94\x02\n" +
 	"\x1eGetSolutionInformationResponse\x12J\n" +
@@ -1105,18 +1135,20 @@ const file_codefly_services_solution_v0_solution_proto_rawDesc = "" +
 	"\x0fPackageResponse\x12\x1c\n" +
 	"\treference\x18\x01 \x01(\tR\treference\x12'\n" +
 	"\x0fartifact_digest\x18\x02 \x01(\tR\x0eartifactDigest\x12N\n" +
-	"\vdiagnostics\x18\x03 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics\"\xb5\x02\n" +
+	"\vdiagnostics\x18\x03 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics\"\xf7\x02\n" +
 	"\rRenderRequest\x12G\n" +
 	"\acontext\x18\x01 \x01(\v2-.codefly.services.solution.v0.SolutionContextR\acontext\x12-\n" +
 	"\x12artifact_reference\x18\x02 \x01(\tR\x11artifactReference\x12 \n" +
 	"\vdestination\x18\x03 \x01(\tR\vdestination\x12O\n" +
-	"\x06values\x18\x04 \x03(\v27.codefly.services.solution.v0.RenderRequest.ValuesEntryR\x06values\x1a9\n" +
+	"\x06values\x18\x04 \x03(\v27.codefly.services.solution.v0.RenderRequest.ValuesEntryR\x06values\x12@\n" +
+	"\texecution\x18\x05 \x01(\v2\".codefly.base.v0.ArtifactExecutionR\texecution\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x92\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdb\x01\n" +
 	"\x0eRenderResponse\x120\n" +
 	"\x0erendered_paths\x18\x01 \x03(\tB\t\xbaH\x06\x92\x01\x03\x10\x90NR\rrenderedPaths\x12N\n" +
-	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics*\xb2\x01\n" +
+	"\vdiagnostics\x18\x02 \x03(\v2\".codefly.base.v0.FailureDiagnosticB\b\xbaH\x05\x92\x01\x02\x10dR\vdiagnostics\x12G\n" +
+	"\texecution\x18\x03 \x01(\v2).codefly.base.v0.ArtifactExecutionReceiptR\texecution*\xb2\x01\n" +
 	"\x13SolutionNetworkMode\x12%\n" +
 	"!SOLUTION_NETWORK_MODE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dSOLUTION_NETWORK_MODE_OFFLINE\x10\x01\x12'\n" +
@@ -1171,7 +1203,9 @@ var file_codefly_services_solution_v0_solution_proto_goTypes = []any{
 	nil,                                    // 17: codefly.services.solution.v0.UpdateRequest.ParametersEntry
 	nil,                                    // 18: codefly.services.solution.v0.RenderRequest.ValuesEntry
 	(*v0.FailureDiagnostic)(nil),           // 19: codefly.base.v0.FailureDiagnostic
-	(*descriptorpb.MethodOptions)(nil),     // 20: google.protobuf.MethodOptions
+	(*v0.ArtifactExecution)(nil),           // 20: codefly.base.v0.ArtifactExecution
+	(*v0.ArtifactExecutionReceipt)(nil),    // 21: codefly.base.v0.ArtifactExecutionReceipt
+	(*descriptorpb.MethodOptions)(nil),     // 22: google.protobuf.MethodOptions
 }
 var file_codefly_services_solution_v0_solution_proto_depIdxs = []int32{
 	0,  // 0: codefly.services.solution.v0.SolutionMethodPolicy.network:type_name -> codefly.services.solution.v0.SolutionNetworkMode
@@ -1191,24 +1225,26 @@ var file_codefly_services_solution_v0_solution_proto_depIdxs = []int32{
 	19, // 14: codefly.services.solution.v0.PackageResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
 	4,  // 15: codefly.services.solution.v0.RenderRequest.context:type_name -> codefly.services.solution.v0.SolutionContext
 	18, // 16: codefly.services.solution.v0.RenderRequest.values:type_name -> codefly.services.solution.v0.RenderRequest.ValuesEntry
-	19, // 17: codefly.services.solution.v0.RenderResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
-	20, // 18: codefly.services.solution.v0.solution_method_policy:extendee -> google.protobuf.MethodOptions
-	2,  // 19: codefly.services.solution.v0.solution_method_policy:type_name -> codefly.services.solution.v0.SolutionMethodPolicy
-	6,  // 20: codefly.services.solution.v0.Solution.GetSolutionInformation:input_type -> codefly.services.solution.v0.GetSolutionInformationRequest
-	8,  // 21: codefly.services.solution.v0.Solution.Create:input_type -> codefly.services.solution.v0.CreateRequest
-	10, // 22: codefly.services.solution.v0.Solution.Update:input_type -> codefly.services.solution.v0.UpdateRequest
-	12, // 23: codefly.services.solution.v0.Solution.Package:input_type -> codefly.services.solution.v0.PackageRequest
-	14, // 24: codefly.services.solution.v0.Solution.Render:input_type -> codefly.services.solution.v0.RenderRequest
-	7,  // 25: codefly.services.solution.v0.Solution.GetSolutionInformation:output_type -> codefly.services.solution.v0.GetSolutionInformationResponse
-	9,  // 26: codefly.services.solution.v0.Solution.Create:output_type -> codefly.services.solution.v0.CreateResponse
-	11, // 27: codefly.services.solution.v0.Solution.Update:output_type -> codefly.services.solution.v0.UpdateResponse
-	13, // 28: codefly.services.solution.v0.Solution.Package:output_type -> codefly.services.solution.v0.PackageResponse
-	15, // 29: codefly.services.solution.v0.Solution.Render:output_type -> codefly.services.solution.v0.RenderResponse
-	25, // [25:30] is the sub-list for method output_type
-	20, // [20:25] is the sub-list for method input_type
-	19, // [19:20] is the sub-list for extension type_name
-	18, // [18:19] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	20, // 17: codefly.services.solution.v0.RenderRequest.execution:type_name -> codefly.base.v0.ArtifactExecution
+	19, // 18: codefly.services.solution.v0.RenderResponse.diagnostics:type_name -> codefly.base.v0.FailureDiagnostic
+	21, // 19: codefly.services.solution.v0.RenderResponse.execution:type_name -> codefly.base.v0.ArtifactExecutionReceipt
+	22, // 20: codefly.services.solution.v0.solution_method_policy:extendee -> google.protobuf.MethodOptions
+	2,  // 21: codefly.services.solution.v0.solution_method_policy:type_name -> codefly.services.solution.v0.SolutionMethodPolicy
+	6,  // 22: codefly.services.solution.v0.Solution.GetSolutionInformation:input_type -> codefly.services.solution.v0.GetSolutionInformationRequest
+	8,  // 23: codefly.services.solution.v0.Solution.Create:input_type -> codefly.services.solution.v0.CreateRequest
+	10, // 24: codefly.services.solution.v0.Solution.Update:input_type -> codefly.services.solution.v0.UpdateRequest
+	12, // 25: codefly.services.solution.v0.Solution.Package:input_type -> codefly.services.solution.v0.PackageRequest
+	14, // 26: codefly.services.solution.v0.Solution.Render:input_type -> codefly.services.solution.v0.RenderRequest
+	7,  // 27: codefly.services.solution.v0.Solution.GetSolutionInformation:output_type -> codefly.services.solution.v0.GetSolutionInformationResponse
+	9,  // 28: codefly.services.solution.v0.Solution.Create:output_type -> codefly.services.solution.v0.CreateResponse
+	11, // 29: codefly.services.solution.v0.Solution.Update:output_type -> codefly.services.solution.v0.UpdateResponse
+	13, // 30: codefly.services.solution.v0.Solution.Package:output_type -> codefly.services.solution.v0.PackageResponse
+	15, // 31: codefly.services.solution.v0.Solution.Render:output_type -> codefly.services.solution.v0.RenderResponse
+	27, // [27:32] is the sub-list for method output_type
+	22, // [22:27] is the sub-list for method input_type
+	21, // [21:22] is the sub-list for extension type_name
+	20, // [20:21] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_solution_v0_solution_proto_init() }

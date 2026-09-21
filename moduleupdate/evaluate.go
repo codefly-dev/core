@@ -55,6 +55,7 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 		for _, use := range uses {
 			id := use.GetItem()
 			affected := &updatev0.AffectedItem{Item: id, Client: client, ClientVersion: version}
+			incompatible := false
 			old := before[id]
 			next := after[id]
 			dependencies := slices.Clone(use.GetDependencies())
@@ -66,12 +67,26 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 				affected.Reason = "could not determine: used contract requires an expected digest"
 			case next == nil && old != nil:
 				affected.Reason = "used contract was removed"
+				incompatible = true
 			case next == nil:
 				affected.Reason = "could not determine: used contract is absent from the candidate"
 			case declared[id]:
 				affected.Reason = "could not determine: used contract is duplicated"
 			case use.Digest != next.Digest:
-				affected.Reason = "could not determine: candidate contract differs from the pinned client contract"
+				change, supported := prepared.semantic[id]
+				if !supported || old == nil || use.Digest != old.Digest || !slices.Equal(dependencies, old.Dependencies) {
+					affected.Reason = "could not determine: candidate contract differs from the pinned client contract"
+					break
+				}
+				switch change.level {
+				case ChangeMajor:
+					affected.Reason, incompatible = change.reason, true
+				case ChangeMinor:
+					result.Capabilities = append(result.Capabilities, &updatev0.AffectedItem{Item: id, Client: client, ClientVersion: version, Reason: change.reason})
+				case ChangePatch:
+				default:
+					affected.Reason = "could not determine: " + change.reason
+				}
 			case !slices.Equal(dependencies, candidateDependencies):
 				affected.Reason = "could not determine: candidate dependencies differ from the pinned client contract"
 			}
@@ -81,7 +96,11 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 				affected.Documentation = old.Documentation
 			}
 			if affected.Reason != "" {
-				result.Breaking = append(result.Breaking, affected)
+				if incompatible {
+					result.Breaking = append(result.Breaking, affected)
+				} else {
+					result.Undetermined = append(result.Undetermined, affected)
+				}
 			}
 			declared[id] = true
 			used[id] = append(used[id], affected)
@@ -93,7 +112,7 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 			if item := after[use.GetItem()]; item != nil {
 				for _, dependency := range item.Dependencies {
 					if !declared[dependency] {
-						result.Breaking = append(result.Breaking, &updatev0.AffectedItem{
+						result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{
 							Item: dependency, Client: client, ClientVersion: version,
 							Reason: fmt.Sprintf("could not determine: usage of %s omits dependency", item.Id),
 						})
@@ -107,7 +126,7 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 	for _, client := range pin.Clients {
 		key := client.GetName() + "\x00" + client.GetVersion()
 		if client == nil || strings.TrimSpace(client.Name) == "" || !exactVersion(client.Version) || clients[key] {
-			result.Breaking = append(result.Breaking, &updatev0.AffectedItem{
+			result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{
 				Client: client.GetName(), ClientVersion: client.GetVersion(),
 				Reason: "could not determine: client requires a unique identity and exact version",
 			})
@@ -144,7 +163,7 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 	for _, change := range diff.Changes {
 		old, next := before[change.Item], after[change.Item]
 		if next != nil && next.RequiredByAll && (old == nil || !old.RequiredByAll) && len(used[change.Item]) == 0 {
-			result.Breaking = append(result.Breaking, &updatev0.AffectedItem{
+			result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{
 				Item: next.Id, Documentation: next.Documentation,
 				Reason: "could not determine: release introduces a requirement for every consumer",
 			})
@@ -161,10 +180,13 @@ func (prepared *PreparedRelease) Evaluate(pin *updatev0.ConsumerPin) *updatev0.U
 	if len(result.Capabilities) > 0 {
 		result.Verdict = updatev0.Verdict_VERDICT_NEW_CAPABILITY
 	}
+	if len(result.Undetermined) > 0 {
+		result.Verdict = updatev0.Verdict_VERDICT_UNDETERMINED
+	}
 	if len(result.Breaking) > 0 {
 		result.Verdict = updatev0.Verdict_VERDICT_BREAKING
 	}
-	for _, items := range [][]*updatev0.AffectedItem{result.Breaking, result.Capabilities} {
+	for _, items := range [][]*updatev0.AffectedItem{result.Breaking, result.Capabilities, result.Undetermined} {
 		slices.SortFunc(items, func(a, b *updatev0.AffectedItem) int {
 			for _, pair := range [][2]string{{a.Item, b.Item}, {a.Client, b.Client}, {a.ClientVersion, b.ClientVersion}, {a.Reason, b.Reason}} {
 				if order := strings.Compare(pair[0], pair[1]); order != 0 {
@@ -185,7 +207,7 @@ func resultFor(diff *updatev0.ReleaseDiff, pin *updatev0.ConsumerPin) *updatev0.
 }
 
 func undetermined(result *updatev0.UpdateResult, err error) *updatev0.UpdateResult {
-	result.Verdict = updatev0.Verdict_VERDICT_BREAKING
-	result.Breaking = append(result.Breaking, &updatev0.AffectedItem{Reason: "could not determine: " + err.Error()})
+	result.Verdict = updatev0.Verdict_VERDICT_UNDETERMINED
+	result.Undetermined = append(result.Undetermined, &updatev0.AffectedItem{Reason: "could not determine: " + err.Error()})
 	return result
 }

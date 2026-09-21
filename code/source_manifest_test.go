@@ -4,11 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/codefly-dev/core/internal/testgit"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
@@ -254,13 +255,7 @@ func writeSourceManifestFile(t *testing.T, root, relative, body string, mode os.
 
 func gitSourceManifest(t *testing.T, root string, args ...string) string {
 	t.Helper()
-	command := exec.Command("git", args...)
-	command.Dir = root
-	command.Env = append(command.Environ(),
-		"GIT_AUTHOR_NAME=codefly", "GIT_AUTHOR_EMAIL=test@codefly.dev",
-		"GIT_COMMITTER_NAME=codefly", "GIT_COMMITTER_EMAIL=test@codefly.dev",
-	)
-	output, err := command.CombinedOutput()
+	output, err := testgit.Run(t.Context(), root, nil, args...)
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}

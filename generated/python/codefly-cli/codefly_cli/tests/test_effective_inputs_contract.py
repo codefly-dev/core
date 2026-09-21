@@ -5,9 +5,60 @@ from concurrent import futures
 import grpc
 
 from codefly.services.agent.v0 import agent_pb2, agent_pb2_grpc, inputs_pb2
+from codefly.base.v0 import artifact_execution_pb2
+from codefly.services.builder.v0 import builder_pb2
+from codefly.services.solution.v0 import solution_pb2
 
 
 class EffectiveInputsContractTest(unittest.TestCase):
+    def test_artifact_execution_identity_matches_go(self):
+        digest = "sha256:" + "a" * 64
+        execution = artifact_execution_pb2.ArtifactExecution(
+            contract_version="artifact-execution/v1",
+            selection_identity=digest,
+            target="modules/app",
+            service="api",
+            protocol="codefly.builder.deploy/v1",
+            executor_digest=digest,
+            configuration_identity="hmac-" + digest,
+            binding_identity=digest,
+            inputs=[artifact_execution_pb2.ArtifactExecutionInput(
+                name="runtime", target="modules/app", artifact="runtime",
+                uri="https://artifacts.example.test/runtime",
+                media_type="application/octet-stream", digest=digest,
+            )],
+            outputs=[artifact_execution_pb2.ArtifactExecutionOutput(
+                name="manifests", media_type="application/yaml",
+            )],
+        )
+        identity = "sha256:" + hashlib.sha256(
+            execution.SerializeToString(deterministic=True)
+        ).hexdigest()
+        self.assertEqual(
+            identity,
+            "sha256:2f4abd015ad1cdee13c688e50b06e7f55b0fbf7f155e7bdd886bd71e7d8a039d",
+        )
+        execution.identity = identity
+        for request_type in [builder_pb2.BuildRequest, builder_pb2.DeploymentRequest,
+                             solution_pb2.RenderRequest]:
+            request = request_type(execution=execution)
+            restored = request_type.FromString(request.SerializeToString())
+            self.assertEqual(restored.execution, execution)
+        receipt = artifact_execution_pb2.ArtifactExecutionReceipt(
+            identity=identity,
+            outputs=[artifact_execution_pb2.ArtifactExecutionOutput(
+                name="manifests", media_type="application/yaml",
+                digest=digest, path="manifests.yaml",
+            )],
+        )
+        for response_type in [builder_pb2.BuildResponse, builder_pb2.DeploymentResponse,
+                              solution_pb2.RenderResponse]:
+            response = response_type(execution=receipt)
+            restored = response_type.FromString(response.SerializeToString())
+            self.assertEqual(restored.execution, receipt)
+        self.assertEqual(list(builder_pb2.BuildCapabilitiesResponse().execution_contracts), [])
+        self.assertEqual(list(solution_pb2.SolutionCapabilities().execution_contracts), [])
+
     def test_go_agent_contract_wire(self):
         wire = bytes.fromhex(
             "62210801121b636f6e7461696e65722d7265636f766572792d73636f70652f76311802"
