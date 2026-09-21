@@ -128,6 +128,119 @@ func TestReaperPreservesGroupOwnedByLiveProcess(t *testing.T) {
 	}
 }
 
+func TestInspectOwnershipAuthenticatesLiveIdentitiesWithoutMutation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	leader := startRegistryLeader(t, "member")
+	defer stopRegistryLeader(t, leader)
+	pid := leader.Process.Pid
+	path := recordPath(t, pid)
+	for _, scenario := range []string{"live owner", "reused owner PID", "reused PGID"} {
+		t.Run(scenario, func(t *testing.T) {
+			record, _, err := readPgidRecord(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := record
+			rewriteRecord(t, path, func(rec *pgidRecord) {
+				if scenario == "reused owner PID" {
+					rec.Owner.StartID--
+				}
+				if scenario == "reused PGID" {
+					rec.Leader.StartID--
+				}
+			})
+			defer rewriteRecord(t, path, func(rec *pgidRecord) { *rec = original })
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			group, err := LookupProcessGroup(pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ownership, err := group.InspectOwnership(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantAuthenticated := scenario != "reused PGID"
+			if ownership.Authenticated != wantAuthenticated || ownership.OwnerAlive != (scenario != "reused owner PID") {
+				t.Fatalf("unexpected ownership: %+v", ownership)
+			}
+			if wantAuthenticated {
+				identity, err := InspectProcess(pid)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(ownership.Members) != 1 || ownership.Members[0] != identity {
+					t.Fatalf("members = %+v, want %+v", ownership.Members, identity)
+				}
+			} else if len(ownership.Members) != 0 {
+				t.Fatalf("unproven group exposed members: %+v", ownership.Members)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(before) != string(after) {
+				t.Fatalf("inspection modified registry: %v", err)
+			}
+			assertGroupAlive(t, pid)
+		})
+	}
+}
+
+func TestInspectOwnershipAuthenticatesLeaderlessOrphans(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	pid, path := spawnOrphanedGroup(t, true)
+	defer cleanupOrphanedGroup(pid, path)
+	for _, credentialed := range []bool{true, false} {
+		if !credentialed {
+			rewriteRecord(t, path, func(rec *pgidRecord) {
+				rec.Authentication = strings.Repeat("0", groupAuthBytes*2)
+			})
+		}
+		group, err := LookupProcessGroup(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ownership, err := group.InspectOwnership(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ownership.Authenticated != credentialed || ownership.OwnerAlive {
+			t.Fatalf("credentialed=%t: unexpected ownership %+v", credentialed, ownership)
+		}
+		if credentialed && len(ownership.Members) == 0 {
+			t.Fatal("authenticated descendant was not reported")
+		}
+		if !credentialed && len(ownership.Members) != 0 {
+			t.Fatal("unauthenticated descendants were reported as owned")
+		}
+		for _, member := range ownership.Members {
+			if member.PID == pid || member.PGID != pid || member.StartID == 0 || member.BootID == "" {
+				t.Fatalf("invalid descendant identity: %+v", member)
+			}
+		}
+		assertGroupAlive(t, pid)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("inspection removed registry: %v", err)
+		}
+	}
+}
+
+func TestInspectOwnershipDoesNotTreatCancellationAsDeadOwner(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	leader := startRegistryLeader(t, "member")
+	defer stopRegistryLeader(t, leader)
+	group, err := LookupProcessGroup(leader.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if ownership, err := group.InspectOwnership(ctx); ownership != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled inspection = %+v, %v", ownership, err)
+	}
+	assertGroupAlive(t, leader.Process.Pid)
+}
+
 func TestReaperReapsAuthenticatedOrphan(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	pid, path := spawnOrphanedGroup(t, false)

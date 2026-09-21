@@ -79,9 +79,53 @@ func (group *TrackedProcessGroup) Leader() ProcessIdentity {
 	}
 }
 
-// Alive reports whether any process still belongs to the registered group.
+// Alive checks only PGID liveness, not registered ownership. Use
+// InspectOwnership to classify managed processes.
 func (group *TrackedProcessGroup) Alive() bool {
 	return isProcessGroupAlive(group.record.PGID)
+}
+
+// ProcessGroupOwnership is a read-only observation, not authority to signal a
+// PID. Members are populated only when the registered group authenticates.
+// Authenticated=false means ownership was not proven, not that the group died.
+type ProcessGroupOwnership struct {
+	Authenticated bool
+	OwnerAlive    bool
+	Members       []ProcessIdentity
+}
+
+// InspectOwnership uses the same membership and owner checks as registry
+// recovery, including credentials for surviving leaderless groups. Errors mean
+// inspection is incomplete; they must not be interpreted as an absent owner.
+// Signals must still go through the group's identity-checking methods.
+func (group *TrackedProcessGroup) InspectOwnership(ctx context.Context) (*ProcessGroupOwnership, error) {
+	if group == nil {
+		return nil, ErrProcessGroupNotRegistered
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	members, authenticated, err := authenticateProcessGroup(ctx, group.record)
+	if err != nil {
+		return nil, err
+	}
+	ownerAlive, err := recordedOwnerAlive(group.record.Owner)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ownership := &ProcessGroupOwnership{Authenticated: authenticated, OwnerAlive: ownerAlive}
+	if authenticated {
+		for _, member := range members {
+			ownership.Members = append(ownership.Members, ProcessIdentity{
+				PID: member.pid, PGID: member.pgid, BootID: member.bootID,
+				StartID: member.startID, Executable: member.executable,
+			})
+		}
+	}
+	return ownership, nil
 }
 
 // Terminate ends the registered group: SIGTERM, a grace period, then SIGKILL,
