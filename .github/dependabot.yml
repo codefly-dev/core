@@ -32,6 +32,30 @@ updates:
       gomod:
         patterns:
           - '*'
+    ignore:
+      # grpc v1.84.0 reintroduces GO-2026-6443 (server panic on a request
+      # carrying neither :authority nor Host). The advisory fixes it in
+      # v1.83.2, reopens it at v1.84.0-dev, and closes it again only in a
+      # v1.85.0-dev pseudo-version — an unreleased master commit. v1.84.0 is
+      # the newest tag, so "upgrade" is backwards here until v1.85.0 ships.
+      # govulncheck reaches it from agents.Serve, so this is a live path in
+      # core's own agent server, not a graph artifact. #595 took the bump and
+      # went red on ./scripts/govulncheck.sh; without this entry Dependabot
+      # re-opens the same red pull request every week.
+      #
+      # This is a HOLD, not a fix, and it is deliberately blunt: the narrow
+      # `versions: ['1.84.0']` this wants to be is rejected by
+      # TestDependabotIgnoresNeverSuppressSecurityUpdates, because a version
+      # range suppresses security advisories as well as routine bumps. Only
+      # `update-types` stays on the version-update side, and it cannot name a
+      # version — so it pins grpc at v1.83.2 against ALL routine updates until
+      # someone deletes these four lines. Lift it when grpc v1.85.0 is tagged:
+      # codefly-dev/core#615.
+      - dependency-name: google.golang.org/grpc
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
   - package-ecosystem: npm
     directories:
       - /companions/proto/facades/ts
