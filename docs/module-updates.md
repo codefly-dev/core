@@ -232,9 +232,10 @@ PR #752; no additional tracker or release is implied.
 See [composition selections](composition-selections.md) for API contracts,
 signed metadata publication, derived-build authority and CLI integration duties.
 
-CLI migration specifically includes `pkg/composition/pinned.go`'s trust loader
-(flat signing keys must become package-bound), supplying signed actual consumer usage
-to `Engine.Update`, and displaying/blocking `VERDICT_UNDETERMINED`. The owner
+CLI #752 now consumes the Core implementation through a published Go pseudo-version
+and loads package-bound signing keys; signed HTTP regressions reject authority
+borrowed from another package. Remaining migration includes supplying signed actual
+consumer usage to `Engine.Update` and displaying/blocking `VERDICT_UNDETERMINED`. The owner
 must supply authoritative keys and release metadata; a product declaration
 cannot grant itself that authority. Published-agent lifecycle qualification is
 separate from independently built protocol fixtures. The last official-service
@@ -271,3 +272,47 @@ universal registration requirements, conservative unknowns, deterministic JSON,
 and real signed-archive verification. No deployed-cell or real-chain update is
 claimed from those tests. Core #584 and CLI #753 retain the outstanding
 qualification; the Core PR remains draft pending these integration and acceptance gates.
+
+## Handbook delivery and selection review
+
+Compared on 20 September 2026 with the handbook's
+`decisions/consumer-owned-component-selection.md`,
+`decisions/delivery-per-product.md` and
+`design/composing-running-updating-delivering-review/release-scenarios.md`:
+
+- **Independent selection:** signed nested-resolution fixtures exercise different
+  product replacements without ancestor tags, unchanged siblings, metadata-only
+  participation and refusal of missing artifacts. Exact artifact pins remain
+  integrity inputs, not linked-Core compatibility gates.
+- **Actual inputs:** the resolved identity now includes product bindings, test
+  commands and contribution content. Edited, deleted or renamed files and removed
+  suites invalidate signed qualification. Concurrent update/rollback publication
+  compares the qualified lock baseline under a writer lock, preventing an older
+  operation from overwriting a completed selection.
+- **Owner authority and local work:** signed fixtures reject cross-package keys,
+  private/local deployment inputs and stale evidence. Independent local checkouts
+  retain recorded releases and developer files. These are library-boundary proofs,
+  not proof that a product command uses those checks.
+- **Upstream catch-up:** full re-resolution compares effective requirements and
+  artifacts. Repeated inherited constraints do not obstruct removal; stronger
+  replacement requirements still do. Removing an override requires fresh approval.
+- **Delivery ownership:** workload identity publication exchanges the complete
+  generated tree atomically on Linux/macOS. This does not apply a deployment or
+  establish health. Product-reviewed desired state, one writer per target and
+  observed running/rollback receipts remain downstream responsibilities.
+
+The inspected CLI #752 command/package tree has no callers of
+`ResolveComposition`, `AdmitDeployment` or `ProposeOverrideRemoval`. Its trust
+loader and generic environment import adoption do not close that orchestration
+gap. CLI must connect acquisition, exact-input qualification, shared deployment
+admission and running-state reporting before the handbook's product scenario is
+established. Agent owners must publish truthful protocol declarations; real CLI
+engine/gateway tests still reject installed Python, Next.js and generic agents
+without them. No release, private-patch exception or admission bypass follows
+from green Core tests.
+
+The handbook acceptance table predates these Core APIs: its "missing in Core"
+claims for nested selections, admission, effective identity and override removal
+are stale. Its end-to-end "unverified" conclusion remains correct. No live
+product deployment, retained-data upgrade, release approval or GitOps cutover was
+performed for this review.
