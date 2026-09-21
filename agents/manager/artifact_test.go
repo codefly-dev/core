@@ -281,3 +281,75 @@ func TestStageExecutableRejectsInvalidOrInterruptedAcquisition(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, entries)
 }
+
+func TestArtifactShutdownStopsOutputWriters(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	path, digest := buildAcquiredExecutor(t, "child-writer")
+	request := preparedExecutor(t, digest, artifactexecution.BuilderBuild)
+	for _, checked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("checked=%t", checked), func(t *testing.T) {
+			conn, err := LoadArtifact(t.Context(), path, request, WithoutSandbox(), WithoutPrincipal(), WithEnv("EXECUTOR_TEST_MODE=child-writer"))
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = conn.CloseAndWait(ctx)
+			})
+			staging := t.TempDir()
+			response, err := builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{Execution: request, OutputDirectory: staging})
+			require.NoError(t, err)
+			require.NoError(t, artifactexecution.CheckReceipt(request, response.Execution))
+			if checked {
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				require.NoError(t, conn.CloseAndWait(ctx))
+			} else {
+				conn.Close()
+			}
+			require.False(t, conn.group.Alive(), "executor child can still write staged output after shutdown")
+			require.NoDirExists(t, conn.executableDir)
+		})
+	}
+}
+
+func TestArtifactShutdownCancellationPreservesRetry(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	path, digest := buildAcquiredExecutor(t, "cancel-shutdown")
+	request := preparedExecutor(t, digest, artifactexecution.BuilderBuild)
+	conn, err := LoadArtifact(t.Context(), path, request, WithoutSandbox(), WithoutPrincipal(), WithEnv("EXECUTOR_TEST_MODE=child-writer"))
+	require.NoError(t, err)
+	t.Cleanup(conn.Close)
+	staging := t.TempDir()
+	_, err = builderv0.NewBuilderClient(conn.GRPCConn()).Build(t.Context(), &builderv0.BuildRequest{Execution: request, OutputDirectory: staging})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, conn.CloseAndWait(ctx), context.Canceled)
+	require.True(t, conn.group.Alive())
+	require.DirExists(t, conn.executableDir)
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cleanupCancel()
+	require.NoError(t, conn.CloseAndWait(cleanupCtx))
+	require.False(t, conn.group.Alive())
+}
+
+func TestArtifactShutdownReportsSnapshotCleanupFailure(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	path, digest := buildAcquiredExecutor(t, "cleanup-shutdown")
+	conn, err := LoadArtifact(t.Context(), path, preparedExecutor(t, digest, artifactexecution.BuilderBuild), WithoutSandbox(), WithoutPrincipal())
+	require.NoError(t, err)
+	t.Cleanup(conn.Close)
+	require.NoError(t, os.Chmod(tmp, 0500))
+	t.Cleanup(func() { _ = os.Chmod(tmp, 0700) })
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	err = conn.CloseAndWait(ctx)
+	if os.Geteuid() == 0 {
+		require.NoError(t, err)
+	} else {
+		require.ErrorIs(t, err, os.ErrPermission)
+	}
+	require.False(t, conn.group.Alive())
+}

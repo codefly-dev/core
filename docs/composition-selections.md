@@ -160,6 +160,16 @@ loader. The acquired file need not have executable permissions and remains
 untouched. Per-connection cleanup removes only the private copy and owned process.
 Concurrent instances can use different executors without intermediate tags.
 
+Before accepting receipts or hashing output files, call
+`conn.CloseAndWait(cleanupContext)` and require success. Use a fresh bounded
+cleanup context even when rendering was cancelled; report shutdown failures
+alongside operation failures. This terminates the authenticated process group,
+including children that survive their leader, waits for reaping and reports
+private-directory cleanup errors. A cancelled termination retains the registration
+and allows retry. `Close()` remains a best-effort cleanup method and its
+lack of a returned error is not proof of completed cleanup. Deliberately detached
+processes outside the registered group are not supported staging writers.
+
 This entry point accepts executable bytes, not an archive, OCI manifest or image.
 Their digests are not interchangeable. Packaged executors require a separately
 declared executable artifact; there is no unpacking or source-build fallback.

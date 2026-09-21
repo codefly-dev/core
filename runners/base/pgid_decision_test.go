@@ -464,6 +464,30 @@ func TestReaperWaitsForCrossProcessRegistryLock(t *testing.T) {
 	}
 }
 
+func TestProcessGroupRemovalHonorsRegistryLockDeadline(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	leader := startRegistryLeader(t, "member")
+	defer stopRegistryLeader(t, leader)
+	dir, err := pgidStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := flock.New(filepath.Join(dir, pgidLockName))
+	if err := lock.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := leader.group.RemoveIfDeadContext(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RemoveIfDeadContext returned %v", err)
+	}
+	assertGroupAlive(t, leader.Process.Pid)
+	if _, err := os.Stat(recordPath(t, leader.Process.Pid)); err != nil {
+		t.Fatalf("deadline removed live registration: %v", err)
+	}
+}
+
 func TestStartTrackedProcessGroupCapturesIdentityBeforeRegistryLock(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir, err := pgidStateDir()

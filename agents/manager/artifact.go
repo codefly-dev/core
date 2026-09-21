@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -58,8 +59,9 @@ func LoadArtifact(ctx context.Context, path string, execution *basev0.ArtifactEx
 	admitCtx, cancel := context.WithTimeout(ctx, cfg.dialTimeout)
 	defer cancel()
 	if err := admitArtifact(admitCtx, conn, request); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("%w: %w", ErrAgentAdmission, err)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		defer cleanupCancel()
+		return nil, errors.Join(fmt.Errorf("%w: %w", ErrAgentAdmission, err), conn.CloseAndWait(cleanupCtx))
 	}
 	return conn, nil
 }

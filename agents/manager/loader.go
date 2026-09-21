@@ -98,6 +98,7 @@ type AgentConn struct {
 
 	closeOnce             sync.Once
 	runtimeDirCleanupOnce sync.Once
+	runtimeDirCleanupErr  error
 	activeIdentity        string
 }
 
@@ -188,8 +189,38 @@ const gracefulShutdownTimeout = 30 * time.Second
 //
 // cmd.Wait must only be called once — the reaper owns it. We observe
 // completion via the `done` channel the reaper closes.
+// For selected artifacts, use CloseAndWait to observe group-cleanup failures
+// before accepting staged outputs; Close can only log those failures.
 func (c *AgentConn) Close() {
+	if c.executableDir != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		defer cancel()
+		if err := c.CloseAndWait(ctx); err != nil {
+			wool.Get(ctx).In("AgentConn.Close").Warn("artifact executor cleanup failed", wool.Field("error", err.Error()))
+		}
+		return
+	}
 	c.closeOnce.Do(c.close)
+}
+
+// CloseAndWait confirms that the authenticated process group has stopped before
+// releasing its files. Callers accepting staged outputs must check the error.
+// Use a fresh bounded context when the operation's context has been cancelled.
+// A termination failure retains the registration and permits a cleanup retry.
+func (c *AgentConn) CloseAndWait(ctx context.Context) error {
+	if c.group == nil || c.done == nil {
+		return fmt.Errorf("cannot confirm shutdown without a tracked process group and reaper")
+	}
+	if err := c.group.Terminate(ctx); err != nil {
+		return fmt.Errorf("terminate executor process group: %w", err)
+	}
+	select {
+	case <-c.done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	c.closeOnce.Do(c.close)
+	return errors.Join(c.group.RemoveIfDeadContext(ctx), c.cleanupRuntimeDir())
 }
 
 func (c *AgentConn) close() {
@@ -260,15 +291,16 @@ func (c *AgentConn) killProcessGroup() {
 	}
 }
 
-func (c *AgentConn) cleanupRuntimeDir() {
+func (c *AgentConn) cleanupRuntimeDir() error {
 	c.runtimeDirCleanupOnce.Do(func() {
 		if c.runtimeDir != "" {
-			_ = os.RemoveAll(c.runtimeDir)
+			c.runtimeDirCleanupErr = os.RemoveAll(c.runtimeDir)
 		}
 		if c.executableDir != "" {
-			_ = os.RemoveAll(c.executableDir)
+			c.runtimeDirCleanupErr = errors.Join(c.runtimeDirCleanupErr, os.RemoveAll(c.executableDir))
 		}
 	})
+	return c.runtimeDirCleanupErr
 }
 
 // closeLogWriter closes the WithLogWriter sink if it is an io.Closer.
@@ -1188,7 +1220,11 @@ func spawnAgent(ctx context.Context, bin, identity, telemetryName, artifactDiges
 	go func() {
 		defer close(agentConn.done)
 		defer unregisterActive(agentConn)
-		defer agentConn.cleanupRuntimeDir()
+		defer func() {
+			if agentConn.executableDir == "" || !group.Alive() {
+				_ = agentConn.cleanupRuntimeDir()
+			}
+		}()
 		waitErr := cmd.Wait()
 		// cmd.Wait has returned, so exec's stderr copier is done and no
 		// more writes reach logWriter — safe to close it now. This unblocks

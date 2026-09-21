@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -100,6 +101,18 @@ func (s *executor) emit(execution *basev0.ArtifactExecution, protocol, directory
 	if s.mode == "missing-ack" {
 		return nil, nil
 	}
+	if s.mode == "child-writer" {
+		path, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		child := exec.Command(path)
+		child.Env = append(os.Environ(), "EXECUTOR_CHILD_OUTPUT="+filepath.Join(directory, execution.Outputs[0].Name+".json"))
+		if err := child.Start(); err != nil {
+			return nil, err
+		}
+		go func() { _ = child.Wait() }()
+	}
 	return receipt, nil
 }
 
@@ -127,6 +140,14 @@ func (s *solutionExecutor) Render(_ context.Context, request *solutionv0.RenderR
 }
 
 func main() {
+	if output := os.Getenv("EXECUTOR_CHILD_OUTPUT"); output != "" {
+		time.Sleep(500 * time.Millisecond)
+		if err := os.WriteFile(output, []byte("changed by surviving executor child"), 0600); err != nil {
+			panic(err)
+		}
+		time.Sleep(time.Minute)
+		return
+	}
 	mode := flag.String("mode", "supported", "operation contract mode")
 	address := flag.String("address-file", "", "write listening address here")
 	flag.Parse()
