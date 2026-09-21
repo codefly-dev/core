@@ -119,7 +119,7 @@ func TestLocalMaterializationRejectsSourceMutationDuringGeneration(t *testing.T)
 }
 
 func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
-	for _, scenario := range []string{"compatible skipped release", "optional REST parameter", "required REST parameter", "transitive REST type", "removed route", "configuration changed", "missing usage", "stale usage", "tampered baseline", "unsigned usage", "other consumer", "other instance", "expired usage", "stale inputs"} {
+	for _, scenario := range []string{"compatible skipped release", "optional REST parameter", "required REST parameter", "narrowed inherited REST parameter", "transitive REST type", "removed route", "configuration changed", "missing usage", "stale usage", "tampered baseline", "unsigned usage", "other consumer", "other instance", "expired usage", "stale inputs"} {
 		t.Run(scenario, func(t *testing.T) {
 			project := t.TempDir()
 			t.Cleanup(func() { _ = removeCacheTree(project) })
@@ -128,6 +128,22 @@ func TestEngineUpdateUsesAuthenticatedConsumerBaseline(t *testing.T) {
 			beforeRoot, afterRoot := t.TempDir(), t.TempDir()
 			writeUpdateSources(t, beforeRoot, "0.1.0", false)
 			writeUpdateSources(t, afterRoot, "0.9.0", true)
+			if scenario == "narrowed inherited REST parameter" {
+				for _, root := range []string{beforeRoot, afterRoot} {
+					path := filepath.Join(root, "contracts/api/openapi.json")
+					var document map[string]any
+					require.NoError(t, json.Unmarshal([]byte(readFile(t, path)), &document))
+					route := document["paths"].(map[string]any)["/accounts"].(map[string]any)
+					route["parameters"] = []any{map[string]any{"name": "mode", "in": "query", "schema": map[string]any{"type": "string", "enum": []string{"a", "b"}}}}
+					if root == afterRoot {
+						route["get"].(map[string]any)["parameters"] = []any{map[string]any{"name": "mode", "in": "query", "schema": map[string]any{"type": "string", "enum": []string{"a"}}}}
+					}
+					data, err := json.Marshal(document)
+					require.NoError(t, err)
+					writeFile(t, path, string(data))
+					updateAPIDigest(t, root)
+				}
+			}
 			if scenario == "optional REST parameter" || scenario == "required REST parameter" {
 				path := filepath.Join(afterRoot, "contracts/api/openapi.json")
 				var document map[string]any

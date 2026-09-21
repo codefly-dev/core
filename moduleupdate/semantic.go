@@ -165,8 +165,17 @@ func compareOpenAPIOperation(before, after []byte) semanticChange {
 	}
 	a, aOK := operationParameters(old[1])
 	b, bOK := operationParameters(next[1])
-	if !aOK || !bOK {
+	inherited, inheritedOK := operationParameters(old[0])
+	if !aOK || !bOK || !inheritedOK {
 		return semanticChange{ChangeUndetermined, "unsupported OpenAPI parameter declarations"}
+	}
+	for key, parameter := range inherited {
+		if _, overridden := a[key]; !overridden {
+			a[key] = parameter
+		}
+		if _, overridden := b[key]; !overridden {
+			b[key] = parameter
+		}
 	}
 	delete(old[1], "parameters")
 	delete(next[1], "parameters")

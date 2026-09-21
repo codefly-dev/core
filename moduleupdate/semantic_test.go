@@ -131,3 +131,46 @@ func TestOpenAPISourcePreservesExactNumericRequirements(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAPIOperationOverridesUseEffectiveParameters(t *testing.T) {
+	inherited := `{"parameters":[{"name":"mode","in":"query","schema":{"type":"string","enum":["a","b"]}}]}`
+	for _, scenario := range []struct {
+		name, before, after string
+		want                ChangeLevel
+	}{
+		{"narrow inherited enum", `{}`, `{"parameters":[{"name":"mode","in":"query","schema":{"type":"string","enum":["a"]}}]}`, ChangeUndetermined},
+		{"require inherited optional parameter", `{}`, `{"parameters":[{"name":"mode","in":"query","required":true,"schema":{"type":"string","enum":["a","b"]}}]}`, ChangeUndetermined},
+		{"repeat inherited parameter", `{}`, inherited, ChangePatch},
+		{"remove wider override", `{"parameters":[{"name":"mode","in":"query","schema":{"type":"string"}}]}`, `{}`, ChangeUndetermined},
+		{"add distinct optional parameter", `{}`, `{"parameters":[{"name":"page","in":"query","schema":{"type":"integer"}}]}`, ChangeMinor},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			evidence := func(operation, version string) (*updatev0.ContractSnapshot, map[string]ContractSource) {
+				source := ContractSource{Format: SourceOpenAPIOperation, Content: []byte("[" + inherited + "," + operation + "]")}
+				snapshot, err := PrepareSnapshot(&updatev0.ContractSnapshot{SchemaVersion: 1, Module: "example/module", Version: version, Complete: true,
+					Items: []*updatev0.ContractItem{{Id: "operation", Digest: fmt.Sprintf("sha256:%x", sha256.Sum256(source.Content))}},
+				})
+				require.NoError(t, err)
+				return snapshot, map[string]ContractSource{"operation": source}
+			}
+			before, oldSource := evidence(scenario.before, "1.0.0")
+			after, newSource := evidence(scenario.after, "1.1.0")
+			diff, err := BuildReleaseDiff(before, after)
+			require.NoError(t, err)
+			prepared, err := PrepareReleaseDiffWithSources(diff, oldSource, newSource)
+			require.NoError(t, err)
+			pin := &updatev0.ConsumerPin{SchemaVersion: 1, Consumer: "product", Module: before.Module, Version: before.Version, SnapshotDigest: before.Digest, UsageComplete: true,
+				Uses: []*updatev0.ContractUse{{Item: "operation", Digest: before.Items[0].Digest}},
+			}
+			require.Equal(t, scenario.want, ClassifyContractChangeWithSources(diff, oldSource, newSource).Level)
+			want := updatev0.Verdict_VERDICT_UNDETERMINED
+			if scenario.want == ChangePatch {
+				want = updatev0.Verdict_VERDICT_SAFE
+			}
+			if scenario.want == ChangeMinor {
+				want = updatev0.Verdict_VERDICT_NEW_CAPABILITY
+			}
+			require.Equal(t, want, prepared.Evaluate(pin).Verdict)
+		})
+	}
+}
