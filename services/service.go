@@ -12,6 +12,7 @@ import (
 	"github.com/codefly-dev/core/failures"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/runners/recoveryscope"
+	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -39,8 +40,9 @@ type Instance struct {
 
 	Identity *resources.ServiceIdentity
 
-	Agent *services.ServiceAgent
-	Info  *agentv0.AgentInformation
+	Agent          *services.ServiceAgent
+	Info           *agentv0.AgentInformation
+	agentSelection resources.Agent
 	// ContainerRecoveryScope is the agent's authenticated gRPC acknowledgement,
 	// not a claim inferred from the CLI's own Core version.
 	ContainerRecoveryScope string
@@ -383,6 +385,9 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	if service == nil {
 		return nil, wool.Get(ctx).In("services.Load").NewError("service cannot be nil")
 	}
+	if service.Agent == nil {
+		return nil, wool.Get(ctx).In("services.Load").NewError("agent cannot be nil")
+	}
 	w := wool.Get(ctx).In("services.Load", wool.NameField(service.Name))
 	identity, err := service.Identity()
 	if err != nil {
@@ -393,6 +398,15 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	cached, ok := instances[identity.Unique()]
 	instancesMu.Unlock()
 	if ok {
+		if _, err := manager.ResolveLatest(ctx, service.Agent); err != nil {
+			return nil, err
+		}
+		if err := checkAgentSelection(identity.Unique(), cached.agentSelection, *service.Agent); err != nil {
+			return nil, err
+		}
+		if _, err := getConn(ctx, identity.Unique(), service.Agent); err != nil {
+			return nil, err
+		}
 		return cached, nil
 	}
 
@@ -405,11 +419,12 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	}
 
 	instance := &Instance{
-		Workspace: workspace,
-		Service:   service,
-		Module:    module,
-		Identity:  identity,
-		Agent:     agent,
+		Workspace:      workspace,
+		Service:        service,
+		Module:         module,
+		Identity:       identity,
+		Agent:          agent,
+		agentSelection: *agent.Agent,
 	}
 	instance.ProcessInfo.AgentPID = agent.ProcessInfo.PID
 
@@ -435,6 +450,9 @@ func Load(ctx context.Context, workspace *resources.Workspace, module *resources
 	instancesMu.Lock()
 	if existing, found := instances[instance.Identity.Unique()]; found {
 		instancesMu.Unlock()
+		if err := checkAgentSelection(identity.Unique(), existing.agentSelection, instance.agentSelection); err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	instances[instance.Identity.Unique()] = instance
@@ -540,18 +558,32 @@ type UpdateInformation struct {
 
 func UpdateAgent(ctx context.Context, service *resources.Service) (*UpdateInformation, error) {
 	w := wool.Get(ctx).In("ServiceInstance::Update")
-	agentVersion := service.Agent.Version
+	original := service.Agent
+	candidate := *original
 	info := &UpdateInformation{}
 	// Fetch the latest agent version
-	_, err := manager.PinToLatestRelease(ctx, service.Agent)
+	_, err := manager.PinToLatestRelease(ctx, &candidate)
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
-	if service.Agent.Version != agentVersion {
-		info.AgentUpdate = &AgentUpdate{Name: service.Agent.Name, From: agentVersion, To: service.Agent.Version}
+	if candidate.Version == original.Version {
+		return info, nil
 	}
+	configurationPath, err := resources.Path[resources.Service](ctx, service.Dir())
+	if err != nil {
+		return nil, err
+	}
+	if !shared.GetOverride(ctx).Replace(configurationPath) {
+		return nil, fmt.Errorf("agent update requires replacing %s", configurationPath)
+	}
+	if _, _, err := InspectAgent(ctx, &candidate); err != nil {
+		return nil, w.Wrapf(err, "cannot admit agent update")
+	}
+	info.AgentUpdate = &AgentUpdate{Name: candidate.Name, From: original.Version, To: candidate.Version}
+	service.Agent = &candidate
 	err = service.Save(ctx)
 	if err != nil {
+		service.Agent = original
 		return nil, w.Wrap(err)
 	}
 	return info, nil

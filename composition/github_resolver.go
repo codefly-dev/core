@@ -19,6 +19,7 @@ type GitHubPackage struct {
 	ArtifactAsset   string
 	ProvenanceAsset string
 	SignatureAsset  string
+	MetadataAsset   string
 }
 
 type GitHubResolver struct {
@@ -73,6 +74,33 @@ func (resolver *GitHubResolver) Fetch(ctx context.Context, lock *Lock) (*Release
 		return nil, fmt.Errorf("locked repository %q does not match registered repository %q", lock.Source.Repository, packageSource.RepositoryURL)
 	}
 	return resolver.fetchTag(ctx, packageSource, lock.Source.Ref)
+}
+
+func (resolver *GitHubResolver) ResolveMetadata(ctx context.Context, request ResolveRequest) (*ReleaseMetadata, error) {
+	if resolver.initErr != nil {
+		return nil, resolver.initErr
+	}
+	if _, err := semverStrict(request.Version); err != nil {
+		return nil, err
+	}
+	source, exists := resolver.Packages[request.Package]
+	if !exists || source.MetadataAsset == "" {
+		return nil, fmt.Errorf("signed metadata source is not registered for %q", request.Package)
+	}
+	if source.MetadataAsset == source.ArtifactAsset {
+		return nil, errors.New("release metadata must be separate from the implementation archive")
+	}
+	source.ArtifactAsset = source.MetadataAsset
+	metadataResolver := *resolver
+	metadataResolver.MaxArtifactBytes = 1 << 20
+	release, err := metadataResolver.fetchTag(ctx, source, "v"+request.Version)
+	if err != nil {
+		return nil, err
+	}
+	return &ReleaseMetadata{
+		Repository: release.Repository, Ref: release.Ref, Commit: release.Commit,
+		Manifest: release.Artifact, Provenance: release.Provenance, Signature: release.Signature,
+	}, nil
 }
 
 func (resolver *GitHubResolver) fetchTag(ctx context.Context, packageSource GitHubPackage, tagName string) (*Release, error) {

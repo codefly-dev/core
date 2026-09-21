@@ -53,10 +53,10 @@ func TestPreparedReleaseOwnsItsEvidence(t *testing.T) {
 	for range cap(results) {
 		result := <-results
 		require.True(t, proto.Equal(expected, result))
-		result.Breaking[0].Reason = "mutated result"
+		result.Undetermined[0].Reason = "mutated result"
 	}
 	require.True(t, proto.Equal(expected, prepared.Evaluate(pin)))
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, new(moduleupdate.PreparedRelease).Evaluate(pin).Verdict)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, new(moduleupdate.PreparedRelease).Evaluate(pin).Verdict)
 }
 
 func benchmarkRelease(b testing.TB, size int) (*updatev0.ReleaseDiff, *updatev0.ConsumerPin) {
@@ -81,7 +81,9 @@ func TestPreparedEvaluationAllocationsDoNotGrowWithUnusedSurface(t *testing.T) {
 		diff, pin := benchmarkRelease(t, size)
 		prepared, err := moduleupdate.PrepareReleaseDiff(diff)
 		require.NoError(t, err)
-		return testing.AllocsPerRun(10, func() { prepared.Evaluate(pin) })
+		// Race builds randomly discard pooled JSON buffers; average enough runs
+		// to measure surface-dependent allocations rather than pool retention.
+		return testing.AllocsPerRun(1000, func() { prepared.Evaluate(pin) })
 	}
 	require.LessOrEqual(t, allocations(2000), allocations(10)+2)
 }
@@ -126,7 +128,7 @@ func TestReleaseDiffIdentityAndCanonicalChanges(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(original), string(canonical))
 	result := moduleupdate.Evaluate(diff, pin)
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
 	require.Len(t, result.Capabilities, 1)
 	diff.Changes = append(diff.Changes, diff.Changes[0])
 	require.Error(t, moduleupdate.ValidateReleaseDiff(diff))
@@ -141,11 +143,11 @@ func TestDifferentClientVersionsAndStableResultOrder(t *testing.T) {
 	pin.Clients = append(pin.Clients, second)
 	diff := release(t, baseline, change(get))
 	expected := moduleupdate.Evaluate(diff, pin)
-	require.Len(t, expected.Breaking, 2)
+	require.Len(t, expected.Undetermined, 2)
 	slices.Reverse(pin.Clients)
 	actual := moduleupdate.Evaluate(diff, pin)
 	require.True(t, proto.Equal(expected, actual))
-	for _, item := range actual.Breaking {
+	for _, item := range actual.Undetermined {
 		require.Contains(t, item.Reason, "candidate contract differs from the pinned client contract")
 	}
 }

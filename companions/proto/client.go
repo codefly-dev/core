@@ -144,7 +144,9 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	// Sources only: a descriptor set carries its foreign files already marked as
 	// buf image imports, and re-targeting them would put a second Timestamp next
 	// to the consumer's runtime one.
-	includeImports := len(spec.sources) > 0 && spec.language == languages.TYPESCRIPT
+	// Rust also needs imported bindings; prost keeps google.protobuf external
+	// through its default prost-types mapping.
+	includeImports := len(spec.sources) > 0 && (spec.language == languages.TYPESCRIPT || spec.language == languages.RUST)
 
 	if err = CreateBufConfiguration(ctx, tmpDir, spec.service, spec.language, spec.facade,
 		WithGoPackageOverrides(goPackageOverrides), WithIncludeImports(includeImports)); err != nil {
@@ -200,6 +202,12 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	if _, err = shared.CheckDirectoryOrCreate(ctx, spec.destination); err != nil {
 		return w.Wrapf(err, "cannot create destination")
 	}
+	if spec.language == languages.RUST {
+		return generateRustOutput(ctx, spec.destination, func(output string) error {
+			name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
+			return runBuf(ctx, name, image, tmpDir, output, false, depUpdate, generateArgs, before)
+		})
+	}
 
 	if includeImports {
 		// The run writes a tree for every namespace the sources import, which is
@@ -213,7 +221,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	}
 
 	name := fmt.Sprintf("proto-%s-%d-%s", spec.service, time.Now().UnixMilli(), spec.language)
-	return runBuf(ctx, name, image, tmpDir, spec.destination, depUpdate, generateArgs, before)
+	return runBuf(ctx, name, image, tmpDir, spec.destination, spec.language == languages.GO, depUpdate, generateArgs, before)
 }
 
 // removeForeignOutput deletes the generated trees for the namespaces the

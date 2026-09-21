@@ -94,6 +94,18 @@ class ReleaseNotesTest(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             self.notes()
 
+    def test_operation_support_is_not_executor_adoption(self):
+        self.manifest()
+        self.previous()
+        path = self.root / MANIFEST
+        manifest = json.loads(path.read_text())
+        manifest["operationContracts"] = ["artifact-execution/v1"]
+        path.write_text(json.dumps(manifest))
+        notes = self.notes()
+        self.assertIn("No agent rebuild", notes)
+        self.assertIn("Host-supported operation contracts: `artifact-execution/v1`", notes)
+        self.assertIn("not an executor advertisement", notes)
+
 
 class PublicationRecoveryTest(unittest.TestCase):
     def test_new_release_verifies_asset_before_publication(self):

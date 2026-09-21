@@ -15,7 +15,7 @@ import (
 
 func resetConnectionCacheForTest() {
 	connCacheMu.Lock()
-	connCache = make(map[string]*manager.AgentConn)
+	connCache = make(map[string]*connLoad)
 	connLoads = make(map[string]*connLoad)
 	connGeneration = 0
 	connKeyGenerations = make(map[string]uint64)
@@ -36,6 +36,9 @@ func TestClearAgentInvalidatesOnlyOneServiceCache(t *testing.T) {
 	instancesMu.Unlock()
 
 	ClearAgent("module/one")
+	if _, err := getConn(t.Context(), "module/one", &resources.Agent{}); err == nil {
+		t.Fatal("a cleared connection must fail without panicking")
+	}
 
 	connCacheMu.Lock()
 	_, oneConn := connCache["module/one"]

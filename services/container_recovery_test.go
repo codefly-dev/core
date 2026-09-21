@@ -1,7 +1,13 @@
 package services
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/codefly-dev/core/agents/contract"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
@@ -61,6 +67,44 @@ func TestRequireContainerRecoveryScope(t *testing.T) {
 				require.ErrorContains(t, err, "module/service")
 			} else {
 				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestContainerRecoveryAdmissionUsesTheRunningAgentsAcknowledgement(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	binary := filepath.Join(t.TempDir(), "agent")
+	output, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../agents/testdata/recoveryagent").CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	selected := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "example.test", Name: "recovery", Version: "1.0.0"}
+	installed, err := selected.Path(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(installed), 0o755))
+	require.NoError(t, os.Symlink(binary, installed))
+	id, namespace := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	marker := recoveryscope.Marker(os.Getpid(), id, namespace)
+	for _, tc := range []struct{ name, declaration, marker, expected, wantError string }{
+		{name: "supported", marker: marker, expected: id + ":" + namespace},
+		{name: "missing-capability", declaration: "no-recovery", marker: marker, expected: id + ":" + namespace, wantError: "does not implement required capability"},
+		{name: "wrong-flow", marker: marker, expected: strings.Repeat("c", 64) + ":" + namespace, wantError: "did not acknowledge this run"},
+		{name: "missing-marker", expected: id + ":" + namespace, wantError: "did not acknowledge this run"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("TEST_AGENT_CONTRACT", tc.declaration)
+			t.Setenv(recoveryscope.EnvironmentVariable, tc.marker)
+			t.Cleanup(ClearAgents)
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+			defer cancel()
+			service := &resources.Service{Name: "recovery", Agent: selected}
+			service.WithModule("fixture")
+			instance, err := Load(ctx, nil, nil, service)
+			require.NoError(t, err)
+			err = instance.RequireContainerRecoveryScope(tc.expected)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantError)
 			}
 		})
 	}

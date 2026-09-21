@@ -3,6 +3,7 @@ syntax = "proto3";
 package codefly.services.builder.v0;
 
 import "codefly/base/v0/service.proto";
+import "codefly/base/v0/artifact_execution.proto";
 import "codefly/base/v0/failure.proto";
 import "codefly/base/v0/network.proto";
 import "codefly/base/v0/runnable.proto";
@@ -263,6 +264,8 @@ message BuildRequest {
   // builder writes reproducible build recipes. Required for application image
   // builds; managed-image and runtime-only agents may omit it.
   string output_directory = 2;
+  // execution supplies authoritative composition artifact bindings when present.
+  codefly.base.v0.ArtifactExecution execution = 3;
 }
 
 // BuildResult captures the outcome of build.
@@ -314,6 +317,8 @@ message BuildResponse {
   string cache_contract_version = 3;
   // buildx_builder acknowledges the executor used for an in-agent image build.
   string buildx_builder = 4;
+  // execution acknowledges the exact applied selection and emitted output bytes.
+  codefly.base.v0.ArtifactExecutionReceipt execution = 5;
 }
 
 /*
@@ -334,6 +339,11 @@ message DeploymentRequest {
   repeated codefly.base.v0.NetworkMapping network_mappings = 5;
   // dependencies_network_mappings are reachable addresses for upstream services.
   repeated codefly.base.v0.NetworkMapping dependencies_network_mappings = 6;
+  // execution supplies authoritative composition inputs for manifest rendering.
+  codefly.base.v0.ArtifactExecution execution = 7;
+  // output_directory is an absolute caller-owned staging directory, required
+  // when execution is present. Bound Deploy renders only; it must not apply.
+  string output_directory = 8;
 }
 
 // DeploymentStatus reports the state and message for the deployment lifecycle phase.
@@ -365,6 +375,8 @@ message DeploymentResponse {
   codefly.base.v0.Configuration configuration = 2;
   // deployment is the deployment target and payload handled by the builder.
   DeploymentOutput deployment = 3;
+  // execution acknowledges the exact applied selection and emitted output bytes.
+  codefly.base.v0.ArtifactExecutionReceipt execution = 4;
 }
 
 
@@ -914,6 +926,8 @@ message BuildCapabilitiesResponse {
   // Recipe-only agents may also advertise this because the caller owns execution.
   // Agents must opt in explicitly; upgrading the transport alone is insufficient.
   bool buildx_selection = 1;
+  // execution_contracts lists artifact bindings honored by Build and Deploy.
+  repeated string execution_contracts = 2;
 }
 
 // Builder is responsible for:

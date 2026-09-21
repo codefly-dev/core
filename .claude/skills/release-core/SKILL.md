@@ -61,6 +61,12 @@ Tagging is gated on the `codefly core` workflow succeeding, not on a push to
 Do not try to make a release land faster by tagging around a failing check —
 that failure is the gate doing its job.
 
+Report the startup/lifecycle protocol and capabilities separately from the Core
+version, using `agents/contract/contract.json`. An unchanged contract requires no
+agent rebuild or fleet repinning. Reproducible dependency pins and explicit
+artifact selections are not runtime compatibility gates. Qualify published
+artifacts without workspace overrides before reporting downstream adoption.
+
 ## Companions are a separate contract
 
 Companion images are not released by this flow. They are built from their own

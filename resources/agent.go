@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 
 	"buf.build/go/protovalidate"
@@ -379,6 +380,20 @@ func ValidateAgent(agent *basev0.Agent) error {
 	if agent == nil {
 		return fmt.Errorf("agent is required")
 	}
+	if _, err := AgentKindRegistrationFromProto(agent.GetKind()); err != nil {
+		return err
+	}
+	for _, component := range []struct{ name, value string }{
+		{"publisher", agent.Publisher}, {"name", agent.Name}, {"version", agent.Version},
+	} {
+		if !agentIdentityComponent.MatchString(component.value) {
+			return fmt.Errorf("invalid agent %s: must start with an ASCII letter or digit and contain only letters, digits, '.', '_', '+', '-'", component.name)
+		}
+		// Neither side of the cache separator may contain the separator itself.
+		if component.name != "publisher" && strings.Contains(component.value, "__") {
+			return fmt.Errorf("invalid agent %s: '__' is reserved for the cache separator", component.name)
+		}
+	}
 	v, err := protovalidate.New()
 	if err != nil {
 		return err
@@ -386,9 +401,10 @@ func ValidateAgent(agent *basev0.Agent) error {
 	if err := v.Validate(agent); err != nil {
 		return err
 	}
-	_, err = AgentKindRegistrationFromProto(agent.GetKind())
-	return err
+	return nil
 }
+
+var agentIdentityComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 
 func (p *Agent) Identifier() string {
 	return fmt.Sprintf("%s/%s:%s", p.Publisher, p.Name, p.Version)
@@ -476,6 +492,9 @@ func AgentBase(ctx context.Context) string {
 }
 
 func (p *Agent) Path(ctx context.Context) (string, error) {
+	if _, err := p.Proto(); err != nil {
+		return "", err
+	}
 	registration, err := AgentKindRegistrationFor(p.Kind)
 	if err != nil {
 		return "", err
@@ -483,8 +502,7 @@ func (p *Agent) Path(ctx context.Context) (string, error) {
 	if !registration.Operations.Load {
 		return "", fmt.Errorf("agent kind %s does not support load", p.Kind)
 	}
-	name := strings.Replace(p.Identifier(), ":", "__", 1)
-	return path.Join(AgentBase(ctx), "agents", registration.InstallSubdirectory, name), nil
+	return path.Join(AgentBase(ctx), "agents", registration.InstallSubdirectory, p.Publisher, p.Name+"__"+p.Version), nil
 }
 
 func (p *Agent) Patch() (*Agent, error) {

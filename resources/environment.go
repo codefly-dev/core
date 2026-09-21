@@ -119,6 +119,13 @@ func (ref *EnvironmentSecretRemoteRef) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		return node.Decode(&ref.Key)
 	}
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i < len(node.Content); i += 2 {
+			if key := node.Content[i].Value; key != "key" && key != "property" {
+				return fmt.Errorf("unknown secret reference field %q", key)
+			}
+		}
+	}
 	type plain EnvironmentSecretRemoteRef
 	return node.Decode((*plain)(ref))
 }
@@ -138,10 +145,26 @@ func (ref EnvironmentSecretRemoteRef) MarshalYAML() (any, error) {
 // EnvironmentManagedService describes an environment-owned replacement for a
 // service that is otherwise part of the module graph.
 type EnvironmentManagedService struct {
-	Kind             string                              `yaml:"kind"`
-	ExternalName     string                              `yaml:"external-name"`
+	Kind         string `yaml:"kind"`
+	ExternalName string `yaml:"external-name"`
+	// Port is the explicitly selected endpoint port; Core never infers it from Kind.
+	Port             int                                 `yaml:"port,omitempty"`
 	EgressCIDRs      []string                            `yaml:"egress-cidrs,omitempty"`
 	SecretReferences []EnvironmentManagedSecretReference `yaml:"secret-references,omitempty"`
+	// Identity is independent of any explicitly declared secret references.
+	Identity *EnvironmentWorkloadIdentity `yaml:"identity,omitempty"`
+}
+
+// EnvironmentWorkloadIdentity is the runtime principal a workload authenticates
+// as, and the platform's own means of attaching it. Annotations land on the
+// workload's ServiceAccount and Labels on its pod template, verbatim: a cell
+// declares whatever its identity webhook keys off and codefly stamps it without
+// interpreting the keys.
+type EnvironmentWorkloadIdentity struct {
+	Kind        string            `yaml:"kind,omitempty"`
+	Principal   string            `yaml:"principal"`
+	Annotations map[string]string `yaml:"annotations,omitempty"`
+	Labels      map[string]string `yaml:"labels,omitempty"`
 }
 
 // EnvironmentServiceSecrets declares the External Secrets store that resolves a
@@ -329,8 +352,7 @@ type Environment struct {
 	Ingress         []EnvironmentIngressRoute            `yaml:"ingress,omitempty"`
 	ManagedServices map[string]EnvironmentManagedService `yaml:"managed-services,omitempty"`
 
-	// Dns carries the environment's DNS contract, sourced from the cell
-	// descriptor (CellContract.DNS). Its AppHostSuffix lets the network layer
+	// Dns carries the environment's DNS contract. Its AppHostSuffix lets the network layer
 	// derive an external endpoint's public host from declared config instead of
 	// a local dns.codefly.yaml, keeping a promotable render value-free. CLI-side;
 	// not serialized to proto.
@@ -355,8 +377,7 @@ type Environment struct {
 	Secrets []*EnvironmentSecretProvider `yaml:"secrets,omitempty"`
 }
 
-// EnvironmentDNS is the environment's DNS contract, sourced from a cell
-// descriptor (CellContractDNS).
+// EnvironmentDNS is the environment's DNS contract.
 type EnvironmentDNS struct {
 	// AppHostSuffix is the public host suffix an app's external endpoints hang
 	// off of in this cell (e.g. "staging.eastus2.azure.example.com"). Empty means

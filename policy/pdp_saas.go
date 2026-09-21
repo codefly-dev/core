@@ -51,16 +51,9 @@ type SaasPDP struct {
 	// RecordDecision. Wire to Prometheus/OTEL via Snapshot().
 	Metrics *PDPMetrics
 
-	// FailClosed controls behavior when Backend returns err. Default
-	// (zero value) is fail-closed: backend faults deny. Setting to
-	// false would fail-open — STRONGLY discouraged for production.
-	// Kept as a field (not a constant) so tests can exercise the
-	// fail-open path explicitly.
-	//
-	// **For production:** leave default. The whole architecture
-	// rests on "saas-starter unreachable → calls deny". Without
-	// this, a network blip becomes a permission bypass.
-	FailClosed bool
+	// FailOpen explicitly permits requests on backend errors. The zero value
+	// denies them, including when the struct is constructed without NewSaasPDP.
+	FailOpen bool
 
 	mu         sync.Mutex
 	cache      map[saasCacheKey]*list.Element
@@ -98,8 +91,7 @@ func NewSaasPDP(backend PermissionsBackend) *SaasPDP {
 		panic("policy.NewSaasPDP: backend must be non-nil")
 	}
 	return &SaasPDP{
-		Backend:    backend,
-		FailClosed: true,
+		Backend: backend,
 	}
 }
 
@@ -295,13 +287,13 @@ func (s *SaasPDP) removeCacheElement(element *list.Element) {
 // correlate auth-backend incidents with their effects in the call
 // graph; SAFE because err is internal-only (no PII, no token data).
 func (s *SaasPDP) failClosedDecision(err error) PDPDecision {
-	if !s.FailClosed {
+	if s.FailOpen {
 		// Operator explicitly opted into fail-open. Strongly
 		// discouraged; surfaces the choice in the reason for
 		// audit grep.
 		return PDPDecision{
 			Allow:  true,
-			Reason: fmt.Sprintf("WARNING: backend error tolerated (FailClosed=false): %v", err),
+			Reason: fmt.Sprintf("WARNING: backend error tolerated (FailOpen=true): %v", err),
 		}
 	}
 	return PDPDecision{

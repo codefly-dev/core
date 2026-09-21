@@ -23,6 +23,9 @@ func (engine *Engine) Doctor(ctx context.Context, moduleDir string, ci bool) ([]
 		return append(checks, DoctorCheck{Name: "descriptor", Status: ValidationFailed, Detail: err.Error()}), err
 	}
 	checks = append(checks, DoctorCheck{Name: "descriptor", Status: ValidationPassed})
+	if err := checkProjectionSelections(descriptor, nil); err != nil {
+		return append(checks, DoctorCheck{Name: "selection-orchestration", Status: ValidationFailed, Detail: err.Error()}), err
+	}
 	if _, err := LoadContributionInputs(moduleDir, descriptor); err != nil {
 		return append(checks, DoctorCheck{Name: "contributions-schema", Status: ValidationFailed, Detail: err.Error()}), err
 	}

@@ -83,17 +83,17 @@ func TestVerdictDependsOnPinnedConsumer(t *testing.T) {
 	baseline, pin := fixture(t)
 	diff := release(t, baseline, change(get))
 	result := moduleupdate.Evaluate(diff, pin)
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
-	require.Len(t, result.Breaking, 1)
-	require.Equal(t, get, result.Breaking[0].Item)
-	require.Equal(t, "accounts-sdk-go", result.Breaking[0].Client)
-	require.Equal(t, "v1.2.0", result.Breaking[0].ClientVersion)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+	require.Len(t, result.Undetermined, 1)
+	require.Equal(t, get, result.Undetermined[0].Item)
+	require.Equal(t, "accounts-sdk-go", result.Undetermined[0].Client)
+	require.Equal(t, "v1.2.0", result.Undetermined[0].ClientVersion)
 
 	pin.Consumer = "deployment-b"
 	pin.Clients[0].Uses = uses(baseline, list, account)
 	result = moduleupdate.Evaluate(diff, pin)
 	require.Equal(t, updatev0.Verdict_VERDICT_SAFE, result.Verdict)
-	require.Empty(t, result.Breaking)
+	require.Empty(t, result.Undetermined)
 }
 
 func TestCandidateRestoresPinnedClientContract(t *testing.T) {
@@ -115,13 +115,13 @@ func TestCandidateRestoresPinnedClientContract(t *testing.T) {
 			require.NoError(t, err)
 			result := moduleupdate.Evaluate(diff, pin)
 			require.Equal(t, updatev0.Verdict_VERDICT_SAFE, result.Verdict, result)
-			require.Empty(t, result.Breaking)
+			require.Empty(t, result.Undetermined)
 			change(id)(candidate)
 			candidate, err = moduleupdate.PrepareSnapshot(candidate)
 			require.NoError(t, err)
 			diff, err = moduleupdate.BuildReleaseDiff(baseline, candidate)
 			require.NoError(t, err)
-			require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, moduleupdate.Evaluate(diff, pin).Verdict)
+			require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, moduleupdate.Evaluate(diff, pin).Verdict)
 		})
 	}
 }
@@ -136,8 +136,8 @@ func TestCandidateDependenciesMustMatchClientExpectations(t *testing.T) {
 		}
 	})
 	result := moduleupdate.Evaluate(diff, pin)
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
-	require.Contains(t, result.Breaking[0].Reason, "candidate dependencies differ")
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+	require.Contains(t, result.Undetermined[0].Reason, "candidate dependencies differ")
 	// A client generated for the candidate has independently pinned its new closure.
 	pin.Clients[0].Uses = uses(diff.After, get, registration)
 	result = moduleupdate.Evaluate(diff, pin)
@@ -188,9 +188,9 @@ func TestVerdictChanges(t *testing.T) {
 	}{
 		{"unchanged", nil, updatev0.Verdict_VERDICT_SAFE, ""},
 		{"unrelated RPC", change(list), updatev0.Verdict_VERDICT_SAFE, ""},
-		{"used RPC", change(get), updatev0.Verdict_VERDICT_BREAKING, get},
-		{"transitive type", change(account), updatev0.Verdict_VERDICT_BREAKING, account},
-		{"registration without SDK use", change(registration), updatev0.Verdict_VERDICT_BREAKING, registration},
+		{"used RPC", change(get), updatev0.Verdict_VERDICT_UNDETERMINED, get},
+		{"transitive type", change(account), updatev0.Verdict_VERDICT_UNDETERMINED, account},
+		{"registration without SDK use", change(registration), updatev0.Verdict_VERDICT_UNDETERMINED, registration},
 		{"remove used RPC", func(s *updatev0.ContractSnapshot) {
 			s.Items = slices.DeleteFunc(s.Items, func(i *updatev0.ContractItem) bool { return i.Id == get })
 		}, updatev0.Verdict_VERDICT_BREAKING, get},
@@ -202,21 +202,21 @@ func TestVerdictChanges(t *testing.T) {
 		}, updatev0.Verdict_VERDICT_NEW_CAPABILITY, "/accounts.v1.Accounts/Watch"},
 		{"new universal requirement", func(s *updatev0.ContractSnapshot) {
 			s.Items = append(s.Items, &updatev0.ContractItem{Id: "registration/token", Digest: changedDigest, RequiredByAll: true})
-		}, updatev0.Verdict_VERDICT_BREAKING, "registration/token"},
+		}, updatev0.Verdict_VERDICT_UNDETERMINED, "registration/token"},
 		{"optional becomes required", func(s *updatev0.ContractSnapshot) {
 			for _, item := range s.Items {
 				if item.Id == list {
 					item.RequiredByAll = true
 				}
 			}
-		}, updatev0.Verdict_VERDICT_BREAKING, list},
+		}, updatev0.Verdict_VERDICT_UNDETERMINED, list},
 		{"changed dependency edge", func(s *updatev0.ContractSnapshot) {
 			for _, item := range s.Items {
 				if item.Id == get {
 					item.Dependencies = nil
 				}
 			}
-		}, updatev0.Verdict_VERDICT_BREAKING, get},
+		}, updatev0.Verdict_VERDICT_UNDETERMINED, get},
 		{"documentation only", func(s *updatev0.ContractSnapshot) {
 			s.Items[0].Documentation = "https://example.com/new-docs"
 		}, updatev0.Verdict_VERDICT_SAFE, ""},
@@ -229,6 +229,9 @@ func TestVerdictChanges(t *testing.T) {
 			if test.verdict == updatev0.Verdict_VERDICT_BREAKING {
 				require.Equal(t, test.item, result.Breaking[0].Item)
 			}
+			if test.verdict == updatev0.Verdict_VERDICT_UNDETERMINED {
+				require.Equal(t, test.item, result.Undetermined[0].Item)
+			}
 			if test.verdict == updatev0.Verdict_VERDICT_NEW_CAPABILITY {
 				require.Equal(t, test.item, result.Capabilities[0].Item)
 				require.Equal(t, "https://example.com/watch", result.Capabilities[0].Documentation)
@@ -237,7 +240,7 @@ func TestVerdictChanges(t *testing.T) {
 	}
 }
 
-func TestUnknownIsBreaking(t *testing.T) {
+func TestUnknownIsUndetermined(t *testing.T) {
 	tests := map[string]func(*updatev0.ReleaseDiff, *updatev0.ConsumerPin){
 		"missing baseline": func(d *updatev0.ReleaseDiff, p *updatev0.ConsumerPin) { d.Before = nil },
 		"incomplete release": func(d *updatev0.ReleaseDiff, p *updatev0.ConsumerPin) {
@@ -272,14 +275,29 @@ func TestUnknownIsBreaking(t *testing.T) {
 			diff := release(t, baseline, nil)
 			mutate(diff, pin)
 			result := moduleupdate.Evaluate(diff, pin)
-			require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
-			require.Contains(t, result.Breaking[0].Reason, "could not determine")
+			require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+			require.Empty(t, result.Breaking)
+			require.Contains(t, result.Undetermined[0].Reason, "could not determine")
 		})
 	}
 	result := moduleupdate.Evaluate(nil, nil)
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
 	baseline, _ := fixture(t)
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, moduleupdate.Evaluate(release(t, baseline, nil), nil).Verdict)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, moduleupdate.Evaluate(release(t, baseline, nil), nil).Verdict)
+}
+
+func TestDemonstratedBreakAndMissingEvidenceStayDistinct(t *testing.T) {
+	baseline, pin := fixture(t)
+	diff := release(t, baseline, func(s *updatev0.ContractSnapshot) {
+		s.Items = slices.DeleteFunc(s.Items, func(item *updatev0.ContractItem) bool { return item.Id == get })
+		change(account)(s)
+	})
+	result := moduleupdate.Evaluate(diff, pin)
+	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
+	require.Len(t, result.Breaking, 1)
+	require.Equal(t, get, result.Breaking[0].Item)
+	require.Len(t, result.Undetermined, 1)
+	require.Equal(t, account, result.Undetermined[0].Item)
 }
 
 func TestDiffCannotOmitChanges(t *testing.T) {
@@ -287,7 +305,7 @@ func TestDiffCannotOmitChanges(t *testing.T) {
 	diff := release(t, baseline, change(get))
 	diff.Changes = nil
 	require.ErrorContains(t, moduleupdate.ValidateReleaseDiff(diff), "delta")
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, moduleupdate.Evaluate(diff, pin).Verdict)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, moduleupdate.Evaluate(diff, pin).Verdict)
 }
 
 func TestOfflineJSONAndDeterminism(t *testing.T) {
@@ -312,9 +330,9 @@ func TestOfflineJSONAndDeterminism(t *testing.T) {
 	expected := moduleupdate.Evaluate(diff, pin)
 	require.True(t, proto.Equal(expected, moduleupdate.EvaluateJSON(diffJSON, pinJSON)))
 	for _, input := range [][]byte{nil, []byte("{"), []byte(`{"schema_version":2}`), []byte(strings.Replace(string(diffJSON), `"schema_version":1`, `"unknown_field":1`, 1))} {
-		require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, moduleupdate.EvaluateJSON(input, pinJSON).Verdict)
+		require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, moduleupdate.EvaluateJSON(input, pinJSON).Verdict)
 	}
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, moduleupdate.EvaluateJSON(diffJSON, []byte(`{"unknown":true}`)).Verdict)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, moduleupdate.EvaluateJSON(diffJSON, []byte(`{"unknown":true}`)).Verdict)
 }
 
 func TestGlobalDependencyClosureAndDirectUsage(t *testing.T) {
@@ -333,11 +351,11 @@ func TestGlobalDependencyClosureAndDirectUsage(t *testing.T) {
 	pin.SnapshotDigest = baseline.Digest
 	pin.Clients = nil
 	result := moduleupdate.Evaluate(release(t, baseline, change(account)), pin)
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
-	require.Equal(t, account, result.Breaking[0].Item)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+	require.Equal(t, account, result.Undetermined[0].Item)
 	baseline, pin = fixture(t)
 	pin.Uses, pin.Clients = pin.Clients[0].Uses, nil
 	result = moduleupdate.Evaluate(release(t, baseline, change(get)), pin)
-	require.Equal(t, updatev0.Verdict_VERDICT_BREAKING, result.Verdict)
-	require.Empty(t, result.Breaking[0].Client)
+	require.Equal(t, updatev0.Verdict_VERDICT_UNDETERMINED, result.Verdict)
+	require.Empty(t, result.Undetermined[0].Client)
 }

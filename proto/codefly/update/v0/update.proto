@@ -138,8 +138,10 @@ enum Verdict {
   VERDICT_SAFE = 1;
   // VERDICT_NEW_CAPABILITY means optional public contracts were added.
   VERDICT_NEW_CAPABILITY = 2;
-  // VERDICT_BREAKING means a used contract changed or safety could not be determined.
+  // VERDICT_BREAKING means a supported use is demonstrably incompatible.
   VERDICT_BREAKING = 3;
+  // VERDICT_UNDETERMINED means evidence is missing, stale, or unsupported.
+  VERDICT_UNDETERMINED = 4;
 }
 
 // AffectedItem explains a break or an optional capability.
@@ -166,10 +168,12 @@ message UpdateResult {
   string from_version = 3;
   // to_version identifies the candidate release.
   string to_version = 4;
-  // verdict is conservative; missing evidence produces BREAKING.
+  // verdict never authorizes adoption when compatibility is undetermined.
   Verdict verdict = 5;
-  // breaking lists used changes and unknowns requiring work before updating.
+  // breaking lists demonstrated incompatibilities in supported uses.
   repeated AffectedItem breaking = 6;
   // capabilities lists optional new public surface, even if another item breaks.
   repeated AffectedItem capabilities = 7;
+  // undetermined lists missing or unsupported evidence, not proven breaks.
+  repeated AffectedItem undetermined = 8;
 }

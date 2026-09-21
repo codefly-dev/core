@@ -183,6 +183,26 @@
             '';
           };
 
+        # goimports is the formatting pass every consumer's committed Go
+        # bindings carry: the stdlib import group split off, an alias where a
+        # package's name is not its path's last element. The companion runs it
+        # after buf so its output IS the committed shape. Pinned explicitly, as
+        # buf is above: nixpkgs' gotools moves with the channel, and a formatter
+        # that moves moves every consumer's checked-in tree.
+        goimportsVersion = "0.50.0";
+        pinnedGoimports = (pkgs.gotools.override {
+          buildGoModule = pkgs.buildGo127Module;
+        }).overrideAttrs (finalAttrs: _: {
+          version = goimportsVersion;
+          src = pkgs.fetchFromGitHub {
+            owner = "golang";
+            repo = "tools";
+            tag = "v${finalAttrs.version}";
+            hash = "sha256-lly/LbIt9u+aQpnymLLidu8SNH631z+8GcMRR7+daZI=";
+          };
+          vendorHash = "sha256-Mxxl+D31WjPVU8EsI3N+sy7T62UksEzL/8OzdJYRkes=";
+        });
+
         # Tools the proto companion exposes at runtime. Same set as
         # the Dockerfile installs — only the source-of-pinning differs
         # (apk → nixpkgs).
@@ -190,11 +210,15 @@
           # Core build chain
           pinnedBuf
           protobuf
+          # The formatting pass generation ends with; see pinnedGoimports.
+          pinnedGoimports
           # gRPC-Gateway plugins (built into nixpkgs as separate
           # packages; the Dockerfile builds these from source via
           # `go install`).
           protoc-gen-go
           protoc-gen-go-grpc
+          protoc-gen-prost
+          protoc-gen-tonic
           # grpc-gateway ships both protoc-gen-grpc-gateway and
           # protoc-gen-openapiv2 binaries; there are no separate
           # top-level attrs for them (referencing them directly is an
@@ -279,6 +303,7 @@
           default = dockerImage;
           inherit dockerImage streamDockerImage;
           buf = pinnedBuf;
+          goimports = pinnedGoimports;
         };
 
         # Dev shell agents use to run buf etc. interactively. Same

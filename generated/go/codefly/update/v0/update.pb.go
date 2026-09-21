@@ -90,8 +90,10 @@ const (
 	Verdict_VERDICT_SAFE Verdict = 1
 	// VERDICT_NEW_CAPABILITY means optional public contracts were added.
 	Verdict_VERDICT_NEW_CAPABILITY Verdict = 2
-	// VERDICT_BREAKING means a used contract changed or safety could not be determined.
+	// VERDICT_BREAKING means a supported use is demonstrably incompatible.
 	Verdict_VERDICT_BREAKING Verdict = 3
+	// VERDICT_UNDETERMINED means evidence is missing, stale, or unsupported.
+	Verdict_VERDICT_UNDETERMINED Verdict = 4
 )
 
 // Enum value maps for Verdict.
@@ -101,12 +103,14 @@ var (
 		1: "VERDICT_SAFE",
 		2: "VERDICT_NEW_CAPABILITY",
 		3: "VERDICT_BREAKING",
+		4: "VERDICT_UNDETERMINED",
 	}
 	Verdict_value = map[string]int32{
 		"VERDICT_UNSPECIFIED":    0,
 		"VERDICT_SAFE":           1,
 		"VERDICT_NEW_CAPABILITY": 2,
 		"VERDICT_BREAKING":       3,
+		"VERDICT_UNDETERMINED":   4,
 	}
 )
 
@@ -914,12 +918,14 @@ type UpdateResult struct {
 	FromVersion string `protobuf:"bytes,3,opt,name=from_version,json=fromVersion,proto3" json:"from_version,omitempty"`
 	// to_version identifies the candidate release.
 	ToVersion string `protobuf:"bytes,4,opt,name=to_version,json=toVersion,proto3" json:"to_version,omitempty"`
-	// verdict is conservative; missing evidence produces BREAKING.
+	// verdict never authorizes adoption when compatibility is undetermined.
 	Verdict Verdict `protobuf:"varint,5,opt,name=verdict,proto3,enum=codefly.update.v0.Verdict" json:"verdict,omitempty"`
-	// breaking lists used changes and unknowns requiring work before updating.
+	// breaking lists demonstrated incompatibilities in supported uses.
 	Breaking []*AffectedItem `protobuf:"bytes,6,rep,name=breaking,proto3" json:"breaking,omitempty"`
 	// capabilities lists optional new public surface, even if another item breaks.
-	Capabilities  []*AffectedItem `protobuf:"bytes,7,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Capabilities []*AffectedItem `protobuf:"bytes,7,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// undetermined lists missing or unsupported evidence, not proven breaks.
+	Undetermined  []*AffectedItem `protobuf:"bytes,8,rep,name=undetermined,proto3" json:"undetermined,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1003,6 +1009,13 @@ func (x *UpdateResult) GetCapabilities() []*AffectedItem {
 	return nil
 }
 
+func (x *UpdateResult) GetUndetermined() []*AffectedItem {
+	if x != nil {
+		return x.Undetermined
+	}
+	return nil
+}
+
 var File_codefly_update_v0_update_proto protoreflect.FileDescriptor
 
 const file_codefly_update_v0_update_proto_rawDesc = "" +
@@ -1061,7 +1074,7 @@ const file_codefly_update_v0_update_proto_rawDesc = "" +
 	"\x06client\x18\x02 \x01(\tR\x06client\x12%\n" +
 	"\x0eclient_version\x18\x03 \x01(\tR\rclientVersion\x12\x16\n" +
 	"\x06reason\x18\x04 \x01(\tR\x06reason\x12$\n" +
-	"\rdocumentation\x18\x05 \x01(\tR\rdocumentation\"\xbc\x02\n" +
+	"\rdocumentation\x18\x05 \x01(\tR\rdocumentation\"\x81\x03\n" +
 	"\fUpdateResult\x12\x1a\n" +
 	"\bconsumer\x18\x01 \x01(\tR\bconsumer\x12\x16\n" +
 	"\x06module\x18\x02 \x01(\tR\x06module\x12!\n" +
@@ -1070,18 +1083,20 @@ const file_codefly_update_v0_update_proto_rawDesc = "" +
 	"to_version\x18\x04 \x01(\tR\ttoVersion\x124\n" +
 	"\averdict\x18\x05 \x01(\x0e2\x1a.codefly.update.v0.VerdictR\averdict\x12;\n" +
 	"\bbreaking\x18\x06 \x03(\v2\x1f.codefly.update.v0.AffectedItemR\bbreaking\x12C\n" +
-	"\fcapabilities\x18\a \x03(\v2\x1f.codefly.update.v0.AffectedItemR\fcapabilities*s\n" +
+	"\fcapabilities\x18\a \x03(\v2\x1f.codefly.update.v0.AffectedItemR\fcapabilities\x12C\n" +
+	"\fundetermined\x18\b \x03(\v2\x1f.codefly.update.v0.AffectedItemR\fundetermined*s\n" +
 	"\n" +
 	"ChangeKind\x12\x1b\n" +
 	"\x17CHANGE_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11CHANGE_KIND_ADDED\x10\x01\x12\x17\n" +
 	"\x13CHANGE_KIND_REMOVED\x10\x02\x12\x18\n" +
-	"\x14CHANGE_KIND_MODIFIED\x10\x03*f\n" +
+	"\x14CHANGE_KIND_MODIFIED\x10\x03*\x80\x01\n" +
 	"\aVerdict\x12\x17\n" +
 	"\x13VERDICT_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fVERDICT_SAFE\x10\x01\x12\x1a\n" +
 	"\x16VERDICT_NEW_CAPABILITY\x10\x02\x12\x14\n" +
-	"\x10VERDICT_BREAKING\x10\x03B\xc6\x01\n" +
+	"\x10VERDICT_BREAKING\x10\x03\x12\x18\n" +
+	"\x14VERDICT_UNDETERMINED\x10\x04B\xc6\x01\n" +
 	"\x15com.codefly.update.v0B\vUpdateProtoP\x01Z:github.com/codefly-dev/core/generated/go/codefly/update/v0\xa2\x02\x03CUV\xaa\x02\x11Codefly.Update.V0\xca\x02\x11Codefly\\Update\\V0\xe2\x02\x1dCodefly\\Update\\V0\\GPBMetadata\xea\x02\x13Codefly::Update::V0b\x06proto3"
 
 var (
@@ -1128,11 +1143,12 @@ var file_codefly_update_v0_update_proto_depIdxs = []int32{
 	1,  // 10: codefly.update.v0.UpdateResult.verdict:type_name -> codefly.update.v0.Verdict
 	11, // 11: codefly.update.v0.UpdateResult.breaking:type_name -> codefly.update.v0.AffectedItem
 	11, // 12: codefly.update.v0.UpdateResult.capabilities:type_name -> codefly.update.v0.AffectedItem
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	11, // 13: codefly.update.v0.UpdateResult.undetermined:type_name -> codefly.update.v0.AffectedItem
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_codefly_update_v0_update_proto_init() }

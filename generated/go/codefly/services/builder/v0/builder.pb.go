@@ -2134,8 +2134,10 @@ type BuildRequest struct {
 	// builder writes reproducible build recipes. Required for application image
 	// builds; managed-image and runtime-only agents may omit it.
 	OutputDirectory string `protobuf:"bytes,2,opt,name=output_directory,json=outputDirectory,proto3" json:"output_directory,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// execution supplies authoritative composition artifact bindings when present.
+	Execution     *v0.ArtifactExecution `protobuf:"bytes,3,opt,name=execution,proto3" json:"execution,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuildRequest) Reset() {
@@ -2180,6 +2182,13 @@ func (x *BuildRequest) GetOutputDirectory() string {
 		return x.OutputDirectory
 	}
 	return ""
+}
+
+func (x *BuildRequest) GetExecution() *v0.ArtifactExecution {
+	if x != nil {
+		return x.Execution
+	}
+	return nil
 }
 
 // BuildResult captures the outcome of build.
@@ -2371,6 +2380,8 @@ type BuildResponse struct {
 	CacheContractVersion string `protobuf:"bytes,3,opt,name=cache_contract_version,json=cacheContractVersion,proto3" json:"cache_contract_version,omitempty"`
 	// buildx_builder acknowledges the executor used for an in-agent image build.
 	BuildxBuilder string `protobuf:"bytes,4,opt,name=buildx_builder,json=buildxBuilder,proto3" json:"buildx_builder,omitempty"`
+	// execution acknowledges the exact applied selection and emitted output bytes.
+	Execution     *v0.ArtifactExecutionReceipt `protobuf:"bytes,5,opt,name=execution,proto3" json:"execution,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2433,6 +2444,13 @@ func (x *BuildResponse) GetBuildxBuilder() string {
 	return ""
 }
 
+func (x *BuildResponse) GetExecution() *v0.ArtifactExecutionReceipt {
+	if x != nil {
+		return x.Execution
+	}
+	return nil
+}
+
 // DeploymentRequest provides target environment, build output, and dependency data for deploy.
 type DeploymentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2448,8 +2466,13 @@ type DeploymentRequest struct {
 	NetworkMappings []*v0.NetworkMapping `protobuf:"bytes,5,rep,name=network_mappings,json=networkMappings,proto3" json:"network_mappings,omitempty"`
 	// dependencies_network_mappings are reachable addresses for upstream services.
 	DependenciesNetworkMappings []*v0.NetworkMapping `protobuf:"bytes,6,rep,name=dependencies_network_mappings,json=dependenciesNetworkMappings,proto3" json:"dependencies_network_mappings,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// execution supplies authoritative composition inputs for manifest rendering.
+	Execution *v0.ArtifactExecution `protobuf:"bytes,7,opt,name=execution,proto3" json:"execution,omitempty"`
+	// output_directory is an absolute caller-owned staging directory, required
+	// when execution is present. Bound Deploy renders only; it must not apply.
+	OutputDirectory string `protobuf:"bytes,8,opt,name=output_directory,json=outputDirectory,proto3" json:"output_directory,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DeploymentRequest) Reset() {
@@ -2524,6 +2547,20 @@ func (x *DeploymentRequest) GetDependenciesNetworkMappings() []*v0.NetworkMappin
 	return nil
 }
 
+func (x *DeploymentRequest) GetExecution() *v0.ArtifactExecution {
+	if x != nil {
+		return x.Execution
+	}
+	return nil
+}
+
+func (x *DeploymentRequest) GetOutputDirectory() string {
+	if x != nil {
+		return x.OutputDirectory
+	}
+	return ""
+}
+
 // DeploymentStatus reports the state and message for the deployment lifecycle phase.
 type DeploymentStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2596,7 +2633,9 @@ type DeploymentResponse struct {
 	// configuration is the service or workspace configuration payload.
 	Configuration *v0.Configuration `protobuf:"bytes,2,opt,name=configuration,proto3" json:"configuration,omitempty"`
 	// deployment is the deployment target and payload handled by the builder.
-	Deployment    *DeploymentOutput `protobuf:"bytes,3,opt,name=deployment,proto3" json:"deployment,omitempty"`
+	Deployment *DeploymentOutput `protobuf:"bytes,3,opt,name=deployment,proto3" json:"deployment,omitempty"`
+	// execution acknowledges the exact applied selection and emitted output bytes.
+	Execution     *v0.ArtifactExecutionReceipt `protobuf:"bytes,4,opt,name=execution,proto3" json:"execution,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2648,6 +2687,13 @@ func (x *DeploymentResponse) GetConfiguration() *v0.Configuration {
 func (x *DeploymentResponse) GetDeployment() *DeploymentOutput {
 	if x != nil {
 		return x.Deployment
+	}
+	return nil
+}
+
+func (x *DeploymentResponse) GetExecution() *v0.ArtifactExecutionReceipt {
+	if x != nil {
+		return x.Execution
 	}
 	return nil
 }
@@ -4598,8 +4644,10 @@ type BuildCapabilitiesResponse struct {
 	// Recipe-only agents may also advertise this because the caller owns execution.
 	// Agents must opt in explicitly; upgrading the transport alone is insufficient.
 	BuildxSelection bool `protobuf:"varint,1,opt,name=buildx_selection,json=buildxSelection,proto3" json:"buildx_selection,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// execution_contracts lists artifact bindings honored by Build and Deploy.
+	ExecutionContracts []string `protobuf:"bytes,2,rep,name=execution_contracts,json=executionContracts,proto3" json:"execution_contracts,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *BuildCapabilitiesResponse) Reset() {
@@ -4639,11 +4687,18 @@ func (x *BuildCapabilitiesResponse) GetBuildxSelection() bool {
 	return false
 }
 
+func (x *BuildCapabilitiesResponse) GetExecutionContracts() []string {
+	if x != nil {
+		return x.ExecutionContracts
+	}
+	return nil
+}
+
 var File_codefly_services_builder_v0_builder_proto protoreflect.FileDescriptor
 
 const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\n" +
-	")codefly/services/builder/v0/builder.proto\x12\x1bcodefly.services.builder.v0\x1a\x1dcodefly/base/v0/service.proto\x1a\x1dcodefly/base/v0/failure.proto\x1a\x1dcodefly/base/v0/network.proto\x1a\x1ecodefly/base/v0/runnable.proto\x1a\x1ecodefly/base/v0/endpoint.proto\x1a!codefly/base/v0/environment.proto\x1a#codefly/base/v0/configuration.proto\x1a+codefly/services/agent/v0/communicate.proto\x1a)codefly/services/agent/v0/cyclonedx.proto\x1a(codefly/services/builder/v0/docker.proto\x1a,codefly/services/builder/v0/deployment.proto\"\xcd\x01\n" +
+	")codefly/services/builder/v0/builder.proto\x12\x1bcodefly.services.builder.v0\x1a\x1dcodefly/base/v0/service.proto\x1a(codefly/base/v0/artifact_execution.proto\x1a\x1dcodefly/base/v0/failure.proto\x1a\x1dcodefly/base/v0/network.proto\x1a\x1ecodefly/base/v0/runnable.proto\x1a\x1ecodefly/base/v0/endpoint.proto\x1a!codefly/base/v0/environment.proto\x1a#codefly/base/v0/configuration.proto\x1a+codefly/services/agent/v0/communicate.proto\x1a)codefly/services/agent/v0/cyclonedx.proto\x1a(codefly/services/builder/v0/docker.proto\x1a,codefly/services/builder/v0/deployment.proto\"\xcd\x01\n" +
 	"\n" +
 	"LoadStatus\x12D\n" +
 	"\x05state\x18\x01 \x01(\x0e2..codefly.services.builder.v0.LoadStatus.StatusR\x05state\x12\x18\n" +
@@ -4722,10 +4777,11 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\rchanged_files\x18\x02 \x03(\tR\fchangedFiles\"{\n" +
 	"\fBuildContext\x12c\n" +
 	"\x14docker_build_context\x18\x01 \x01(\v2/.codefly.services.builder.v0.DockerBuildContextH\x00R\x12dockerBuildContextB\x06\n" +
-	"\x04kind\"\x89\x01\n" +
+	"\x04kind\"\xcb\x01\n" +
 	"\fBuildRequest\x12N\n" +
 	"\rbuild_context\x18\x01 \x01(\v2).codefly.services.builder.v0.BuildContextR\fbuildContext\x12)\n" +
-	"\x10output_directory\x18\x02 \x01(\tR\x0foutputDirectory\"\xab\x02\n" +
+	"\x10output_directory\x18\x02 \x01(\tR\x0foutputDirectory\x12@\n" +
+	"\texecution\x18\x03 \x01(\v2\".codefly.base.v0.ArtifactExecutionR\texecution\"\xab\x02\n" +
 	"\vBuildResult\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12!\n" +
 	"\frunning_hash\x18\x02 \x01(\tR\vrunningHash\x12\x19\n" +
@@ -4741,12 +4797,13 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSUCCESS\x10\x01\x12\t\n" +
 	"\x05ERROR\x10\x02\x12\b\n" +
-	"\x04NOOP\x10\x03\"\xee\x01\n" +
+	"\x04NOOP\x10\x03\"\xb7\x02\n" +
 	"\rBuildResponse\x12>\n" +
 	"\x05state\x18\x01 \x01(\v2(.codefly.services.builder.v0.BuildStatusR\x05state\x12@\n" +
 	"\x06result\x18\x02 \x01(\v2(.codefly.services.builder.v0.BuildResultR\x06result\x124\n" +
 	"\x16cache_contract_version\x18\x03 \x01(\tR\x14cacheContractVersion\x12%\n" +
-	"\x0ebuildx_builder\x18\x04 \x01(\tR\rbuildxBuilder\"\xf4\x03\n" +
+	"\x0ebuildx_builder\x18\x04 \x01(\tR\rbuildxBuilder\x12G\n" +
+	"\texecution\x18\x05 \x01(\v2).codefly.base.v0.ArtifactExecutionReceiptR\texecution\"\xe1\x04\n" +
 	"\x11DeploymentRequest\x12>\n" +
 	"\venvironment\x18\x01 \x01(\v2\x1c.codefly.base.v0.EnvironmentR\venvironment\x12G\n" +
 	"\n" +
@@ -4755,7 +4812,9 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\rconfiguration\x18\x03 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\x12_\n" +
 	"\x1bdependencies_configurations\x18\x04 \x03(\v2\x1e.codefly.base.v0.ConfigurationR\x1adependenciesConfigurations\x12J\n" +
 	"\x10network_mappings\x18\x05 \x03(\v2\x1f.codefly.base.v0.NetworkMappingR\x0fnetworkMappings\x12c\n" +
-	"\x1ddependencies_network_mappings\x18\x06 \x03(\v2\x1f.codefly.base.v0.NetworkMappingR\x1bdependenciesNetworkMappings\"\xe5\x01\n" +
+	"\x1ddependencies_network_mappings\x18\x06 \x03(\v2\x1f.codefly.base.v0.NetworkMappingR\x1bdependenciesNetworkMappings\x12@\n" +
+	"\texecution\x18\a \x01(\v2\".codefly.base.v0.ArtifactExecutionR\texecution\x12)\n" +
+	"\x10output_directory\x18\b \x01(\tR\x0foutputDirectory\"\xe5\x01\n" +
 	"\x10DeploymentStatus\x12J\n" +
 	"\x05state\x18\x01 \x01(\x0e24.codefly.services.builder.v0.DeploymentStatus.StatusR\x05state\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x122\n" +
@@ -4764,13 +4823,14 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSUCCESS\x10\x01\x12\t\n" +
 	"\x05ERROR\x10\x02\x12\b\n" +
-	"\x04NOOP\x10\x03\"\xee\x01\n" +
+	"\x04NOOP\x10\x03\"\xb7\x02\n" +
 	"\x12DeploymentResponse\x12C\n" +
 	"\x05state\x18\x01 \x01(\v2-.codefly.services.builder.v0.DeploymentStatusR\x05state\x12D\n" +
 	"\rconfiguration\x18\x02 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\x12M\n" +
 	"\n" +
 	"deployment\x18\x03 \x01(\v2-.codefly.services.builder.v0.DeploymentOutputR\n" +
-	"deployment\"\x95\x01\n" +
+	"deployment\x12G\n" +
+	"\texecution\x18\x04 \x01(\v2).codefly.base.v0.ArtifactExecutionReceiptR\texecution\"\x95\x01\n" +
 	"\fAuditRequest\x12)\n" +
 	"\x10include_outdated\x18\x01 \x01(\bR\x0fincludeOutdated\x12 \n" +
 	"\ffail_on_vuln\x18\x02 \x01(\bR\n" +
@@ -4947,9 +5007,10 @@ const file_codefly_services_builder_v0_builder_proto_rawDesc = "" +
 	"\x11ConfigureResponse\x12B\n" +
 	"\x05state\x18\x01 \x01(\v2,.codefly.services.builder.v0.ConfigureStatusR\x05state\x12%\n" +
 	"\x0eeffective_yaml\x18\x02 \x01(\tR\reffectiveYaml\"\x1a\n" +
-	"\x18BuildCapabilitiesRequest\"F\n" +
+	"\x18BuildCapabilitiesRequest\"w\n" +
 	"\x19BuildCapabilitiesResponse\x12)\n" +
-	"\x10buildx_selection\x18\x01 \x01(\bR\x0fbuildxSelection*T\n" +
+	"\x10buildx_selection\x18\x01 \x01(\bR\x0fbuildxSelection\x12/\n" +
+	"\x13execution_contracts\x18\x02 \x03(\tR\x12executionContracts*T\n" +
 	"\tSBOMScope\x12\x1a\n" +
 	"\x16SBOM_SCOPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11SBOM_SCOPE_SOURCE\x10\x01\x12\x14\n" +
@@ -5074,135 +5135,141 @@ var file_codefly_services_builder_v0_builder_proto_goTypes = []any{
 	(*v0.Version)(nil),                    // 76: codefly.base.v0.Version
 	(*v0.Endpoint)(nil),                   // 77: codefly.base.v0.Endpoint
 	(*DockerBuildContext)(nil),            // 78: codefly.services.builder.v0.DockerBuildContext
-	(*DockerBuildResult)(nil),             // 79: codefly.services.builder.v0.DockerBuildResult
-	(*DockerBuildPlan)(nil),               // 80: codefly.services.builder.v0.DockerBuildPlan
-	(*v0.Environment)(nil),                // 81: codefly.base.v0.Environment
-	(*Deployment)(nil),                    // 82: codefly.services.builder.v0.Deployment
-	(*v0.Configuration)(nil),              // 83: codefly.base.v0.Configuration
-	(*v0.NetworkMapping)(nil),             // 84: codefly.base.v0.NetworkMapping
-	(*DeploymentOutput)(nil),              // 85: codefly.services.builder.v0.DeploymentOutput
-	(*v01.Bom)(nil),                       // 86: codefly.services.agent.v0.Bom
-	(*v0.RunnableBuild)(nil),              // 87: codefly.base.v0.RunnableBuild
-	(*v01.Answer)(nil),                    // 88: codefly.services.agent.v0.Answer
-	(*v01.Question)(nil),                  // 89: codefly.services.agent.v0.Question
+	(*v0.ArtifactExecution)(nil),          // 79: codefly.base.v0.ArtifactExecution
+	(*DockerBuildResult)(nil),             // 80: codefly.services.builder.v0.DockerBuildResult
+	(*DockerBuildPlan)(nil),               // 81: codefly.services.builder.v0.DockerBuildPlan
+	(*v0.ArtifactExecutionReceipt)(nil),   // 82: codefly.base.v0.ArtifactExecutionReceipt
+	(*v0.Environment)(nil),                // 83: codefly.base.v0.Environment
+	(*Deployment)(nil),                    // 84: codefly.services.builder.v0.Deployment
+	(*v0.Configuration)(nil),              // 85: codefly.base.v0.Configuration
+	(*v0.NetworkMapping)(nil),             // 86: codefly.base.v0.NetworkMapping
+	(*DeploymentOutput)(nil),              // 87: codefly.services.builder.v0.DeploymentOutput
+	(*v01.Bom)(nil),                       // 88: codefly.services.agent.v0.Bom
+	(*v0.RunnableBuild)(nil),              // 89: codefly.base.v0.RunnableBuild
+	(*v01.Answer)(nil),                    // 90: codefly.services.agent.v0.Answer
+	(*v01.Question)(nil),                  // 91: codefly.services.agent.v0.Question
 }
 var file_codefly_services_builder_v0_builder_proto_depIdxs = []int32{
-	3,  // 0: codefly.services.builder.v0.LoadStatus.state:type_name -> codefly.services.builder.v0.LoadStatus.Status
-	73, // 1: codefly.services.builder.v0.LoadStatus.failure:type_name -> codefly.base.v0.Failure
-	74, // 2: codefly.services.builder.v0.LoadRequest.identity:type_name -> codefly.base.v0.ServiceIdentity
-	21, // 3: codefly.services.builder.v0.LoadRequest.creation_mode:type_name -> codefly.services.builder.v0.CreationMode
-	22, // 4: codefly.services.builder.v0.LoadRequest.sync_mode:type_name -> codefly.services.builder.v0.SyncMode
-	75, // 5: codefly.services.builder.v0.LoadRequest.runnable:type_name -> codefly.base.v0.RunnableLocation
-	19, // 6: codefly.services.builder.v0.LoadResponse.state:type_name -> codefly.services.builder.v0.LoadStatus
-	76, // 7: codefly.services.builder.v0.LoadResponse.version:type_name -> codefly.base.v0.Version
-	77, // 8: codefly.services.builder.v0.LoadResponse.endpoints:type_name -> codefly.base.v0.Endpoint
-	4,  // 9: codefly.services.builder.v0.CreateStatus.state:type_name -> codefly.services.builder.v0.CreateStatus.Status
-	73, // 10: codefly.services.builder.v0.CreateStatus.failure:type_name -> codefly.base.v0.Failure
-	25, // 11: codefly.services.builder.v0.CreateResponse.state:type_name -> codefly.services.builder.v0.CreateStatus
-	77, // 12: codefly.services.builder.v0.CreateResponse.endpoints:type_name -> codefly.base.v0.Endpoint
-	5,  // 13: codefly.services.builder.v0.InitStatus.state:type_name -> codefly.services.builder.v0.InitStatus.Status
-	73, // 14: codefly.services.builder.v0.InitStatus.failure:type_name -> codefly.base.v0.Failure
-	77, // 15: codefly.services.builder.v0.InitRequest.dependencies_endpoints:type_name -> codefly.base.v0.Endpoint
-	27, // 16: codefly.services.builder.v0.InitResponse.state:type_name -> codefly.services.builder.v0.InitStatus
-	6,  // 17: codefly.services.builder.v0.UpdateStatus.state:type_name -> codefly.services.builder.v0.UpdateStatus.Status
-	73, // 18: codefly.services.builder.v0.UpdateStatus.failure:type_name -> codefly.base.v0.Failure
-	30, // 19: codefly.services.builder.v0.UpdateResponse.state:type_name -> codefly.services.builder.v0.UpdateStatus
-	7,  // 20: codefly.services.builder.v0.SyncStatus.state:type_name -> codefly.services.builder.v0.SyncStatus.Status
-	73, // 21: codefly.services.builder.v0.SyncStatus.failure:type_name -> codefly.base.v0.Failure
-	34, // 22: codefly.services.builder.v0.SyncResponse.state:type_name -> codefly.services.builder.v0.SyncStatus
-	78, // 23: codefly.services.builder.v0.BuildContext.docker_build_context:type_name -> codefly.services.builder.v0.DockerBuildContext
-	36, // 24: codefly.services.builder.v0.BuildRequest.build_context:type_name -> codefly.services.builder.v0.BuildContext
-	79, // 25: codefly.services.builder.v0.BuildResult.docker_build_result:type_name -> codefly.services.builder.v0.DockerBuildResult
-	80, // 26: codefly.services.builder.v0.BuildResult.docker_build_plan:type_name -> codefly.services.builder.v0.DockerBuildPlan
-	8,  // 27: codefly.services.builder.v0.BuildStatus.state:type_name -> codefly.services.builder.v0.BuildStatus.Status
-	73, // 28: codefly.services.builder.v0.BuildStatus.failure:type_name -> codefly.base.v0.Failure
-	39, // 29: codefly.services.builder.v0.BuildResponse.state:type_name -> codefly.services.builder.v0.BuildStatus
-	38, // 30: codefly.services.builder.v0.BuildResponse.result:type_name -> codefly.services.builder.v0.BuildResult
-	81, // 31: codefly.services.builder.v0.DeploymentRequest.environment:type_name -> codefly.base.v0.Environment
-	82, // 32: codefly.services.builder.v0.DeploymentRequest.deployment:type_name -> codefly.services.builder.v0.Deployment
-	83, // 33: codefly.services.builder.v0.DeploymentRequest.configuration:type_name -> codefly.base.v0.Configuration
-	83, // 34: codefly.services.builder.v0.DeploymentRequest.dependencies_configurations:type_name -> codefly.base.v0.Configuration
-	84, // 35: codefly.services.builder.v0.DeploymentRequest.network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	84, // 36: codefly.services.builder.v0.DeploymentRequest.dependencies_network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	9,  // 37: codefly.services.builder.v0.DeploymentStatus.state:type_name -> codefly.services.builder.v0.DeploymentStatus.Status
-	73, // 38: codefly.services.builder.v0.DeploymentStatus.failure:type_name -> codefly.base.v0.Failure
-	42, // 39: codefly.services.builder.v0.DeploymentResponse.state:type_name -> codefly.services.builder.v0.DeploymentStatus
-	83, // 40: codefly.services.builder.v0.DeploymentResponse.configuration:type_name -> codefly.base.v0.Configuration
-	85, // 41: codefly.services.builder.v0.DeploymentResponse.deployment:type_name -> codefly.services.builder.v0.DeploymentOutput
-	10, // 42: codefly.services.builder.v0.AuditFinding.severity:type_name -> codefly.services.builder.v0.AuditFinding.Severity
-	11, // 43: codefly.services.builder.v0.AuditStatus.state:type_name -> codefly.services.builder.v0.AuditStatus.Status
-	73, // 44: codefly.services.builder.v0.AuditStatus.failure:type_name -> codefly.base.v0.Failure
-	47, // 45: codefly.services.builder.v0.AuditResponse.state:type_name -> codefly.services.builder.v0.AuditStatus
-	45, // 46: codefly.services.builder.v0.AuditResponse.findings:type_name -> codefly.services.builder.v0.AuditFinding
-	46, // 47: codefly.services.builder.v0.AuditResponse.outdated:type_name -> codefly.services.builder.v0.OutdatedDep
-	2,  // 48: codefly.services.builder.v0.ImageSubject.source:type_name -> codefly.services.builder.v0.ImageSourceKind
-	49, // 49: codefly.services.builder.v0.ImageSBOM.subjects:type_name -> codefly.services.builder.v0.ImageSubject
-	86, // 50: codefly.services.builder.v0.ImageSBOM.bom:type_name -> codefly.services.agent.v0.Bom
-	0,  // 51: codefly.services.builder.v0.SBOMRequest.scope:type_name -> codefly.services.builder.v0.SBOMScope
-	49, // 52: codefly.services.builder.v0.SBOMRequest.subjects:type_name -> codefly.services.builder.v0.ImageSubject
-	12, // 53: codefly.services.builder.v0.SBOMStatus.state:type_name -> codefly.services.builder.v0.SBOMStatus.Status
-	73, // 54: codefly.services.builder.v0.SBOMStatus.failure:type_name -> codefly.base.v0.Failure
-	52, // 55: codefly.services.builder.v0.SBOMResponse.state:type_name -> codefly.services.builder.v0.SBOMStatus
-	86, // 56: codefly.services.builder.v0.SBOMResponse.bom:type_name -> codefly.services.agent.v0.Bom
-	50, // 57: codefly.services.builder.v0.SBOMResponse.images:type_name -> codefly.services.builder.v0.ImageSBOM
-	0,  // 58: codefly.services.builder.v0.SBOMResponse.scope:type_name -> codefly.services.builder.v0.SBOMScope
-	1,  // 59: codefly.services.builder.v0.SBOMResponse.no_image_reason:type_name -> codefly.services.builder.v0.NoImageReason
-	54, // 60: codefly.services.builder.v0.PackageRequest.targets:type_name -> codefly.services.builder.v0.PackageTarget
-	55, // 61: codefly.services.builder.v0.PackageRequest.subject:type_name -> codefly.services.builder.v0.PackageSubject
-	13, // 62: codefly.services.builder.v0.PackageArtifact.kind:type_name -> codefly.services.builder.v0.PackageArtifact.Kind
-	54, // 63: codefly.services.builder.v0.PackageArtifact.target:type_name -> codefly.services.builder.v0.PackageTarget
-	14, // 64: codefly.services.builder.v0.PackageStatus.state:type_name -> codefly.services.builder.v0.PackageStatus.Status
-	73, // 65: codefly.services.builder.v0.PackageStatus.failure:type_name -> codefly.base.v0.Failure
-	58, // 66: codefly.services.builder.v0.PackageResponse.state:type_name -> codefly.services.builder.v0.PackageStatus
-	57, // 67: codefly.services.builder.v0.PackageResponse.artifacts:type_name -> codefly.services.builder.v0.PackageArtifact
-	15, // 68: codefly.services.builder.v0.RunnableBuildInputsStatus.state:type_name -> codefly.services.builder.v0.RunnableBuildInputsStatus.Status
-	73, // 69: codefly.services.builder.v0.RunnableBuildInputsStatus.failure:type_name -> codefly.base.v0.Failure
-	61, // 70: codefly.services.builder.v0.RunnableBuildInputsResponse.state:type_name -> codefly.services.builder.v0.RunnableBuildInputsStatus
-	87, // 71: codefly.services.builder.v0.RunnableBuildInputsResponse.build:type_name -> codefly.base.v0.RunnableBuild
-	16, // 72: codefly.services.builder.v0.UpgradeStatus.state:type_name -> codefly.services.builder.v0.UpgradeStatus.Status
-	73, // 73: codefly.services.builder.v0.UpgradeStatus.failure:type_name -> codefly.base.v0.Failure
-	65, // 74: codefly.services.builder.v0.UpgradeResponse.state:type_name -> codefly.services.builder.v0.UpgradeStatus
-	64, // 75: codefly.services.builder.v0.UpgradeResponse.changes:type_name -> codefly.services.builder.v0.UpgradeChange
-	17, // 76: codefly.services.builder.v0.ConfigChange.op:type_name -> codefly.services.builder.v0.ConfigChange.Op
-	67, // 77: codefly.services.builder.v0.ConfigureRequest.changes:type_name -> codefly.services.builder.v0.ConfigChange
-	18, // 78: codefly.services.builder.v0.ConfigureStatus.state:type_name -> codefly.services.builder.v0.ConfigureStatus.Status
-	73, // 79: codefly.services.builder.v0.ConfigureStatus.failure:type_name -> codefly.base.v0.Failure
-	69, // 80: codefly.services.builder.v0.ConfigureResponse.state:type_name -> codefly.services.builder.v0.ConfigureStatus
-	20, // 81: codefly.services.builder.v0.Builder.Load:input_type -> codefly.services.builder.v0.LoadRequest
-	28, // 82: codefly.services.builder.v0.Builder.Init:input_type -> codefly.services.builder.v0.InitRequest
-	24, // 83: codefly.services.builder.v0.Builder.Create:input_type -> codefly.services.builder.v0.CreateRequest
-	31, // 84: codefly.services.builder.v0.Builder.Update:input_type -> codefly.services.builder.v0.UpdateRequest
-	33, // 85: codefly.services.builder.v0.Builder.Sync:input_type -> codefly.services.builder.v0.SyncRequest
-	37, // 86: codefly.services.builder.v0.Builder.Build:input_type -> codefly.services.builder.v0.BuildRequest
-	71, // 87: codefly.services.builder.v0.Builder.BuildCapabilities:input_type -> codefly.services.builder.v0.BuildCapabilitiesRequest
-	41, // 88: codefly.services.builder.v0.Builder.Deploy:input_type -> codefly.services.builder.v0.DeploymentRequest
-	44, // 89: codefly.services.builder.v0.Builder.Audit:input_type -> codefly.services.builder.v0.AuditRequest
-	51, // 90: codefly.services.builder.v0.Builder.SBOM:input_type -> codefly.services.builder.v0.SBOMRequest
-	56, // 91: codefly.services.builder.v0.Builder.Package:input_type -> codefly.services.builder.v0.PackageRequest
-	60, // 92: codefly.services.builder.v0.Builder.RunnableBuildInputs:input_type -> codefly.services.builder.v0.RunnableBuildInputsRequest
-	63, // 93: codefly.services.builder.v0.Builder.Upgrade:input_type -> codefly.services.builder.v0.UpgradeRequest
-	68, // 94: codefly.services.builder.v0.Builder.Configure:input_type -> codefly.services.builder.v0.ConfigureRequest
-	88, // 95: codefly.services.builder.v0.Builder.Communicate:input_type -> codefly.services.agent.v0.Answer
-	23, // 96: codefly.services.builder.v0.Builder.Load:output_type -> codefly.services.builder.v0.LoadResponse
-	29, // 97: codefly.services.builder.v0.Builder.Init:output_type -> codefly.services.builder.v0.InitResponse
-	26, // 98: codefly.services.builder.v0.Builder.Create:output_type -> codefly.services.builder.v0.CreateResponse
-	32, // 99: codefly.services.builder.v0.Builder.Update:output_type -> codefly.services.builder.v0.UpdateResponse
-	35, // 100: codefly.services.builder.v0.Builder.Sync:output_type -> codefly.services.builder.v0.SyncResponse
-	40, // 101: codefly.services.builder.v0.Builder.Build:output_type -> codefly.services.builder.v0.BuildResponse
-	72, // 102: codefly.services.builder.v0.Builder.BuildCapabilities:output_type -> codefly.services.builder.v0.BuildCapabilitiesResponse
-	43, // 103: codefly.services.builder.v0.Builder.Deploy:output_type -> codefly.services.builder.v0.DeploymentResponse
-	48, // 104: codefly.services.builder.v0.Builder.Audit:output_type -> codefly.services.builder.v0.AuditResponse
-	53, // 105: codefly.services.builder.v0.Builder.SBOM:output_type -> codefly.services.builder.v0.SBOMResponse
-	59, // 106: codefly.services.builder.v0.Builder.Package:output_type -> codefly.services.builder.v0.PackageResponse
-	62, // 107: codefly.services.builder.v0.Builder.RunnableBuildInputs:output_type -> codefly.services.builder.v0.RunnableBuildInputsResponse
-	66, // 108: codefly.services.builder.v0.Builder.Upgrade:output_type -> codefly.services.builder.v0.UpgradeResponse
-	70, // 109: codefly.services.builder.v0.Builder.Configure:output_type -> codefly.services.builder.v0.ConfigureResponse
-	89, // 110: codefly.services.builder.v0.Builder.Communicate:output_type -> codefly.services.agent.v0.Question
-	96, // [96:111] is the sub-list for method output_type
-	81, // [81:96] is the sub-list for method input_type
-	81, // [81:81] is the sub-list for extension type_name
-	81, // [81:81] is the sub-list for extension extendee
-	0,  // [0:81] is the sub-list for field type_name
+	3,   // 0: codefly.services.builder.v0.LoadStatus.state:type_name -> codefly.services.builder.v0.LoadStatus.Status
+	73,  // 1: codefly.services.builder.v0.LoadStatus.failure:type_name -> codefly.base.v0.Failure
+	74,  // 2: codefly.services.builder.v0.LoadRequest.identity:type_name -> codefly.base.v0.ServiceIdentity
+	21,  // 3: codefly.services.builder.v0.LoadRequest.creation_mode:type_name -> codefly.services.builder.v0.CreationMode
+	22,  // 4: codefly.services.builder.v0.LoadRequest.sync_mode:type_name -> codefly.services.builder.v0.SyncMode
+	75,  // 5: codefly.services.builder.v0.LoadRequest.runnable:type_name -> codefly.base.v0.RunnableLocation
+	19,  // 6: codefly.services.builder.v0.LoadResponse.state:type_name -> codefly.services.builder.v0.LoadStatus
+	76,  // 7: codefly.services.builder.v0.LoadResponse.version:type_name -> codefly.base.v0.Version
+	77,  // 8: codefly.services.builder.v0.LoadResponse.endpoints:type_name -> codefly.base.v0.Endpoint
+	4,   // 9: codefly.services.builder.v0.CreateStatus.state:type_name -> codefly.services.builder.v0.CreateStatus.Status
+	73,  // 10: codefly.services.builder.v0.CreateStatus.failure:type_name -> codefly.base.v0.Failure
+	25,  // 11: codefly.services.builder.v0.CreateResponse.state:type_name -> codefly.services.builder.v0.CreateStatus
+	77,  // 12: codefly.services.builder.v0.CreateResponse.endpoints:type_name -> codefly.base.v0.Endpoint
+	5,   // 13: codefly.services.builder.v0.InitStatus.state:type_name -> codefly.services.builder.v0.InitStatus.Status
+	73,  // 14: codefly.services.builder.v0.InitStatus.failure:type_name -> codefly.base.v0.Failure
+	77,  // 15: codefly.services.builder.v0.InitRequest.dependencies_endpoints:type_name -> codefly.base.v0.Endpoint
+	27,  // 16: codefly.services.builder.v0.InitResponse.state:type_name -> codefly.services.builder.v0.InitStatus
+	6,   // 17: codefly.services.builder.v0.UpdateStatus.state:type_name -> codefly.services.builder.v0.UpdateStatus.Status
+	73,  // 18: codefly.services.builder.v0.UpdateStatus.failure:type_name -> codefly.base.v0.Failure
+	30,  // 19: codefly.services.builder.v0.UpdateResponse.state:type_name -> codefly.services.builder.v0.UpdateStatus
+	7,   // 20: codefly.services.builder.v0.SyncStatus.state:type_name -> codefly.services.builder.v0.SyncStatus.Status
+	73,  // 21: codefly.services.builder.v0.SyncStatus.failure:type_name -> codefly.base.v0.Failure
+	34,  // 22: codefly.services.builder.v0.SyncResponse.state:type_name -> codefly.services.builder.v0.SyncStatus
+	78,  // 23: codefly.services.builder.v0.BuildContext.docker_build_context:type_name -> codefly.services.builder.v0.DockerBuildContext
+	36,  // 24: codefly.services.builder.v0.BuildRequest.build_context:type_name -> codefly.services.builder.v0.BuildContext
+	79,  // 25: codefly.services.builder.v0.BuildRequest.execution:type_name -> codefly.base.v0.ArtifactExecution
+	80,  // 26: codefly.services.builder.v0.BuildResult.docker_build_result:type_name -> codefly.services.builder.v0.DockerBuildResult
+	81,  // 27: codefly.services.builder.v0.BuildResult.docker_build_plan:type_name -> codefly.services.builder.v0.DockerBuildPlan
+	8,   // 28: codefly.services.builder.v0.BuildStatus.state:type_name -> codefly.services.builder.v0.BuildStatus.Status
+	73,  // 29: codefly.services.builder.v0.BuildStatus.failure:type_name -> codefly.base.v0.Failure
+	39,  // 30: codefly.services.builder.v0.BuildResponse.state:type_name -> codefly.services.builder.v0.BuildStatus
+	38,  // 31: codefly.services.builder.v0.BuildResponse.result:type_name -> codefly.services.builder.v0.BuildResult
+	82,  // 32: codefly.services.builder.v0.BuildResponse.execution:type_name -> codefly.base.v0.ArtifactExecutionReceipt
+	83,  // 33: codefly.services.builder.v0.DeploymentRequest.environment:type_name -> codefly.base.v0.Environment
+	84,  // 34: codefly.services.builder.v0.DeploymentRequest.deployment:type_name -> codefly.services.builder.v0.Deployment
+	85,  // 35: codefly.services.builder.v0.DeploymentRequest.configuration:type_name -> codefly.base.v0.Configuration
+	85,  // 36: codefly.services.builder.v0.DeploymentRequest.dependencies_configurations:type_name -> codefly.base.v0.Configuration
+	86,  // 37: codefly.services.builder.v0.DeploymentRequest.network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	86,  // 38: codefly.services.builder.v0.DeploymentRequest.dependencies_network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	79,  // 39: codefly.services.builder.v0.DeploymentRequest.execution:type_name -> codefly.base.v0.ArtifactExecution
+	9,   // 40: codefly.services.builder.v0.DeploymentStatus.state:type_name -> codefly.services.builder.v0.DeploymentStatus.Status
+	73,  // 41: codefly.services.builder.v0.DeploymentStatus.failure:type_name -> codefly.base.v0.Failure
+	42,  // 42: codefly.services.builder.v0.DeploymentResponse.state:type_name -> codefly.services.builder.v0.DeploymentStatus
+	85,  // 43: codefly.services.builder.v0.DeploymentResponse.configuration:type_name -> codefly.base.v0.Configuration
+	87,  // 44: codefly.services.builder.v0.DeploymentResponse.deployment:type_name -> codefly.services.builder.v0.DeploymentOutput
+	82,  // 45: codefly.services.builder.v0.DeploymentResponse.execution:type_name -> codefly.base.v0.ArtifactExecutionReceipt
+	10,  // 46: codefly.services.builder.v0.AuditFinding.severity:type_name -> codefly.services.builder.v0.AuditFinding.Severity
+	11,  // 47: codefly.services.builder.v0.AuditStatus.state:type_name -> codefly.services.builder.v0.AuditStatus.Status
+	73,  // 48: codefly.services.builder.v0.AuditStatus.failure:type_name -> codefly.base.v0.Failure
+	47,  // 49: codefly.services.builder.v0.AuditResponse.state:type_name -> codefly.services.builder.v0.AuditStatus
+	45,  // 50: codefly.services.builder.v0.AuditResponse.findings:type_name -> codefly.services.builder.v0.AuditFinding
+	46,  // 51: codefly.services.builder.v0.AuditResponse.outdated:type_name -> codefly.services.builder.v0.OutdatedDep
+	2,   // 52: codefly.services.builder.v0.ImageSubject.source:type_name -> codefly.services.builder.v0.ImageSourceKind
+	49,  // 53: codefly.services.builder.v0.ImageSBOM.subjects:type_name -> codefly.services.builder.v0.ImageSubject
+	88,  // 54: codefly.services.builder.v0.ImageSBOM.bom:type_name -> codefly.services.agent.v0.Bom
+	0,   // 55: codefly.services.builder.v0.SBOMRequest.scope:type_name -> codefly.services.builder.v0.SBOMScope
+	49,  // 56: codefly.services.builder.v0.SBOMRequest.subjects:type_name -> codefly.services.builder.v0.ImageSubject
+	12,  // 57: codefly.services.builder.v0.SBOMStatus.state:type_name -> codefly.services.builder.v0.SBOMStatus.Status
+	73,  // 58: codefly.services.builder.v0.SBOMStatus.failure:type_name -> codefly.base.v0.Failure
+	52,  // 59: codefly.services.builder.v0.SBOMResponse.state:type_name -> codefly.services.builder.v0.SBOMStatus
+	88,  // 60: codefly.services.builder.v0.SBOMResponse.bom:type_name -> codefly.services.agent.v0.Bom
+	50,  // 61: codefly.services.builder.v0.SBOMResponse.images:type_name -> codefly.services.builder.v0.ImageSBOM
+	0,   // 62: codefly.services.builder.v0.SBOMResponse.scope:type_name -> codefly.services.builder.v0.SBOMScope
+	1,   // 63: codefly.services.builder.v0.SBOMResponse.no_image_reason:type_name -> codefly.services.builder.v0.NoImageReason
+	54,  // 64: codefly.services.builder.v0.PackageRequest.targets:type_name -> codefly.services.builder.v0.PackageTarget
+	55,  // 65: codefly.services.builder.v0.PackageRequest.subject:type_name -> codefly.services.builder.v0.PackageSubject
+	13,  // 66: codefly.services.builder.v0.PackageArtifact.kind:type_name -> codefly.services.builder.v0.PackageArtifact.Kind
+	54,  // 67: codefly.services.builder.v0.PackageArtifact.target:type_name -> codefly.services.builder.v0.PackageTarget
+	14,  // 68: codefly.services.builder.v0.PackageStatus.state:type_name -> codefly.services.builder.v0.PackageStatus.Status
+	73,  // 69: codefly.services.builder.v0.PackageStatus.failure:type_name -> codefly.base.v0.Failure
+	58,  // 70: codefly.services.builder.v0.PackageResponse.state:type_name -> codefly.services.builder.v0.PackageStatus
+	57,  // 71: codefly.services.builder.v0.PackageResponse.artifacts:type_name -> codefly.services.builder.v0.PackageArtifact
+	15,  // 72: codefly.services.builder.v0.RunnableBuildInputsStatus.state:type_name -> codefly.services.builder.v0.RunnableBuildInputsStatus.Status
+	73,  // 73: codefly.services.builder.v0.RunnableBuildInputsStatus.failure:type_name -> codefly.base.v0.Failure
+	61,  // 74: codefly.services.builder.v0.RunnableBuildInputsResponse.state:type_name -> codefly.services.builder.v0.RunnableBuildInputsStatus
+	89,  // 75: codefly.services.builder.v0.RunnableBuildInputsResponse.build:type_name -> codefly.base.v0.RunnableBuild
+	16,  // 76: codefly.services.builder.v0.UpgradeStatus.state:type_name -> codefly.services.builder.v0.UpgradeStatus.Status
+	73,  // 77: codefly.services.builder.v0.UpgradeStatus.failure:type_name -> codefly.base.v0.Failure
+	65,  // 78: codefly.services.builder.v0.UpgradeResponse.state:type_name -> codefly.services.builder.v0.UpgradeStatus
+	64,  // 79: codefly.services.builder.v0.UpgradeResponse.changes:type_name -> codefly.services.builder.v0.UpgradeChange
+	17,  // 80: codefly.services.builder.v0.ConfigChange.op:type_name -> codefly.services.builder.v0.ConfigChange.Op
+	67,  // 81: codefly.services.builder.v0.ConfigureRequest.changes:type_name -> codefly.services.builder.v0.ConfigChange
+	18,  // 82: codefly.services.builder.v0.ConfigureStatus.state:type_name -> codefly.services.builder.v0.ConfigureStatus.Status
+	73,  // 83: codefly.services.builder.v0.ConfigureStatus.failure:type_name -> codefly.base.v0.Failure
+	69,  // 84: codefly.services.builder.v0.ConfigureResponse.state:type_name -> codefly.services.builder.v0.ConfigureStatus
+	20,  // 85: codefly.services.builder.v0.Builder.Load:input_type -> codefly.services.builder.v0.LoadRequest
+	28,  // 86: codefly.services.builder.v0.Builder.Init:input_type -> codefly.services.builder.v0.InitRequest
+	24,  // 87: codefly.services.builder.v0.Builder.Create:input_type -> codefly.services.builder.v0.CreateRequest
+	31,  // 88: codefly.services.builder.v0.Builder.Update:input_type -> codefly.services.builder.v0.UpdateRequest
+	33,  // 89: codefly.services.builder.v0.Builder.Sync:input_type -> codefly.services.builder.v0.SyncRequest
+	37,  // 90: codefly.services.builder.v0.Builder.Build:input_type -> codefly.services.builder.v0.BuildRequest
+	71,  // 91: codefly.services.builder.v0.Builder.BuildCapabilities:input_type -> codefly.services.builder.v0.BuildCapabilitiesRequest
+	41,  // 92: codefly.services.builder.v0.Builder.Deploy:input_type -> codefly.services.builder.v0.DeploymentRequest
+	44,  // 93: codefly.services.builder.v0.Builder.Audit:input_type -> codefly.services.builder.v0.AuditRequest
+	51,  // 94: codefly.services.builder.v0.Builder.SBOM:input_type -> codefly.services.builder.v0.SBOMRequest
+	56,  // 95: codefly.services.builder.v0.Builder.Package:input_type -> codefly.services.builder.v0.PackageRequest
+	60,  // 96: codefly.services.builder.v0.Builder.RunnableBuildInputs:input_type -> codefly.services.builder.v0.RunnableBuildInputsRequest
+	63,  // 97: codefly.services.builder.v0.Builder.Upgrade:input_type -> codefly.services.builder.v0.UpgradeRequest
+	68,  // 98: codefly.services.builder.v0.Builder.Configure:input_type -> codefly.services.builder.v0.ConfigureRequest
+	90,  // 99: codefly.services.builder.v0.Builder.Communicate:input_type -> codefly.services.agent.v0.Answer
+	23,  // 100: codefly.services.builder.v0.Builder.Load:output_type -> codefly.services.builder.v0.LoadResponse
+	29,  // 101: codefly.services.builder.v0.Builder.Init:output_type -> codefly.services.builder.v0.InitResponse
+	26,  // 102: codefly.services.builder.v0.Builder.Create:output_type -> codefly.services.builder.v0.CreateResponse
+	32,  // 103: codefly.services.builder.v0.Builder.Update:output_type -> codefly.services.builder.v0.UpdateResponse
+	35,  // 104: codefly.services.builder.v0.Builder.Sync:output_type -> codefly.services.builder.v0.SyncResponse
+	40,  // 105: codefly.services.builder.v0.Builder.Build:output_type -> codefly.services.builder.v0.BuildResponse
+	72,  // 106: codefly.services.builder.v0.Builder.BuildCapabilities:output_type -> codefly.services.builder.v0.BuildCapabilitiesResponse
+	43,  // 107: codefly.services.builder.v0.Builder.Deploy:output_type -> codefly.services.builder.v0.DeploymentResponse
+	48,  // 108: codefly.services.builder.v0.Builder.Audit:output_type -> codefly.services.builder.v0.AuditResponse
+	53,  // 109: codefly.services.builder.v0.Builder.SBOM:output_type -> codefly.services.builder.v0.SBOMResponse
+	59,  // 110: codefly.services.builder.v0.Builder.Package:output_type -> codefly.services.builder.v0.PackageResponse
+	62,  // 111: codefly.services.builder.v0.Builder.RunnableBuildInputs:output_type -> codefly.services.builder.v0.RunnableBuildInputsResponse
+	66,  // 112: codefly.services.builder.v0.Builder.Upgrade:output_type -> codefly.services.builder.v0.UpgradeResponse
+	70,  // 113: codefly.services.builder.v0.Builder.Configure:output_type -> codefly.services.builder.v0.ConfigureResponse
+	91,  // 114: codefly.services.builder.v0.Builder.Communicate:output_type -> codefly.services.agent.v0.Question
+	100, // [100:115] is the sub-list for method output_type
+	85,  // [85:100] is the sub-list for method input_type
+	85,  // [85:85] is the sub-list for extension type_name
+	85,  // [85:85] is the sub-list for extension extendee
+	0,   // [0:85] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_builder_v0_builder_proto_init() }

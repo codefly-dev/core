@@ -17,7 +17,31 @@ import (
 
 type TrustPolicy struct {
 	Repositories map[string]string
-	Signers      map[string]ed25519.PublicKey
+	Signers      map[string]map[string]ed25519.PublicKey
+	BuildSigners map[string]map[string]ed25519.PublicKey
+}
+
+func (release *VerifiedRelease) ContractSnapshot(ctx context.Context) (*updatev0.ContractSnapshot, error) {
+	evidence, err := release.ContractEvidence(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return evidence.Snapshot, nil
+}
+
+func (release *VerifiedRelease) ContractEvidence(ctx context.Context) (*moduleupdate.ContractEvidence, error) {
+	if release == nil || release.release == nil {
+		return nil, errors.New("verified module release is required")
+	}
+	root, err := os.MkdirTemp("", "codefly-contract-snapshot-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(root) }()
+	if err := ExtractArchive(ctx, release.release.Artifact, root); err != nil {
+		return nil, err
+	}
+	return BuildPackageContractEvidence(root)
 }
 
 // ContractDiff reads update evidence from the authenticated module archive.
@@ -92,8 +116,8 @@ func (release *VerifiedRelease) EvaluateUpdate(pin *updatev0.ConsumerPin) *updat
 	if err != nil {
 		result := &updatev0.UpdateResult{
 			Consumer: pin.GetConsumer(), Module: pin.GetModule(), FromVersion: pin.GetVersion(),
-			Verdict:  updatev0.Verdict_VERDICT_BREAKING,
-			Breaking: []*updatev0.AffectedItem{{Reason: "could not determine: " + err.Error()}},
+			Verdict:      updatev0.Verdict_VERDICT_UNDETERMINED,
+			Undetermined: []*updatev0.AffectedItem{{Reason: "could not determine: " + err.Error()}},
 		}
 		if release != nil && release.manifest != nil {
 			result.ToVersion = release.manifest.Version
@@ -122,29 +146,13 @@ func VerifyRelease(release *Release, expectedPackage, expectedVersion string, tr
 	if err != nil {
 		return nil, err
 	}
-	expectedRepository, exists := trust.Repositories[expectedPackage]
-	if !exists || expectedRepository == "" || expectedRepository != release.Repository || expectedRepository != provenance.Repository {
-		return nil, fmt.Errorf("module release repository %q is not trusted for package %q", release.Repository, expectedPackage)
-	}
-	publicKey, exists := trust.Signers[provenance.SignatureIdentity]
-	signature := release.Signature
-	if len(signature) != ed25519.SignatureSize {
-		signature, _ = DecodeSignature(signature)
-	}
-	if !exists || len(publicKey) != ed25519.PublicKeySize || len(signature) != ed25519.SignatureSize ||
-		!ed25519.Verify(publicKey, release.Provenance, signature) {
-		return nil, ErrSignature
+	if err := verifyProvenance(release, provenance, expectedPackage, expectedVersion, trust); err != nil {
+		return nil, err
 	}
 	digest := sha256.Sum256(release.Artifact)
 	artifactDigest := fmt.Sprintf("sha256:%x", digest)
 	if provenance.ArtifactDigest != artifactDigest {
 		return nil, fmt.Errorf("%w: got %s, want %s", ErrDigestMismatch, artifactDigest, provenance.ArtifactDigest)
-	}
-	if provenance.Package != expectedPackage || (expectedVersion != "" && provenance.Version != expectedVersion) {
-		return nil, fmt.Errorf("%w: provenance identifies %s@%s", ErrPackageIdentity, provenance.Package, provenance.Version)
-	}
-	if provenance.Ref != release.Ref || provenance.Commit != release.Commit || provenance.Repository != release.Repository {
-		return nil, errors.New("module provenance does not match resolved repository, tag, and peeled commit")
 	}
 	temporary, err := os.MkdirTemp("", "codefly-verify-module-*")
 	if err != nil {
@@ -153,6 +161,15 @@ func VerifyRelease(release *Release, expectedPackage, expectedVersion string, tr
 	defer func() { _ = os.RemoveAll(temporary) }()
 	if err := ExtractArchive(context.Background(), release.Artifact, temporary); err != nil {
 		return nil, err
+	}
+	if provenance.ManifestDigest != "" {
+		data, err := os.ReadFile(filepath.Join(temporary, PackageManifestFileName))
+		if err != nil {
+			return nil, err
+		}
+		if fmt.Sprintf("sha256:%x", sha256.Sum256(data)) != provenance.ManifestDigest {
+			return nil, fmt.Errorf("%w: packaged manifest differs from signed metadata", ErrDigestMismatch)
+		}
 	}
 	manifest, err := LoadPackageManifest(temporary)
 	if err != nil {
@@ -170,6 +187,29 @@ func VerifyRelease(release *Release, expectedPackage, expectedVersion string, tr
 		Signature:  append([]byte(nil), release.Signature...),
 	}
 	return &VerifiedRelease{release: verifiedRelease, provenance: provenance, manifest: manifest, digest: artifactDigest}, nil
+}
+
+func verifyProvenance(release *Release, provenance *Provenance, expectedPackage, expectedVersion string, trust TrustPolicy) error {
+	expectedRepository, exists := trust.Repositories[expectedPackage]
+	if !exists || expectedRepository == "" || expectedRepository != release.Repository || expectedRepository != provenance.Repository {
+		return fmt.Errorf("module release repository %q is not trusted for package %q", release.Repository, expectedPackage)
+	}
+	publicKey, exists := trust.Signers[expectedPackage][provenance.SignatureIdentity]
+	signature := release.Signature
+	if len(signature) != ed25519.SignatureSize {
+		signature, _ = DecodeSignature(signature)
+	}
+	if !exists || len(publicKey) != ed25519.PublicKeySize || len(signature) != ed25519.SignatureSize ||
+		!ed25519.Verify(publicKey, release.Provenance, signature) {
+		return ErrSignature
+	}
+	if provenance.Package != expectedPackage || (expectedVersion != "" && provenance.Version != expectedVersion) {
+		return fmt.Errorf("%w: provenance identifies %s@%s", ErrPackageIdentity, provenance.Package, provenance.Version)
+	}
+	if provenance.Ref != release.Ref || provenance.Commit != release.Commit || provenance.Repository != release.Repository {
+		return errors.New("module provenance does not match resolved repository, tag, and peeled commit")
+	}
+	return nil
 }
 
 func VerifyLockedRelease(release *Release, lock *Lock, trust TrustPolicy) (*VerifiedRelease, error) {

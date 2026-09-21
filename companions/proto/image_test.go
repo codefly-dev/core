@@ -83,6 +83,31 @@ func marshal(t *testing.T, set *descriptorpb.FileDescriptorSet) []byte {
 	return data
 }
 
+func TestRustForeignBoundary(t *testing.T) {
+	for _, file := range foreignSet().File {
+		want := strings.HasPrefix(file.GetName(), "google/") && (file.GetPackage() == "google.protobuf" || strings.HasPrefix(file.GetPackage(), "google.protobuf."))
+		require.Equal(t, want, isForeign(file, languages.RUST), file.GetName())
+	}
+	file := &descriptorpb.FileDescriptorProto{Name: googleproto.String("google/rpc/status.proto"), Package: googleproto.String("google.rpc")}
+	require.False(t, isForeign(file, languages.RUST))
+}
+
+func TestRustRejectsUnresolvedMessageTypes(t *testing.T) {
+	set := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{{
+		Name: googleproto.String("response.proto"), Package: googleproto.String("example"), Syntax: googleproto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: googleproto.String("Response"),
+			Field: []*descriptorpb.FieldDescriptorProto{{
+				Name: googleproto.String("status"), Number: googleproto.Int32(1),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: googleproto.String(".google.rpc.Status"),
+			}},
+		}},
+	}}}
+	_, _, err := MarkForeignImports(marshal(t, set), languages.RUST)
+	require.ErrorContains(t, err, "google.rpc.Status")
+}
+
 // TestMarkForeignImports pins which files of a descriptor set buf is told not to
 // generate for: every namespace whose bindings someone else publishes. Vendoring
 // any of them into the generated library puts a second registration of the same

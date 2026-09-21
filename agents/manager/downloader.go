@@ -27,6 +27,9 @@ type GithubSource struct {
 }
 
 func toGithubSource(p *resources.Agent) (GithubSource, error) {
+	if _, err := p.Proto(); err != nil {
+		return GithubSource{}, err
+	}
 	registration, err := resources.AgentKindRegistrationFor(p.Kind)
 	if err != nil {
 		return GithubSource{}, err
@@ -172,18 +175,9 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	if err := extractTarGz(tmp.Name(), dest); err != nil {
 		return w.Wrapf(err, "cannot unarchive")
 	}
-	bin, err := p.Path(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot compute agent path")
-	}
 	binary := path.Join(dest, registration.ExecutableName(p.Name))
-	exists, err := shared.FileExists(ctx, binary)
-	if err != nil {
-		return w.Wrapf(err, "cannot check if file exists")
-	}
-	if exists {
-		content, _ := os.ReadDir(dest)
-		w.Debug("content ", wool.Field("content", content))
+	if err := os.Chmod(binary, 0o755); err != nil {
+		return w.Wrapf(err, "cannot chmod binary")
 	}
 	target, err := p.Path(ctx)
 	if err != nil {
@@ -196,13 +190,12 @@ func Download(ctx context.Context, p *resources.Agent) error {
 		return w.Wrapf(err, "cannot create agent folder")
 	}
 
-	err = MoveFile(binary, target)
-	if err != nil {
-		return w.Wrapf(err, "cannot move binary")
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	err = os.Chmod(bin, 0o755)
+	err = CopyFile(binary, target)
 	if err != nil {
-		return w.Wrapf(err, "cannot chmod binary")
+		return w.Wrapf(err, "cannot install binary")
 	}
 	return nil
 }
@@ -282,34 +275,42 @@ func extractTarGz(src, dst string) error {
 	}
 }
 
-// CopyFile copies a file from src to dst. If dst does not exist, it is created with permissions copied from src.
+// CopyFile publishes a complete file with its source permissions by atomic rename.
 func CopyFile(src, dst string) error {
 	sourceFileStat, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
-
 	if !sourceFileStat.Mode().IsRegular() {
 		return os.ErrInvalid
 	}
-
 	source, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer source.Close()
 
-	destination, err := os.Create(dst)
+	destination, err := os.CreateTemp(filepath.Dir(dst), ".agent-install-*")
 	if err != nil {
 		return err
 	}
 	defer destination.Close()
+	defer os.Remove(destination.Name())
 
 	if _, err := io.Copy(destination, source); err != nil {
 		return err
 	}
 
-	return os.Chmod(dst, sourceFileStat.Mode())
+	if err := destination.Chmod(sourceFileStat.Mode().Perm()); err != nil {
+		return err
+	}
+	if err := destination.Sync(); err != nil {
+		return err
+	}
+	if err := destination.Close(); err != nil {
+		return err
+	}
+	return os.Rename(destination.Name(), dst)
 }
 
 // MoveFile attempts to rename the file, and if it fails due to an invalid cross-device link,

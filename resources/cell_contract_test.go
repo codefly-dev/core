@@ -1,167 +1,225 @@
 package resources
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
 
-// A real codefly/cell/v1 descriptor, as emitted by `obinctl cell-contract
-// hosted-eastus2` (infra-base is one producer; the schema is codefly's). Resource
-// collections are lists; kinds are open strings. The egress-CIDR is the
-// load-bearing field: getting it wrong silently drops all DB traffic, which is why
-// the descriptor exists. The gitops block is an optional producer extra.
-const devCellContract = `{
-  "schema": "codefly/cell/v1",
-  "cell": "hosted-eastus2",
-  "coordinate": "hosted/azure/eastus2/US/staging",
-  "cluster": { "kind": "aks", "context": "obinh-eus2-aks", "private_api": true },
-  "dns": { "app_host_suffix": "staging.eastus2.azure.obin.obin.ai", "public_ip": "20.1.2.3", "internal_ip": "10.0.0.4" },
-  "registries": [ { "kind": "acr", "url": "obinheus2acr.azurecr.io", "public": false } ],
-  "databases": [ { "engine": "postgres", "kind": "azure-postgres-flexible", "name": "platform", "fqdn": "obinh-eus2-platform.postgres.database.azure.com", "egress_cidrs": ["10.20.11.0/28"], "database_names": ["unleash", "users"], "password_auth": true } ],
-  "secret_stores": [ { "kind": "ClusterSecretStore", "name": "azure-keyvault" } ],
-  "gitops": { "repo": "https://github.com/obin-ai/obin-fleet.git", "workloads_path_prefix": "workloads/hosted/staging" }
-}`
+	"gopkg.in/yaml.v3"
+)
 
-func TestParseAndMapCellContract(t *testing.T) {
-	c, err := ParseCellContract([]byte(devCellContract))
+func loadCellFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "cells", name))
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatal(err)
 	}
-	env, err := c.ToEnvironment("azure", "lodestar")
+	return data
+}
+
+func TestCellContractCarriesExplicitEnvironment(t *testing.T) {
+	for _, fixture := range []string{"password-auth.json", "managed-identity.json"} {
+		t.Run(fixture, func(t *testing.T) {
+			contract, err := ParseCellContract(loadCellFixture(t, fixture))
+			if err != nil {
+				t.Fatal(err)
+			}
+			env, err := contract.ToEnvironment("staging", "product")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(*env, contract.Environment) {
+				t.Fatalf("import changed declaration: %+v", env)
+			}
+			if _, invented := env.ManagedServices["store"]; invented {
+				t.Fatal("import manufactured a store binding")
+			}
+			encoded, err := yaml.Marshal(env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var reloaded Environment
+			if err := yaml.Unmarshal(encoded, &reloaded); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(*env, reloaded) {
+				t.Fatalf("workspace serialization lost declarations: %s", encoded)
+			}
+		})
+	}
+}
+
+func TestCellContractDoesNotInferAuthentication(t *testing.T) {
+	contract, err := ParseCellContract(loadCellFixture(t, "password-auth.json"))
 	if err != nil {
-		t.Fatalf("to environment: %v", err)
+		t.Fatal(err)
 	}
-
-	if env.Name != "azure" || env.Namespace != "lodestar" {
-		t.Errorf("name/namespace = %q/%q", env.Name, env.Namespace)
+	env, err := contract.ToEnvironment("staging", "product")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if env.Cluster == nil || env.Cluster.Context != "obinh-eus2-aks" {
-		t.Errorf("cluster context = %+v", env.Cluster)
+	accounts := env.ManagedServices["accounts"]
+	if len(accounts.SecretReferences) != 1 || accounts.SecretReferences[0].Name != "accounts-credentials" ||
+		accounts.SecretReferences[0].RemoteKey != "owners/accounts/staging" {
+		t.Fatalf("changed explicit secret references: %+v", accounts)
 	}
-	// Registry Auth is sourced from the (opaque) registry kind: acr -> az acr login.
-	if env.Registry == nil || env.Registry.URL != "obinheus2acr.azurecr.io" || env.Registry.Auth != "acr" {
-		t.Errorf("registry = %+v", env.Registry)
+	if len(env.ManagedServices["events"].SecretReferences) != 0 {
+		t.Fatal("invented a secret for a service with no declared secret reference")
 	}
-	if env.ServiceSecrets == nil || env.ServiceSecrets.SecretStore.Name != "azure-keyvault" {
-		t.Errorf("service-secrets store = %+v", env.ServiceSecrets)
+	if env.Gitops.Branch != "release" || env.Gitops.Path != "reviewed/product" {
+		t.Fatalf("changed explicit delivery target: %+v", env.Gitops)
 	}
-	if env.Gitops == nil || env.Gitops.Path != "workloads/hosted/staging/lodestar" {
-		t.Errorf("gitops path = %+v", env.Gitops)
-	}
-	// The app host suffix is carried onto the environment so the network layer
-	// can derive external endpoint hosts from declared config, not a local file.
-	if env.Dns == nil || env.Dns.AppHostSuffix != "staging.eastus2.azure.obin.obin.ai" {
-		t.Errorf("dns = %+v", env.Dns)
-	}
-	if got := env.AppHost(&ServiceIdentity{Module: "users", Name: "accounts"}); got != "accounts-users.staging.eastus2.azure.obin.obin.ai" {
-		t.Errorf("app host = %q", got)
-	}
-
-	ms, ok := env.ManagedServices["store"]
-	if !ok {
-		t.Fatalf("no managed store service; got %+v", env.ManagedServices)
-	}
-	if ms.ExternalName != "obinh-eus2-platform.postgres.database.azure.com" {
-		t.Errorf("database external-name = %q", ms.ExternalName)
-	}
-	// The silent-failure fact, now sourced from the cell instead of hand-typed.
-	if len(ms.EgressCIDRs) != 1 || ms.EgressCIDRs[0] != "10.20.11.0/28" {
-		t.Errorf("database egress CIDRs = %v (want [10.20.11.0/28])", ms.EgressCIDRs)
-	}
-	// Pin the secret-handoff conventions so they can't drift silently.
-	if len(ms.SecretReferences) != 1 {
-		t.Fatalf("secret references = %+v", ms.SecretReferences)
-	}
-	ref := ms.SecretReferences[0]
-	if ref.Name != "secret-store" || ref.RemoteKey != "lodestar/store" || ref.SecretStore.Kind != "ClusterSecretStore" {
-		t.Errorf("secret reference = %+v", ref)
+	if env.ServiceSecrets.Services["api"].RemoteKeys["API_KEY"].Property != "token" {
+		t.Fatal("lost application secret configuration")
 	}
 }
 
-func TestRejectsUnknownSchema(t *testing.T) {
-	if _, err := ParseCellContract([]byte(`{"schema":"nope/v9"}`)); err == nil {
-		t.Fatal("expected an unsupported-schema error")
+func TestCellContractSupportsLocalConfiguration(t *testing.T) {
+	contract, err := ParseCellContract([]byte(`{"schema":"codefly/cell/v2","environment":{"name":"local","configuration-profile":"development","secrets":[{"kind":"provider","account":"team"}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := contract.ToEnvironment("local", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.Cluster != nil || env.Registry != nil || env.ConfigurationProfile != "development" || env.Secrets[0].Account != "team" {
+		t.Fatalf("local configuration was reinterpreted: %+v", env)
 	}
 }
 
-func TestRequiresClusterContext(t *testing.T) {
-	doc := `{"schema":"codefly/cell/v1","cell":"x","cluster":{}}`
-	if _, err := ParseCellContract([]byte(doc)); err == nil {
-		t.Fatal("expected a missing-cluster-context error")
+func TestCellContractRejectsInvalidDeclarations(t *testing.T) {
+	cases := []struct {
+		name        string
+		field       string
+		replacement string
+		want        string
+	}{
+		{"old schema", `"codefly/cell/v2"`, `"codefly/cell/v1"`, "unsupported cell-contract schema"},
+		{"capability", `"managed-service-identity"`, `"unknown-capability"`, "unsupported capability"},
+		{"principal", `"principal": "accounts-client"`, `"principal": " "`, "principal"},
+		{"endpoint", `"external-name": "accounts.example"`, `"external-name": ""`, "endpoint"},
+		{"port zero", `"port": 8443`, `"port": 0`, "port"},
+		{"port high", `"port": 8443`, `"port": 65536`, "port"},
+		{"port negative", `"port": 8443`, `"port": -1`, "port"},
+		{"CIDR", `"192.0.2.0/24"`, `"invalid"`, "CIDR"},
+		{"namespace", `"namespace": "product"`, `"namespace": "../product"`, "namespace"},
+		{"service key", `"accounts": {`, `"../accounts": {`, "managed service"},
+		{"duplicate field", `"port": 8443`, `"port": 8443, "port": 9443`, "already defined"},
 	}
-}
-
-// A deploy target needs exactly one registry to push to; zero would silently fall
-// back to the legacy hard-coded registry (wrong for a BYOC cell).
-func TestRequiresExactlyOneRegistry(t *testing.T) {
-	docs := map[string]string{
-		"zero": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"}}`,
-		"two":  `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},"registries":[{"url":"a"},{"url":"b"}]}`,
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := strings.Replace(string(loadCellFixture(t, "managed-identity.json")), tc.field, tc.replacement, 1)
+			if _, err := ParseCellContract([]byte(data)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want %q, got %v", tc.want, err)
+			}
+		})
 	}
-	for name, doc := range docs {
-		if _, err := ParseCellContract([]byte(doc)); err == nil {
-			t.Errorf("%s registries: expected a registry-count rejection", name)
+	for _, data := range []string{
+		`{"schema":"codefly/cell/v2","environment":{"name":"x","cluster":{}}}`,
+		`{"schema":"codefly/cell/v2","environment":{"name":"x","registry":{}}}`,
+		`{"schema":"codefly/cell/v2","environment":{"name":"x","gitops":{"repo-url":"url","path":"path"}}}`,
+		`{"schema":"codefly/cell/v2","environment":{"name":"x","service-secrets":{"secret-store":{}}}}`,
+		`{"schema":"codefly/cell/v2","environment":{}}`,
+		`null`, `{} {}`,
+	} {
+		if _, err := ParseCellContract([]byte(data)); err == nil {
+			t.Fatalf("accepted incomplete configuration: %s", data)
 		}
 	}
 }
 
-// A cell may carry several databases/secret stores, but this consumer maps a
-// single instance of each into Environment's single slots. Parsing must reject the
-// multi-instance case loudly rather than silently mapping [0] and dropping the rest
-// (a dropped database = its egress CIDRs never applied = silent DB outage). Each
-// doc carries the one required registry so the assertion isolates its target.
-func TestRejectsMultipleInstances(t *testing.T) {
-	const reg = `"registries":[{"url":"a"}],`
-	docs := map[string]string{
-		"databases":     `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"databases":[{"name":"a","egress_cidrs":["10.0.0.0/28"]},{"name":"b","egress_cidrs":["10.0.1.0/28"]}]}`,
-		"secret_stores": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"secret_stores":[{"name":"a"},{"name":"b"}]}`,
+func TestCellContractRejectsProducerInventory(t *testing.T) {
+	if _, err := ParseCellContract(loadCellFixture(t, "no-auth-declaration.json")); err == nil {
+		t.Fatal("accepted legacy inventory instead of requiring producer migration")
 	}
-	for name, doc := range docs {
-		if _, err := ParseCellContract([]byte(doc)); err == nil {
-			t.Errorf("%s: expected a multiple-instance rejection", name)
+	for _, field := range []string{`"transport":{"mode":"proxy"}`, `"audit_sinks":[]`, `"password_auth":false`, `"databases":[]`, `"port_typo":1`} {
+		data := strings.Replace(string(loadCellFixture(t, "managed-identity.json")), `"port": 8443`, `"port": 8443,`+field, 1)
+		if _, err := ParseCellContract([]byte(data)); err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Fatalf("expected unknown-field rejection for %s, got %v", field, err)
 		}
 	}
 }
 
-// The egress CIDRs gate all DB traffic; an empty, missing, or malformed value
-// silently drops it at runtime, so parsing must reject rather than pass it through.
-func TestRejectsBadEgressCIDRs(t *testing.T) {
-	const reg = `"registries":[{"url":"a"}],`
-	docs := map[string]string{
-		"empty":   `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"databases":[{"name":"a","egress_cidrs":[]}]}`,
-		"missing": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"databases":[{"name":"a"}]}`,
-		"invalid": `{"schema":"codefly/cell/v1","cell":"x","cluster":{"context":"c"},` + reg + `"databases":[{"name":"a","egress_cidrs":["10.0.0/28"]}]}`,
+func TestCellContractValidatesExplicitSecretReferences(t *testing.T) {
+	for _, field := range []string{"name", "remote-key", "secret-store"} {
+		var raw map[string]any
+		if err := json.Unmarshal(loadCellFixture(t, "password-auth.json"), &raw); err != nil {
+			t.Fatal(err)
+		}
+		env := raw["environment"].(map[string]any)
+		service := env["managed-services"].(map[string]any)["accounts"].(map[string]any)
+		ref := service["secret-references"].([]any)[0].(map[string]any)
+		delete(ref, field)
+		data, err := json.Marshal(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ParseCellContract(data); err == nil {
+			t.Fatalf("accepted reference missing %s", field)
+		}
 	}
-	for name, doc := range docs {
-		if _, err := ParseCellContract([]byte(doc)); err == nil {
-			t.Errorf("%s: expected an egress-CIDR rejection", name)
+	data := strings.Replace(string(loadCellFixture(t, "password-auth.json")), `"property": "token"`, `"property": "token", "proprety": "other"`, 1)
+	if _, err := ParseCellContract([]byte(data)); err == nil {
+		t.Fatal("accepted unknown field inside custom secret reference decoder")
+	}
+}
+
+func TestCellEnvironmentOwnsItsConfiguration(t *testing.T) {
+	for _, fixture := range []string{"password-auth.json", "managed-identity.json"} {
+		contract, err := ParseCellContract(loadCellFixture(t, fixture))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, err := yaml.Marshal(contract.Environment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, err := contract.ToEnvironment("staging", "product")
+		if err != nil {
+			t.Fatal(err)
+		}
+		service := first.ManagedServices["accounts"]
+		service.EgressCIDRs[0] = "0.0.0.0/0"
+		if service.Identity != nil {
+			service.Identity.Annotations["identity.example/principal"] = "other"
+			service.Identity.Labels["identity.example/enabled"] = "false"
+		}
+		if len(service.SecretReferences) > 0 {
+			service.SecretReferences[0].RemoteKey = "other"
+			first.ServiceSecrets.Services["api"].RemoteKeys["API_KEY"] = EnvironmentSecretRemoteRef{Key: "other"}
+		}
+		second, err := contract.ToEnvironment("staging", "product")
+		if err != nil {
+			t.Fatal(err)
+		}
+		after, err := yaml.Marshal(second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(before) != string(after) {
+			t.Fatal("mutating an imported environment changed the source or another import")
 		}
 	}
 }
 
-// The connectable database name is app-supplied; the cell publishes what exists so
-// a caller can reject a typo at config time instead of at runtime.
-func TestKnowsDatabase(t *testing.T) {
-	c, err := ParseCellContract([]byte(devCellContract))
+func TestCellContractRefusesRetargetingAndDirectInvalidValues(t *testing.T) {
+	contract, err := ParseCellContract(loadCellFixture(t, "managed-identity.json"))
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatal(err)
 	}
-	if !c.KnowsDatabase("unleash") || !c.KnowsDatabase("users") {
-		t.Error("expected the cell to know its published databases")
-	}
-	if c.KnowsDatabase("nope") {
-		t.Error("expected an unknown database to be rejected")
-	}
-}
-
-// The namespace becomes a gitops path component and a secret remote-key segment,
-// so ToEnvironment must reject one that is not a single safe path component
-// instead of building a traversing path.
-func TestRejectsBadNamespace(t *testing.T) {
-	c, err := ParseCellContract([]byte(devCellContract))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	for _, ns := range []string{"", "..", "../etc", "a/b"} {
-		if _, err := c.ToEnvironment("azure", ns); err == nil {
-			t.Errorf("namespace %q: expected a path-component rejection", ns)
+	for _, target := range [][2]string{{"other", "product"}, {"staging", "other"}, {"staging", "../product"}} {
+		if _, err := contract.ToEnvironment(target[0], target[1]); err == nil {
+			t.Fatalf("accepted retargeting to %v", target)
 		}
+	}
+	service := contract.Environment.ManagedServices["accounts"]
+	service.Port = 0
+	contract.Environment.ManagedServices["accounts"] = service
+	if _, err := contract.ToEnvironment("staging", "product"); err == nil {
+		t.Fatal("directly constructed invalid value bypassed admission")
 	}
 }

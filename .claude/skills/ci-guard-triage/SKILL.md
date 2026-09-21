@@ -37,9 +37,11 @@ this type-checks only — it does not *run* the darwin tests, so say so.
 
 ### Version/tag drift — `./scripts/check_version_tag.sh`
 
-`version/info.codefly.yaml` is embedded and gates every package install through
-composition's `minimum-codefly-version` check. Behind the published tags is a
-bug; ahead is a release-prep bump and fine. See the `release-core` skill.
+`version/info.codefly.yaml` identifies the Core release. Behind the published
+tags is a bug; ahead is a release-prep bump and fine. It is not the executing
+host's version or an agent compatibility gate. Composition callers provide the
+actual host version for declared tooling requirements; live agents declare
+their protocol and capabilities. See the `release-core` skill.
 
 If it reports one commit carrying two version tags, that is not cosmetic —
 `git describe` goes ambiguous and a release step can walk the version backwards.
