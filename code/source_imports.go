@@ -20,13 +20,12 @@ import (
 	"strconv"
 	"strings"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 )
 
 // errNoSemanticAnalyzer marks a source-import failure caused by a missing
-// analyzer (a wiring gap) rather than malformed source, so callers can report
-// it as unsupported instead of a validation failure.
+// analyzer (a wiring gap) rather than malformed source, so a caller can decline
+// the inventory instead of reporting the source as invalid.
 var errNoSemanticAnalyzer = errors.New("source-semantics analyzer not installed")
 
 // inspectSourceImports returns a deterministic per-file import inventory. Go is
@@ -42,14 +41,21 @@ func (s *DefaultCodeServer) inspectSourceImports(ctx context.Context, root, lang
 	return s.semantic.SourceImports(ctx, s.FS, root, language)
 }
 
-// sourceImportFailureCode classifies a source-import error: a missing analyzer
-// is an unsupported operation, everything else (malformed source, I/O) is a
-// validation failure.
-func sourceImportFailureCode(err error) basev0.FailureCode {
+// inspectOptionalSourceImports returns the import inventory alongside whether
+// inspection was declined for want of an analyzer. Extraction needs a real
+// parser for every language but Go — a scanner cannot tell a syntax error from
+// a complete file, and reporting a partial inventory as whole is the failure
+// this inspection exists to prevent. A server assembled without an analyzer
+// therefore declines rather than guesses, and the caller takes the inventory.
+func (s *DefaultCodeServer) inspectOptionalSourceImports(ctx context.Context, root, language string) ([]*codev0.SourceFileInfo, bool, error) {
+	files, err := s.inspectSourceImports(ctx, root, language)
 	if errors.Is(err, errNoSemanticAnalyzer) {
-		return basev0.FailureCode_FAILURE_CODE_UNSUPPORTED_OPERATION
+		return nil, true, nil
 	}
-	return basev0.FailureCode_FAILURE_CODE_VALIDATION_FAILED
+	if err != nil {
+		return nil, false, err
+	}
+	return files, false, nil
 }
 
 func inspectGoSourceImports(ctx context.Context, vfs VFS, root string) ([]*codev0.SourceFileInfo, error) {
