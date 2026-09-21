@@ -246,7 +246,7 @@ func TestCoordinateContractValidatesExplicitSecretReferences(t *testing.T) {
 	}
 }
 
-func TestCellEnvironmentOwnsItsConfiguration(t *testing.T) {
+func TestCoordinateEnvironmentOwnsItsConfiguration(t *testing.T) {
 	for _, fixture := range []string{"password-auth.json", "managed-identity.json"} {
 		contract, err := ParseCoordinateContract(loadCoordinateFixture(t, fixture))
 		if err != nil {

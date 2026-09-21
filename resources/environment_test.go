@@ -576,8 +576,9 @@ environments:
 	}
 }
 
-// Workspace load refuses the same collision the cell contract does, and accepts
-// the same key under two different services, which is not a collision at all.
+// Workspace load refuses the same collision the coordinate contract does, and
+// accepts the same key under two different services, which is not a collision
+// at all.
 func TestEnvironmentRefusesKeyDeclaredAsBothValueAndSecret(t *testing.T) {
 	workspaceWith := func(configService string) string {
 		return `name: platform
