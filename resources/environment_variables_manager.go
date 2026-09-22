@@ -185,7 +185,11 @@ func (holder *EnvironmentVariableManager) All() ([]*EnvironmentVariable, error) 
 		}
 	}
 	for _, conf := range holder.rawConfigurations {
-		envs = append(envs, ConfigurationAsRawEnvironmentVariables(conf)...)
+		values, err := ConfigurationAsRawEnvironmentVariables(conf)
+		if err != nil {
+			return nil, err
+		}
+		envs = append(envs, values...)
 	}
 	return envs, nil
 }
@@ -585,16 +589,25 @@ func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, environment
 	return env, nil
 }
 
-// ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
-// the secret flag decides if we return secret or regular values
-func ConfigurationAsRawEnvironmentVariables(conf *basev0.Configuration) []*EnvironmentVariable {
+// ConfigurationAsRawEnvironmentVariables preserves explicitly named flat keys.
+// Structured documents require a scoped carrier and cannot use this path.
+func ConfigurationAsRawEnvironmentVariables(conf *basev0.Configuration) ([]*EnvironmentVariable, error) {
 	var env []*EnvironmentVariable
-	for _, info := range conf.Infos {
+	for _, info := range conf.GetInfos() {
+		if info == nil {
+			return nil, fmt.Errorf("configuration information must not be nil")
+		}
+		if info.Data != nil {
+			return nil, fmt.Errorf("structured configuration requires the scoped configuration carrier")
+		}
 		for _, value := range info.ConfigurationValues {
+			if value == nil {
+				return nil, fmt.Errorf("configuration value must not be nil")
+			}
 			env = append(env, Env(value.Key, value.Value))
 		}
 	}
-	return env
+	return env, nil
 }
 
 func ServiceConfigurationKeyFromUnique(unique string, name string, key string) string {

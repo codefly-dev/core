@@ -115,8 +115,24 @@ func TestConfigurationDocumentRejectsScopeAndVersionConfusion(t *testing.T) {
 
 func TestRawConfigurationRefusesStructuredData(t *testing.T) {
 	manager := resources.NewEnvironmentVariableManager()
-	require.Error(t, manager.AddRawConfigurations(context.Background(), documentConfiguration("json", `{"value":true}`, false)))
+	document := documentConfiguration("json", `{"value":true}`, false)
+	require.Error(t, manager.AddRawConfigurations(context.Background(), document))
 	values, err := manager.All()
 	require.NoError(t, err)
 	require.Empty(t, values)
+	values, err = resources.ConfigurationAsRawEnvironmentVariables(document)
+	require.Error(t, err)
+	require.Nil(t, values)
+
+	flat := &basev0.Configuration{Infos: []*basev0.ConfigurationInformation{{
+		ConfigurationValues: []*basev0.ConfigurationValue{{Key: "EXACT_key", Value: "value"}},
+	}}}
+	values, err = resources.ConfigurationAsRawEnvironmentVariables(flat)
+	require.NoError(t, err)
+	require.Equal(t, []string{"EXACT_key=value"}, resources.EnvironmentVariableAsStrings(values))
+	require.NoError(t, manager.AddRawConfigurations(context.Background(), flat))
+	flat.Infos = append(flat.Infos, document.Infos...)
+	values, err = manager.All()
+	require.Error(t, err, "documents introduced after admission must not disappear")
+	require.Nil(t, values)
 }
