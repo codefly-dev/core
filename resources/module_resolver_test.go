@@ -2,6 +2,7 @@ package resources_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -529,6 +530,331 @@ func mustModuleRef(t *testing.T, workspace *resources.Workspace, name string) *r
 	return nil
 }
 
+// A service override says where ONE service of a composed module comes from.
+// The module itself stays where committed config puts it, and its other
+// services stay with it.
+func TestOverlayServicePathOverridesOneService(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n")
+
+	saasDir := filepath.Join(dir, "modules", "saas")
+	writeModule(t, saasDir, "kind: module\nname: saas\nservices:\n  - name: gateway\n  - name: api\n")
+	writeGatewayService(t, saasDir)
+	writeAPIService(t, saasDir)
+
+	checkout := filepath.Join(dir, "elsewhere", "gateway")
+	writeServiceManifest(t, checkout, serviceManifest("gateway", "go-grpc", "9.9.9", "public-api"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    services:\n      gateway:\n        path: elsewhere/gateway\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	resolution, err := workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.NoError(t, err)
+	require.Equal(t, resources.ResolutionLocalPath, resolution.Kind)
+	require.Equal(t, filepath.Join(dir, "modules", "saas"), resolution.Dir)
+	require.Equal(t, resources.ResolutionLocalPath, resolution.Services["gateway"].Kind)
+	require.Equal(t, checkout, resolution.Services["gateway"].Dir)
+
+	saas, err := workspace.LoadModuleFromName(ctx, "saas")
+	require.NoError(t, err)
+
+	gateway, err := saas.LoadServiceFromName(ctx, "gateway")
+	require.NoError(t, err)
+	require.Equal(t, checkout, gateway.Dir())
+	// The agent version is exactly what an override is for, so it differs and is
+	// not refused.
+	require.Equal(t, "9.9.9", gateway.Agent.Version)
+
+	api, err := saas.LoadServiceFromName(ctx, "api")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(saasDir, "services", "api"), api.Dir())
+}
+
+// The overlay is the machine-local last word: it outranks the module's own
+// committed services[].path, which outranks the services/<name> default.
+func TestOverlayServiceOutranksCommittedServicePath(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n")
+
+	saasDir := filepath.Join(dir, "modules", "saas")
+	writeModule(t, saasDir, "kind: module\nname: saas\nservices:\n  - name: gateway\n    path: committed\n")
+	writeServiceManifest(t, filepath.Join(saasDir, "services", "committed"), serviceManifest("gateway", "go-grpc", "0.0.1", "public-api"))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	saas, err := workspace.LoadModuleFromName(ctx, "saas")
+	require.NoError(t, err)
+	gateway, err := saas.LoadServiceFromName(ctx, "gateway")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(saasDir, "services", "committed"), gateway.Dir())
+
+	overlayed := filepath.Join(dir, "elsewhere", "gateway")
+	writeServiceManifest(t, overlayed, serviceManifest("gateway", "go-grpc", "0.0.1", "public-api"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    services:\n      gateway:\n        path: elsewhere/gateway\n"), 0o600))
+
+	workspace, err = resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	saas, err = workspace.LoadModuleFromName(ctx, "saas")
+	require.NoError(t, err)
+	gateway, err = saas.LoadServiceFromName(ctx, "gateway")
+	require.NoError(t, err)
+	require.Equal(t, overlayed, gateway.Dir())
+}
+
+// An overlay entry carrying only service overrides is valid, and module
+// resolution falls through to committed config exactly as if it were absent.
+func TestOverlayServicesOnlyEntryLeavesModuleResolutionAlone(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n    version: \"1.0\"\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    services:\n      gateway:\n        path: /tmp/gateway\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	resolution, err := workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.NoError(t, err)
+	require.Equal(t, resources.ResolutionPinned, resolution.Kind)
+	require.Equal(t, "acme/host", resolution.Source)
+	require.Equal(t, "1.0", resolution.Version)
+	require.Equal(t, filepath.Clean("/tmp/gateway"), resolution.Services["gateway"].Dir)
+}
+
+// A service override reaches across a worktree boundary the same way a module
+// one does: repo@ref names a local checkout, and the service is taken from that
+// checkout's copy of the module.
+func TestOverlayServiceWorktreeResolvesAgainstRealCheckout(t *testing.T) {
+	ctx := context.Background()
+	container := t.TempDir()
+
+	solution := filepath.Join(container, "github-acme-solution", "main")
+	writeWorkspace(t, solution, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n")
+	saasDir := filepath.Join(solution, "modules", "saas")
+	writeModule(t, saasDir, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeGatewayService(t, saasDir)
+	require.NoError(t, os.WriteFile(filepath.Join(solution, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    services:\n      gateway:\n        worktree: acme/host@feature\n"), 0o600))
+
+	host := filepath.Join(container, "github-acme-host", "feature")
+	writeModule(t, host, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeServiceManifest(t, filepath.Join(host, "services", "gateway"), serviceManifest("gateway", "go-grpc", "1.2.3", "public-api"))
+	initGitRepo(t, host, "git@github.com:acme/host.git", "feature")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, solution)
+	require.NoError(t, err)
+
+	resolution, err := workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.NoError(t, err)
+	service := resolution.Services["gateway"]
+	require.Equal(t, resources.ResolutionWorktree, service.Kind)
+	require.Equal(t, "acme/host", service.Source)
+	require.Equal(t, "feature", service.Ref)
+
+	saas, err := workspace.LoadModuleFromName(ctx, "saas")
+	require.NoError(t, err)
+	gateway, err := saas.LoadServiceFromName(ctx, "gateway")
+	require.NoError(t, err)
+	realHost, err := filepath.EvalSymlinks(filepath.Join(host, "services", "gateway"))
+	require.NoError(t, err)
+	resolvedDir, err := filepath.EvalSymlinks(gateway.Dir())
+	require.NoError(t, err)
+	require.Equal(t, realHost, resolvedDir)
+	require.Equal(t, "1.2.3", gateway.Agent.Version)
+}
+
+// A version override resolves pinned: core reports the wanted package version
+// and does not pull it. Loading such a module is refused, exactly as a pinned
+// module is, so the CLI materializes it first.
+func TestOverlayServiceVersionResolvesPinnedAndIsNotLoadable(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n    version: \"1.0\"\n")
+	saasDir := filepath.Join(dir, "modules", "saas")
+	writeModule(t, saasDir, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeGatewayService(t, saasDir)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    path: modules/saas\n    services:\n      gateway:\n        version: \"0.0.66\"\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	resolution, err := workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.NoError(t, err)
+	service := resolution.Services["gateway"]
+	require.Equal(t, resources.ResolutionPinned, service.Kind)
+	require.Equal(t, "acme/host", service.Source)
+	require.Equal(t, "0.0.66", service.Version)
+	require.Empty(t, service.Dir)
+
+	_, err = workspace.LoadModuleFromName(ctx, "saas")
+	require.ErrorContains(t, err, "0.0.66")
+	require.ErrorContains(t, err, "materialized by the CLI")
+}
+
+// A version override needs a source to pull the package from; a module composed
+// purely by location has none, and saying so beats resolving to nothing.
+func TestOverlayServiceVersionRequiresSource(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    services:\n      gateway:\n        version: \"0.0.66\"\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	_, err = workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.ErrorContains(t, err, "without a source")
+}
+
+func TestOverlayServiceDirectiveMustSelectExactlyOne(t *testing.T) {
+	ctx := context.Background()
+
+	cases := map[string]string{
+		"typo'd key":  "resolve:\n  saas:\n    services:\n      gateway:\n        pth: /tmp/x\n",
+		"empty entry": "resolve:\n  saas:\n    services:\n      gateway: {}\n",
+		"two selected": "resolve:\n  saas:\n    services:\n      gateway:\n        path: /tmp/x\n" +
+			"        version: \"0.0.1\"\n",
+	}
+	for name, overlay := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n    version: \"1.0\"\n")
+			require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName), []byte(overlay), 0o600))
+
+			workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+			require.NoError(t, err)
+
+			_, err = workspace.ResolveModule(ctx, workspace.Modules[0])
+			require.Error(t, err)
+			require.ErrorContains(t, err, "gateway")
+			require.ErrorContains(t, err, "saas")
+		})
+	}
+}
+
+// Overriding a service the module does not declare is a typo, not a way to add
+// one: the error lists what the module does declare.
+func TestOverlayServiceUnknownServiceRejected(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n")
+	saasDir := filepath.Join(dir, "modules", "saas")
+	writeModule(t, saasDir, "kind: module\nname: saas\nservices:\n  - name: gateway\n  - name: api\n")
+	writeGatewayService(t, saasDir)
+	writeAPIService(t, saasDir)
+	writeServiceManifest(t, filepath.Join(dir, "elsewhere"), serviceManifest("gatway", "go-grpc", "0.0.1"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    services:\n      gatway:\n        path: elsewhere\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "saas")
+	require.ErrorContains(t, err, "gatway")
+	require.ErrorContains(t, err, "gateway, api")
+}
+
+// The module's siblings and its interface bind to the composed service's name,
+// agent and endpoints, so an override that changes any of them is refused with
+// both sides named.
+func TestOverlayServiceContractGuard(t *testing.T) {
+	ctx := context.Background()
+
+	cases := map[string]struct {
+		manifest string
+		contains []string
+	}{
+		"renamed": {
+			manifest: serviceManifest("gatekeeper", "go-grpc", "0.0.1", "public-api"),
+			contains: []string{"declares name <gatekeeper>", "composes it as <gateway>"},
+		},
+		"different agent": {
+			manifest: serviceManifest("gateway", "python-grpc", "0.0.1", "public-api"),
+			contains: []string{"runs agent <python-grpc>", "on agent <go-grpc>"},
+		},
+		"dropped endpoint": {
+			manifest: serviceManifest("gateway", "go-grpc", "0.0.1", "other"),
+			contains: []string{"does not expose endpoints public-api", "it exposes other"},
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n")
+			saasDir := filepath.Join(dir, "modules", "saas")
+			writeModule(t, saasDir, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+			writeGatewayService(t, saasDir)
+			writeServiceManifest(t, filepath.Join(dir, "elsewhere"), testCase.manifest)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+				[]byte("resolve:\n  saas:\n    services:\n      gateway:\n        path: elsewhere\n"), 0o600))
+
+			workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+			require.NoError(t, err)
+
+			_, err = workspace.LoadModuleFromName(ctx, "saas")
+			require.Error(t, err)
+			for _, want := range testCase.contains {
+				require.ErrorContains(t, err, want)
+			}
+		})
+	}
+}
+
+// Adding an endpoint the module never declared breaks nothing: the guard asks
+// for a superset, not an exact match.
+func TestOverlayServiceMayAddEndpoints(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n")
+	saasDir := filepath.Join(dir, "modules", "saas")
+	writeModule(t, saasDir, "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+	writeGatewayService(t, saasDir)
+	writeServiceManifest(t, filepath.Join(dir, "elsewhere"), serviceManifest("gateway", "go-grpc", "0.0.1", "public-api", "debug"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    services:\n      gateway:\n        path: elsewhere\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	saas, err := workspace.LoadModuleFromName(ctx, "saas")
+	require.NoError(t, err)
+	gateway, err := saas.LoadServiceFromName(ctx, "gateway")
+	require.NoError(t, err)
+	require.Len(t, gateway.Endpoints, 2)
+}
+
+func TestSaveLocalOverlayRoundTripsServiceOverrides(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	overlay := &resources.LocalOverlay{
+		Resolve: map[string]*resources.ModuleResolveDirective{
+			"saas": {
+				Services: map[string]*resources.ServiceResolveDirective{
+					"accounts":  {Path: "/Users/me/module-saas-starter/module/services/accounts"},
+					"gateway":   {Worktree: "acme/host@feature"},
+					"telemetry": {Version: "0.0.66"},
+				},
+			},
+		},
+	}
+	require.NoError(t, resources.SaveLocalOverlay(ctx, dir, overlay))
+
+	reloaded, err := resources.LoadLocalOverlay(ctx, dir)
+	require.NoError(t, err)
+	require.False(t, reloaded.Resolve["saas"].Pinned)
+	services := reloaded.Resolve["saas"].Services
+	require.Equal(t, "/Users/me/module-saas-starter/module/services/accounts", services["accounts"].Path)
+	require.Equal(t, "acme/host@feature", services["gateway"].Worktree)
+	require.Equal(t, "0.0.66", services["telemetry"].Version)
+}
+
 func writeWorkspace(t *testing.T, dir, content string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -579,4 +905,21 @@ func initDetachedRepoAtRemoteRef(t *testing.T, dir, remote, ref string) {
 	initGitRepo(t, dir, remote, "work")
 	gitRun(t, dir, "update-ref", "refs/remotes/origin/"+ref, "HEAD")
 	gitRun(t, dir, "checkout", "--detach", "HEAD")
+}
+
+func writeServiceManifest(t *testing.T, dir, manifest string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "service.codefly.yaml"), []byte(manifest), 0o600))
+}
+
+func serviceManifest(name, agent, agentVersion string, endpoints ...string) string {
+	manifest := fmt.Sprintf("kind: service\nname: %s\nversion: 0.0.0\nagent:\n  kind: runtime::service\n  name: %s\n  version: %s\n  publisher: codefly.ai\n", name, agent, agentVersion)
+	if len(endpoints) > 0 {
+		manifest += "endpoints:\n"
+		for _, endpoint := range endpoints {
+			manifest += fmt.Sprintf("  - name: %s\n    visibility: public\n", endpoint)
+		}
+	}
+	return manifest
 }
