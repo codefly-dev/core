@@ -320,7 +320,7 @@ func applyServiceResolutions(ctx context.Context, mod *Module, resolution *Modul
 		if service.Kind == ResolutionPinned {
 			return w.NewError("service <%s> of module <%s> resolves to the module package at version %q; versioned service overrides are materialized by the CLI, not loadable as a local checkout", name, mod.Name, service.Version)
 		}
-		if err = checkServiceOverrideContract(ctx, mod, ref, service.Dir); err != nil {
+		if err = CheckServiceOverrideContract(ctx, mod, ref, service.Dir); err != nil {
 			return w.Wrap(err)
 		}
 		ref.PathOverride = &service.Dir
@@ -328,13 +328,18 @@ func applyServiceResolutions(ctx context.Context, mod *Module, resolution *Modul
 	return nil
 }
 
-// checkServiceOverrideContract refuses an override that is not the same service
+// CheckServiceOverrideContract refuses an override that is not the same service
 // the module composed. The module's other services and its interface bind to the
 // declared name, agent and endpoints, so an override that renames the service,
 // swaps its agent, or drops an endpoint silently breaks wiring that the module
 // itself still believes in. The agent VERSION is free to differ — running a
 // service at a different agent version is a reason to override it.
-func checkServiceOverrideContract(ctx context.Context, mod *Module, ref *ServiceReference, dir string) error {
+//
+// mod must be the module as it declares itself, loaded without overrides
+// applied: the comparison is against the copy the module composed. It is
+// exported so that a diagnostic reporting on an override and the load that
+// refuses it cannot drift apart.
+func CheckServiceOverrideContract(ctx context.Context, mod *Module, ref *ServiceReference, dir string) error {
 	w := wool.Get(ctx).In("Workspace::checkServiceOverrideContract", wool.NameField(ref.Name))
 	override, err := LoadFromDir[Service](ctx, dir)
 	if err != nil {
