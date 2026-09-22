@@ -133,6 +133,14 @@ message InitRequest {
   // StartRequest.overrides.
   map<string, string> overrides = 8;
 
+  // dependencies_network_mappings are the concrete mappings accepted by this
+  // service's declared dependencies during their Init calls. They are available
+  // before this service starts, including when a test policy intentionally
+  // never calls Start on the service under test. Consumers must use these
+  // mappings rather than reconstructing deterministic addresses, which differ
+  // from isolated or agent-adjusted allocations.
+  repeated codefly.base.v0.NetworkMapping dependencies_network_mappings = 9;
+
 }
 
 
