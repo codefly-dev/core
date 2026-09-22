@@ -18,7 +18,7 @@ type Environment struct {
 	// Extensions preserve host-owned declarations during workspace load/save.
 	// Core neither interprets nor validates them. The consuming host must do so
 	// before acting, and these fields are never transported to agents.
-	Extensions map[string]any `yaml:",inline"`
+	Extensions map[string]YAMLValue `yaml:",inline"`
 }
 
 func (env Environment) MarshalYAML() (any, error) {

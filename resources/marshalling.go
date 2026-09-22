@@ -16,7 +16,7 @@ import (
 
 // An inline host map must not override a field owned by the resource schema.
 // yaml.v3 panics for this programmer error; return an ordinary save error.
-func validateExtensionKeys(resource any, extensions map[string]any) error {
+func validateExtensionKeys(resource any, extensions map[string]YAMLValue) error {
 	typ := reflect.TypeOf(resource)
 	for i := 0; i < typ.NumField(); i++ {
 		name := strings.Split(typ.Field(i).Tag.Get("yaml"), ",")[0]

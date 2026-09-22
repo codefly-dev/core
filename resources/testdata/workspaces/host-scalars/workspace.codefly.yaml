@@ -1,0 +1,14 @@
+name: host-scalars
+layout: modules
+description: &description 00123
+host-values: &values
+  account: *description
+  date: 2026-09-21
+  exponent: 1e3
+  boolean: true
+  hexadecimal: 0xFF
+environments:
+  - name: staging
+    host-values:
+      <<: *values
+      nested-alias: *description

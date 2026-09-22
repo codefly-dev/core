@@ -44,7 +44,7 @@ type Workspace struct {
 	Environments []*Environment `yaml:"environments,omitempty"`
 
 	// Extensions preserve declarations interpreted by the host, not Core.
-	Extensions map[string]any `yaml:",inline"`
+	Extensions map[string]YAMLValue `yaml:",inline"`
 
 	Path string `yaml:"path,omitempty"`
 
