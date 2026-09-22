@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 
@@ -294,8 +295,110 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 	if !workspace.referenceIdentifiesByCoordinate(ref) && mod.Name != ref.Name {
 		return nil, w.NewError("module referenced by bare name <%s> declares its own name <%s> in %s; either match the declared name or compose it under an alias with a source/module or path", ref.Name, mod.Name, resolution.Dir)
 	}
+	if err = applyServiceResolutions(ctx, mod, resolution); err != nil {
+		return nil, w.Wrap(err)
+	}
 	mod.adoptWorkspaceName(ref.Name)
 	return mod, nil
+}
+
+// applyServiceResolutions redirects the module's own service references at the
+// directories the overlay resolved them to. Pointing PathOverride at them is the
+// whole plumbing: ServicePath, LoadServices and every consumer downstream read
+// the override from there, so run, test, ci and doctor all see the same service.
+func applyServiceResolutions(ctx context.Context, mod *Module, resolution *ModuleResolution) error {
+	w := wool.Get(ctx).In("Workspace::applyServiceResolutions", wool.NameField(mod.Name))
+	for _, name := range sortedKeys(resolution.Services) {
+		service := resolution.Services[name]
+		ref, err := mod.GetServiceReferences(name)
+		if err != nil {
+			return w.Wrap(err)
+		}
+		if ref == nil {
+			return w.NewError("overlay overrides service <%s> of module <%s>, which declares no such service; it declares %s", name, mod.Name, strings.Join(declaredServiceNames(mod), ", "))
+		}
+		if service.Kind == ResolutionPinned {
+			return w.NewError("service <%s> of module <%s> resolves to the module package at version %q; versioned service overrides are materialized by the CLI, not loadable as a local checkout", name, mod.Name, service.Version)
+		}
+		if err = checkServiceOverrideContract(ctx, mod, ref, service.Dir); err != nil {
+			return w.Wrap(err)
+		}
+		ref.PathOverride = &service.Dir
+	}
+	return nil
+}
+
+// checkServiceOverrideContract refuses an override that is not the same service
+// the module composed. The module's other services and its interface bind to the
+// declared name, agent and endpoints, so an override that renames the service,
+// swaps its agent, or drops an endpoint silently breaks wiring that the module
+// itself still believes in. The agent VERSION is free to differ — running a
+// service at a different agent version is a reason to override it.
+func checkServiceOverrideContract(ctx context.Context, mod *Module, ref *ServiceReference, dir string) error {
+	w := wool.Get(ctx).In("Workspace::checkServiceOverrideContract", wool.NameField(ref.Name))
+	override, err := LoadFromDir[Service](ctx, dir)
+	if err != nil {
+		return w.Wrapf(err, "cannot load service override for <%s> of module <%s> from %s", ref.Name, mod.Name, dir)
+	}
+	declared, err := LoadFromDir[Service](ctx, mod.ServicePath(ctx, ref))
+	if err != nil {
+		return w.Wrapf(err, "cannot load the module's own copy of service <%s> to compare the override against", ref.Name)
+	}
+	if override.Name != ref.Name {
+		return w.NewError("service override at %s declares name <%s>, but module <%s> composes it as <%s>", dir, override.Name, mod.Name, ref.Name)
+	}
+	if agentName(override) != agentName(declared) {
+		return w.NewError("service override at %s runs agent <%s>, but module <%s> declares service <%s> on agent <%s>; a different agent is a different service", dir, agentName(override), mod.Name, ref.Name, agentName(declared))
+	}
+	if missing := missingEndpoints(declared, override); len(missing) > 0 {
+		return w.NewError("service override at %s does not expose endpoints %s declared by module <%s> for service <%s>; it exposes %s",
+			dir, strings.Join(missing, ", "), mod.Name, ref.Name, strings.Join(endpointNames(override), ", "))
+	}
+	return nil
+}
+
+// agentName reads a manifest's agent name. The override is a user-pointed
+// directory, so its manifest may be missing the agent entirely; that reads as an
+// empty name and mismatches the declared one.
+func agentName(service *Service) string {
+	if service.Agent == nil {
+		return ""
+	}
+	return service.Agent.Name
+}
+
+// missingEndpoints lists the declared endpoint names the override does not
+// expose. The override may expose more — adding an endpoint breaks nothing.
+func missingEndpoints(declared, override *Service) []string {
+	exposed := make(map[string]bool, len(override.Endpoints))
+	for _, endpoint := range override.Endpoints {
+		exposed[endpoint.Name] = true
+	}
+	var missing []string
+	for _, endpoint := range declared.Endpoints {
+		if !exposed[endpoint.Name] {
+			missing = append(missing, endpoint.Name)
+		}
+	}
+	return missing
+}
+
+// declaredServiceNames lists what the module does declare, so a typo'd override
+// is answered with the choices rather than a bare rejection.
+func declaredServiceNames(mod *Module) []string {
+	names := make([]string, len(mod.ServiceReferences))
+	for i, ref := range mod.ServiceReferences {
+		names[i] = ref.Name
+	}
+	return names
+}
+
+func endpointNames(service *Service) []string {
+	names := make([]string, len(service.Endpoints))
+	for i, endpoint := range service.Endpoints {
+		names[i] = endpoint.Name
+	}
+	return names
 }
 
 // referenceIdentifiesByCoordinate reports whether ref locates its module by an

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/codefly-dev/core/shared"
@@ -41,13 +42,59 @@ type ModuleResolveDirective struct {
 	// version, bypassing artifact verification. It is the escape hatch for a
 	// source-referenced module with no pullable signed artifact.
 	Git bool `yaml:"git,omitempty"`
+	// Services overrides where individual services of the module come from,
+	// leaving the rest of it wherever the module directive puts it. It is
+	// orthogonal to the selectors above: an entry carrying only Services keeps
+	// committed module resolution untouched.
+	Services map[string]*ServiceResolveDirective `yaml:"services,omitempty"`
+}
+
+// ServiceResolveDirective is one entry of a module directive's services map: it
+// says where a single service of a composed module lives on this machine, while
+// the rest of the module resolves as it otherwise would. Exactly one of Path,
+// Worktree, or Version selects how the service resolves; they are checked in
+// that order.
+type ServiceResolveDirective struct {
+	// Path is an explicit local directory (absolute, or relative to the overlay
+	// file) holding the service.
+	Path string `yaml:"path,omitempty"`
+	// Worktree is "<repo>@<ref>", matched to a local checkout exactly as the
+	// module-level directive is. The service is taken from that checkout's copy
+	// of the module, at services/<name>.
+	Worktree string `yaml:"worktree,omitempty"`
+	// Version selects the module package at that version and takes the service
+	// from it. Core does not pull packages: the resolution is reported as pinned
+	// and the CLI materializes it.
+	Version string `yaml:"version,omitempty"`
+}
+
+// validate rejects a service entry that does not select exactly one of
+// path/worktree/version, for the same reason the module directive does: a
+// present entry means the user intends an override, so a typo'd or empty one
+// must fail loudly rather than silently leave the service where it was.
+func (directive *ServiceResolveDirective) validate(module, service string) error {
+	set := 0
+	for _, selected := range []bool{directive.Path != "", directive.Worktree != "", directive.Version != ""} {
+		if selected {
+			set++
+		}
+	}
+	if set == 0 {
+		return fmt.Errorf("overlay entry for service %q of module %q selects none of path/worktree/version (check for a typo'd or empty directive)", service, module)
+	}
+	if set > 1 {
+		return fmt.Errorf("overlay entry for service %q of module %q selects more than one of path/worktree/version; use exactly one", service, module)
+	}
+	return nil
 }
 
 // validate rejects a present overlay entry that does not select exactly one of
 // path/worktree/pinned/git. A present entry means the user intends to override
 // resolution, so an empty entry (or one whose only key is a typo yaml silently
 // dropped) must be a hard error rather than fall through to committed config and
-// silently resolve the wrong way.
+// silently resolve the wrong way. An entry carrying only service overrides is
+// the exception: it overrides services, not the module, so module resolution
+// follows committed config exactly as if the entry were absent.
 func (directive *ModuleResolveDirective) validate(module string) error {
 	set := 0
 	if directive.Path != "" {
@@ -62,13 +109,29 @@ func (directive *ModuleResolveDirective) validate(module string) error {
 	if directive.Git {
 		set++
 	}
-	if set == 0 {
-		return fmt.Errorf("overlay entry for module %q selects none of path/worktree/pinned/git (check for a typo'd or empty directive)", module)
+	if set == 0 && len(directive.Services) == 0 {
+		return fmt.Errorf("overlay entry for module %q selects none of path/worktree/pinned/git/services (check for a typo'd or empty directive)", module)
 	}
 	if set > 1 {
 		return fmt.Errorf("overlay entry for module %q selects more than one of path/worktree/pinned/git; use exactly one", module)
 	}
+	for _, service := range sortedKeys(directive.Services) {
+		if err := directive.Services[service].validate(module, service); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// sortedKeys orders a map's keys so that iteration — and the errors it
+// produces — is stable across runs.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // LocalOverlay is the parsed codefly.local.yaml. It maps module name to a
@@ -160,6 +223,23 @@ type ModuleResolution struct {
 	// being a kind of its own, so a consumer that only asks "is this pinned"
 	// still routes it through materialization instead of reading an empty Dir.
 	Unverified bool
+	// Services holds the per-service overrides the overlay asked for, keyed by
+	// service name. They refine where individual services of this module come
+	// from; the module resolution above still decides where the rest of it does.
+	Services map[string]*ServiceResolution
+}
+
+// ServiceResolution is the outcome of resolving one service override against the
+// overlay. A path or worktree directive yields a concrete Dir; a version
+// directive yields a pinned resolution the CLI materializes, exactly as it does
+// for a pinned module.
+type ServiceResolution struct {
+	Service string
+	Kind    ResolutionKind
+	Dir     string // resolved directory for path/worktree; empty for pinned
+	Source  string // canonical repo identity (worktree/pinned); empty for a pure path
+	Version string // requested package version (pinned)
+	Ref     string // git ref (worktree)
 }
 
 // ResolveModule computes where a single module reference resolves, following the
@@ -169,56 +249,79 @@ type ModuleResolution struct {
 // pinned outcome is not (it is a valid resolution the CLI acts on). An overlay
 // git directive resolves pinned too, marked Unverified: it selects how the
 // module is materialized, not a different place for it to live.
+//
+// Per-service overrides ride alongside that outcome in Services: they say where
+// individual services come from without moving the module, so they apply to
+// every module resolution, including the committed fall-through.
 func (workspace *Workspace) ResolveModule(ctx context.Context, ref *ModuleReference) (*ModuleResolution, error) {
 	w := wool.Get(ctx).In("Workspace::ResolveModule", wool.NameField(ref.Name))
 
+	var directive *ModuleResolveDirective
 	if workspace.overlay != nil {
-		if directive := workspace.overlay.Resolve[ref.Name]; directive != nil {
-			if err := directive.validate(ref.Name); err != nil {
+		directive = workspace.overlay.Resolve[ref.Name]
+	}
+	if directive != nil {
+		if err := directive.validate(ref.Name); err != nil {
+			return nil, w.Wrap(err)
+		}
+	}
+	resolution, err := workspace.resolveModuleLocation(ctx, ref, directive)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	if directive != nil {
+		resolution.Services, err = workspace.resolveServices(ctx, ref, directive.Services)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot resolve service overrides for module %q", ref.Name)
+		}
+	}
+	return resolution, nil
+}
+
+// resolveModuleLocation decides where the module itself comes from, following
+// the precedence documented on ResolveModule. Service overrides never enter
+// here: they refine services, not the module, so an overlay entry carrying only
+// services falls through to committed config.
+func (workspace *Workspace) resolveModuleLocation(ctx context.Context, ref *ModuleReference, directive *ModuleResolveDirective) (*ModuleResolution, error) {
+	w := wool.Get(ctx).In("Workspace::resolveModuleLocation", wool.NameField(ref.Name))
+	if directive != nil {
+		switch {
+		case directive.Path != "":
+			return &ModuleResolution{
+				Module: ref.Name,
+				Kind:   ResolutionLocalPath,
+				Dir:    workspace.overlayDir(directive.Path),
+				Source: ref.Source,
+			}, nil
+		case directive.Worktree != "":
+			repo, gitRef, err := parseWorktreeCoordinate(directive.Worktree)
+			if err != nil {
 				return nil, w.Wrap(err)
 			}
-			switch {
-			case directive.Path != "":
-				dir := directive.Path
-				if !filepath.IsAbs(dir) {
-					dir = filepath.Join(workspace.overlay.dir, dir)
-				}
-				return &ModuleResolution{
-					Module: ref.Name,
-					Kind:   ResolutionLocalPath,
-					Dir:    filepath.Clean(dir),
-					Source: ref.Source,
-				}, nil
-			case directive.Worktree != "":
-				repo, gitRef, err := parseWorktreeCoordinate(directive.Worktree)
-				if err != nil {
-					return nil, w.Wrap(err)
-				}
-				checkout, err := workspace.findWorktreeCheckout(ctx, repo, gitRef)
-				if err != nil {
-					return nil, w.Wrapf(err, "cannot resolve worktree for module %q", ref.Name)
-				}
-				dir := checkout
-				if ref.Module != "" {
-					dir = filepath.Join(dir, ref.Module)
-				}
-				return &ModuleResolution{
-					Module: ref.Name,
-					Kind:   ResolutionWorktree,
-					Dir:    dir,
-					Source: repo,
-					Ref:    gitRef,
-				}, nil
-			case directive.Pinned:
-				return pinnedResolution(ref), nil
-			case directive.Git:
-				if ref.Source == "" {
-					return nil, w.NewError("overlay entry for module <%s> selects git, but the module is composed without a source to clone; give it a source, or point the overlay at a local path", ref.Name)
-				}
-				resolution := pinnedResolution(ref)
-				resolution.Unverified = true
-				return resolution, nil
+			checkout, err := workspace.findWorktreeCheckout(ctx, repo, gitRef)
+			if err != nil {
+				return nil, w.Wrapf(err, "cannot resolve worktree for module %q", ref.Name)
 			}
+			dir := checkout
+			if ref.Module != "" {
+				dir = filepath.Join(dir, ref.Module)
+			}
+			return &ModuleResolution{
+				Module: ref.Name,
+				Kind:   ResolutionWorktree,
+				Dir:    dir,
+				Source: repo,
+				Ref:    gitRef,
+			}, nil
+		case directive.Pinned:
+			return pinnedResolution(ref), nil
+		case directive.Git:
+			if ref.Source == "" {
+				return nil, w.NewError("overlay entry for module <%s> selects git, but the module is composed without a source to clone; give it a source, or point the overlay at a local path", ref.Name)
+			}
+			resolution := pinnedResolution(ref)
+			resolution.Unverified = true
+			return resolution, nil
 		}
 	}
 
@@ -238,6 +341,77 @@ func (workspace *Workspace) ResolveModule(ctx context.Context, ref *ModuleRefere
 		Kind:   ResolutionLocalPath,
 		Dir:    workspace.ModulePath(ctx, ref),
 	}, nil
+}
+
+// resolveServices resolves every per-service override declared for one module.
+func (workspace *Workspace) resolveServices(ctx context.Context, ref *ModuleReference, directives map[string]*ServiceResolveDirective) (map[string]*ServiceResolution, error) {
+	if len(directives) == 0 {
+		return nil, nil
+	}
+	resolutions := make(map[string]*ServiceResolution, len(directives))
+	for _, service := range sortedKeys(directives) {
+		resolution, err := workspace.resolveService(ctx, ref, service, directives[service])
+		if err != nil {
+			return nil, err
+		}
+		resolutions[service] = resolution
+	}
+	return resolutions, nil
+}
+
+// resolveService resolves one service override. The worktree and version forms
+// address the service through the module that owns it — a checkout, or a package
+// of the module reference's own coordinate — so the service keeps arriving with
+// the module layout its siblings expect.
+func (workspace *Workspace) resolveService(ctx context.Context, ref *ModuleReference, service string, directive *ServiceResolveDirective) (*ServiceResolution, error) {
+	w := wool.Get(ctx).In("Workspace::resolveService", wool.NameField(service))
+	switch {
+	case directive.Path != "":
+		return &ServiceResolution{
+			Service: service,
+			Kind:    ResolutionLocalPath,
+			Dir:     workspace.overlayDir(directive.Path),
+		}, nil
+	case directive.Worktree != "":
+		repo, gitRef, err := parseWorktreeCoordinate(directive.Worktree)
+		if err != nil {
+			return nil, w.Wrap(err)
+		}
+		checkout, err := workspace.findWorktreeCheckout(ctx, repo, gitRef)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot resolve worktree for service %q", service)
+		}
+		dir := checkout
+		if ref.Module != "" {
+			dir = filepath.Join(dir, ref.Module)
+		}
+		return &ServiceResolution{
+			Service: service,
+			Kind:    ResolutionWorktree,
+			Dir:     filepath.Join(dir, "services", service),
+			Source:  repo,
+			Ref:     gitRef,
+		}, nil
+	default:
+		if ref.Source == "" {
+			return nil, w.NewError("overlay entry for service %q of module <%s> selects a version, but the module is composed without a source to pull it from; point the override at a local path instead", service, ref.Name)
+		}
+		return &ServiceResolution{
+			Service: service,
+			Kind:    ResolutionPinned,
+			Source:  ref.Source,
+			Version: directive.Version,
+		}, nil
+	}
+}
+
+// overlayDir makes a directive's path absolute: an absolute path stands, a
+// relative one resolves against the overlay file's own directory.
+func (workspace *Workspace) overlayDir(dir string) string {
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(workspace.overlay.dir, dir)
+	}
+	return filepath.Clean(dir)
 }
 
 // ResolveModules resolves every module reference in the workspace. Unlike the
