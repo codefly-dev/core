@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"sync"
 	"testing"
@@ -133,6 +134,8 @@ func TestGitHubCheckerRecordedReleaseConditionalCacheAndRateLimit(t *testing.T) 
 func TestGitHubCheckerPaginatesBeforeSelectingStableRelease(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		require.Equal(t, "/repos/owner/repo/releases", request.URL.Path,
+			"pagination must remain bound to the selected repository, not follow the numeric alias")
 		page := request.URL.Query().Get("page")
 		if page == "" {
 			releases := make([]githubReleaseJSON, 100)
@@ -149,7 +152,7 @@ func TestGitHubCheckerPaginatesBeforeSelectingStableRelease(t *testing.T) {
 					}},
 				}
 			}
-			response.Header().Set("Link", fmt.Sprintf(`<%s/repos/owner/repo/releases?page=2&per_page=100>; rel="next"`, server.URL))
+			response.Header().Set("Link", fmt.Sprintf(`<%s/repositories/707627281/releases?page=2&per_page=100>; rel="next"`, server.URL))
 			require.NoError(t, json.NewEncoder(response).Encode(releases))
 			return
 		}
@@ -179,6 +182,33 @@ func TestGitHubCheckerPaginatesBeforeSelectingStableRelease(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "1.1.0", status.Latest.String())
+}
+
+func TestReleasePaginationRejectsRedirectsAndAmbiguousQueries(t *testing.T) {
+	current, err := url.Parse("https://api.github.com/repos/owner/repo/releases?per_page=100")
+	require.NoError(t, err)
+	for _, target := range []string{
+		"https://other.example/repositories/12/releases?page=2&per_page=100",
+		"https://api.github.com/repos/other/repo/releases?page=2&per_page=100",
+		"https://user@api.github.com/repositories/12/releases?page=2&per_page=100",
+		"https://api.github.com/repositories/12/issues?page=2&per_page=100",
+		"https://api.github.com/repositories/not-an-id/releases?page=2&per_page=100",
+		"https://api.github.com/repositories/12/releases?page=2&page=3&per_page=100",
+		"https://api.github.com/repositories/12/releases?page=2&per_page=100&per_page=1",
+		"https://api.github.com/repositories/12/releases?page=2&per_page=100&extra=1",
+		"https://api.github.com/repositories/12/releases?page=2&per_page=100&bad=%zz",
+	} {
+		t.Run(target, func(t *testing.T) {
+			_, err := nextGitHubPage("<"+target+">; rel=\"next\"", current, map[string]struct{}{})
+			require.Error(t, err)
+		})
+	}
+	visited := map[string]struct{}{}
+	first, err := nextGitHubPage(`<https://api.github.com/repositories/12/releases?page=2&per_page=100>; rel="next"`, current, visited)
+	require.NoError(t, err)
+	require.Equal(t, "https://api.github.com/repos/owner/repo/releases?page=2&per_page=100", first)
+	_, err = nextGitHubPage(`<https://api.github.com/repos/owner/repo/releases?per_page=100&page=02>; rel="next"`, current, visited)
+	require.ErrorContains(t, err, "cycle")
 }
 
 func TestGitHubCheckerUsesCacheForHeaderlessSecondaryRateLimit(t *testing.T) {

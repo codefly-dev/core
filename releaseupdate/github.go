@@ -509,12 +509,15 @@ func nextGitHubPage(link string, current *url.URL, visited map[string]struct{}) 
 			!strings.EqualFold(next.Host, current.Host) ||
 			next.User != nil ||
 			next.Fragment != "" ||
-			next.Path != current.Path {
+			!sameReleasePaginationPath(current.Path, next.Path) {
 			return "", errors.New("GitHub pagination link leaves the release endpoint")
 		}
-		query := next.Query()
+		query, err := url.ParseQuery(next.RawQuery)
+		if err != nil {
+			return "", errors.New("GitHub pagination link has invalid query encoding")
+		}
 		page, err := strconv.Atoi(query.Get("page"))
-		if err != nil || page < 2 || query.Get("per_page") != "100" {
+		if err != nil || page < 2 || query.Get("per_page") != "100" || len(query["page"]) != 1 || len(query["per_page"]) != 1 {
 			return "", errors.New("GitHub pagination link has invalid page parameters")
 		}
 		for key := range query {
@@ -522,7 +525,12 @@ func nextGitHubPage(link string, current *url.URL, visited map[string]struct{}) 
 				return "", errors.New("GitHub pagination link has unexpected parameters")
 			}
 		}
-		value := next.String()
+		// GitHub emits /repositories/<id>/releases links for a /repos/<owner>/<repo>
+		// request. Take only pagination data; never let a link select the repository.
+		canonical := *current
+		query.Set("page", strconv.Itoa(page))
+		canonical.RawQuery = query.Encode()
+		value := canonical.String()
 		if _, found := visited[value]; found {
 			return "", errors.New("GitHub pagination link contains a cycle")
 		}
@@ -530,6 +538,25 @@ func nextGitHubPage(link string, current *url.URL, visited map[string]struct{}) 
 		return value, nil
 	}
 	return "", nil
+}
+
+func sameReleasePaginationPath(current, next string) bool {
+	if current == next {
+		return true
+	}
+	prefix, _, ok := strings.Cut(current, "/repos/")
+	if !ok {
+		return false
+	}
+	repository, ok := strings.CutPrefix(next, prefix+"/repositories/")
+	if !ok {
+		return false
+	}
+	id, ok := strings.CutSuffix(repository, "/releases")
+	if !ok || id == "" || strings.Trim(id, "0123456789") != "" {
+		return false
+	}
+	return true
 }
 
 func githubRateLimit(response *http.Response, now time.Time) (*RateLimitError, bool) {
