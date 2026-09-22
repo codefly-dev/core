@@ -276,6 +276,15 @@ func findGoModuleDir(ctx context.Context, workspaceDir, sourceDir string) (strin
 	if resolved, err := filepath.EvalSymlinks(workspaceDir); err == nil {
 		workspaceRoot = resolved
 	}
+	// Source attachments can point at cmd/tool inside a module outside the
+	// ephemeral workspace. Follow that source's real ancestry, as Go does;
+	// ordinary sources still stop at their declared workspace boundary.
+	if resolved, err := filepath.EvalSymlinks(sourceDir); err == nil {
+		if relative, err := filepath.Rel(workspaceRoot, resolved); err == nil &&
+			(relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
+			sourceDir = resolved
+		}
+	}
 	for d := sourceDir; ; d = filepath.Dir(d) {
 		exists, _ := shared.FileExists(ctx, filepath.Join(d, "go.mod"))
 		if exists {
