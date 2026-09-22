@@ -176,11 +176,20 @@ func (holder *EnvironmentVariableManager) All() ([]*EnvironmentVariable, error) 
 		return nil, err
 	}
 	for _, conf := range holder.configurations {
-		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
-		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, true)...)
+		for _, secret := range []bool{false, true} {
+			values, err := ConfigurationAsEnvironmentVariables(conf, holder.environment.GetName(), secret)
+			if err != nil {
+				return nil, err
+			}
+			envs = append(envs, values...)
+		}
 	}
 	for _, conf := range holder.rawConfigurations {
-		envs = append(envs, ConfigurationAsRawEnvironmentVariables(conf)...)
+		values, err := ConfigurationAsRawEnvironmentVariables(conf)
+		if err != nil {
+			return nil, err
+		}
+		envs = append(envs, values...)
 	}
 	return envs, nil
 }
@@ -301,17 +310,25 @@ func (holder *EnvironmentVariableManager) Configurations() ([]*EnvironmentVariab
 		return nil, err
 	}
 	for _, conf := range holder.configurations {
-		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, false)...)
+		values, err := ConfigurationAsEnvironmentVariables(conf, holder.environment.GetName(), false)
+		if err != nil {
+			return nil, err
+		}
+		envs = append(envs, values...)
 	}
 	return envs, nil
 }
 
-func (holder *EnvironmentVariableManager) Secrets() []*EnvironmentVariable {
+func (holder *EnvironmentVariableManager) Secrets() ([]*EnvironmentVariable, error) {
 	var envs []*EnvironmentVariable
 	for _, conf := range holder.configurations {
-		envs = append(envs, ConfigurationAsEnvironmentVariables(conf, true)...)
+		values, err := ConfigurationAsEnvironmentVariables(conf, holder.environment.GetName(), true)
+		if err != nil {
+			return nil, err
+		}
+		envs = append(envs, values...)
 	}
-	return envs
+	return envs, nil
 }
 
 func (holder *EnvironmentVariableManager) AddConfigurations(_ context.Context, configurations ...*basev0.Configuration) error {
@@ -324,6 +341,13 @@ func (holder *EnvironmentVariableManager) AddConfigurations(_ context.Context, c
 }
 
 func (holder *EnvironmentVariableManager) AddRawConfigurations(_ context.Context, configurations ...*basev0.Configuration) error {
+	for _, conf := range configurations {
+		for _, info := range conf.GetInfos() {
+			if info.GetData() != nil {
+				return fmt.Errorf("structured configuration requires the scoped configuration carrier")
+			}
+		}
+	}
 	for _, conf := range configurations {
 		if conf != nil {
 			holder.rawConfigurations = append(holder.rawConfigurations, conf)
@@ -525,12 +549,28 @@ func EndpointAsEnvironmentVariable(endpointAccess *EndpointAccess) *EnvironmentV
 
 // ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
 // the secret flag decides if we return secret or regular values
-func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool) []*EnvironmentVariable {
+func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, environment string, secret bool) ([]*EnvironmentVariable, error) {
 	var env []*EnvironmentVariable
+	if conf == nil {
+		return env, nil
+	}
 	confKey := ConfigurationEnvironmentKeyPrefix(conf)
 	for _, info := range conf.Infos {
+		if info == nil {
+			return nil, fmt.Errorf("configuration information must not be nil")
+		}
+		if data := info.Data; data != nil && data.Secret == secret {
+			variable, err := configurationDocumentVariable(conf.Origin, info.Name, environment, data)
+			if err != nil {
+				return nil, err
+			}
+			env = append(env, variable)
+		}
 		infoKey := fmt.Sprintf("%s__%s", confKey, NameToKey(info.Name))
 		for _, value := range info.ConfigurationValues {
+			if value == nil {
+				return nil, fmt.Errorf("configuration value must not be nil")
+			}
 			key := fmt.Sprintf("%s__%s", infoKey, NameToKey(value.Key))
 			// if secret: only add secret values
 			if secret {
@@ -546,19 +586,28 @@ func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, secret bool
 			}
 		}
 	}
-	return env
+	return env, nil
 }
 
-// ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
-// the secret flag decides if we return secret or regular values
-func ConfigurationAsRawEnvironmentVariables(conf *basev0.Configuration) []*EnvironmentVariable {
+// ConfigurationAsRawEnvironmentVariables preserves explicitly named flat keys.
+// Structured documents require a scoped carrier and cannot use this path.
+func ConfigurationAsRawEnvironmentVariables(conf *basev0.Configuration) ([]*EnvironmentVariable, error) {
 	var env []*EnvironmentVariable
-	for _, info := range conf.Infos {
+	for _, info := range conf.GetInfos() {
+		if info == nil {
+			return nil, fmt.Errorf("configuration information must not be nil")
+		}
+		if info.Data != nil {
+			return nil, fmt.Errorf("structured configuration requires the scoped configuration carrier")
+		}
 		for _, value := range info.ConfigurationValues {
+			if value == nil {
+				return nil, fmt.Errorf("configuration value must not be nil")
+			}
 			env = append(env, Env(value.Key, value.Value))
 		}
 	}
-	return env
+	return env, nil
 }
 
 func ServiceConfigurationKeyFromUnique(unique string, name string, key string) string {

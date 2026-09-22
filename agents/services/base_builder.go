@@ -870,8 +870,12 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return fail(err)
 	}
 	configurations = append(configurations, deploymentContext.ConfigMap...)
+	secretValues, err := manager.Secrets()
+	if err != nil {
+		return fail(err)
+	}
 	if IsRestrictedOutputProfile(profile) {
-		if len(manager.Secrets()) > 0 || len(deploymentContext.Secrets) > 0 {
+		if len(secretValues) > 0 || len(deploymentContext.Secrets) > 0 {
 			return fail(fmt.Errorf("restricted rendering cannot receive secret values"))
 		}
 		for _, configuration := range configurations {
@@ -886,7 +890,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	}
 	var secretMap EnvironmentMap
 	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 {
-		secrets := append(manager.Secrets(), deploymentContext.Secrets...)
+		secrets := append(secretValues, deploymentContext.Secrets...)
 		secretMap, err = EnvsAsSecretData(secrets...)
 		if err != nil {
 			return fail(err)

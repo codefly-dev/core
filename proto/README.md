@@ -25,12 +25,12 @@ That regenerates the Go bindings into `core/generated/go/` (pinned codegen
 plugins + goimports). Commit the `.proto` change and the regenerated code
 together.
 
-`--local` does not pin buf itself — it execs whatever `buf` is on `PATH`, so the
-output is reproducible only once that buf is the `Makefile`'s `BUF_VERSION`.
-`make buf-install` puts exactly that one there; run it before regenerating. The
-check targets cannot stand in for it — they run buf through `go run`, which puts
-nothing on `PATH`. codefly-dev/cli#744 tracks pinning it in the tool, where it
-belongs.
+`--local` selects `generated/buf.gen.local.yaml`. It does not run tools on the
+host: buf, the plugins and goimports run inside the versioned proto companion.
+`--template` selects a different template relative to `--output`; generation
+runs from that template's directory, preserving its relative output paths.
+Use the Makefile's pinned buf for lint and breaking checks, independently of
+the companion-based generation command.
 
 Python bindings (for the CLI) are produced via `generated/buf.gen.yaml` where
 the BSR remote plugins are reachable. The owning command supports that template:

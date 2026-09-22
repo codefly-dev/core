@@ -114,12 +114,14 @@ func TestLocalLoaderAppliesInvocationScopedWorkspaceConfigurations(t *testing.T)
 	preserved, err := resources.GetConfigurationValue(ctx, auth, "execution-scheduler-auth", "PRESERVED")
 	require.NoError(t, err)
 	require.Equal(t, "persisted-value", preserved)
+	authVariables, err := resources.ConfigurationAsEnvironmentVariables(auth, "local", true)
+	require.NoError(t, err)
 	require.ElementsMatch(t,
 		[]string{
 			"CODEFLY__WORKSPACE_SECRET_CONFIGURATION__EXECUTION_SCHEDULER_AUTH__TOKEN=invocation-token",
 			"CODEFLY__WORKSPACE_SECRET_CONFIGURATION__EXECUTION_SCHEDULER_AUTH__PRESERVED=persisted-value",
 		},
-		resources.EnvironmentVariableAsStrings(resources.ConfigurationAsEnvironmentVariables(auth, true)),
+		resources.EnvironmentVariableAsStrings(authVariables),
 	)
 
 	added, err := resources.FindWorkspaceConfiguration(ctx, confs, "new-configuration")
@@ -174,13 +176,15 @@ agent:
 	preserved, err := resources.GetConfigurationValue(ctx, conf, "postgres", "PRESERVED")
 	require.NoError(t, err)
 	require.Equal(t, "persisted-value", preserved)
+	secretVariables, err := resources.ConfigurationAsEnvironmentVariables(conf, "local", true)
+	require.NoError(t, err)
 	require.ElementsMatch(t,
 		[]string{
 			"CODEFLY__SERVICE_SECRET_CONFIGURATION__TEST_WORKSPACE__STORE__POSTGRES__POSTGRES_USER=invocation-user",
 			"CODEFLY__SERVICE_SECRET_CONFIGURATION__TEST_WORKSPACE__STORE__POSTGRES__PRESERVED=persisted-value",
 			"CODEFLY__SERVICE_SECRET_CONFIGURATION__TEST_WORKSPACE__STORE__POSTGRES__POSTGRES_PASSWORD=invocation-password",
 		},
-		resources.EnvironmentVariableAsStrings(resources.ConfigurationAsEnvironmentVariables(conf, true)),
+		resources.EnvironmentVariableAsStrings(secretVariables),
 	)
 }
 

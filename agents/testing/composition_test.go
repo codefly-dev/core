@@ -115,6 +115,51 @@ spec:
 	}
 }
 
+// configMountDeploymentTemplates models an agent consuming the config-mount
+// seam the documented way: VolumeName and ReadOnly are rendered verbatim, so an
+// overlay the helper failed to normalize surfaces as an unnamed volume and a
+// `readOnly: <nil>` string.
+func configMountDeploymentTemplates() fstest.MapFS {
+	templates := sampleDeploymentTemplates()
+	path := "templates/deployment/kustomize/base/deployment.yaml.tmpl"
+	templates[path] = &fstest.MapFile{Data: []byte(string(templates[path].Data) + `{{- with .PodOverlay }}{{ if .HasConfigMounts }}
+          volumeMounts:
+{{- range .ConfigMounts }}
+            - name: {{ .VolumeName }}
+              mountPath: {{ .MountPath }}
+              readOnly: {{ .ReadOnly }}
+{{- end }}
+      volumes:
+{{- range .ConfigMounts }}
+        - name: {{ .VolumeName }}
+          configMap:
+            name: {{ .ConfigMapName }}
+            optional: {{ .Optional }}
+{{- end }}
+{{- end }}{{ end }}
+`)}
+	return templates
+}
+
+func TestAssertKustomizeTemplatesWithOverlay_NormalizesConfigMounts(t *testing.T) {
+	dir := agents_testing.AssertKustomizeTemplatesWithOverlay(t, configMountDeploymentTemplates(), nil,
+		&agents_services.PodTemplateOverlay{
+			ConfigMounts: []agents_services.ConfigMount{
+				{ConfigMapName: "trust.bundle", MountPath: "/etc/ssl/trust"},
+			},
+		})
+
+	deployment, err := os.ReadFile(filepath.Join(dir, "base", "deployment.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"name: trust-bundle", "mountPath: /etc/ssl/trust", "readOnly: true"} {
+		if !strings.Contains(string(deployment), want) {
+			t.Fatalf("config mount not normalized, missing %q:\n%s", want, deployment)
+		}
+	}
+}
+
 func TestAssertKustomizeTemplates_RendersAndValidates(t *testing.T) {
 	dir := agents_testing.AssertKustomizeTemplates(t, sampleDeploymentTemplates(), nil)
 	content, err := os.ReadFile(filepath.Join(dir, "base", "deployment.yaml"))

@@ -53,16 +53,20 @@ func TestConfigurationEnvironmentVariableKey(t *testing.T) {
 }
 
 func TestConfigurationsAsEnvironmentVariables(t *testing.T) {
-	envs := resources.ConfigurationAsEnvironmentVariables(Conf, false)
+	envs, err := resources.ConfigurationAsEnvironmentVariables(Conf, "local", false)
+	require.NoError(t, err)
 	require.Len(t, envs, 1)
 	needs := fmt.Sprintf("CODEFLY__WORKSPACE_CONFIGURATION__SOMETHING__GLOBAL=%s", "true")
 	require.Contains(t, resources.EnvironmentVariableAsStrings(envs), needs)
 }
 
 func TestServiceConfigurationsAsEnvironmentVariables(t *testing.T) {
-	envs := resources.ConfigurationAsEnvironmentVariables(serviceConf, true)
+	envs, err := resources.ConfigurationAsEnvironmentVariables(serviceConf, "local", true)
+	require.NoError(t, err)
 	require.Len(t, envs, 1)
-	envs = append(envs, resources.ConfigurationAsEnvironmentVariables(serviceConf, false)...)
+	public, err := resources.ConfigurationAsEnvironmentVariables(serviceConf, "local", false)
+	require.NoError(t, err)
+	envs = append(envs, public...)
 	needs := []string{
 		fmt.Sprintf("CODEFLY__SERVICE_CONFIGURATION__APP__SVC__CONNECTION__URL=%s", "http://localhost:8080"),
 		fmt.Sprintf("CODEFLY__SERVICE_SECRET_CONFIGURATION__APP__SVC__CONNECTION__PASSWORD=%s", "admin"),
@@ -81,7 +85,8 @@ func TestConfigurationEnvironmentKeysNormalizeHyphens(t *testing.T) {
 		}},
 	}
 
-	emitted := resources.ConfigurationAsEnvironmentVariables(conf, true)
+	emitted, err := resources.ConfigurationAsEnvironmentVariables(conf, "local", true)
+	require.NoError(t, err)
 	require.Equal(t,
 		"CODEFLY__SERVICE_SECRET_CONFIGURATION__COORDINATION__WORK_COORDINATOR__MUTATION_PERMIT__ED25519_SEED_BASE64=redacted",
 		requireSingleEnvironmentVariable(t, emitted),

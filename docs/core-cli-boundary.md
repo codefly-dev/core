@@ -36,9 +36,9 @@ The existing coordinate `service-config.values` dictionary is a deployment input
 not a restriction on the runtime configuration contract. Explicit structured
 configuration belongs in that generic data path. Secret documents must remain
 marked secret as a whole; GitOps carries references and never their resolved
-contents. This is not yet an end-to-end SDK capability: the current runtime
-environment bridge drops `ConfigurationInformation.data`, and Go SDK accessors
-return strings. See [the delivery gap](configuration-contract.md#nested-data-delivery).
+contents. The versioned runtime carrier transports `ConfigurationInformation.data`
+without flattening; Go SDK document accessors decode it with exact scope checks.
+See [nested data delivery](configuration-contract.md#nested-data-delivery).
 
 ## Migration
 
@@ -82,8 +82,9 @@ Core #611 already merged and separates workload identity from managed services.
 That behavior moves to the CLI and must render even without managed services.
 CLI #766 contains parser migration and copy-isolation fixes; #768 contains the
 producer-declared namespace fix; #769 propagates post-import validation failures.
-Preserve those behaviors in the consolidated cleanup. Core #610 (terminology)
-and #618 (config-mount validation) remain independently useful.
+Preserve those behaviors in the consolidated cleanup. The remaining Core work
+from #610 (terminology), #618 (config-mount validation) and #620 (structured data)
+is consolidated into #618 before the next Core release.
 
 This is a fix at the owning components, not an alternative producer format or a
 temporary database adapter. Import/render tests do not establish cloud login,
