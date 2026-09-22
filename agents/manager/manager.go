@@ -41,6 +41,18 @@ func newGitHubReleaseClient() *github.Client {
 	return client
 }
 
+// latestReleaseTag returns the newest published release tag for a repository.
+// It is a variable so resolution can be exercised without network access.
+var latestReleaseTag = githubLatestReleaseTag
+
+func githubLatestReleaseTag(ctx context.Context, owner, repo string) (string, error) {
+	release, _, err := newGitHubReleaseClient().Repositories.GetLatestRelease(ctx, owner, repo)
+	if err != nil {
+		return "", err
+	}
+	return release.GetTagName(), nil
+}
+
 // githubTokenTransport adds a bearer token to each request without pulling in
 // the oauth2 dependency (same approach as core/toolbox/github).
 type githubTokenTransport struct{ token string }
@@ -142,9 +154,21 @@ func findLocalLatestInDir(dir string, agent *resources.Agent) error {
 	return nil
 }
 
-// ResolveLatest resolves agent.Version when it is "latest" and reports where the
-// version came from, so the caller can render a single aggregated resolution line
-// instead of the per-step cascade (which is now TRACE). Sources:
+// VersionLatest is the version token that selects the newest published release
+// rather than pinning one.
+const VersionLatest = "latest"
+
+// SelectsLatest reports whether a version selects the newest published release
+// rather than pinning one. An omitted version is that selection's other
+// spelling, so it resolves exactly as the literal "latest" does.
+func SelectsLatest(version string) bool {
+	return version == "" || version == VersionLatest
+}
+
+// ResolveLatest resolves agent.Version when it selects the latest release and
+// reports where the version came from, so the caller can render a single
+// aggregated resolution line instead of the per-step cascade (which is now
+// TRACE). Sources:
 //   - "pinned": agent.Version was already a concrete semver (no resolution done).
 //   - "local":  resolved from a locally-built binary in the agent dir.
 //   - "github": resolved from a GitHub release.
@@ -152,13 +176,16 @@ func findLocalLatestInDir(dir string, agent *resources.Agent) error {
 // Strategy:
 //
 //  1. If CODEFLY_AGENT_SOURCE=local: scan the local agent dir only.
-//  2. Otherwise: try FindLocalLatest first; if it succeeds, use it.
-//     This makes locally-built agents (via `codefly agent build`)
-//     take precedence over any GitHub release, which is the intent
-//     of running `codefly` from a dev checkout.
-//  3. Fall back to PinToLatestRelease (GitHub → local fallback).
+//  2. Otherwise: PinToLatestRelease (GitHub, falling back to the local dir only
+//     when GitHub cannot be reached).
+//
+// An installed build never outranks a published release here. Preferring one
+// would leave a machine that installed an agent last week running it after a
+// newer release ships, while the manifest still reads "latest" —
+// CODEFLY_AGENT_SOURCE=local (--local-agents) is how a dev checkout asks for
+// its own builds.
 func ResolveLatest(ctx context.Context, agent *resources.Agent) (string, error) {
-	if agent.Version != "latest" {
+	if !SelectsLatest(agent.Version) {
 		return "pinned", nil
 	}
 	w := wool.Get(ctx).In("agents.ResolveLatest", wool.Field("agent", agent.Identifier()))
@@ -166,16 +193,19 @@ func ResolveLatest(ctx context.Context, agent *resources.Agent) (string, error) 
 		w.Trace("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
 		return "local", FindLocalLatest(ctx, agent)
 	}
-	if err := FindLocalLatest(ctx, agent); err == nil {
-		w.Trace("resolved latest from local build", wool.Field("version", agent.Version))
-		return "local", nil
+	if !resolvesFromGitHubRelease(agent) {
+		w.Trace("agent kind publishes no releases — resolving from local agent dir")
+		return "local", FindLocalLatest(ctx, agent)
 	}
-	w.Trace("no local build; falling back to GitHub releases")
-	source, err := PinToLatestRelease(ctx, agent)
-	if err != nil {
-		return "", err
-	}
-	return source, nil
+	return PinToLatestRelease(ctx, agent)
+}
+
+// resolvesFromGitHubRelease reports whether this agent kind publishes GitHub
+// releases. A kind that does not has no published release to prefer, so its
+// local builds stay the only resolution available.
+func resolvesFromGitHubRelease(agent *resources.Agent) bool {
+	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
+	return err == nil && registration.Resolution.GitHub == resources.AgentResolutionGitHubRelease
 }
 
 // PinToLatestRelease queries GitHub for the latest release tag and updates
@@ -192,11 +222,16 @@ func ResolveLatest(ctx context.Context, agent *resources.Agent) (string, error) 
 // to cut a GitHub release.
 func PinToLatestRelease(ctx context.Context, agent *resources.Agent) (string, error) {
 	w := wool.Get(ctx).In("agents.PinToLatestRelease", wool.Field("agent", agent.Identifier()))
+	// An omitted version is the latest selector's other spelling. Canonicalize
+	// it once here so nothing downstream — the proto validation behind
+	// toGithubSource included — has to know both.
+	if SelectsLatest(agent.Version) {
+		agent.Version = VersionLatest
+	}
 	if AgentSourceLocal() {
 		w.Debug("CODEFLY_AGENT_SOURCE=local — resolving from local agent dir")
 		return "local", FindLocalLatest(ctx, agent)
 	}
-	client := newGitHubReleaseClient()
 	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
 	if err != nil {
 		return "", w.Wrap(err)
@@ -208,15 +243,15 @@ func PinToLatestRelease(ctx context.Context, agent *resources.Agent) (string, er
 	if err != nil {
 		return "", w.Wrap(err)
 	}
-	release, _, err := client.Repositories.GetLatestRelease(ctx, source.Owner, source.Repo)
+	tag, err := latestReleaseTag(ctx, source.Owner, source.Repo)
 	if err != nil {
 		w.Debug("GitHub release lookup failed, trying local", wool.Field("error", err.Error()))
 		return "local", FindLocalLatest(ctx, agent)
 	}
 	// TrimPrefix, not ReplaceAll: ReplaceAll("v","") stripped EVERY 'v' in the
 	// tag (e.g. v0.0.1-vault → 0.0.1-ault), corrupting the resolved version.
-	latestVersion := strings.TrimPrefix(release.GetTagName(), "v")
-	if agent.Version == "latest" {
+	latestVersion := strings.TrimPrefix(tag, "v")
+	if agent.Version == VersionLatest {
 		agent.Version = latestVersion
 		return "github", nil
 	}

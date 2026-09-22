@@ -92,8 +92,8 @@ func (s *OCIStore) repoPath(agent *resources.Agent) (string, error) {
 }
 
 func (s *OCIStore) tag(agent *resources.Agent) string {
-	if agent.Version == "" || agent.Version == "latest" {
-		return "latest"
+	if SelectsLatest(agent.Version) {
+		return VersionLatest
 	}
 	return agent.Version
 }

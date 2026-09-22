@@ -270,3 +270,95 @@ func TestProviderGitHubResolutionFailsBeforeNetwork(t *testing.T) {
 		t.Fatal("provider GitHub release resolution must be disabled")
 	}
 }
+
+// installAgentBuild puts an executable build of agent into a temporary codefly
+// home, as `codefly agent build` would, and returns nothing: the home is set
+// for the duration of the test.
+func installAgentBuild(t *testing.T, agent *resources.Agent, version string) {
+	t.Helper()
+	registration, err := resources.AgentKindRegistrationFor(agent.Kind)
+	require.NoError(t, err)
+	dir := filepath.Join(resources.AgentBase(t.Context()), "agents", registration.InstallSubdirectory, agent.Publisher)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	touchFile(t, filepath.Join(dir, agent.Name+"__"+version))
+}
+
+// stubLatestReleaseTag makes the release lookup return tag without network.
+func stubLatestReleaseTag(t *testing.T, tag string) {
+	t.Helper()
+	previous := latestReleaseTag
+	latestReleaseTag = func(context.Context, string, string) (string, error) { return tag, nil }
+	t.Cleanup(func() { latestReleaseTag = previous })
+}
+
+func TestSelectsLatest(t *testing.T) {
+	require.True(t, SelectsLatest("latest"))
+	require.True(t, SelectsLatest(""))
+	require.False(t, SelectsLatest("0.1.43"))
+}
+
+func TestResolveLatestTreatsAnOmittedVersionAsLatest(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	t.Setenv(AgentSourceEnv, "")
+	stubLatestReleaseTag(t, "v0.1.44")
+
+	agent := makeAgent("codefly.dev", "go-grpc")
+	agent.Version = ""
+
+	source, err := ResolveLatest(t.Context(), agent)
+	require.NoError(t, err)
+	require.Equal(t, "github", source)
+	require.Equal(t, "0.1.44", agent.Version)
+}
+
+func TestResolveLatestPrefersThePublishedReleaseOverAnInstalledBuild(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	t.Setenv(AgentSourceEnv, "")
+	agent := makeAgent("codefly.dev", "go-grpc")
+	agent.Version = "latest"
+	installAgentBuild(t, agent, "0.1.43")
+	stubLatestReleaseTag(t, "v0.1.44")
+
+	source, err := ResolveLatest(t.Context(), agent)
+	require.NoError(t, err)
+	require.Equal(t, "github", source)
+	require.Equal(t, "0.1.44", agent.Version)
+}
+
+func TestResolveLatestUsesAnInstalledBuildOnlyWhenItIsSelected(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	t.Setenv(AgentSourceEnv, "local")
+	agent := makeAgent("codefly.dev", "go-grpc")
+	agent.Version = "latest"
+	installAgentBuild(t, agent, "0.1.43")
+	stubLatestReleaseTag(t, "v0.1.44")
+
+	source, err := ResolveLatest(t.Context(), agent)
+	require.NoError(t, err)
+	require.Equal(t, "local", source)
+	require.Equal(t, "0.1.43", agent.Version)
+}
+
+func TestResolveLatestResolvesLocallyForKindsThatPublishNoReleases(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	t.Setenv(AgentSourceEnv, "")
+	agent := &resources.Agent{Kind: resources.ProviderAgent, Publisher: "codefly.dev", Name: "llm", Version: "latest"}
+	installAgentBuild(t, agent, "0.2.7")
+
+	source, err := ResolveLatest(t.Context(), agent)
+	require.NoError(t, err)
+	require.Equal(t, "local", source)
+	require.Equal(t, "0.2.7", agent.Version)
+}
+
+func TestResolveLatestLeavesAConcreteVersionPinned(t *testing.T) {
+	t.Setenv(resources.CodeflyHomeEnv, t.TempDir())
+	t.Setenv(AgentSourceEnv, "")
+	agent := makeAgent("codefly.dev", "go-grpc")
+	agent.Version = "0.1.43"
+
+	source, err := ResolveLatest(t.Context(), agent)
+	require.NoError(t, err)
+	require.Equal(t, "pinned", source)
+	require.Equal(t, "0.1.43", agent.Version)
+}
