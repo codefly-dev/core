@@ -83,6 +83,64 @@ func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspa
 	return &ConfigurationInformationLocalReader{workspace: workspace}, nil
 }
 
+// WorkspaceConfigurations are the workspace configurations one profile provides
+// to a workspace before any invocation-scoped override is applied: the
+// workspace's own configurations/<profile>/* composed with the ones its
+// composed modules ship. See ReadWorkspaceConfigurations.
+type WorkspaceConfigurations struct {
+	// Infos holds every provided configuration in provisioning order: the
+	// workspace's own first, then the composed modules' contributions.
+	Infos []*basev0.ConfigurationInformation
+	// ComposedBy names, for each configuration a composed module contributes,
+	// the module that provides it. A name absent from it is the workspace's
+	// own — which wins over any module offering the same name.
+	ComposedBy map[string]string
+	// Ambiguous holds the names two composed modules define differently, mapped
+	// to the diagnostic naming both providers. They are absent from Infos: a
+	// consumer that never declares such a name is not held hostage to it, while
+	// one that does gets the diagnostic and its remedy. See
+	// ConfigurationInformationLocalReader.AmbiguousWorkspaceConfigurations.
+	Ambiguous map[string]error
+}
+
+// ReadWorkspaceConfigurations reads the workspace configurations env's profile
+// provides to workspace: its own configurations/<profile>/* composed with the
+// ones each composed module ships in its tree (see
+// composeModuleWorkspaceConfigurations for the composition rule). It is the one
+// definition of what a run provisions from disk, so a tool that answers "would
+// this workspace run?" reads exactly what the run reads.
+//
+// It is a pure read. A workspace whose profile directory does not exist simply
+// contributes nothing of its own — the composed modules may still satisfy
+// every dependency — and nothing is created on disk, so it is safe from a
+// read-only diagnostic. Load builds on it and layers the invocation-scoped
+// overrides on top.
+func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, env *resources.Environment) (*WorkspaceConfigurations, error) {
+	w := wool.Get(ctx).In("configurations.ReadWorkspaceConfigurations")
+
+	configurationProfile, err := env.ConfigurationProfileName()
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot select configuration profile")
+	}
+	configurationDir := path.Join(workspace.Dir(), "configurations", configurationProfile)
+	exists, err := shared.DirectoryExists(ctx, configurationDir)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot check configuration directory")
+	}
+	var workspaceInfos []*basev0.ConfigurationInformation
+	if exists {
+		workspaceInfos, err = LoadConfigurationInformationsFromFiles(ctx, configurationDir)
+		if err != nil {
+			return nil, w.Wrapf(err, "cannot load configurations")
+		}
+	}
+	workspaceInfos, composedBy, ambiguous, err := composeModuleWorkspaceConfigurations(ctx, workspace, workspaceInfos, configurationDir, configurationProfile)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot compose module workspace configurations")
+	}
+	return &WorkspaceConfigurations{Infos: workspaceInfos, ComposedBy: composedBy, Ambiguous: ambiguous}, nil
+}
+
 func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *resources.Environment) error {
 	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.Load")
 
@@ -91,23 +149,12 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		return w.Wrapf(err, "cannot select configuration profile")
 	}
 
-	// Create a provider folder for local development
-	configurationDir := path.Join(local.workspace.Dir(), "configurations", configurationProfile)
-	_, err = shared.CheckDirectoryOrCreate(ctx, configurationDir)
+	provided, err := ReadWorkspaceConfigurations(ctx, local.workspace, env)
 	if err != nil {
-		return w.Wrapf(err, "cannot create configuration directory")
+		return w.Wrap(err)
 	}
-
-	workspaceInfos, err := LoadConfigurationInformationsFromFiles(ctx, configurationDir)
-	if err != nil {
-		return w.Wrapf(err, "cannot load configurations")
-	}
-	workspaceInfos, composedNames, ambiguous, err := local.composeModuleWorkspaceConfigurations(ctx, workspaceInfos, configurationDir, configurationProfile)
-	if err != nil {
-		return w.Wrapf(err, "cannot compose module workspace configurations")
-	}
-	local.ambiguousConfigurations = ambiguous
-	workspaceInfos, overriddenNames, err := applyWorkspaceConfigurationOverrides(workspaceInfos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
+	local.ambiguousConfigurations = provided.Ambiguous
+	workspaceInfos, overriddenNames, err := applyWorkspaceConfigurationOverrides(provided.Infos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
 	if err != nil {
 		return w.Wrapf(err, "cannot load invocation-scoped workspace configurations")
 	}
@@ -121,7 +168,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	// that declared the module's configuration.
 	local.compositionRootConfigurationNames = nil
 	for _, info := range workspaceInfos {
-		if !composedNames[info.Name] || overriddenNames[info.Name] {
+		if _, composed := provided.ComposedBy[info.Name]; !composed || overriddenNames[info.Name] {
 			local.compositionRootConfigurationNames = append(local.compositionRootConfigurationNames, info.Name)
 		}
 	}
@@ -266,18 +313,20 @@ type composedConfiguration struct {
 // the same typed path as any other workspace configuration: reference values
 // resolve lazily once a dependency selects them.
 //
-// It also returns the set of configuration names contributed by composed
-// modules, so the caller can tell them apart from the composition root's own,
-// and the ambiguous names with their diagnostics.
-func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigurations(
+// It also returns, for every configuration name a composed module contributed,
+// the module that provides it — so the caller can tell them apart from the
+// composition root's own and say where each comes from — and the ambiguous
+// names with their diagnostics.
+func composeModuleWorkspaceConfigurations(
 	ctx context.Context,
+	workspace *resources.Workspace,
 	workspaceInfos []*basev0.ConfigurationInformation,
 	workspaceConfigurationDir string,
 	configurationProfile string,
-) ([]*basev0.ConfigurationInformation, map[string]bool, map[string]error, error) {
-	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.composeModuleWorkspaceConfigurations")
+) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, error) {
+	w := wool.Get(ctx).In("configurations.composeModuleWorkspaceConfigurations")
 
-	modules, err := local.workspace.LoadModules(ctx)
+	modules, err := workspace.LoadModules(ctx)
 	if err != nil {
 		return nil, nil, nil, w.Wrapf(err, "cannot load modules")
 	}
@@ -286,7 +335,7 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		fromWorkspace[info.Name] = true
 	}
 	sourceReferenced := make(map[string]bool)
-	for _, ref := range local.workspace.Modules {
+	for _, ref := range workspace.Modules {
 		if ref.Source != "" {
 			sourceReferenced[ref.Name] = true
 		}
@@ -373,10 +422,10 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		// workspace, its configurations belong to that workspace root, and
 		// flattening its module directory in would collide with, or silently
 		// bleed into, its sibling modules' services.
-		foreign := sourceReferenced[mod.Name] || !dirWithin(mod.Dir(), local.workspace.Dir())
+		foreign := sourceReferenced[mod.Name] || !dirWithin(mod.Dir(), workspace.Dir())
 		consumingBoundary := ""
 		if foreign {
-			consumingBoundary = local.workspace.Dir()
+			consumingBoundary = workspace.Dir()
 		}
 		repoDir := composedModuleWorkspaceDir(mod.Dir(), consumingBoundary)
 		repo := repoDir
@@ -403,7 +452,7 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 		}
 	}
 
-	composedNames := make(map[string]bool, len(order))
+	composedBy := make(map[string]string, len(order))
 	ambiguous := make(map[string]error)
 	for _, name := range order {
 		configuration := composed[name]
@@ -413,10 +462,10 @@ func (local *ConfigurationInformationLocalReader) composeModuleWorkspaceConfigur
 			ambiguous[name] = configuration.conflict
 			continue
 		}
-		composedNames[name] = true
+		composedBy[name] = configuration.module
 		workspaceInfos = append(workspaceInfos, configuration.info)
 	}
-	return workspaceInfos, composedNames, ambiguous, nil
+	return workspaceInfos, composedBy, ambiguous, nil
 }
 
 // dirWithin reports whether dir is the directory parent or sits below it.
