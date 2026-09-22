@@ -962,6 +962,75 @@ modules:
 	require.Equal(t, "lodestar-observability", url)
 }
 
+// ReadWorkspaceConfigurations is the read a run provisions from, exposed for a
+// tool that must answer exactly as the run does without touching the tree: it
+// names the module providing each composed configuration, the workspace's own
+// files win over a module's, and neither it nor Load creates the workspace's
+// configurations/<profile>/ directory when it is absent.
+func TestReadWorkspaceConfigurationsNamesProvidersAndCreatesNothing(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host-a
+    path: ../host-a
+  - name: host-b
+    path: ../host-b
+`)
+	for _, host := range []string{"host-a", "host-b"} {
+		writeConfigurationFile(t, root, host+"/module.codefly.yaml", "kind: module\nname: "+host+"\nservices: []\n")
+		writeConfigurationFile(t, root, host+"/configurations/local/observability.env", "OBSERVABILITY_URL="+host+"-observability\n")
+	}
+	writeConfigurationFile(t, root, "host-a/configurations/local/legal.env", "LEGAL_URL=host-a-legal\n")
+	writeConfigurationFile(t, root, "host-b/configurations/local/analytics.env", "ANALYTICS_KEY=host-b-analytics\n")
+
+	solutionDir := filepath.Join(root, "solution")
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, solutionDir)
+	require.NoError(t, err)
+
+	provided, err := configurations.ReadWorkspaceConfigurations(ctx, workspace, resources.LocalEnvironment())
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"legal": "host-a", "analytics": "host-b"}, provided.ComposedBy)
+	require.Contains(t, provided.Ambiguous, "observability")
+	require.ErrorIs(t, provided.Ambiguous["observability"], configurations.ErrConfigurationConflict)
+	var names []string
+	for _, info := range provided.Infos {
+		names = append(names, info.Name)
+	}
+	require.ElementsMatch(t, []string{"legal", "analytics"}, names)
+
+	configurationDir := filepath.Join(solutionDir, "configurations", "local")
+	_, err = os.Stat(configurationDir)
+	require.True(t, os.IsNotExist(err), "ReadWorkspaceConfigurations must not create %s", configurationDir)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, resources.LocalEnvironment()))
+	_, err = os.Stat(configurationDir)
+	require.True(t, os.IsNotExist(err), "Load must not create %s", configurationDir)
+	legal, err := resources.FindWorkspaceConfiguration(ctx, loader.Configurations(), "legal")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
+	require.NoError(t, err)
+	require.Equal(t, "host-a-legal", url)
+	require.Empty(t, loader.CompositionRootWorkspaceConfigurationNames())
+
+	// The workspace's own file wins over a module's: the name is no longer
+	// composed, and the module's value is not what is read.
+	writeConfigurationFile(t, root, "solution/configurations/local/legal.env", "LEGAL_URL=solution-legal\n")
+	provided, err = configurations.ReadWorkspaceConfigurations(ctx, workspace, resources.LocalEnvironment())
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"analytics": "host-b"}, provided.ComposedBy)
+	for _, info := range provided.Infos {
+		if info.Name != "legal" {
+			continue
+		}
+		require.Equal(t, "solution-legal", info.ConfigurationValues[0].Value)
+	}
+}
+
 func TestEnvironmentConfigurationProfileRejectsTraversal(t *testing.T) {
 	environment := &resources.Environment{
 		Name:                 "production",
