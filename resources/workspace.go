@@ -257,10 +257,23 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 	w := wool.Get(ctx).In("Workspace::LoadModuleFromReference", wool.NameField(ref.Name))
 
 	if workspace.Layout == LayoutKindFlat && ref.Name == workspace.Name {
+		resolution, err := workspace.ResolveModule(ctx, ref)
+		if err != nil {
+			return nil, w.Wrap(err)
+		}
+		services := workspace.Services
+		if len(resolution.Services) > 0 {
+			// Applying an override sets PathOverride on the module's service
+			// references, and in a flat workspace those references ARE the
+			// workspace's committed service list. They are copied first so a
+			// machine-local path is never written into the objects a later
+			// Workspace.Save serializes back into workspace.codefly.yaml.
+			services = copyServiceReferences(workspace.Services)
+		}
 		mod := &Module{
 			Kind:               ModuleKind,
 			Name:               workspace.Name,
-			ServiceReferences:  workspace.Services,
+			ServiceReferences:  services,
 			JobReferences:      workspace.Jobs,
 			RunnableReferences: workspace.Runnables,
 			dir:                workspace.Dir(),
@@ -268,6 +281,9 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 		}
 		if err := mod.postLoad(ctx); err != nil {
 			return nil, w.Wrapf(err, "cannot post-load flat module")
+		}
+		if err := applyServiceResolutions(ctx, mod, resolution); err != nil {
+			return nil, w.Wrap(err)
 		}
 		return mod, nil
 	}
@@ -300,6 +316,17 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 	}
 	mod.adoptWorkspaceName(ref.Name)
 	return mod, nil
+}
+
+// copyServiceReferences clones a reference list so that redirecting a service
+// mutates the copy rather than the caller's own slice.
+func copyServiceReferences(refs []*ServiceReference) []*ServiceReference {
+	copied := make([]*ServiceReference, len(refs))
+	for i, ref := range refs {
+		clone := *ref
+		copied[i] = &clone
+	}
+	return copied
 }
 
 // applyServiceResolutions redirects the module's own service references at the
