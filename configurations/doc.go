@@ -12,9 +12,8 @@
 // a dns/<env>/dns.codefly.yaml to override its in-cluster Service
 // hostname per deploy environment (used historically for
 // host.docker.internal in local-mode `codefly run`). The Manager
-// exposes those via GetDNS for the network package's RemoteManager
-// to consume; missing DNS is now a non-fatal — the network layer
-// synthesizes <svc>.<ns>.svc.cluster.local in cluster envs.
+// exposes those via GetDNS. Consumers own deployment-specific fallback
+// policies; the CLI derives Kubernetes Service addresses.
 //
 // Loader is the abstract interface a service must implement to plug
 // into the manager (Identity, Load, Configurations, DNS). Concrete
