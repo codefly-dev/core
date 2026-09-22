@@ -1,0 +1,16 @@
+name: host-extensions
+description: &description source description
+layout: modules
+host-policy:
+  source: *description
+  revision: reviewed
+  flags: [true, false]
+environments:
+  - name: staging
+    configuration-profile: shared
+    host-binding:
+      consumer:
+        identity: opaque-principal
+        settings:
+          retries: 3
+          enabled: true

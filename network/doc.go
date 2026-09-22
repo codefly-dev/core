@@ -1,8 +1,5 @@
-// Package network manages port allocation, DNS resolution, and
-// kubernetes / container network instance creation for codefly
-// services.
-//
-// Two managers cover the two execution contexts:
+// Package network manages runtime port allocation, DNS resolution, and
+// native/container network instances for codefly services.
 //
 //   - RuntimeManager — local execution. Allocates deterministic
 //     ports via ToNamedPort (a stable hash of workspace + module +
@@ -11,10 +8,8 @@
 //     restart, while the same service running under distinct runtimes
 //     (native/nix vs container) gets non-colliding host ports.
 //
-//   - RemoteManager — k8s deploy. Generates network mappings backed
-//     by cluster-internal Service DNS (<svc>.<ns>.svc.cluster.local)
-//     when the workspace doesn't declare an explicit DNS override,
-//     plus port-forward + log-fetch helpers for `codefly expose`.
+// Kubernetes deployment DNS, port forwarding and log streaming belong to
+// the CLI's remotenetwork package.
 //
 // Three NetworkAccess types describe how a peer reaches an instance:
 // Native (localhost), Container (host.docker.internal), and Public

@@ -19,24 +19,6 @@ import (
 
 const WorkspaceConfigurationName = "workspace.codefly.yaml"
 
-// WorkspaceGitops declares the git target ArgoCD / Flux watches for
-// rendered manifests. Optional — when nil, gitops-aware tooling falls
-// back to placeholders and emits warnings.
-//
-//	RepoURL: full SSH or HTTPS git remote, e.g.
-//	         "git@github.com:my-org/saas-starter.git" or
-//	         "https://github.com/my-org/saas-starter.git".
-//	Path:    sub-tree within the repo where the rendered manifests
-//	         live. Empty = repo root. Use this when the workspace is
-//	         a sub-directory of a larger monorepo.
-//	Branch:  branch ArgoCD Applications target (defaults to main when
-//	         empty).
-type WorkspaceGitops struct {
-	RepoURL string `yaml:"repo-url,omitempty"`
-	Path    string `yaml:"path,omitempty"`
-	Branch  string `yaml:"branch,omitempty"`
-}
-
 type Workspace struct {
 	Name string `yaml:"name"`
 
@@ -58,17 +40,11 @@ type Workspace struct {
 	// Runnables in flat layout (embedded directly, replaces module.codefly.yaml)
 	Runnables []*RunnableReference `yaml:"runnables,omitempty"`
 
-	// Environments declares deploy targets the CLI knows about.
-	// Each entry can override cluster (kubeconfig), registry, namespace.
-	// Empty list = legacy behavior: env is name-only, kubeconfig/registry
-	// fall back to hardcoded defaults in cli/pkg/deployments + cli/cmd/build.
+	// Environments declares runtime configuration contexts.
 	Environments []*Environment `yaml:"environments,omitempty"`
 
-	// Gitops declares where rendered manifests are committed for
-	// ArgoCD/Flux to sync from. Used by `codefly deploy --render-only`
-	// + the module-level scaffold to fill in Application repoURL fields.
-	// nil = no gitops flow declared; CLI tools fall back to placeholders.
-	Gitops *WorkspaceGitops `yaml:"gitops,omitempty"`
+	// Extensions preserve declarations interpreted by the host, not Core.
+	Extensions map[string]YAMLValue `yaml:",inline"`
 
 	Path string `yaml:"path,omitempty"`
 
@@ -88,6 +64,14 @@ type Workspace struct {
 	// single load does not re-fork git across the whole tree per module.
 	worktreeScan    []worktreeCheckout `yaml:"-"`
 	worktreeScanned bool               `yaml:"-"`
+}
+
+func (workspace Workspace) MarshalYAML() (any, error) {
+	if err := validateExtensionKeys(workspace, workspace.Extensions); err != nil {
+		return nil, err
+	}
+	type resource Workspace
+	return resource(workspace), nil
 }
 
 func (workspace *Workspace) Proto(_ context.Context) (*basev0.Workspace, error) {
@@ -443,52 +427,6 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 	return nil
 }
 
-// ValidateEnvironments cross-checks environment declarations that name services
-// against the workspace's actual service graph. Service-secret overrides,
-// service-config values and service-identity entries are keyed by service name;
-// a key that matches no loaded service is otherwise a silent no-op at projection
-// time — the service keeps the default "<service>/<key>" remote paths, receives
-// none of the declared values, and falls back to the environment-wide identity
-// or none at all, so a typo'd name resolves the wrong secret, drops a value the
-// workload needs, or authenticates as the wrong principal, with nothing catching
-// it earlier.
-// Loading the graph is why this is a pass separate from postLoad, mirroring
-// ValidateServiceDependencies.
-func (workspace *Workspace) ValidateEnvironments(ctx context.Context) error {
-	w := wool.Get(ctx).In("Workspace::ValidateEnvironments", wool.NameField(workspace.Name))
-	needsGraph := false
-	for _, env := range workspace.Environments {
-		if env != nil && len(env.serviceScopedNames()) > 0 {
-			needsGraph = true
-			break
-		}
-	}
-	if !needsGraph {
-		return nil
-	}
-	services, err := workspace.LoadServices(ctx)
-	if err != nil {
-		return w.Wrap(err)
-	}
-	known := make(map[string]struct{}, len(services))
-	for _, svc := range services {
-		known[svc.Name] = struct{}{}
-	}
-	for _, env := range workspace.Environments {
-		if env == nil {
-			continue
-		}
-		for block, names := range env.serviceScopedNames() {
-			for _, name := range names {
-				if _, ok := known[name]; !ok {
-					return w.Wrap(fmt.Errorf("environment %q %s references unknown service %q", env.Name, block, name))
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // ModulesNames returns the names of the modules in the
 func (workspace *Workspace) ModulesNames() []string {
 	var names []string
@@ -529,21 +467,6 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 	for _, env := range workspace.Environments {
 		if env == nil {
 			return w.NewError("workspace declares an empty environment entry")
-		}
-		if err := env.ServiceSecrets.Validate(); err != nil {
-			return w.Wrapf(err, "environment %q has invalid service-secrets", env.Name)
-		}
-		if err := env.ServiceConfig.Validate(); err != nil {
-			return w.Wrapf(err, "environment %q has invalid service-config", env.Name)
-		}
-		if err := env.ServiceIdentity.Validate(); err != nil {
-			return w.Wrapf(err, "environment %q has invalid service-identity", env.Name)
-		}
-		if err := env.validateServiceKeyCollisions(); err != nil {
-			return w.Wrapf(err, "environment %q declares conflicting service keys", env.Name)
-		}
-		if err := env.ResourceQuota.Validate(); err != nil {
-			return w.Wrapf(err, "environment %q has invalid resource-quota", env.Name)
 		}
 	}
 	if workspace.Layout == LayoutKindFlat {

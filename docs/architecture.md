@@ -31,6 +31,11 @@ not introduce a parallel execution service or own language/schema commands.
 
 ## Contract source of truth
 
+Core owns shared runtime and agent contracts. The CLI-owned coordinate document
+and deployment YAML are an explicit exception: their existing wire format and
+strict parser live with the deployment consumer, not under Core's proto tree.
+See [runtime configuration and deployment ownership](core-cli-boundary.md).
+
 Protobuf is the default source of truth for Codefly contracts. This applies not
 only to gRPC methods, but also to public reports, manifests exchanged between
 components, persisted evidence, events, policy envelopes, and any state that

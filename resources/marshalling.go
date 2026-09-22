@@ -5,12 +5,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 
 	"github.com/codefly-dev/core/shared"
 
 	"github.com/codefly-dev/core/wool"
 	"gopkg.in/yaml.v3"
 )
+
+// An inline host map must not override a field owned by the resource schema.
+// yaml.v3 panics for this programmer error; return an ordinary save error.
+func validateExtensionKeys(resource any, extensions map[string]YAMLValue) error {
+	typ := reflect.TypeOf(resource)
+	for i := 0; i < typ.NumField(); i++ {
+		name := strings.Split(typ.Field(i).Tag.Get("yaml"), ",")[0]
+		if name == "" || name == "-" {
+			continue
+		}
+		if _, exists := extensions[name]; exists {
+			return fmt.Errorf("host extension %q conflicts with a resource field", name)
+		}
+	}
+	return nil
+}
 
 func TypeName[C Configuration]() string {
 	var c C

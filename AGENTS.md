@@ -101,10 +101,10 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
 
 ## Rules that bite
 
-- **Codefly defines generic configuration; producers conform to it.** Infra-base
-  and other producers emit Codefly's environment, endpoint, secret-reference and
-  identity declarations. Never translate their private inventories or infer
-  service names, credentials, transport modes or delivery paths in Core/CLI.
+- **Core owns runtime configuration and secrets; CLI owns deployment.** Infra-base
+  and other producers emit the CLI's `codefly/coordinate/v1` declarations.
+  Cluster, registry, ingress, managed services, identity attachments and GitOps
+  policy stay in CLI. Never translate private producer inventories in Core/CLI.
   See [`docs/configuration-contract.md`](docs/configuration-contract.md).
 - **Core and the CLI have no concrete-agent compatibility knowledge.** Check
   the running agent's advertised wire/startup protocol and operation capabilities
