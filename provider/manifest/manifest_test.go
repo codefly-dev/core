@@ -71,6 +71,54 @@ func TestManifestRequestDescriptorBindsPermissionCeiling(t *testing.T) {
 	require.ErrorContains(t, err, "undeclared credential purpose")
 }
 
+func TestManifestRequestWireFieldsPreserveCase(t *testing.T) {
+	for _, field := range []string{"tokenName", "TokenName", "token-name", "token.name", "token_name"} {
+		t.Run(field, func(t *testing.T) {
+			m, err := manifest.Load([]byte(validManifest))
+			require.NoError(t, err)
+			m.Requests[0].AllowedQueryFields = []string{field}
+			m.Requests[1].AllowedBodyFields = []string{field}
+			m.Requests[1].OwnershipBodyFields = []string{field}
+			require.NoError(t, m.Validate())
+			data, err := m.CanonicalBytes()
+			require.NoError(t, err)
+			require.Contains(t, string(data), `"`+field+`"`)
+
+			digest, err := manifest.RequestDescriptorDigest(m.Requests[1])
+			require.NoError(t, err)
+			m.Requests[1].OwnershipBodyFields = []string{strings.ToUpper(field)}
+			require.ErrorContains(t, m.Validate(), "undeclared body field")
+			changed, err := manifest.RequestDescriptorDigest(m.Requests[1])
+			require.NoError(t, err)
+			require.NotEqual(t, digest, changed)
+		})
+	}
+}
+
+func TestManifestRequestWireFieldsRemainBoundedAndUnique(t *testing.T) {
+	for _, field := range []string{"", "*", "token[*]", "token name", "token\nname", "token/name", "token..name"} {
+		for _, kind := range []string{"query", "body", "ownership"} {
+			t.Run(kind+"/"+field, func(t *testing.T) {
+				m, err := manifest.Load([]byte(validManifest))
+				require.NoError(t, err)
+				switch kind {
+				case "query":
+					m.Requests[0].AllowedQueryFields = []string{field}
+				case "body":
+					m.Requests[1].AllowedBodyFields = []string{field}
+				case "ownership":
+					m.Requests[1].OwnershipBodyFields = []string{field}
+				}
+				require.ErrorContains(t, m.Validate(), "is invalid")
+			})
+		}
+	}
+	m, err := manifest.Load([]byte(validManifest))
+	require.NoError(t, err)
+	m.Requests[1].AllowedBodyFields = []string{"tokenName", "tokenName"}
+	require.ErrorContains(t, m.Validate(), "is duplicated")
+}
+
 func TestRuntimeCatalogMustBeManifestSubsetAndDescriptorBound(t *testing.T) {
 	providerManifest, err := manifest.Load([]byte(validManifest))
 	require.NoError(t, err)
