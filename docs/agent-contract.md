@@ -118,6 +118,13 @@ on the live Builder `BuildCapabilities` or Solution `GetSolutionInformation`
 probe before selection-bound operations. A successful response must acknowledge
 the exact request identity and every named output digest and relative file path.
 Embedding a newer Core server does not implement or advertise this behavior.
+`runtime-init-dependency-mappings/v1` is explicitly advertised by runtimes that
+consume `InitRequest.dependencies_network_mappings` before executing a test
+whose target is never started. These are the dependencies' accepted addresses,
+not a fresh deterministic allocation. Hosts send them after dependency Init;
+runtimes must reject a dependency-backed test with missing addresses rather than
+reconstructing another invocation's endpoints. Ordinary Start still carries
+dependency mappings. Merely linking this schema does not advertise adoption.
 See [composition selections](composition-selections.md#artifact-execution).
 The version-tag workflow attaches it to the GitHub release and compares it
 with the latest reachable stable release tag. Release notes explicitly report

@@ -302,6 +302,15 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 // Delegations to the gRPC RuntimeClient
 
 func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
+	if len(req.GetDependenciesNetworkMappings()) > 0 && instance.Service != nil && instance.Module != nil {
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+		if err != nil {
+			return nil, err
+		}
+		filtered := proto.Clone(req).(*runtimev0.InitRequest)
+		filtered.DependenciesNetworkMappings = mappings
+		req = filtered
+	}
 	resp, err := instance.Runtime.Init(ctx, req)
 	if err == nil && resp != nil && resp.Status != nil && resp.Status.State == runtimev0.InitStatus_ERROR {
 		err = operationStatusFailure("runtime init", resp.Status.Message, resp.Status.Failure)

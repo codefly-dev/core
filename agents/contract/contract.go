@@ -15,6 +15,10 @@ import (
 
 const ContainerRecoveryScope = "container-recovery-scope/v1"
 
+// RuntimeInitDependencyMappings identifies runtimes that consume concrete
+// dependency addresses at Init, including when tests never start the target.
+const RuntimeInitDependencyMappings = "runtime-init-dependency-mappings/v1"
+
 const StartupProtocolVersion = 2
 
 // ErrIncompatible means the peer's runtime advertisement cannot satisfy the

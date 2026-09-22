@@ -11,10 +11,11 @@ import (
 )
 
 func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
-	require.Equal(t, []string{artifactexecution.Contract}, SupportedOperationContracts())
+	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings}, SupportedOperationContracts())
 	require.NotContains(t, Current().Capabilities, artifactexecution.Contract)
+	require.NotContains(t, Current().Capabilities, RuntimeInitDependencyMappings)
 	SupportedOperationContracts()[0] = "changed"
-	require.Equal(t, []string{artifactexecution.Contract}, SupportedOperationContracts())
+	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings}, SupportedOperationContracts())
 }
 
 func TestCheck(t *testing.T) {

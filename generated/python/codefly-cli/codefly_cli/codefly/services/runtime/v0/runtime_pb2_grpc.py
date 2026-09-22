@@ -6,7 +6,7 @@ from codefly.services.agent.v0 import communicate_pb2 as codefly_dot_services_do
 from codefly.services.runtime.v0 import runtime_pb2 as codefly_dot_services_dot_runtime_dot_v0_dot_runtime__pb2
 
 
-class RuntimeStub:
+class RuntimeStub(object):
     """
     Public API
 
@@ -76,7 +76,7 @@ class RuntimeStub:
                 _registered_method=True)
 
 
-class RuntimeServicer:
+class RuntimeServicer(object):
     """
     Public API
 
@@ -218,11 +218,10 @@ def add_RuntimeServicer_to_server(servicer, server):
     generic_handler = grpc.method_handlers_generic_handler(
             'codefly.services.runtime.v0.Runtime', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('codefly.services.runtime.v0.Runtime', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class Runtime:
+class Runtime(object):
     """
     Public API
 

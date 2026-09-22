@@ -782,8 +782,8 @@ func TestAttachServiceAccountRejectsConflictingCallerValues(t *testing.T) {
 		PodLabels:      map[string]string{"shared": "agent"},
 	}
 	err := overlay.AttachServiceAccount(&WorkloadServiceAccount{
-		Annotations: map[string]string{"shared": "cell", "added": "cell"},
-	}, map[string]string{"shared": "cell", "added": "cell"})
+		Annotations: map[string]string{"shared": "platform", "added": "platform"},
+	}, map[string]string{"shared": "platform", "added": "platform"})
 	require.ErrorContains(t, err, "conflicts")
 	require.Equal(t, "chosen", overlay.ServiceAccount.Name)
 	require.Equal(t, "agent", overlay.ServiceAccount.Annotations["shared"])
