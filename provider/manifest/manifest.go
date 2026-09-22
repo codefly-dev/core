@@ -34,6 +34,7 @@ const (
 
 var (
 	idPattern           = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
+	wireFieldPattern    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$`)
 	pathParameter       = regexp.MustCompile(`\{([a-z][a-z0-9_-]*)\}`)
 	diagnosticNSPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+\.$`)
 )
@@ -525,14 +526,21 @@ func validateRequestDescriptor(index int, descriptor RequestDescriptor, resource
 		return fmt.Errorf("requests[%d].remote_id_parameters must bind every path placeholder exactly", index)
 	}
 	for fieldName, fields := range map[string][]string{
-		"permissions":           descriptor.Permissions,
-		"remote_id_parameters":  descriptor.RemoteIDParameters,
+		"permissions":          descriptor.Permissions,
+		"remote_id_parameters": descriptor.RemoteIDParameters,
+		"credential_purposes":  descriptor.CredentialPurposes,
+	} {
+		if err := validateStringSet(fmt.Sprintf("requests[%d].%s", index, fieldName), fields, func(value string) bool { return idPattern.MatchString(value) }); err != nil {
+			return err
+		}
+	}
+	// Wire keys belong to the upstream API; their case is not an internal ID convention.
+	for fieldName, fields := range map[string][]string{
 		"allowed_query_fields":  descriptor.AllowedQueryFields,
 		"allowed_body_fields":   descriptor.AllowedBodyFields,
 		"ownership_body_fields": descriptor.OwnershipBodyFields,
-		"credential_purposes":   descriptor.CredentialPurposes,
 	} {
-		if err := validateStringSet(fmt.Sprintf("requests[%d].%s", index, fieldName), fields, func(value string) bool { return idPattern.MatchString(value) }); err != nil {
+		if err := validateStringSet(fmt.Sprintf("requests[%d].%s", index, fieldName), fields, wireFieldPattern.MatchString); err != nil {
 			return err
 		}
 	}
