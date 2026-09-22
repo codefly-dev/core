@@ -33,24 +33,29 @@ updates:
         patterns:
           - '*'
     ignore:
-      # grpc v1.84.0 reintroduces GO-2026-6443 (server panic on a request
-      # carrying neither :authority nor Host). The advisory fixes it in
-      # v1.83.2, reopens it at v1.84.0-dev, and closes it again only in a
-      # v1.85.0-dev pseudo-version — an unreleased master commit. v1.84.0 is
-      # the newest tag, so "upgrade" is backwards here until v1.85.0 ships.
-      # govulncheck reaches it from agents.Serve, so this is a live path in
-      # core's own agent server, not a graph artifact. #595 took the bump and
-      # went red on ./scripts/govulncheck.sh; without this entry Dependabot
-      # re-opens the same red pull request every week.
+      # Holds grpc at v1.83.2 because GO-2026-6443 red-lights
+      # ./scripts/govulncheck.sh on v1.84.0 — NOT because v1.84.0 is
+      # vulnerable. It is not: the `:authority` guard in
+      # internal/transport/http2_server.go operateHeaders, and the fix's own
+      # regression test TestRouteAndProcess_MissingAuthority, both ship in
+      # v1.84.0 (verified by diffing the proxy.golang.org module zips against
+      # patched v1.83.2 and against v1.84.0-dev, where the guard is absent).
+      # grpc-go cherry-picked the fix to the release branch before tagging and
+      # the advisory's `fixed` event never recorded it, so the Go vuln DB range
+      # sweeps up a patched tag.
       #
-      # This is a HOLD, not a fix, and it is deliberately blunt: the narrow
+      # govulncheck reads that DB, never the source, so the gate stays red on
+      # v1.84.0 until the range is corrected upstream. Without this entry
+      # Dependabot re-opens the same red pull request every week.
+      #
+      # This is a HOLD, not a fix, and it is blunter than intended: the narrow
       # `versions: ['1.84.0']` this wants to be is rejected by
       # TestDependabotIgnoresNeverSuppressSecurityUpdates, because a version
       # range suppresses security advisories as well as routine bumps. Only
       # `update-types` stays on the version-update side, and it cannot name a
-      # version — so it pins grpc at v1.83.2 against ALL routine updates until
-      # someone deletes these four lines. Lift it when grpc v1.85.0 is tagged:
-      # codefly-dev/core#615.
+      # version — so it pins grpc against ALL routine updates until someone
+      # deletes these four lines. Lift it when the vulndb range is corrected or
+      # v1.85.0 is tagged, whichever lands first: codefly-dev/core#615.
       - dependency-name: google.golang.org/grpc
         update-types:
           - version-update:semver-major
