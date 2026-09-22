@@ -534,8 +534,22 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to get configuration")
 	}
+	supplied, err := processVariables(configuration.GetProcessVariables())
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	var environment string
+	for _, variable := range supplied {
+		if variable.Key == resources.EnvironmentPrefix {
+			environment = variable.ValueAsString()
+		}
+	}
 	if conf := configuration.Configuration; conf != nil {
-		variables = append(variables, configurationVariables(conf)...)
+		values, err := configurationVariables(conf, environment)
+		if err != nil {
+			return nil, err
+		}
+		variables = append(variables, values...)
 	}
 
 	dependencies, err := l.cli.GetDependenciesConfigurations(ctx, request)
@@ -543,21 +557,28 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 		return nil, w.Wrapf(err, "failed to get dependencies configurations")
 	}
 	for _, conf := range resources.FilterConfigurations(dependencies.Configurations, l.runtimeContext) {
-		variables = append(variables, configurationVariables(conf)...)
+		values, err := configurationVariables(conf, environment)
+		if err != nil {
+			return nil, err
+		}
+		variables = append(variables, values...)
 	}
 
 	// Resolved last, so the name the orchestrator chose is the one the process
 	// sees: everything above is projected under a key the SDK derives.
-	supplied, err := processVariables(configuration.GetProcessVariables())
-	if err != nil {
-		return nil, w.Wrap(err)
-	}
 	return newSessionEnvironment(append(variables, supplied...)), nil
 }
 
-func configurationVariables(conf *basev0.Configuration) []*resources.EnvironmentVariable {
-	variables := resources.ConfigurationAsEnvironmentVariables(conf, false)
-	return append(variables, resources.ConfigurationAsEnvironmentVariables(conf, true)...)
+func configurationVariables(conf *basev0.Configuration, environment string) ([]*resources.EnvironmentVariable, error) {
+	variables, err := resources.ConfigurationAsEnvironmentVariables(conf, environment, false)
+	if err != nil {
+		return nil, err
+	}
+	secrets, err := resources.ConfigurationAsEnvironmentVariables(conf, environment, true)
+	if err != nil {
+		return nil, err
+	}
+	return append(variables, secrets...), nil
 }
 
 // ProcessVariableNamespace is the only namespace the CLI may install a process

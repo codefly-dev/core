@@ -29,20 +29,29 @@ into Kubernetes ExternalSecrets.
 
 ## Nested data delivery
 
-Structured data exists in the protobuf model and local file loader, but that
-does not establish SDK support. The current `ConfigurationAsEnvironmentVariables`
-bridge emits only `ConfigurationValue` entries; the Go SDK's
-`InjectConfigurations` uses that bridge and drops `ConfigurationInformation.data`.
-Its public configuration accessors return strings.
+`ConfigurationAsEnvironmentVariables(configuration, environment, secret)` returns
+variables and an error. It emits flat strings unchanged and structured data through
+the versioned `codefly/configuration-document/v1` JSON envelope. The scope contains
+the exact origin, configuration name, environment and secrecy flag. Its environment
+key hashes those identity strings without case or punctuation normalization.
+Public and secret documents use separate namespaces; the decoder verifies the
+complete requested scope and rejects unknown envelope fields and trailing data.
 
-Tracked in [Core #620](https://github.com/codefly-dev/core/issues/620) and
-[SDK-Go #34](https://github.com/codefly-dev/sdk-go/issues/34). Neither is supplied
-by the deployment ownership migration.
+JSON objects, arrays, numbers, strings, booleans and null retain their types and
+numeric precision. JSON-compatible single-document YAML is converted to JSON.
+Unsupported formats, malformed input, absent scope and documents or encoded
+carriers exceeding 64 KiB fail explicitly. Error messages exclude content. The
+directory loader's existing `.yaml` and `.secret.yaml` names are unchanged.
 
-A complete nested JSON API requires a generic carrier and SDK accessors that
-preserve objects, arrays, numbers, booleans and null, with separate secret
-handling. That is a runtime/SDK change, not a reason to put deployment or database
-models back in Core. A JSON string already supplied as a flat value remains
-verbatim; that is not the same as a typed nested JSON API.
+`EnvironmentVariableManager.Configurations` never emits secret documents;
+`Secrets` returns them separately with error propagation. Raw configuration
+injection refuses structured data because it has no document identity. Promotable
+GitOps rendering refuses resolved structured secrets, including configurations
+containing no flat secret keys. It must carry declared external references.
+
+SDK-Go exposes `ConfigurationDocument`, `SecretDocument` and workspace equivalents
+plus typed decoding methods. This transport is generic runtime behavior, not a
+reason to restore deployment or database models to Core. Existing flat JSON strings
+remain strings and are not silently converted into documents.
 
 See [the boundary and migration decision](core-cli-boundary.md).
