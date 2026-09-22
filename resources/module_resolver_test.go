@@ -923,3 +923,73 @@ func serviceManifest(name, agent, agentVersion string, endpoints ...string) stri
 	}
 	return manifest
 }
+
+// A flat (single-module) workspace resolves service overrides too. It used to
+// take an early path that skipped them entirely, so `doctor` reported an
+// override as active while the run silently loaded the workspace's own copy.
+func TestOverlayServiceOverrideAppliesInAFlatWorkspace(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: flat\nservices:\n  - name: api\n")
+	writeServiceManifest(t, filepath.Join(dir, "services", "api"), serviceManifest("api", "go-grpc", "0.0.1", "public-api"))
+
+	checkout := filepath.Join(dir, "elsewhere")
+	writeServiceManifest(t, checkout, serviceManifest("api", "go-grpc", "9.9.9", "public-api"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  solution:\n    services:\n      api:\n        path: elsewhere\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	mod, err := workspace.LoadModuleFromName(ctx, "solution")
+	require.NoError(t, err)
+	service, err := mod.LoadServiceFromName(ctx, "api")
+	require.NoError(t, err)
+	require.Equal(t, checkout, service.Dir())
+	require.Equal(t, "9.9.9", service.Agent.Version)
+
+	// The committed service list must be untouched: in a flat workspace the
+	// module's references are the workspace's own, and writing a machine-local
+	// path into them would land in workspace.codefly.yaml on the next save.
+	for _, ref := range workspace.Services {
+		require.Nil(t, ref.PathOverride, "override leaked into the workspace's committed service list")
+	}
+}
+
+// The contract guard holds on a flat workspace too: the override still has to
+// be the same service the workspace declares.
+func TestOverlayServiceOverrideContractGuardAppliesInAFlatWorkspace(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: flat\nservices:\n  - name: api\n")
+	writeServiceManifest(t, filepath.Join(dir, "services", "api"), serviceManifest("api", "go-grpc", "0.0.1", "public-api"))
+	writeServiceManifest(t, filepath.Join(dir, "elsewhere"), serviceManifest("api", "python-grpc", "0.0.1", "public-api"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  solution:\n    services:\n      api:\n        path: elsewhere\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "solution")
+	require.ErrorContains(t, err, "python-grpc")
+	require.ErrorContains(t, err, "go-grpc")
+}
+
+// Overriding a service a flat workspace does not declare is rejected with the
+// ones it does, exactly as in a composed module.
+func TestOverlayServiceOverrideUnknownServiceRejectedInAFlatWorkspace(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: flat\nservices:\n  - name: api\n")
+	writeServiceManifest(t, filepath.Join(dir, "services", "api"), serviceManifest("api", "go-grpc", "0.0.1"))
+	writeServiceManifest(t, filepath.Join(dir, "elsewhere"), serviceManifest("apu", "go-grpc", "0.0.1"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  solution:\n    services:\n      apu:\n        path: elsewhere\n"), 0o600))
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+
+	_, err = workspace.LoadModuleFromName(ctx, "solution")
+	require.ErrorContains(t, err, "apu")
+	require.ErrorContains(t, err, "api")
+}
