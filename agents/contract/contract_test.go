@@ -11,11 +11,11 @@ import (
 )
 
 func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
-	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings}, SupportedOperationContracts())
+	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4"}, SupportedOperationContracts())
 	require.NotContains(t, Current().Capabilities, artifactexecution.Contract)
 	require.NotContains(t, Current().Capabilities, RuntimeInitDependencyMappings)
 	SupportedOperationContracts()[0] = "changed"
-	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings}, SupportedOperationContracts())
+	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4"}, SupportedOperationContracts())
 }
 
 func TestCheck(t *testing.T) {

@@ -2,5 +2,5 @@
   "protocolVersion": 1,
   "capabilities": ["container-recovery-scope/v1"],
   "startupProtocolVersion": 2,
-  "operationContracts": ["artifact-execution/v1", "runtime-init-dependency-mappings/v1"]
+  "operationContracts": ["artifact-execution/v1", "runtime-init-dependency-mappings/v1", "codefly.dev/docker-build-recipe/v4"]
 }

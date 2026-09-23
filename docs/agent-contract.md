@@ -118,6 +118,11 @@ on the live Builder `BuildCapabilities` or Solution `GetSolutionInformation`
 probe before selection-bound operations. A successful response must acknowledge
 the exact request identity and every named output digest and relative file path.
 Embedding a newer Core server does not implement or advertise this behavior.
+`codefly.dev/docker-build-recipe/v4` records support for explicit recipe context
+roots. Only plans selecting an explicit root use v4; default service-root plans
+retain v3 and its digest. The plan version, not the agent identity or Core pin,
+prevents an older host from silently building the wrong tree. See
+[build recipe context selection](build-cache.md#cli-executor-selection).
 `runtime-init-dependency-mappings/v1` is explicitly advertised by runtimes that
 consume `InitRequest.dependencies_network_mappings` before executing a test
 whose target is never started. These are the dependencies' accepted addresses,

@@ -33,6 +33,18 @@ message RecipeFile {
   uint32 mode = 3;
 }
 
+// RecipeContextRoot selects the base against which a recipe context is resolved.
+// It is independent of the file inventory scope.
+enum RecipeContextRoot {
+  // RECIPE_CONTEXT_ROOT_UNSPECIFIED preserves the v3 service-directory base.
+  RECIPE_CONTEXT_ROOT_UNSPECIFIED = 0;
+  // RECIPE_CONTEXT_ROOT_SERVICE explicitly selects the service directory.
+  RECIPE_CONTEXT_ROOT_SERVICE = 1;
+  // RECIPE_CONTEXT_ROOT_OUTPUT selects BuildRequest.output_directory, for an
+  // agent that assembles its build inputs there rather than building source.
+  RECIPE_CONTEXT_ROOT_OUTPUT = 2;
+}
+
 // DockerBuildRecipe is a single reproducible Docker image build: a Dockerfile,
 // its build context, and the target image reference. A service may emit many
 // recipes (for example an application image and a migration image).
@@ -43,11 +55,10 @@ message DockerBuildRecipe {
   // dockerfile is the output_directory-relative path to the Dockerfile.
   string dockerfile = 2;
   // context is the build-context directory the Dockerfile is evaluated against,
-  // relative to the SERVICE directory — not to output_directory, which the
-  // dockerfile and dockerignore paths are relative to. "." therefore means "build
-  // the service" while the Dockerfile itself lives in the service's builder/
-  // subdirectory. The executor resolves it and is the party that enforces it
-  // stays inside the service.
+  // relative to context_root. An unspecified root retains the v3 SERVICE base.
+  // The executor must reject absolute paths and paths escaping the selected
+  // root, including symlink escapes. Dockerfile and dockerignore remain relative
+  // to output_directory regardless of this selection.
   string context = 3;
   // dockerignore is the optional output_directory-relative ignore file.
   string dockerignore = 4;
@@ -60,6 +71,10 @@ message DockerBuildRecipe {
   map<string, string> build_args = 7;
   // target is the optional Dockerfile stage to build.
   string target = 8;
+  // context_root explicitly selects where context is rooted. A non-default
+  // value requires the v4 recipe contract and participates in its digest;
+  // older hosts must reject that contract rather than silently build source.
+  RecipeContextRoot context_root = 9;
 }
 
 // RecipeInventoryScope states what a plan's file inventory claims to cover, so

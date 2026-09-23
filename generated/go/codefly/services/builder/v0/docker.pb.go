@@ -22,6 +22,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// RecipeContextRoot selects the base against which a recipe context is resolved.
+// It is independent of the file inventory scope.
+type RecipeContextRoot int32
+
+const (
+	// RECIPE_CONTEXT_ROOT_UNSPECIFIED preserves the v3 service-directory base.
+	RecipeContextRoot_RECIPE_CONTEXT_ROOT_UNSPECIFIED RecipeContextRoot = 0
+	// RECIPE_CONTEXT_ROOT_SERVICE explicitly selects the service directory.
+	RecipeContextRoot_RECIPE_CONTEXT_ROOT_SERVICE RecipeContextRoot = 1
+	// RECIPE_CONTEXT_ROOT_OUTPUT selects BuildRequest.output_directory, for an
+	// agent that assembles its build inputs there rather than building source.
+	RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT RecipeContextRoot = 2
+)
+
+// Enum value maps for RecipeContextRoot.
+var (
+	RecipeContextRoot_name = map[int32]string{
+		0: "RECIPE_CONTEXT_ROOT_UNSPECIFIED",
+		1: "RECIPE_CONTEXT_ROOT_SERVICE",
+		2: "RECIPE_CONTEXT_ROOT_OUTPUT",
+	}
+	RecipeContextRoot_value = map[string]int32{
+		"RECIPE_CONTEXT_ROOT_UNSPECIFIED": 0,
+		"RECIPE_CONTEXT_ROOT_SERVICE":     1,
+		"RECIPE_CONTEXT_ROOT_OUTPUT":      2,
+	}
+)
+
+func (x RecipeContextRoot) Enum() *RecipeContextRoot {
+	p := new(RecipeContextRoot)
+	*p = x
+	return p
+}
+
+func (x RecipeContextRoot) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RecipeContextRoot) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_services_builder_v0_docker_proto_enumTypes[0].Descriptor()
+}
+
+func (RecipeContextRoot) Type() protoreflect.EnumType {
+	return &file_codefly_services_builder_v0_docker_proto_enumTypes[0]
+}
+
+func (x RecipeContextRoot) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RecipeContextRoot.Descriptor instead.
+func (RecipeContextRoot) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{0}
+}
+
 // RecipeInventoryScope states what a plan's file inventory claims to cover, so
 // the verifier knows what "complete" means for that plan. Without it the
 // verifier has to guess, and the two answers are not interchangeable: guessing
@@ -70,11 +125,11 @@ func (x RecipeInventoryScope) String() string {
 }
 
 func (RecipeInventoryScope) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_services_builder_v0_docker_proto_enumTypes[0].Descriptor()
+	return file_codefly_services_builder_v0_docker_proto_enumTypes[1].Descriptor()
 }
 
 func (RecipeInventoryScope) Type() protoreflect.EnumType {
-	return &file_codefly_services_builder_v0_docker_proto_enumTypes[0]
+	return &file_codefly_services_builder_v0_docker_proto_enumTypes[1]
 }
 
 func (x RecipeInventoryScope) Number() protoreflect.EnumNumber {
@@ -83,7 +138,7 @@ func (x RecipeInventoryScope) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RecipeInventoryScope.Descriptor instead.
 func (RecipeInventoryScope) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{0}
+	return file_codefly_services_builder_v0_docker_proto_rawDescGZIP(), []int{1}
 }
 
 // DockerBuildContext contains Docker-specific image build inputs.
@@ -283,11 +338,10 @@ type DockerBuildRecipe struct {
 	// dockerfile is the output_directory-relative path to the Dockerfile.
 	Dockerfile string `protobuf:"bytes,2,opt,name=dockerfile,proto3" json:"dockerfile,omitempty"`
 	// context is the build-context directory the Dockerfile is evaluated against,
-	// relative to the SERVICE directory — not to output_directory, which the
-	// dockerfile and dockerignore paths are relative to. "." therefore means "build
-	// the service" while the Dockerfile itself lives in the service's builder/
-	// subdirectory. The executor resolves it and is the party that enforces it
-	// stays inside the service.
+	// relative to context_root. An unspecified root retains the v3 SERVICE base.
+	// The executor must reject absolute paths and paths escaping the selected
+	// root, including symlink escapes. Dockerfile and dockerignore remain relative
+	// to output_directory regardless of this selection.
 	Context string `protobuf:"bytes,3,opt,name=context,proto3" json:"context,omitempty"`
 	// dockerignore is the optional output_directory-relative ignore file.
 	Dockerignore string `protobuf:"bytes,4,opt,name=dockerignore,proto3" json:"dockerignore,omitempty"`
@@ -299,7 +353,11 @@ type DockerBuildRecipe struct {
 	// build_args are Docker build arguments passed with --build-arg.
 	BuildArgs map[string]string `protobuf:"bytes,7,rep,name=build_args,json=buildArgs,proto3" json:"build_args,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// target is the optional Dockerfile stage to build.
-	Target        string `protobuf:"bytes,8,opt,name=target,proto3" json:"target,omitempty"`
+	Target string `protobuf:"bytes,8,opt,name=target,proto3" json:"target,omitempty"`
+	// context_root explicitly selects where context is rooted. A non-default
+	// value requires the v4 recipe contract and participates in its digest;
+	// older hosts must reject that contract rather than silently build source.
+	ContextRoot   RecipeContextRoot `protobuf:"varint,9,opt,name=context_root,json=contextRoot,proto3,enum=codefly.services.builder.v0.RecipeContextRoot" json:"context_root,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -388,6 +446,13 @@ func (x *DockerBuildRecipe) GetTarget() string {
 		return x.Target
 	}
 	return ""
+}
+
+func (x *DockerBuildRecipe) GetContextRoot() RecipeContextRoot {
+	if x != nil {
+		return x.ContextRoot
+	}
+	return RecipeContextRoot_RECIPE_CONTEXT_ROOT_UNSPECIFIED
 }
 
 // DockerBuildPlan is the reproducible recipe set a builder emits to the caller's
@@ -581,7 +646,7 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"RecipeFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\x12\n" +
-	"\x04mode\x18\x03 \x01(\rR\x04mode\"\xed\x02\n" +
+	"\x04mode\x18\x03 \x01(\rR\x04mode\"\xc0\x03\n" +
 	"\x11DockerBuildRecipe\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -593,7 +658,8 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\tplatforms\x18\x06 \x03(\tR\tplatforms\x12\\\n" +
 	"\n" +
 	"build_args\x18\a \x03(\v2=.codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntryR\tbuildArgs\x12\x16\n" +
-	"\x06target\x18\b \x01(\tR\x06target\x1a<\n" +
+	"\x06target\x18\b \x01(\tR\x06target\x12Q\n" +
+	"\fcontext_root\x18\t \x01(\x0e2..codefly.services.builder.v0.RecipeContextRootR\vcontextRoot\x1a<\n" +
 	"\x0eBuildArgsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa6\x02\n" +
@@ -608,7 +674,11 @@ const file_codefly_services_builder_v0_docker_proto_rawDesc = "" +
 	"\aexports\x18\x02 \x03(\tR\aexports\x12\x14\n" +
 	"\x05scope\x18\x03 \x01(\tR\x05scope\x12\x12\n" +
 	"\x04mode\x18\x04 \x01(\tR\x04mode\x12\x18\n" +
-	"\abackend\x18\x05 \x01(\tR\abackend*\x83\x01\n" +
+	"\abackend\x18\x05 \x01(\tR\abackend*y\n" +
+	"\x11RecipeContextRoot\x12#\n" +
+	"\x1fRECIPE_CONTEXT_ROOT_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bRECIPE_CONTEXT_ROOT_SERVICE\x10\x01\x12\x1e\n" +
+	"\x1aRECIPE_CONTEXT_ROOT_OUTPUT\x10\x02*\x83\x01\n" +
 	"\x14RecipeInventoryScope\x12&\n" +
 	"\"RECIPE_INVENTORY_SCOPE_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRECIPE_INVENTORY_SCOPE_EMITTED\x10\x01\x12\x1f\n" +
@@ -627,29 +697,31 @@ func file_codefly_services_builder_v0_docker_proto_rawDescGZIP() []byte {
 	return file_codefly_services_builder_v0_docker_proto_rawDescData
 }
 
-var file_codefly_services_builder_v0_docker_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_codefly_services_builder_v0_docker_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_codefly_services_builder_v0_docker_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_codefly_services_builder_v0_docker_proto_goTypes = []any{
-	(RecipeInventoryScope)(0),  // 0: codefly.services.builder.v0.RecipeInventoryScope
-	(*DockerBuildContext)(nil), // 1: codefly.services.builder.v0.DockerBuildContext
-	(*DockerBuildResult)(nil),  // 2: codefly.services.builder.v0.DockerBuildResult
-	(*RecipeFile)(nil),         // 3: codefly.services.builder.v0.RecipeFile
-	(*DockerBuildRecipe)(nil),  // 4: codefly.services.builder.v0.DockerBuildRecipe
-	(*DockerBuildPlan)(nil),    // 5: codefly.services.builder.v0.DockerBuildPlan
-	(*BuildCacheOptions)(nil),  // 6: codefly.services.builder.v0.BuildCacheOptions
-	nil,                        // 7: codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
+	(RecipeContextRoot)(0),     // 0: codefly.services.builder.v0.RecipeContextRoot
+	(RecipeInventoryScope)(0),  // 1: codefly.services.builder.v0.RecipeInventoryScope
+	(*DockerBuildContext)(nil), // 2: codefly.services.builder.v0.DockerBuildContext
+	(*DockerBuildResult)(nil),  // 3: codefly.services.builder.v0.DockerBuildResult
+	(*RecipeFile)(nil),         // 4: codefly.services.builder.v0.RecipeFile
+	(*DockerBuildRecipe)(nil),  // 5: codefly.services.builder.v0.DockerBuildRecipe
+	(*DockerBuildPlan)(nil),    // 6: codefly.services.builder.v0.DockerBuildPlan
+	(*BuildCacheOptions)(nil),  // 7: codefly.services.builder.v0.BuildCacheOptions
+	nil,                        // 8: codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
 }
 var file_codefly_services_builder_v0_docker_proto_depIdxs = []int32{
-	6, // 0: codefly.services.builder.v0.DockerBuildContext.cache:type_name -> codefly.services.builder.v0.BuildCacheOptions
-	7, // 1: codefly.services.builder.v0.DockerBuildRecipe.build_args:type_name -> codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
-	4, // 2: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
-	3, // 3: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
-	0, // 4: codefly.services.builder.v0.DockerBuildPlan.scope:type_name -> codefly.services.builder.v0.RecipeInventoryScope
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	7, // 0: codefly.services.builder.v0.DockerBuildContext.cache:type_name -> codefly.services.builder.v0.BuildCacheOptions
+	8, // 1: codefly.services.builder.v0.DockerBuildRecipe.build_args:type_name -> codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntry
+	0, // 2: codefly.services.builder.v0.DockerBuildRecipe.context_root:type_name -> codefly.services.builder.v0.RecipeContextRoot
+	5, // 3: codefly.services.builder.v0.DockerBuildPlan.recipes:type_name -> codefly.services.builder.v0.DockerBuildRecipe
+	4, // 4: codefly.services.builder.v0.DockerBuildPlan.files:type_name -> codefly.services.builder.v0.RecipeFile
+	1, // 5: codefly.services.builder.v0.DockerBuildPlan.scope:type_name -> codefly.services.builder.v0.RecipeInventoryScope
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_builder_v0_docker_proto_init() }
@@ -662,7 +734,7 @@ func file_codefly_services_builder_v0_docker_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_builder_v0_docker_proto_rawDesc), len(file_codefly_services_builder_v0_docker_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
