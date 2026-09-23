@@ -123,22 +123,59 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 		return nil, w.Wrapf(err, "cannot select configuration profile")
 	}
 	configurationDir := path.Join(workspace.Dir(), "configurations", configurationProfile)
-	exists, err := shared.DirectoryExists(ctx, configurationDir)
+	workspaceInfos, err := readOwnedWorkspaceConfigurations(ctx, workspace, configurationProfile)
 	if err != nil {
-		return nil, w.Wrapf(err, "cannot check configuration directory")
-	}
-	var workspaceInfos []*basev0.ConfigurationInformation
-	if exists {
-		workspaceInfos, err = LoadConfigurationInformationsFromFiles(ctx, configurationDir)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot load configurations")
-		}
+		return nil, w.Wrapf(err, "cannot inherit workspace configurations")
 	}
 	workspaceInfos, composedBy, ambiguous, err := composeModuleWorkspaceConfigurations(ctx, workspace, workspaceInfos, configurationDir, configurationProfile)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compose module workspace configurations")
 	}
 	return &WorkspaceConfigurations{Infos: workspaceInfos, ComposedBy: composedBy, Ambiguous: ambiguous}, nil
+}
+
+// A product inherits its selected workspace's wiring. Its own groups override
+// the inherited groups; sibling workspaces must agree unless the product chooses.
+// Module defaults are composed separately, retaining their existing precedence.
+func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, profile string) ([]*basev0.ConfigurationInformation, error) {
+	dir := filepath.Join(workspace.Dir(), "configurations", profile)
+	exists, err := shared.DirectoryExists(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	var infos []*basev0.ConfigurationInformation
+	if exists {
+		infos, err = LoadConfigurationInformationsFromFiles(ctx, dir)
+		if err != nil {
+			return nil, err
+		}
+	}
+	owned := make(map[string]bool)
+	inherited := make(map[string]*basev0.ConfigurationInformation)
+	owners := make(map[string]string)
+	for _, info := range infos {
+		owned[info.Name] = true
+	}
+	for _, child := range workspace.ComposedWorkspaces() {
+		contributions, err := readOwnedWorkspaceConfigurations(ctx, child, profile)
+		if err != nil {
+			return nil, err
+		}
+		for _, info := range contributions {
+			if owned[info.Name] {
+				continue
+			}
+			if previous, ok := inherited[info.Name]; ok {
+				if !proto.Equal(previous, info) {
+					return nil, fmt.Errorf("workspace configuration %q differs between workspaces %q and %q: %w", info.Name, owners[info.Name], child.Name, ErrConfigurationConflict)
+				}
+				continue
+			}
+			inherited[info.Name], owners[info.Name] = info, child.Name
+			infos = append(infos, info)
+		}
+	}
+	return infos, nil
 }
 
 func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *resources.Environment) error {

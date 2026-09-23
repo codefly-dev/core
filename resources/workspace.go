@@ -32,6 +32,11 @@ type Workspace struct {
 	// Modules in the Workspace (used for non-flat layouts)
 	Modules []*ModuleReference `yaml:"modules,omitempty"`
 
+	// Workspaces compose another owner's versioned workspace without copying its modules.
+	Workspaces []*WorkspaceReference `yaml:"workspaces,omitempty"`
+	// Solutions are the product's additions to its composed workspaces.
+	Solutions []*ModuleReference `yaml:"solutions,omitempty"`
+
 	// Services in flat layout (embedded directly, replaces module.codefly.yaml)
 	Services []*ServiceReference `yaml:"services,omitempty"`
 
@@ -63,8 +68,11 @@ type Workspace struct {
 	// worktreeScan caches the one-time enumeration of local git checkouts under
 	// the worktree container, so resolving several worktree-sourced modules in a
 	// single load does not re-fork git across the whole tree per module.
-	worktreeScan    []worktreeCheckout `yaml:"-"`
-	worktreeScanned bool               `yaml:"-"`
+	worktreeScan          []worktreeCheckout `yaml:"-"`
+	worktreeScanned       bool               `yaml:"-"`
+	composedWorkspaces    []*Workspace
+	derivedModules        map[string]bool
+	moduleDeclarationDirs map[string]string
 }
 
 func (workspace Workspace) MarshalYAML() (any, error) {
@@ -72,6 +80,9 @@ func (workspace Workspace) MarshalYAML() (any, error) {
 		return nil, err
 	}
 	type resource Workspace
+	if len(workspace.derivedModules) > 0 {
+		workspace.Modules = workspace.authoredModules()
+	}
 	return resource(workspace), nil
 }
 
@@ -207,6 +218,10 @@ func LoadWorkspaceFromDir(ctx context.Context, dir string) (*Workspace, error) {
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
+	ctx, err = enterWorkspaceComposition(ctx, dir)
+	if err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	workspace, err := LoadFromDir[Workspace](ctx, dir)
 	if err != nil {
@@ -221,6 +236,9 @@ func LoadWorkspaceFromDir(ctx context.Context, dir string) (*Workspace, error) {
 
 	workspace.overlay, err = LoadLocalOverlay(ctx, workspace.Dir())
 	if err != nil {
+		return nil, w.Wrap(err)
+	}
+	if err := workspace.composeWorkspaces(ctx); err != nil {
 		return nil, w.Wrap(err)
 	}
 	return workspace, nil
@@ -791,6 +809,9 @@ func (workspace *Workspace) AddModuleReference(modRef *ModuleReference) error {
 // DeleteModule deletes an module from the
 func (workspace *Workspace) DeleteModule(ctx context.Context, name string) error {
 	w := wool.Get(ctx).In(".DeleteModule")
+	if workspace.derivedModules[name] {
+		return w.NewError("module <%s> is composed; change its owning workspace or solution declaration", name)
+	}
 	if !workspace.ExistsModule(name) {
 		return w.NewError("module <%s> does not exist in  <%s>", name, workspace.Name)
 	}

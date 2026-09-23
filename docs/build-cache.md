@@ -163,10 +163,14 @@ path is unlinked before rendering: the template writer opens destinations with
 outside the caller-owned directory.
 
 Recipe path bases differ and the distinction is load-bearing: `dockerfile` and
-`dockerignore` are relative to `output_directory`, while `context` is relative
-to the **service** directory, which is why `"."` means "build the service". Core
-checks the context lexically only; the executor resolves it and enforces
-containment, because only the executor knows the service directory.
+`dockerignore` are relative to `output_directory`. By default `context` is
+relative to the **service** directory, so existing v3 recipes keep their meaning.
+An agent assembling rewritten inputs must set `context_root=OUTPUT`, making
+`"."` select its emitted tree. Explicit roots use recipe contract v4, with the
+root covered by the digest; older hosts reject v4 rather than silently build the
+wrong sources. Unchanged/default-root plans retain their v3 contract and digest.
+Inventory scope never selects a context root. Core checks paths lexically; the
+executor resolves them and rejects symlink escapes from the selected root.
 
 `DockerBuildContext.buildx_builder` identifies the builder the CLI selected,
 including selection for registry cache exports. The agent does not invoke it.

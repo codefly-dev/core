@@ -29,6 +29,20 @@ import (
 // assembled build context still rejects files added to it.
 const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v3"
 
+// DockerBuildRecipeContextContractVersion adds an explicit context root to the
+// recipe digest. Unchanged recipes still emit v3 so existing agents need no
+// coordinated rebuild; old hosts reject v4 before executing its new semantics.
+const DockerBuildRecipeContextContractVersion = "codefly.dev/docker-build-recipe/v4"
+
+func recipeContractVersion(recipes []*builderv0.DockerBuildRecipe) string {
+	for _, recipe := range recipes {
+		if recipe.GetContextRoot() != builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_UNSPECIFIED {
+			return DockerBuildRecipeContextContractVersion
+		}
+	}
+	return DockerBuildRecipeContractVersion
+}
+
 // ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
 // contract: when set, the destination must be an absolute path the caller owns.
 // Empty is valid for requests that do not build an image. A relative path is
@@ -125,7 +139,7 @@ func BuildEmittedDockerBuildPlan(destination string, recipes []*builderv0.Docker
 		Recipes:         recipes,
 		Files:           files,
 		Digest:          aggregateRecipeDigest(recipes, files, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED),
-		ContractVersion: DockerBuildRecipeContractVersion,
+		ContractVersion: recipeContractVersion(recipes),
 		Scope:           builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_EMITTED,
 	}, nil
 }
@@ -157,7 +171,7 @@ func BuildDockerBuildPlan(destination string, recipes []*builderv0.DockerBuildRe
 		Recipes:         recipes,
 		Files:           files,
 		Digest:          aggregateRecipeDigest(recipes, files, builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE),
-		ContractVersion: DockerBuildRecipeContractVersion,
+		ContractVersion: recipeContractVersion(recipes),
 		Scope:           builderv0.RecipeInventoryScope_RECIPE_INVENTORY_SCOPE_TREE,
 	}, nil
 }
@@ -290,8 +304,8 @@ func VerifyDockerBuildPlan(destination string, plan *builderv0.DockerBuildPlan) 
 	if plan == nil {
 		return fmt.Errorf("build plan is nil")
 	}
-	if plan.GetContractVersion() != DockerBuildRecipeContractVersion {
-		return fmt.Errorf("build plan contract %q, expected %q", plan.GetContractVersion(), DockerBuildRecipeContractVersion)
+	if expected := recipeContractVersion(plan.GetRecipes()); plan.GetContractVersion() != expected {
+		return fmt.Errorf("build plan contract %q, expected %q", plan.GetContractVersion(), expected)
 	}
 
 	var files []*builderv0.RecipeFile
@@ -357,6 +371,13 @@ func validateRecipes(destination string, recipes []*builderv0.DockerBuildRecipe,
 		}
 		if _, ok := inventory[dockerfile]; !ok {
 			return fmt.Errorf("recipe %q dockerfile %q is not present in the recipe tree", recipe.GetName(), recipe.GetDockerfile())
+		}
+		switch recipe.GetContextRoot() {
+		case builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_UNSPECIFIED,
+			builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_SERVICE,
+			builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT:
+		default:
+			return fmt.Errorf("recipe %q has unknown context root %d", recipe.GetName(), recipe.GetContextRoot())
 		}
 		if _, err := recipeRelPath(destination, recipe.GetContext()); err != nil {
 			return fmt.Errorf("recipe %q context: %w", recipe.GetName(), err)
@@ -469,6 +490,7 @@ func fileDigest(path string) (string, error) {
 // unchanged.
 func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope) string {
 	hasher := sha256.New()
+	explicitRoots := recipeContractVersion(recipes) == DockerBuildRecipeContextContractVersion
 	// The scope decides how strictly the inventory is verified, so it is covered
 	// here: rewriting a TREE plan's scope to EMITTED would otherwise silently stop
 	// added files from being detected without disturbing the digest.
@@ -480,6 +502,9 @@ func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*buil
 		hashField(hasher, recipe.GetName())
 		hashField(hasher, recipe.GetDockerfile())
 		hashField(hasher, recipe.GetContext())
+		if explicitRoots {
+			hashField(hasher, recipe.GetContextRoot().String())
+		}
 		hashField(hasher, recipe.GetDockerignore())
 		hashField(hasher, recipe.GetImage())
 		hashField(hasher, recipe.GetTarget())

@@ -141,6 +141,19 @@ func (workspace *Workspace) validatePaths() error {
 			return err
 		}
 	}
+	for _, ref := range workspace.Solutions {
+		if err := validateModuleReferencePath(ref); err != nil {
+			return err
+		}
+	}
+	for _, ref := range workspace.Workspaces {
+		if err := ref.validate(); err != nil {
+			return err
+		}
+	}
+	if workspace.Layout == LayoutKindFlat && (len(workspace.Workspaces) > 0 || len(workspace.Solutions) > 0) {
+		return fmt.Errorf("workspace composition requires modules layout")
+	}
 	for _, ref := range workspace.Services {
 		if err := validateServiceReferencePath(ref); err != nil {
 			return err
