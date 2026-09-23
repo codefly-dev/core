@@ -813,12 +813,25 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	manager := deployment.EnvironmentVariables.DeploymentScope()
 	manager.SetEnvironment(req.GetEnvironment())
 	manager.SetRunning()
+	// Every Kubernetes output profile renders a deployed workload; say so
+	// explicitly rather than leaving a service to infer it from an
+	// environment name.
+	manager.SetRuntimeContext(resources.NewRuntimeContextKubernetes())
 
 	if deployment.Inputs.OwnEndpoints {
+		// The service LISTENS on its own endpoints, so their endpoint carriers
+		// are localized. That address is meaningless to anyone else, so the
+		// in-cluster address peers use (the container-access instance, i.e.
+		// the Kubernetes Service DNS name) is carried separately under
+		// resources.SelfEndpointPrefix for a service that must advertise
+		// itself — registering an upstream with a gateway, for instance.
 		err = manager.AddEndpoints(ctx,
 			resources.LocalizeNetworkMapping(req.GetNetworkMappings(), "localhost"),
 			resources.NewContainerNetworkAccess())
 		if err != nil {
+			return fail(err)
+		}
+		if err = manager.AddSelfEndpoints(ctx, req.GetNetworkMappings(), resources.NewContainerNetworkAccess()); err != nil {
 			return fail(err)
 		}
 	}

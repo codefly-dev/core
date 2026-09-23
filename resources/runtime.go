@@ -14,6 +14,15 @@ const (
 	RuntimeContextContainer = "container"
 	RuntimeContextFree      = "free"
 
+	// RuntimeContextKubernetes marks a workload rendered for Kubernetes
+	// (every KubernetesOutputProfile). The builder injects it as
+	// CODEFLY__RUNTIME_CONTEXT into the rendered ConfigMap so a deployed
+	// service can tell it is deployed without comparing environment names. It
+	// is a deployed context only: it is not in RuntimeContexts(), so no local
+	// run can select it. Peers reach a Kubernetes workload through its
+	// container-access (in-cluster Service DNS) instances.
+	RuntimeContextKubernetes = "kubernetes"
+
 	NetworkAccessContainer = "container"
 	NetworkAccessNative    = "native"
 	NetworkAccessPublic    = "public"
@@ -60,6 +69,8 @@ func RuntimeContextFromEnv() *basev0.RuntimeContext {
 		return NewRuntimeContextNix()
 	case RuntimeContextContainer:
 		return NewRuntimeContextContainer()
+	case RuntimeContextKubernetes:
+		return NewRuntimeContextKubernetes()
 	default:
 		return NewRuntimeContextNative()
 	}
@@ -72,7 +83,7 @@ func NetworkAccessFromRuntimeContext(runtimeContext *basev0.RuntimeContext) *bas
 		return NewNativeNetworkAccess()
 	}
 	switch runtimeContext.Kind {
-	case RuntimeContextContainer:
+	case RuntimeContextContainer, RuntimeContextKubernetes:
 		return NewContainerNetworkAccess()
 	default:
 		return NewNativeNetworkAccess()
@@ -89,6 +100,18 @@ func NewRuntimeContextNix() *basev0.RuntimeContext {
 
 func NewRuntimeContextContainer() *basev0.RuntimeContext {
 	return &basev0.RuntimeContext{Kind: RuntimeContextContainer}
+}
+
+// NewRuntimeContextKubernetes is the context of a workload rendered for
+// Kubernetes. See RuntimeContextKubernetes.
+func NewRuntimeContextKubernetes() *basev0.RuntimeContext {
+	return &basev0.RuntimeContext{Kind: RuntimeContextKubernetes}
+}
+
+// IsKubernetesRuntimeContext reports whether a runtime context is a deployed
+// Kubernetes workload.
+func IsKubernetesRuntimeContext(runtimeContext *basev0.RuntimeContext) bool {
+	return runtimeContext.GetKind() == RuntimeContextKubernetes
 }
 
 func NewRuntimeContextFree() *basev0.RuntimeContext {

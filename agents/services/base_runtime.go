@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"google.golang.org/protobuf/proto"
@@ -445,6 +446,19 @@ func (s *RuntimeWrapper) IsNativeRuntime() bool {
 // container runtimes use container-network addresses.
 func (s *RuntimeWrapper) NetworkAccess() *basev0.NetworkAccess {
 	return resources.NetworkAccessFromRuntimeContext(s.RuntimeContext)
+}
+
+// AddSelfEndpoints publishes the service's own endpoints, as its peers reach
+// them under this runtime, as CODEFLY__SELF_ENDPOINT__ carriers. It selects
+// from the runtime's NetworkMappings the instance matching NetworkAccess(): a
+// native or nix process advertises its host-native address, a container
+// process the container-network address. Call it after NetworkMappings is set
+// in Init, beside the agent's own AddEndpoints call for its listen address.
+func (s *RuntimeWrapper) AddSelfEndpoints(ctx context.Context) error {
+	if s == nil || s.Base == nil || s.EnvironmentVariables == nil {
+		return errors.New("runtime environment is not initialized")
+	}
+	return s.EnvironmentVariables.AddSelfEndpoints(ctx, s.NetworkMappings, s.NetworkAccess())
 }
 
 func (s *RuntimeWrapper) WithContext(runtimeContext *basev0.RuntimeContext) {
