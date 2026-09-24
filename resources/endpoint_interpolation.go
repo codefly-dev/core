@@ -2,6 +2,8 @@ package resources
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -13,6 +15,10 @@ import (
 // endpointInterpolationPattern matches ${endpoint:<module>/<service>/<endpoint>}
 // references embedded in a configuration value.
 var endpointInterpolationPattern = regexp.MustCompile(`\$\{endpoint:([^{}]+)\}`)
+
+// errEndpointNotAvailable marks a well-formed reference to an endpoint absent
+// from the consumer's mappings: the consumer does not depend on it.
+var errEndpointNotAvailable = errors.New("endpoint not available to this consumer")
 
 // InterpolateEndpoints replaces every ${endpoint:<module>/<service>/<endpoint>}
 // reference in value with the endpoint's runtime address, resolved from mappings
@@ -47,11 +53,14 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 // resolved clone is returned and conf is left untouched; otherwise conf itself is
 // returned unchanged.
 //
-// This is the strict, fail-fast variant: any reference that does not resolve for
-// access is a hard error. Use it when the caller requested this configuration —
-// by name or in full — and every reference is expected to resolve for the
-// consumer. For a configuration injected run-wide into services that never
-// declared the referenced endpoint, use InterpolateRunWideConfigurationEndpoints.
+// This is the variant for a configuration the consumer selected by name. One
+// group commonly serves several consumers that each read some of its keys, so a
+// value referencing an endpoint the consumer does not depend on is omitted for
+// it, and the consumer reports the missing key itself if it reads it. Every
+// other failure is a hard error: a malformed reference, or an endpoint the
+// consumer depends on with no instance for its access. For a configuration
+// injected run-wide into services that never declared it, use
+// InterpolateRunWideConfigurationEndpoints.
 func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (*basev0.Configuration, error) {
 	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, false)
 }
@@ -87,6 +96,13 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 				// simply not for it: drop the value (and, below, an information
 				// left with no values) rather than fail the service. The strict
 				// path propagates the error.
+				if !dropUnresolved && errors.Is(err, errEndpointNotAvailable) {
+					w.Debug("omitting configuration value: its endpoint is not a dependency of this consumer",
+						wool.Field("configuration", info.Name),
+						wool.Field("key", value.Key),
+						wool.Field("reason", err.Error()))
+					continue
+				}
 				if dropUnresolved {
 					// The drop is expected in the common case — a run-wide value
 					// is interpolated for every service and only those depending
@@ -113,7 +129,7 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 		// an empty block would be noise. An information that started with no
 		// values is not a drop victim — it is preserved unchanged, so the strict
 		// path (which drops nothing) returns exactly the structure it was given.
-		if len(values) == 0 && len(info.ConfigurationValues) > 0 {
+		if dropUnresolved && len(values) == 0 && len(info.ConfigurationValues) > 0 {
 			continue
 		}
 		info.ConfigurationValues = values
@@ -172,7 +188,7 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 	if matchedButNoAccess {
 		return nil, w.NewError("endpoint reference ${endpoint:%s} matched but has no instance for access=%s; available: %v", reference, accessKind(access), available)
 	}
-	return nil, w.NewError("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v", reference, accessKind(access), available)
+	return nil, fmt.Errorf("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v: %w", reference, accessKind(access), available, errEndpointNotAvailable)
 }
 
 func accessKind(access *basev0.NetworkAccess) string {

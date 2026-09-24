@@ -227,9 +227,65 @@ layout: modules
 	require.Equal(t, "http://host.docker.internal:45123/v1/auth/.well-known/jwks.json", containerURL)
 }
 
-// An unknown endpoint reference fails with a clear error instead of emitting a
-// broken URL.
-func TestManagerErrorsOnUnknownEndpointReference(t *testing.T) {
+// Consumers initialize concurrently, so each reads through its own view: one
+// consumer's mappings and access never leak into another's read, and the shared
+// manager keeps none of them.
+func TestManagerForConsumerResolvesEachConsumerIndependently(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	mappings := []*basev0.NetworkMapping{
+		{
+			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Instances: []*basev0.NetworkInstance{
+				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
+				{Address: "http://auth-sidecar.solution-saas-starter.svc.cluster.local:8080", Access: resources.NewContainerNetworkAccess()},
+			},
+		},
+	}
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	native := manager.ForConsumer(mappings, resources.NewNativeNetworkAccess())
+	container := manager.ForConsumer(mappings, resources.NewContainerNetworkAccess())
+
+	containerConfs, err := container.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.NoError(t, err)
+	containerURL, err := resources.GetConfigurationValue(ctx, containerConfs[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "http://auth-sidecar.solution-saas-starter.svc.cluster.local:8080/v1/auth/.well-known/jwks.json", containerURL)
+
+	nativeConfs, err := native.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.NoError(t, err)
+	nativeURL, err := resources.GetConfigurationValue(ctx, nativeConfs[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Equal(t, "http://localhost:45123/v1/auth/.well-known/jwks.json", nativeURL)
+
+	shared, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.NoError(t, err)
+	sharedURL, err := resources.GetConfigurationValue(ctx, shared[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Empty(t, sharedURL, "the shared manager must not keep a consumer's mappings")
+}
+
+// A reference to an endpoint outside the consumer's mappings is omitted rather
+// than emitted as a broken URL: the consumer reports the missing key itself.
+func TestManagerOmitsUnknownEndpointReference(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 
@@ -260,9 +316,12 @@ layout: modules
 
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
-	_, err = manager.GetWorkspaceConfigurations(ctx)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not found")
+	confs, err := manager.GetWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Len(t, confs, 1)
+	value, err := resources.GetConfigurationValue(ctx, confs[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Empty(t, value, "the unresolvable value must be absent, not a broken URL")
 }
 
 // The composition root provides a workspace configuration that a composed

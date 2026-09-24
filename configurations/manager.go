@@ -122,6 +122,21 @@ func (manager *Manager) WithNetworkMappings(mappings []*basev0.NetworkMapping, a
 	return manager
 }
 
+// ForConsumer returns a view of the manager that resolves ${endpoint:…}
+// references against one consumer's network mappings and access. Everything
+// else is shared with the manager. Services initialize concurrently, so a
+// composition root reads each consumer's configurations through its own view
+// rather than setting the mappings on the shared manager before each read.
+func (manager *Manager) ForConsumer(mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) *Manager {
+	if manager == nil {
+		return nil
+	}
+	view := *manager
+	view.networkMappings = mappings
+	view.networkAccess = access
+	return &view
+}
+
 func (manager *Manager) Load(ctx context.Context, env *resources.Environment) error {
 	if manager == nil {
 		return nil
