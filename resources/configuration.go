@@ -180,6 +180,61 @@ func IsSensitiveKey(key string) bool {
 	return sensitive.Key(key)
 }
 
+// secretCarrierPrefixes name the environment carriers codefly only ever uses
+// for secret values, whatever the configuration key inside them is called.
+var secretCarrierPrefixes = []string{
+	WorkspaceSecretConfigurationPrefix + "__",
+	ServiceSecretConfigurationPrefix + "__",
+	SecretConfigurationDocumentPrefix,
+}
+
+// addressCarrierPrefixes name the environment carriers whose name is pure
+// structure — module, service, endpoint and API names, plus a route — and
+// whose value is an address or a visibility, never a credential.
+var addressCarrierPrefixes = []string{
+	EndpointPrefix + "__",
+	SelfEndpointPrefix + "__",
+	RestRoutePrefix + "__",
+}
+
+// IsSensitiveEnvironmentVariable classifies an environment variable NAME, as
+// it reaches a process or a rendered ConfigMap/Secret, by what it carries.
+//
+// A codefly carrier name embeds structural identity — the module and service
+// names of a service configuration, the module/service/endpoint/API of an
+// endpoint — and those are names, not configuration keys: a service called
+// auth-gateway does not make its endpoint address a credential, and running the
+// key classifier over the whole name says it does. So:
+//
+//   - a secret configuration carrier is always sensitive;
+//   - an endpoint, self-endpoint or REST-route carrier is an address, and only
+//     an operator-chosen prefix in front of it (WithPublicEnvironmentVariablePrefix)
+//     is classified;
+//   - a service configuration carrier is classified by its configuration name
+//     and key, without the module and service segments;
+//   - every other name, including a workspace configuration carrier (which has
+//     no identity segments), is classified whole by IsSensitiveKey.
+func IsSensitiveEnvironmentVariable(name string) bool {
+	canonical := strings.ToUpper(name)
+	for _, prefix := range secretCarrierPrefixes {
+		if strings.HasPrefix(canonical, prefix) {
+			return true
+		}
+	}
+	for _, prefix := range addressCarrierPrefixes {
+		if at := strings.Index(canonical, prefix); at >= 0 {
+			return IsSensitiveKey(canonical[:at])
+		}
+	}
+	if rest, ok := strings.CutPrefix(canonical, ServiceConfigurationPrefix+"__"); ok {
+		// rest is MODULE__SERVICE__NAME__KEY (UniqueToKey, then NameToKey).
+		if segments := strings.SplitN(rest, "__", 3); len(segments) == 3 {
+			return IsSensitiveKey(segments[2])
+		}
+	}
+	return IsSensitiveKey(canonical)
+}
+
 // configRuntimeKind folds the nix runtime onto native for configuration
 // matching. Both run on the host with native network access, and agents emit
 // their connection configuration under the native (and container) contexts, not
