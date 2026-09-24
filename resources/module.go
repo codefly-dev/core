@@ -82,6 +82,11 @@ type Module struct {
 
 	// For flat layout: back-reference to workspace so Save() writes there instead of module.codefly.yaml
 	flatWorkspace *Workspace `yaml:"-"`
+
+	// agentOverrides are the composing workspace's committed agent-overrides,
+	// stamped by Workspace.LoadModuleFromReference and applied to every service
+	// this module loads (see AgentOverridesKey).
+	agentOverrides []AgentOverride `yaml:"-"`
 }
 
 func (mod *Module) Unique() string {
@@ -527,6 +532,7 @@ func (mod *Module) LoadServiceFromReference(ctx context.Context, ref *ServiceRef
 		return nil, w.Wrap(err)
 	}
 	mod.applyInterface(service)
+	mod.applyAgentOverride(service)
 	return service, nil
 }
 

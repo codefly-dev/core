@@ -332,6 +332,9 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 	if err = applyServiceResolutions(ctx, mod, resolution); err != nil {
 		return nil, w.Wrap(err)
 	}
+	if mod.agentOverrides, err = workspace.AgentOverrides(); err != nil {
+		return nil, w.Wrap(err)
+	}
 	mod.adoptWorkspaceName(ref.Name)
 	return mod, nil
 }
