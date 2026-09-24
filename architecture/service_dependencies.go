@@ -364,11 +364,21 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 				// never resolve it, so callers iterating Services() hit a
 				// not-found on an entry the same object had just handed them.
 				// The edge is still recorded, so the declaration stays visible.
-				nodeType := resources.SERVICE
+				//
+				// `kind: external` describes this edge — the declaring service
+				// never builds, starts or waits for the producer — not the
+				// producer itself. So it only types a node nothing else has
+				// named yet: a node already typed SERVICE (the workspace loaded
+				// it, or another service consumes it normally) is never
+				// downgraded, and a later SERVICE typing always wins. The
+				// result is independent of the order services are listed in.
 				if dep.Kind == resources.DependencyKindExternal {
-					nodeType = resources.EXTERNAL
+					if !graph.HasNode(dep.Unique()) {
+						graph.AddNode(dep.Unique()).WithType(resources.EXTERNAL)
+					}
+				} else {
+					graph.AddNode(dep.Unique()).WithType(resources.SERVICE)
 				}
-				graph.AddNode(dep.Unique()).WithType(nodeType)
 				graph.AddKindedEdge(dep.Unique(), identity.Unique(), dep.Kind)
 			}
 		}
