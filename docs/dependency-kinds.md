@@ -48,6 +48,13 @@ its consumers early. A `completion` dependency therefore cannot declare
 An `external` dependency is declared so configuration and documentation can name
 the capability. Codefly never builds, starts or orders it.
 
+`external` describes the edge, not the producer. When the producer is also a
+real service of the workspace — it is loaded, or another service consumes it
+under any other kind — it stays a service in the graph and runs whenever that
+other consumer runs; the external declaration only means the declaring service
+does not pull it in or wait for it. The order services are listed in never
+changes this.
+
 ## Cycles are a per-stage property
 
 The two-stage relationship below is legitimate: the API talks to the database at

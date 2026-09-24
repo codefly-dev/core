@@ -1,0 +1,9 @@
+name: codefly-external-real
+layout: flat
+# accounts is a real service of this workspace. backend consumes it normally;
+# chat declares the same producer `kind: external`. The declaration order of
+# these services must not decide whether accounts runs.
+services:
+    - name: accounts
+    - name: backend
+    - name: chat

@@ -1,0 +1,13 @@
+kind: service
+name: chat
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.1
+    publisher: codefly.ai
+service-dependencies:
+    # Provided outside chat's concern: chat never waits on it, but it is still
+    # a real service of this workspace.
+    - name: accounts
+      kind: external
