@@ -311,3 +311,16 @@ func TestEndpointReferencesListsEveryReference(t *testing.T) {
 		resources.EndpointReferences("${endpoint:saas/auth-gateway/rest}/v1 and ${endpoint:model/model/http}"))
 	require.Empty(t, resources.EndpointReferences("http://literal:8080"))
 }
+
+// |authority projects the resolved address onto host:port, for a client that
+// dials an HTTP listener in authority form (gRPC over h2c).
+func TestInterpolateEndpointAuthority(t *testing.T) {
+	ctx := context.Background()
+	out, err := resources.InterpolateEndpoints(ctx,
+		"${endpoint:saas-starter/auth-sidecar/http|authority}",
+		gatewayMappings(), resources.NewContainerNetworkAccess())
+	require.NoError(t, err)
+	assert.Equal(t, "host.docker.internal:1234", out)
+	require.Equal(t, []string{"saas-starter/auth-sidecar/http"},
+		resources.EndpointReferences("${endpoint:saas-starter/auth-sidecar/http|authority}"))
+}

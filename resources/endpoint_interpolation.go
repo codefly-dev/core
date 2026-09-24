@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -16,6 +17,35 @@ import (
 // references embedded in a configuration value.
 var endpointInterpolationPattern = regexp.MustCompile(`\$\{endpoint:([^{}]+)\}`)
 
+// authorityProjection is the suffix that asks for the authority (host:port) of
+// the resolved address instead of the address itself:
+// ${endpoint:<module>/<service>/<endpoint>|authority}. An HTTP-based endpoint's
+// address is a URL; a client that dials the same listener in authority form —
+// gRPC over h2c on an HTTP listener — needs host:port, and the reference keeps
+// the composition from typing a port the run derives.
+const authorityProjection = "|authority"
+
+// splitEndpointProjection separates a reference from its projection suffix.
+func splitEndpointProjection(reference string) (string, bool) {
+	if trimmed, ok := strings.CutSuffix(reference, authorityProjection); ok {
+		return trimmed, true
+	}
+	return reference, false
+}
+
+// addressAuthority projects an address onto its authority: the host:port of a
+// URL, or the address itself when it already is one.
+func addressAuthority(address string) (string, error) {
+	if !strings.Contains(address, "://") {
+		return address, nil
+	}
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Host == "" {
+		return "", fmt.Errorf("address %q has no authority", address)
+	}
+	return parsed.Host, nil
+}
+
 // errEndpointNotAvailable marks a well-formed reference to an endpoint absent
 // from the consumer's mappings: the consumer does not depend on it.
 var errEndpointNotAvailable = errors.New("endpoint not available to this consumer")
@@ -26,7 +56,8 @@ var errEndpointNotAvailable = errors.New("endpoint not available to this consume
 func EndpointReferences(value string) []string {
 	var references []string
 	for _, match := range endpointInterpolationPattern.FindAllStringSubmatch(value, -1) {
-		references = append(references, match[1])
+		reference, _ := splitEndpointProjection(match[1])
+		references = append(references, reference)
 	}
 	return references
 }
@@ -44,13 +75,19 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 	var b strings.Builder
 	last := 0
 	for _, match := range matches {
-		reference := value[match[2]:match[3]]
+		reference, authority := splitEndpointProjection(value[match[2]:match[3]])
 		instance, err := resolveEndpointReference(ctx, mappings, reference, access)
 		if err != nil {
 			return "", err
 		}
+		address := instance.Address
+		if authority {
+			if address, err = addressAuthority(address); err != nil {
+				return "", fmt.Errorf("endpoint reference ${endpoint:%s%s}: %w", reference, authorityProjection, err)
+			}
+		}
 		b.WriteString(value[last:match[0]])
-		b.WriteString(instance.Address)
+		b.WriteString(address)
 		last = match[1]
 	}
 	b.WriteString(value[last:])
