@@ -264,6 +264,19 @@ spec:
 		1,
 	)
 	assertContractResult(t, "current restricted fields", currentRestricted, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+	// A ConfigMap value holding nested JSON ends in "}}"; that is rendered
+	// output, not an unresolved template action.
+	jsonConfig := restrictedDeploymentManifest + `
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-service-config
+  namespace: codefly-test
+data:
+  MODULE_PRINCIPALS: '{"documents":{"queues":["datasource"],"tenant":"acme"}}'
+`
+	assertContractResult(t, "nested JSON config value", jsonConfig, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
 
 	tests := []struct {
 		name     string
@@ -469,6 +482,11 @@ rules: []
 		{
 			name:     "unresolved placeholder",
 			manifest: strings.Replace(restrictedDeploymentManifest, "name: example-service", "name: ${SERVICE_NAME}", 1),
+			contains: "unresolved placeholder",
+		},
+		{
+			name:     "unresolved template action",
+			manifest: strings.Replace(restrictedDeploymentManifest, "name: example-service", `name: "{{ .Values.name }}"`, 1),
 			contains: "unresolved placeholder",
 		},
 		{
