@@ -159,43 +159,51 @@ func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T
 		"an information block that started with no values must not be dropped by the strict path")
 }
 
-// The strict variant is fail-fast: any reference that does not resolve for the
-// consumer is a hard error, whether the service is absent from the mapping set or
-// present under a different endpoint. This is what preserves typo detection on the
-// GetWorkspaceConfigurations path.
-func TestInterpolateConfigurationEndpointsErrorsOnUnresolvedReference(t *testing.T) {
+// A group a consumer selects commonly serves several consumers, each reading some
+// of its keys. A value referencing an endpoint the consumer does not depend on —
+// its service absent from the mapping set, or present under a different endpoint
+// — is omitted for that consumer, and the group keeps its other values.
+func TestInterpolateConfigurationEndpointsOmitsEndpointsTheConsumerDoesNotDependOn(t *testing.T) {
 	ctx := context.Background()
-
-	// Service present, wrong endpoint token.
-	wrongEndpoint := &basev0.Configuration{
+	conf := &basev0.Configuration{
 		Origin: resources.ConfigurationWorkspace,
 		Infos: []*basev0.ConfigurationInformation{
 			{
-				Name: "work-context",
+				Name: "platform",
 				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}/v1/jwks"},
+					{Key: "other-endpoint", Value: "${endpoint:saas-starter/auth-sidecar/grpc}"},
+					{Key: "absent-service", Value: "${endpoint:saas/frontend/http}"},
+					{Key: "gateway", Value: "${endpoint:saas-starter/auth-sidecar/http}"},
 				},
 			},
 		},
 	}
-	_, err := resources.InterpolateConfigurationEndpoints(ctx, wrongEndpoint, gatewayMappings(), resources.NewNativeNetworkAccess())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+	require.Len(t, resolved.Infos, 1)
+	require.Len(t, resolved.Infos[0].ConfigurationValues, 1)
+	assert.Equal(t, "gateway", resolved.Infos[0].ConfigurationValues[0].Key)
 
-	// Service absent entirely (empty mapping set) — still a hard error on the
-	// strict path.
-	absentService := &basev0.Configuration{
+	none, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+	require.Len(t, none.Infos, 1, "the group stays selected when none of its values is for this consumer")
+	assert.Empty(t, none.Infos[0].ConfigurationValues)
+}
+
+// Omission is only for endpoints the consumer does not depend on. A reference
+// that cannot be an endpoint at all is still a hard error.
+func TestInterpolateConfigurationEndpointsErrorsOnMalformedReference(t *testing.T) {
+	conf := &basev0.Configuration{
 		Origin: resources.ConfigurationWorkspace,
 		Infos: []*basev0.ConfigurationInformation{
 			{
-				Name:                "work-context",
-				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/frontend/http}"}},
+				Name:                "platform",
+				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "gateway", Value: "${endpoint:saas-starter}"}},
 			},
 		},
 	}
-	_, err = resources.InterpolateConfigurationEndpoints(ctx, absentService, nil, resources.NewNativeNetworkAccess())
+	_, err := resources.InterpolateConfigurationEndpoints(context.Background(), conf, gatewayMappings(), resources.NewNativeNetworkAccess())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
 }
 
 // A run-wide configuration is interpolated for every service, including leaf infra
@@ -295,4 +303,24 @@ func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedS
 	url, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "http-url")
 	require.NoError(t, err)
 	assert.Equal(t, "http://localhost:1234/v1/jwks", url)
+}
+
+func TestEndpointReferencesListsEveryReference(t *testing.T) {
+	require.Equal(t,
+		[]string{"saas/auth-gateway/rest", "model/model/http"},
+		resources.EndpointReferences("${endpoint:saas/auth-gateway/rest}/v1 and ${endpoint:model/model/http}"))
+	require.Empty(t, resources.EndpointReferences("http://literal:8080"))
+}
+
+// |authority projects the resolved address onto host:port, for a client that
+// dials an HTTP listener in authority form (gRPC over h2c).
+func TestInterpolateEndpointAuthority(t *testing.T) {
+	ctx := context.Background()
+	out, err := resources.InterpolateEndpoints(ctx,
+		"${endpoint:saas-starter/auth-sidecar/http|authority}",
+		gatewayMappings(), resources.NewContainerNetworkAccess())
+	require.NoError(t, err)
+	assert.Equal(t, "host.docker.internal:1234", out)
+	require.Equal(t, []string{"saas-starter/auth-sidecar/http"},
+		resources.EndpointReferences("${endpoint:saas-starter/auth-sidecar/http|authority}"))
 }

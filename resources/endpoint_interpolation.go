@@ -2,6 +2,9 @@ package resources
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -13,6 +16,51 @@ import (
 // endpointInterpolationPattern matches ${endpoint:<module>/<service>/<endpoint>}
 // references embedded in a configuration value.
 var endpointInterpolationPattern = regexp.MustCompile(`\$\{endpoint:([^{}]+)\}`)
+
+// authorityProjection is the suffix that asks for the authority (host:port) of
+// the resolved address instead of the address itself:
+// ${endpoint:<module>/<service>/<endpoint>|authority}. An HTTP-based endpoint's
+// address is a URL; a client that dials the same listener in authority form —
+// gRPC over h2c on an HTTP listener — needs host:port, and the reference keeps
+// the composition from typing a port the run derives.
+const authorityProjection = "|authority"
+
+// splitEndpointProjection separates a reference from its projection suffix.
+func splitEndpointProjection(reference string) (string, bool) {
+	if trimmed, ok := strings.CutSuffix(reference, authorityProjection); ok {
+		return trimmed, true
+	}
+	return reference, false
+}
+
+// addressAuthority projects an address onto its authority: the host:port of a
+// URL, or the address itself when it already is one.
+func addressAuthority(address string) (string, error) {
+	if !strings.Contains(address, "://") {
+		return address, nil
+	}
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Host == "" {
+		return "", fmt.Errorf("address %q has no authority", address)
+	}
+	return parsed.Host, nil
+}
+
+// errEndpointNotAvailable marks a well-formed reference to an endpoint absent
+// from the consumer's mappings: the consumer does not depend on it.
+var errEndpointNotAvailable = errors.New("endpoint not available to this consumer")
+
+// EndpointReferences returns the <module>/<service>/<endpoint> references value
+// carries, in order of appearance. A composition root uses it to learn which
+// producers' addresses a consumer's configuration names before resolving it.
+func EndpointReferences(value string) []string {
+	var references []string
+	for _, match := range endpointInterpolationPattern.FindAllStringSubmatch(value, -1) {
+		reference, _ := splitEndpointProjection(match[1])
+		references = append(references, reference)
+	}
+	return references
+}
 
 // InterpolateEndpoints replaces every ${endpoint:<module>/<service>/<endpoint>}
 // reference in value with the endpoint's runtime address, resolved from mappings
@@ -27,13 +75,19 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 	var b strings.Builder
 	last := 0
 	for _, match := range matches {
-		reference := value[match[2]:match[3]]
+		reference, authority := splitEndpointProjection(value[match[2]:match[3]])
 		instance, err := resolveEndpointReference(ctx, mappings, reference, access)
 		if err != nil {
 			return "", err
 		}
+		address := instance.Address
+		if authority {
+			if address, err = addressAuthority(address); err != nil {
+				return "", fmt.Errorf("endpoint reference ${endpoint:%s%s}: %w", reference, authorityProjection, err)
+			}
+		}
 		b.WriteString(value[last:match[0]])
-		b.WriteString(instance.Address)
+		b.WriteString(address)
 		last = match[1]
 	}
 	b.WriteString(value[last:])
@@ -47,11 +101,14 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 // resolved clone is returned and conf is left untouched; otherwise conf itself is
 // returned unchanged.
 //
-// This is the strict, fail-fast variant: any reference that does not resolve for
-// access is a hard error. Use it when the caller requested this configuration —
-// by name or in full — and every reference is expected to resolve for the
-// consumer. For a configuration injected run-wide into services that never
-// declared the referenced endpoint, use InterpolateRunWideConfigurationEndpoints.
+// This is the variant for a configuration the consumer selected by name. One
+// group commonly serves several consumers that each read some of its keys, so a
+// value referencing an endpoint the consumer does not depend on is omitted for
+// it, and the consumer reports the missing key itself if it reads it. Every
+// other failure is a hard error: a malformed reference, or an endpoint the
+// consumer depends on with no instance for its access. For a configuration
+// injected run-wide into services that never declared it, use
+// InterpolateRunWideConfigurationEndpoints.
 func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (*basev0.Configuration, error) {
 	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, false)
 }
@@ -87,6 +144,13 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 				// simply not for it: drop the value (and, below, an information
 				// left with no values) rather than fail the service. The strict
 				// path propagates the error.
+				if !dropUnresolved && errors.Is(err, errEndpointNotAvailable) {
+					w.Debug("omitting configuration value: its endpoint is not a dependency of this consumer",
+						wool.Field("configuration", info.Name),
+						wool.Field("key", value.Key),
+						wool.Field("reason", err.Error()))
+					continue
+				}
 				if dropUnresolved {
 					// The drop is expected in the common case — a run-wide value
 					// is interpolated for every service and only those depending
@@ -113,7 +177,7 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 		// an empty block would be noise. An information that started with no
 		// values is not a drop victim — it is preserved unchanged, so the strict
 		// path (which drops nothing) returns exactly the structure it was given.
-		if len(values) == 0 && len(info.ConfigurationValues) > 0 {
+		if dropUnresolved && len(values) == 0 && len(info.ConfigurationValues) > 0 {
 			continue
 		}
 		info.ConfigurationValues = values
@@ -172,7 +236,7 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 	if matchedButNoAccess {
 		return nil, w.NewError("endpoint reference ${endpoint:%s} matched but has no instance for access=%s; available: %v", reference, accessKind(access), available)
 	}
-	return nil, w.NewError("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v", reference, accessKind(access), available)
+	return nil, fmt.Errorf("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v: %w", reference, accessKind(access), available, errEndpointNotAvailable)
 }
 
 func accessKind(access *basev0.NetworkAccess) string {
