@@ -1238,3 +1238,120 @@ func TestConfigurationFileOrderIsDeterministic(t *testing.T) {
 		require.Equal(t, want, got)
 	}
 }
+
+// A profile chain reads each configuration location from the first profile it
+// holds, and from that one alone: the workspace's own configurations/staging
+// wins outright (its configurations/local is not merged in), while a composed
+// module and a service that ship only configurations/local keep supplying
+// their local defaults and DNS.
+func TestEnvironmentProfileChainResolvesEachLocationOnItsOwn(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: saas
+    source: example/host
+    module: modules/saas
+`)
+	writeConfigurationFile(t, root, "solution/codefly.local.yaml", "resolve:\n  saas:\n    path: modules/saas\n")
+	writeConfigurationFile(t, root, "solution/configurations/staging/platform.env", "HOST=staging-host\n")
+	writeConfigurationFile(t, root, "solution/configurations/local/platform.env", "HOST=local-host\n")
+	writeConfigurationFile(t, root, "solution/configurations/local/identity.env", "PROVIDER=local-only\n")
+
+	writeConfigurationFile(t, root, "solution/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices:\n  - name: store\n")
+	writeConfigurationFile(t, root, "solution/modules/saas/configurations/local/legal.env", "LEGAL_URL=module-legal\n")
+	writeConfigurationFile(t, root, "solution/modules/saas/services/store/service.codefly.yaml", `kind: service
+name: store
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: postgres
+  version: 0.0.1
+  publisher: codefly.dev
+`)
+	writeConfigurationFile(t, root, "solution/modules/saas/services/store/configurations/local/postgres.env", "DATABASE=service-local\n")
+	writeConfigurationFile(t, root, "solution/modules/saas/services/store/dns/local/dns.codefly.yaml", `- name: store
+  endpoint: tcp
+  host: store.local.example
+  port: 5432
+`)
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	environment := &resources.Environment{Name: "staging", ConfigurationProfiles: []string{"staging", "local"}}
+	require.NoError(t, loader.Load(ctx, environment))
+	confs := loader.Configurations()
+
+	platform, err := resources.FindWorkspaceConfiguration(ctx, confs, "platform")
+	require.NoError(t, err)
+	host, err := resources.GetConfigurationValue(ctx, platform, "platform", "HOST")
+	require.NoError(t, err)
+	require.Equal(t, "staging-host", host)
+
+	// The workspace resolved to configurations/staging; its local directory is
+	// not read at all.
+	_, err = resources.FindWorkspaceConfiguration(ctx, confs, "identity")
+	require.Error(t, err)
+
+	legal, err := resources.FindWorkspaceConfiguration(ctx, confs, "legal")
+	require.NoError(t, err)
+	url, err := resources.GetConfigurationValue(ctx, legal, "legal", "LEGAL_URL")
+	require.NoError(t, err)
+	require.Equal(t, "module-legal", url)
+
+	var store *basev0.Configuration
+	for _, conf := range confs {
+		if conf.Origin == "saas/store" {
+			store = conf
+		}
+	}
+	require.NotNil(t, store)
+	database, err := resources.GetConfigurationValue(ctx, store, "postgres", "DATABASE")
+	require.NoError(t, err)
+	require.Equal(t, "service-local", database)
+
+	dns := loader.DNS()
+	require.Len(t, dns, 1)
+	require.Equal(t, "store.local.example", dns[0].Host)
+}
+
+// Without a chain nothing falls back: a staging environment reads only
+// configurations/staging, so a module's local defaults never reach it
+// unannounced.
+func TestEnvironmentWithoutProfileChainNeverFallsBack(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, resources.WorkspaceConfigurationName, "name: test-workspace\nlayout: flat\n")
+	writeConfigurationFile(t, root, "configurations/local/internal-auth.env", "TOKEN=local\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.NoError(t, loader.Load(ctx, &resources.Environment{Name: "staging"}))
+	require.Empty(t, loader.Configurations())
+}
+
+func TestEnvironmentProfileChainValidation(t *testing.T) {
+	both := &resources.Environment{Name: "staging", ConfigurationProfile: "local", ConfigurationProfiles: []string{"staging"}}
+	_, err := both.ConfigurationProfileNames()
+	require.ErrorContains(t, err, "declare one")
+
+	duplicate := &resources.Environment{Name: "staging", ConfigurationProfiles: []string{"staging", "staging"}}
+	_, err = duplicate.ConfigurationProfileNames()
+	require.ErrorContains(t, err, "twice")
+
+	traversal := &resources.Environment{Name: "staging", ConfigurationProfiles: []string{"staging", "../local"}}
+	_, err = traversal.ConfigurationProfileNames()
+	require.ErrorContains(t, err, "single path component")
+
+	chain := &resources.Environment{Name: "staging", ConfigurationProfiles: []string{"staging", "local"}}
+	own, err := chain.ConfigurationProfileName()
+	require.NoError(t, err)
+	require.Equal(t, "staging", own)
+	_, err = chain.Proto()
+	require.NoError(t, err)
+}
