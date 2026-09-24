@@ -27,14 +27,22 @@ type configurationDocument struct {
 	Content     json.RawMessage `json:"content"`
 }
 
+// ConfigurationDocumentPrefix and SecretConfigurationDocumentPrefix start the
+// carriers of structured configuration documents.
+const (
+	ConfigurationDocumentPrefix = "CODEFLY__CONFIGURATION_DOCUMENT_V1__"
+	// #nosec G101 -- a carrier name prefix, not a credential.
+	SecretConfigurationDocumentPrefix = "CODEFLY__SECRET_CONFIGURATION_DOCUMENT_V1__"
+)
+
 // ConfigurationDocumentKey keeps document identities separate from flat values
 // without folding case, punctuation, or nested object keys together.
 func ConfigurationDocumentKey(origin, name, environment string, secret bool) string {
 	identity, _ := json.Marshal([]string{origin, name, environment})
 	digest := sha256.Sum256(identity)
-	prefix := "CODEFLY__CONFIGURATION_DOCUMENT_V1__"
+	prefix := ConfigurationDocumentPrefix
 	if secret {
-		prefix = "CODEFLY__SECRET_CONFIGURATION_DOCUMENT_V1__"
+		prefix = SecretConfigurationDocumentPrefix
 	}
 	return prefix + hex.EncodeToString(digest[:])
 }
