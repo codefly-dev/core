@@ -118,7 +118,16 @@ func aggregateManifestDigest(files []*builderv0.KubernetesManifestFile) string {
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 }
 
-var unresolvedManifestValue = regexp.MustCompile(`\{\{|\}\}|\$\{[^}]+\}|(?i)\b(?:CHANGE_ME|REPLACE_ME)\b`)
+// unresolvedManifestValue matches a value a renderer left behind: an opening
+// Go/Helm template action ("{{ .Values.x }}", "{{.x}}", "{{- x -}}",
+// "{{ include ... }}", "{{/* ... */}}"), a shell-style "${VAR}", or a
+// CHANGE_ME/REPLACE_ME marker. It deliberately does not match a bare "}}":
+// every nested JSON object ends in one, so a ConfigMap value holding JSON
+// (a workspace configuration, for instance) is legitimate rendered output.
+// An opening "{{" followed by action syntax cannot occur in JSON outside a
+// string value, and inside one it is exactly the placeholder to refuse. The
+// closing "}}" is not required, so a truncated action still fails.
+var unresolvedManifestValue = regexp.MustCompile(`\{\{-?\s*[\w.$("/-]|\$\{[^}]+\}|(?i)\b(?:CHANGE_ME|REPLACE_ME)\b`)
 var pinnedImage = regexp.MustCompile(`@sha256:[a-fA-F0-9]{64}$`)
 
 var clusterScopedKinds = map[string]struct{}{
