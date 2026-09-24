@@ -1355,3 +1355,17 @@ func TestEnvironmentProfileChainValidation(t *testing.T) {
 	_, err = chain.Proto()
 	require.NoError(t, err)
 }
+
+func TestEndpointProducersNamesEachGroupsProducersOnce(t *testing.T) {
+	infos := []*basev0.ConfigurationInformation{
+		{Name: "platform", ConfigurationValues: []*basev0.ConfigurationValue{
+			{Key: "accounts-endpoint", Value: "${endpoint:saas/accounts/rest|authority}"},
+			{Key: "accounts-internal-endpoint", Value: "${endpoint:saas/accounts/rest|authority}"},
+			{Key: "gateway-endpoint", Value: "${endpoint:saas/auth-gateway/rest}"},
+		}},
+		{Name: "legal", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "URL", Value: "https://example.com"}}},
+	}
+	require.Equal(t,
+		map[string][]string{"platform": {"saas/accounts", "saas/auth-gateway"}},
+		configurations.EndpointProducers(infos))
+}
