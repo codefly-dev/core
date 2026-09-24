@@ -222,6 +222,34 @@ port := network.ToNamedPort(ctx, "myworkspace", "backend", "api", "grpc", "grpc"
 
 For tests and ephemeral environments, `RuntimeManager.WithTemporaryPorts()` uses random free ports instead.
 
+### Endpoint carriers
+
+Endpoints reach a process as environment variables, one per endpoint:
+
+| Carrier | Value | Use |
+|---|---|---|
+| `CODEFLY__ENDPOINT__<MODULE>__<SERVICE>__<NAME>__<API>` | a dependency's address; for the service's **own** endpoint, the address it **listens** on (a Kubernetes render localizes it to `localhost:<port>`) | dial a dependency; bind a listener |
+| `CODEFLY__SELF_ENDPOINT__<MODULE>__<SERVICE>__<NAME>__<API>` | the service's own endpoint as its **peers** reach it | advertise yourself — e.g. register an upstream with a gateway |
+
+Both keys share one normalization (upper case, `-` → `_`), and the self
+carrier deliberately does not start with `CODEFLY__ENDPOINT__`, so a reader
+collecting endpoint carriers never mistakes one for the other. Values have the
+`NetworkInstance.Address` shape: `host:port`, or a scheme-qualified URL for
+HTTP-based APIs (`http://backend.<namespace>.svc.cluster.local:8080`).
+
+Where the self value comes from:
+
+- **Kubernetes render** (`DeployKustomize` with `OwnEndpoints`): the
+  container-access instance of the service's own mapping — the in-cluster
+  Service DNS name. Never the public instance, never localhost.
+- **Local run**: the agent calls `RuntimeWrapper.AddSelfEndpoints(ctx)` in
+  Init, which selects the instance under the runtime's own `NetworkAccess()`
+  (host-native for native/nix, `host.docker.internal` for a container).
+
+Read it with `resources.FindSelfNetworkInstanceInEnvironmentVariables`. A
+missing self carrier is an error, never a fallback to the listen address:
+advertising `localhost` to a peer is the defect this carrier exists to prevent.
+
 ## Configuration Flow
 
 1. Service A produces configuration (e.g., postgres connection string)
@@ -231,6 +259,18 @@ For tests and ephemeral environments, `RuntimeManager.WithTemporaryPorts()` uses
 5. Secrets get a separate prefix: `CODEFLY__SERVICE_SECRET_CONFIGURATION__...`
 
 Configuration values carry a `Secret` flag. The system never logs secret values and uses the separate env var prefix for them.
+
+`resources.IsSensitiveKey` is the name-based safety net for a value whose
+`Secret` flag was forgotten: diagnostics redact it, restricted Kubernetes
+renders refuse it inline, and the CLI promotes it to a secret reference. Its
+markers (`PASSWORD`, `SECRET`, `TOKEN`, `CREDENTIAL`, `API_KEY`, …) match as
+substrings. `AUTH` is matched **per word** instead: any word containing `AUTH`
+is sensitive (`AUTH`, `BASIC_AUTH`, `OAUTH`, `AUTHKEY`, `AUTHORIZATION`, …)
+except a closed list of public words — `AUTHOR(S)`, `AUTHORITY`/`AUTHORITIES`,
+`AUTHORIZE` — so `AUTHORITY_ISSUER`, `AUTHORITY_AUDIENCE` and
+`IDENTITY_AUTHORIZE_URL` stay public, while a credential noun beside a public
+word (`CERTIFICATE_AUTHORITY_KEY`) keeps the key sensitive. A new public word
+is added with a test, never inferred.
 
 ## Runtime Contexts
 
@@ -242,8 +282,17 @@ The same code runs in four contexts:
 | `nix` | `native` | Process runs in Nix shell on host |
 | `container` | `container` | Process runs inside Docker |
 | `free` | varies | No assumptions (testing) |
+| `kubernetes` | `container` | Workload rendered for Kubernetes (deployed only) |
 
 `CODEFLY__RUNTIME_CONTEXT` environment variable controls which context is active. `NetworkAccessFromRuntimeContext()` maps context to the correct network access type.
+
+`kubernetes` is written by the builder into every Kubernetes render's
+ConfigMap (all output profiles), so a deployed service can tell it is deployed
+without comparing environment names. It is not a run context: it is absent from
+`RuntimeContexts()`, so `ValidateRuntimeContext` refuses it for a local run.
+For configuration matching it folds onto `container`, as `nix` folds onto
+`native`. The values a process can observe are therefore `native`, `nix`,
+`container`, `free` (local runs, unchanged) and `kubernetes` (renders).
 
 ## Readiness
 

@@ -186,9 +186,15 @@ func IsSensitiveKey(key string) bool {
 // a separate "nix" one — so a nix runtime consumes the native config. Without
 // this fold, a caller running with RuntimeContextNix would match no
 // configuration and get an empty connection string.
+//
+// A Kubernetes workload folds onto container for the same reason: producers
+// publish their in-cluster addresses under the container context.
 func configRuntimeKind(kind string) string {
 	if Match(kind, RuntimeContextNix) {
 		return RuntimeContextNative
+	}
+	if Match(kind, RuntimeContextKubernetes) {
+		return RuntimeContextContainer
 	}
 	return kind
 }

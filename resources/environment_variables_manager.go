@@ -53,6 +53,12 @@ type EnvironmentVariableManager struct {
 
 	endpoints []*EndpointAccess
 
+	// selfEndpoints are the service's own endpoints as its peers reach them.
+	// They are emitted under SelfEndpointPrefix, never under EndpointPrefix,
+	// so the listen address a service binds to is never overwritten by the
+	// address it advertises.
+	selfEndpoints []*EndpointAccess
+
 	restRoutes []*RestRouteAccess
 	running    bool
 	fixture    string
@@ -155,6 +161,10 @@ func (holder *EnvironmentVariableManager) getBase() ([]*EnvironmentVariable, err
 		envs = append(envs, EndpointAsEnvironmentVariable(endpoint))
 	}
 
+	for _, endpoint := range holder.selfEndpoints {
+		envs = append(envs, SelfEndpointAsEnvironmentVariable(endpoint))
+	}
+
 	for _, restRoute := range holder.restRoutes {
 		env, err := RestRoutesAsEnvironmentVariable(restRoute)
 		if err != nil {
@@ -168,6 +178,12 @@ func (holder *EnvironmentVariableManager) getBase() ([]*EnvironmentVariable, err
 
 func (holder *EnvironmentVariableManager) Endpoints() []*EndpointAccess {
 	return holder.endpoints
+}
+
+// SelfEndpoints returns the service's own endpoints as recorded by
+// AddSelfEndpoints: the addresses its peers use to reach it.
+func (holder *EnvironmentVariableManager) SelfEndpoints() []*EndpointAccess {
+	return holder.selfEndpoints
 }
 
 func (holder *EnvironmentVariableManager) All() ([]*EnvironmentVariable, error) {
@@ -434,6 +450,37 @@ func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mapp
 	return nil
 }
 
+// AddSelfEndpoints records the service's OWN endpoints as its peers reach them,
+// selecting from each mapping the instance whose access matches networkAccess.
+//
+// This is distinct from AddEndpoints: a service's CODEFLY__ENDPOINT__ carrier
+// for its own endpoint is the address it LISTENS on (a deployment localizes it
+// to localhost), which is the wrong answer when the service must tell another
+// component how to call it back — registering an upstream with a gateway, say.
+// The advertised address is carried separately under SelfEndpointPrefix so the
+// two can never be confused. Callers pass the access their peers use: container
+// access for a Kubernetes render (the in-cluster Service DNS name), and the
+// runtime's own access for a local run.
+func (holder *EnvironmentVariableManager) AddSelfEndpoints(ctx context.Context, mappings []*basev0.NetworkMapping, networkAccess *basev0.NetworkAccess) error {
+	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.AddSelfEndpoints")
+	for _, mp := range mappings {
+		if mp == nil || mp.Endpoint == nil {
+			continue
+		}
+		for _, instance := range mp.Instances {
+			if accessKindMatches(instance, networkAccess) {
+				holder.selfEndpoints = append(holder.selfEndpoints, &EndpointAccess{
+					Endpoint:        mp.Endpoint,
+					NetworkInstance: instance,
+				})
+				break
+			}
+		}
+	}
+	w.Debug("added self endpoints", wool.SliceCountField(holder.selfEndpoints))
+	return nil
+}
+
 func FindNetworkInstanceInEnvironmentVariables(ctx context.Context, endpointInfo *EndpointInformation, envs []string) (*NetworkInstance, error) {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.FindNetworkInstance")
 	// Create the env key
@@ -445,6 +492,25 @@ func FindNetworkInstanceInEnvironmentVariables(ctx context.Context, endpointInfo
 		}
 	}
 	return nil, w.NewError("no network instance found")
+}
+
+// FindSelfNetworkInstanceInEnvironmentVariables is the SDK accessor for a
+// service's advertised address: the value of its
+// CODEFLY__SELF_ENDPOINT__<MODULE>__<SERVICE>__<NAME>__<API> carrier, which is
+// how its peers reach the endpoint. Use FindNetworkInstanceInEnvironmentVariables
+// for the address to listen on. A missing carrier is an error, never a fallback
+// to the listen address: advertising localhost to a peer is the defect this
+// carrier exists to prevent.
+func FindSelfNetworkInstanceInEnvironmentVariables(ctx context.Context, endpointInfo *EndpointInformation, envs []string) (*NetworkInstance, error) {
+	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.FindSelfNetworkInstance")
+	key := SelfEndpointAsEnvironmentVariableKey(endpointInfo)
+	w.Trace("searching for self network instance", wool.NameField(key))
+	for _, env := range envs {
+		if after, found := strings.CutPrefix(env, fmt.Sprintf("%s=", key)); found {
+			return ParseAddress(after)
+		}
+	}
+	return nil, w.NewError("no self endpoint %s found", key)
 }
 
 func FindValueInEnvironmentVariables(ctx context.Context, key string, envs []string) (string, error) {
@@ -535,6 +601,25 @@ func EndpointAsEnvironmentVariableKeyBase(info *EndpointInformation) string {
 
 func EndpointAsEnvironmentVariableKey(info *EndpointInformation) string {
 	return strings.ToUpper(fmt.Sprintf("%s__%s", EndpointPrefix, EndpointAsEnvironmentVariableKeyBase(info)))
+}
+
+// SelfEndpointPrefix carries a service's own endpoints as its peers reach
+// them. It deliberately does not start with EndpointPrefix + "__", so a reader
+// collecting CODEFLY__ENDPOINT__ carriers never mistakes one for the other.
+const SelfEndpointPrefix = "CODEFLY__SELF_ENDPOINT"
+
+// SelfEndpointAsEnvironmentVariableKey names the advertised-address carrier
+// with the same module/service/name/api normalization as the endpoint carrier.
+func SelfEndpointAsEnvironmentVariableKey(info *EndpointInformation) string {
+	return strings.ToUpper(fmt.Sprintf("%s__%s", SelfEndpointPrefix, EndpointAsEnvironmentVariableKeyBase(info)))
+}
+
+// SelfEndpointAsEnvironmentVariable renders one advertised endpoint. The
+// value has the same shape as an endpoint carrier's (NetworkInstance.Address:
+// host:port, or a scheme-qualified URL for HTTP-based APIs).
+func SelfEndpointAsEnvironmentVariable(endpointAccess *EndpointAccess) *EnvironmentVariable {
+	info := EndpointInformationFromProto(endpointAccess.Endpoint)
+	return Env(SelfEndpointAsEnvironmentVariableKey(info), endpointAccess.NetworkInstance.Address)
 }
 
 func EndpointAsEnvironmentVariable(endpointAccess *EndpointAccess) *EnvironmentVariable {

@@ -4,6 +4,9 @@ package sensitive
 
 import "strings"
 
+// keyMarkers are matched as substrings of the canonical key: any occurrence,
+// inside a word or across words, marks the key sensitive. AUTH is deliberately
+// NOT here — see authWordSensitive.
 var keyMarkers = []string{
 	"PASSWORD",
 	"PASSWD",
@@ -14,7 +17,6 @@ var keyMarkers = []string{
 	"PRIVATE_KEY",
 	"ACCESS_KEY",
 	"UNSEAL_KEY",
-	"AUTH",
 	"DATABASE_URL",
 	"CONNECTION",
 	"DSN",
@@ -36,6 +38,65 @@ func Key(key string) bool {
 	canonical := keyCanonicalizer.Replace(strings.ToUpper(key))
 	for _, marker := range keyMarkers {
 		if strings.Contains(canonical, marker) {
+			return true
+		}
+	}
+	return authWordSensitive(strings.Split(canonical, "_"))
+}
+
+// publicAuthWords are whole words that contain AUTH but name public,
+// non-credential concepts: an OIDC issuer/audience ("authority") and an
+// authorization endpoint ("authorize"). The list is closed on purpose: every
+// other word containing AUTH — AUTH, OAUTH, NEXTAUTH, AUTHN, AUTHKEY,
+// AUTHORIZATION (the header that carries a bearer credential),
+// AUTHENTICATION, and anything not yet seen — stays sensitive. A false
+// positive costs a value its public reader; a false negative publishes a
+// credential, so a new public word is added here with a test, never inferred.
+var publicAuthWords = map[string]struct{}{
+	"AUTHOR":      {},
+	"AUTHORS":     {},
+	"AUTHORITY":   {},
+	"AUTHORITIES": {},
+	"AUTHORIZE":   {},
+}
+
+// credentialWords keep a key sensitive even when its only AUTH occurrence is a
+// public word: CERTIFICATE_AUTHORITY_KEY is a private key, not an issuer.
+var credentialWords = map[string]struct{}{
+	"KEY":        {},
+	"KEYS":       {},
+	"SEED":       {},
+	"PASS":       {},
+	"PASSPHRASE": {},
+	"PIN":        {},
+	"SALT":       {},
+	"HMAC":       {},
+	"PEM":        {},
+	"P12":        {},
+	"PFX":        {},
+	"JKS":        {},
+}
+
+// authWordSensitive reports whether any word containing AUTH names credential
+// material. Matching is per word (separator-delimited), so a public word such
+// as AUTHORITY does not taint AUTHORITY_ISSUER, while a bare AUTH, BASIC_AUTH,
+// X_AUTH or AUTHORIZATION stays sensitive.
+func authWordSensitive(words []string) bool {
+	sawAuth := false
+	for _, word := range words {
+		if !strings.Contains(word, "AUTH") {
+			continue
+		}
+		if _, public := publicAuthWords[word]; !public {
+			return true
+		}
+		sawAuth = true
+	}
+	if !sawAuth {
+		return false
+	}
+	for _, word := range words {
+		if _, credential := credentialWords[word]; credential {
 			return true
 		}
 	}
