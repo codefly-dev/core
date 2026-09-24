@@ -768,3 +768,28 @@ func testLoader(t *testing.T, dir string) {
 	require.NoError(t, err)
 	require.Equal(t, "aws.magic", dns.Host)
 }
+
+// The composition root learns which producers a consumer's workspace
+// configurations name before it resolves them.
+func TestManagerListsWorkspaceEndpointReferences(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", "name: solution\nlayout: modules\n")
+	writeConfigurationFile(t, root, "solution/configurations/local/platform.env",
+		"accounts-endpoint=${endpoint:saas/accounts/grpc}\ngateway-endpoint=${endpoint:saas/auth-gateway/rest}\n")
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas/auth-gateway/rest}/v1/auth/.well-known/jwks.json\nissuer=saas-starter\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	require.ElementsMatch(t,
+		[]string{"saas/accounts/grpc", "saas/auth-gateway/rest"},
+		manager.WorkspaceEndpointReferences("platform", "work-context", "unknown"))
+}

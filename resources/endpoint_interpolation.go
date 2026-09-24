@@ -20,6 +20,17 @@ var endpointInterpolationPattern = regexp.MustCompile(`\$\{endpoint:([^{}]+)\}`)
 // from the consumer's mappings: the consumer does not depend on it.
 var errEndpointNotAvailable = errors.New("endpoint not available to this consumer")
 
+// EndpointReferences returns the <module>/<service>/<endpoint> references value
+// carries, in order of appearance. A composition root uses it to learn which
+// producers' addresses a consumer's configuration names before resolving it.
+func EndpointReferences(value string) []string {
+	var references []string
+	for _, match := range endpointInterpolationPattern.FindAllStringSubmatch(value, -1) {
+		references = append(references, match[1])
+	}
+	return references
+}
+
 // InterpolateEndpoints replaces every ${endpoint:<module>/<service>/<endpoint>}
 // reference in value with the endpoint's runtime address, resolved from mappings
 // for access — the same address published as

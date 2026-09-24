@@ -363,6 +363,38 @@ func (manager *Manager) interpolateEndpointsRunWide(ctx context.Context, name st
 	return resolved, nil
 }
 
+// WorkspaceEndpointReferences returns the ${endpoint:…} references the named
+// workspace configurations carry, deduplicated and in order. A workspace
+// configuration is authored by the composition root, which may name an
+// endpoint the consuming module cannot know (the host, by the composition's
+// name for it); the root reads these to hand each consumer's view the
+// producers' mappings the references resolve against. Unknown names are
+// skipped: GetWorkspaceDependenciesConfigurations reports them.
+func (manager *Manager) WorkspaceEndpointReferences(deps ...string) []string {
+	if manager == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var references []string
+	for _, dep := range deps {
+		conf, ok := manager.worspaceConfigurations[dep]
+		if !ok || conf == nil {
+			continue
+		}
+		for _, info := range conf.Infos {
+			for _, value := range info.GetConfigurationValues() {
+				for _, reference := range resources.EndpointReferences(value.GetValue()) {
+					if !seen[reference] {
+						seen[reference] = true
+						references = append(references, reference)
+					}
+				}
+			}
+		}
+	}
+	return references
+}
+
 func (manager *Manager) GetWorkspaceDependenciesConfigurations(ctx context.Context, deps ...string) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil

@@ -304,3 +304,10 @@ func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedS
 	require.NoError(t, err)
 	assert.Equal(t, "http://localhost:1234/v1/jwks", url)
 }
+
+func TestEndpointReferencesListsEveryReference(t *testing.T) {
+	require.Equal(t,
+		[]string{"saas/auth-gateway/rest", "model/model/http"},
+		resources.EndpointReferences("${endpoint:saas/auth-gateway/rest}/v1 and ${endpoint:model/model/http}"))
+	require.Empty(t, resources.EndpointReferences("http://literal:8080"))
+}
