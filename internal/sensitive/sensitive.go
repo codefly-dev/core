@@ -36,12 +36,48 @@ var keyCanonicalizer = strings.NewReplacer(
 // "Unseal Key" receives the same protection as UNSEAL_KEY configuration.
 func Key(key string) bool {
 	canonical := keyCanonicalizer.Replace(strings.ToUpper(key))
+	words := strings.Split(canonical, "_")
 	for _, marker := range keyMarkers {
-		if strings.Contains(canonical, marker) {
-			return true
+		if !strings.Contains(canonical, marker) {
+			continue
+		}
+		if marker == "TOKEN" && tokenCountOnly(canonical, words) {
+			continue
+		}
+		return true
+	}
+	return authWordSensitive(words)
+}
+
+// quantityWords make a whole-word TOKENS a count of model tokens (a limit or a
+// budget), not a credential: MAX_OUTPUT_TOKENS, TOKENS_LIMIT. The list is closed
+// on purpose, like publicAuthWords: TOKEN (singular), ACCESS_TOKEN, TOKENS
+// alone and any TOKEN inside another word all stay sensitive.
+var quantityWords = map[string]struct{}{
+	"MAX":    {},
+	"MIN":    {},
+	"LIMIT":  {},
+	"BUDGET": {},
+	"COUNT":  {},
+}
+
+// tokenCountOnly reports whether every TOKEN occurrence in the key is the whole
+// word TOKENS beside a quantity word, and no credential word is present.
+func tokenCountOnly(canonical string, words []string) bool {
+	occurrences := strings.Count(canonical, "TOKEN")
+	counts, quantity := 0, false
+	for _, word := range words {
+		if word == "TOKENS" {
+			counts++
+		}
+		if _, ok := quantityWords[word]; ok {
+			quantity = true
+		}
+		if _, credential := credentialWords[word]; credential {
+			return false
 		}
 	}
-	return authWordSensitive(strings.Split(canonical, "_"))
+	return quantity && counts == occurrences
 }
 
 // publicAuthWords are whole words that contain AUTH but name public,
