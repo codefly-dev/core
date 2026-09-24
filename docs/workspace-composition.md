@@ -39,5 +39,32 @@ workspace groups fail unless the product supplies that group. Existing module
 configuration fallback remains below workspace-owned configuration. Imported
 environments never override the product's deployment target.
 
+### Configuration profile chains
+
+An environment reads `configurations/<profile>/` (and each service's
+`dns/<profile>/`) for one profile: its `configuration-profile`, or its name.
+`configuration-profiles` declares an ordered chain instead, e.g.
+
+```yaml
+environments:
+  - name: staging
+    configuration-profiles: [staging, local]
+```
+
+Each configuration location — the workspace's own directory, each composed
+workspace's, each composed module's, each service's configurations and DNS —
+resolves on its own to the **first** profile in the chain it holds, and is read
+from that profile alone. Profiles are never merged, so a workspace holding
+`configurations/staging` reads none of its `configurations/local`, while a
+composed module that ships only `configurations/local` keeps supplying those
+defaults. The first profile is the environment's own; it is where authored
+configuration is written.
+
+Nothing falls back unless the environment declares the chain. A module's
+local defaults can carry development-only values (fixture identity, dev
+secrets), and an implicit fallback would hand them to a deployed environment
+unannounced; the chain makes that inheritance a reviewed line in the workspace.
+`configuration-profile` and `configuration-profiles` are mutually exclusive.
+
 This changes resource composition only. Deployment declarations and artifact
 acquisition remain CLI responsibilities; no agent protocol changes are needed.

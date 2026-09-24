@@ -118,16 +118,19 @@ type WorkspaceConfigurations struct {
 func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, env *resources.Environment) (*WorkspaceConfigurations, error) {
 	w := wool.Get(ctx).In("configurations.ReadWorkspaceConfigurations")
 
-	configurationProfile, err := env.ConfigurationProfileName()
+	profiles, err := env.ConfigurationProfileNames()
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot select configuration profile")
 	}
-	configurationDir := path.Join(workspace.Dir(), "configurations", configurationProfile)
-	workspaceInfos, err := readOwnedWorkspaceConfigurations(ctx, workspace, configurationProfile)
+	configurationDir, _, err := ProfileDirectory(ctx, workspace.Dir(), "configurations", profiles)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot select workspace configuration directory")
+	}
+	workspaceInfos, err := readOwnedWorkspaceConfigurations(ctx, workspace, profiles)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot inherit workspace configurations")
 	}
-	workspaceInfos, composedBy, ambiguous, err := composeModuleWorkspaceConfigurations(ctx, workspace, workspaceInfos, configurationDir, configurationProfile)
+	workspaceInfos, composedBy, ambiguous, err := composeModuleWorkspaceConfigurations(ctx, workspace, workspaceInfos, configurationDir, profiles)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compose module workspace configurations")
 	}
@@ -137,9 +140,8 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 // A product inherits its selected workspace's wiring. Its own groups override
 // the inherited groups; sibling workspaces must agree unless the product chooses.
 // Module defaults are composed separately, retaining their existing precedence.
-func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, profile string) ([]*basev0.ConfigurationInformation, error) {
-	dir := filepath.Join(workspace.Dir(), "configurations", profile)
-	exists, err := shared.DirectoryExists(ctx, dir)
+func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, profiles []string) ([]*basev0.ConfigurationInformation, error) {
+	dir, exists, err := ProfileDirectory(ctx, workspace.Dir(), "configurations", profiles)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +159,7 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 		owned[info.Name] = true
 	}
 	for _, child := range workspace.ComposedWorkspaces() {
-		contributions, err := readOwnedWorkspaceConfigurations(ctx, child, profile)
+		contributions, err := readOwnedWorkspaceConfigurations(ctx, child, profiles)
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +183,7 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *resources.Environment) error {
 	w := wool.Get(ctx).In("ConfigurationInformationLocalReader.Load")
 
-	configurationProfile, err := env.ConfigurationProfileName()
+	profiles, err := env.ConfigurationProfileNames()
 	if err != nil {
 		return w.Wrapf(err, "cannot select configuration profile")
 	}
@@ -233,8 +235,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			return w.Wrapf(err, "cannot get service identity")
 		}
 		serviceOrigins = append(serviceOrigins, identity.Unique())
-		serviceConfDir := path.Join(svc.Dir(), "configurations", configurationProfile)
-		exists, err := shared.DirectoryExists(ctx, serviceConfDir)
+		serviceConfDir, exists, err := ProfileDirectory(ctx, svc.Dir(), "configurations", profiles)
 		if err != nil {
 			return w.Wrapf(err, "cannot check service configuration directory")
 		}
@@ -256,7 +257,10 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			}
 		}
 		// Load DNS
-		serviceDNSDir := path.Join(svc.Dir(), "dns", configurationProfile)
+		serviceDNSDir, _, err := ProfileDirectory(ctx, svc.Dir(), "dns", profiles)
+		if err != nil {
+			return w.Wrapf(err, "cannot select service dns directory")
+		}
 		dnsFile := path.Join(serviceDNSDir, "dns.codefly.yaml")
 		exists, err = shared.FileExists(ctx, dnsFile)
 		if err != nil {
@@ -359,7 +363,7 @@ func composeModuleWorkspaceConfigurations(
 	workspace *resources.Workspace,
 	workspaceInfos []*basev0.ConfigurationInformation,
 	workspaceConfigurationDir string,
-	configurationProfile string,
+	profiles []string,
 ) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, error) {
 	w := wool.Get(ctx).In("configurations.composeModuleWorkspaceConfigurations")
 
@@ -438,8 +442,7 @@ func composeModuleWorkspaceConfigurations(
 			return nil, nil
 		}
 		loaded[key] = true
-		configurationDir := path.Join(dir, "configurations", configurationProfile)
-		exists, err := shared.DirectoryExists(ctx, configurationDir)
+		configurationDir, exists, err := ProfileDirectory(ctx, dir, "configurations", profiles)
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot check module configuration directory")
 		}
@@ -473,7 +476,11 @@ func composeModuleWorkspaceConfigurations(
 		// root module's workspace root coincides with the consuming workspace's,
 		// as does an in-repo module whose nearest workspace root is the consuming
 		// one, so skip either rather than load the same directory twice.
-		if !resources.SameDir(path.Join(repoDir, "configurations", configurationProfile), workspaceConfigurationDir) {
+		repoConfigurationDir, _, err := ProfileDirectory(ctx, repoDir, "configurations", profiles)
+		if err != nil {
+			return nil, nil, nil, w.Wrapf(err, "cannot select configuration directory for composed module %s", mod.Name)
+		}
+		if !resources.SameDir(repoConfigurationDir, workspaceConfigurationDir) {
 			infos, err := readOnce(repoDir)
 			if err != nil {
 				return nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
@@ -503,6 +510,31 @@ func composeModuleWorkspaceConfigurations(
 		workspaceInfos = append(workspaceInfos, configuration.info)
 	}
 	return workspaceInfos, composedBy, ambiguous, nil
+}
+
+// ProfileDirectory selects the profile directory one configuration location is
+// read from: <base>/<kind>/<profile> for the first profile in the chain that
+// exists there, and whether one does. Each location resolves on its own, so a
+// workspace that holds configurations/staging and a composed module that ships
+// only configurations/local both resolve under the chain [staging, local]; the
+// directories of two profiles are never merged. When none exists, the path of
+// the first — the environment's own — profile is returned, so a caller that
+// reports the absence names the directory the environment would write.
+func ProfileDirectory(ctx context.Context, base, kind string, profiles []string) (string, bool, error) {
+	if len(profiles) == 0 {
+		return "", false, fmt.Errorf("no configuration profile selected for %s", path.Join(base, kind))
+	}
+	for _, profile := range profiles {
+		dir := path.Join(base, kind, profile)
+		exists, err := shared.DirectoryExists(ctx, dir)
+		if err != nil {
+			return "", false, err
+		}
+		if exists {
+			return dir, true, nil
+		}
+	}
+	return path.Join(base, kind, profiles[0]), false, nil
 }
 
 // dirWithin reports whether dir is the directory parent or sits below it.
