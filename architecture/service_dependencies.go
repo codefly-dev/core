@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/codefly-dev/core/graph"
@@ -32,6 +33,10 @@ type ServiceDependencies struct {
 type DependencyOptions struct {
 	SkipDependencyFor map[string]bool
 	ExcludeService    map[string]bool
+	// ConfigurationProducers names, per workspace configuration group, the
+	// services (<module>/<service>) its ${endpoint:…} references name. See
+	// WithConfigurationReferences.
+	ConfigurationProducers map[string][]string
 }
 
 func (opt *DependencyOptions) clone() *DependencyOptions {
@@ -41,6 +46,12 @@ func (opt *DependencyOptions) clone() *DependencyOptions {
 	}
 	maps.Copy(out.SkipDependencyFor, opt.SkipDependencyFor)
 	maps.Copy(out.ExcludeService, opt.ExcludeService)
+	if opt.ConfigurationProducers != nil {
+		out.ConfigurationProducers = make(map[string][]string, len(opt.ConfigurationProducers))
+		for group, producers := range opt.ConfigurationProducers {
+			out.ConfigurationProducers[group] = slices.Clone(producers)
+		}
+	}
 	return out
 }
 
@@ -64,6 +75,24 @@ func ExcludeServices(services ...string) DependencyOption {
 		for _, svc := range services {
 			opt.ExcludeService[svc] = true
 		}
+		return nil
+	}
+}
+
+// WithConfigurationReferences orders every service after the producers its
+// workspace configurations reference. A workspace configuration is the
+// composition root's: it names endpoints the consuming module cannot know (the
+// host, by the composition's name for it), so the consumer declares the group,
+// not the dependency, and the root's ${endpoint:…} reference is what binds the
+// two. Each such reference to a service of the workspace becomes a runtime edge
+// from the producer to every service declaring the group, so a run includes,
+// starts and orders the producer as for a declared dependency. A service's own
+// endpoint, an excluded producer, and an edge that would close a cycle are
+// skipped; a declared dependency is never duplicated. producersByGroup maps a
+// group to the <module>/<service> uniques it references.
+func WithConfigurationReferences(producersByGroup map[string][]string) DependencyOption {
+	return func(opt *DependencyOptions) error {
+		opt.ConfigurationProducers = producersByGroup
 		return nil
 	}
 }
@@ -383,8 +412,40 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 			}
 		}
 	}
+	d.addConfigurationReferenceEdges(ctx, graph)
 	d.graph = graph
 	return nil
+}
+
+// addConfigurationReferenceEdges applies WithConfigurationReferences once every
+// service of the workspace is in the graph.
+func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context, graph *DAG) {
+	if len(d.options.ConfigurationProducers) == 0 {
+		return
+	}
+	w := wool.Get(ctx).In("addConfigurationReferenceEdges")
+	consumers := slices.Sorted(maps.Keys(d.uniqueToService))
+	for _, consumer := range consumers {
+		if d.options.SkipDependencyFor[consumer] {
+			continue
+		}
+		for _, group := range d.uniqueToService[consumer].WorkspaceConfigurationDependencies {
+			for _, producer := range d.options.ConfigurationProducers[group] {
+				if producer == consumer || d.options.ExcludeService[producer] {
+					continue
+				}
+				if _, inWorkspace := d.uniqueToService[producer]; !inWorkspace || graph.HasEdge(producer, consumer) {
+					continue
+				}
+				if graph.reaches(consumer, producer) {
+					w.Debug("skipping a configuration reference that would close a cycle",
+						wool.Field("consumer", consumer), wool.Field("producer", producer), wool.Field("group", group))
+					continue
+				}
+				graph.AddKindedEdge(producer, consumer, resources.DependencyKindRuntime)
+			}
+		}
+	}
 }
 
 // EntryPoints returns the list of services that are not required by any other service

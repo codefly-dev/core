@@ -1063,3 +1063,29 @@ func ConsolidateInfo(_ context.Context, infos []*basev0.ConfigurationInformation
 	}
 	return result, nil
 }
+
+// EndpointProducers maps each workspace configuration to the services
+// (<module>/<service>) its ${endpoint:…} references name, in order and without
+// repetition. It is the input of architecture.WithConfigurationReferences: a
+// composition root reads what the environment provides (ReadWorkspaceConfigurations)
+// and orders every consumer of a group after the producers the group names.
+func EndpointProducers(infos []*basev0.ConfigurationInformation) map[string][]string {
+	out := make(map[string][]string)
+	for _, info := range infos {
+		seen := make(map[string]bool)
+		for _, value := range info.GetConfigurationValues() {
+			for _, reference := range resources.EndpointReferences(value.GetValue()) {
+				endpoint, err := resources.ParseEndpoint(reference)
+				if err != nil || endpoint.Module == "" {
+					continue
+				}
+				producer := endpoint.Module + "/" + endpoint.Service
+				if !seen[producer] {
+					seen[producer] = true
+					out[info.Name] = append(out[info.Name], producer)
+				}
+			}
+		}
+	}
+	return out
+}

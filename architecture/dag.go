@@ -63,6 +63,25 @@ func (g *DAG) AddNode(u string) *WrappedNode {
 	}
 }
 
+// reaches reports whether a path of edges leads from u to v.
+func (g *DAG) reaches(u, v string) bool {
+	seen := map[string]bool{}
+	stack := []string{u}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if n == v {
+			return true
+		}
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		stack = append(stack, g.edges[n]...)
+	}
+	return false
+}
+
 func (g *DAG) AddEdge(u, v string) {
 	if !g.nodes[u] {
 		g.nodes[u] = true
