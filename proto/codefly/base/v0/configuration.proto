@@ -12,6 +12,54 @@ message ConfigurationValue {
   string value = 2;
   // secret marks configuration values that must not be logged or displayed.
   bool secret = 3;
+  // template, set only on a secret value that carries no value, declares how
+  // the value is assembled from the producer's own secret configuration values
+  // wherever it is delivered. A render that must not carry secrets delivers the
+  // assembly instead of asking an operator to store the assembled value, so the
+  // secret store holds only the referenced primitives.
+  ConfigurationValueTemplate template = 4;
+}
+
+// ConfigurationValueTemplate assembles a value by concatenating its segments in
+// order. It is engine-neutral: a renderer translates it into whatever evaluates
+// it where the value is delivered, and resources.EvaluateConfigurationValueTemplate
+// is the reference semantics every translation must reproduce byte for byte.
+message ConfigurationValueTemplate {
+  // segments are concatenated in order.
+  repeated ConfigurationValueTemplateSegment segments = 1;
+}
+
+// ConfigurationValueTemplateSegment is one piece of a template: a literal, or a
+// reference to one of the producer's own secret configuration values.
+message ConfigurationValueTemplateSegment {
+  // content is the literal text or the referenced value of this segment.
+  oneof content {
+    // literal is copied verbatim.
+    string literal = 1;
+    // reference is replaced by the referenced value, encoded by its escape.
+    ConfigurationValueReference reference = 2;
+  }
+}
+
+// ConfigurationValueReference names one secret configuration value of the
+// producer that declares the template — never another service's.
+message ConfigurationValueReference {
+  // configuration is the name of the producer's configuration group.
+  string configuration = 1;
+  // key is the key of the value within that group.
+  string key = 2;
+  // escape is how the value is encoded before it is inserted.
+  ConfigurationValueEscape escape = 3;
+}
+
+// ConfigurationValueEscape is how a referenced value is encoded.
+enum ConfigurationValueEscape {
+  // CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim.
+  CONFIGURATION_VALUE_ESCAPE_NONE = 0;
+  // CONFIGURATION_VALUE_ESCAPE_URL_USERINFO percent-encodes every byte except
+  // ASCII letters, digits and "-", ".", "_", "~" (RFC 3986 unreserved), so the
+  // value is safe inside the userinfo, path or query of a URL.
+  CONFIGURATION_VALUE_ESCAPE_URL_USERINFO = 1;
 }
 
 // ConfigurationData carries a structured configuration blob alongside key/value configuration.

@@ -22,6 +22,57 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ConfigurationValueEscape is how a referenced value is encoded.
+type ConfigurationValueEscape int32
+
+const (
+	// CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim.
+	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE ConfigurationValueEscape = 0
+	// CONFIGURATION_VALUE_ESCAPE_URL_USERINFO percent-encodes every byte except
+	// ASCII letters, digits and "-", ".", "_", "~" (RFC 3986 unreserved), so the
+	// value is safe inside the userinfo, path or query of a URL.
+	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO ConfigurationValueEscape = 1
+)
+
+// Enum value maps for ConfigurationValueEscape.
+var (
+	ConfigurationValueEscape_name = map[int32]string{
+		0: "CONFIGURATION_VALUE_ESCAPE_NONE",
+		1: "CONFIGURATION_VALUE_ESCAPE_URL_USERINFO",
+	}
+	ConfigurationValueEscape_value = map[string]int32{
+		"CONFIGURATION_VALUE_ESCAPE_NONE":         0,
+		"CONFIGURATION_VALUE_ESCAPE_URL_USERINFO": 1,
+	}
+)
+
+func (x ConfigurationValueEscape) Enum() *ConfigurationValueEscape {
+	p := new(ConfigurationValueEscape)
+	*p = x
+	return p
+}
+
+func (x ConfigurationValueEscape) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ConfigurationValueEscape) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_base_v0_configuration_proto_enumTypes[0].Descriptor()
+}
+
+func (ConfigurationValueEscape) Type() protoreflect.EnumType {
+	return &file_codefly_base_v0_configuration_proto_enumTypes[0]
+}
+
+func (x ConfigurationValueEscape) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ConfigurationValueEscape.Descriptor instead.
+func (ConfigurationValueEscape) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{0}
+}
+
 // ConfigurationValue is one key/value pair produced by a service or workspace configuration
 // source.
 type ConfigurationValue struct {
@@ -31,7 +82,13 @@ type ConfigurationValue struct {
 	// value is the configuration or schema value.
 	Value string `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
 	// secret marks configuration values that must not be logged or displayed.
-	Secret        bool `protobuf:"varint,3,opt,name=secret,proto3" json:"secret,omitempty"`
+	Secret bool `protobuf:"varint,3,opt,name=secret,proto3" json:"secret,omitempty"`
+	// template, set only on a secret value that carries no value, declares how
+	// the value is assembled from the producer's own secret configuration values
+	// wherever it is delivered. A render that must not carry secrets delivers the
+	// assembly instead of asking an operator to store the assembled value, so the
+	// secret store holds only the referenced primitives.
+	Template      *ConfigurationValueTemplate `protobuf:"bytes,4,opt,name=template,proto3" json:"template,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -87,6 +144,215 @@ func (x *ConfigurationValue) GetSecret() bool {
 	return false
 }
 
+func (x *ConfigurationValue) GetTemplate() *ConfigurationValueTemplate {
+	if x != nil {
+		return x.Template
+	}
+	return nil
+}
+
+// ConfigurationValueTemplate assembles a value by concatenating its segments in
+// order. It is engine-neutral: a renderer translates it into whatever evaluates
+// it where the value is delivered, and resources.EvaluateConfigurationValueTemplate
+// is the reference semantics every translation must reproduce byte for byte.
+type ConfigurationValueTemplate struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// segments are concatenated in order.
+	Segments      []*ConfigurationValueTemplateSegment `protobuf:"bytes,1,rep,name=segments,proto3" json:"segments,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigurationValueTemplate) Reset() {
+	*x = ConfigurationValueTemplate{}
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigurationValueTemplate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigurationValueTemplate) ProtoMessage() {}
+
+func (x *ConfigurationValueTemplate) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigurationValueTemplate.ProtoReflect.Descriptor instead.
+func (*ConfigurationValueTemplate) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ConfigurationValueTemplate) GetSegments() []*ConfigurationValueTemplateSegment {
+	if x != nil {
+		return x.Segments
+	}
+	return nil
+}
+
+// ConfigurationValueTemplateSegment is one piece of a template: a literal, or a
+// reference to one of the producer's own secret configuration values.
+type ConfigurationValueTemplateSegment struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// content is the literal text or the referenced value of this segment.
+	//
+	// Types that are valid to be assigned to Content:
+	//
+	//	*ConfigurationValueTemplateSegment_Literal
+	//	*ConfigurationValueTemplateSegment_Reference
+	Content       isConfigurationValueTemplateSegment_Content `protobuf_oneof:"content"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigurationValueTemplateSegment) Reset() {
+	*x = ConfigurationValueTemplateSegment{}
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigurationValueTemplateSegment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigurationValueTemplateSegment) ProtoMessage() {}
+
+func (x *ConfigurationValueTemplateSegment) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigurationValueTemplateSegment.ProtoReflect.Descriptor instead.
+func (*ConfigurationValueTemplateSegment) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ConfigurationValueTemplateSegment) GetContent() isConfigurationValueTemplateSegment_Content {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *ConfigurationValueTemplateSegment) GetLiteral() string {
+	if x != nil {
+		if x, ok := x.Content.(*ConfigurationValueTemplateSegment_Literal); ok {
+			return x.Literal
+		}
+	}
+	return ""
+}
+
+func (x *ConfigurationValueTemplateSegment) GetReference() *ConfigurationValueReference {
+	if x != nil {
+		if x, ok := x.Content.(*ConfigurationValueTemplateSegment_Reference); ok {
+			return x.Reference
+		}
+	}
+	return nil
+}
+
+type isConfigurationValueTemplateSegment_Content interface {
+	isConfigurationValueTemplateSegment_Content()
+}
+
+type ConfigurationValueTemplateSegment_Literal struct {
+	// literal is copied verbatim.
+	Literal string `protobuf:"bytes,1,opt,name=literal,proto3,oneof"`
+}
+
+type ConfigurationValueTemplateSegment_Reference struct {
+	// reference is replaced by the referenced value, encoded by its escape.
+	Reference *ConfigurationValueReference `protobuf:"bytes,2,opt,name=reference,proto3,oneof"`
+}
+
+func (*ConfigurationValueTemplateSegment_Literal) isConfigurationValueTemplateSegment_Content() {}
+
+func (*ConfigurationValueTemplateSegment_Reference) isConfigurationValueTemplateSegment_Content() {}
+
+// ConfigurationValueReference names one secret configuration value of the
+// producer that declares the template — never another service's.
+type ConfigurationValueReference struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// configuration is the name of the producer's configuration group.
+	Configuration string `protobuf:"bytes,1,opt,name=configuration,proto3" json:"configuration,omitempty"`
+	// key is the key of the value within that group.
+	Key string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	// escape is how the value is encoded before it is inserted.
+	Escape        ConfigurationValueEscape `protobuf:"varint,3,opt,name=escape,proto3,enum=codefly.base.v0.ConfigurationValueEscape" json:"escape,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigurationValueReference) Reset() {
+	*x = ConfigurationValueReference{}
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigurationValueReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigurationValueReference) ProtoMessage() {}
+
+func (x *ConfigurationValueReference) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigurationValueReference.ProtoReflect.Descriptor instead.
+func (*ConfigurationValueReference) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ConfigurationValueReference) GetConfiguration() string {
+	if x != nil {
+		return x.Configuration
+	}
+	return ""
+}
+
+func (x *ConfigurationValueReference) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *ConfigurationValueReference) GetEscape() ConfigurationValueEscape {
+	if x != nil {
+		return x.Escape
+	}
+	return ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE
+}
+
 // ConfigurationData carries a structured configuration blob alongside key/value configuration.
 type ConfigurationData struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -102,7 +368,7 @@ type ConfigurationData struct {
 
 func (x *ConfigurationData) Reset() {
 	*x = ConfigurationData{}
-	mi := &file_codefly_base_v0_configuration_proto_msgTypes[1]
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -114,7 +380,7 @@ func (x *ConfigurationData) String() string {
 func (*ConfigurationData) ProtoMessage() {}
 
 func (x *ConfigurationData) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_configuration_proto_msgTypes[1]
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -127,7 +393,7 @@ func (x *ConfigurationData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigurationData.ProtoReflect.Descriptor instead.
 func (*ConfigurationData) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{1}
+	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ConfigurationData) GetKind() string {
@@ -166,7 +432,7 @@ type ConfigurationInformation struct {
 
 func (x *ConfigurationInformation) Reset() {
 	*x = ConfigurationInformation{}
-	mi := &file_codefly_base_v0_configuration_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -178,7 +444,7 @@ func (x *ConfigurationInformation) String() string {
 func (*ConfigurationInformation) ProtoMessage() {}
 
 func (x *ConfigurationInformation) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_configuration_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -191,7 +457,7 @@ func (x *ConfigurationInformation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigurationInformation.ProtoReflect.Descriptor instead.
 func (*ConfigurationInformation) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{2}
+	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ConfigurationInformation) GetName() string {
@@ -233,7 +499,7 @@ type Configuration struct {
 
 func (x *Configuration) Reset() {
 	*x = Configuration{}
-	mi := &file_codefly_base_v0_configuration_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -245,7 +511,7 @@ func (x *Configuration) String() string {
 func (*Configuration) ProtoMessage() {}
 
 func (x *Configuration) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_configuration_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_configuration_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -258,7 +524,7 @@ func (x *Configuration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Configuration.ProtoReflect.Descriptor instead.
 func (*Configuration) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{3}
+	return file_codefly_base_v0_configuration_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Configuration) GetOrigin() string {
@@ -286,11 +552,22 @@ var File_codefly_base_v0_configuration_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_configuration_proto_rawDesc = "" +
 	"\n" +
-	"#codefly/base/v0/configuration.proto\x12\x0fcodefly.base.v0\x1a\x1bcodefly/base/v0/scope.proto\"T\n" +
+	"#codefly/base/v0/configuration.proto\x12\x0fcodefly.base.v0\x1a\x1bcodefly/base/v0/scope.proto\"\x9d\x01\n" +
 	"\x12ConfigurationValue\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\x12\x16\n" +
-	"\x06secret\x18\x03 \x01(\bR\x06secret\"Y\n" +
+	"\x06secret\x18\x03 \x01(\bR\x06secret\x12G\n" +
+	"\btemplate\x18\x04 \x01(\v2+.codefly.base.v0.ConfigurationValueTemplateR\btemplate\"l\n" +
+	"\x1aConfigurationValueTemplate\x12N\n" +
+	"\bsegments\x18\x01 \x03(\v22.codefly.base.v0.ConfigurationValueTemplateSegmentR\bsegments\"\x98\x01\n" +
+	"!ConfigurationValueTemplateSegment\x12\x1a\n" +
+	"\aliteral\x18\x01 \x01(\tH\x00R\aliteral\x12L\n" +
+	"\treference\x18\x02 \x01(\v2,.codefly.base.v0.ConfigurationValueReferenceH\x00R\treferenceB\t\n" +
+	"\acontent\"\x98\x01\n" +
+	"\x1bConfigurationValueReference\x12$\n" +
+	"\rconfiguration\x18\x01 \x01(\tR\rconfiguration\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12A\n" +
+	"\x06escape\x18\x03 \x01(\x0e2).codefly.base.v0.ConfigurationValueEscapeR\x06escape\"Y\n" +
 	"\x11ConfigurationData\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12\x16\n" +
@@ -302,7 +579,10 @@ const file_codefly_base_v0_configuration_proto_rawDesc = "" +
 	"\rConfiguration\x12\x16\n" +
 	"\x06origin\x18\x01 \x01(\tR\x06origin\x12H\n" +
 	"\x0fruntime_context\x18\x02 \x01(\v2\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12?\n" +
-	"\x05infos\x18\x03 \x03(\v2).codefly.base.v0.ConfigurationInformationR\x05infosB\xc1\x01\n" +
+	"\x05infos\x18\x03 \x03(\v2).codefly.base.v0.ConfigurationInformationR\x05infos*l\n" +
+	"\x18ConfigurationValueEscape\x12#\n" +
+	"\x1fCONFIGURATION_VALUE_ESCAPE_NONE\x10\x00\x12+\n" +
+	"'CONFIGURATION_VALUE_ESCAPE_URL_USERINFO\x10\x01B\xc1\x01\n" +
 	"\x13com.codefly.base.v0B\x12ConfigurationProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (
@@ -317,24 +597,33 @@ func file_codefly_base_v0_configuration_proto_rawDescGZIP() []byte {
 	return file_codefly_base_v0_configuration_proto_rawDescData
 }
 
-var file_codefly_base_v0_configuration_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_codefly_base_v0_configuration_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_codefly_base_v0_configuration_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_codefly_base_v0_configuration_proto_goTypes = []any{
-	(*ConfigurationValue)(nil),       // 0: codefly.base.v0.ConfigurationValue
-	(*ConfigurationData)(nil),        // 1: codefly.base.v0.ConfigurationData
-	(*ConfigurationInformation)(nil), // 2: codefly.base.v0.ConfigurationInformation
-	(*Configuration)(nil),            // 3: codefly.base.v0.Configuration
-	(*RuntimeContext)(nil),           // 4: codefly.base.v0.RuntimeContext
+	(ConfigurationValueEscape)(0),             // 0: codefly.base.v0.ConfigurationValueEscape
+	(*ConfigurationValue)(nil),                // 1: codefly.base.v0.ConfigurationValue
+	(*ConfigurationValueTemplate)(nil),        // 2: codefly.base.v0.ConfigurationValueTemplate
+	(*ConfigurationValueTemplateSegment)(nil), // 3: codefly.base.v0.ConfigurationValueTemplateSegment
+	(*ConfigurationValueReference)(nil),       // 4: codefly.base.v0.ConfigurationValueReference
+	(*ConfigurationData)(nil),                 // 5: codefly.base.v0.ConfigurationData
+	(*ConfigurationInformation)(nil),          // 6: codefly.base.v0.ConfigurationInformation
+	(*Configuration)(nil),                     // 7: codefly.base.v0.Configuration
+	(*RuntimeContext)(nil),                    // 8: codefly.base.v0.RuntimeContext
 }
 var file_codefly_base_v0_configuration_proto_depIdxs = []int32{
-	0, // 0: codefly.base.v0.ConfigurationInformation.configuration_values:type_name -> codefly.base.v0.ConfigurationValue
-	1, // 1: codefly.base.v0.ConfigurationInformation.data:type_name -> codefly.base.v0.ConfigurationData
-	4, // 2: codefly.base.v0.Configuration.runtime_context:type_name -> codefly.base.v0.RuntimeContext
-	2, // 3: codefly.base.v0.Configuration.infos:type_name -> codefly.base.v0.ConfigurationInformation
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	2, // 0: codefly.base.v0.ConfigurationValue.template:type_name -> codefly.base.v0.ConfigurationValueTemplate
+	3, // 1: codefly.base.v0.ConfigurationValueTemplate.segments:type_name -> codefly.base.v0.ConfigurationValueTemplateSegment
+	4, // 2: codefly.base.v0.ConfigurationValueTemplateSegment.reference:type_name -> codefly.base.v0.ConfigurationValueReference
+	0, // 3: codefly.base.v0.ConfigurationValueReference.escape:type_name -> codefly.base.v0.ConfigurationValueEscape
+	1, // 4: codefly.base.v0.ConfigurationInformation.configuration_values:type_name -> codefly.base.v0.ConfigurationValue
+	5, // 5: codefly.base.v0.ConfigurationInformation.data:type_name -> codefly.base.v0.ConfigurationData
+	8, // 6: codefly.base.v0.Configuration.runtime_context:type_name -> codefly.base.v0.RuntimeContext
+	6, // 7: codefly.base.v0.Configuration.infos:type_name -> codefly.base.v0.ConfigurationInformation
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_configuration_proto_init() }
@@ -343,18 +632,23 @@ func file_codefly_base_v0_configuration_proto_init() {
 		return
 	}
 	file_codefly_base_v0_scope_proto_init()
+	file_codefly_base_v0_configuration_proto_msgTypes[2].OneofWrappers = []any{
+		(*ConfigurationValueTemplateSegment_Literal)(nil),
+		(*ConfigurationValueTemplateSegment_Reference)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_configuration_proto_rawDesc), len(file_codefly_base_v0_configuration_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   4,
+			NumEnums:      1,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_codefly_base_v0_configuration_proto_goTypes,
 		DependencyIndexes: file_codefly_base_v0_configuration_proto_depIdxs,
+		EnumInfos:         file_codefly_base_v0_configuration_proto_enumTypes,
 		MessageInfos:      file_codefly_base_v0_configuration_proto_msgTypes,
 	}.Build()
 	File_codefly_base_v0_configuration_proto = out.File
