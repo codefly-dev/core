@@ -63,8 +63,10 @@ func (g *DAG) AddNode(u string) *WrappedNode {
 	}
 }
 
-// reaches reports whether a path of edges leads from u to v.
-func (g *DAG) reaches(u, v string) bool {
+// reachesInStage reports whether a path of edges constraining stage leads from
+// u to v. An edge that orders nothing in the stage (`kind: external`) cannot
+// close a cycle in it.
+func (g *DAG) reachesInStage(u, v string, stage resources.Stage) bool {
 	seen := map[string]bool{}
 	stack := []string{u}
 	for len(stack) > 0 {
@@ -77,7 +79,25 @@ func (g *DAG) reaches(u, v string) bool {
 			continue
 		}
 		seen[n] = true
-		stack = append(stack, g.edges[n]...)
+		for _, next := range g.edges[n] {
+			if g.edgeConstrains(n, next, stage) {
+				stack = append(stack, next)
+			}
+		}
+	}
+	return false
+}
+
+// edgeConstrains reports whether an edge from u to v exists and orders stage.
+// An edge carrying only `kind: external` exists but orders no stage.
+func (g *DAG) edgeConstrains(u, v string, stage resources.Stage) bool {
+	if !g.HasEdge(u, v) {
+		return false
+	}
+	for _, kind := range g.edgeKindsOrLegacy(Edge{From: u, To: v}) {
+		if kind.Participates(stage) {
+			return true
+		}
 	}
 	return false
 }

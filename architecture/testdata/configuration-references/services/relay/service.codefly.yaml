@@ -1,0 +1,18 @@
+kind: service
+name: relay
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.1
+    publisher: codefly.ai
+workspace-configuration-dependencies:
+    - platform
+# relay names host as an external dependency (for configuration only: codefly
+# never starts or orders an external edge), and reaches it through the
+# `platform` group the composition root writes.
+service-dependencies:
+    - name: host
+      kind: external
+      endpoints:
+        - name: grpc

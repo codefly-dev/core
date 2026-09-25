@@ -2,8 +2,10 @@ name: codefly-config-refs
 layout: flat
 # worker reaches host only through a workspace configuration group the
 # composition root writes (`platform`); gateway depends on worker and declares a
-# group referencing it back, which must not close a cycle.
+# group referencing it back, which must not close a cycle. relay declares host
+# as an external dependency and reaches it through the same group.
 services:
     - name: host
     - name: worker
     - name: gateway
+    - name: relay

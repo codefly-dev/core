@@ -88,8 +88,13 @@ func ExcludeServices(services ...string) DependencyOption {
 // from the producer to every service declaring the group, so a run includes,
 // starts and orders the producer as for a declared dependency. A service's own
 // endpoint, an excluded producer, and an edge that would close a cycle are
-// skipped; a declared dependency is never duplicated. producersByGroup maps a
-// group to the <module>/<service> uniques it references.
+// skipped; a declared dependency that already orders the run is never
+// duplicated. A declaration that orders nothing — `kind: external`, which names
+// the producer for configuration but never starts or waits for it — does not
+// stand in for the reference: the root's reference binds a producer of this
+// workspace, so the edge gains the runtime kind and the producer is started
+// first. producersByGroup maps a group to the <module>/<service> uniques it
+// references.
 func WithConfigurationReferences(producersByGroup map[string][]string) DependencyOption {
 	return func(opt *DependencyOptions) error {
 		opt.ConfigurationProducers = producersByGroup
@@ -434,10 +439,10 @@ func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context
 				if producer == consumer || d.options.ExcludeService[producer] {
 					continue
 				}
-				if _, inWorkspace := d.uniqueToService[producer]; !inWorkspace || graph.HasEdge(producer, consumer) {
+				if _, inWorkspace := d.uniqueToService[producer]; !inWorkspace || graph.edgeConstrains(producer, consumer, resources.StageRun) {
 					continue
 				}
-				if graph.reaches(consumer, producer) {
+				if graph.reachesInStage(consumer, producer, resources.StageRun) {
 					w.Debug("skipping a configuration reference that would close a cycle",
 						wool.Field("consumer", consumer), wool.Field("producer", producer), wool.Field("group", group))
 					continue

@@ -59,3 +59,35 @@ func TestConfigurationReferencesNeverCloseACycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []architecture.Service{{Unique: worker}}, order)
 }
+
+// A `kind: external` declaration names the producer but orders nothing, so it
+// must not stand in for the reference: relay declares host as external and
+// reaches it through the `platform` group, and the run starts host first. The
+// declaration alone orders nothing, as before.
+func TestConfigurationReferencesOrderAConsumerDeclaringTheProducerExternal(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/configuration-references")
+	require.NoError(t, err)
+	host := shared.Must(workspace.FindUniqueServiceByName(ctx, "host")).MustUnique()
+	relay := shared.Must(workspace.FindUniqueServiceByName(ctx, "relay")).MustUnique()
+
+	plain, err := architecture.NewServiceDependencies(ctx, workspace)
+	require.NoError(t, err)
+	plainRun, err := plain.ForStage(resources.StageRun)
+	require.NoError(t, err)
+	order, err := plainRun.OrderTo(ctx, relay)
+	require.NoError(t, err)
+	require.Empty(t, order, "an external declaration alone never starts or orders the producer")
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace, architecture.WithConfigurationReferences(map[string][]string{
+		"platform": {host},
+	}))
+	require.NoError(t, err)
+	require.NoError(t, dep.VerifyAcyclic(ctx))
+	run, err := dep.ForStage(resources.StageRun)
+	require.NoError(t, err)
+	order, err = run.OrderTo(ctx, relay)
+	require.NoError(t, err)
+	require.Equal(t, []architecture.Service{{Unique: host}}, order,
+		"the referenced producer runs first even though the consumer declares it external")
+}
