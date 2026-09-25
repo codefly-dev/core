@@ -276,16 +276,14 @@ layout: modules
 	require.NoError(t, err)
 	require.Equal(t, "http://localhost:45123/v1/auth/.well-known/jwks.json", nativeURL)
 
-	shared, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
-	require.NoError(t, err)
-	sharedURL, err := resources.GetConfigurationValue(ctx, shared[0], "work-context", "authority-jwks-url")
-	require.NoError(t, err)
-	require.Empty(t, sharedURL, "the shared manager must not keep a consumer's mappings")
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.Error(t, err, "the shared manager must not keep a consumer's mappings")
 }
 
-// A reference to an endpoint outside the consumer's mappings is omitted rather
-// than emitted as a broken URL: the consumer reports the missing key itself.
-func TestManagerOmitsUnknownEndpointReference(t *testing.T) {
+// A reference to an endpoint outside the consumer's mappings fails loudly,
+// naming the configuration, the key and the producer: it is neither emitted as
+// a broken URL nor silently omitted.
+func TestManagerFailsOnUnknownEndpointReference(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 
@@ -316,12 +314,10 @@ layout: modules
 
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
-	confs, err := manager.GetWorkspaceConfigurations(ctx)
-	require.NoError(t, err)
-	require.Len(t, confs, 1)
-	value, err := resources.GetConfigurationValue(ctx, confs[0], "work-context", "authority-jwks-url")
-	require.NoError(t, err)
-	require.Empty(t, value, "the unresolvable value must be absent, not a broken URL")
+	_, err = manager.GetWorkspaceConfigurations(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "work-context/authority-jwks-url")
+	require.Contains(t, err.Error(), "producer saas-starter/auth-sidecar")
 }
 
 // The composition root provides a workspace configuration that a composed

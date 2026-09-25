@@ -159,35 +159,37 @@ func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T
 		"an information block that started with no values must not be dropped by the strict path")
 }
 
-// A group a consumer selects commonly serves several consumers, each reading some
-// of its keys. A value referencing an endpoint the consumer does not depend on —
-// its service absent from the mapping set, or present under a different endpoint
-// — is omitted for that consumer, and the group keeps its other values.
-func TestInterpolateConfigurationEndpointsOmitsEndpointsTheConsumerDoesNotDependOn(t *testing.T) {
+// A group the consumer selected by name is strict: a value referencing an
+// endpoint absent from the consumer's mappings — its service absent, or present
+// under a different endpoint — fails, naming the configuration, the key, the
+// reference and its producer. It is never silently omitted: the consumer would
+// only report "not configured" later, far from the cause.
+func TestInterpolateConfigurationEndpointsFailsOnAnEndpointAbsentFromTheConsumerMappings(t *testing.T) {
 	ctx := context.Background()
-	conf := &basev0.Configuration{
-		Origin: resources.ConfigurationWorkspace,
-		Infos: []*basev0.ConfigurationInformation{
-			{
-				Name: "platform",
-				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "other-endpoint", Value: "${endpoint:saas-starter/auth-sidecar/grpc}"},
-					{Key: "absent-service", Value: "${endpoint:saas/frontend/http}"},
-					{Key: "gateway", Value: "${endpoint:saas-starter/auth-sidecar/http}"},
-				},
-			},
-		},
+	for _, tc := range []struct {
+		key, reference, producer string
+	}{
+		{key: "other-endpoint", reference: "saas-starter/auth-sidecar/grpc", producer: "saas-starter/auth-sidecar"},
+		{key: "absent-service", reference: "saas/frontend/http", producer: "saas/frontend"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			conf := &basev0.Configuration{
+				Origin: resources.ConfigurationWorkspace,
+				Infos: []*basev0.ConfigurationInformation{{
+					Name: "platform",
+					ConfigurationValues: []*basev0.ConfigurationValue{
+						{Key: "gateway", Value: "${endpoint:saas-starter/auth-sidecar/http}"},
+						{Key: tc.key, Value: "${endpoint:" + tc.reference + "}"},
+					},
+				}},
+			}
+			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "platform/"+tc.key)
+			assert.Contains(t, err.Error(), "${endpoint:"+tc.reference+"}")
+			assert.Contains(t, err.Error(), "producer "+tc.producer)
+		})
 	}
-	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
-	require.NoError(t, err)
-	require.Len(t, resolved.Infos, 1)
-	require.Len(t, resolved.Infos[0].ConfigurationValues, 1)
-	assert.Equal(t, "gateway", resolved.Infos[0].ConfigurationValues[0].Key)
-
-	none, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
-	require.NoError(t, err)
-	require.Len(t, none.Infos, 1, "the group stays selected when none of its values is for this consumer")
-	assert.Empty(t, none.Infos[0].ConfigurationValues)
 }
 
 // Omission is only for endpoints the consumer does not depend on. A reference

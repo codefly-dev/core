@@ -47,7 +47,8 @@ func addressAuthority(address string) (string, error) {
 }
 
 // errEndpointNotAvailable marks a well-formed reference to an endpoint absent
-// from the consumer's mappings: the consumer does not depend on it.
+// from the consumer's mappings. The run-wide path drops such a value for the
+// consumer; the strict path fails on it.
 var errEndpointNotAvailable = errors.New("endpoint not available to this consumer")
 
 // EndpointReferences returns the <module>/<service>/<endpoint> references value
@@ -101,12 +102,14 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 // resolved clone is returned and conf is left untouched; otherwise conf itself is
 // returned unchanged.
 //
-// This is the variant for a configuration the consumer selected by name. One
-// group commonly serves several consumers that each read some of its keys, so a
-// value referencing an endpoint the consumer does not depend on is omitted for
-// it, and the consumer reports the missing key itself if it reads it. Every
-// other failure is a hard error: a malformed reference, or an endpoint the
-// consumer depends on with no instance for its access. For a configuration
+// This is the variant for a configuration the consumer selected by name, and it
+// is strict: every reference must resolve, and one that does not is an error
+// naming the configuration, the key, the reference and its producer. A value is
+// never silently omitted here: a consumer that declared the group reads its
+// keys, and a missing key surfaces only later, far from its cause, as "not
+// configured". The caller hands mappings covering every producer the group
+// references, not only the consumer's declared dependencies (a composition root
+// binds producers the consuming module cannot name). For a configuration
 // injected run-wide into services that never declared it, use
 // InterpolateRunWideConfigurationEndpoints.
 func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (*basev0.Configuration, error) {
@@ -143,14 +146,7 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 				// In the run-wide path, a value the consumer cannot satisfy is
 				// simply not for it: drop the value (and, below, an information
 				// left with no values) rather than fail the service. The strict
-				// path propagates the error.
-				if !dropUnresolved && errors.Is(err, errEndpointNotAvailable) {
-					w.Debug("omitting configuration value: its endpoint is not a dependency of this consumer",
-						wool.Field("configuration", info.Name),
-						wool.Field("key", value.Key),
-						wool.Field("reason", err.Error()))
-					continue
-				}
+				// path propagates the error, naming the key.
 				if dropUnresolved {
 					// The drop is expected in the common case — a run-wide value
 					// is interpolated for every service and only those depending
@@ -236,7 +232,8 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 	if matchedButNoAccess {
 		return nil, w.NewError("endpoint reference ${endpoint:%s} matched but has no instance for access=%s; available: %v", reference, accessKind(access), available)
 	}
-	return nil, fmt.Errorf("endpoint reference ${endpoint:%s} not found (access=%s); available endpoints: %v: %w", reference, accessKind(access), available, errEndpointNotAvailable)
+	return nil, fmt.Errorf("endpoint reference ${endpoint:%s} not found for this consumer (access=%s): producer %s/%s is not part of the run or does not publish that endpoint; available endpoints: %v: %w",
+		reference, accessKind(access), info.Module, info.Service, available, errEndpointNotAvailable)
 }
 
 func accessKind(access *basev0.NetworkAccess) string {
