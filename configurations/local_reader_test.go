@@ -1369,3 +1369,34 @@ func TestEndpointProducersNamesEachGroupsProducersOnce(t *testing.T) {
 		map[string][]string{"platform": {"saas/accounts", "saas/auth-gateway"}},
 		configurations.EndpointProducers(infos))
 }
+
+// A comment is a comment in every env file, including one that contains an
+// "=": it must never become a configuration key.
+func TestEnvFileCommentsNeverBecomeKeys(t *testing.T) {
+	dir := t.TempDir()
+	content := "# The store is plaintext (sslmode=disable) behind the mesh\n" +
+		"  # indented=comment\n" +
+		"\n" +
+		"KEY=value\r\n" +
+		"OTHER=a=b\n"
+	if err := os.WriteFile(filepath.Join(dir, "group.env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	infos, err := configurations.LoadConfigurationInformationsFromFiles(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("want one configuration, got %d", len(infos))
+	}
+	got := map[string]string{}
+	for _, value := range infos[0].ConfigurationValues {
+		got[value.Key] = value.Value
+	}
+	if len(got) != 2 || got["OTHER"] != "a=b" {
+		t.Fatalf("comments or blank lines became keys, or a value lost its '=': %q", got)
+	}
+	if _, ok := got["KEY"]; !ok {
+		t.Fatalf("KEY missing: %q", got)
+	}
+}
