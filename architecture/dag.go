@@ -63,8 +63,10 @@ func (g *DAG) AddNode(u string) *WrappedNode {
 	}
 }
 
-// reaches reports whether a path of edges leads from u to v.
-func (g *DAG) reaches(u, v string) bool {
+// reachesInStage reports whether a path of edges constraining stage leads from
+// u to v. An edge that orders nothing in the stage (`kind: external`) cannot
+// close a cycle in it.
+func (g *DAG) reachesInStage(u, v string, stage resources.Stage) bool {
 	seen := map[string]bool{}
 	stack := []string{u}
 	for len(stack) > 0 {
@@ -77,7 +79,32 @@ func (g *DAG) reaches(u, v string) bool {
 			continue
 		}
 		seen[n] = true
-		stack = append(stack, g.edges[n]...)
+		for _, next := range g.edges[n] {
+			// The edge is known to exist: it came out of g.edges[n], so only its
+			// kinds are in question.
+			if g.kindsConstrain(Edge{From: n, To: next}, stage) {
+				stack = append(stack, next)
+			}
+		}
+	}
+	return false
+}
+
+// edgeConstrains reports whether an edge from u to v exists and orders stage.
+// An edge carrying only `kind: external` exists but orders no stage.
+func (g *DAG) edgeConstrains(u, v string, stage resources.Stage) bool {
+	if !g.HasEdge(u, v) {
+		return false
+	}
+	return g.kindsConstrain(Edge{From: u, To: v}, stage)
+}
+
+// kindsConstrain reports whether any kind an existing edge carries orders stage.
+func (g *DAG) kindsConstrain(edge Edge, stage resources.Stage) bool {
+	for _, kind := range g.edgeKindsOrLegacy(edge) {
+		if kind.Participates(stage) {
+			return true
+		}
 	}
 	return false
 }
@@ -102,6 +129,19 @@ func (g *DAG) AddKindedEdge(u, v string, kind resources.DependencyKind) {
 	edge := Edge{From: u, To: v}
 	if !slices.Contains(g.edgeKinds[edge], kind) {
 		g.edgeKinds[edge] = append(g.edgeKinds[edge], kind)
+	}
+}
+
+// dropEdgeKind removes one kind from an edge, leaving the edge itself in place.
+// It is how a kind that has been superseded stops describing the edge: keeping
+// `external` on an edge that now orders the run would leave the pair carrying two
+// kinds that contradict each other, and every reader of EdgeKinds — the graph
+// vocabulary included — having to guess which one wins.
+func (g *DAG) dropEdgeKind(u, v string, kind resources.DependencyKind) {
+	edge := Edge{From: u, To: v}
+	kinds := g.edgeKinds[edge]
+	if index := slices.Index(kinds, kind); index >= 0 {
+		g.edgeKinds[edge] = slices.Delete(kinds, index, index+1)
 	}
 }
 

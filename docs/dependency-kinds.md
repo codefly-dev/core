@@ -17,7 +17,7 @@ Declaring a `kind` says which execution stage the edge constrains.
 | `schema` | The producer's declared API contract is read at build time | build | nothing |
 | `runtime` | A consumed endpoint | run | consumed endpoint health |
 | `completion` | One-shot work (a migration, a seed job) must finish | run | completed run |
-| `external` | A capability provided outside the workspace | none | nothing |
+| `external` | A capability provided outside the workspace | none | nothing (unless a workspace configuration reference binds the pair — see below) |
 
 ## Stages and phases are different things
 
@@ -54,6 +54,26 @@ under any other kind — it stays a service in the graph and runs whenever that
 other consumer runs; the external declaration only means the declaring service
 does not pull it in or wait for it. The order services are listed in never
 changes this.
+
+### The one thing that does change it
+
+A composition root can bind the same two services itself, by writing an
+`${endpoint:<module>/<service>/<endpoint>}` reference into a workspace
+configuration group the consumer declares (`workspace-configuration-dependencies`).
+That reference is not documentation: it resolves to the producer's address and is
+injected into the consumer's environment, so the producer has to be running for
+the value to mean anything. When a run is built with those references
+(`architecture.WithConfigurationReferences`), such an edge is a runtime edge: the
+producer is included in the run, started before the consumer, and waited for on
+the endpoint the reference names — the consumer's own `external` declaration of
+the same pair is superseded, and the run logs that it was.
+
+The declaration still decides everything the root did not bind: a producer no
+group of the consumer references is pulled in and waited for by nobody, exactly
+as above. Declaring `external` a producer the composition root binds anyway is
+worth rewriting as `kind: runtime`, which says the same thing in the consumer's
+own manifest — the override exists so a composition that did not is still
+correct, not as a second way to spell it.
 
 ## Cycles are a per-stage property
 

@@ -1356,16 +1356,21 @@ func TestEnvironmentProfileChainValidation(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestEndpointProducersNamesEachGroupsProducersOnce(t *testing.T) {
+// Each reference is named once per group, WITH the endpoint it names: two
+// endpoints of one producer are two references, because they are two things the
+// consumer waits for, and the same reference written twice is one.
+func TestEndpointProducersNamesEachGroupsReferencesOnce(t *testing.T) {
 	infos := []*basev0.ConfigurationInformation{
 		{Name: "platform", ConfigurationValues: []*basev0.ConfigurationValue{
 			{Key: "accounts-endpoint", Value: "${endpoint:saas/accounts/rest|authority}"},
 			{Key: "accounts-internal-endpoint", Value: "${endpoint:saas/accounts/rest|authority}"},
+			{Key: "accounts-rpc", Value: "${endpoint:saas/accounts/grpc}"},
 			{Key: "gateway-endpoint", Value: "${endpoint:saas/auth-gateway/rest}"},
+			{Key: "no-service", Value: "${endpoint:saas}"},
 		}},
 		{Name: "legal", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "URL", Value: "https://example.com"}}},
 	}
 	require.Equal(t,
-		map[string][]string{"platform": {"saas/accounts", "saas/auth-gateway"}},
+		map[string][]string{"platform": {"saas/accounts/rest", "saas/accounts/grpc", "saas/auth-gateway/rest"}},
 		configurations.EndpointProducers(infos))
 }

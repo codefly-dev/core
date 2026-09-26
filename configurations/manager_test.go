@@ -276,6 +276,11 @@ layout: modules
 	require.NoError(t, err)
 	require.Equal(t, "http://localhost:45123/v1/auth/.well-known/jwks.json", nativeURL)
 
+	// The shared manager holds no consumer's mappings, so the reference resolves
+	// to neither consumer's address. Asserted on the value rather than on an
+	// error: with no run producers declared, an unresolvable reference is dropped
+	// for the reader, and a leaked mapping would show up here as one of the two
+	// addresses above.
 	shared, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
 	require.NoError(t, err)
 	sharedURL, err := resources.GetConfigurationValue(ctx, shared[0], "work-context", "authority-jwks-url")
@@ -283,9 +288,10 @@ layout: modules
 	require.Empty(t, sharedURL, "the shared manager must not keep a consumer's mappings")
 }
 
-// A reference to an endpoint outside the consumer's mappings is omitted rather
-// than emitted as a broken URL: the consumer reports the missing key itself.
-func TestManagerOmitsUnknownEndpointReference(t *testing.T) {
+// A reference to an endpoint outside the consumer's mappings, whose producer the
+// run contains, fails loudly, naming the configuration, the key and the
+// producer: it is neither emitted as a broken URL nor silently omitted.
+func TestManagerFailsOnUnknownEndpointReference(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 
@@ -314,14 +320,52 @@ layout: modules
 	require.NoError(t, err)
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 
+	manager.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	_, err = manager.GetWorkspaceConfigurations(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "work-context/authority-jwks-url")
+	require.Contains(t, err.Error(), "producer saas-starter/auth-sidecar")
+}
+
+// The same reference, when the run does not contain the producer, must not stop
+// the run: a run that excludes optional infrastructure, or starts one service
+// rather than the whole workspace, cannot resolve it and never will. The value is
+// dropped for the consumer, which reports the missing key itself if it reads it.
+func TestManagerDropsAnEndpointReferenceToAProducerOutsideTheRun(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/grpc}/v1/auth/.well-known/jwks.json"+"\n"+
+			"static=keep-me"+"\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader).
+		WithNetworkMappings(nil, resources.NewNativeNetworkAccess()).
+		WithRunProducers(func(string) bool { return false })
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
 	confs, err := manager.GetWorkspaceConfigurations(ctx)
 	require.NoError(t, err)
 	require.Len(t, confs, 1)
-	value, err := resources.GetConfigurationValue(ctx, confs[0], "work-context", "authority-jwks-url")
+	value, err := resources.GetConfigurationValue(ctx, confs[0], "work-context", "static")
 	require.NoError(t, err)
-	require.Empty(t, value, "the unresolvable value must be absent, not a broken URL")
+	require.Equal(t, "keep-me", value, "the keys the consumer reads survive")
+	dropped, err := resources.GetConfigurationValue(ctx, confs[0], "work-context", "authority-jwks-url")
+	require.NoError(t, err)
+	require.Empty(t, dropped)
 }
 
 // The composition root provides a workspace configuration that a composed
