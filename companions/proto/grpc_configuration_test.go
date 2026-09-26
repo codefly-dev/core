@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -167,5 +168,90 @@ func TestTypeScriptDescriptorSetKeepsImportsOut(t *testing.T) {
 	}
 	if strings.Contains(string(configuration), "include_imports: true") {
 		t.Error("the descriptor-set path asks for the imports it was handed already marked")
+	}
+}
+
+// pluginOptions returns the `opt:` value of one plugin's block in a rendered
+// buf.gen.yaml. Assertions name the plugin they are about rather than counting
+// the file's `opt:` lines, so adding a plugin to a template does not fail a test
+// that has nothing to say about it.
+func pluginOptions(t *testing.T, configuration, plugin string) string {
+	t.Helper()
+	_, block, found := strings.Cut(configuration, "- local: "+plugin+"\n")
+	if !found {
+		t.Fatalf("the template does not run %s:\n%s", plugin, configuration)
+	}
+	// A plugin's block ends where the next entry in the sequence begins.
+	if next, _, more := strings.Cut(block, "\n  - "); more {
+		block = next
+	}
+	for _, line := range strings.Split(block, "\n") {
+		if opt, ok := strings.CutPrefix(strings.TrimSpace(line), "opt:"); ok {
+			return strings.TrimSpace(opt)
+		}
+	}
+	t.Fatalf("%s carries no opt: line:\n%s", plugin, block)
+	return ""
+}
+
+// TestTypeScriptClientImportsCarryTheJsExtension pins the extension on the
+// specifier, for every plugin that emits one and on both paths through the
+// template.
+//
+// protoplugin defaults import_extension to none, so without it the bindings and
+// the facade import each other with no extension. That resolves under tsc and
+// under a bundler and nowhere else: Node's ESM loader throws
+// ERR_MODULE_NOT_FOUND on the first relative import, and so does vitest run
+// outside a bundle. TypeScript maps `.js` back to the `.ts` source in every
+// moduleResolution mode, so the suffix costs the bundler consumers nothing.
+//
+// Both paths are asserted because the bindings are the larger half. GenerateGRPC
+// renders this same template with Facade false, and bindings in a multi-file
+// proto package import each other relatively whether a facade exists or not — so
+// guarding the option behind `{{ if .Facade }}` would break every non-facade
+// consumer while a facade-only test stayed green.
+//
+// This asserts the rendered configuration. The generated specifiers themselves
+// are asserted by the tsc pass in facade_test.go, which typechecks the tree as
+// an ESM package under nodenext — the only mode that diagnoses a missing
+// extension.
+func TestTypeScriptClientImportsCarryTheJsExtension(t *testing.T) {
+	extension := regexp.MustCompile(`(^|,)import_extension=js(,|$)`)
+	for _, test := range []struct {
+		name    string
+		facade  FacadeOptions
+		plugins []string
+	}{
+		{"bindings only", FacadeOptions{}, []string{"protoc-gen-es"}},
+		{
+			"bindings and facade",
+			FacadeOptions{Facade: true, Services: []string{"AuditService"}, Module: "accounts"},
+			[]string{"protoc-gen-es", "protoc-gen-codefly-facade-ts"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := CreateBufConfiguration(context.Background(), dir, "accounts", languages.TYPESCRIPT, test.facade); err != nil {
+				t.Fatalf("CreateBufConfiguration: %v", err)
+			}
+			configuration, err := os.ReadFile(filepath.Join(dir, "buf.gen.yaml"))
+			if err != nil {
+				t.Fatalf("read generated buf config: %v", err)
+			}
+			for _, plugin := range test.plugins {
+				if opt := pluginOptions(t, string(configuration), plugin); !extension.MatchString(opt) {
+					t.Errorf("%s options %q put no extension on relative imports, so every Node-ESM consumer fails on its first import", plugin, opt)
+				}
+			}
+			if !test.facade.Facade {
+				return
+			}
+			// The extension is appended to the facade's own options, so a
+			// mistake there drops them instead.
+			opt := pluginOptions(t, string(configuration), "protoc-gen-codefly-facade-ts")
+			if !strings.Contains(opt, "services=AuditService") || !strings.Contains(opt, "module=accounts") {
+				t.Errorf("the facade lost its own options: %q", opt)
+			}
+		})
 	}
 }

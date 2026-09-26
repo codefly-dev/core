@@ -39,11 +39,20 @@ re-derive it:
   import paths only — exactly the import-emission behaviour
   [#439](https://github.com/codefly-dev/core/pull/439) and
   [#443](https://github.com/codefly-dev/core/pull/443) fixed and that
-  `grpc_test.go` and `image_test.go` assert on. This is not a dormant option:
-  `module-saas-starter` generates with `import_extension=none` and
-  `cli-frontend` with `import_extension=js`, so the change lands on the paths
-  consumers actually use. Adopting it means re-checking those guards, not just
-  moving numbers.
+  `grpc_test.go` and `image_test.go` assert on. This is not a dormant option;
+  three places set it, and since
+  [#654](https://github.com/codefly-dev/core/pull/654) one of them is this
+  repository:
+
+  | Who | Value | Why it matters here |
+  | --- | --- | --- |
+  | `companions/proto/templates/typescript/buf.gen.yaml.tmpl` | `js` | Core's own template, for both TypeScript plugins. Every `codefly generate client --language typescript` renders it, so this is the widest blast radius of the three. |
+  | `codefly-dev/module-saas-starter` | `none` | Its own buf step generates the bindings, so core's template does not reach them. Its committed tree is the #83 constraint, and it is **still on the extensionless shape that #654 fixed** — see "Known divergence" below. |
+  | `codefly-dev/cli-frontend` | `js` | Agrees with core. Gitignores `/src/gen` and generates from its own `protoc-gen-es`, so it constrains nothing. |
+
+  Adopting 2.14.1 means re-checking those guards, not just moving numbers — and
+  now that core sets the option itself, "re-checking" includes this repository's
+  own `tsc` pass, not only consumers' trees.
 
 Dependabot will keep proposing the single-package bump on its own, because it
 can see `facades/ts/package.json` and none of the other pins — that is exactly
@@ -54,6 +63,37 @@ on `main`**, so the bump will keep being re-proposed until it lands. Note the
 cost when it does: a bare `ignore` suppresses **security** updates for those
 packages too, so a protobuf-es advisory has to be picked up by hand through the
 procedure below.
+
+## Known divergence: `module-saas-starter` bindings are still extensionless
+
+[#654](https://github.com/codefly-dev/core/pull/654) put `import_extension=js`
+on core's template, which fixes the specifiers core emits — the facade's imports
+of the bindings. It does not reach `module-saas-starter`'s **bindings**, because
+that repository generates them from its own buf step, which pins
+`import_extension=none`.
+
+The consequence is one hop deeper than the symptom #654 was opened for. The
+facade now resolves, and then a binding that imports another binding in the same
+package does not: `api_keys_pb.js` importing `./common_pb` throws
+`ERR_MODULE_NOT_FOUND` under Node's ESM loader exactly as the facade used to.
+Measured on #654's branch, flipping that repository's own pin changed 53 files
+and 196 lines, every line a relative specifier gaining `.js` — that count is how
+many cross-file binding imports are still extensionless today.
+
+So a Node-ESM consumer of an SDK built from that starter is still broken after
+#654 ships, and the remaining half belongs to `module-saas-starter`, not here.
+Two things to know before touching it:
+
+- Do not "fix" it from core by generating those bindings through core's
+  template. The starter's own buf step is a deliberate second path; changing
+  which tool owns the bindings is a different decision from changing an option.
+- Flipping that pin rewrites all 103 committed `*_pb.ts`, which is the same
+  tree #83 is about. It is a specifier-only diff for `tsc`, esbuild and Vite,
+  which all substitute `.js` → `.ts`. It is **not** free for webpack without
+  `resolve.extensionAlias` (`{'.js': ['.ts', '.js']}`) or for ts-jest without a
+  `moduleNameMapper` for `^(\.{1,2}/.*)\.js$` — check that repository's bundler
+  and test config before regenerating, or its build goes red on a change that
+  reads as cosmetic.
 
 ## What holds the pin
 
@@ -122,6 +162,15 @@ This is one deliberate pull request, not a find-and-replace.
    given the `import_extension` and `map_imports` changes on the 2.14/2.15
    train — means `grpc_test.go` and `image_test.go` need re-reading, not just
    re-running.
+
+   Core's own template sets `import_extension=js`, so a change to that option's
+   semantics lands on this repository's output too, not only consumers'. Run
+   `go test -tags=proto_companion_required ./companions/proto/` and read the
+   `tsc` helper in `facade_test.go`: it typechecks the generated tree as an ESM
+   package under `nodenext`, which is the only configuration that diagnoses a
+   missing extension. A `bundler`-only pass, or an ESM pass against a
+   package.json with no `"type"`, reports success on an extensionless tree —
+   that is how the bug #654 fixed survived a green suite in the first place.
 6. Bump `companions/proto/info.codefly.yaml` and publish per
    [`publish-companions.md`](publish-companions.md). Merging here publishes
    nothing.
