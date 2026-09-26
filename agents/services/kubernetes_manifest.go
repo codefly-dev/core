@@ -128,6 +128,63 @@ func aggregateManifestDigest(files []*builderv0.KubernetesManifestFile) string {
 // string value, and inside one it is exactly the placeholder to refuse. The
 // closing "}}" is not required, so a truncated action still fails.
 var unresolvedManifestValue = regexp.MustCompile(`\{\{-?\s*[\w.$("/-]|\$\{[^}]+\}|(?i)\b(?:CHANGE_ME|REPLACE_ME)\b`)
+
+// hasUnresolvedManifestValue reports whether content carries a placeholder a
+// renderer left behind, with one structural exception: an ExternalSecret's
+// spec.target.template is not unrendered output. Its actions are what External
+// Secrets evaluates in the cluster, next to the values it fetched, and that is
+// the only shape a restricted render has for a value a producer declared as an
+// assembly. The exception is narrow by construction — the template subtree is
+// removed and everything else is scanned as before — and under the restricted
+// profile it hides nothing, because validateSecretContract separately requires
+// that same subtree to reference only the ExternalSecret's own declared
+// secretKeys. Under every other profile the subtree is unchecked here and needs
+// no check: those profiles carry resolved secret values anyway, so an assembly
+// in an ExternalSecret reveals nothing the render does not already hold.
+// Content this function cannot parse falls back to the byte scan, so a
+// malformed file never buys an exemption.
+func hasUnresolvedManifestValue(content []byte) bool {
+	if !unresolvedManifestValue.Match(content) {
+		return false
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	for {
+		var document map[string]any
+		err := decoder.Decode(&document)
+		if err == io.EOF {
+			return false
+		}
+		if err != nil {
+			return true
+		}
+		stripExternalSecretTargetTemplate(document)
+		remainder, err := yaml.Marshal(document)
+		if err != nil {
+			return true
+		}
+		if unresolvedManifestValue.Match(remainder) {
+			return true
+		}
+	}
+}
+
+// stripExternalSecretTargetTemplate removes the one subtree whose template
+// actions are the delivery mechanism rather than unrendered output.
+func stripExternalSecretTargetTemplate(document map[string]any) {
+	if stringValue(document, "kind") != "ExternalSecret" {
+		return
+	}
+	spec, ok := mapValue(document, "spec")
+	if !ok {
+		return
+	}
+	target, ok := mapValue(spec, "target")
+	if !ok {
+		return
+	}
+	delete(target, "template")
+}
+
 var pinnedImage = regexp.MustCompile(`@sha256:[a-fA-F0-9]{64}$`)
 
 var clusterScopedKinds = map[string]struct{}{
@@ -271,7 +328,7 @@ func buildKustomizeManifest(
 		if readErr != nil {
 			return readErr
 		}
-		if unresolvedManifestValue.Match(content) {
+		if hasUnresolvedManifestValue(content) {
 			relative, relativeErr := filepath.Rel(destination, path)
 			if relativeErr != nil {
 				relative = path
@@ -328,7 +385,7 @@ func buildKustomizeManifest(
 	if err != nil {
 		return nil, []string{fmt.Sprintf("serialize kustomize output: %v", err)}
 	}
-	if unresolvedManifestValue.Match(manifest) {
+	if hasUnresolvedManifestValue(manifest) {
 		return nil, []string{"kustomize output contains an unresolved placeholder"}
 	}
 	return manifest, nil
@@ -458,8 +515,10 @@ func (object *kubernetesManifestObject) validateSecretContract(profile builderv0
 		return []string{fmt.Sprintf("%s may only reference a namespaced SecretStore", ref)}
 	}
 	if target, ok := mapValue(spec, "target"); ok {
-		if _, hasTemplate := target["template"]; hasTemplate {
-			return []string{fmt.Sprintf("%s may not inline target template data", ref)}
+		if template, hasTemplate := target["template"]; hasTemplate {
+			if violations := validateExternalSecretTargetTemplate(ref, spec, template); len(violations) > 0 {
+				return violations
+			}
 		}
 	}
 	if _, hasData := spec["data"]; !hasData {
@@ -468,6 +527,108 @@ func (object *kubernetesManifestObject) validateSecretContract(profile builderv0
 		}
 	}
 	return nil
+}
+
+// externalSecretTemplateFields are the target template fields a restricted
+// render may carry. data holds the assembly; engineVersion and type say how it
+// is evaluated and what Secret it produces. Everything else is refused, in
+// particular templateFrom (which pulls an assembly from a resource this
+// validation never sees) and metadata (whose labels and annotations would carry
+// rendered secret values into a place nothing treats as secret).
+var externalSecretTemplateFields = map[string]struct{}{
+	"data":          {},
+	"engineVersion": {},
+	"type":          {},
+}
+
+// externalSecretTemplateAction matches one {{ ... }} action, and
+// externalSecretTemplateField one .name reference inside it.
+var (
+	externalSecretTemplateAction = regexp.MustCompile(`{{(.*?)}}`)
+	externalSecretTemplateField  = regexp.MustCompile(`\.([A-Za-z_][A-Za-z0-9_]*)`)
+)
+
+// validateExternalSecretTargetTemplate admits a target template that assembles
+// declared remote values and nothing else.
+//
+// A restricted render must carry no secret values, and a flat remoteRef mapping
+// cannot express a value a producer declared as an assembly — a connection
+// string embedding a password. The assembly has to live somewhere, and
+// spec.target.template is where External Secrets evaluates one, next to the
+// values it fetched. Refusing the field outright leaves no shape that can carry
+// a ConfigurationValueTemplate, so the rule is narrowed rather than dropped:
+// every template value must be an assembly over this ExternalSecret's own
+// declared secretKeys, which is exactly what makes it not an inlined secret.
+//
+// dataFrom is refused alongside a template because its keys are whatever the
+// remote holds: with it, no static check can tell an undeclared reference from a
+// declared one, and "the remote happens to have that key" is not a declaration.
+func validateExternalSecretTargetTemplate(ref string, spec map[string]any, template any) []string {
+	fields, ok := template.(map[string]any)
+	if !ok {
+		return []string{fmt.Sprintf("%s target template must be a mapping", ref)}
+	}
+	for field := range fields {
+		if _, allowed := externalSecretTemplateFields[field]; !allowed {
+			return []string{fmt.Sprintf("%s target template may not set %q", ref, field)}
+		}
+	}
+	if _, hasDataFrom := spec["dataFrom"]; hasDataFrom {
+		return []string{fmt.Sprintf("%s may not combine a target template with dataFrom, whose keys no static check can enumerate", ref)}
+	}
+	declared, violations := externalSecretDeclaredKeys(ref, spec)
+	if len(violations) > 0 {
+		return violations
+	}
+	data, ok := mapValue(fields, "data")
+	if !ok || len(data) == 0 {
+		return []string{fmt.Sprintf("%s target template must declare data", ref)}
+	}
+	for key, raw := range data {
+		value, ok := raw.(string)
+		if !ok {
+			return []string{fmt.Sprintf("%s target template data %q must be a string", ref, key)}
+		}
+		actions := externalSecretTemplateAction.FindAllStringSubmatch(value, -1)
+		if len(actions) == 0 {
+			return []string{fmt.Sprintf("%s target template data %q references no declared secret key, so it inlines its value", ref, key)}
+		}
+		referenced := 0
+		for _, action := range actions {
+			for _, field := range externalSecretTemplateField.FindAllStringSubmatch(action[1], -1) {
+				referenced++
+				if _, isDeclared := declared[field[1]]; !isDeclared {
+					return []string{fmt.Sprintf("%s target template data %q references %q, which is not one of its declared secret keys", ref, key, field[1])}
+				}
+			}
+		}
+		if referenced == 0 {
+			return []string{fmt.Sprintf("%s target template data %q references no declared secret key, so it inlines its value", ref, key)}
+		}
+	}
+	return nil
+}
+
+// externalSecretDeclaredKeys collects the secretKeys spec.data declares, which
+// are the only names a target template may reference.
+func externalSecretDeclaredKeys(ref string, spec map[string]any) (map[string]struct{}, []string) {
+	entries, ok := sliceValue(spec, "data")
+	if !ok || len(entries) == 0 {
+		return nil, []string{fmt.Sprintf("%s must declare data entries to back a target template", ref)}
+	}
+	declared := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		mapping, ok := entry.(map[string]any)
+		if !ok {
+			return nil, []string{fmt.Sprintf("%s data entries must be mappings", ref)}
+		}
+		secretKey := stringValue(mapping, "secretKey")
+		if secretKey == "" {
+			return nil, []string{fmt.Sprintf("%s data entry declares no secretKey", ref)}
+		}
+		declared[secretKey] = struct{}{}
+	}
+	return declared, nil
 }
 
 func (object *kubernetesManifestObject) validateConfigMap() []string {

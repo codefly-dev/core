@@ -138,7 +138,7 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 	for _, info := range cloned.Infos {
 		values := info.ConfigurationValues[:0]
 		for _, value := range info.ConfigurationValues {
-			resolved, err := InterpolateEndpoints(ctx, value.Value, mappings, access)
+			resolved, err := interpolateConfigurationValue(ctx, value, mappings, access)
 			if err != nil {
 				// In the run-wide path, a value the consumer cannot satisfy is
 				// simply not for it: drop the value (and, below, an information
@@ -193,9 +193,43 @@ func configurationHasEndpointReference(conf *basev0.Configuration) bool {
 			if endpointInterpolationPattern.MatchString(value.Value) {
 				return true
 			}
+			// A value carrying a template holds its text in the template's
+			// literals, so an ${endpoint:…} a producer wrote there is here and
+			// nowhere else. Reading only value.Value would report no reference
+			// and leave the whole pass skipped, which leaves a producer no way
+			// to write a template except by typing the address the network model
+			// is there to resolve.
+			for _, segment := range value.GetTemplate().GetSegments() {
+				if endpointInterpolationPattern.MatchString(segment.GetLiteral()) {
+					return true
+				}
+			}
 		}
 	}
 	return false
+}
+
+// interpolateConfigurationValue resolves the endpoint references of one
+// configuration value, in its value and in the literals of the template it
+// carries, and returns what value.Value becomes. The template's literals are
+// interpolated in place on the clone the caller already made; a reference that
+// does not resolve fails the whole value, so the caller's drop-or-fail decision
+// applies to a templated value exactly as it does to a plain one — a value
+// assembled from a half-interpolated literal would otherwise reach a workload
+// with "${endpoint:…}" in the middle of a connection string.
+func interpolateConfigurationValue(ctx context.Context, value *basev0.ConfigurationValue, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (string, error) {
+	for _, segment := range value.GetTemplate().GetSegments() {
+		literal, isLiteral := segment.GetContent().(*basev0.ConfigurationValueTemplateSegment_Literal)
+		if !isLiteral {
+			continue
+		}
+		resolved, err := InterpolateEndpoints(ctx, literal.Literal, mappings, access)
+		if err != nil {
+			return "", err
+		}
+		literal.Literal = resolved
+	}
+	return InterpolateEndpoints(ctx, value.Value, mappings, access)
 }
 
 // resolveEndpointReference resolves reference against mappings for access. A

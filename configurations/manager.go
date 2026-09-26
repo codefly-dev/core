@@ -383,7 +383,7 @@ func (manager *Manager) WorkspaceEndpointReferences(deps ...string) []string {
 		}
 		for _, info := range conf.Infos {
 			for _, value := range info.GetConfigurationValues() {
-				for _, reference := range resources.EndpointReferences(value.GetValue()) {
+				for _, reference := range resources.ConfigurationValueEndpointReferences(value) {
 					if !seen[reference] {
 						seen[reference] = true
 						references = append(references, reference)
