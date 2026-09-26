@@ -16,6 +16,15 @@ Fleet standard — [handbook#68](https://github.com/obin-ai/handbook/issues/68).
 These land hard here: core is a *library*, so a defect is observed downstream and
 the temptation is always to absorb it locally rather than fix what owns it.
 
+- **Look for the `codefly` command before doing anything by hand.** The CLI owns
+  the fleet verbs — `codefly agent deps --pin`, `codefly agent release --pin`,
+  `codefly update deps`, `codefly update workspace`, `codefly generate proto` —
+  and each gates what a hand-edit skips: `agent release` runs the agent's CI
+  *before* it tags, so a fleet bump cannot ship an agent that does not build.
+  Read `--help` on the command group first. A bulk edit across repos that no
+  command performed is the signal this step was skipped. See
+  [`.claude/skills/release-core`](.claude/skills/release-core/SKILL.md) for the
+  cascade after a core tag.
 - **A gap in the tooling is a bug in the tooling — never a reason to reach around
   it.** When something needs a step `codefly`, `buf`, or a companion does not
   perform, the answer is a capability fixed in whichever tool owns it, and named

@@ -1,6 +1,6 @@
 ---
 name: release-core
-description: Cut a new version of core, or work out why a consumer rejects the version core reports. Use when asked to release, tag, bump the version, publish core, or when an install fails with "Codefly x.y.z does not satisfy package requirement", or when you are about to create or move a git tag in this repository.
+description: Cut a new version of core and carry it through the fleet, or work out why a consumer rejects the version core reports. Use when asked to release, tag, bump the version, publish core, to update or rebuild the agents, to pin core across the agents or the CLI, when an install fails with "Codefly x.y.z does not satisfy package requirement", or when you are about to create or move a git tag in this repository.
 ---
 
 # Releasing core
@@ -66,6 +66,48 @@ version, using `agents/contract/contract.json`. An unchanged contract requires n
 agent rebuild or fleet repinning. Reproducible dependency pins and explicit
 artifact selections are not runtime compatibility gates. Qualify published
 artifacts without workspace overrides before reporting downstream adoption.
+
+## After the tag: carrying it through the fleet
+
+Nothing here is a hand edit. Every consumer pin has a command that owns it, and
+each one gates something an edit skips — so reach for the verb, not `go get` and
+not a `go.mod` edit across repos.
+
+**One agent, end to end.** `codefly agent release --pin v<version>` is the whole
+cascade in one verb: it pins core, runs that agent's CI **before** anything is
+tagged, bumps the manifest above the authoritative remote tag, opens a release PR
+for a human to merge, then tags the merge commit and verifies the release actually
+published a downloadable asset. Re-running is safe — an open PR is waited on, a
+merged one is tagged, and a tagged release whose asset has not appeared is
+re-verified rather than superseded. `--no-wait` opens the PR and stops.
+
+The CI-before-tag order is the point. A fleet bump that edits `go.mod` by hand
+discovers a broken agent after the tag is published, and a tag cannot be moved
+(see above). Let the gate refuse first.
+
+**Pin without releasing.** `codefly agent deps --pin v<version>` updates every
+lock an agent owns — `go.mod`, nested base fixtures, and their factory templates —
+then tidies and verifies the standalone build. A hand edit reaches `go.mod` and
+silently leaves the fixtures and templates behind. `--all` applies it to every
+agent under a directory tree. `--link` / `--unlink` swap an agent between local
+core source and the published version; CI ignores `go.work`, so it always builds
+against `go.mod`.
+
+**The rest.** `codefly update workspace` moves every workspace service to its
+latest compatible agent. `codefly update deps` updates external dependencies and
+re-audits; it deliberately leaves first-party `codefly-dev` modules to the two
+commands above.
+
+**Order the cascade by what breaks.** A required proto field or any other change
+a producer must fill breaks its producers at *verification*, not at build — so the
+module owning that producer is a gate on the fleet, not a parallel track. Pin it,
+release it, and only then bump the agents that depend on it. Read the release PR's
+own notes for which consumers it names.
+
+**Check where the fleet actually is before bumping it.** Agents drift several
+minor versions behind, so "bump core" is rarely one edit per repo. `codefly agent
+list` shows every agent pinned in the workspace and whether it resolves, and
+`codefly agent versions` shows an agent's versions and their resolvability.
 
 ## Companions are a separate contract
 
