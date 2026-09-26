@@ -30,26 +30,33 @@ const (
 	// encoding. It is never treated as an encoding: a reference carrying it is
 	// rejected, so forgetting the field cannot silently insert a value verbatim.
 	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED ConfigurationValueEscape = 0
-	// CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim. It is the
-	// explicit choice for a value assembled into a context with no delimiters.
-	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE ConfigurationValueEscape = 1
 	// CONFIGURATION_VALUE_ESCAPE_URL_USERINFO percent-encodes every byte except
 	// ASCII letters, digits and "-", ".", "_", "~" (RFC 3986 unreserved), so the
 	// value is safe inside the userinfo, path or query of a URL.
-	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO ConfigurationValueEscape = 2
+	//
+	// It keeps wire value 1, which it held before UNSPECIFIED was introduced.
+	// Renumbering it would make a producer built against the earlier numbering
+	// emit 1 meaning URL_USERINFO while a newer consumer read 1 as NONE, turning
+	// a skew between two released binaries into verbatim insertion of a password
+	// into a URL — the exact failure this enum exists to prevent. NONE moves
+	// instead: the only value whose meaning changes is 0, and 0 is rejected.
+	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO ConfigurationValueEscape = 1
+	// CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim. It is the
+	// explicit choice for a value assembled into a context with no delimiters.
+	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE ConfigurationValueEscape = 2
 )
 
 // Enum value maps for ConfigurationValueEscape.
 var (
 	ConfigurationValueEscape_name = map[int32]string{
 		0: "CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED",
-		1: "CONFIGURATION_VALUE_ESCAPE_NONE",
-		2: "CONFIGURATION_VALUE_ESCAPE_URL_USERINFO",
+		1: "CONFIGURATION_VALUE_ESCAPE_URL_USERINFO",
+		2: "CONFIGURATION_VALUE_ESCAPE_NONE",
 	}
 	ConfigurationValueEscape_value = map[string]int32{
 		"CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED":  0,
-		"CONFIGURATION_VALUE_ESCAPE_NONE":         1,
-		"CONFIGURATION_VALUE_ESCAPE_URL_USERINFO": 2,
+		"CONFIGURATION_VALUE_ESCAPE_URL_USERINFO": 1,
+		"CONFIGURATION_VALUE_ESCAPE_NONE":         2,
 	}
 )
 
@@ -599,9 +606,9 @@ const file_codefly_base_v0_configuration_proto_rawDesc = "" +
 	"\x0fruntime_context\x18\x02 \x01(\v2\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12?\n" +
 	"\x05infos\x18\x03 \x03(\v2).codefly.base.v0.ConfigurationInformationR\x05infos*\x98\x01\n" +
 	"\x18ConfigurationValueEscape\x12*\n" +
-	"&CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED\x10\x00\x12#\n" +
-	"\x1fCONFIGURATION_VALUE_ESCAPE_NONE\x10\x01\x12+\n" +
-	"'CONFIGURATION_VALUE_ESCAPE_URL_USERINFO\x10\x02B\xc1\x01\n" +
+	"&CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED\x10\x00\x12+\n" +
+	"'CONFIGURATION_VALUE_ESCAPE_URL_USERINFO\x10\x01\x12#\n" +
+	"\x1fCONFIGURATION_VALUE_ESCAPE_NONE\x10\x02B\xc1\x01\n" +
 	"\x13com.codefly.base.v0B\x12ConfigurationProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (

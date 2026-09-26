@@ -69,13 +69,20 @@ enum ConfigurationValueEscape {
   // encoding. It is never treated as an encoding: a reference carrying it is
   // rejected, so forgetting the field cannot silently insert a value verbatim.
   CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED = 0;
-  // CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim. It is the
-  // explicit choice for a value assembled into a context with no delimiters.
-  CONFIGURATION_VALUE_ESCAPE_NONE = 1;
   // CONFIGURATION_VALUE_ESCAPE_URL_USERINFO percent-encodes every byte except
   // ASCII letters, digits and "-", ".", "_", "~" (RFC 3986 unreserved), so the
   // value is safe inside the userinfo, path or query of a URL.
-  CONFIGURATION_VALUE_ESCAPE_URL_USERINFO = 2;
+  //
+  // It keeps wire value 1, which it held before UNSPECIFIED was introduced.
+  // Renumbering it would make a producer built against the earlier numbering
+  // emit 1 meaning URL_USERINFO while a newer consumer read 1 as NONE, turning
+  // a skew between two released binaries into verbatim insertion of a password
+  // into a URL — the exact failure this enum exists to prevent. NONE moves
+  // instead: the only value whose meaning changes is 0, and 0 is rejected.
+  CONFIGURATION_VALUE_ESCAPE_URL_USERINFO = 1;
+  // CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim. It is the
+  // explicit choice for a value assembled into a context with no delimiters.
+  CONFIGURATION_VALUE_ESCAPE_NONE = 2;
 }
 
 // ConfigurationData carries a structured configuration blob alongside key/value configuration.

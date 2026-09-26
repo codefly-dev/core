@@ -194,6 +194,9 @@ func TestProducerConfigurationValueLookup(t *testing.T) {
 
 func TestValidateTemplatedConfigurationValue(t *testing.T) {
 	template := &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{templateLiteral("x")}}
+	// Named, never a literal number: an escape's wire value is a cross-binary
+	// contract, and a test that spells it 1 keeps passing while its meaning moves.
+	const validEscape = basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO
 	cases := []struct {
 		name  string
 		value *basev0.ConfigurationValue
@@ -209,7 +212,7 @@ func TestValidateTemplatedConfigurationValue(t *testing.T) {
 			Segments: []*basev0.ConfigurationValueTemplateSegment{{}},
 		}}, false},
 		{"incomplete reference", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "", 1)},
+			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "", validEscape)},
 		}}, false},
 		{"unknown escape", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
 			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY", 99)},
@@ -221,10 +224,10 @@ func TestValidateTemplatedConfigurationValue(t *testing.T) {
 		// case and "-"/"_", never surrounding whitespace, so this validated and
 		// then resolved to nothing.
 		{"padded configuration", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference(" postgres ", "KEY", 1)},
+			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference(" postgres ", "KEY", validEscape)},
 		}}, false},
 		{"padded key", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
-			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY\t", 1)},
+			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY\t", validEscape)},
 		}}, false},
 		// A literal is the template source in any engine a renderer translates
 		// into, so one carrying that engine's delimiters cannot be reproduced.
@@ -239,6 +242,25 @@ func TestValidateTemplatedConfigurationValue(t *testing.T) {
 		err := ValidateTemplatedConfigurationValue(c.value)
 		if (err == nil) != c.ok {
 			t.Errorf("%s: err = %v, want ok=%v", c.name, err, c.ok)
+		}
+	}
+}
+
+// The escape's wire values are a contract between separately released binaries:
+// a producer agent built against one core and a CLI built against another. If
+// URL_USERINFO ever moves off 1, a producer that emits 1 meaning URL_USERINFO is
+// read by a newer consumer as whatever now holds 1 — and if that is NONE, a
+// password is inserted verbatim into a URL, which is the failure this enum
+// exists to prevent. UNSPECIFIED holds 0 so the one value whose meaning changed
+// when it was introduced is rejected rather than reinterpreted.
+func TestEscapeWireValuesAreFixed(t *testing.T) {
+	for escape, want := range map[basev0.ConfigurationValueEscape]int32{
+		basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED:  0,
+		basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO: 1,
+		basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE:         2,
+	} {
+		if int32(escape) != want {
+			t.Errorf("%s has wire value %d, want %d — moving it reinterprets a released producer's declarations", escape, int32(escape), want)
 		}
 	}
 }
