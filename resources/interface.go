@@ -139,7 +139,15 @@ func (r *InterfaceRequirement) Satisfies(id *InterfaceIdentity) bool {
 	if err != nil {
 		return false
 	}
-	return r.constraint.Check(version)
+	// A requirement built as a literal carries its range but no parsed
+	// constraint.
+	constraint := r.constraint
+	if constraint == nil {
+		if constraint, err = semver.NewConstraint(r.Range); err != nil {
+			return false
+		}
+	}
+	return constraint.Check(version)
 }
 
 type interfaceKey struct {
@@ -500,6 +508,11 @@ type interfaceResolverKey struct{}
 // WithInterfaceResolver attaches a resolver to the calls made with ctx.
 func WithInterfaceResolver(ctx context.Context, resolver InterfaceResolver) context.Context {
 	return context.WithValue(ctx, interfaceResolverKey{}, resolver)
+}
+
+func hasInterfaceResolver(ctx context.Context) bool {
+	resolver, _ := ctx.Value(interfaceResolverKey{}).(InterfaceResolver)
+	return resolver != nil
 }
 
 // ResolveInterface returns the definition of identity through the resolver

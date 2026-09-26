@@ -356,6 +356,14 @@ func LoadModuleFromDir(ctx context.Context, dir string) (*Module, error) {
 	if err := mod.ValidateInterface(ctx); err != nil {
 		return nil, w.Wrapf(err, "cannot load module %s: invalid interface", mod.Name)
 	}
+	// With a resolver attached the published definitions are at hand, so a
+	// module that misdeclares what it implements fails here rather than at the
+	// consumer that trusted the declaration.
+	if hasInterfaceResolver(ctx) {
+		if err := mod.ValidateInterfaceConformance(ctx); err != nil {
+			return nil, w.Wrapf(err, "cannot load module %s", mod.Name)
+		}
+	}
 	return mod, nil
 }
 
@@ -570,13 +578,12 @@ func (mod *Module) loadServiceFromReference(ctx context.Context, ref *ServiceRef
 }
 
 // bindInterfaceDependencies resolves the service's interface dependencies
-// against the providers of the workspace that composed this module.
+// against the providers of the workspace that composed this module. A module
+// loaded on its own leaves them unbound: reading its endpoints or exports needs
+// no provider, and every path that uses a dependency refuses an unbound one.
 func (mod *Module) bindInterfaceDependencies(ctx context.Context, service *Service) error {
-	if !service.hasInterfaceDependencies() {
-		return nil
-	}
 	if mod.workspace == nil {
-		return fmt.Errorf("service %s requires an interface, and only the workspace composing module %s can bind it", service.label(), mod.Name)
+		return nil
 	}
 	return mod.workspace.BindInterfaceDependencies(ctx, service)
 }
@@ -745,7 +752,7 @@ func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.E
 // that exports it are not in disagreement.
 func (mod *Module) ValidateInterface(ctx context.Context) error {
 	w := wool.Get(ctx).In("Module::ValidateInterface", wool.ThisField(mod))
-	if !mod.HasInterface() {
+	if mod.Interface == nil {
 		return nil
 	}
 
@@ -907,9 +914,11 @@ func (mod *Module) ValidateProvidedConfiguration(ctx context.Context, service st
 	return nil
 }
 
-// HasInterface returns true if the module has a declared interface
+// HasInterface returns true if the module declares endpoint exports, which
+// makes its interface the module's export boundary. Capability entries do not:
+// they state what a service provides, not which endpoints cross module lines.
 func (mod *Module) HasInterface() bool {
-	return mod.Interface != nil && (len(mod.Interface.Endpoints) > 0 || len(mod.Interface.Capabilities) > 0)
+	return mod.Interface != nil && len(mod.Interface.Endpoints) > 0
 }
 
 // ValidateEndpointVisibility reports whether a service in consumerModule may

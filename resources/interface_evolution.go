@@ -28,9 +28,9 @@ func (e *InterfaceEvolution) Compatible() bool {
 
 // EvolveInterface computes what changed from before to after and rejects a
 // version that under-states it. A breaking change must leave the range a
-// consumer of before requires (^before): a new major, or a new minor below
-// 1.0.0. An additive change must at least bump the minor. Compatibility is
-// computed here, so no author's claim about it is consulted.
+// consumer of before requires (^before). An additive change must not be a
+// patch that stays inside that range. Compatibility is computed here, so no
+// author's claim about it is consulted.
 func EvolveInterface(before, after *Interface) (*InterfaceEvolution, error) {
 	if before.Publisher != after.Publisher || before.Name != after.Name {
 		return nil, fmt.Errorf("cannot compare interface %s with %s: they are different interfaces", before.Identity(), after.Identity())
@@ -51,16 +51,13 @@ func EvolveInterface(before, after *Interface) (*InterfaceEvolution, error) {
 	if !afterVersion.GreaterThan(beforeVersion) {
 		return evolution, fmt.Errorf("interface %s: version %s must be greater than the published %s", evolution.Interface, after.Version, before.Version)
 	}
-	if before.Type != after.Type {
-		evolution.Breaking = append(evolution.Breaking, fmt.Sprintf("type changed from %s to %s", before.Type, after.Type))
-	} else {
-		evolution.Breaking, evolution.Additive = diffInterfaceSurfaces(before.surface(), after.surface())
-	}
+	evolution.Breaking, evolution.Additive = CompareInterfaces(before, after)
+	leaves := leavesCaretRange(beforeVersion, afterVersion)
 	switch {
-	case len(evolution.Breaking) > 0 && !leavesCaretRange(beforeVersion, afterVersion):
+	case len(evolution.Breaking) > 0 && !leaves:
 		return evolution, fmt.Errorf("interface %s: %s is not a breaking version of %s, but the surface breaks: %s",
 			evolution.Interface, after.Version, before.Version, strings.Join(evolution.Breaking, "; "))
-	case len(evolution.Additive) > 0 && afterVersion.Major() == beforeVersion.Major() && afterVersion.Minor() == beforeVersion.Minor():
+	case len(evolution.Additive) > 0 && !leaves && afterVersion.Major() == beforeVersion.Major() && afterVersion.Minor() == beforeVersion.Minor():
 		return evolution, fmt.Errorf("interface %s: %s only bumps the patch of %s, but the surface grows: %s",
 			evolution.Interface, after.Version, before.Version, strings.Join(evolution.Additive, "; "))
 	}
@@ -68,13 +65,25 @@ func EvolveInterface(before, after *Interface) (*InterfaceEvolution, error) {
 }
 
 // leavesCaretRange reports whether after is outside ^before, the range a
-// consumer pinned to before declares. Below 1.0.0 the minor is the breaking
-// component, as the caret range treats it.
+// consumer pinned to before declares. It asks the same constraint a consumer's
+// requirement is checked with, so the two cannot disagree on which component
+// breaks: the major, the minor below 1.0.0, the patch below 0.1.0.
 func leavesCaretRange(before, after *semver.Version) bool {
-	if after.Major() != before.Major() {
+	caret, err := semver.NewConstraint("^" + before.String())
+	if err != nil {
 		return true
 	}
-	return before.Major() == 0 && after.Minor() != before.Minor()
+	return !caret.Check(after)
+}
+
+// CompareInterfaces returns what changed between two definitions of one
+// interface, whatever their versions: the breaking and the additive changes to
+// the surface.
+func CompareInterfaces(before, after *Interface) (breaking, additive []string) {
+	if before.Type != after.Type {
+		return []string{fmt.Sprintf("type changed from %s to %s", before.Type, after.Type)}, nil
+	}
+	return diffInterfaceSurfaces(before.surface(), after.surface())
 }
 
 // surfaceItem is one element of an interface surface. growthBreaks marks an

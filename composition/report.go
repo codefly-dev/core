@@ -301,10 +301,25 @@ func displayVersion(version string) string {
 // changed between the two versions, from the published definitions before
 // and after the update. The verdict is computed from the definitions, not from
 // what the package declares: a breaking change, a version that under-states
-// one, or an interface line the module stops implementing blocks the update.
-// Definitions are paired per compatible line (a major, or a minor below 1.0.0),
-// so a module implementing two lines of one interface is judged on each.
-func (report *SemanticReport) AddInterfaceEvolutions(before, after []*resources.Interface) {
+// one, a version published again with a different surface, or an interface line
+// the module stops implementing blocks the update. Definitions are paired per
+// compatible line, the range a caret requirement on them admits, so a module
+// implementing two lines of one interface is judged on each.
+//
+// The definitions may have been built in memory rather than resolved, so each
+// is validated first; an invalid one is the caller's error, and nothing is
+// recorded.
+func (report *SemanticReport) AddInterfaceEvolutions(before, after []*resources.Interface) error {
+	for _, definitions := range [][]*resources.Interface{before, after} {
+		for _, definition := range definitions {
+			if definition == nil {
+				return fmt.Errorf("interface evolution: nil definition")
+			}
+			if err := definition.Validate(); err != nil {
+				return fmt.Errorf("interface evolution: %w", err)
+			}
+		}
+	}
 	afterByLine := make(map[string]*resources.Interface, len(after))
 	for _, definition := range after {
 		line := interfaceLine(definition)
@@ -327,7 +342,15 @@ func (report *SemanticReport) AddInterfaceEvolutions(before, after []*resources.
 			continue
 		}
 		if next.Version == previous.Version {
-			report.Interfaces = append(report.Interfaces, &resources.InterfaceEvolution{Interface: previous.Identity().Key(), Before: previous.Version, After: next.Version})
+			// One identity names one definition. A different surface under the
+			// same version is a republication consumers already pinned cannot
+			// see, whatever the change.
+			evolution := &resources.InterfaceEvolution{Interface: previous.Identity().Key(), Before: previous.Version, After: next.Version}
+			evolution.Breaking, evolution.Additive = resources.CompareInterfaces(previous, next)
+			report.Interfaces = append(report.Interfaces, evolution)
+			if changes := append(append([]string(nil), evolution.Breaking...), evolution.Additive...); len(changes) > 0 {
+				report.BlockedReasons = append(report.BlockedReasons, fmt.Sprintf("interface %s was published again with a different surface: %s", previous.Identity(), strings.Join(changes, "; ")))
+			}
 			continue
 		}
 		// Within one line a surface break is always an under-stated version,
@@ -353,12 +376,18 @@ func (report *SemanticReport) AddInterfaceEvolutions(before, after []*resources.
 			Additive:  []string{"newly implemented"},
 		})
 	}
+	return nil
 }
 
+// interfaceLine names the range a caret requirement on the definition's
+// version admits: the major, the minor below 1.0.0, the patch below 0.1.0.
 func interfaceLine(definition *resources.Interface) string {
 	version := semver.MustParse(definition.Version)
-	if version.Major() == 0 {
+	switch {
+	case version.Major() > 0:
+		return fmt.Sprintf("%s@%d", definition.Identity().Key(), version.Major())
+	case version.Minor() > 0:
 		return fmt.Sprintf("%s@0.%d", definition.Identity().Key(), version.Minor())
 	}
-	return fmt.Sprintf("%s@%d", definition.Identity().Key(), version.Major())
+	return fmt.Sprintf("%s@0.0.%d", definition.Identity().Key(), version.Patch())
 }

@@ -62,6 +62,12 @@ func TestInterfaceRequirementAdmitsItsRangeOnly(t *testing.T) {
 
 	_, err = resources.ParseInterfaceRequirement("codefly.dev/cache")
 	require.Error(t, err, "a requirement must state its range")
+
+	literal := &resources.InterfaceRequirement{Publisher: "codefly.dev", Name: "cache", Range: "^0.3"}
+	identity, err := resources.ParseInterfaceIdentity("codefly.dev/cache@0.3.2")
+	require.NoError(t, err)
+	require.True(t, literal.Satisfies(identity), "a requirement built as a literal checks its range")
+	require.False(t, (&resources.InterfaceRequirement{Publisher: "codefly.dev", Name: "cache"}).Satisfies(identity), "no range admits nothing")
 }
 
 func TestInterfaceEndpointTypesAreEndpointAPIs(t *testing.T) {
@@ -200,6 +206,28 @@ func TestCapabilityEvolutionTreatsKeysAsTheContract(t *testing.T) {
 		require.ErrorContains(t, err, "the surface breaks", name)
 		require.False(t, evolution.Compatible(), name)
 	}
+}
+
+// Below 0.1.0 the patch is what a caret requirement treats as breaking, so a
+// break or an addition at the next patch is declared correctly.
+func TestInterfaceEvolutionFollowsTheCaretBelowZeroOne(t *testing.T) {
+	at := func(version string, change func(*resources.Interface)) *resources.Interface {
+		definition := loadDefinition(t, cacheDefinitionDir)
+		definition.Version = version
+		change(definition)
+		return definition
+	}
+	unchanged := func(*resources.Interface) {}
+	removeKey := func(i *resources.Interface) { i.Capability.Keys = i.Capability.Keys[:2] }
+	addKey := func(i *resources.Interface) {
+		i.Capability.Keys = append(i.Capability.Keys, &resources.InterfaceCapabilityKey{Name: "database", Optional: true})
+	}
+
+	evolution, err := resources.EvolveInterface(at("0.0.3", unchanged), at("0.0.4", removeKey))
+	require.NoError(t, err)
+	require.False(t, evolution.Compatible())
+	_, err = resources.EvolveInterface(at("0.0.3", unchanged), at("0.0.4", addKey))
+	require.NoError(t, err)
 }
 
 func TestResolveInterfacePinsTheIdentity(t *testing.T) {

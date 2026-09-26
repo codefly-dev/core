@@ -95,15 +95,17 @@ interface:
 A module implements each interface version once. `ValidateInterfaceConformance`
 checks each declaration against the published definition: an endpoint
 implements an interface of its own API, and a capability entry implements a
-capability interface. `ValidateProvidedConfiguration` checks what a service
+capability interface. When a resolver is attached, loading the module runs it,
+so a misdeclared module fails to load instead of misleading its consumers. `ValidateProvidedConfiguration` checks what a service
 emits for its consumers against every capability it provides: the group is
 present, required keys are in it, each key is secret exactly when the
 interface says so, and no undeclared key appears.
 
-A declared interface is the module's export boundary, capability entries
-included: an endpoint the interface does not list is private outside the
-module. A capability consumed over the network therefore needs its endpoint
-exported too, as `redis/tcp` is above.
+Endpoint entries make the interface the module's export boundary: once there
+is one, an endpoint the interface does not list is private outside the module,
+so a capability consumed over the network needs its endpoint exported too, as
+`redis/tcp` is above. Capability entries alone state what a service provides,
+not which endpoints cross module lines, and leave the boundary as it was.
 
 A flat-layout workspace has no module boundary and so implements no
 interfaces; consumption inside one module stays by service name.
@@ -134,16 +136,25 @@ The workspace binds it when a module it composes loads the service:
   ```
 
 No provider, or several with no binding, is an error. A binding chooses among
-providers and never admits one outside the consumer's range. Once bound, the
-dependency is an ordinary named edge: ordering, visibility, readiness and
-network mappings treat it like any other, and an endpoint interface binds to
-the implementing endpoint. A save writes the author's declaration back, never
-the provider this workspace bound.
+providers and never admits one outside the consumer's range. Every declared
+binding must name a service that implements the interface, whether or not a
+dependency uses it. Once bound, the dependency is an ordinary named edge:
+ordering, visibility, readiness and network mappings treat it like any other,
+and an endpoint interface binds to the implementing endpoint (except for a
+`completion` edge, which consumes none). A dependency that names its service
+is checked, never rewritten.
 
-A module loaded on its own cannot bind, and says so. An agent, which loads the
-service it serves by directory, binds through `ApplyInterfaceBindings` against
-the workspace it was given. Any runtime path that meets an unbound interface
-dependency refuses it instead of resolving nothing.
+A bound interface dependency is still the author's requirement of an
+interface, not of the provider: a save writes the declaration back, removing
+the provider's dependencies leaves it in place, and adding a named edge onto
+the bound provider is refused, since the service would declare that edge
+twice.
+
+A service found by directory inside a workspace, as the SDK and an agent find
+theirs, is bound against that workspace (`ApplyInterfaceBindings`). A module
+loaded on its own leaves its services' interface dependencies unbound: reading
+its endpoints and exports needs no provider. Any path that uses an unbound
+interface dependency refuses it instead of resolving nothing.
 
 ## Compatibility is computed
 
@@ -154,14 +165,17 @@ dependency refuses it instead of resolving nothing.
 - anything else added is **additive**.
 
 A breaking change must leave the range a consumer of the earlier version
-requires (`^before`: a new major, or a new minor below 1.0.0). An addition
-needs at least a new minor. A version that under-states what the surface shows
-is rejected; no author's claim is consulted.
+requires (`^before`: a new major, a new minor below 1.0.0, a new patch below
+0.1.0). An addition must not be a patch inside that range. A version that
+under-states what the surface shows is rejected; no author's claim is
+consulted.
 
 `SemanticReport.AddInterfaceEvolutions` feeds this into the module update
-report. Definitions are paired per compatible line, so a module that implements
-`1.x` and `2.x` side by side is judged on each. An under-stated version, or a
-line the module stops implementing, blocks the update.
+report. It validates the definitions it is given and returns an error for an
+invalid one. Definitions are paired per caret line, so a module that implements
+`1.x` and `2.x` side by side is judged on each. An under-stated version, a
+version published again with a different surface, or a line the module stops
+implementing blocks the update.
 
 The diff is structural. It sees the surface a definition declares, not a
 message field changed behind an unchanged method; wire-level breaking-change

@@ -39,11 +39,11 @@ type InterfaceBinding struct {
 	Service   string `yaml:"service"`
 }
 
-// interfaceBinding records what a dependency declared before binding resolved
-// it, so a save writes the author's declaration back and never the provider
-// this workspace happened to bind.
+// interfaceBinding records what an interface-only dependency declared before
+// binding resolved it to a provider, so a save writes the author's declaration
+// back and never the provider this workspace happened to bind. A dependency
+// that names its service is never rewritten by binding, only checked.
 type interfaceBinding struct {
-	name      string
 	module    string
 	endpoints []*EndpointReference
 }
@@ -52,9 +52,17 @@ func (s *ServiceDependency) interfaceOnly() bool {
 	return s.Interface != "" && s.Name == ""
 }
 
+// boundByInterface reports whether Name and Module hold a provider binding
+// chose rather than a service the author named. Such a dependency is the
+// author's requirement of an interface, not of that service: an operation on
+// the named service must neither match nor remove it.
+func (s *ServiceDependency) boundByInterface() bool {
+	return s.binding != nil
+}
+
 func (s *Service) hasInterfaceDependencies() bool {
 	for _, dep := range s.ServiceDependencies {
-		if dep.Interface != "" && dep.binding == nil {
+		if dep.Interface != "" && dep.binding == nil && !dep.interfaceVerified {
 			return true
 		}
 	}
@@ -103,15 +111,12 @@ func (workspace *Workspace) BindInterfaceDependencies(ctx context.Context, servi
 }
 
 func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider, bindings []*InterfaceBinding) error {
-	chosen := make(map[string]*InterfaceBinding, len(bindings))
-	for _, binding := range bindings {
-		if binding == nil {
-			return fmt.Errorf("interface bindings contain a nil entry")
-		}
-		chosen[binding.Interface] = binding
+	chosen, err := validateInterfaceBindings(providers, bindings)
+	if err != nil {
+		return err
 	}
 	for _, dep := range service.ServiceDependencies {
-		if dep.Interface == "" || dep.binding != nil {
+		if dep.Interface == "" || dep.binding != nil || dep.interfaceVerified {
 			continue
 		}
 		requirement, err := ParseInterfaceRequirement(dep.Interface)
@@ -122,16 +127,74 @@ func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider,
 		if err != nil {
 			return fmt.Errorf("service %s requires %s: %w", service.label(), requirement, err)
 		}
-		dep.binding = &interfaceBinding{name: dep.Name, module: dep.Module, endpoints: dep.Endpoints}
+		if dep.Name != "" {
+			dep.interfaceVerified = true
+			continue
+		}
+		dep.binding = &interfaceBinding{module: dep.Module, endpoints: dep.Endpoints}
 		dep.Name = provider.Service
 		dep.Module = provider.Module
-		if provider.Endpoint != "" && len(dep.Endpoints) == 0 {
+		// A completion edge waits for finished work and consumes no endpoint,
+		// so it is never narrowed to the implementing one.
+		if provider.Endpoint != "" && len(dep.Endpoints) == 0 && dep.Kind != DependencyKindCompletion {
 			dep.Endpoints = []*EndpointReference{{Name: provider.Endpoint}}
 		}
 	}
 	// A bound interface can land on a service the consumer also names
 	// directly; the two entries would then be one dependency declared twice.
 	return validateServiceDependencyNames(service.ServiceDependencies)
+}
+
+// validateInterfaceBindings checks every binding the workspace declares, not
+// only those a dependency happens to use: a misspelled interface would
+// otherwise match nothing, and the consumer would be told to add the binding
+// its author already wrote.
+func validateInterfaceBindings(providers []*InterfaceProvider, bindings []*InterfaceBinding) (map[string]*InterfaceBinding, error) {
+	chosen := make(map[string]*InterfaceBinding, len(bindings))
+	for _, binding := range bindings {
+		if err := binding.validate(); err != nil {
+			return nil, err
+		}
+		if _, exists := chosen[binding.Interface]; exists {
+			return nil, fmt.Errorf("interface binding for %s is declared twice", binding.Interface)
+		}
+		chosen[binding.Interface] = binding
+		provides := false
+		for _, provider := range providers {
+			if provider.Identity.Key() == binding.Interface && provider.Module == binding.Module && provider.Service == binding.Service {
+				provides = true
+				break
+			}
+		}
+		if !provides {
+			var implementing []*InterfaceProvider
+			for _, provider := range providers {
+				if provider.Identity.Key() == binding.Interface {
+					implementing = append(implementing, provider)
+				}
+			}
+			return nil, fmt.Errorf("interface binding for %s chooses %s/%s, which implements no version of it; implementations in scope: %s",
+				binding.Interface, binding.Module, binding.Service, describeProviders(implementing))
+		}
+	}
+	return chosen, nil
+}
+
+func (b *InterfaceBinding) validate() error {
+	if b == nil {
+		return fmt.Errorf("interface bindings contain a nil entry")
+	}
+	publisher, name, found := strings.Cut(b.Interface, "/")
+	if !found {
+		return fmt.Errorf("interface binding %q must name an interface as <publisher>/<name>, without a version", b.Interface)
+	}
+	if err := validateInterfaceKey(publisher, name); err != nil {
+		return fmt.Errorf("interface binding %q: %w", b.Interface, err)
+	}
+	if strings.TrimSpace(b.Module) == "" || strings.TrimSpace(b.Service) == "" {
+		return fmt.Errorf("interface binding for %s must name a module and a service", b.Interface)
+	}
+	return nil
 }
 
 func selectInterfaceProvider(dep *ServiceDependency, requirement *InterfaceRequirement, providers []*InterfaceProvider, binding *InterfaceBinding) (*InterfaceProvider, error) {
@@ -206,23 +269,37 @@ func ApplyInterfaceBindings(ctx context.Context, service *Service, workspaceDir 
 }
 
 // adoptInterfaceBindings carries the bindings of a previous load of the same
-// declaration over to a reload, which read the dependencies back unbound.
+// declaration over to a reload, which read the dependencies back unbound. A
+// dependency is matched by what its author declared — the requirement, and the
+// service when one is named — never by the requirement alone: one service can
+// require the same interface twice, once from whichever provider is bound and
+// once from a service it names.
 func (s *Service) adoptInterfaceBindings(previous *Service) {
-	bound := make(map[string]*ServiceDependency)
+	resolved := make(map[string]*ServiceDependency)
+	verified := make(map[string]bool)
 	for _, dep := range previous.ServiceDependencies {
-		if dep.binding != nil {
-			bound[dep.Interface] = dep
+		switch {
+		case dep.binding != nil:
+			resolved[dep.Interface] = dep
+		case dep.interfaceVerified:
+			verified[dep.Interface+"\x00"+dep.Unique()] = true
 		}
 	}
 	for _, dep := range s.ServiceDependencies {
-		source, ok := bound[dep.Interface]
-		if !ok || dep.Interface == "" || dep.binding != nil {
-			continue
+		switch {
+		case dep.Interface == "" || dep.binding != nil || dep.interfaceVerified:
+		case dep.interfaceOnly():
+			source, ok := resolved[dep.Interface]
+			if !ok {
+				continue
+			}
+			dep.binding = &interfaceBinding{module: dep.Module, endpoints: dep.Endpoints}
+			dep.Name = source.Name
+			dep.Module = source.Module
+			dep.Endpoints = source.Endpoints
+		default:
+			dep.interfaceVerified = verified[dep.Interface+"\x00"+dep.Unique()]
 		}
-		dep.binding = &interfaceBinding{name: dep.Name, module: dep.Module, endpoints: dep.Endpoints}
-		dep.Name = source.Name
-		dep.Module = source.Module
-		dep.Endpoints = source.Endpoints
 	}
 }
 
@@ -243,4 +320,18 @@ func refuseInterfaceDependencies(kind, name string, dependencies []*ServiceDepen
 		}
 	}
 	return nil
+}
+
+// bindUpFrom binds a service found by directory against the workspace above
+// from. Without one the requirement stays unbound, and the runtime paths refuse
+// it when it is used.
+func bindUpFrom(ctx context.Context, service *Service, from string) error {
+	if !service.hasInterfaceDependencies() {
+		return nil
+	}
+	dir, err := FindUpFrom[Workspace](ctx, from)
+	if err != nil || dir == nil {
+		return err
+	}
+	return ApplyInterfaceBindings(ctx, service, *dir)
 }

@@ -211,11 +211,58 @@ func TestUnboundInterfaceDependencyNeverResolvesSilently(t *testing.T) {
 	requireBound(t, reloaded.ServiceDependencies[0], "platform", "redis")
 	requireBound(t, reloaded.ServiceDependencies[1], "platform", "api", "grpc")
 
-	// A module loaded on its own has no workspace to bind with.
+	// A module loaded on its own has no workspace to bind with. Loading still
+	// works, so reading its endpoints does; using the dependency does not.
 	apps, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/apps"))
 	require.NoError(t, err)
-	_, err = apps.LoadServiceFromName(ctx, "web")
-	require.ErrorContains(t, err, "only the workspace composing module apps can bind it")
+	standalone, err := apps.LoadServiceFromName(ctx, "web")
+	require.NoError(t, err)
+	require.Empty(t, standalone.ServiceDependencies[0].Name)
+	_, err = resources.ResolveDependencyNetworkMappings("apps", standalone.ServiceDependencies, nil)
+	require.ErrorContains(t, err, "is not bound to a provider")
+}
+
+// Exporting a module's contracts reads its endpoints, never its dependencies,
+// so a standalone module whose exported service requires an interface still
+// exports.
+func TestStandaloneModuleExportsWithoutBinding(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", map[string]string{
+		"modules/apps/module.codefly.yaml": "kind: module\nname: apps\nservices:\n    - name: web\ninterface:\n    endpoints:\n        - service: web\n          endpoint: http\n          visibility: public\n",
+	})
+	apps, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/apps"))
+	require.NoError(t, err)
+	exported, err := apps.ExportedEndpointsForPackage(ctx)
+	require.NoError(t, err)
+	require.Len(t, exported, 1)
+}
+
+// A service found by directory from inside a workspace, as the SDK finds the
+// service a session runs, is bound against that workspace.
+func TestDirectoryLookupBindsAgainstTheWorkspaceAbove(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", nil)
+	_, web, err := resources.LoadModuleAndServiceUpFrom(ctx, filepath.Join(root, "modules/apps/services/web"))
+	require.NoError(t, err)
+	requireBound(t, web.ServiceDependencies[0], "platform", "redis")
+	requireBound(t, web.ServiceDependencies[1], "platform", "api", "grpc")
+}
+
+// An agent loads by directory, sets the module, binds and may save. The
+// requirement never picks up the consumer's module on the way.
+func TestAgentPathSavesTheRequirementAsDeclared(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", nil)
+	dir := filepath.Join(root, "modules/apps/services/web")
+	web, err := resources.LoadServiceFromDir(ctx, dir)
+	require.NoError(t, err)
+	web.WithModule("apps")
+	require.Empty(t, web.ServiceDependencies[0].Module)
+	require.NoError(t, resources.ApplyInterfaceBindings(ctx, web, root))
+	require.NoError(t, web.Save(ctx))
+	saved, err := os.ReadFile(filepath.Join(dir, resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	require.NotContains(t, string(saved), "module:")
 }
 
 func TestModuleImplementsEachInterfaceVersionOnce(t *testing.T) {
@@ -247,7 +294,7 @@ func TestModuleConformsToThePublishedDefinitions(t *testing.T) {
 			"    endpoints:\n        - service: api\n          endpoint: grpc\n          implements: codefly.dev/cache@0.3.0\n"),
 	} {
 		root := bindingWorkspace(t, "", map[string]string{"modules/platform/module.codefly.yaml": module})
-		platform, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
+		platform, err := resources.LoadModuleFromDir(context.Background(), filepath.Join(root, "modules/platform"))
 		require.NoError(t, err, message)
 		require.ErrorContains(t, platform.ValidateInterfaceConformance(ctx), message)
 	}
@@ -269,9 +316,10 @@ func TestProvidedConfigurationIsCheckedAgainstTheCapability(t *testing.T) {
 	require.NoError(t, platform.ValidateProvidedConfiguration(ctx, "api", connection()), "api provides no capability")
 }
 
-// A capability entry is part of the module's declared interface, so declaring
-// one makes the interface the module's export boundary like any other entry.
-func TestCapabilityOnlyInterfaceIsTheExportBoundary(t *testing.T) {
+// A capability entry states what a service provides, not which endpoints cross
+// module lines: declaring one leaves the module's endpoints as their services
+// declare them.
+func TestCapabilityOnlyInterfaceIsNoExportBoundary(t *testing.T) {
 	ctx := context.Background()
 	root := bindingWorkspace(t, "", map[string]string{
 		"modules/platform/module.codefly.yaml": "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\n" +
@@ -280,11 +328,13 @@ func TestCapabilityOnlyInterfaceIsTheExportBoundary(t *testing.T) {
 	})
 	platform, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
 	require.NoError(t, err)
-	require.True(t, platform.HasInterface())
+	require.False(t, platform.HasInterface())
 	redis, err := platform.LoadServiceFromName(ctx, "redis")
 	require.NoError(t, err)
-	require.Equal(t, resources.VisibilityPrivate, redis.Endpoints[0].Visibility,
-		"a capability consumed over the network needs its endpoint exported too")
+	require.Equal(t, resources.VisibilityPublic, redis.Endpoints[0].Visibility)
+	providers, err := platform.InterfaceProviders()
+	require.NoError(t, err)
+	require.Len(t, providers, 1)
 }
 
 // Only services are bound, so the other resources that share the dependency
@@ -312,4 +362,105 @@ func TestUnboundResourcesRefuseInterfaceDependencies(t *testing.T) {
 	require.NoError(t, err)
 	runnable.ServiceDependencies = []*resources.ServiceDependency{{Interface: "codefly.dev/cache@^0.3"}}
 	require.ErrorContains(t, runnable.Validate(), `runnable "report" requires interface codefly.dev/cache@^0.3`)
+}
+
+// Removing the service an interface is bound to removes named edges onto it,
+// never the requirement: the next load binds another provider or says none is
+// in scope.
+func TestDeletingTheProviderKeepsTheRequirement(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", nil)
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	require.NoError(t, workspace.DeleteServiceDependencies(ctx, &resources.ServiceReference{Name: "redis", Module: "platform"}))
+	saved, err := os.ReadFile(filepath.Join(root, "modules/apps/services/web", resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	require.Contains(t, string(saved), "interface: codefly.dev/cache@^0.3")
+	require.Contains(t, string(saved), "interface: example.dev/widgets@^1.1")
+}
+
+// Adding a named edge onto the bound provider would declare the edge twice and
+// make the service unloadable, so it is refused rather than dropped at save.
+// A service that names its provider keeps what is added to it.
+func TestAddingADependencyOnABoundProvider(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", nil)
+	web, err := loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	err = web.AddDependency(ctx, &resources.ServiceIdentity{Name: "api", Module: "platform"}, []*resources.Endpoint{{Name: "grpc"}})
+	require.ErrorContains(t, err, "platform/api is already a dependency, bound through interface example.dev/widgets@^1.1")
+
+	root = bindingWorkspace(t, "", map[string]string{
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - name: api\n      module: platform\n      interface: example.dev/widgets@^1.1\n"),
+	})
+	web, err = loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	require.NoError(t, web.AddDependency(ctx, &resources.ServiceIdentity{Name: "api", Module: "platform"}, []*resources.Endpoint{{Name: "grpc"}}))
+	require.NoError(t, web.Save(ctx))
+	saved, err := os.ReadFile(filepath.Join(root, "modules/apps/services/web", resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	require.Contains(t, string(saved), "endpoints:\n        - api: \"\"\n          name: grpc")
+}
+
+// One service may require the same interface twice: from whichever provider is
+// bound, and from a service it names. A reload keeps each on its own provider.
+func TestReloadKeepsEachRequirementOnItsProvider(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "    - name: edge\ninterface-bindings:\n    - interface: codefly.dev/cache\n      module: platform\n      service: redis\n", map[string]string{
+		"modules/edge/module.codefly.yaml":                    "kind: module\nname: edge\nservices:\n    - name: memcache\ninterface:\n    endpoints:\n        - service: memcache\n          endpoint: tcp\n          visibility: public\n    capabilities:\n        - service: memcache\n          implements: codefly.dev/cache@0.3.2\n",
+		"modules/edge/services/memcache/service.codefly.yaml": bindingService("memcache", "tcp", ""),
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - interface: codefly.dev/cache@^0.3\n    - name: memcache\n      module: edge\n      interface: codefly.dev/cache@^0.3\n"),
+	})
+	web, err := loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	requireBound(t, web.ServiceDependencies[0], "platform", "redis")
+	requireBound(t, web.ServiceDependencies[1], "edge", "memcache")
+
+	reloaded, err := resources.ReloadService(ctx, web)
+	require.NoError(t, err)
+	requireBound(t, reloaded.ServiceDependencies[0], "platform", "redis")
+	requireBound(t, reloaded.ServiceDependencies[1], "edge", "memcache")
+}
+
+// A completion edge consumes no endpoint, and binding must not give it one.
+func TestCompletionDependencyIsNotNarrowedToAnEndpoint(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", map[string]string{
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - interface: example.dev/widgets@^1.1\n      kind: completion\n"),
+	})
+	web, err := loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	requireBound(t, web.ServiceDependencies[0], "platform", "api")
+	require.NoError(t, web.ServiceDependencies[0].Validate())
+}
+
+// Every declared binding is checked, including one no dependency uses.
+func TestInterfaceBindingsAreValidated(t *testing.T) {
+	ctx := context.Background()
+	for message, binding := range map[string]string{
+		"interface binding for codefly.dev/cach chooses platform/redis, which implements no version of it; implementations in scope: none": "codefly.dev/cach\n      module: platform\n      service: redis",
+		`interface binding "codefly.dev/cache@0.3.0": name "cache@0.3.0"`:                                                                  "codefly.dev/cache@0.3.0\n      module: platform\n      service: redis",
+		"interface binding for codefly.dev/cache chooses platform/api, which implements no version of it":                                  "codefly.dev/cache\n      module: platform\n      service: api",
+	} {
+		root := bindingWorkspace(t, "interface-bindings:\n    - interface: "+binding+"\n", nil)
+		_, err := loadWeb(ctx, t, root)
+		require.ErrorContains(t, err, message)
+	}
+}
+
+// With a resolver attached, a module that misdeclares what it implements fails
+// to load instead of misleading the consumer bound to it.
+func TestModuleLoadChecksConformanceWhenDefinitionsAreAvailable(t *testing.T) {
+	ctx := resources.WithInterfaceResolver(context.Background(), definitionResolver)
+	root := bindingWorkspace(t, "", map[string]string{
+		"modules/platform/module.codefly.yaml": "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\ninterface:\n    capabilities:\n        - service: redis\n          implements: example.dev/widgets@1.2.0\n",
+	})
+	_, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
+	require.ErrorContains(t, err, "platform/redis declares capability example.dev/widgets@1.2.0, which is a grpc interface")
+
+	_, err = resources.LoadModuleFromDir(context.Background(), filepath.Join(root, "modules/platform"))
+	require.NoError(t, err, "without definitions there is nothing to check against")
 }
