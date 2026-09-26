@@ -203,7 +203,7 @@ func TestGoClientFromPlainDescriptorSetOwnsOnlyItsOwnProtos(t *testing.T) {
 // TypeScript half, where the answer is not the Go one. protoc-gen-es names the
 // well-known types by package — @bufbuild/protobuf/wkt — for every file it is
 // not asked to generate, so dropping those is right. It has no package for
-// googleapis or protovalidate: it emits `../../google/api/annotations_pb`, a
+// googleapis or protovalidate: it emits `../../google/api/annotations_pb.js`, a
 // path that resolves only if the library carries the file, so dropping those
 // leaves one dangling import per reference.
 //

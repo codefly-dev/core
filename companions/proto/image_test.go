@@ -155,8 +155,8 @@ func TestMarkForeignImports(t *testing.T) {
 // types as @bufbuild/protobuf/wkt and imports them from there, but it has no
 // package for googleapis or protovalidate and emits a path relative to the file
 // it generates. Mark those two and the library that results imports
-// ../../google/api/annotations_pb and ../../buf/validate/validate_pb from files
-// buf was told not to write — tsc fails with TS2307 on every one of them.
+// ../../google/api/annotations_pb.js and ../../buf/validate/validate_pb.js from
+// files buf was told not to write — tsc fails with TS2307 on every one of them.
 func TestMarkForeignImportsTypeScriptKeepsRelativelyImportedNamespaces(t *testing.T) {
 	data, _, err := MarkForeignImports(marshal(t, foreignSet()), languages.TYPESCRIPT)
 	require.NoError(t, err)

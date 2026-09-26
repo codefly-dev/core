@@ -284,10 +284,35 @@ func goVet(t *testing.T, ctx context.Context, dest, modulePath string) {
 	run(t, ctx, mod, "go", "vet", "./...")
 }
 
+// tsc typechecks the generated tree under both resolution modes a consumer can
+// hold it in. Neither pass implies the other, and only one of them can see an
+// import specifier at all.
+//
+// The ESM/nodenext pass is the one that reads specifiers. Two things have to be
+// true for it to: the flag, and the package being ESM. TS2835 ("Relative import
+// paths need explicit file extensions") is diagnosed only for files TypeScript
+// resolves as ESM *format*, and format comes from the nearest package.json —
+// `npm init -y` writes no "type", so under a CommonJS package the nodenext flag
+// is inert and an extensionless tree passes clean. `npm pkg set type=module` is
+// therefore load-bearing, not tidiness: drop it and this guard silently goes
+// back to proving nothing. It is also what the artifact is — protoc-gen-es and
+// the facade both emit import/export, and consumers publish it as ESM.
+//
+// The bundler pass keeps the other half honest: the extension must not cost the
+// bundler consumers who resolved fine without it.
+//
+// Both run in one container so the npm install is paid once.
 func tsc(t *testing.T, ctx context.Context, dest string) {
 	t.Helper()
+	const setup = "npm init -y >/dev/null 2>&1 && " +
+		"npm pkg set type=module >/dev/null 2>&1 && " +
+		"npm install --no-audit --no-fund @connectrpc/connect@2 @bufbuild/protobuf@2 typescript >/dev/null 2>&1 && " +
+		"sources=$(find . -name '*.ts')"
+	const check = "npx tsc --noEmit --strict --skipLibCheck --target es2022"
 	run(t, ctx, dest, "docker", "run", "--rm", "-v", dest+":/out", "-w", "/out", imageRef(t, ctx),
-		"sh", "-c", "npm init -y >/dev/null 2>&1 && npm install --no-audit --no-fund @connectrpc/connect@2 @bufbuild/protobuf@2 typescript >/dev/null 2>&1 && npx tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module esnext --target es2022 $(find . -name '*.ts')")
+		"sh", "-c", setup+
+			" && "+check+" --moduleResolution nodenext --module nodenext $sources"+
+			" && "+check+" --moduleResolution bundler --module esnext $sources")
 }
 
 func run(t *testing.T, ctx context.Context, dir, name string, args ...string) {
