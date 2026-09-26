@@ -235,6 +235,16 @@ func (e *secretResolution) resolveConfiguration(ctx context.Context, conf *basev
 			if !value.Secret {
 				continue
 			}
+			if value.GetTemplate() != nil {
+				// A templated value holds no value to resolve — its primitives
+				// are resolved as the entries they are. Running the reference
+				// parser over its empty string reports "not a reference" and
+				// warns about a plaintext secret that does not exist, and
+				// because that warning is once per origin it then swallows the
+				// warning a genuine plaintext secret in the same origin should
+				// have produced.
+				continue
+			}
 			resolved, changed, err := e.resolveString(ctx, value.Value)
 			if err != nil {
 				return fmt.Errorf("configuration %q key %q from %q: %w", info.Name, value.Key, conf.Origin, err)

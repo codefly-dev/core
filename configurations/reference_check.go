@@ -112,7 +112,13 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 			}
 			for _, info := range byGroup[group] {
 				for _, value := range info.GetConfigurationValues() {
-					for _, reference := range resources.EndpointReferences(value.GetValue()) {
+					// Not EndpointReferences(value.GetValue()): a value whose
+					// producer declared an assembly holds its text in the
+					// template's literals, so a ${endpoint:…} written there is
+					// invisible to .Value. This check exists to fail a plan
+					// before anything starts, and missing a reference is exactly
+					// the silent pass it was added to remove.
+					for _, reference := range resources.ConfigurationValueEndpointReferences(value) {
 						problem := checkEndpointReference(reference, identity.Module, producer)
 						if problem == nil {
 							continue

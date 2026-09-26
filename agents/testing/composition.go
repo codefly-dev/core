@@ -228,6 +228,28 @@ func assertKustomizeProfile(
 	return destination
 }
 
+// externalSecretWithTarget builds a restricted deployment carrying an
+// ExternalSecret that declares one remote value as secretKey "password", plus
+// whatever extra spec fields the case under test appends.
+func externalSecretWithTarget(extra string) string {
+	return restrictedDeploymentManifest + `
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: example-service-secrets
+  namespace: codefly-test
+spec:
+  secretStoreRef:
+    name: application-secrets
+    kind: SecretStore
+  data:
+    - secretKey: password
+      remoteRef:
+        key: applications/example-service
+        property: password` + extra + "\n"
+}
+
 // AssertKubernetesManifestContract exercises the common rejection cases every
 // official plugin must retain when it adopts AssertKustomizeTemplates.
 func AssertKubernetesManifestContract(t *testing.T) {
@@ -277,6 +299,19 @@ data:
   MODULE_PRINCIPALS: '{"documents":{"queues":["datasource"],"tenant":"acme"}}'
 `
 	assertContractResult(t, "nested JSON config value", jsonConfig, builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
+	// A restricted render has to be able to carry a value a producer declared as
+	// an assembly — a connection string embedding a password. A flat remoteRef
+	// mapping cannot express one, so the shape is spec.target.template over this
+	// ExternalSecret's own declared secretKeys, and that is admitted: refusing
+	// the field outright left a declared assembly nowhere to be delivered.
+	assertContractResult(t, "target template over declared keys",
+		externalSecretWithTarget(`
+  target:
+    template:
+      engineVersion: v2
+      data:
+        connection: "postgresql://reader:{{ .password | urlquery }}@store:5432/app"`),
+		builderv0.KubernetesManifestValidation_STATUS_PASSED, "")
 
 	tests := []struct {
 		name     string
@@ -287,6 +322,60 @@ data:
 			name:     "floating image",
 			manifest: strings.Replace(restrictedDeploymentManifest, restrictedImage, "example/service:latest", 1),
 			contains: "not pinned by sha256 digest",
+		},
+		{
+			name: "target template referencing an undeclared key",
+			manifest: externalSecretWithTarget(`
+  target:
+    template:
+      data:
+        connection: "postgresql://reader:{{ .undeclared | urlquery }}@store:5432/app"`),
+			contains: "not one of its declared secret keys",
+		},
+		{
+			name: "target template inlining its value",
+			manifest: externalSecretWithTarget(`
+  target:
+    template:
+      data:
+        connection: "postgresql://reader:hunter2@store:5432/app"`),
+			contains: "references no declared secret key",
+		},
+		{
+			name: "target template pulled from elsewhere",
+			manifest: externalSecretWithTarget(`
+  target:
+    template:
+      templateFrom:
+        - configMap:
+            name: assembly
+            items:
+              - key: connection`),
+			contains: `may not set "templateFrom"`,
+		},
+		{
+			name: "target template writing secret metadata",
+			manifest: externalSecretWithTarget(`
+  target:
+    template:
+      metadata:
+        annotations:
+          connection: "{{ .password }}"
+      data:
+        connection: "{{ .password }}"`),
+			contains: `may not set "metadata"`,
+		},
+		{
+			name: "target template beside dataFrom",
+			manifest: externalSecretWithTarget(`
+  dataFrom:
+    - extract:
+        key: applications/example-service
+  target:
+    template:
+      data:
+        connection: "{{ .password }}"`),
+			contains: "may not combine a target template with dataFrom",
 		},
 		{
 			name: "inline Secret data",

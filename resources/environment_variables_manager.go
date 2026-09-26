@@ -63,6 +63,12 @@ type EnvironmentVariableManager struct {
 	running    bool
 	fixture    string
 
+	// templateDelivery says how a value carrying a ConfigurationValueTemplate
+	// is delivered. It defaults to assembling the value, which is right for
+	// every delivery that carries secrets; a render that must not carry them
+	// sets it so the assembly comes from a secret reference instead.
+	templateDelivery configurationTemplateDelivery
+
 	// Per-service runtime overrides (KEY=VAL) injected via `codefly run ... --set`.
 	overrides []*EnvironmentVariable
 
@@ -78,15 +84,16 @@ func NewEnvironmentVariableManager() *EnvironmentVariableManager {
 // overrides but no inputs accumulated by earlier deployment requests.
 func (holder *EnvironmentVariableManager) DeploymentScope() *EnvironmentVariableManager {
 	return &EnvironmentVariableManager{
-		environment:    holder.environment,
-		workspace:      holder.workspace,
-		module:         holder.module,
-		service:        holder.service,
-		version:        holder.version,
-		runtimeContext: holder.runtimeContext,
-		fixture:        holder.fixture,
-		overrides:      cloneEnvironmentVariables(holder.overrides),
-		others:         cloneEnvironmentVariables(holder.others),
+		environment:      holder.environment,
+		workspace:        holder.workspace,
+		module:           holder.module,
+		service:          holder.service,
+		version:          holder.version,
+		runtimeContext:   holder.runtimeContext,
+		fixture:          holder.fixture,
+		templateDelivery: holder.templateDelivery,
+		overrides:        cloneEnvironmentVariables(holder.overrides),
+		others:           cloneEnvironmentVariables(holder.others),
 	}
 }
 
@@ -193,7 +200,7 @@ func (holder *EnvironmentVariableManager) All() ([]*EnvironmentVariable, error) 
 	}
 	for _, conf := range holder.configurations {
 		for _, secret := range []bool{false, true} {
-			values, err := ConfigurationAsEnvironmentVariables(conf, holder.environment.GetName(), secret)
+			values, err := configurationAsEnvironmentVariables(conf, holder.environment.GetName(), secret, holder.templateDelivery)
 			if err != nil {
 				return nil, err
 			}
@@ -313,6 +320,16 @@ func (holder *EnvironmentVariableManager) SetRuntimeContext(runtimeContext *base
 	holder.runtimeContext = runtimeContext
 }
 
+// DeliverConfigurationTemplatesByReference records that this render carries no
+// secret values, so a value whose producer declared a template is delivered by
+// the secret reference declared for its carrier rather than assembled here. Only
+// a render that supplies those references may set it: without one the credential
+// is absent from the workload, which the restricted deployment gate is what
+// checks.
+func (holder *EnvironmentVariableManager) DeliverConfigurationTemplatesByReference() {
+	holder.templateDelivery = deliverConfigurationTemplateByReference
+}
+
 const WorkspaceConfigurationPrefix = "CODEFLY__WORKSPACE_CONFIGURATION"
 
 // #nosec G101
@@ -326,7 +343,7 @@ func (holder *EnvironmentVariableManager) Configurations() ([]*EnvironmentVariab
 		return nil, err
 	}
 	for _, conf := range holder.configurations {
-		values, err := ConfigurationAsEnvironmentVariables(conf, holder.environment.GetName(), false)
+		values, err := configurationAsEnvironmentVariables(conf, holder.environment.GetName(), false, holder.templateDelivery)
 		if err != nil {
 			return nil, err
 		}
@@ -338,7 +355,7 @@ func (holder *EnvironmentVariableManager) Configurations() ([]*EnvironmentVariab
 func (holder *EnvironmentVariableManager) Secrets() ([]*EnvironmentVariable, error) {
 	var envs []*EnvironmentVariable
 	for _, conf := range holder.configurations {
-		values, err := ConfigurationAsEnvironmentVariables(conf, holder.environment.GetName(), true)
+		values, err := configurationAsEnvironmentVariables(conf, holder.environment.GetName(), true, holder.templateDelivery)
 		if err != nil {
 			return nil, err
 		}
@@ -632,14 +649,49 @@ func EndpointAsEnvironmentVariable(endpointAccess *EndpointAccess) *EnvironmentV
 	return Env(key, value)
 }
 
+// configurationTemplateDelivery says how a value whose producer declared a
+// ConfigurationValueTemplate instead of a value reaches the workload.
+type configurationTemplateDelivery int
+
+const (
+	// deliverConfigurationTemplateByValue assembles the template where the
+	// primitives are and emits the assembled value. This is every delivery that
+	// already carries secret values: a native or container run, a local apply.
+	deliverConfigurationTemplateByValue configurationTemplateDelivery = iota
+	// deliverConfigurationTemplateByReference omits the value: the render must
+	// carry no secret values, so the assembly is delivered by the secret
+	// reference declared for its carrier. Emitting it here would either write
+	// the secret into the render or, as the empty string the value literally
+	// holds, silently unset the credential.
+	deliverConfigurationTemplateByReference
+)
+
+// ConfigurationValueEnvironmentKey returns the environment carrier name one
+// configuration value is delivered under — the secret carrier for a secret
+// value, the public one otherwise. A caller that must name a carrier without
+// emitting it, like the restricted deployment gate looking for the secret
+// reference that will deliver a templated value, goes through this rather than
+// rebuilding the name and drifting from it.
+func ConfigurationValueEnvironmentKey(conf *basev0.Configuration, informationName string, value *basev0.ConfigurationValue) string {
+	key := fmt.Sprintf("%s__%s__%s", ConfigurationEnvironmentKeyPrefix(conf), NameToKey(informationName), NameToKey(value.GetKey()))
+	if !value.GetSecret() {
+		return key
+	}
+	key = strings.Replace(key, WorkspaceConfigurationPrefix, WorkspaceSecretConfigurationPrefix, 1)
+	return strings.Replace(key, ServiceConfigurationPrefix, ServiceSecretConfigurationPrefix, 1)
+}
+
 // ConfigurationAsEnvironmentVariables converts a configuration to a list of environment variables
 // the secret flag decides if we return secret or regular values
 func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, environment string, secret bool) ([]*EnvironmentVariable, error) {
+	return configurationAsEnvironmentVariables(conf, environment, secret, deliverConfigurationTemplateByValue)
+}
+
+func configurationAsEnvironmentVariables(conf *basev0.Configuration, environment string, secret bool, delivery configurationTemplateDelivery) ([]*EnvironmentVariable, error) {
 	var env []*EnvironmentVariable
 	if conf == nil {
 		return env, nil
 	}
-	confKey := ConfigurationEnvironmentKeyPrefix(conf)
 	for _, info := range conf.Infos {
 		if info == nil {
 			return nil, fmt.Errorf("configuration information must not be nil")
@@ -651,24 +703,25 @@ func ConfigurationAsEnvironmentVariables(conf *basev0.Configuration, environment
 			}
 			env = append(env, variable)
 		}
-		infoKey := fmt.Sprintf("%s__%s", confKey, NameToKey(info.Name))
 		for _, value := range info.ConfigurationValues {
 			if value == nil {
 				return nil, fmt.Errorf("configuration value must not be nil")
 			}
-			key := fmt.Sprintf("%s__%s", infoKey, NameToKey(value.Key))
-			// if secret: only add secret values
-			if secret {
-				if value.Secret {
-					key = strings.Replace(key, WorkspaceConfigurationPrefix, WorkspaceSecretConfigurationPrefix, 1)
-					key = strings.Replace(key, ServiceConfigurationPrefix, ServiceSecretConfigurationPrefix, 1)
-					env = append(env, Env(key, value.Value))
-				}
-			} else {
-				if !value.Secret {
-					env = append(env, Env(key, value.Value))
-				}
+			if err := ValidateTemplatedConfigurationValue(value); err != nil {
+				return nil, fmt.Errorf("configuration %q from %q: %w", info.Name, conf.Origin, err)
 			}
+			// if secret: only add secret values
+			if value.Secret != secret {
+				continue
+			}
+			if value.GetTemplate() != nil && delivery == deliverConfigurationTemplateByReference {
+				continue
+			}
+			resolved, err := ConfigurationValueAsString(conf, value)
+			if err != nil {
+				return nil, fmt.Errorf("configuration %q key %q from %q: %w", info.Name, value.Key, conf.Origin, err)
+			}
+			env = append(env, Env(ConfigurationValueEnvironmentKey(conf, info.Name, value), resolved))
 		}
 	}
 	return env, nil
@@ -689,7 +742,14 @@ func ConfigurationAsRawEnvironmentVariables(conf *basev0.Configuration) ([]*Envi
 			if value == nil {
 				return nil, fmt.Errorf("configuration value must not be nil")
 			}
-			env = append(env, Env(value.Key, value.Value))
+			if err := ValidateTemplatedConfigurationValue(value); err != nil {
+				return nil, fmt.Errorf("configuration %q: %w", info.GetName(), err)
+			}
+			resolved, err := ConfigurationValueAsString(conf, value)
+			if err != nil {
+				return nil, fmt.Errorf("configuration %q key %q: %w", info.GetName(), value.Key, err)
+			}
+			env = append(env, Env(value.Key, resolved))
 		}
 	}
 	return env, nil

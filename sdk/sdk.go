@@ -291,7 +291,12 @@ func (e *Env) startAgent(ctx context.Context, agentName string) error {
 		for _, info := range configs.Infos {
 			for _, val := range info.ConfigurationValues {
 				if val.Key == "connection" {
-					connMap[info.Name] = val.Value
+					connection, err := resources.ConfigurationValueAsString(configs, val)
+					if err != nil {
+						agentConn.Close()
+						return fmt.Errorf("resolve connection for %s: %w", info.Name, err)
+					}
+					connMap[info.Name] = connection
 				}
 			}
 		}

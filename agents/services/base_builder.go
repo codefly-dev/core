@@ -813,6 +813,13 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	manager := deployment.EnvironmentVariables.DeploymentScope()
 	manager.SetEnvironment(req.GetEnvironment())
 	manager.SetRunning()
+	if IsRestrictedOutputProfile(profile) {
+		// This render carries no secret values, and the gate above has already
+		// required a secret reference for every templated value's carrier — so
+		// the assemblies are delivered from the environment's secret store, not
+		// emitted here.
+		manager.DeliverConfigurationTemplatesByReference()
+	}
 	// Every Kubernetes output profile renders a deployed workload; say so
 	// explicitly rather than leaving a service to infer it from an
 	// environment name.
@@ -1113,6 +1120,23 @@ func validateRestrictedDeploymentRequest(
 			for _, value := range information.GetConfigurationValues() {
 				if value.GetValue() != "" && (value.GetSecret() || resources.IsSensitiveKey(value.GetKey())) {
 					return fmt.Errorf("restricted rendering cannot receive secret value %q", value.GetKey())
+				}
+				if value.GetTemplate() == nil {
+					continue
+				}
+				// A templated value carries no value, so the loop above admits
+				// it — but nothing in a restricted render assembles it either.
+				// It reaches the workload only through the secret reference
+				// declared for its carrier, so require that reference here.
+				// Without this check the value passes the gate and is delivered
+				// as nothing at all: the workload boots with the credential
+				// silently absent.
+				if err := resources.ValidateTemplatedConfigurationValue(value); err != nil {
+					return err
+				}
+				carrier := resources.ConfigurationValueEnvironmentKey(configuration, information.GetName(), value)
+				if references[carrier] == nil {
+					return fmt.Errorf("restricted rendering has no secret reference for %q, the carrier of templated configuration value %q: the assembly must be delivered by the environment's secret store", carrier, value.GetKey())
 				}
 			}
 		}
