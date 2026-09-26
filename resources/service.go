@@ -531,6 +531,7 @@ func ReloadService(ctx context.Context, service *Service) (*Service, error) {
 	if err := ApplyModuleInterface(ctx, reloaded); err != nil {
 		return nil, err
 	}
+	reloaded.adoptInterfaceBindings(service)
 	return reloaded, nil
 }
 
@@ -546,7 +547,9 @@ func (s *Service) postLoad(ctx context.Context) error {
 		return w.Wrap(err)
 	}
 	for _, dep := range s.ServiceDependencies {
-		if dep.Module == "" && s.module != "" {
+		// An interface-only dependency names no service yet, so it has no
+		// module to default: binding decides both.
+		if dep.Module == "" && s.module != "" && !dep.interfaceOnly() {
 			w.Trace("setting module for dependency", wool.NameField(dep.Name))
 			dep.Module = s.module
 		}
@@ -581,6 +584,9 @@ func validateServiceDependencyNames(dependencies []*ServiceDependency) error {
 			return fmt.Errorf("service dependency cannot be nil")
 		}
 		unique := dep.Unique()
+		if dep.interfaceOnly() {
+			unique, _, _ = strings.Cut(dep.Interface, "@")
+		}
 		if _, exists := seen[unique]; exists {
 			return fmt.Errorf("duplicate service dependency %q: merge the entries, including their endpoints", unique)
 		}
@@ -600,8 +606,9 @@ func (s *Service) preSave() func() {
 		visibility, api string
 	}
 	type depSnap struct {
-		dep    *ServiceDependency
-		module string
+		dep          *ServiceDependency
+		name, module string
+		endpoints    []*EndpointReference
 	}
 	var eps []epSnap
 	var deps []depSnap
@@ -622,8 +629,15 @@ func (s *Service) preSave() func() {
 		}
 	}
 
+	var bound []depSnap
 	for _, dep := range s.ServiceDependencies {
-		if dep.Module == s.module {
+		if dep.binding != nil {
+			bound = append(bound, depSnap{dep: dep, name: dep.Name, module: dep.Module, endpoints: dep.Endpoints})
+			dep.Name, dep.Module, dep.Endpoints = dep.binding.name, dep.binding.module, dep.binding.endpoints
+		}
+	}
+	for _, dep := range s.ServiceDependencies {
+		if dep.Module == s.module && !dep.interfaceOnly() {
 			deps = append(deps, depSnap{dep: dep, module: dep.Module})
 			dep.Module = ""
 		}
@@ -641,6 +655,9 @@ func (s *Service) preSave() func() {
 		}
 		for _, d := range deps {
 			d.dep.Module = d.module
+		}
+		for _, d := range bound {
+			d.dep.Name, d.dep.Module, d.dep.Endpoints = d.name, d.module, d.endpoints
 		}
 		for _, e := range eps {
 			e.ep.Module = e.module
@@ -888,6 +905,12 @@ type ServiceDependency struct {
 	Name   string `yaml:"name,omitempty"`
 	Module string `yaml:"module,omitempty"`
 
+	// Interface requires a published interface at a version range,
+	// <publisher>/<name>@<range>, instead of or as well as a named service.
+	// Without a name, the workspace binds it to the one provider in scope; with
+	// one, the named service must provide it.
+	Interface string `yaml:"interface,omitempty"`
+
 	// Kind classifies the edge — build input, consumed runtime endpoint,
 	// one-shot completion prerequisite, schema contribution or external
 	// capability — and so which execution phases it constrains. Absent means
@@ -912,6 +935,8 @@ type ServiceDependency struct {
 	// a phase-typed edge back into a legacy one that constrains every phase,
 	// which reintroduces the very cycle kinds exist to remove.
 	ExtraFields map[string]any `yaml:",inline"`
+
+	binding *interfaceBinding
 }
 
 func (s *ServiceDependency) String() string {
@@ -923,6 +948,11 @@ func (s *ServiceDependency) String() string {
 func (s *ServiceDependency) Validate() error {
 	if err := s.Kind.Validate(); err != nil {
 		return fmt.Errorf("service dependency %s: %w", s.Unique(), err)
+	}
+	if s.Interface != "" {
+		if _, err := ParseInterfaceRequirement(s.Interface); err != nil {
+			return fmt.Errorf("service dependency %s: %w", s.Unique(), err)
+		}
 	}
 	if s.Kind == DependencyKindCompletion && len(s.Endpoints) > 0 {
 		return fmt.Errorf("service dependency %s of kind %q waits for completed one-shot work and cannot consume endpoints", s.Unique(), DependencyKindCompletion)

@@ -1,0 +1,12 @@
+kind: interface
+publisher: example.dev
+name: widgets
+version: 1.2.0
+type: grpc
+protobuf:
+    package: widgets.v1
+    services:
+        - name: WidgetService
+          methods:
+              - GetWidget
+              - ListWidgets

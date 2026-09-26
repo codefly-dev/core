@@ -278,6 +278,9 @@ func LoadJobFromDir(ctx context.Context, dir string) (*Job, error) {
 	if err := validateResourcePathComponent("job", job.Name); err != nil {
 		return nil, w.Wrap(err)
 	}
+	if err := refuseInterfaceDependencies("job", job.Name, job.ServiceDependencies); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	job.dir = dir
 	return job, nil

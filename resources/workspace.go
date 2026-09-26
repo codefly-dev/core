@@ -49,6 +49,10 @@ type Workspace struct {
 	// Environments declares runtime configuration contexts.
 	Environments []*Environment `yaml:"environments,omitempty"`
 
+	// InterfaceBindings choose the provider of an interface that more than one
+	// composed module implements.
+	InterfaceBindings []*InterfaceBinding `yaml:"interface-bindings,omitempty"`
+
 	// Extensions preserve declarations interpreted by the host, not Core.
 	Extensions map[string]YAMLValue `yaml:",inline"`
 
@@ -296,6 +300,7 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 			RunnableReferences: workspace.Runnables,
 			dir:                workspace.Dir(),
 			flatWorkspace:      workspace,
+			workspace:          workspace,
 		}
 		if err := mod.postLoad(ctx); err != nil {
 			return nil, w.Wrapf(err, "cannot post-load flat module")
@@ -336,6 +341,7 @@ func (workspace *Workspace) LoadModuleFromReference(ctx context.Context, ref *Mo
 		return nil, w.Wrap(err)
 	}
 	mod.adoptWorkspaceName(ref.Name)
+	mod.workspace = workspace
 	return mod, nil
 }
 

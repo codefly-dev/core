@@ -179,6 +179,9 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	if err = resources.ApplyModuleInterface(ctx, s.Service); err != nil {
 		return s.Wool.Wrapf(err, "cannot apply module interface")
 	}
+	if err = resources.ApplyInterfaceBindings(ctx, s.Service, identity.WorkspacePath); err != nil {
+		return s.Wool.Wrapf(err, "cannot bind interface dependencies")
+	}
 
 	s.EnvironmentVariables = resources.NewEnvironmentVariableManager()
 
