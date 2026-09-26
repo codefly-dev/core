@@ -153,3 +153,34 @@ func TestCheckEndpointReferencesLeavesTheRunSetToResolveTime(t *testing.T) {
 	require.Error(t, err, "a run WITH the producer must resolve it")
 	require.Contains(t, err.Error(), "platform/temporal-address")
 }
+
+// A producer's ${endpoint:…} written inside a ConfigurationValueTemplate literal
+// must be checked like any other. This check exists to refuse a plan before
+// anything is built or started; reading only value.Value let a templated value's
+// reference through silently, which is the failure it was added to remove.
+func TestCheckEndpointReferencesSeesTemplateLiterals(t *testing.T) {
+	consumer := referenceCheckService("mod", "app", []string{"postgres"})
+	lookup := func(unique string) (*resources.Service, bool) {
+		if unique == "mod/app" {
+			return consumer, true
+		}
+		return nil, false
+	}
+	provided := []*basev0.ConfigurationInformation{{
+		Name: "postgres",
+		ConfigurationValues: []*basev0.ConfigurationValue{
+			{Key: "connection", Secret: true, Template: &basev0.ConfigurationValueTemplate{
+				Segments: []*basev0.ConfigurationValueTemplateSegment{
+					{Content: &basev0.ConfigurationValueTemplateSegment_Literal{
+						Literal: "postgresql://reader@${endpoint:absent/store/postgres}/app"}},
+				},
+			}},
+		},
+	}}
+	err := configurations.CheckEndpointReferences(provided, []*resources.Service{consumer}, resources.RunProfile{}, lookup)
+	var unresolved *configurations.UnresolvedReferencesError
+	require.True(t, errors.As(err, &unresolved), "a reference in a template literal must fail the plan check, got %v", err)
+	require.Len(t, unresolved.References, 1)
+	require.Equal(t, "connection", unresolved.References[0].Key)
+	require.Equal(t, "postgres", unresolved.References[0].Group)
+}
