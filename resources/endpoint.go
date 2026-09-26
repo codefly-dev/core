@@ -551,6 +551,9 @@ func serviceDependencyCandidates(service *ServiceDependency, endpoints []*basev0
 	if service == nil {
 		return nil, fmt.Errorf("service dependency cannot be nil")
 	}
+	if service.interfaceOnly() {
+		return nil, fmt.Errorf("service dependency on interface %s is not bound to a provider", service.Interface)
+	}
 	var candidates []*basev0.Endpoint
 	seenNames := make(map[string]struct{})
 	for _, endpoint := range endpoints {

@@ -323,6 +323,10 @@ A dependency can declare a `kind` saying which stage it constrains — a build
 input, a consumed runtime endpoint, a one-shot completion prerequisite, a schema
 contribution or an external capability. See [dependency-kinds.md](dependency-kinds.md).
 
+A dependency can also require an **interface** — a named, versioned contract a
+module implements — instead of naming a service; the workspace binds it to the
+one provider in scope. See [interfaces.md](interfaces.md).
+
 ### The module list is a pin set, not a graph
 
 Composition namespaces expose generic cache, build and runtime roots. Generators

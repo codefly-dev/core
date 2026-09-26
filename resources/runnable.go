@@ -571,7 +571,7 @@ func (r *Runnable) Validate() error {
 			return fmt.Errorf("runnable %q: %w", r.Name, err)
 		}
 	}
-	return nil
+	return refuseInterfaceDependencies("runnable", r.Name, r.ServiceDependencies)
 }
 
 // RunnableAgentCompatible admits the actual owner builder for service-only

@@ -26,6 +26,20 @@ type InterfaceEndpoint struct {
 	Service    string `yaml:"service"`
 	Endpoint   string `yaml:"endpoint"`
 	Visibility string `yaml:"visibility,omitempty"` // "internal", "module" or "public"; defaults to "module"
+	// Implements lists the published interface versions the endpoint serves,
+	// each <publisher>/<name>@<version>. One endpoint can serve several: a
+	// gRPC port carries several protobuf services, and often two major
+	// versions of one side by side. It is what lets a consumer depend on an
+	// interface instead of on this service.
+	Implements []string `yaml:"implements,omitempty"`
+}
+
+// InterfaceCapabilityExport declares the capability interfaces a service
+// provides: configuration groups consumers read through a library driver
+// rather than an endpoint they call.
+type InterfaceCapabilityExport struct {
+	Service    string   `yaml:"service"`
+	Implements []string `yaml:"implements"`
 }
 
 // exportedVisibility is the visibility this entry grants across module
@@ -41,9 +55,13 @@ func (ie *InterfaceEndpoint) exportedVisibility() Visibility {
 	return ie.Visibility
 }
 
-// ModuleInterface declares the contract of a module: what it exposes to the outside world.
+// ModuleInterface declares the contract of a module: what it exposes to the
+// outside world and which published interfaces that implements. It is the
+// module's side of an Interface: the definition is published by whoever owns
+// the interface, and a module states here that it implements it.
 type ModuleInterface struct {
-	Endpoints []*InterfaceEndpoint `yaml:"endpoints,omitempty"`
+	Endpoints    []*InterfaceEndpoint         `yaml:"endpoints,omitempty"`
+	Capabilities []*InterfaceCapabilityExport `yaml:"capabilities,omitempty"`
 }
 
 // An Module is a collection of services that are deployed together.
@@ -87,6 +105,11 @@ type Module struct {
 	// stamped by Workspace.LoadModuleFromReference and applied to every service
 	// this module loads (see AgentOverridesKey).
 	agentOverrides []AgentOverride `yaml:"-"`
+
+	// workspace is the workspace that composed this module, stamped by
+	// Workspace.LoadModuleFromReference. It binds the interface dependencies
+	// of the services this module loads; a module loaded on its own has none.
+	workspace *Workspace `yaml:"-"`
 }
 
 func (mod *Module) Unique() string {
@@ -522,6 +545,13 @@ func (mod *Module) ServicePath(_ context.Context, ref *ServiceReference) string 
 }
 
 func (mod *Module) LoadServiceFromReference(ctx context.Context, ref *ServiceReference) (*Service, error) {
+	return mod.loadServiceFromReference(ctx, ref, true)
+}
+
+// loadServiceFromReference loads a service as its module composes it. Only a
+// check of the module's own declarations may skip binding: it runs while the
+// module is still being loaded, before any workspace can bind.
+func (mod *Module) loadServiceFromReference(ctx context.Context, ref *ServiceReference, bind bool) (*Service, error) {
 	if err := validateServiceReferencePath(ref); err != nil {
 		return nil, wool.Get(ctx).In("configurations.LoadServiceFromReference").Wrap(err)
 	}
@@ -533,7 +563,23 @@ func (mod *Module) LoadServiceFromReference(ctx context.Context, ref *ServiceRef
 	}
 	mod.applyInterface(service)
 	mod.applyAgentOverride(service)
+	if bind {
+		if err := mod.bindInterfaceDependencies(ctx, service); err != nil {
+			return nil, w.Wrap(err)
+		}
+	}
 	return service, nil
+}
+
+// bindInterfaceDependencies resolves the service's interface dependencies
+// against the providers of the workspace that composed this module. A module
+// loaded on its own leaves them unbound: reading its endpoints or exports needs
+// no provider, and every path that uses a dependency refuses an unbound one.
+func (mod *Module) bindInterfaceDependencies(ctx context.Context, service *Service) error {
+	if mod.workspace == nil {
+		return nil
+	}
+	return mod.workspace.BindInterfaceDependencies(ctx, service)
 }
 
 // applyInterface stamps each endpoint with the visibility the module's
@@ -684,9 +730,10 @@ func (mod *Module) ExposedEndpoints(ctx context.Context) ([]*basev0.Endpoint, er
 
 // ExportedEndpointsForPackage returns the interface endpoints to export as API
 // contracts. It is ExposedEndpoints guarded by a declared interface: a module
-// without one cannot publish contracts by accident.
+// without one cannot publish contracts by accident. A module whose interface
+// declares only capabilities has declared one, and exports no endpoint.
 func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.Endpoint, error) {
-	if !mod.HasInterface() {
+	if mod.Interface == nil || (len(mod.Interface.Endpoints) == 0 && len(mod.Interface.Capabilities) == 0) {
 		return nil, wool.Get(ctx).In("Module::ExportedEndpointsForPackage", wool.ThisField(mod)).
 			NewError("module %s declares no interface; an interface is required to export API contracts", mod.Name)
 	}
@@ -700,7 +747,7 @@ func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.E
 // that exports it are not in disagreement.
 func (mod *Module) ValidateInterface(ctx context.Context) error {
 	w := wool.Get(ctx).In("Module::ValidateInterface", wool.ThisField(mod))
-	if mod.Interface == nil || len(mod.Interface.Endpoints) == 0 {
+	if mod.Interface == nil {
 		return nil
 	}
 
@@ -718,7 +765,7 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 		}
 
 		// Check service exists
-		service, err := mod.LoadServiceFromName(ctx, ie.Service)
+		service, err := mod.loadDeclaredService(ctx, ie.Service)
 		if err != nil {
 			return w.Wrapf(err, "interface references unknown service %q", ie.Service)
 		}
@@ -735,10 +782,164 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 			return w.NewError("interface references unknown endpoint %q on service %q", ie.Endpoint, ie.Service)
 		}
 	}
+	capabilityServices := make(map[string]struct{}, len(mod.Interface.Capabilities))
+	for _, capability := range mod.Interface.Capabilities {
+		if capability == nil {
+			return w.NewError("interface contains a nil capability")
+		}
+		if _, exists := capabilityServices[capability.Service]; exists {
+			return w.NewError("interface declares the capabilities of service %q twice; list them in one entry", capability.Service)
+		}
+		capabilityServices[capability.Service] = struct{}{}
+		if len(capability.Implements) == 0 {
+			return w.NewError("interface capability entry for service %q implements nothing", capability.Service)
+		}
+		if _, err := mod.loadDeclaredService(ctx, capability.Service); err != nil {
+			return w.Wrapf(err, "interface capability references unknown service %q", capability.Service)
+		}
+	}
+	if _, err := mod.InterfaceProviders(); err != nil {
+		return w.Wrap(err)
+	}
 	return nil
 }
 
-// HasInterface returns true if the module has a declared interface
+// loadDeclaredService loads a service as declared, without binding it.
+func (mod *Module) loadDeclaredService(ctx context.Context, name string) (*Service, error) {
+	if err := validateResourcePathComponent("service", name); err != nil {
+		return nil, err
+	}
+	for _, ref := range mod.ServiceReferences {
+		if ReferenceMatch(ref.Name, name) {
+			return mod.loadServiceFromReference(ctx, ref, false)
+		}
+	}
+	return nil, shared.NewErrorResourceNotFound("service", name)
+}
+
+// InterfaceProviders lists the interfaces this module implements and which of
+// its services and endpoints implement each. It reads the module declaration
+// only. An identity implemented twice in one module is refused: a consumer
+// bound to it could not tell which of the two it reaches.
+func (mod *Module) InterfaceProviders() ([]*InterfaceProvider, error) {
+	if mod.Interface == nil {
+		return nil, nil
+	}
+	var providers []*InterfaceProvider
+	seen := make(map[string]string)
+	// add registers what one entry implements. Within an entry, two versions
+	// of one compatible line are refused: the higher already covers the lower,
+	// and every consumer of that line would find two providers in one place.
+	add := func(implements []string, service, endpoint string) error {
+		var entry []*InterfaceIdentity
+		for _, value := range implements {
+			identity, err := ParseInterfaceIdentity(value)
+			if err != nil {
+				return fmt.Errorf("module %s: %w", mod.Name, err)
+			}
+			provider := &InterfaceProvider{Identity: identity, Module: mod.Name, Service: service, Endpoint: endpoint}
+			if previous, exists := seen[identity.String()]; exists {
+				return fmt.Errorf("module %s implements %s twice: by %s and by %s", mod.Name, identity, previous, provider.location())
+			}
+			for _, other := range entry {
+				if other.Key() == identity.Key() && sameCompatibleLine(other, identity) {
+					return fmt.Errorf("module %s: %s implements %s at both %s and %s, one compatible line; list only the higher version",
+						mod.Name, provider.location(), identity.Key(), other.Version, identity.Version)
+				}
+			}
+			entry = append(entry, identity)
+			seen[identity.String()] = provider.location()
+			providers = append(providers, provider)
+		}
+		return nil
+	}
+	for _, ie := range mod.Interface.Endpoints {
+		if err := add(ie.Implements, ie.Service, ie.Endpoint); err != nil {
+			return nil, err
+		}
+	}
+	for _, capability := range mod.Interface.Capabilities {
+		if err := add(capability.Implements, capability.Service, ""); err != nil {
+			return nil, err
+		}
+	}
+	return providers, nil
+}
+
+// ValidateInterfaceConformance checks every interface the module implements
+// against its published definition: an endpoint implements an interface of
+// its own API, and a capability entry implements a capability interface.
+// Definitions come from the resolver attached to ctx.
+func (mod *Module) ValidateInterfaceConformance(ctx context.Context) error {
+	w := wool.Get(ctx).In("Module::ValidateInterfaceConformance", wool.ThisField(mod))
+	providers, err := mod.InterfaceProviders()
+	if err != nil {
+		return w.Wrap(err)
+	}
+	for _, provider := range providers {
+		if err := mod.validateImplementation(ctx, provider); err != nil {
+			return w.Wrap(err)
+		}
+	}
+	return nil
+}
+
+// validateImplementation checks one implementation this module declares
+// against the published definition: an endpoint implements an interface of
+// its own API, and a capability entry implements a capability interface.
+func (mod *Module) validateImplementation(ctx context.Context, provider *InterfaceProvider) error {
+	definition, err := ResolveInterface(ctx, provider.Identity)
+	if err != nil {
+		return err
+	}
+	if provider.Endpoint == "" {
+		if definition.Type != InterfaceTypeCapability {
+			return fmt.Errorf("%s declares capability %s, which is a %s interface; an endpoint must implement it", provider.location(), provider.Identity, definition.Type)
+		}
+		return nil
+	}
+	if !definition.Type.ImplementedByEndpoint() {
+		return fmt.Errorf("%s implements %s, which is a capability; declare it under capabilities", provider.location(), provider.Identity)
+	}
+	service, err := mod.loadDeclaredService(ctx, provider.Service)
+	if err != nil {
+		return err
+	}
+	for _, endpoint := range service.Endpoints {
+		if endpoint.Name == provider.Endpoint && endpoint.API != string(definition.Type) {
+			return fmt.Errorf("%s serves %s but implements %s, a %s interface", provider.location(), endpoint.API, provider.Identity, definition.Type)
+		}
+	}
+	return nil
+}
+
+// ValidateProvidedConfiguration checks the configuration a service of this
+// module emits for its consumers against every capability interface the module
+// declares that service provides. Definitions come from the resolver attached
+// to ctx.
+func (mod *Module) ValidateProvidedConfiguration(ctx context.Context, service string, configuration *basev0.Configuration) error {
+	providers, err := mod.InterfaceProviders()
+	if err != nil {
+		return err
+	}
+	for _, provider := range providers {
+		if provider.Service != service || provider.Endpoint != "" {
+			continue
+		}
+		definition, err := ResolveInterface(ctx, provider.Identity)
+		if err != nil {
+			return err
+		}
+		if err := definition.ValidateConfiguration(configuration); err != nil {
+			return fmt.Errorf("%s: %w", provider.location(), err)
+		}
+	}
+	return nil
+}
+
+// HasInterface returns true if the module declares endpoint exports, which
+// makes its interface the module's export boundary. Capability entries do not:
+// they state what a service provides, not which endpoints cross module lines.
 func (mod *Module) HasInterface() bool {
 	return mod.Interface != nil && len(mod.Interface.Endpoints) > 0
 }
