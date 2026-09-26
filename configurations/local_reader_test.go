@@ -1356,16 +1356,52 @@ func TestEnvironmentProfileChainValidation(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestEndpointProducersNamesEachGroupsProducersOnce(t *testing.T) {
+// Each reference is named once per group, WITH the endpoint it names: two
+// endpoints of one producer are two references, because they are two things the
+// consumer waits for, and the same reference written twice is one.
+func TestEndpointProducersNamesEachGroupsReferencesOnce(t *testing.T) {
 	infos := []*basev0.ConfigurationInformation{
 		{Name: "platform", ConfigurationValues: []*basev0.ConfigurationValue{
 			{Key: "accounts-endpoint", Value: "${endpoint:saas/accounts/rest|authority}"},
 			{Key: "accounts-internal-endpoint", Value: "${endpoint:saas/accounts/rest|authority}"},
+			{Key: "accounts-rpc", Value: "${endpoint:saas/accounts/grpc}"},
 			{Key: "gateway-endpoint", Value: "${endpoint:saas/auth-gateway/rest}"},
+			{Key: "no-service", Value: "${endpoint:saas}"},
 		}},
 		{Name: "legal", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "URL", Value: "https://example.com"}}},
 	}
 	require.Equal(t,
-		map[string][]string{"platform": {"saas/accounts", "saas/auth-gateway"}},
+		map[string][]string{"platform": {"saas/accounts/rest", "saas/accounts/grpc", "saas/auth-gateway/rest"}},
 		configurations.EndpointProducers(infos))
+}
+
+// A comment is a comment in every env file, including one that contains an
+// "=": it must never become a configuration key.
+func TestEnvFileCommentsNeverBecomeKeys(t *testing.T) {
+	dir := t.TempDir()
+	content := "# The store is plaintext (sslmode=disable) behind the mesh\n" +
+		"  # indented=comment\n" +
+		"\n" +
+		"KEY=value\r\n" +
+		"OTHER=a=b\n"
+	if err := os.WriteFile(filepath.Join(dir, "group.env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	infos, err := configurations.LoadConfigurationInformationsFromFiles(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("want one configuration, got %d", len(infos))
+	}
+	got := map[string]string{}
+	for _, value := range infos[0].ConfigurationValues {
+		got[value.Key] = value.Value
+	}
+	if len(got) != 2 || got["OTHER"] != "a=b" {
+		t.Fatalf("comments or blank lines became keys, or a value lost its '=': %q", got)
+	}
+	if _, ok := got["KEY"]; !ok {
+		t.Fatalf("KEY missing: %q", got)
+	}
 }

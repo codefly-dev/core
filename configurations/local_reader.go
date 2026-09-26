@@ -916,12 +916,15 @@ func loadFromEnvFile(ctx context.Context, file *configurationFile) (*basev0.Conf
 	lines := strings.Split(string(f), "\n")
 
 	for index, line := range lines {
+		// A comment is a comment in every env file. Only reference-only files
+		// used to skip them, so a plain file's `# ... (sslmode=disable) ...`
+		// line became a configuration key named after the comment and was
+		// rendered into consumers' ConfigMaps.
+		if trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\r")); trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
 		if file.referenceOnly {
 			line = strings.TrimSuffix(line, "\r")
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-				continue
-			}
 		}
 		tokens := strings.SplitN(line, "=", 2)
 		if len(tokens) < 2 {
@@ -1064,11 +1067,17 @@ func ConsolidateInfo(_ context.Context, infos []*basev0.ConfigurationInformation
 	return result, nil
 }
 
-// EndpointProducers maps each workspace configuration to the services
-// (<module>/<service>) its ${endpoint:…} references name, in order and without
+// EndpointProducers maps each workspace configuration to the
+// <module>/<service>/<endpoint> references it carries, in order and without
 // repetition. It is the input of architecture.WithConfigurationReferences: a
 // composition root reads what the environment provides (ReadWorkspaceConfigurations)
 // and orders every consumer of a group after the producers the group names.
+//
+// The ENDPOINT is part of what is returned, not truncated away to the producer:
+// a reference is a consumed endpoint, so it decides both what must run first and
+// what must be healthy first, and an ordering that has forgotten which endpoint
+// was named can only deliver the former. Two references to different endpoints
+// of one producer are therefore two entries, not one.
 func EndpointProducers(infos []*basev0.ConfigurationInformation) map[string][]string {
 	out := make(map[string][]string)
 	for _, info := range infos {
@@ -1076,13 +1085,12 @@ func EndpointProducers(infos []*basev0.ConfigurationInformation) map[string][]st
 		for _, value := range info.GetConfigurationValues() {
 			for _, reference := range resources.ConfigurationValueEndpointReferences(value) {
 				endpoint, err := resources.ParseEndpoint(reference)
-				if err != nil || endpoint.Module == "" {
+				if err != nil || endpoint.Module == "" || endpoint.Service == "" {
 					continue
 				}
-				producer := endpoint.Module + "/" + endpoint.Service
-				if !seen[producer] {
-					seen[producer] = true
-					out[info.Name] = append(out[info.Name], producer)
+				if !seen[reference] {
+					seen[reference] = true
+					out[info.Name] = append(out[info.Name], reference)
 				}
 			}
 		}

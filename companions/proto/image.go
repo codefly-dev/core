@@ -59,7 +59,7 @@ func (ns foreignNamespace) owns(file *descriptorpb.FileDescriptorProto) bool {
 // a google/protobuf file protobuf-es has no runtime export for — is emitted with
 // a relative import, so a TypeScript library has to own it. Marking one as a buf
 // image import does not move it upstream, it just leaves
-// `../../google/api/annotations_pb` pointing at a file nothing wrote, and tsc
+// `../../google/api/annotations_pb.js` pointing at a file nothing wrote, and tsc
 // fails with TS2307 on every reference.
 var protobufESRuntimeFiles = map[string]bool{
 	"google/protobuf/any.proto":             true,

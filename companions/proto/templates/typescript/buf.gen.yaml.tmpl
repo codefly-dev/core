@@ -26,7 +26,18 @@ plugins:
   # honoured either way.) See MarkForeignImports.
   - local: protoc-gen-es
     out: {{.Destination}}
-    opt: target=ts
+    # Relative imports carry the `.js` a compiled module is loaded by. Without
+    # it (protoplugin v2 defaults to none) the output resolves only under a
+    # bundler: Node's ESM loader, and anything built on it such as vitest
+    # outside a bundle, fails on the first extensionless import. tsc resolves
+    # `.js` to the `.ts` source under every moduleResolution mode, and so do
+    # esbuild and Vite, so those consumers are unaffected. Two that are not, if
+    # they are fed these `.ts` sources directly rather than tsc's output:
+    # webpack needs `resolve.extensionAlias` and ts-jest a `moduleNameMapper`.
+    # Asserted by the tsc pass in facade_test.go, which typechecks the tree as
+    # an ESM package under nodenext — the only mode that reports a missing
+    # extension at all.
+    opt: target=ts,import_extension=js
     # Off on the descriptor-set path: that image carries its foreign files
     # already marked as imports, and re-targeting them would put a second
     # Timestamp next to the consumer's runtime one.
@@ -39,5 +50,6 @@ plugins:
     # its default per-directory strategy, which would hide services in other
     # directories from each invocation.
     strategy: all
-    opt: target=ts{{ if .Services }},services={{.Services}}{{ end }}{{ if .Module }},module={{.Module}}{{ end }}
+    # The same extension as the bindings it imports, for the same reason.
+    opt: target=ts,import_extension=js{{ if .Services }},services={{.Services}}{{ end }}{{ if .Module }},module={{.Module}}{{ end }}
 {{- end }}
