@@ -2,6 +2,7 @@ package workcontext_test
 
 import (
 	"context"
+	"crypto/ed25519"
 	"testing"
 	"time"
 
@@ -208,4 +209,35 @@ func TestVerified_CarriesExactlyWhatVerifyPut(t *testing.T) {
 	require.Equal(t, token, owner.Encoded())
 	require.Equal(t, workcontext.Fingerprint(token), owner.SHA256())
 	require.Equal(t, ownerID, owner.Context().GetOwnerPrincipalId())
+}
+
+// A misconfigured verification key must refuse the capability, not crash the
+// process. ed25519.Verify panics on a key that is not PublicKeySize bytes, and
+// the key is selected by the untrusted capability's own key id — so one short
+// entry in Keys (a truncated hex decode, a half-finished rotation) would let
+// anyone who learns that key id take the verifying service down on demand.
+func TestVerify_RefusesAMisconfiguredKeyInsteadOfPanicking(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+	token := owner.Encoded()
+
+	for name, key := range map[string]ed25519.PublicKey{
+		"truncated": h.public[:16],
+		"empty":     {},
+		"oversized": append(append(ed25519.PublicKey{}, h.public...), 0),
+	} {
+		t.Run(name, func(t *testing.T) {
+			verifier := h.verifier(audience)
+			verifier.Keys = map[string]ed25519.PublicKey{keyID: key}
+			_, err := verifier.Verify(context.Background(), token)
+			require.ErrorIs(t, err, workcontext.ErrInvalid)
+			require.Contains(t, err.Error(), "not 32")
+		})
+	}
+
+	// The correctly sized key still verifies the same capability, so the guard
+	// rejects only what would have panicked.
+	verified, err := h.verify(audience, token)
+	require.NoError(t, err)
+	require.NotNil(t, verified)
 }

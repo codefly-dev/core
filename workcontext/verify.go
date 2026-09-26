@@ -98,6 +98,15 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if !known {
 		return nil, fmt.Errorf("%w: no verification key %q", ErrInvalid, wc.GetKeyId())
 	}
+	// ed25519.Verify panics on a key that is not PublicKeySize bytes, and the
+	// key is chosen by the untrusted capability's key id — so a single
+	// misconfigured entry (a short hex decode, a half-finished rotation) would
+	// turn every capability naming it into a crash of this process rather than a
+	// refusal, on demand for anyone who learns that key id. A malformed key
+	// verifies nothing, which is a refusal like any other.
+	if len(key) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("%w: verification key %q is %d bytes, not %d", ErrInvalid, wc.GetKeyId(), len(key), ed25519.PublicKeySize)
+	}
 	if !ed25519.Verify(key, claims, sig) {
 		return nil, fmt.Errorf("%w: signature does not verify under key %q", ErrInvalid, wc.GetKeyId())
 	}
