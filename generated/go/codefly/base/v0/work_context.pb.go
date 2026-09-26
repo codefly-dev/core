@@ -78,6 +78,8 @@ type WorkContextV1 struct {
 	AuthorityScopes []*WorkScopeV1 `protobuf:"bytes,17,rep,name=authority_scopes,json=authorityScopes,proto3" json:"authority_scopes,omitempty"`
 	// actor_chain is ordered from the first delegated actor to the current actor.
 	// The owner is not duplicated here merely to make a direct call look uniform.
+	// Every hop attenuates the one before it, except the final hop of a
+	// capability carrying grant_hop.
 	ActorChain []*WorkActorV1 `protobuf:"bytes,18,rep,name=actor_chain,json=actorChain,proto3" json:"actor_chain,omitempty"`
 	// attribution_team_ids is an immutable verified attribution snapshot. It
 	// explains ownership; current authorization is still evaluated separately.
@@ -87,7 +89,27 @@ type WorkContextV1 struct {
 	WorkspaceId *string `protobuf:"bytes,20,opt,name=workspace_id,json=workspaceId,proto3,oneof" json:"workspace_id,omitempty"`
 	// project_id narrows workspace_id to a single project, when the task is
 	// scoped that far.
-	ProjectId     *string `protobuf:"bytes,21,opt,name=project_id,json=projectId,proto3,oneof" json:"project_id,omitempty"`
+	ProjectId *string `protobuf:"bytes,21,opt,name=project_id,json=projectId,proto3,oneof" json:"project_id,omitempty"`
+	// owner_principal_kind distinguishes the sort of principal the owner is, so
+	// a verifier can present the owner without resolving it against a directory.
+	// Optional on the wire: a capability minted before this field existed is
+	// still a valid capability, and an archived receipt embedding one still
+	// verifies. Deriving an identity from a capability that omits it is the
+	// error, raised where the identity is built.
+	OwnerPrincipalKind *string `protobuf:"bytes,22,opt,name=owner_principal_kind,json=ownerPrincipalKind,proto3,oneof" json:"owner_principal_kind,omitempty"`
+	// owner_agent_id is the owner's agent manifest identity. Required when
+	// owner_principal_kind is "agent" and absent otherwise.
+	OwnerAgentId *string `protobuf:"bytes,23,opt,name=owner_agent_id,json=ownerAgentId,proto3,oneof" json:"owner_agent_id,omitempty"`
+	// organization_id is the organization the task runs in. It is not the
+	// tenant: a tenant may hold several organizations, and authorization is
+	// scoped per organization. An actor hop may name a different one.
+	OrganizationId *string `protobuf:"bytes,25,opt,name=organization_id,json=organizationId,proto3,oneof" json:"organization_id,omitempty"`
+	// grant_hop is the approval grant this capability was minted under. It is
+	// the one audited exception to the attenuation rule: the final actor hop
+	// holds exactly granted_scope, which the preceding hop need not contain.
+	// Present only on a single-use child capability minted for one approved
+	// call; absent on every ordinary session.
+	GrantHop      *WorkGrantHopV1 `protobuf:"bytes,24,opt,name=grant_hop,json=grantHop,proto3,oneof" json:"grant_hop,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -269,6 +291,34 @@ func (x *WorkContextV1) GetProjectId() string {
 	return ""
 }
 
+func (x *WorkContextV1) GetOwnerPrincipalKind() string {
+	if x != nil && x.OwnerPrincipalKind != nil {
+		return *x.OwnerPrincipalKind
+	}
+	return ""
+}
+
+func (x *WorkContextV1) GetOwnerAgentId() string {
+	if x != nil && x.OwnerAgentId != nil {
+		return *x.OwnerAgentId
+	}
+	return ""
+}
+
+func (x *WorkContextV1) GetOrganizationId() string {
+	if x != nil && x.OrganizationId != nil {
+		return *x.OrganizationId
+	}
+	return ""
+}
+
+func (x *WorkContextV1) GetGrantHop() *WorkGrantHopV1 {
+	if x != nil {
+		return x.GrantHop
+	}
+	return nil
+}
+
 // WorkScopeV1 is a structured, product-neutral capability scope. Empty
 // resource_ids means every resource of resource_kind; a child may narrow that
 // wildcard to explicit IDs but may never widen an explicit parent set.
@@ -351,8 +401,15 @@ type WorkActorV1 struct {
 	// granted_scopes are this actor's effective scopes, a subset of the
 	// preceding hop's.
 	GrantedScopes []*WorkScopeV1 `protobuf:"bytes,4,rep,name=granted_scopes,json=grantedScopes,proto3" json:"granted_scopes,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// agent_id is the actor's agent manifest identity. Required when
+	// principal_kind is "agent" and absent otherwise.
+	AgentId *string `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3,oneof" json:"agent_id,omitempty"`
+	// organization_id is the organization this actor belongs to, when it is not
+	// the one the task runs in. An org-bridge agent acts in an organization the
+	// owner does not belong to, and authorization is scoped to the actor's own.
+	OrganizationId *string `protobuf:"bytes,6,opt,name=organization_id,json=organizationId,proto3,oneof" json:"organization_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *WorkActorV1) Reset() {
@@ -413,11 +470,259 @@ func (x *WorkActorV1) GetGrantedScopes() []*WorkScopeV1 {
 	return nil
 }
 
+func (x *WorkActorV1) GetAgentId() string {
+	if x != nil && x.AgentId != nil {
+		return *x.AgentId
+	}
+	return ""
+}
+
+func (x *WorkActorV1) GetOrganizationId() string {
+	if x != nil && x.OrganizationId != nil {
+		return *x.OrganizationId
+	}
+	return ""
+}
+
+// WorkGrantHopV1 records the approval that justifies a capability holding
+// authority its delegating owner never held. It is minted only as a new child
+// capability bound to one tool, one subject and one call, so the authority it
+// adds is unusable anywhere else and expires with the grant window.
+type WorkGrantHopV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// grant_id identifies the approval grant, so revoking the grant and
+	// auditing the call both reach the same record.
+	GrantId string `protobuf:"bytes,1,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	// approvers are the principals whose decision produced the grant, every one
+	// of an N-of-M quorum, so the audit record is complete.
+	Approvers []*WorkApproverV1 `protobuf:"bytes,2,rep,name=approvers,proto3" json:"approvers,omitempty"`
+	// granted_scope is exactly what the approval added: one resource_kind, one
+	// action and one resource_id. A grant never widens beyond that triple.
+	GrantedScope *WorkScopeV1 `protobuf:"bytes,3,opt,name=granted_scope,json=grantedScope,proto3" json:"granted_scope,omitempty"`
+	// subject is what the grant is pinned to, in the approvals engine's own
+	// vocabulary, so a grant approved for one subject cannot be spent on another.
+	Subject string `protobuf:"bytes,4,opt,name=subject,proto3" json:"subject,omitempty"`
+	// request_digest binds the grant to the exact call the approver saw.
+	RequestDigest string `protobuf:"bytes,5,opt,name=request_digest,json=requestDigest,proto3" json:"request_digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkGrantHopV1) Reset() {
+	*x = WorkGrantHopV1{}
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkGrantHopV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkGrantHopV1) ProtoMessage() {}
+
+func (x *WorkGrantHopV1) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkGrantHopV1.ProtoReflect.Descriptor instead.
+func (*WorkGrantHopV1) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *WorkGrantHopV1) GetGrantId() string {
+	if x != nil {
+		return x.GrantId
+	}
+	return ""
+}
+
+func (x *WorkGrantHopV1) GetApprovers() []*WorkApproverV1 {
+	if x != nil {
+		return x.Approvers
+	}
+	return nil
+}
+
+func (x *WorkGrantHopV1) GetGrantedScope() *WorkScopeV1 {
+	if x != nil {
+		return x.GrantedScope
+	}
+	return nil
+}
+
+func (x *WorkGrantHopV1) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *WorkGrantHopV1) GetRequestDigest() string {
+	if x != nil {
+		return x.RequestDigest
+	}
+	return ""
+}
+
+// WorkApproverV1 is one principal whose decision produced a grant. It carries
+// the kind as well as the id: a policy that requires a human approver cannot
+// be written against bare identifiers.
+type WorkApproverV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// principal_id identifies the approver.
+	PrincipalId string `protobuf:"bytes,1,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	// principal_kind distinguishes the sort of principal the approver is.
+	PrincipalKind string `protobuf:"bytes,2,opt,name=principal_kind,json=principalKind,proto3" json:"principal_kind,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkApproverV1) Reset() {
+	*x = WorkApproverV1{}
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkApproverV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkApproverV1) ProtoMessage() {}
+
+func (x *WorkApproverV1) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkApproverV1.ProtoReflect.Descriptor instead.
+func (*WorkApproverV1) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *WorkApproverV1) GetPrincipalId() string {
+	if x != nil {
+		return x.PrincipalId
+	}
+	return ""
+}
+
+func (x *WorkApproverV1) GetPrincipalKind() string {
+	if x != nil {
+		return x.PrincipalKind
+	}
+	return ""
+}
+
+// ApprovalRequiredV1 is the signal a policy decision point returns instead of
+// a denial when the call is approvable: the authority is not held, but an
+// approver may grant it. It names exactly what a WorkGrantHopV1 would have to
+// carry, so a decision and the capability that satisfies it are the same shape.
+// It is carried as a typed error detail on a FailedPrecondition status.
+type ApprovalRequiredV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// request_id identifies the approval request the engine created, which the
+	// caller waits on and the resulting grant refers back to.
+	RequestId string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// requested_scope is the authority the call needs and the principal lacks.
+	RequestedScope *WorkScopeV1 `protobuf:"bytes,2,opt,name=requested_scope,json=requestedScope,proto3" json:"requested_scope,omitempty"`
+	// subject is what a grant would be pinned to.
+	Subject string `protobuf:"bytes,3,opt,name=subject,proto3" json:"subject,omitempty"`
+	// request_digest is the exact call put to the approver.
+	RequestDigest string `protobuf:"bytes,4,opt,name=request_digest,json=requestDigest,proto3" json:"request_digest,omitempty"`
+	// audience is the tool a granted capability must be minted for.
+	Audience      string `protobuf:"bytes,5,opt,name=audience,proto3" json:"audience,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApprovalRequiredV1) Reset() {
+	*x = ApprovalRequiredV1{}
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApprovalRequiredV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApprovalRequiredV1) ProtoMessage() {}
+
+func (x *ApprovalRequiredV1) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApprovalRequiredV1.ProtoReflect.Descriptor instead.
+func (*ApprovalRequiredV1) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ApprovalRequiredV1) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ApprovalRequiredV1) GetRequestedScope() *WorkScopeV1 {
+	if x != nil {
+		return x.RequestedScope
+	}
+	return nil
+}
+
+func (x *ApprovalRequiredV1) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *ApprovalRequiredV1) GetRequestDigest() string {
+	if x != nil {
+		return x.RequestDigest
+	}
+	return ""
+}
+
+func (x *ApprovalRequiredV1) GetAudience() string {
+	if x != nil {
+		return x.Audience
+	}
+	return ""
+}
+
 var File_codefly_base_v0_work_context_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\n" +
-	"\"codefly/base/v0/work_context.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xb5\b\n" +
+	"\"codefly/base/v0/work_context.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xfa\n" +
+	"\n" +
 	"\rWorkContextV1\x120\n" +
 	"\x03typ\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\n" +
 	"\x17codefly.work-context/v1R\x03typ\x12,\n" +
@@ -458,15 +763,27 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\vworkspaceId\x88\x01\x01\x12.\n" +
 	"\n" +
 	"project_id\x18\x15 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x02R\tprojectId\x88\x01\x01B\x14\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x02R\tprojectId\x88\x01\x01\x12A\n" +
+	"\x14owner_principal_kind\x18\x16 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x01H\x03R\x12ownerPrincipalKind\x88\x01\x01\x125\n" +
+	"\x0eowner_agent_id\x18\x17 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x04R\fownerAgentId\x88\x01\x01\x128\n" +
+	"\x0forganization_id\x18\x19 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x05R\x0eorganizationId\x88\x01\x01\x12A\n" +
+	"\tgrant_hop\x18\x18 \x01(\v2\x1f.codefly.base.v0.WorkGrantHopV1H\x06R\bgrantHop\x88\x01\x01B\x14\n" +
 	"\x12_parent_session_idB\x0f\n" +
 	"\r_workspace_idB\r\n" +
-	"\v_project_id\"{\n" +
+	"\v_project_idB\x17\n" +
+	"\x15_owner_principal_kindB\x11\n" +
+	"\x0f_owner_agent_idB\x12\n" +
+	"\x10_organization_idB\f\n" +
+	"\n" +
+	"_grant_hop\"{\n" +
 	"\vWorkScopeV1\x12/\n" +
 	"\rresource_kind\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\fresourceKind\x12\x18\n" +
 	"\aactions\x18\x02 \x03(\tR\aactions\x12!\n" +
-	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xe5\x01\n" +
+	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xec\x02\n" +
 	"\vWorkActorV1\x12-\n" +
 	"\fprincipal_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\vprincipalId\x121\n" +
@@ -474,7 +791,39 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\rprincipalKind\x12/\n" +
 	"\rdelegation_id\x18\x03 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\fdelegationId\x12C\n" +
-	"\x0egranted_scopes\x18\x04 \x03(\v2\x1c.codefly.base.v0.WorkScopeV1R\rgrantedScopesB\xbf\x01\n" +
+	"\x0egranted_scopes\x18\x04 \x03(\v2\x1c.codefly.base.v0.WorkScopeV1R\rgrantedScopes\x12*\n" +
+	"\bagent_id\x18\x05 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x00R\aagentId\x88\x01\x01\x128\n" +
+	"\x0forganization_id\x18\x06 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\x0eorganizationId\x88\x01\x01B\v\n" +
+	"\t_agent_idB\x12\n" +
+	"\x10_organization_id\"\xa6\x02\n" +
+	"\x0eWorkGrantHopV1\x12%\n" +
+	"\bgrant_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\agrantId\x12I\n" +
+	"\tapprovers\x18\x02 \x03(\v2\x1f.codefly.base.v0.WorkApproverV1B\n" +
+	"\xbaH\a\x92\x01\x04\b\x01\x10@R\tapprovers\x12I\n" +
+	"\rgranted_scope\x18\x03 \x01(\v2\x1c.codefly.base.v0.WorkScopeV1B\x06\xbaH\x03\xc8\x01\x01R\fgrantedScope\x12$\n" +
+	"\asubject\x18\x04 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\asubject\x121\n" +
+	"\x0erequest_digest\x18\x05 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\rrequestDigest\"r\n" +
+	"\x0eWorkApproverV1\x12-\n" +
+	"\fprincipal_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\vprincipalId\x121\n" +
+	"\x0eprincipal_kind\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\rprincipalKind\"\x8f\x02\n" +
+	"\x12ApprovalRequiredV1\x12)\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\trequestId\x12M\n" +
+	"\x0frequested_scope\x18\x02 \x01(\v2\x1c.codefly.base.v0.WorkScopeV1B\x06\xbaH\x03\xc8\x01\x01R\x0erequestedScope\x12$\n" +
+	"\asubject\x18\x03 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\asubject\x121\n" +
+	"\x0erequest_digest\x18\x04 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\rrequestDigest\x12&\n" +
+	"\baudience\x18\x05 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\baudienceB\xbf\x01\n" +
 	"\x13com.codefly.base.v0B\x10WorkContextProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (
@@ -489,21 +838,28 @@ func file_codefly_base_v0_work_context_proto_rawDescGZIP() []byte {
 	return file_codefly_base_v0_work_context_proto_rawDescData
 }
 
-var file_codefly_base_v0_work_context_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_codefly_base_v0_work_context_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_codefly_base_v0_work_context_proto_goTypes = []any{
-	(*WorkContextV1)(nil), // 0: codefly.base.v0.WorkContextV1
-	(*WorkScopeV1)(nil),   // 1: codefly.base.v0.WorkScopeV1
-	(*WorkActorV1)(nil),   // 2: codefly.base.v0.WorkActorV1
+	(*WorkContextV1)(nil),      // 0: codefly.base.v0.WorkContextV1
+	(*WorkScopeV1)(nil),        // 1: codefly.base.v0.WorkScopeV1
+	(*WorkActorV1)(nil),        // 2: codefly.base.v0.WorkActorV1
+	(*WorkGrantHopV1)(nil),     // 3: codefly.base.v0.WorkGrantHopV1
+	(*WorkApproverV1)(nil),     // 4: codefly.base.v0.WorkApproverV1
+	(*ApprovalRequiredV1)(nil), // 5: codefly.base.v0.ApprovalRequiredV1
 }
 var file_codefly_base_v0_work_context_proto_depIdxs = []int32{
 	1, // 0: codefly.base.v0.WorkContextV1.authority_scopes:type_name -> codefly.base.v0.WorkScopeV1
 	2, // 1: codefly.base.v0.WorkContextV1.actor_chain:type_name -> codefly.base.v0.WorkActorV1
-	1, // 2: codefly.base.v0.WorkActorV1.granted_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	3, // 2: codefly.base.v0.WorkContextV1.grant_hop:type_name -> codefly.base.v0.WorkGrantHopV1
+	1, // 3: codefly.base.v0.WorkActorV1.granted_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	4, // 4: codefly.base.v0.WorkGrantHopV1.approvers:type_name -> codefly.base.v0.WorkApproverV1
+	1, // 5: codefly.base.v0.WorkGrantHopV1.granted_scope:type_name -> codefly.base.v0.WorkScopeV1
+	1, // 6: codefly.base.v0.ApprovalRequiredV1.requested_scope:type_name -> codefly.base.v0.WorkScopeV1
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_work_context_proto_init() }
@@ -512,13 +868,14 @@ func file_codefly_base_v0_work_context_proto_init() {
 		return
 	}
 	file_codefly_base_v0_work_context_proto_msgTypes[0].OneofWrappers = []any{}
+	file_codefly_base_v0_work_context_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_work_context_proto_rawDesc), len(file_codefly_base_v0_work_context_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
