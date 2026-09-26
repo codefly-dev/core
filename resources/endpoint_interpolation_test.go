@@ -159,11 +159,28 @@ func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T
 		"an information block that started with no values must not be dropped by the strict path")
 }
 
-// A group the consumer selected by name is strict: a value referencing an
-// endpoint absent from the consumer's mappings — its service absent, or present
-// under a different endpoint — fails, naming the configuration, the key, the
-// reference and its producer. It is never silently omitted: the consumer would
-// only report "not configured" later, far from the cause.
+// platformConfiguration is the `gateway` key every consumer of the group reads,
+// plus one more key under test.
+func platformConfiguration(key, value string) *basev0.Configuration {
+	return &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{{
+			Name: "platform",
+			ConfigurationValues: []*basev0.ConfigurationValue{
+				{Key: "gateway", Value: "${endpoint:saas-starter/auth-sidecar/http}"},
+				{Key: key, Value: value},
+			},
+		}},
+	}
+}
+
+// A group the consumer selected by name is strict about what this run can
+// resolve: a value referencing an endpoint absent from the consumer's mappings —
+// its service absent, or present under a different endpoint — fails when the run
+// contains that producer, naming the configuration, the key, the reference and
+// its producer. It is not silently omitted: the producer is in the run, so the
+// consumer was not handed something that exists, and the consumer would only
+// report "not configured" later, far from the cause.
 func TestInterpolateConfigurationEndpointsFailsOnAnEndpointAbsentFromTheConsumerMappings(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -173,17 +190,9 @@ func TestInterpolateConfigurationEndpointsFailsOnAnEndpointAbsentFromTheConsumer
 		{key: "absent-service", reference: "saas/frontend/http", producer: "saas/frontend"},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
-			conf := &basev0.Configuration{
-				Origin: resources.ConfigurationWorkspace,
-				Infos: []*basev0.ConfigurationInformation{{
-					Name: "platform",
-					ConfigurationValues: []*basev0.ConfigurationValue{
-						{Key: "gateway", Value: "${endpoint:saas-starter/auth-sidecar/http}"},
-						{Key: tc.key, Value: "${endpoint:" + tc.reference + "}"},
-					},
-				}},
-			}
-			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+			conf := platformConfiguration(tc.key, "${endpoint:"+tc.reference+"}")
+			inRun := resources.WithRunProducers(func(unique string) bool { return unique == tc.producer })
+			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), inRun)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "platform/"+tc.key)
 			assert.Contains(t, err.Error(), "${endpoint:"+tc.reference+"}")
@@ -192,8 +201,73 @@ func TestInterpolateConfigurationEndpointsFailsOnAnEndpointAbsentFromTheConsumer
 	}
 }
 
-// Omission is only for endpoints the consumer does not depend on. A reference
-// that cannot be an endpoint at all is still a hard error.
+// A run that does not contain the producer cannot resolve the reference, and no
+// composition change would make it resolvable for that run: a run excluding
+// optional infrastructure, or starting one service rather than the workspace,
+// must still start. The value is dropped for this consumer and the group keeps
+// the keys it reads. The same holds when the caller says nothing about the run,
+// since then no producer is provably part of it.
+func TestInterpolateConfigurationEndpointsDropsAReferenceToAProducerOutsideTheRun(t *testing.T) {
+	ctx := context.Background()
+	// The shape of `codefly run` with infra/temporal excluded: the group the
+	// consumer declares carries a key for a service this run does not contain.
+	conf := platformConfiguration("temporal-address", "${endpoint:infra/temporal/grpc}")
+	for _, tc := range []struct {
+		name string
+		opts []resources.ConfigurationInterpolationOption
+	}{
+		{name: "the run is known and excludes the producer", opts: []resources.ConfigurationInterpolationOption{
+			resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" }),
+		}},
+		{name: "the caller says nothing about the run"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), tc.opts...)
+			require.NoError(t, err)
+			require.Len(t, resolved.Infos, 1)
+			require.Len(t, resolved.Infos[0].ConfigurationValues, 1, "the group keeps the keys this consumer reads")
+			assert.Equal(t, "gateway", resolved.Infos[0].ConfigurationValues[0].Key)
+			assert.Equal(t, "http://localhost:1234", resolved.Infos[0].ConfigurationValues[0].Value)
+		})
+	}
+
+	none, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	require.NoError(t, err)
+	require.Len(t, none.Infos, 1, "the group stays selected when none of its values is for this consumer")
+	assert.Empty(t, none.Infos[0].ConfigurationValues)
+}
+
+// A value mixing a producer the run contains with one it does not is judged by
+// the one it contains, whichever order the references appear in: that reference
+// must resolve, so the value is an error rather than a drop.
+func TestInterpolateConfigurationEndpointsFailsOnAMixedValueNamingARunProducer(t *testing.T) {
+	ctx := context.Background()
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
+	for _, value := range []string{
+		"${endpoint:saas-starter/auth-sidecar/grpc}|${endpoint:infra/temporal/grpc}",
+		"${endpoint:infra/temporal/grpc}|${endpoint:saas-starter/auth-sidecar/grpc}",
+	} {
+		_, err := resources.InterpolateConfigurationEndpoints(ctx, platformConfiguration("mixed", value), gatewayMappings(), resources.NewNativeNetworkAccess(), inRun)
+		require.Error(t, err, value)
+		assert.Contains(t, err.Error(), "platform/mixed")
+	}
+}
+
+// Only an endpoint absent from the consumer's mappings can be dropped. An
+// endpoint the mappings DO carry, with no instance for the consumer's access, is
+// a hard error on the strict path however little the caller said about the run:
+// the producer is demonstrably part of it.
+func TestInterpolateConfigurationEndpointsFailsWhenTheEndpointHasNoInstanceForTheAccess(t *testing.T) {
+	ctx := context.Background()
+	conf := platformConfiguration("gateway-public", "${endpoint:saas-starter/auth-sidecar/http}")
+	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewPublicNetworkAccess())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no instance for access=public")
+}
+
+// A reference that cannot be an endpoint at all is a hard error on the strict
+// path: it names no producer that any run could contain, so it cannot be a value
+// that is merely not for this consumer.
 func TestInterpolateConfigurationEndpointsErrorsOnMalformedReference(t *testing.T) {
 	conf := &basev0.Configuration{
 		Origin: resources.ConfigurationWorkspace,

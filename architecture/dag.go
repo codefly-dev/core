@@ -80,7 +80,9 @@ func (g *DAG) reachesInStage(u, v string, stage resources.Stage) bool {
 		}
 		seen[n] = true
 		for _, next := range g.edges[n] {
-			if g.edgeConstrains(n, next, stage) {
+			// The edge is known to exist: it came out of g.edges[n], so only its
+			// kinds are in question.
+			if g.kindsConstrain(Edge{From: n, To: next}, stage) {
 				stack = append(stack, next)
 			}
 		}
@@ -94,7 +96,12 @@ func (g *DAG) edgeConstrains(u, v string, stage resources.Stage) bool {
 	if !g.HasEdge(u, v) {
 		return false
 	}
-	for _, kind := range g.edgeKindsOrLegacy(Edge{From: u, To: v}) {
+	return g.kindsConstrain(Edge{From: u, To: v}, stage)
+}
+
+// kindsConstrain reports whether any kind an existing edge carries orders stage.
+func (g *DAG) kindsConstrain(edge Edge, stage resources.Stage) bool {
+	for _, kind := range g.edgeKindsOrLegacy(edge) {
 		if kind.Participates(stage) {
 			return true
 		}
@@ -122,6 +129,19 @@ func (g *DAG) AddKindedEdge(u, v string, kind resources.DependencyKind) {
 	edge := Edge{From: u, To: v}
 	if !slices.Contains(g.edgeKinds[edge], kind) {
 		g.edgeKinds[edge] = append(g.edgeKinds[edge], kind)
+	}
+}
+
+// dropEdgeKind removes one kind from an edge, leaving the edge itself in place.
+// It is how a kind that has been superseded stops describing the edge: keeping
+// `external` on an edge that now orders the run would leave the pair carrying two
+// kinds that contradict each other, and every reader of EdgeKinds — the graph
+// vocabulary included — having to guess which one wins.
+func (g *DAG) dropEdgeKind(u, v string, kind resources.DependencyKind) {
+	edge := Edge{From: u, To: v}
+	kinds := g.edgeKinds[edge]
+	if index := slices.Index(kinds, kind); index >= 0 {
+		g.edgeKinds[edge] = slices.Delete(kinds, index, index+1)
 	}
 }
 

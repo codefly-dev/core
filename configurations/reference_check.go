@@ -50,28 +50,47 @@ func (e *UnresolvedReferencesError) Error() string {
 }
 
 // ProducerLookup returns the service a <module>/<service> unique names in the
-// plan being checked, and false when the plan has no such service.
+// WORKSPACE, and false when the workspace has no such service.
+//
+// The workspace, not the run: a producer a run excludes or simply does not start
+// is still a real service, and a reference naming it is a fact about the
+// composition that holds whatever subset is being run. Looking references up in
+// a run-scoped graph instead would refuse every partial run of a workspace whose
+// root binds producers outside it. What a run does contain is the resolve-time
+// question (resources.WithRunProducers), asked once addresses exist.
 type ProducerLookup func(unique string) (*resources.Service, bool)
 
-// CheckEndpointReferences validates, before anything is built or started,
-// every ${endpoint:…} reference in the workspace configurations each consumer
-// declares: the reference must be well formed, name a producer the plan
-// contains, and name an endpoint that producer's manifest declares. It returns
-// an *UnresolvedReferencesError listing all of them, or nil.
+// CheckEndpointReferences validates, before anything is built or started, every
+// ${endpoint:…} reference in the workspace configurations each consumer
+// declares: the reference must be well formed, name a producer of the workspace,
+// name an endpoint that producer's manifest declares, and name one the
+// consumer's module may receive. It returns an *UnresolvedReferencesError
+// listing all of them, or nil.
 //
 // provided is what the environment provides (ReadWorkspaceConfigurations); a
-// group appears once per contributing information. excluded names the groups a
-// profile excludes, which the consumer never receives. A group the environment
-// does not provide at all is not reported here: resolving it fails on its own,
-// naming the group. Only the groups a consumer declares are checked: the
-// composition root's groups injected into every service never bind one service
-// to another, and a value there that a service cannot resolve is not for it.
+// group appears once per contributing information. profile is the run profile
+// whose ExcludeWorkspaceConfigurations the consumer never receives — the only
+// place group exclusions come from, so a caller passes what it resolved rather
+// than assembling a set the check cannot verify; a zero profile excludes
+// nothing. A group the environment does not provide at all is not reported here:
+// resolving it fails on its own, naming the group. Only the groups a consumer
+// declares are checked: the composition root's groups injected into every
+// service never bind one service to another, and a value there that a service
+// cannot resolve is not for it.
 //
-// This is the plan-time half of a contract whose run-time half is
-// resources.InterpolateConfigurationEndpoints, which fails on the same
-// references when a value is resolved: a configuration error is reported as
-// early as possible, and never omitted.
-func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consumers []*resources.Service, excluded map[string]bool, producer ProducerLookup) error {
+// This is the COMPOSITION half of the contract, and it is the half that can be
+// checked before anything exists: a typo, an endpoint a producer does not
+// publish, an endpoint a module may not receive — faults of the workspace, true
+// of every run of it. It deliberately says nothing about what a given run
+// contains or about addresses, which do not exist yet; those are
+// resources.InterpolateConfigurationEndpoints with WithRunProducers, which fails
+// when a producer the run DOES contain was not handed to a consumer. Neither
+// half subsumes the other, and a reference is silently dropped by neither.
+func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consumers []*resources.Service, profile resources.RunProfile, producer ProducerLookup) error {
+	excluded := make(map[string]bool, len(profile.ExcludeWorkspaceConfigurations))
+	for _, group := range profile.ExcludeWorkspaceConfigurations {
+		excluded[group] = true
+	}
 	byGroup := make(map[string][]*basev0.ConfigurationInformation)
 	for _, info := range provided {
 		byGroup[info.GetName()] = append(byGroup[info.GetName()], info)
@@ -82,7 +101,11 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 		if consumer == nil {
 			continue
 		}
-		unique := resources.WithUnique(consumer).Unique()
+		identity, err := consumer.Identity()
+		if err != nil {
+			return err
+		}
+		unique := identity.Unique()
 		for _, group := range consumer.WorkspaceConfigurationDependencies {
 			if excluded[group] {
 				continue
@@ -90,7 +113,7 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 			for _, info := range byGroup[group] {
 				for _, value := range info.GetConfigurationValues() {
 					for _, reference := range resources.EndpointReferences(value.GetValue()) {
-						problem := checkEndpointReference(reference, producer)
+						problem := checkEndpointReference(reference, identity.Module, producer)
 						if problem == nil {
 							continue
 						}
@@ -113,7 +136,7 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 	return &UnresolvedReferencesError{References: unresolved}
 }
 
-func checkEndpointReference(reference string, producer ProducerLookup) *UnresolvedReference {
+func checkEndpointReference(reference string, consumerModule string, producer ProducerLookup) *UnresolvedReference {
 	out := &UnresolvedReference{Reference: reference}
 	info, err := resources.ParseEndpoint(reference)
 	if err != nil {
@@ -127,16 +150,28 @@ func checkEndpointReference(reference string, producer ProducerLookup) *Unresolv
 	out.Producer = info.Module + "/" + info.Service
 	service, ok := producer(out.Producer)
 	if !ok || service == nil {
-		out.Reason = "the producer is not a service of this plan"
+		out.Reason = "the producer is not a service of this workspace"
 		return out
 	}
 	for _, endpoint := range service.Endpoints {
 		if endpoint == nil {
 			continue
 		}
-		if declaresReferencedEndpoint(endpoint, info) {
-			return nil
+		if !resources.EndpointMatchesReferenceInfo(endpoint, info) {
+			continue
 		}
+		// A reference resolves an address into the consumer's environment, so it
+		// is subject to the producer's export boundary like any other edge that
+		// does. Judged by the one body behind every "may this consumer depend on
+		// this endpoint" answer, so a reference can never carry an endpoint a
+		// declared dependency on the same endpoint would be refused: without
+		// this, declaring the group instead of the dependency would be the way
+		// around visibility.
+		if err := resources.ValidateEndpointVisibility(consumerModule, info.Module, info.Service, endpoint.Name, endpoint.Visibility, endpoint.AllowModules); err != nil {
+			out.Reason = err.Error()
+			return out
+		}
+		return nil
 	}
 	declared := make([]string, 0, len(service.Endpoints))
 	for _, endpoint := range service.Endpoints {
@@ -146,17 +181,4 @@ func checkEndpointReference(reference string, producer ProducerLookup) *Unresolv
 	}
 	out.Reason = fmt.Sprintf("the producer declares no such endpoint (declared: %s)", strings.Join(declared, ", "))
 	return out
-}
-
-// declaresReferencedEndpoint mirrors how a reference matches a mapping when it
-// is resolved (resources.InterpolateEndpoints): by API when the reference names
-// one, and by name, or by an API spelled as the name, otherwise.
-func declaresReferencedEndpoint(endpoint *resources.Endpoint, info *resources.EndpointInformation) bool {
-	if info.API != "" && endpoint.API != info.API {
-		return false
-	}
-	if info.Name == "" {
-		return endpoint.API == info.API
-	}
-	return endpoint.Name == info.Name || endpoint.API == info.Name
 }

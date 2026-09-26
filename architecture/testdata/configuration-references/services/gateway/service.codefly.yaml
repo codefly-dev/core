@@ -6,6 +6,13 @@ agent:
     name: go-grpc
     version: 0.0.1
     publisher: codefly.ai
+# gateway exports an endpoint of its own so that worker's group referencing it
+# back is a reference that COULD be waited for — which is what makes the cycle
+# guard's job visible: it must drop the ordering AND the wait.
+endpoints:
+    - name: grpc
+      visibility: public
+      api: grpc
 service-dependencies:
     - name: worker
       endpoints:

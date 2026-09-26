@@ -47,8 +47,13 @@ func addressAuthority(address string) (string, error) {
 }
 
 // errEndpointNotAvailable marks a well-formed reference to an endpoint absent
-// from the consumer's mappings. The run-wide path drops such a value for the
-// consumer; the strict path fails on it.
+// from the consumer's mappings. It is the one unresolved reference that can be
+// legitimate, so it is the one the callers branch on: the run-wide path drops
+// such a value for the consumer, and the strict path drops it only when the
+// producer it names is not part of this run (see WithRunProducers) and fails
+// otherwise. Every other failure — a malformed reference, an endpoint matched
+// with no instance for the consumer's access — is a hard error on both paths
+// that reach it, and must not carry this sentinel.
 var errEndpointNotAvailable = errors.New("endpoint not available to this consumer")
 
 // EndpointReferences returns the <module>/<service>/<endpoint> references value
@@ -103,17 +108,53 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 // returned unchanged.
 //
 // This is the variant for a configuration the consumer selected by name, and it
-// is strict: every reference must resolve, and one that does not is an error
-// naming the configuration, the key, the reference and its producer. A value is
-// never silently omitted here: a consumer that declared the group reads its
-// keys, and a missing key surfaces only later, far from its cause, as "not
-// configured". The caller hands mappings covering every producer the group
-// references, not only the consumer's declared dependencies (a composition root
-// binds producers the consuming module cannot name). For a configuration
-// injected run-wide into services that never declared it, use
-// InterpolateRunWideConfigurationEndpoints.
-func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (*basev0.Configuration, error) {
-	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, false)
+// is strict about what this run can resolve: every reference to a producer the
+// run contains must resolve, and one that does not is an error naming the
+// configuration, the key, the reference and its producer. Such a value is never
+// silently omitted: a consumer that declared the group reads its keys, and a
+// missing key surfaces only later, far from its cause, as "not configured". The
+// caller hands mappings covering every producer the group references, not only
+// the consumer's declared dependencies (a composition root binds producers the
+// consuming module cannot name).
+//
+// A reference to a producer the run does NOT contain is a different fact, and
+// not an error: a run that excludes optional infrastructure
+// (architecture.ExcludeServices), or that starts one service rather than the
+// whole workspace, cannot resolve it and no composition change would make it
+// resolvable for that run. One group commonly serves several consumers, so such
+// a value is dropped for this consumer — with a WARN naming it, because for a
+// group the consumer declared this is worth seeing — and the consumer reports
+// the missing key itself if it reads it. Pass WithRunProducers so this path can
+// tell the two apart; without it, no producer is provably part of the run and
+// every unavailable endpoint is a drop. What the run contains is the caller's
+// knowledge, not something mappings can be read for: an absent mapping is
+// exactly the symptom of the bug the strict path exists to catch.
+//
+// For a configuration injected run-wide into services that never declared it,
+// use InterpolateRunWideConfigurationEndpoints.
+func InterpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, opts ...ConfigurationInterpolationOption) (*basev0.Configuration, error) {
+	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, false, opts...)
+}
+
+// ConfigurationInterpolationOption supplies what the strict path cannot read off
+// the configuration or the mappings.
+type ConfigurationInterpolationOption func(*configurationInterpolation)
+
+type configurationInterpolation struct {
+	// producerInRun reports whether a <module>/<service> is part of this run.
+	// Nil means the caller did not say, so nothing is provably in the run.
+	producerInRun func(unique string) bool
+}
+
+// WithRunProducers tells the strict path which producers this run contains, by
+// <module>/<service>. A reference naming one of them must resolve — it is in the
+// run, so its endpoint is missing because it was not ordered, not started, or
+// not handed to this consumer, which is a fault to report rather than a value to
+// drop. A reference naming anything else is not for this run.
+func WithRunProducers(inRun func(unique string) bool) ConfigurationInterpolationOption {
+	return func(opt *configurationInterpolation) {
+		opt.producerInRun = inRun
+	}
 }
 
 // InterpolateRunWideConfigurationEndpoints is InterpolateConfigurationEndpoints
@@ -131,9 +172,13 @@ func InterpolateRunWideConfigurationEndpoints(ctx context.Context, conf *basev0.
 	return interpolateConfigurationEndpoints(ctx, conf, mappings, access, true)
 }
 
-func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, dropUnresolved bool) (*basev0.Configuration, error) {
+func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configuration, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, dropUnresolved bool, opts ...ConfigurationInterpolationOption) (*basev0.Configuration, error) {
 	if conf == nil || !configurationHasEndpointReference(conf) {
 		return conf, nil
+	}
+	options := &configurationInterpolation{}
+	for _, opt := range opts {
+		opt(options)
 	}
 	w := wool.Get(ctx).In("resources.InterpolateConfigurationEndpoints")
 	cloned := proto.Clone(conf).(*basev0.Configuration)
@@ -146,7 +191,23 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 				// In the run-wide path, a value the consumer cannot satisfy is
 				// simply not for it: drop the value (and, below, an information
 				// left with no values) rather than fail the service. The strict
-				// path propagates the error, naming the key.
+				// path propagates the error, naming the key — unless the only
+				// thing wrong is that the value names a producer this run does
+				// not contain, which no composition change would fix for this
+				// run.
+				if !dropUnresolved && errors.Is(err, errEndpointNotAvailable) &&
+					!unresolvedNamesRunProducer(ctx, value.Value, mappings, access, options.producerInRun) {
+					// WARN, not DEBUG: the consumer selected this group by name,
+					// so a key of it going missing is worth seeing even though
+					// the run is right to continue. The message carries the
+					// producer, which is what says whether the run was meant to
+					// contain it.
+					w.Warn("dropping a configuration value the consumer selected: its endpoint reference names a producer this run does not contain",
+						wool.Field("configuration", info.Name),
+						wool.Field("key", value.Key),
+						wool.Field("reason", err.Error()))
+					continue
+				}
 				if dropUnresolved {
 					// The drop is expected in the common case — a run-wide value
 					// is interpolated for every service and only those depending
@@ -236,11 +297,60 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 		reference, accessKind(access), info.Module, info.Service, available, errEndpointNotAvailable)
 }
 
+// unresolvedNamesRunProducer reports whether any ${endpoint:…} reference in
+// value names a producer this run contains AND fails to resolve for this
+// consumer. That is the fault the strict path must report: the producer is in
+// the run, so its address exists somewhere and this consumer was not given it.
+//
+// It is evaluated per reference rather than on the first failure, so a value
+// mixing an in-run producer with an out-of-run one is judged by the in-run one
+// whichever order they appear in.
+func unresolvedNamesRunProducer(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, inRun func(string) bool) bool {
+	if inRun == nil {
+		return false
+	}
+	for _, reference := range EndpointReferences(value) {
+		info, err := ParseEndpoint(reference)
+		if err != nil || info.Module == "" || info.Service == "" {
+			continue
+		}
+		if !inRun(info.Module + "/" + info.Service) {
+			continue
+		}
+		if _, err := resolveEndpointReference(ctx, mappings, reference, access); err != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func accessKind(access *basev0.NetworkAccess) string {
 	if access == nil {
 		return "none"
 	}
 	return access.Kind
+}
+
+// EndpointMatchesReferenceInfo reports whether an endpoint a service DECLARES
+// satisfies a parsed ${endpoint:…} reference, by the same rule
+// endpointReferenceMatchesInfo applies to the mapping the reference resolves to.
+// Module and service are not compared: a caller reaches this with the producer
+// already identified.
+//
+// One body rather than a copy per caller: a plan-time check that judged a
+// reference differently from the resolution would pass compositions that then
+// fail, or refuse ones that would have worked.
+func EndpointMatchesReferenceInfo(endpoint *Endpoint, info *EndpointInformation) bool {
+	if endpoint == nil || info == nil {
+		return false
+	}
+	if info.API != "" && endpoint.API != info.API {
+		return false
+	}
+	if info.Name == "" {
+		return endpoint.API == info.API
+	}
+	return endpoint.Name == info.Name || endpoint.API == info.Name
 }
 
 // endpointReferenceMatchesInfo reports whether endpoint satisfies a parsed

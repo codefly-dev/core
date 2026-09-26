@@ -159,9 +159,20 @@ a consumer compare two zeroes and conclude nothing changed.
 
 ## Using it
 
+A consumer's dependencies are not only the ones in its manifest: when the
+composition root binds it to a producer with an `${endpoint:…}` reference in a
+workspace configuration group it declares, that is a consumed endpoint too, and
+`architecture.ServiceDependencies.ConfigurationReferenceDependencies` returns it
+as the runtime dependency it is. Plan it alongside the declared ones or the
+consumer is ordered after a producer it never waits for
+([dependency-kinds.md](dependency-kinds.md)).
+
 ```go
-// Consumer side: what must hold before this service may start.
-requirements, err := resources.PlanReadiness(service.ServiceDependencies, dependencyEndpoints)
+// Consumer side: what must hold before this service may start — what the manifest
+// declares, plus what the composition root's references bind.
+dependencies := append(service.ServiceDependencies,
+    dep.ConfigurationReferenceDependencies(unique)...)
+requirements, err := resources.PlanReadiness(dependencies, dependencyEndpoints)
 
 report := readiness.Evaluate(ctx, requirements, generation, func(r *resources.ReadinessRequirement) readiness.Target {
     return readiness.Target{Address: addressFor(r), Started: started[r.Dependency]}
