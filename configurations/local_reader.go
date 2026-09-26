@@ -916,12 +916,15 @@ func loadFromEnvFile(ctx context.Context, file *configurationFile) (*basev0.Conf
 	lines := strings.Split(string(f), "\n")
 
 	for index, line := range lines {
+		// A comment is a comment in every env file. Only reference-only files
+		// used to skip them, so a plain file's `# ... (sslmode=disable) ...`
+		// line became a configuration key named after the comment and was
+		// rendered into consumers' ConfigMaps.
+		if trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\r")); trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
 		if file.referenceOnly {
 			line = strings.TrimSuffix(line, "\r")
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-				continue
-			}
 		}
 		tokens := strings.SplitN(line, "=", 2)
 		if len(tokens) < 2 {
