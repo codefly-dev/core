@@ -59,6 +59,8 @@ message WorkContextV1 {
   repeated WorkScopeV1 authority_scopes = 17;
   // actor_chain is ordered from the first delegated actor to the current actor.
   // The owner is not duplicated here merely to make a direct call look uniform.
+  // Every hop attenuates the one before it, except the final hop of a
+  // capability carrying grant_hop.
   repeated WorkActorV1 actor_chain = 18;
   // attribution_team_ids is an immutable verified attribution snapshot. It
   // explains ownership; current authorization is still evaluated separately.
@@ -69,6 +71,19 @@ message WorkContextV1 {
   // project_id narrows workspace_id to a single project, when the task is
   // scoped that far.
   optional string project_id = 21 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+
+  // owner_principal_kind distinguishes the sort of principal the owner is, so
+  // a verifier can present the owner without resolving it against a directory.
+  string owner_principal_kind = 22 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // owner_agent_id is the owner's agent manifest identity. Required when
+  // owner_principal_kind is "agent" and absent otherwise.
+  optional string owner_agent_id = 23 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // grant_hop is the approval grant this capability was minted under. It is
+  // the one audited exception to the attenuation rule: the final actor hop
+  // holds exactly granted_scope, which the preceding hop need not contain.
+  // Present only on a single-use child capability minted for one approved
+  // call; absent on every ordinary session.
+  optional WorkGrantHopV1 grant_hop = 24;
 }
 
 // WorkScopeV1 is a structured, product-neutral capability scope. Empty
@@ -98,4 +113,47 @@ message WorkActorV1 {
   // granted_scopes are this actor's effective scopes, a subset of the
   // preceding hop's.
   repeated WorkScopeV1 granted_scopes = 4;
+  // agent_id is the actor's agent manifest identity. Required when
+  // principal_kind is "agent" and absent otherwise.
+  optional string agent_id = 5 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// WorkGrantHopV1 records the approval that justifies a capability holding
+// authority its delegating owner never held. It is minted only as a new child
+// capability bound to one tool, one subject and one call, so the authority it
+// adds is unusable anywhere else and expires with the grant window.
+message WorkGrantHopV1 {
+  // grant_id identifies the approval grant, so revoking the grant and
+  // auditing the call both reach the same record.
+  string grant_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // approver_principal_ids are the principals whose decision produced the
+  // grant, every one of an N-of-M quorum, so the audit record is complete.
+  repeated string approver_principal_ids = 2 [(buf.validate.field).repeated.min_items = 1, (buf.validate.field).repeated.max_items = 64];
+  // granted_scope is exactly what the approval added: one resource_kind, one
+  // action and one resource_id. A grant never widens beyond that triple.
+  WorkScopeV1 granted_scope = 3 [(buf.validate.field).required = true];
+  // subject is what the grant is pinned to, in the approvals engine's own
+  // vocabulary, so a grant approved for one subject cannot be spent on another.
+  string subject = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // request_digest binds the grant to the exact call the approver saw.
+  string request_digest = 5 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// ApprovalRequiredV1 is the signal a policy decision point returns instead of
+// a denial when the call is approvable: the authority is not held, but an
+// approver may grant it. It names exactly what a WorkGrantHopV1 would have to
+// carry, so a decision and the capability that satisfies it are the same shape.
+// It is carried as a typed error detail on a FailedPrecondition status.
+message ApprovalRequiredV1 {
+  // request_id identifies the approval request the engine created, which the
+  // caller waits on and the resulting grant refers back to.
+  string request_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // requested_scope is the authority the call needs and the principal lacks.
+  WorkScopeV1 requested_scope = 2 [(buf.validate.field).required = true];
+  // subject is what a grant would be pinned to.
+  string subject = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // request_digest is the exact call put to the approver.
+  string request_digest = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // audience is the tool a granted capability must be minted for.
+  string audience = 5 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
 }

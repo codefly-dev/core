@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
 // PDPDecision is what the PDP returns. Three terminal states:
 //
 //   - Allow=true: action permitted; dispatch proceeds
 //   - Allow=false, RequireApproval=false: refused; surface Reason
-//   - Allow=false, RequireApproval=true: held pending approval;
-//     the agent SDK can request escalation and retry (M7+)
+//   - Allow=false, RequireApproval=true: held pending approval; the
+//     gateway returns ApprovalRequiredError and the caller puts the
+//     request to an approver
 //
 // "No decision" maps to Deny per zero-trust. Reason carries a
 // human-readable explanation that surfaces back to the agent so the
@@ -31,21 +34,23 @@ type PDPDecision struct {
 	Reason string
 
 	// RequireApproval signals that the action is conditionally
-	// permitted but needs a grantor's approval first (M7+
-	// synchronous escalation flow). Distinct from a plain Deny:
-	// the agent SDK will turn this into a RequestEscalation call
-	// rather than failing the model's plan immediately.
-	//
-	// Until M7 lands, no PDP returns this — the field is reserved
-	// so M7's introduction is a backwards-compatible additive
-	// change rather than a breaking enum bump.
+	// permitted but needs an approver's decision first. Distinct
+	// from a plain Deny: the gateway turns this into the typed
+	// approval_required signal rather than failing the model's
+	// plan immediately.
 	RequireApproval bool
 
-	// ApprovalRequestID is the saas-starter delegation_grants.id
-	// row created for a RequireApproval decision. The agent SDK
-	// passes this to WaitForDelegation. Empty when RequireApproval
-	// is false.
-	ApprovalRequestID string
+	// Approval is the typed signal, required when RequireApproval
+	// is set. It names the approval request the engine created and
+	// exactly the authority a grant would have to carry — the same
+	// tuple a WorkGrantHopV1 pins — so the decision and the
+	// capability that satisfies it are the same shape.
+	//
+	// The PDP fills it because only the PDP knows the request id
+	// and the scope vocabulary the approvals engine decides in; the
+	// gateway must not guess either by taking apart a resource
+	// string.
+	Approval *basev0.ApprovalRequiredV1
 }
 
 // PDPRequest is everything a policy decision point needs to make a

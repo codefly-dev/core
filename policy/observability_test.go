@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/policy"
 )
 
@@ -46,9 +47,13 @@ func TestPDPMetrics_DenyIncrementsDeniesAndDecisions(t *testing.T) {
 func TestPDPMetrics_RequireApproval_OwnCounter(t *testing.T) {
 	m := &policy.PDPMetrics{}
 	policy.RecordDecision(context.Background(), m, policy.DecisionEvent{
-		Toolbox:  "github",
-		Tool:     "github.merge_pr",
-		Decision: policy.PDPDecision{Allow: false, RequireApproval: true, ApprovalRequestID: "ar-1"},
+		Toolbox: "github",
+		Tool:    "github.merge_pr",
+		Decision: policy.PDPDecision{
+			Allow:           false,
+			RequireApproval: true,
+			Approval:        &basev0.ApprovalRequiredV1{RequestId: "ar-1"},
+		},
 	})
 
 	snap := m.Snapshot()

@@ -34,10 +34,10 @@ func TestAttestVerifyAndDeterministicDigest(t *testing.T) {
 	if verified.GetPayloadSha256() == "" {
 		t.Fatal("verified receipt has no payload digest")
 	}
-	if got := verified.GetPayloadSha256(); got != "723c9643872624f84892a27439a8dc198c312291f9e1959b46d0eac10f8e056f" {
+	if got := verified.GetPayloadSha256(); got != "ab10697bb28e525ba3ab0bdc675b46e9dc0a99be2ba0ef81239f76dc0f10b8f2" {
 		t.Fatalf("payload_sha256 golden = %s", got)
 	}
-	if got := hex.EncodeToString(attestation.GetSignature()); got != "42203867135231c4c3efbb6392637897e6f429731e60741e9591018adf0a07498fe9fc4bb8c3ff01e725d0ce855908e748ab03a2cb4f45a6a463175c8284980f" {
+	if got := hex.EncodeToString(attestation.GetSignature()); got != "c0bb5538c1a163e548fd572f68da9786ebf5013eff748b5a1030cb3f67f9dd6db267ec9186cb92c6068a79632c97d854e5dd9e97f7e299e9ac0242f02de8050b" {
 		t.Fatalf("signature golden = %s", got)
 	}
 
@@ -152,6 +152,7 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 	workspaceID := "workspace-codefly"
 	projectID := "project-warden"
 	parentSessionID := "session-root"
+	agentManifestID := "codefly.dev/claude:1.0.0"
 	before := sha256.Sum256([]byte("before"))
 	after := sha256.Sum256([]byte("after"))
 	return &executionv1.ExecutionReceiptV1{
@@ -172,12 +173,13 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 			ExpiresAtUnix: started.Add(4 * time.Minute).Unix(), Nonce: "nonce-1",
 			AuthorizationRevision: 4, ReplayPolicy: "idempotent",
 			TenantId: "tenant-codefly", OwnerPrincipalId: "principal-antoine",
-			TaskId: "task-1", SessionId: "session-child", ParentSessionId: &parentSessionID,
+			OwnerPrincipalKind: "human",
+			TaskId:             "task-1", SessionId: "session-child", ParentSessionId: &parentSessionID,
 			AuthorityScopes: []*basev0.WorkScopeV1{{
 				ResourceKind: "evidence", Actions: []string{"append"}, ResourceIds: []string{"codefly.execution"},
 			}},
 			ActorChain: []*basev0.WorkActorV1{{
-				PrincipalId: "principal-claude", PrincipalKind: "agent", DelegationId: "delegation-1",
+				PrincipalId: "principal-claude", PrincipalKind: "agent", AgentId: &agentManifestID, DelegationId: "delegation-1",
 				GrantedScopes: []*basev0.WorkScopeV1{{
 					ResourceKind: "evidence", Actions: []string{"append"}, ResourceIds: []string{"codefly.execution"},
 				}},

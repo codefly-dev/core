@@ -78,6 +78,10 @@ type Principal struct {
 	// User V to merge a PR. The chain on the resulting tool call is
 	// [U, V] — A's own ID is the Principal.ID; the chain shows whose
 	// authority is in play. Audit logs the full chain verbatim.
+	//
+	// When the identity comes from a Work Context, this is derived
+	// by PrincipalFromWorkContext out of the verified actor chain
+	// and grant hop, never assembled by hand.
 	DelegationChain []DelegationLink
 }
 

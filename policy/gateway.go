@@ -102,6 +102,8 @@ var ErrGatewayDeny = errors.New("gateway: denied")
 //
 //   - (result, nil) on allow with a fresh signed token
 //   - (nil, err) on deny — err wraps ErrGatewayDeny with the reason
+//   - (nil, err) on approvable — err is *ApprovalRequiredError,
+//     which matches ErrApprovalRequired and not ErrGatewayDeny
 //   - (nil, err) on backend failure — err is the underlying error
 //     (typically a saas-starter network issue). The caller MUST
 //     fail the request; gateway never silently allows on backend
@@ -148,6 +150,18 @@ func (g *GatewayEvaluator) EvaluateAndMint(ctx context.Context, in EvaluationInp
 	d := g.Decider.Evaluate(ctx, pdpReq)
 	if !d.Allow {
 		reason := fmt.Sprintf("%s: %s", decisionPath, d.Reason)
+		if d.RequireApproval {
+			// Approvable, not refused: the caller puts the request to
+			// an approver and comes back with a grant capability. A
+			// PDP that says so without naming what would be approved
+			// has told us nothing an approver can decide on, so that
+			// is a misconfiguration rather than a policy outcome.
+			if d.Approval == nil {
+				return nil, fmt.Errorf("gateway: PDP requires approval but returned no approval_required signal")
+			}
+			g.record(ctx, in, PDPDecision{RequireApproval: true, Reason: reason, Approval: d.Approval}, time.Since(start))
+			return nil, &ApprovalRequiredError{Detail: d.Approval}
+		}
 		g.recordDeny(ctx, in, reason, time.Since(start))
 		return nil, fmt.Errorf("%w: %s", ErrGatewayDeny, reason)
 	}
@@ -246,6 +260,10 @@ func (g *GatewayEvaluator) recordAllow(ctx context.Context, in EvaluationInput, 
 }
 
 func (g *GatewayEvaluator) recordDeny(ctx context.Context, in EvaluationInput, reason string, latency time.Duration) {
+	g.record(ctx, in, PDPDecision{Allow: false, Reason: reason}, latency)
+}
+
+func (g *GatewayEvaluator) record(ctx context.Context, in EvaluationInput, decision PDPDecision, latency time.Duration) {
 	if g.Metrics == nil {
 		return
 	}
@@ -263,7 +281,7 @@ func (g *GatewayEvaluator) recordDeny(ctx context.Context, in EvaluationInput, r
 		PrincipalID:   pid,
 		PrincipalKind: pkind,
 		AgentID:       aid,
-		Decision:      PDPDecision{Allow: false, Reason: reason},
+		Decision:      decision,
 		Latency:       latency,
 	})
 }

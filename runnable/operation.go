@@ -18,6 +18,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/workcontext"
 )
 
 // Bounds on the execution policy a method may declare. They are the ones the
@@ -303,7 +304,7 @@ func (s *OperationSpec) Validate() error {
 		if len(scope.GetActions()) != 1 || scope.GetActions()[0] != ReadOnlyScopeAction {
 			return fmt.Errorf("%w: %s lookup scope %q is not read-only: recovering an outcome may only %q it", ErrInvalid, s.Method, scope.GetResourceKind(), ReadOnlyScopeAction)
 		}
-		if !scopeContained(scope, s.InvokeScopes) {
+		if !workcontext.ScopeContained(scope, s.InvokeScopes) {
 			return fmt.Errorf("%w: %s lookup scope %q is not covered by its invoke scopes", ErrInvalid, s.Method, scope.GetResourceKind())
 		}
 	}
@@ -362,35 +363,6 @@ func (s *OperationSpec) validateScopeValues(at, kind, what string, values []stri
 // value it would refuse is a value this must not generate.
 func boundedScopeValue(value string, bound int) bool {
 	return value != "" && len(value) <= bound && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n\t")
-}
-
-// scopeContained applies the Work Context attenuation rule: a child may narrow
-// a wildcard parent to explicit ids but may never widen an explicit parent set,
-// and may never name an action the parent does not hold.
-func scopeContained(child *basev0.WorkScopeV1, parents []*basev0.WorkScopeV1) bool {
-	for _, parent := range parents {
-		if parent.GetResourceKind() != child.GetResourceKind() {
-			continue
-		}
-		for _, action := range child.GetActions() {
-			if !slices.Contains(parent.GetActions(), action) {
-				return false
-			}
-		}
-		if len(parent.GetResourceIds()) == 0 {
-			return true
-		}
-		if len(child.GetResourceIds()) == 0 {
-			return false
-		}
-		for _, id := range child.GetResourceIds() {
-			if !slices.Contains(parent.GetResourceIds(), id) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 // FullMethodName spells a method the way gRPC dispatches it, so the operation

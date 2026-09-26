@@ -123,6 +123,13 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
 - **Ports come from `network.ToNamedPort()` or `RuntimeManager`.** Never
   hardcode one, always track allocations — a missing dedup once assigned the
   same port twice.
+- **Identity comes from a verified Work Context, never assembled beside one.**
+  `workcontext` mints and verifies the signed capability; `Principal` is
+  derived from a verified one, and its delegation chain with it. An approval
+  is a grant hop — the one audited exception to attenuation, bound to one
+  tool, subject and call, single-use. Core owns the `approval_required`
+  signal; the approvals engine is product-level. See
+  [`docs/work-context.md`](docs/work-context.md).
 - **Readiness is a gRPC health check, never a TCP connect.** An open port does
   not mean a ready service. Endpoints declare `health.readiness`; consumers go
   through `resources.PlanReadiness` and the `readiness` package. See

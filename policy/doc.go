@@ -37,10 +37,22 @@
 //     Kind, OrgID, AgentID, optional DelegationChain, the verified
 //     credential. Validated at construction; immutable.
 //
+//   - PrincipalFromWorkContext (workcontext.go)
+//     The derivation from the signed, canonical identity carrier.
+//     Takes a verified codefly.base.v0.WorkContextV1 and fills the
+//     Principal, DelegationChain included — that chain is derived
+//     here, never assembled by hand. See docs/work-context.md.
+//
 //   - WithPrincipal / PrincipalFrom (principal.go)
 //     Context helpers: stamp a Principal on a ctx, retrieve it
 //     downstream. The gRPC interceptor (in core/agents) is the
 //     standard stamper; handlers read.
+//
+//   - ApprovalRequiredError / ApprovalRequiredFrom (approval.go)
+//     The approval_required signal the gateway returns in place of
+//     a deny when policy says a call is approvable. Core owns the
+//     signal and the grant capability that answers it; the
+//     approvals engine is product-level.
 //
 //   - EncodePrincipalToken / DecodePrincipalToken (principal_token.go)
 //     The wire format. Today: base64url(JSON) v1-unsigned. M6+:
