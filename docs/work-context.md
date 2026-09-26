@@ -11,9 +11,12 @@ Two packages own this:
 - `workcontext` mints and verifies capabilities. `Authority` holds the signing
   key; `Verifier` is the only way to turn a token back into claims.
 - `policy.PrincipalFromWorkContext` derives the `policy.Principal` the PDP,
-  the gateway and audit reason over. It takes a `*workcontext.Verified`, so the
-  derivation cannot run on anything unverified, and it fills
-  `Principal.DelegationChain` — which is therefore derived, never hand-built.
+  the gateway and audit reason over. It takes a `*workcontext.Verified`, and
+  `Verified`'s fields are unexported with no exported constructor, so `Verify`
+  is the only way to obtain one — the derivation cannot run on anything
+  unverified, and that is a property the compiler holds rather than a
+  convention. It fills `Principal.DelegationChain`, which is therefore
+  derived, never hand-built.
 
 ## Task identity and hops
 
@@ -26,11 +29,25 @@ unchanged across every hop. A hop is a new *session*, never a mutation:
 | `Authority.Child` | one delegation hop | the hop's scopes attenuate the parent's effective scopes, and the child expires no later than the parent |
 | `Authority.Grant` | the capability an approval justifies | the one hop that may hold authority the previous hop did not |
 
+A verifier accepts a capability for `Skew` past its expiry, so a caller can
+hold a `*Verified` that has already expired. Exchanging one is refused rather
+than clamped: a capability minted with an expiry in the past would report
+success and fail later, in another process, as an authentication error.
+`Start` and `Child` mint at the issuer's *current* authorization revision,
+read through `Authority.Revisions` — inheriting the parent's would produce a
+child born superseded whenever a revocation landed in between. A `Grant`
+keeps the revision the decision was made at, because bumping past it is
+exactly what revokes an unspent grant.
+
 `WorkScopeV1` is `(resource_kind, actions, resource_ids)`. Attenuation
 (`workcontext.ScopeContained`) lets a child narrow a wildcard parent to
 explicit ids and never the reverse, and never name an action the parent does
-not hold. `runnable` applies the same function to `lookup_scopes` against
-`invoke_scopes`, so there is one rule rather than two that resemble each other.
+not hold.
+
+Every exchange deep-copies the parent's claims. Sharing hop or scope messages
+would let a mutation of the new capability rewrite what the parent is
+*verified* to hold, and a later exchange off that parent would then attenuate
+against the rewritten authority and mint a signed widening.
 
 ## The approval hop
 
@@ -54,6 +71,9 @@ session. It carries a `WorkGrantHopV1` and is bound six ways:
 - `replay_policy` is `single-use`, consumed by the verifier's `ReplayStore`;
 - expiry is no later than the grant window *or* the parent session;
 - the hop's `subject` and `request_digest` pin it to one subject and one call;
+- the elevated hop is the same actor on every field a derived identity reads
+  — id, kind, agent identity, organization — so a grant cannot keep the id and
+  change who the capability resolves to;
 - `granted_scope` is exactly one action on one resource of one kind;
 - `authorization_revision` is the issuer's revision at the moment of decision.
 
@@ -81,9 +101,32 @@ with tests (`workcontext/grant_test.go`, `policy/identity_e2e_test.go`):
 ## Audit
 
 `policy.PrincipalFromWorkContext` derives `DelegationChain` as the lenders,
-oldest-first: the owner, then each preceding actor, and for an elevated hop the
-grant's approvers in place of the actor that would otherwise have lent it. So
-the scenario in the `Principal` doc comment — U invokes A; A acquires
-escalation from V — reads `[U, V]` with `Principal.ID` = A and the grant id on
-V's link. `Verified.SHA256` is the digest an `ExecutionReceiptV1` binds its
-claims snapshot to.
+oldest-first: the owner, then each preceding actor, and **one** link for an
+approval grant. So the scenario in the `Principal` doc comment — U invokes A;
+A acquires escalation from V — reads `[U, V]` with `Principal.ID` = A and the
+grant id on V's link. `Verified.SHA256` is the digest an `ExecutionReceiptV1`
+binds its claims snapshot to.
+
+A quorum rides *inside* that one link, as `DelegationLink.Approvers`, each
+approver carrying its kind. One approval is one hop of delegation however many
+people had to agree to it: spreading a 3-of-5 quorum across five links would
+count approver breadth as delegation depth, and `CheckDelegationDepth` — three
+hops by default — would refuse the very call the quorum approved.
+
+`Principal.OrgID` comes from `organization_id`, never from `tenant_id`. A
+tenant may hold several organizations and authorization is scoped per
+organization, so substituting one for the other either denies everything or
+matches an organization nobody granted access to. An actor hop may name its
+own, for an org-bridge agent acting outside the owner's.
+
+## Fields the model gained
+
+`owner_principal_kind`, `owner_agent_id`, `organization_id` and the actor
+hop's `agent_id` and `organization_id` are all optional **on the wire**. A
+capability minted before they existed is still a valid capability, and an
+archived `ExecutionReceiptV1` embedding one still verifies — receipt
+verification validates the whole message before it checks the signature, so a
+schema rule added here would retroactively invalidate every receipt ever
+attested. The requirement lives where the identity is built:
+`PrincipalFromWorkContext` refuses a capability it cannot derive a kind or an
+organization from, naming what is missing. Minting always fills them.

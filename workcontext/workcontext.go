@@ -22,6 +22,8 @@
 package workcontext
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -64,21 +66,38 @@ var ErrRevoked = errors.New("work context: authorization revision superseded")
 
 // Verified is a capability that passed every check. The claims are safe to
 // read; nothing else in core reads WorkContextV1 fields off the wire.
+//
+// Its fields are unexported and it has no exported constructor, so Verify is
+// the only way to obtain one. That is what makes "derived from a verified
+// Work Context" a property the compiler holds rather than a convention: a
+// caller outside this package cannot assemble a value that claims to have
+// passed signature, window, audience, attenuation, grant and replay checks.
 type Verified struct {
-	// Context is the verified claims snapshot.
-	Context *basev0.WorkContextV1
+	context *basev0.WorkContextV1
+	encoded string
+	sha256  string
+}
 
-	// Encoded is the token exactly as presented.
-	Encoded string
+// Context is the verified claims snapshot.
+func (v *Verified) Context() *basev0.WorkContextV1 { return v.context }
 
-	// SHA256 is the hex digest of Encoded, which is what an execution
-	// receipt binds its claims snapshot to.
-	SHA256 string
+// Encoded is the token exactly as presented.
+func (v *Verified) Encoded() string { return v.encoded }
+
+// SHA256 is the hex digest of the token, which is what an execution receipt
+// binds its claims snapshot to.
+func (v *Verified) SHA256() string { return v.sha256 }
+
+// Fingerprint is the digest Verify records for a token, exposed so a caller
+// holding only the encoded form can match it against a stored one.
+func Fingerprint(encoded string) string {
+	digest := sha256.Sum256([]byte(encoded))
+	return hex.EncodeToString(digest[:])
 }
 
 // Actor is the current actor's hop, or nil when the owner acts directly.
 func (v *Verified) Actor() *basev0.WorkActorV1 {
-	chain := v.Context.GetActorChain()
+	chain := v.context.GetActorChain()
 	if len(chain) == 0 {
 		return nil
 	}
@@ -91,5 +110,5 @@ func (v *Verified) EffectiveScopes() []*basev0.WorkScopeV1 {
 	if actor := v.Actor(); actor != nil {
 		return actor.GetGrantedScopes()
 	}
-	return v.Context.GetAuthorityScopes()
+	return v.context.GetAuthorityScopes()
 }

@@ -127,8 +127,11 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   `workcontext` mints and verifies the signed capability; `Principal` is
   derived from a verified one, and its delegation chain with it. An approval
   is a grant hop — the one audited exception to attenuation, bound to one
-  tool, subject and call, single-use. Core owns the `approval_required`
-  signal; the approvals engine is product-level. See
+  tool, subject and call, single-use, and one hop however large the quorum.
+  New capability fields stay optional on the wire: a schema rule invalidates
+  every archived capability and every receipt embedding one, so the
+  requirement belongs where the identity is derived. Core owns the
+  `approval_required` signal; the approvals engine is product-level. See
   [`docs/work-context.md`](docs/work-context.md).
 - **Readiness is a gRPC health check, never a TCP connect.** An open port does
   not mean a ready service. Endpoints declare `health.readiness`; consumers go

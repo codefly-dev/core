@@ -104,6 +104,31 @@ type DelegationLink struct {
 	// to the exact grant that allowed it. Empty if this link
 	// pre-dates the delegation_grants table (legacy delegation).
 	GrantID string
+
+	// Approvers is the quorum whose decision produced this link, when
+	// the link is an approval grant rather than an ordinary
+	// delegation. Empty otherwise.
+	//
+	// The quorum lives INSIDE one link because it is one hop of
+	// delegation however many people had to agree to it. Spreading a
+	// 3-of-5 quorum across five links would count approver breadth as
+	// delegation depth, and CheckDelegationDepth would refuse the very
+	// call the quorum approved.
+	//
+	// PrincipalID is the sole approver when there was exactly one, so
+	// a single-approver escalation still reads as the chain [U, V];
+	// with a quorum there is no single lender and it is empty.
+	Approvers []Approver
+}
+
+// Approver is one principal whose decision produced a grant. Carries the
+// kind as well as the id so a policy can require, say, a human approver.
+type Approver struct {
+	// PrincipalID identifies the approver.
+	PrincipalID string
+
+	// Kind mirrors Principal.Kind for the approver.
+	Kind string
 }
 
 // PrincipalKind values. Centralized as constants so callers don't
@@ -191,7 +216,8 @@ func (p *Principal) IsExpiredAt(now time.Time) bool {
 //
 //   - principal_id, principal_kind, principal_org_id
 //   - agent_id (only set when Kind=agent)
-//   - delegation_chain (slice of DelegationLink-as-map)
+//   - delegation_chain (slice of DelegationLink-as-map; a grant
+//     link also carries approvers)
 //   - principal_token (the raw credential, for downstream PDP
 //     verification of signature + caveats)
 //
@@ -218,12 +244,23 @@ func (p *Principal) AsIdentity() map[string]any {
 	if len(p.DelegationChain) > 0 {
 		chain := make([]map[string]any, 0, len(p.DelegationChain))
 		for _, link := range p.DelegationChain {
-			chain = append(chain, map[string]any{
+			entry := map[string]any{
 				"principal_id": link.PrincipalID,
 				"kind":         link.Kind,
 				"display_name": link.DisplayName,
 				"grant_id":     link.GrantID,
-			})
+			}
+			if len(link.Approvers) > 0 {
+				approvers := make([]map[string]any, 0, len(link.Approvers))
+				for _, approver := range link.Approvers {
+					approvers = append(approvers, map[string]any{
+						"principal_id": approver.PrincipalID,
+						"kind":         approver.Kind,
+					})
+				}
+				entry["approvers"] = approvers
+			}
+			chain = append(chain, entry)
 		}
 		out["delegation_chain"] = chain
 	}

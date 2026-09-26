@@ -3,9 +3,7 @@ package workcontext
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
@@ -138,8 +136,7 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 		}
 	}
 
-	digest := sha256.Sum256([]byte(encoded))
-	return &Verified{Context: wc, Encoded: encoded, SHA256: hex.EncodeToString(digest[:])}, nil
+	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded)}, nil
 }
 
 // checkGrant holds the capability's grant hop against the issuer's own record
@@ -171,9 +168,7 @@ func (v *Verifier) checkGrant(ctx context.Context, wc *basev0.WorkContextV1, hop
 	if !proto.Equal(grant.Scope, hop.GetGrantedScope()) {
 		return fmt.Errorf("%w: grant %q approved another scope", ErrInvalid, grant.ID)
 	}
-	approved := slices.Sorted(slices.Values(grant.Approvers))
-	claimed := slices.Sorted(slices.Values(hop.GetApproverPrincipalIds()))
-	if !slices.Equal(approved, claimed) {
+	if !slices.Equal(approverKeys(grant.Approvers), claimedApproverKeys(hop.GetApprovers())) {
 		return fmt.Errorf("%w: grant %q names other approvers", ErrInvalid, grant.ID)
 	}
 	if grant.AuthorizationRevision != wc.GetAuthorizationRevision() {
@@ -219,12 +214,66 @@ func checkStructure(wc *basev0.WorkContextV1) error {
 	if last.GetDelegationId() != grant.GetGrantId() {
 		return fmt.Errorf("%w: grant %q elevates a hop delegated by %q", ErrInvalid, grant.GetGrantId(), last.GetDelegationId())
 	}
-	actor := wc.GetOwnerPrincipalId()
+	elevated := identityOf(wc, last)
+	actor := ownerIdentity(wc)
 	if len(chain) > 1 {
-		actor = chain[len(chain)-2].GetPrincipalId()
+		actor = identityOf(wc, chain[len(chain)-2])
 	}
-	if last.GetPrincipalId() != actor {
-		return fmt.Errorf("%w: grant %q hands authority to %q rather than elevating %q", ErrInvalid, grant.GetGrantId(), last.GetPrincipalId(), actor)
+	if elevated != actor {
+		return fmt.Errorf("%w: grant %q hands authority to %v rather than elevating %v", ErrInvalid, grant.GetGrantId(), elevated, actor)
 	}
 	return nil
+}
+
+// actorIdentity is everything a derived Principal reads off a hop. The grant
+// hop must match the hop it elevates on all of it: keeping the id while
+// changing the kind or the agent identity would produce a different
+// Principal holding the approved scope.
+type actorIdentity struct {
+	principalID  string
+	kind         string
+	agentID      string
+	organization string
+}
+
+// identityOf resolves a hop's identity, including the organization it
+// inherits from the task when it does not name its own.
+func identityOf(wc *basev0.WorkContextV1, hop *basev0.WorkActorV1) actorIdentity {
+	organization := hop.GetOrganizationId()
+	if organization == "" {
+		organization = wc.GetOrganizationId()
+	}
+	return actorIdentity{
+		principalID:  hop.GetPrincipalId(),
+		kind:         hop.GetPrincipalKind(),
+		agentID:      hop.GetAgentId(),
+		organization: organization,
+	}
+}
+
+func ownerIdentity(wc *basev0.WorkContextV1) actorIdentity {
+	return actorIdentity{
+		principalID:  wc.GetOwnerPrincipalId(),
+		kind:         wc.GetOwnerPrincipalKind(),
+		agentID:      wc.GetOwnerAgentId(),
+		organization: wc.GetOrganizationId(),
+	}
+}
+
+func approverKeys(approvers []Approver) []string {
+	keys := make([]string, 0, len(approvers))
+	for _, approver := range approvers {
+		keys = append(keys, approver.PrincipalID+"\x00"+approver.Kind)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func claimedApproverKeys(approvers []*basev0.WorkApproverV1) []string {
+	keys := make([]string, 0, len(approvers))
+	for _, approver := range approvers {
+		keys = append(keys, approver.GetPrincipalId()+"\x00"+approver.GetPrincipalKind())
+	}
+	slices.Sort(keys)
+	return keys
 }

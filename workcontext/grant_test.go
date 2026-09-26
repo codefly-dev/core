@@ -1,6 +1,7 @@
 package workcontext_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ const (
 func (h *harness) approvedGrant(id string) *workcontext.Grant {
 	grant := &workcontext.Grant{
 		ID:                    id,
-		Approvers:             []string{approver},
+		Approvers:             []workcontext.Approver{{PrincipalID: approver, Kind: "human"}},
 		Scope:                 scope("repo", []string{"merge"}, []string{"codefly/core"}),
 		Subject:               subject,
 		RequestDigest:         requestDigest,
@@ -52,15 +53,17 @@ func TestGrant_MintsASingleUseChildBoundToTheApproval(t *testing.T) {
 	agent, token, grant := h.elevated(t)
 
 	verified := h.mustVerify(mergeTool, token)
-	hop := verified.Context.GetGrantHop()
+	hop := verified.Context().GetGrantHop()
 
 	require.Equal(t, grant.ID, hop.GetGrantId())
-	require.Equal(t, []string{approver}, hop.GetApproverPrincipalIds())
+	require.Len(t, hop.GetApprovers(), 1)
+	require.Equal(t, approver, hop.GetApprovers()[0].GetPrincipalId())
+	require.Equal(t, "human", hop.GetApprovers()[0].GetPrincipalKind())
 	require.Equal(t, subject, hop.GetSubject())
 	require.Equal(t, requestDigest, hop.GetRequestDigest())
-	require.Equal(t, workcontext.ReplaySingleUse, verified.Context.GetReplayPolicy())
-	require.Equal(t, mergeTool, verified.Context.GetAudience())
-	require.Equal(t, agent.Context.GetSessionId(), verified.Context.GetParentSessionId())
+	require.Equal(t, workcontext.ReplaySingleUse, verified.Context().GetReplayPolicy())
+	require.Equal(t, mergeTool, verified.Context().GetAudience())
+	require.Equal(t, agent.Context().GetSessionId(), verified.Context().GetParentSessionId())
 
 	// The elevated hop is still the agent, holding exactly the approved
 	// scope — authority the parent session never held.
@@ -77,13 +80,13 @@ func TestGrant_WindowNeverOutlivesTheGrantOrTheParent(t *testing.T) {
 
 	token, _, err := h.authority.Grant(agent, workcontext.GrantInput{Grant: grant, TTL: time.Hour})
 	require.NoError(t, err)
-	require.Equal(t, grant.NotAfter.Unix(), h.mustVerify(mergeTool, token).Context.GetExpiresAtUnix())
+	require.Equal(t, grant.NotAfter.Unix(), h.mustVerify(mergeTool, token).Context().GetExpiresAtUnix())
 
 	generous := h.approvedGrant("g-2")
 	generous.NotAfter = h.clock.Add(10 * time.Hour)
 	token, _, err = h.authority.Grant(agent, workcontext.GrantInput{Grant: generous, TTL: time.Hour})
 	require.NoError(t, err)
-	require.Equal(t, agent.Context.GetExpiresAtUnix(), h.mustVerify(mergeTool, token).Context.GetExpiresAtUnix())
+	require.Equal(t, agent.Context().GetExpiresAtUnix(), h.mustVerify(mergeTool, token).Context().GetExpiresAtUnix())
 }
 
 func TestGrantCapability_RejectedForAnotherTool(t *testing.T) {
@@ -157,7 +160,10 @@ func TestGrantCapability_RejectedWhenTheHopDoesNotMatchTheIssuersRecord(t *testi
 			hop.RequestDigest = "sha256:000000"
 		},
 		"another approver": func(hop *basev0.WorkGrantHopV1, _ *basev0.WorkContextV1) {
-			hop.ApproverPrincipalIds = []string{"u-nobody"}
+			hop.Approvers = []*basev0.WorkApproverV1{{PrincipalId: "u-nobody", PrincipalKind: "human"}}
+		},
+		"the right approver with the wrong kind": func(hop *basev0.WorkGrantHopV1, _ *basev0.WorkContextV1) {
+			hop.Approvers = []*basev0.WorkApproverV1{{PrincipalId: approver, PrincipalKind: "service"}}
 		},
 		"another scope": func(hop *basev0.WorkGrantHopV1, wc *basev0.WorkContextV1) {
 			widened := scope("repo", []string{"merge"}, []string{"codefly/secrets"})
@@ -173,7 +179,7 @@ func TestGrantCapability_RejectedWhenTheHopDoesNotMatchTheIssuersRecord(t *testi
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			_, token, _ := h.elevated(t)
-			forged := proto.Clone(h.mustVerify(mergeTool, token).Context).(*basev0.WorkContextV1)
+			forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev0.WorkContextV1)
 			forged.Nonce = "forged-" + name
 			forge(forged.GrantHop, forged)
 
@@ -189,7 +195,7 @@ func TestVerify_RejectsAGrantHopThatSwapsTheActor(t *testing.T) {
 	h := newHarness(t)
 	_, token, _ := h.elevated(t)
 
-	forged := proto.Clone(h.mustVerify(mergeTool, token).Context).(*basev0.WorkContextV1)
+	forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev0.WorkContextV1)
 	forged.Nonce = "forged-actor"
 	forged.ActorChain[len(forged.ActorChain)-1].PrincipalId = "a-someone-else"
 
@@ -202,7 +208,7 @@ func TestVerify_RejectsAReplayableGrant(t *testing.T) {
 	h := newHarness(t)
 	_, token, _ := h.elevated(t)
 
-	forged := proto.Clone(h.mustVerify(mergeTool, token).Context).(*basev0.WorkContextV1)
+	forged := proto.Clone(h.mustVerify(mergeTool, token).Context()).(*basev0.WorkContextV1)
 	forged.Nonce = "forged-replay"
 	forged.ReplayPolicy = workcontext.ReplayIdempotent
 
@@ -247,13 +253,13 @@ func TestGrant_LeavesTheParentSessionAloneAndDelegatesNothing(t *testing.T) {
 	agent, token, _ := h.elevated(t)
 	elevated := h.mustVerify(mergeTool, token)
 
-	resumed := h.mustVerify(audience, agent.Encoded)
+	resumed := h.mustVerify(audience, agent.Encoded())
 	require.Equal(t, []string{"read"}, resumed.EffectiveScopes()[0].GetActions())
 	require.Equal(t, []string{"codefly/core"}, resumed.EffectiveScopes()[0].GetResourceIds())
-	require.Nil(t, resumed.Context.GetGrantHop())
-	require.Len(t, resumed.Context.GetActorChain(), 1)
+	require.Nil(t, resumed.Context().GetGrantHop())
+	require.Len(t, resumed.Context().GetActorChain(), 1)
 
-	_, _, err := h.authority.Child(elevated, workcontext.ChildInput{
+	_, _, err := h.authority.Child(context.Background(), elevated, workcontext.ChildInput{
 		PrincipalID:   "a-sub",
 		PrincipalKind: "agent",
 		AgentID:       "codefly.dev/sub:1.0.0",

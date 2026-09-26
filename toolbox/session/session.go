@@ -47,6 +47,7 @@ type ErrorCode string
 const (
 	ErrorValidation         ErrorCode = "validation"
 	ErrorPolicyDenied       ErrorCode = "policy_denied"
+	ErrorApprovalRequired   ErrorCode = "approval_required"
 	ErrorTimeout            ErrorCode = "timeout"
 	ErrorCanceled           ErrorCode = "canceled"
 	ErrorBackendUnavailable ErrorCode = "backend_unavailable"
@@ -97,6 +98,7 @@ const (
 	AuditInvoke    AuditPhase = "invoke"
 	AuditResult    AuditPhase = "result"
 	AuditDeny      AuditPhase = "deny"
+	AuditApproval  AuditPhase = "approval_required"
 	AuditCancel    AuditPhase = "cancellation"
 	AuditCleanup   AuditPhase = "cleanup"
 )
@@ -499,12 +501,24 @@ func (s *ToolboxSession) Call(ctx context.Context, input CallRequest) (*CallResu
 		CatalogDigest: catalogDigest, RequestDigest: requestDigest, Caveats: caveats,
 	})
 	if err != nil {
+		// Three distinct outcomes, and only one of them is an
+		// infrastructure fault. An approvable call is neither denied nor
+		// broken: the authority is obtainable, and classifying it as
+		// transport both hides the approval request from the model and
+		// records a policy hold in the audit trail as a network failure.
 		code := ErrorTransport
-		if errors.Is(err, policy.ErrGatewayDeny) {
+		phase := AuditDeny
+		retry := RetryNever
+		switch {
+		case errors.Is(err, policy.ErrApprovalRequired):
+			code = ErrorApprovalRequired
+			phase = AuditApproval
+			retry = RetryReconcile
+		case errors.Is(err, policy.ErrGatewayDeny):
 			code = ErrorPolicyDenied
 		}
 		denial := correlation
-		denial.Phase = AuditDeny
+		denial.Phase = phase
 		denial.InvocationID = invocationID
 		denial.Tool = input.Name
 		denial.CatalogDigest = catalogDigest
@@ -512,7 +526,7 @@ func (s *ToolboxSession) Call(ctx context.Context, input CallRequest) (*CallResu
 		denial.ErrorCode = code
 		denial.Duration = time.Since(started)
 		_ = s.record(callCtx, denial)
-		return nil, &CallError{Code: code, Op: "authorize", Err: err, Retry: RetryNever}
+		return nil, &CallError{Code: code, Op: "authorize", Err: err, Retry: retry}
 	}
 	baseEvent := correlation
 	baseEvent.InvocationID = invocationID

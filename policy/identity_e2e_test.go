@@ -3,11 +3,13 @@ package policy_test
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/policy"
@@ -43,6 +45,7 @@ const (
 	toolboxID           = "codefly.dev/github-bot:0.1.0"
 	mergeToolName       = "github.merge_pr"
 	readToolName        = "github.read_pr"
+	organizationID      = "org-platform"
 	mergeSubject        = "repo:codefly/core"
 	callDigest          = "sha256:9f1c0b"
 	catalogDigest       = "sha256:catalog"
@@ -76,10 +79,11 @@ func newIdentityHarness(t *testing.T) *identityHarness {
 	h.replay = workcontext.NewMemoryReplayStore()
 	h.replay.Now = func() time.Time { return h.clock }
 	h.authority = &workcontext.Authority{
-		Issuer: issuerURL,
-		KeyID:  signingKeyID,
-		Key:    private,
-		Now:    func() time.Time { return h.clock },
+		Issuer:    issuerURL,
+		KeyID:     signingKeyID,
+		Key:       private,
+		Revisions: h,
+		Now:       func() time.Time { return h.clock },
 	}
 	return h
 }
@@ -111,23 +115,35 @@ func (h *identityHarness) verify(audience, token string) *workcontext.Verified {
 	return verified
 }
 
+// resign signs a doctored claims message with the harness key, so a test can
+// present a capability the minting API would refuse to produce. Verified
+// cannot be assembled by hand — Verify is its only constructor — so reaching
+// these cases means going through the real signer and verifier.
+func (h *identityHarness) resign(wc *basev0.WorkContextV1) string {
+	h.t.Helper()
+	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(wc)
+	require.NoError(h.t, err)
+	signature := ed25519.Sign(h.authority.Key, payload)
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
 func workScope(kind, action, resourceID string) *basev0.WorkScopeV1 {
 	return &basev0.WorkScopeV1{ResourceKind: kind, Actions: []string{action}, ResourceIds: []string{resourceID}}
 }
 
 func (h *identityHarness) ownerSession() *workcontext.Verified {
 	h.t.Helper()
-	token, _, err := h.authority.Start(workcontext.StartInput{
+	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
 		TenantID:           tenantID,
 		OwnerPrincipalID:   ownerPrincipalID,
 		OwnerPrincipalKind: policy.KindHuman,
+		OrganizationID:     organizationID,
 		TaskID:             taskIdentifier,
 		Audience:           toolboxID,
 		AuthorityScopes: []*basev0.WorkScopeV1{
 			{ResourceKind: "repo", Actions: []string{"read", "write"}},
 		},
-		AuthorizationRevision: h.revision,
-		TTL:                   time.Hour,
+		TTL: time.Hour,
 	})
 	require.NoError(h.t, err)
 	return h.verify(toolboxID, token)
@@ -135,7 +151,7 @@ func (h *identityHarness) ownerSession() *workcontext.Verified {
 
 func (h *identityHarness) agentSession(owner *workcontext.Verified) *workcontext.Verified {
 	h.t.Helper()
-	token, _, err := h.authority.Child(owner, workcontext.ChildInput{
+	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentPrincipalID,
 		PrincipalKind: policy.KindAgent,
 		AgentID:       agentManifestID,
@@ -153,7 +169,7 @@ func (h *identityHarness) agentSession(owner *workcontext.Verified) *workcontext
 func (h *identityHarness) approve(id string) *workcontext.Grant {
 	grant := &workcontext.Grant{
 		ID:                    id,
-		Approvers:             []string{approverPrincipalID},
+		Approvers:             []workcontext.Approver{{PrincipalID: approverPrincipalID, Kind: policy.KindHuman}},
 		Scope:                 workScope("repo", "merge", "codefly/core"),
 		Subject:               mergeSubject,
 		RequestDigest:         callDigest,
@@ -226,9 +242,15 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 	agent, err := policy.PrincipalFromWorkContext(agentSession)
 	require.NoError(t, err)
 	require.Equal(t, agentPrincipalID, agent.ID)
+	require.Equal(t, organizationID, agent.OrgID)
+	require.NotEqual(t, tenantID, agent.OrgID)
 	require.Equal(t, []policy.DelegationLink{
 		{PrincipalID: ownerPrincipalID, Kind: policy.KindHuman, GrantID: delegationID},
 	}, agent.DelegationChain)
+
+	// The guard that caps delegation depth must not refuse the elevated
+	// call: an approval is one hop however many approvers it took.
+	require.NoError(t, policy.CheckDelegationDepth(agent))
 
 	call := policy.EvaluationInput{
 		Principal:     agent,
@@ -259,6 +281,7 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 	require.NoError(t, err)
 
 	call.Principal = granted
+	require.NoError(t, policy.CheckDelegationDepth(granted))
 	result, err := gateway.EvaluateAndMint(ctx, call)
 	require.NoError(t, err)
 	require.Equal(t, agentPrincipalID, result.Authorization.PrincipalID)
@@ -277,12 +300,12 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 		Replay:    h.replay,
 		Grants:    h,
 		Now:       func() time.Time { return h.clock },
-	}).Verify(ctx, elevated.Encoded)
+	}).Verify(ctx, elevated.Encoded())
 	require.ErrorIs(t, err, workcontext.ErrReplayed)
 
 	// 7. A returns to its flow with the authority it always had: reading
 	// still works, merging is approvable again rather than allowed.
-	resumed, err := policy.PrincipalFromWorkContext(h.verify(toolboxID, agentSession.Encoded))
+	resumed, err := policy.PrincipalFromWorkContext(h.verify(toolboxID, agentSession.Encoded()))
 	require.NoError(t, err)
 	require.Equal(t, []policy.DelegationLink{
 		{PrincipalID: ownerPrincipalID, Kind: policy.KindHuman, GrantID: delegationID},
@@ -302,14 +325,17 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 	// 8. The audit record reads U → A → (grant G, approved by V) → X.
 	require.Equal(t, []policy.DelegationLink{
 		{PrincipalID: ownerPrincipalID, Kind: policy.KindHuman, GrantID: delegationID},
-		{PrincipalID: approverPrincipalID, GrantID: grant.ID},
+		{
+			PrincipalID: approverPrincipalID, Kind: policy.KindHuman, GrantID: grant.ID,
+			Approvers: []policy.Approver{{PrincipalID: approverPrincipalID, Kind: policy.KindHuman}},
+		},
 	}, granted.DelegationChain)
-	require.Equal(t, ownerPrincipalID, elevated.Context.GetOwnerPrincipalId())
-	require.Equal(t, taskIdentifier, elevated.Context.GetTaskId())
-	require.Equal(t, agentSession.Context.GetSessionId(), elevated.Context.GetParentSessionId())
-	require.Equal(t, grant.ID, elevated.Context.GetGrantHop().GetGrantId())
-	require.Equal(t, []string{approverPrincipalID}, elevated.Context.GetGrantHop().GetApproverPrincipalIds())
-	require.Equal(t, callDigest, elevated.Context.GetGrantHop().GetRequestDigest())
+	require.Equal(t, ownerPrincipalID, elevated.Context().GetOwnerPrincipalId())
+	require.Equal(t, taskIdentifier, elevated.Context().GetTaskId())
+	require.Equal(t, agentSession.Context().GetSessionId(), elevated.Context().GetParentSessionId())
+	require.Equal(t, grant.ID, elevated.Context().GetGrantHop().GetGrantId())
+	require.Equal(t, approverPrincipalID, elevated.Context().GetGrantHop().GetApprovers()[0].GetPrincipalId())
+	require.Equal(t, callDigest, elevated.Context().GetGrantHop().GetRequestDigest())
 
 	// ... and revoking G stops it: a capability minted from the same grant
 	// no longer verifies.
@@ -323,6 +349,6 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 		Replay:    workcontext.NewMemoryReplayStore(),
 		Grants:    h,
 		Now:       func() time.Time { return h.clock },
-	}).Verify(ctx, second.Encoded)
+	}).Verify(ctx, second.Encoded())
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 }

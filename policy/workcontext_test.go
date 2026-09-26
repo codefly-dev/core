@@ -1,6 +1,7 @@
 package policy_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,8 +21,8 @@ func TestPrincipalFromWorkContext_OwnerActingDirectly(t *testing.T) {
 
 	require.Equal(t, ownerPrincipalID, p.ID)
 	require.Equal(t, policy.KindHuman, p.Kind)
-	require.Equal(t, tenantID, p.OrgID)
-	require.Equal(t, owner.Encoded, p.Token)
+	require.Equal(t, organizationID, p.OrgID)
+	require.Equal(t, owner.Encoded(), p.Token)
 	require.Empty(t, p.DelegationChain)
 	require.False(t, p.IsExpiredAt(h.clock))
 }
@@ -31,16 +32,16 @@ func TestPrincipalFromWorkContext_OwnerActingDirectly(t *testing.T) {
 // one.
 func TestPrincipalFromWorkContext_AgentOwnerCarriesItsManifestIdentity(t *testing.T) {
 	h := newIdentityHarness(t)
-	token, _, err := h.authority.Start(workcontext.StartInput{
-		TenantID:              tenantID,
-		OwnerPrincipalID:      agentPrincipalID,
-		OwnerPrincipalKind:    policy.KindAgent,
-		OwnerAgentID:          agentManifestID,
-		TaskID:                taskIdentifier,
-		Audience:              toolboxID,
-		AuthorityScopes:       []*basev0.WorkScopeV1{workScope("repo", "read", "codefly/core")},
-		AuthorizationRevision: h.revision,
-		TTL:                   time.Minute,
+	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		TenantID:           tenantID,
+		OwnerPrincipalID:   agentPrincipalID,
+		OwnerPrincipalKind: policy.KindAgent,
+		OwnerAgentID:       agentManifestID,
+		OrganizationID:     organizationID,
+		TaskID:             taskIdentifier,
+		Audience:           toolboxID,
+		AuthorityScopes:    []*basev0.WorkScopeV1{workScope("repo", "read", "codefly/core")},
+		TTL:                time.Minute,
 	})
 	require.NoError(t, err)
 
@@ -79,20 +80,26 @@ func TestPrincipalFromWorkContext_ApproversAreTheLendersOfAnElevatedHop(t *testi
 	require.Equal(t, agentPrincipalID, p.ID)
 	require.Equal(t, []policy.DelegationLink{
 		{PrincipalID: ownerPrincipalID, Kind: policy.KindHuman, GrantID: delegationID},
-		{PrincipalID: approverPrincipalID, GrantID: "g-1"},
+		{
+			PrincipalID: approverPrincipalID, Kind: policy.KindHuman, GrantID: "g-1",
+			Approvers: []policy.Approver{{PrincipalID: approverPrincipalID, Kind: policy.KindHuman}},
+		},
 	}, p.DelegationChain)
 
 	identity := p.AsIdentity()
 	chain := identity["delegation_chain"].([]map[string]any)
 	require.Len(t, chain, 2)
 	require.Equal(t, "g-1", chain[1]["grant_id"])
+	require.Equal(t, []map[string]any{
+		{"principal_id": approverPrincipalID, "kind": policy.KindHuman},
+	}, chain[1]["approvers"])
 }
 
 func TestPrincipalFromWorkContext_RejectsAnAgentWithoutItsManifestIdentity(t *testing.T) {
 	h := newIdentityHarness(t)
 	owner := h.ownerSession()
 
-	token, _, err := h.authority.Child(owner, workcontext.ChildInput{
+	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentPrincipalID,
 		PrincipalKind: policy.KindAgent,
 		DelegationID:  delegationID,

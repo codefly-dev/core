@@ -17,13 +17,14 @@ import (
 )
 
 const (
-	issuer   = "https://authority.codefly.test"
-	keyID    = "k-1"
-	tenant   = "t-acme"
-	ownerID  = "u-antoine"
-	agentID  = "a-mind"
-	taskID   = "task-42"
-	audience = "codefly.dev/github-bot:0.1.0"
+	issuer       = "https://authority.codefly.test"
+	keyID        = "k-1"
+	tenant       = "t-acme"
+	ownerID      = "u-antoine"
+	agentID      = "a-mind"
+	taskID       = "task-42"
+	audience     = "codefly.dev/github-bot:0.1.0"
+	organization = "org-platform"
 )
 
 // harness holds the real signer and verifier every test in this package runs
@@ -52,10 +53,11 @@ func newHarness(t *testing.T) *harness {
 	h.replay = workcontext.NewMemoryReplayStore()
 	h.replay.Now = func() time.Time { return h.clock }
 	h.authority = &workcontext.Authority{
-		Issuer: issuer,
-		KeyID:  keyID,
-		Key:    private,
-		Now:    func() time.Time { return h.clock },
+		Issuer:    issuer,
+		KeyID:     keyID,
+		Key:       private,
+		Revisions: h,
+		Now:       func() time.Time { return h.clock },
 	}
 	return h
 }
@@ -107,15 +109,15 @@ func scope(kind string, actions []string, ids []string) *basev0.WorkScopeV1 {
 // every repo of the tenant.
 func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
-	token, _, err := h.authority.Start(workcontext.StartInput{
-		TenantID:              tenant,
-		OwnerPrincipalID:      ownerID,
-		OwnerPrincipalKind:    "human",
-		TaskID:                taskID,
-		Audience:              aud,
-		AuthorityScopes:       []*basev0.WorkScopeV1{scope("repo", []string{"read", "write"}, nil)},
-		AuthorizationRevision: h.revision,
-		TTL:                   time.Hour,
+	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		TenantID:           tenant,
+		OwnerPrincipalID:   ownerID,
+		OwnerPrincipalKind: "human",
+		OrganizationID:     organization,
+		TaskID:             taskID,
+		Audience:           aud,
+		AuthorityScopes:    []*basev0.WorkScopeV1{scope("repo", []string{"read", "write"}, nil)},
+		TTL:                time.Hour,
 	})
 	require.NoError(h.t, err)
 	return token, h.mustVerify(aud, token)
@@ -124,7 +126,7 @@ func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 // agentSession is step 2: the agent gets read on one repo and nothing else.
 func (h *harness) agentSession(parent *workcontext.Verified, aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
-	token, _, err := h.authority.Child(parent, workcontext.ChildInput{
+	token, _, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "codefly.dev/mind:1.2.0",
@@ -152,12 +154,12 @@ func TestStart_OwnerActsWithNoActorHop(t *testing.T) {
 	h := newHarness(t)
 	_, verified := h.ownerSession(audience)
 
-	require.Empty(t, verified.Context.GetActorChain())
+	require.Empty(t, verified.Context().GetActorChain())
 	require.Nil(t, verified.Actor())
-	require.Equal(t, ownerID, verified.Context.GetOwnerPrincipalId())
-	require.Equal(t, workcontext.Typ, verified.Context.GetTyp())
-	require.Equal(t, workcontext.ReplayIdempotent, verified.Context.GetReplayPolicy())
-	require.Len(t, verified.SHA256, 64)
+	require.Equal(t, ownerID, verified.Context().GetOwnerPrincipalId())
+	require.Equal(t, workcontext.Typ, verified.Context().GetTyp())
+	require.Equal(t, workcontext.ReplayIdempotent, verified.Context().GetReplayPolicy())
+	require.Len(t, verified.SHA256(), 64)
 	require.Equal(t, []string{"read", "write"}, verified.EffectiveScopes()[0].GetActions())
 }
 
@@ -166,11 +168,11 @@ func TestChild_NarrowsAuthorityAndKeepsTaskIdentity(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 	_, agent := h.agentSession(owner, audience)
 
-	require.Equal(t, taskID, agent.Context.GetTaskId())
-	require.Equal(t, tenant, agent.Context.GetTenantId())
-	require.Equal(t, ownerID, agent.Context.GetOwnerPrincipalId())
-	require.Equal(t, owner.Context.GetSessionId(), agent.Context.GetParentSessionId())
-	require.NotEqual(t, owner.Context.GetSessionId(), agent.Context.GetSessionId())
+	require.Equal(t, taskID, agent.Context().GetTaskId())
+	require.Equal(t, tenant, agent.Context().GetTenantId())
+	require.Equal(t, ownerID, agent.Context().GetOwnerPrincipalId())
+	require.Equal(t, owner.Context().GetSessionId(), agent.Context().GetParentSessionId())
+	require.NotEqual(t, owner.Context().GetSessionId(), agent.Context().GetSessionId())
 	require.Equal(t, agentID, agent.Actor().GetPrincipalId())
 	require.Equal(t, []string{"read"}, agent.EffectiveScopes()[0].GetActions())
 }
@@ -179,7 +181,7 @@ func TestChild_NeverExtendsExpiry(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	token, _, err := h.authority.Child(owner, workcontext.ChildInput{
+	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "codefly.dev/mind:1.2.0",
@@ -191,7 +193,7 @@ func TestChild_NeverExtendsExpiry(t *testing.T) {
 	require.NoError(t, err)
 	child := h.mustVerify(audience, token)
 
-	require.Equal(t, owner.Context.GetExpiresAtUnix(), child.Context.GetExpiresAtUnix())
+	require.Equal(t, owner.Context().GetExpiresAtUnix(), child.Context().GetExpiresAtUnix())
 }
 
 func TestChild_RejectsWidening(t *testing.T) {
@@ -206,7 +208,7 @@ func TestChild_RejectsWidening(t *testing.T) {
 		"a kind the parent does not hold":     scope("secret", []string{"read"}, []string{"db"}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := h.authority.Child(agent, workcontext.ChildInput{
+			_, _, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
 				PrincipalID:   "a-sub",
 				PrincipalKind: "agent",
 				AgentID:       "codefly.dev/sub:1.0.0",
@@ -230,7 +232,7 @@ func TestVerify_RejectsAWideningHopThatWasSignedAnyway(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 	_, agent := h.agentSession(owner, audience)
 
-	forged := proto.Clone(agent.Context).(*basev0.WorkContextV1)
+	forged := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
 	forged.Nonce = "forged-nonce"
 	forged.ActorChain = append(forged.ActorChain, &basev0.WorkActorV1{
 		PrincipalId:   "a-sub",
@@ -258,11 +260,11 @@ func TestVerify_RejectsATamperedPayload(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	tampered := proto.Clone(owner.Context).(*basev0.WorkContextV1)
+	tampered := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
 	tampered.OwnerPrincipalId = "u-someone-else"
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(tampered)
 	require.NoError(t, err)
-	_, signature, _ := strings.Cut(owner.Encoded, ".")
+	_, signature, _ := strings.Cut(owner.Encoded(), ".")
 
 	_, err = h.verify(audience, base64.RawURLEncoding.EncodeToString(payload)+"."+signature)
 	require.ErrorIs(t, err, workcontext.ErrInvalid)

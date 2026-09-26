@@ -19,7 +19,7 @@ type Grant struct {
 
 	// Approvers are every principal whose decision produced the grant,
 	// including each member of an N-of-M quorum.
-	Approvers []string
+	Approvers []Approver
 
 	// Scope is exactly what the approval adds: one action on one resource
 	// of one kind.
@@ -48,6 +48,13 @@ type Grant struct {
 	Revoked bool
 }
 
+// Approver is one principal whose decision produced a grant. The kind is
+// carried alongside the id so a policy can require, say, a human approver.
+type Approver struct {
+	PrincipalID string
+	Kind        string
+}
+
 func (g *Grant) validate() error {
 	switch {
 	case g == nil:
@@ -56,6 +63,8 @@ func (g *Grant) validate() error {
 		return fmt.Errorf("%w: grant has no id", ErrInvalid)
 	case len(g.Approvers) == 0:
 		return fmt.Errorf("%w: grant %q names no approver", ErrInvalid, g.ID)
+	case !approversNamed(g.Approvers):
+		return fmt.Errorf("%w: grant %q names an approver without an id or a kind", ErrInvalid, g.ID)
 	case g.Subject == "":
 		return fmt.Errorf("%w: grant %q is pinned to no subject", ErrInvalid, g.ID)
 	case g.RequestDigest == "":
@@ -68,6 +77,15 @@ func (g *Grant) validate() error {
 		return fmt.Errorf("%w: grant %q must approve exactly one action on one resource", ErrInvalid, g.ID)
 	}
 	return nil
+}
+
+func approversNamed(approvers []Approver) bool {
+	for _, approver := range approvers {
+		if approver.PrincipalID == "" || approver.Kind == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // GrantSource resolves the approval a grant capability claims. A verifier

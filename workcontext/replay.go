@@ -27,9 +27,16 @@ type MemoryReplayStore struct {
 	// agree.
 	Now func() time.Time
 
-	mu   sync.Mutex
-	seen map[string]time.Time
+	mu        sync.Mutex
+	seen      map[string]time.Time
+	nextSweep time.Time
 }
+
+// sweepInterval bounds how often expired nonces are collected. Sweeping on
+// every call would put an O(n) scan under the lock on the hot path of every
+// verification, which a deployment that makes ordinary sessions single-use
+// would feel as serialized latency across all of them.
+const sweepInterval = time.Second
 
 // NewMemoryReplayStore returns an empty store using the wall clock.
 func NewMemoryReplayStore() *MemoryReplayStore {
@@ -44,12 +51,18 @@ func (s *MemoryReplayStore) Consume(_ context.Context, nonce string, retainUntil
 	if s.Now != nil {
 		now = s.Now()
 	}
-	for spent, until := range s.seen {
-		if until.Before(now) {
-			delete(s.seen, spent)
+	if !now.Before(s.nextSweep) {
+		for spent, until := range s.seen {
+			if until.Before(now) {
+				delete(s.seen, spent)
+			}
 		}
+		s.nextSweep = now.Add(sweepInterval)
 	}
-	if _, spent := s.seen[nonce]; spent {
+	// Retention is what makes a nonce refusable, so an entry the sweep has
+	// not reached yet still counts: expiry is checked here rather than left
+	// to collection.
+	if until, spent := s.seen[nonce]; spent && !until.Before(now) {
 		return fmt.Errorf("%w: capability %q", ErrReplayed, nonce)
 	}
 	s.seen[nonce] = retainUntil
