@@ -26,23 +26,30 @@ const (
 type ConfigurationValueEscape int32
 
 const (
-	// CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim.
-	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE ConfigurationValueEscape = 0
+	// CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED means the producer stated no
+	// encoding. It is never treated as an encoding: a reference carrying it is
+	// rejected, so forgetting the field cannot silently insert a value verbatim.
+	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED ConfigurationValueEscape = 0
+	// CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim. It is the
+	// explicit choice for a value assembled into a context with no delimiters.
+	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE ConfigurationValueEscape = 1
 	// CONFIGURATION_VALUE_ESCAPE_URL_USERINFO percent-encodes every byte except
 	// ASCII letters, digits and "-", ".", "_", "~" (RFC 3986 unreserved), so the
 	// value is safe inside the userinfo, path or query of a URL.
-	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO ConfigurationValueEscape = 1
+	ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_URL_USERINFO ConfigurationValueEscape = 2
 )
 
 // Enum value maps for ConfigurationValueEscape.
 var (
 	ConfigurationValueEscape_name = map[int32]string{
-		0: "CONFIGURATION_VALUE_ESCAPE_NONE",
-		1: "CONFIGURATION_VALUE_ESCAPE_URL_USERINFO",
+		0: "CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED",
+		1: "CONFIGURATION_VALUE_ESCAPE_NONE",
+		2: "CONFIGURATION_VALUE_ESCAPE_URL_USERINFO",
 	}
 	ConfigurationValueEscape_value = map[string]int32{
-		"CONFIGURATION_VALUE_ESCAPE_NONE":         0,
-		"CONFIGURATION_VALUE_ESCAPE_URL_USERINFO": 1,
+		"CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED":  0,
+		"CONFIGURATION_VALUE_ESCAPE_NONE":         1,
+		"CONFIGURATION_VALUE_ESCAPE_URL_USERINFO": 2,
 	}
 )
 
@@ -275,7 +282,10 @@ type isConfigurationValueTemplateSegment_Content interface {
 }
 
 type ConfigurationValueTemplateSegment_Literal struct {
-	// literal is copied verbatim.
+	// literal is copied verbatim. It may not contain "{{" or "}}": a renderer
+	// translating a template into a text/template engine makes the literals the
+	// template source, and a literal carrying those delimiters cannot be
+	// reproduced there byte for byte.
 	Literal string `protobuf:"bytes,1,opt,name=literal,proto3,oneof"`
 }
 
@@ -289,14 +299,22 @@ func (*ConfigurationValueTemplateSegment_Literal) isConfigurationValueTemplateSe
 func (*ConfigurationValueTemplateSegment_Reference) isConfigurationValueTemplateSegment_Content() {}
 
 // ConfigurationValueReference names one secret configuration value of the
-// producer that declares the template — never another service's.
+// producer that declares the template — never another service's. The reference
+// is resolved against the declaring producer's own configuration, matching the
+// group name and key the way every other configuration lookup does: case
+// insensitively, with "-" and "_" equivalent. resources.ProducerConfigurationValueLookup
+// is that resolution, and a renderer that resolves references any other way does
+// not reproduce the reference semantics.
 type ConfigurationValueReference struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// configuration is the name of the producer's configuration group.
 	Configuration string `protobuf:"bytes,1,opt,name=configuration,proto3" json:"configuration,omitempty"`
 	// key is the key of the value within that group.
 	Key string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	// escape is how the value is encoded before it is inserted.
+	// escape is how the value is encoded before it is inserted. It must be stated:
+	// a reference that leaves it unspecified is rejected rather than inserted
+	// verbatim, because verbatim insertion into a URL lets a value containing "@"
+	// or "/" move the host the assembled value points at.
 	Escape        ConfigurationValueEscape `protobuf:"varint,3,opt,name=escape,proto3,enum=codefly.base.v0.ConfigurationValueEscape" json:"escape,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -350,7 +368,7 @@ func (x *ConfigurationValueReference) GetEscape() ConfigurationValueEscape {
 	if x != nil {
 		return x.Escape
 	}
-	return ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE
+	return ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED
 }
 
 // ConfigurationData carries a structured configuration blob alongside key/value configuration.
@@ -579,10 +597,11 @@ const file_codefly_base_v0_configuration_proto_rawDesc = "" +
 	"\rConfiguration\x12\x16\n" +
 	"\x06origin\x18\x01 \x01(\tR\x06origin\x12H\n" +
 	"\x0fruntime_context\x18\x02 \x01(\v2\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12?\n" +
-	"\x05infos\x18\x03 \x03(\v2).codefly.base.v0.ConfigurationInformationR\x05infos*l\n" +
-	"\x18ConfigurationValueEscape\x12#\n" +
-	"\x1fCONFIGURATION_VALUE_ESCAPE_NONE\x10\x00\x12+\n" +
-	"'CONFIGURATION_VALUE_ESCAPE_URL_USERINFO\x10\x01B\xc1\x01\n" +
+	"\x05infos\x18\x03 \x03(\v2).codefly.base.v0.ConfigurationInformationR\x05infos*\x98\x01\n" +
+	"\x18ConfigurationValueEscape\x12*\n" +
+	"&CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fCONFIGURATION_VALUE_ESCAPE_NONE\x10\x01\x12+\n" +
+	"'CONFIGURATION_VALUE_ESCAPE_URL_USERINFO\x10\x02B\xc1\x01\n" +
 	"\x13com.codefly.base.v0B\x12ConfigurationProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (

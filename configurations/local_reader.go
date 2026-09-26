@@ -1074,7 +1074,7 @@ func EndpointProducers(infos []*basev0.ConfigurationInformation) map[string][]st
 	for _, info := range infos {
 		seen := make(map[string]bool)
 		for _, value := range info.GetConfigurationValues() {
-			for _, reference := range resources.EndpointReferences(value.GetValue()) {
+			for _, reference := range resources.ConfigurationValueEndpointReferences(value) {
 				endpoint, err := resources.ParseEndpoint(reference)
 				if err != nil || endpoint.Module == "" {
 					continue

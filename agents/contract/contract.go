@@ -19,6 +19,15 @@ const ContainerRecoveryScope = "container-recovery-scope/v1"
 // dependency addresses at Init, including when tests never start the target.
 const RuntimeInitDependencyMappings = "runtime-init-dependency-mappings/v1"
 
+// ConfigurationValueTemplate identifies host support for a producer declaring a
+// secret configuration value as a ConfigurationValueTemplate instead of a value:
+// the host assembles it where the primitives are, or requires a secret reference
+// to deliver the assembly in a render that carries no secrets. A producer that
+// emits a template against a host without this must be told so, because the
+// alternative is a workload that boots with the credential absent — so the
+// behavior is named here rather than inferred from a Core version.
+const ConfigurationValueTemplate = "configuration-value-template/v1"
+
 const StartupProtocolVersion = 2
 
 // ErrIncompatible means the peer's runtime advertisement cannot satisfy the

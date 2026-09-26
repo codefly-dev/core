@@ -45,7 +45,11 @@ func GetConfigurationValue(ctx context.Context, conf *basev0.Configuration, name
 		if Match(info.Name, name) {
 			for _, value := range info.ConfigurationValues {
 				if Match(value.Key, key) {
-					return value.Value, nil
+					// Not value.Value: a value whose producer declared an
+					// assembly holds the empty string, and handing that back
+					// with a nil error is a credential the caller believes it
+					// read.
+					return ConfigurationValueAsString(conf, value)
 				}
 			}
 		}
@@ -79,6 +83,13 @@ func FilterConfigurationInformation(_ context.Context, name string, infos ...*ba
 func ConfigurationValue(_ context.Context, confInfo *basev0.ConfigurationInformation, key string) (string, error) {
 	for _, value := range confInfo.ConfigurationValues {
 		if Match(value.Key, key) {
+			// An assembly resolves against the whole Configuration its producer
+			// published, which one information does not carry. Returning
+			// value.Value here would hand back an empty credential, so say what
+			// the caller has to use instead.
+			if value.GetTemplate() != nil {
+				return "", fmt.Errorf("configuration value %s is declared as a template; resolve it with GetConfigurationValue over the whole configuration", key)
+			}
 			return value.Value, nil
 		}
 	}

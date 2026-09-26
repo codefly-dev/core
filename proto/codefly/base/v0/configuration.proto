@@ -34,7 +34,10 @@ message ConfigurationValueTemplate {
 message ConfigurationValueTemplateSegment {
   // content is the literal text or the referenced value of this segment.
   oneof content {
-    // literal is copied verbatim.
+    // literal is copied verbatim. It may not contain "{{" or "}}": a renderer
+    // translating a template into a text/template engine makes the literals the
+    // template source, and a literal carrying those delimiters cannot be
+    // reproduced there byte for byte.
     string literal = 1;
     // reference is replaced by the referenced value, encoded by its escape.
     ConfigurationValueReference reference = 2;
@@ -42,24 +45,37 @@ message ConfigurationValueTemplateSegment {
 }
 
 // ConfigurationValueReference names one secret configuration value of the
-// producer that declares the template — never another service's.
+// producer that declares the template — never another service's. The reference
+// is resolved against the declaring producer's own configuration, matching the
+// group name and key the way every other configuration lookup does: case
+// insensitively, with "-" and "_" equivalent. resources.ProducerConfigurationValueLookup
+// is that resolution, and a renderer that resolves references any other way does
+// not reproduce the reference semantics.
 message ConfigurationValueReference {
   // configuration is the name of the producer's configuration group.
   string configuration = 1;
   // key is the key of the value within that group.
   string key = 2;
-  // escape is how the value is encoded before it is inserted.
+  // escape is how the value is encoded before it is inserted. It must be stated:
+  // a reference that leaves it unspecified is rejected rather than inserted
+  // verbatim, because verbatim insertion into a URL lets a value containing "@"
+  // or "/" move the host the assembled value points at.
   ConfigurationValueEscape escape = 3;
 }
 
 // ConfigurationValueEscape is how a referenced value is encoded.
 enum ConfigurationValueEscape {
-  // CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim.
-  CONFIGURATION_VALUE_ESCAPE_NONE = 0;
+  // CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED means the producer stated no
+  // encoding. It is never treated as an encoding: a reference carrying it is
+  // rejected, so forgetting the field cannot silently insert a value verbatim.
+  CONFIGURATION_VALUE_ESCAPE_UNSPECIFIED = 0;
+  // CONFIGURATION_VALUE_ESCAPE_NONE inserts the value verbatim. It is the
+  // explicit choice for a value assembled into a context with no delimiters.
+  CONFIGURATION_VALUE_ESCAPE_NONE = 1;
   // CONFIGURATION_VALUE_ESCAPE_URL_USERINFO percent-encodes every byte except
   // ASCII letters, digits and "-", ".", "_", "~" (RFC 3986 unreserved), so the
   // value is safe inside the userinfo, path or query of a URL.
-  CONFIGURATION_VALUE_ESCAPE_URL_USERINFO = 1;
+  CONFIGURATION_VALUE_ESCAPE_URL_USERINFO = 2;
 }
 
 // ConfigurationData carries a structured configuration blob alongside key/value configuration.
