@@ -1,0 +1,14 @@
+kind: interface
+publisher: codefly.dev
+name: cache
+description: A key/value cache reached through a driver.
+version: 0.3.0
+type: capability
+capability:
+    configuration: connection
+    keys:
+        - name: url
+        - name: password
+          secret: true
+        - name: tls
+          optional: true

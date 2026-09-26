@@ -34,6 +34,8 @@ func ConfigurationFile[C Configuration]() string {
 		return JobConfigurationName
 	case Runnable:
 		return RunnableConfigurationName
+	case Interface:
+		return InterfaceConfigurationName
 	case Application:
 		return ApplicationConfigurationName
 	case generation.Service:

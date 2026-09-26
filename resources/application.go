@@ -146,6 +146,9 @@ func LoadApplicationFromDir(ctx context.Context, dir string) (*Application, erro
 			return nil, w.Wrap(err)
 		}
 	}
+	if err := refuseInterfaceDependencies("application", app.Name, app.ServiceDependencies); err != nil {
+		return nil, w.Wrap(err)
+	}
 
 	app.dir = dir
 

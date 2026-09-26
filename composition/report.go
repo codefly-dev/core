@@ -9,6 +9,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	updatev0 "github.com/codefly-dev/core/generated/go/codefly/update/v0"
+	"github.com/codefly-dev/core/resources"
 )
 
 type ValidationStatus string
@@ -38,23 +39,24 @@ type Delta struct {
 }
 
 type SemanticReport struct {
-	Schema                string                  `json:"schema"`
-	Module                string                  `json:"module"`
-	Package               string                  `json:"package"`
-	BeforeVersion         string                  `json:"beforeVersion,omitempty"`
-	AfterVersion          string                  `json:"afterVersion"`
-	Contracts             []ContractChange        `json:"contracts"`
-	Services              Delta                   `json:"services"`
-	Endpoints             Delta                   `json:"endpoints"`
-	Fixtures              Delta                   `json:"fixtures"`
-	Dependencies          Delta                   `json:"dependencies"`
-	Migrations            Delta                   `json:"migrations"`
-	BreakingChanges       []string                `json:"breakingChanges,omitempty"`
-	Deltas                map[CollisionKind]Delta `json:"deltas"`
-	Validations           []ValidationResult      `json:"validations"`
-	BlockedReasons        []string                `json:"blockedReasons,omitempty"`
-	LockDiff              string                  `json:"lockDiff"`
-	ConsumerCompatibility *updatev0.UpdateResult  `json:"consumerCompatibility,omitempty"`
+	Schema                string                          `json:"schema"`
+	Module                string                          `json:"module"`
+	Package               string                          `json:"package"`
+	BeforeVersion         string                          `json:"beforeVersion,omitempty"`
+	AfterVersion          string                          `json:"afterVersion"`
+	Contracts             []ContractChange                `json:"contracts"`
+	Interfaces            []*resources.InterfaceEvolution `json:"interfaces,omitempty"`
+	Services              Delta                           `json:"services"`
+	Endpoints             Delta                           `json:"endpoints"`
+	Fixtures              Delta                           `json:"fixtures"`
+	Dependencies          Delta                           `json:"dependencies"`
+	Migrations            Delta                           `json:"migrations"`
+	BreakingChanges       []string                        `json:"breakingChanges,omitempty"`
+	Deltas                map[CollisionKind]Delta         `json:"deltas"`
+	Validations           []ValidationResult              `json:"validations"`
+	BlockedReasons        []string                        `json:"blockedReasons,omitempty"`
+	LockDiff              string                          `json:"lockDiff"`
+	ConsumerCompatibility *updatev0.UpdateResult          `json:"consumerCompatibility,omitempty"`
 }
 
 func (report *SemanticReport) JSON() ([]byte, error) {
@@ -67,6 +69,13 @@ func (report *SemanticReport) String() string {
 	output.WriteString("Compatibility\n")
 	for _, change := range report.Contracts {
 		fmt.Fprintf(&output, "  %-24s %-12s %s\n", change.Contract, displayVersion(change.Before)+" -> "+change.After, change.Compatibility)
+	}
+	for _, evolution := range report.Interfaces {
+		compatibility := "compatible"
+		if !evolution.Compatible() {
+			compatibility = "breaking"
+		}
+		fmt.Fprintf(&output, "  %-24s %-12s %s\n", evolution.Interface, displayVersion(evolution.Before)+" -> "+displayVersion(evolution.After), compatibility)
 	}
 	if report.ConsumerCompatibility != nil {
 		fmt.Fprintf(&output, "  consumer usage           %s\n", report.ConsumerCompatibility.Verdict)
@@ -286,4 +295,70 @@ func displayVersion(version string) string {
 		return "none"
 	}
 	return version
+}
+
+// AddInterfaceEvolutions records how the interfaces the module implements
+// changed between the two versions, from the published definitions before
+// and after the update. The verdict is computed from the definitions, not from
+// what the package declares: a breaking change, a version that under-states
+// one, or an interface line the module stops implementing blocks the update.
+// Definitions are paired per compatible line (a major, or a minor below 1.0.0),
+// so a module implementing two lines of one interface is judged on each.
+func (report *SemanticReport) AddInterfaceEvolutions(before, after []*resources.Interface) {
+	afterByLine := make(map[string]*resources.Interface, len(after))
+	for _, definition := range after {
+		line := interfaceLine(definition)
+		if current, exists := afterByLine[line]; !exists || semver.MustParse(definition.Version).GreaterThan(semver.MustParse(current.Version)) {
+			afterByLine[line] = definition
+		}
+	}
+	paired := make(map[string]struct{}, len(before))
+	for _, previous := range before {
+		line := interfaceLine(previous)
+		paired[line] = struct{}{}
+		next, exists := afterByLine[line]
+		if !exists {
+			report.Interfaces = append(report.Interfaces, &resources.InterfaceEvolution{
+				Interface: previous.Identity().Key(),
+				Before:    previous.Version,
+				Breaking:  []string{"no longer implemented"},
+			})
+			report.BlockedReasons = append(report.BlockedReasons, fmt.Sprintf("interface %s is no longer implemented", previous.Identity()))
+			continue
+		}
+		if next.Version == previous.Version {
+			report.Interfaces = append(report.Interfaces, &resources.InterfaceEvolution{Interface: previous.Identity().Key(), Before: previous.Version, After: next.Version})
+			continue
+		}
+		// Within one line a surface break is always an under-stated version,
+		// which EvolveInterface rejects.
+		evolution, err := resources.EvolveInterface(previous, next)
+		report.Interfaces = append(report.Interfaces, evolution)
+		if err != nil {
+			report.BlockedReasons = append(report.BlockedReasons, err.Error())
+		}
+	}
+	lines := make([]string, 0, len(afterByLine))
+	for line := range afterByLine {
+		if _, exists := paired[line]; !exists {
+			lines = append(lines, line)
+		}
+	}
+	sort.Strings(lines)
+	for _, line := range lines {
+		added := afterByLine[line]
+		report.Interfaces = append(report.Interfaces, &resources.InterfaceEvolution{
+			Interface: added.Identity().Key(),
+			After:     added.Version,
+			Additive:  []string{"newly implemented"},
+		})
+	}
+}
+
+func interfaceLine(definition *resources.Interface) string {
+	version := semver.MustParse(definition.Version)
+	if version.Major() == 0 {
+		return fmt.Sprintf("%s@0.%d", definition.Identity().Key(), version.Minor())
+	}
+	return fmt.Sprintf("%s@%d", definition.Identity().Key(), version.Major())
 }
