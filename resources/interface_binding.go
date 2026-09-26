@@ -113,7 +113,25 @@ func (workspace *Workspace) BindInterfaceDependencies(ctx context.Context, servi
 	// checked against its published definition, and only those: a definition
 	// the host cannot resolve fails the consumers relying on it, not every
 	// load of the module that declares it.
+	//
+	// Without one, binding still resolves the provider but nothing checks that
+	// it conforms — an agent loading the service it serves has no resolver, so
+	// this cannot be an error. It must not vanish either: conformance is what
+	// makes `implements:` mean anything, and a host that simply never calls
+	// WithInterfaceResolver would otherwise get green binding with zero
+	// verification and no way to tell afterwards. DEBUG rather than WARN for the
+	// reason the run-wide interpolation skip gives: this is the normal case for
+	// every agent boot, and a warning on every boot trains operators to ignore
+	// it. Run with --debug and the breadcrumb names exactly what went unchecked.
 	if !hasInterfaceResolver(ctx) {
+		unverified := make([]string, 0, len(bound))
+		for _, provider := range bound {
+			unverified = append(unverified, provider.String())
+		}
+		sort.Strings(unverified)
+		w.Debug("binding interface dependencies without conformance checks: no interface resolver is attached",
+			wool.Field("consumer", service.label()),
+			wool.Field("unverified", strings.Join(slices.Compact(unverified), ", ")))
 		return nil
 	}
 	checked := make(map[string]bool)

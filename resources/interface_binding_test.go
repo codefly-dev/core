@@ -12,6 +12,7 @@ import (
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/wool"
 )
 
 const bindingAgent = `agent:
@@ -655,4 +656,35 @@ func TestCapabilityOnlyModuleExportsNoEndpoints(t *testing.T) {
 	exported, err := platform.ExportedEndpointsForPackage(ctx)
 	require.NoError(t, err)
 	require.Empty(t, exported)
+}
+
+// Binding without a resolver must not be silent. An agent loading the service it
+// serves has no resolver, so skipping conformance cannot be an error — but
+// conformance is what makes `implements:` mean anything, and a host that never
+// calls WithInterfaceResolver would otherwise get green binding with zero
+// verification and no way to tell afterwards. The skip therefore leaves a DEBUG
+// breadcrumb naming each implementation that went unchecked.
+func TestBindingWithoutAResolverSaysWhatWentUnverified(t *testing.T) {
+	baseCtx := context.Background()
+	capture := &warningCapture{}
+	ctx := wool.New(baseCtx, &wool.Resource{Kind: "test", Unique: "interface-unverified"}).WithLogger(capture).Inject(baseCtx)
+	previous := wool.GlobalLogLevel()
+	wool.SetGlobalLogLevel(wool.TRACE)
+	t.Cleanup(func() { wool.SetGlobalLogLevel(previous) })
+
+	root := bindingWorkspace(t, "", nil)
+	web, err := resources.LoadServiceFromDir(ctx, filepath.Join(root, "modules/apps/services/web"))
+	require.NoError(t, err)
+	web.WithModule("apps")
+	require.NoError(t, resources.ApplyInterfaceBindings(ctx, web, root))
+	requireBound(t, web.ServiceDependencies[0], "platform", "redis")
+
+	var said string
+	for _, log := range capture.logs {
+		if strings.Contains(log.String(), "without conformance checks") {
+			said = log.String()
+		}
+	}
+	require.NotEmpty(t, said, "the skip must leave a breadcrumb; logs=%v", capture.logs)
+	require.Contains(t, said, "platform/redis", "the breadcrumb must name the unverified implementation")
 }
