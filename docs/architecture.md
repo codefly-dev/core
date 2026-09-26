@@ -222,6 +222,15 @@ port := network.ToNamedPort(ctx, "myworkspace", "backend", "api", "grpc", "grpc"
 
 For tests and ephemeral environments, `RuntimeManager.WithTemporaryPorts()` uses random free ports instead.
 
+In-cluster (Kubernetes) ports are a separate, pure allocation:
+`network.DeployedEndpointPorts(ctx, module, service, endpoints)`. The
+conventional endpoint of each API (named after it, or the only one of it) takes
+`standards.Port(api)`, earlier APIs in `standards.APIS()` winning a shared port;
+every other endpoint takes `ToNamedPort` with an empty workspace, so its port
+depends on the name the module is **composed** under. The CLI's GitOps render
+calls it, and any other tool that must agree with the render calls the same
+function rather than declaring ports by hand.
+
 ### Endpoint carriers
 
 Endpoints reach a process as environment variables, one per endpoint:
