@@ -203,7 +203,9 @@ func (workspace *Workspace) SaveToDirUnsafe(ctx context.Context, dir string) err
 	if err != nil {
 		return w.Wrapf(err, "cannot pre-save ")
 	}
-	err = SaveToDir[Workspace](ctx, serialized, dir)
+	// The workspace file is edited in place by commands (agent-overrides pins,
+	// added modules); the operator's comments around those edits survive.
+	err = SaveToDirKeepingComments[Workspace](ctx, serialized, dir)
 	if err != nil {
 		return w.Wrapf(err, "cannot save ")
 	}

@@ -87,6 +87,18 @@ func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 }
 
 func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
+	return saveToDir(ctx, c, dir, false)
+}
+
+// SaveToDirKeepingComments saves like SaveToDir, but when the file already
+// exists its comments, key order and scalar quoting are carried onto the new
+// content (see marshalKeepingComments). A new file, or one with no comments, is
+// written byte for byte as SaveToDir writes it.
+func SaveToDirKeepingComments[C Configuration](ctx context.Context, c *C, dir string) error {
+	return saveToDir(ctx, c, dir, true)
+}
+
+func saveToDir[C Configuration](ctx context.Context, c *C, dir string, keepComments bool) error {
 	w := wool.Get(ctx).In("SaveToDir[%s]", wool.GenericField[C](), wool.DirField(dir))
 	w.Trace("saving")
 	_, err := shared.CheckDirectoryOrCreate(ctx, dir)
@@ -108,7 +120,14 @@ func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
 			return nil
 		}
 	}
-	content, err := yaml.Marshal(*c)
+	var existing []byte
+	if exists && keepComments {
+		existing, err = os.ReadFile(file)
+		if err != nil {
+			return w.Wrapf(err, "cannot read existing file")
+		}
+	}
+	content, err := marshalKeepingComments(existing, *c)
 	if err != nil {
 		return w.Wrapf(err, "cannot marshal")
 	}
