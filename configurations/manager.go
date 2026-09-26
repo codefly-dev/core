@@ -84,6 +84,11 @@ type Manager struct {
 	// configuration values, alongside the same secret resolution.
 	networkMappings []*basev0.NetworkMapping
 	networkAccess   *basev0.NetworkAccess
+
+	// runProducers reports whether a <module>/<service> is part of this run, so
+	// a reference the consumer cannot resolve is told apart from one no run
+	// could. See WithRunProducers.
+	runProducers func(unique string) bool
 }
 
 func NewManager(_ context.Context, workspace *resources.Workspace) (*Manager, error) {
@@ -119,6 +124,21 @@ func (manager *Manager) WithSecretResolver(resolvers ...SecretResolver) *Manager
 func (manager *Manager) WithNetworkMappings(mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) *Manager {
 	manager.networkMappings = mappings
 	manager.networkAccess = access
+	return manager
+}
+
+// WithRunProducers supplies which producers this run contains, by
+// <module>/<service>. It is what makes the strict read fail-fast: a reference to
+// a producer of the run that a consumer cannot resolve is a fault to report,
+// while one to a producer the run does not contain — excluded infrastructure, or
+// a run of one service rather than the workspace — is dropped for that consumer.
+// Without it no producer is provably part of the run, so every unresolvable
+// reference is dropped; the composition root sets it alongside the mappings.
+func (manager *Manager) WithRunProducers(inRun func(unique string) bool) *Manager {
+	if manager == nil {
+		return nil
+	}
+	manager.runProducers = inRun
 	return manager
 }
 
@@ -338,11 +358,15 @@ func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Co
 // mappings for the configured access. The address is consumer-specific, so it is
 // resolved on the way out (never cached into the shared configuration): the
 // composition root sets the consumer's access via WithNetworkMappings before each
-// read. This is the strict path: a reference that does not resolve fails, because
-// the caller selected this configuration and every reference is expected to hold.
+// read. This is the strict path: a reference to a producer of this run that does
+// not resolve fails, because the caller selected this configuration and every
+// reference to something the run contains is expected to hold. A reference to a
+// producer the run does not contain is dropped for this consumer with a WARN —
+// see WithRunProducers, which is what tells the two apart.
 func (manager *Manager) interpolateEndpoints(ctx context.Context, name string, conf *basev0.Configuration) (*basev0.Configuration, error) {
 	w := wool.Get(ctx).In("Manager.interpolateEndpoints")
-	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess)
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess,
+		resources.WithRunProducers(manager.runProducers))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot interpolate workspace configuration %s", name)
 	}

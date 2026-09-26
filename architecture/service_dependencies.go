@@ -24,6 +24,11 @@ type ServiceDependencies struct {
 	uniqueToService map[string]*resources.Service
 	options         *DependencyOptions
 
+	// referenceDependencies holds, per consumer unique, the runtime dependencies
+	// its workspace configuration references amount to. See
+	// ConfigurationReferenceDependencies.
+	referenceDependencies map[string][]*resources.ServiceDependency
+
 	// stage is the stage this view was restricted to, empty when it was not.
 	// It is what keeps a restricted view self-consistent: the same predicate
 	// that decided which edges order the stage decides which are judged.
@@ -33,8 +38,8 @@ type ServiceDependencies struct {
 type DependencyOptions struct {
 	SkipDependencyFor map[string]bool
 	ExcludeService    map[string]bool
-	// ConfigurationProducers names, per workspace configuration group, the
-	// services (<module>/<service>) its ${endpoint:…} references name. See
+	// ConfigurationProducers holds, per workspace configuration group, the
+	// <module>/<service>/<endpoint> references it carries. See
 	// WithConfigurationReferences.
 	ConfigurationProducers map[string][]string
 }
@@ -88,11 +93,31 @@ func ExcludeServices(services ...string) DependencyOption {
 // from the producer to every service declaring the group, so a run includes,
 // starts and orders the producer as for a declared dependency. A service's own
 // endpoint, an excluded producer, and an edge that would close a cycle are
-// skipped; a declared dependency is never duplicated. producersByGroup maps a
-// group to the <module>/<service> uniques it references.
-func WithConfigurationReferences(producersByGroup map[string][]string) DependencyOption {
+// skipped; a declared dependency that already orders the run is never
+// duplicated.
+//
+// A declaration that orders nothing — `kind: external`, which names the producer
+// for configuration but never starts or waits for it — does not stand in for the
+// reference: the root's reference binds a producer of this workspace, so the edge
+// gains the runtime kind and the producer is started first. That OVERRIDES what
+// the consumer's manifest says about the edge, which is documented the other way
+// round (docs/dependency-kinds.md), so it is logged rather than done quietly: the
+// author's `external` is what Codefly would have obeyed had the composition root
+// not bound the two. The superseded kind is taken off the edge, so the pair does
+// not end up carrying `external` and `runtime` at once.
+//
+// Ordering is not the whole of a runtime dependency: the consumer must also wait
+// for the endpoint it will call. ConfigurationReferenceDependencies is the other
+// half — the referenced endpoints as the dependencies they are, for whoever plans
+// readiness — which is why references keep the endpoint they name and not only
+// the producer.
+//
+// referencesByGroup maps a group to the <module>/<service>/<endpoint> references
+// it carries (configurations.EndpointProducers). A bare <module>/<service> still
+// orders the producer, and contributes no endpoint to wait for.
+func WithConfigurationReferences(referencesByGroup map[string][]string) DependencyOption {
 	return func(opt *DependencyOptions) error {
-		opt.ConfigurationProducers = producersByGroup
+		opt.ConfigurationProducers = referencesByGroup
 		return nil
 	}
 }
@@ -329,13 +354,56 @@ func (d *ServiceDependencies) withGraph(g *DAG) *ServiceDependencies {
 			services[unique] = svc
 		}
 	}
-	return &ServiceDependencies{
-		Workspace:       d.Workspace,
-		graph:           g,
-		uniqueToService: services,
-		options:         d.options.clone(),
-		stage:           d.stage,
+	references := make(map[string][]*resources.ServiceDependency, len(d.referenceDependencies))
+	for consumer, dependencies := range d.referenceDependencies {
+		if g.HasNode(consumer) {
+			references[consumer] = slices.Clone(dependencies)
+		}
 	}
+	return &ServiceDependencies{
+		Workspace:             d.Workspace,
+		graph:                 g,
+		uniqueToService:       services,
+		options:               d.options.clone(),
+		stage:                 d.stage,
+		referenceDependencies: references,
+	}
+}
+
+// ConfigurationReferenceDependencies returns the dependencies a consumer's
+// workspace configuration references amount to: one runtime dependency per
+// referenced endpoint of a producer this workspace provides, naming that
+// endpoint. They are not in the consumer's manifest — the composition root wrote
+// the reference, which is the whole point of the mechanism — so a caller that
+// plans what the consumer must wait for reads them from here and plans them
+// exactly like declared ones:
+//
+//	resources.PlanReadiness(append(svc.ServiceDependencies, dep.ConfigurationReferenceDependencies(unique)...), endpoints)
+//
+// Without this, a reference would order the producer and gate nothing, and the
+// consumer would be started before the endpoint it is about to call can serve —
+// the failure ordering was introduced to prevent. A reference whose producer is
+// outside the workspace, or that names no endpoint the producer declares,
+// contributes nothing: it orders nothing either, and the composition fault is
+// reported by configurations.CheckEndpointReferences.
+// The result is a deep copy, like DAG.EdgeKinds: a caller that plans readiness
+// from it composes it with the consumer's own declarations, and must not be able
+// to reach into the graph's state by editing what it was handed.
+func (d *ServiceDependencies) ConfigurationReferenceDependencies(consumer string) []*resources.ServiceDependency {
+	out := make([]*resources.ServiceDependency, 0, len(d.referenceDependencies[consumer]))
+	for _, dependency := range d.referenceDependencies[consumer] {
+		copied := *dependency
+		copied.Endpoints = make([]*resources.EndpointReference, 0, len(dependency.Endpoints))
+		for _, endpoint := range dependency.Endpoints {
+			reference := *endpoint
+			copied.Endpoints = append(copied.Endpoints, &reference)
+		}
+		out = append(out, &copied)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // VerifyAcyclic fails when the dependency graph of a stage deadlocks, naming
@@ -430,22 +498,104 @@ func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context
 			continue
 		}
 		for _, group := range d.uniqueToService[consumer].WorkspaceConfigurationDependencies {
-			for _, producer := range d.options.ConfigurationProducers[group] {
-				if producer == consumer || d.options.ExcludeService[producer] {
+			for _, reference := range d.options.ConfigurationProducers[group] {
+				producer, endpoint := d.resolveReference(reference)
+				if producer == "" || producer == consumer || d.options.ExcludeService[producer] {
 					continue
 				}
-				if _, inWorkspace := d.uniqueToService[producer]; !inWorkspace || graph.HasEdge(producer, consumer) {
+				if _, inWorkspace := d.uniqueToService[producer]; !inWorkspace {
 					continue
 				}
-				if graph.reaches(consumer, producer) {
+				if graph.edgeConstrains(producer, consumer, resources.StageRun) {
+					// A declared dependency already orders the run. It may name
+					// other endpoints of the producer than the referenced one, so
+					// the endpoint is still recorded: what the consumer waits for
+					// is every endpoint it consumes, however it came to consume it.
+					d.recordReferenceDependency(consumer, producer, endpoint)
+					continue
+				}
+				if graph.reachesInStage(consumer, producer, resources.StageRun) {
 					w.Debug("skipping a configuration reference that would close a cycle",
 						wool.Field("consumer", consumer), wool.Field("producer", producer), wool.Field("group", group))
+					// Nothing is recorded either: the consumer cannot wait for a
+					// producer that is already waiting for it, and a readiness
+					// requirement here would be the deadlock this edge was dropped
+					// to avoid.
 					continue
 				}
+				d.recordReferenceDependency(consumer, producer, endpoint)
 				graph.AddKindedEdge(producer, consumer, resources.DependencyKindRuntime)
+				// An `external` declaration of the same pair said this edge orders
+				// nothing; the reference says it orders the run. Say so, at a level
+				// an operator sees without asking for debug output: it is the one
+				// case where a manifest's own `kind` is not what Codefly does.
+				if slices.Contains(graph.EdgeKinds(producer, consumer), resources.DependencyKindExternal) {
+					w.Info("a workspace configuration reference orders a producer its consumer declares external",
+						wool.Field("consumer", consumer), wool.Field("producer", producer), wool.Field("group", group))
+					graph.dropEdgeKind(producer, consumer, resources.DependencyKindExternal)
+				}
 			}
 		}
 	}
+}
+
+// resolveReference splits a <module>/<service>/<endpoint> reference into the
+// producer it names and the producer's own name for the endpoint. The endpoint is
+// resolved against what the producer declares, by the same rule the value's
+// resolution applies, so what is recorded is an endpoint that exists rather than
+// the token the reference spelled it with (`${endpoint:m/s/grpc}` may name an
+// endpoint called `rpc` that serves the grpc API). It is empty when the reference
+// names no endpoint, or none the producer declares.
+func (d *ServiceDependencies) resolveReference(reference string) (string, string) {
+	info, err := resources.ParseEndpoint(reference)
+	if err != nil || info.Module == "" || info.Service == "" {
+		return "", ""
+	}
+	producer := info.Module + "/" + info.Service
+	service, ok := d.uniqueToService[producer]
+	if !ok || (info.Name == "" && info.API == "") {
+		return producer, ""
+	}
+	for _, endpoint := range service.Endpoints {
+		if resources.EndpointMatchesReferenceInfo(endpoint, info) {
+			return producer, endpoint.Name
+		}
+	}
+	return producer, ""
+}
+
+// recordReferenceDependency records the referenced endpoint as the runtime
+// dependency it is, merging endpoints of the same producer into one dependency so
+// a consumer waits for each endpoint it references exactly once.
+func (d *ServiceDependencies) recordReferenceDependency(consumer, producer, endpoint string) {
+	if endpoint == "" {
+		return
+	}
+	module, name, found := strings.Cut(producer, "/")
+	if !found {
+		return
+	}
+	if d.referenceDependencies == nil {
+		d.referenceDependencies = make(map[string][]*resources.ServiceDependency)
+	}
+	for _, existing := range d.referenceDependencies[consumer] {
+		if existing.Unique() != producer {
+			continue
+		}
+		for _, reference := range existing.Endpoints {
+			if reference.Name == endpoint {
+				return
+			}
+		}
+		existing.Endpoints = append(existing.Endpoints, &resources.EndpointReference{Name: endpoint})
+		return
+	}
+	d.referenceDependencies[consumer] = append(d.referenceDependencies[consumer], &resources.ServiceDependency{
+		Module:    module,
+		Name:      name,
+		Kind:      resources.DependencyKindRuntime,
+		Endpoints: []*resources.EndpointReference{{Name: endpoint}},
+	})
 }
 
 // EntryPoints returns the list of services that are not required by any other service

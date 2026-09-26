@@ -345,7 +345,9 @@ the modules being run and follows the dependencies services already declare.
 The closure is per-`Stage`, because a dependency only pulls a module in for the
 stages its kind constrains: building a service needs its codegen inputs and not
 the endpoints it will later consume, and running it needs the reverse. A
-`kind: external` dependency constrains no stage and so pulls in nothing.
+`kind: external` dependency constrains no stage and so pulls in nothing — unless
+the composition root binds the pair with an `${endpoint:…}` reference, which makes
+it a run-stage edge ([dependency-kinds.md](dependency-kinds.md)).
 
 A pinned module nothing reaches is simply not in the closure, so the pin set is a
 superset of any one stage. A module a declaration reaches but the pin set does not
