@@ -138,6 +138,8 @@ func TestCapabilityConfigurationMustConform(t *testing.T) {
 	require.ErrorContains(t, cache.ValidateConfiguration(connection(url, password, &basev0.ConfigurationValue{Key: "host", Value: "cache"})),
 		`key "host" is not part of the interface`)
 	require.ErrorContains(t, cache.ValidateConfiguration(&basev0.Configuration{Origin: "platform/redis"}), `has no "connection" group`)
+	require.ErrorContains(t, cache.ValidateConfiguration(connection(url, password, &basev0.ConfigurationValue{Key: "url", Value: "redis://other:6379"})),
+		`key "url" is emitted more than once`)
 
 	widgets := loadDefinition(t, widgetsDefinitionDir)
 	require.ErrorContains(t, widgets.ValidateConfiguration(connection(url)), "only a capability interface")

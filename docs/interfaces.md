@@ -139,16 +139,20 @@ export boundary: once there is one, an endpoint the interface does not list is
 private outside the module. A capability consumed over the network therefore
 needs its endpoint exported too, as `redis/tcp` is above. Capability entries on
 their own state what a service provides, not which endpoints cross module
-lines, and leave the boundary as it was.
+lines, and leave the boundary as it was. Such a module has still declared an
+interface: packaging it exports no endpoint contract.
 
 **Conformance.** `ValidateInterfaceConformance` checks each implementation
 against the published definition: an endpoint implements interfaces of its own
 API, and a capability entry implements capability interfaces. When a resolver
-is attached, loading the module runs it, so a misdeclared module fails to load
-instead of misleading its consumers. `ValidateProvidedConfiguration` checks
-what a service emits against every capability it implements: the group is
-present, every required key is in it, each key is secret exactly when the
-interface says so, and no undeclared key appears.
+is attached, binding checks the implementation each consumer is bound to, so a
+misdeclared implementation fails the consumers relying on it instead of
+misleading them. Only bound implementations are resolved: a definition the
+host cannot resolve fails its consumers, not every load of the module that
+declares it. `ValidateProvidedConfiguration` checks what a service emits
+against every capability it implements: the group is present, every required
+key is in it exactly once, each key is secret exactly when the interface says
+so, and no undeclared key appears.
 
 A flat-layout workspace has no module boundary and so implements no
 interfaces.
@@ -169,7 +173,9 @@ service-dependencies:
 ```
 
 The range is required: a requirement admitting every version would bind to a
-provider whatever breaking change it later shipped.
+provider whatever breaking change it later shipped. One service may require the
+same interface at two ranges, `^1` and `^2` while it migrates between lines;
+the same requirement twice is refused.
 
 ### How binding chooses
 
@@ -177,8 +183,13 @@ The workspace binds every requirement when it loads the service:
 
 1. With a named service, that service must implement a version in range. It is
    checked, never rewritten.
-2. Otherwise, exactly one implementation in scope must satisfy the range, or
-   the workspace chooses one:
+2. If the dependency names endpoints, only endpoint implementations on those
+   endpoints qualify. That is how a consumer chooses between two endpoints of
+   one service, and it never wires a consumer to an endpoint that does not
+   implement its requirement. A capability is implemented by its service, so
+   naming the endpoint a capability consumer connects to does not narrow it.
+3. Of the implementations that remain, exactly one must satisfy the range,
+   or the workspace chooses one:
 
    ```yaml
    interface-bindings:

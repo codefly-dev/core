@@ -2,6 +2,7 @@ package resources_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -528,16 +529,130 @@ func TestInterfaceBindingsAreValidated(t *testing.T) {
 	}
 }
 
-// With a resolver attached, a module that misdeclares what it implements fails
-// to load instead of misleading the consumer bound to it.
-func TestModuleLoadChecksConformanceWhenDefinitionsAreAvailable(t *testing.T) {
+// With a resolver attached, the implementation a consumer is bound to is
+// checked against its published definition — and only that one: a definition
+// the host cannot resolve fails its consumers, not every load of the module.
+func TestBindingChecksTheBoundImplementation(t *testing.T) {
+	misdeclared := "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\ninterface:\n    endpoints:\n        - service: redis\n          endpoint: tcp\n          visibility: public\n    capabilities:\n        - service: redis\n          implements: [codefly.dev/cache@0.3.0, example.dev/widgets@1.2.0]\n"
 	ctx := resources.WithInterfaceResolver(context.Background(), definitionResolver)
 	root := bindingWorkspace(t, "", map[string]string{
-		"modules/platform/module.codefly.yaml": "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\ninterface:\n    capabilities:\n        - service: redis\n          implements: [example.dev/widgets@1.2.0]\n",
+		"modules/platform/module.codefly.yaml":           misdeclared,
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http", "service-dependencies:\n    - interface: example.dev/widgets@^1.1\n"),
 	})
 	_, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
+	require.NoError(t, err, "loading a module does not resolve what it implements")
+	_, err = loadWebWith(ctx, t, root)
 	require.ErrorContains(t, err, "platform/redis declares capability example.dev/widgets@1.2.0, which is a grpc interface")
 
-	_, err = resources.LoadModuleFromDir(context.Background(), filepath.Join(root, "modules/platform"))
-	require.NoError(t, err, "without definitions there is nothing to check against")
+	// A definition the host cannot resolve fails only its consumers.
+	unavailable := resources.WithInterfaceResolver(context.Background(), func(ctx context.Context, identity *resources.InterfaceIdentity) (*resources.Interface, error) {
+		if identity.Name == "widgets" {
+			return nil, fmt.Errorf("release withdrawn")
+		}
+		return definitionResolver(ctx, identity)
+	})
+	root = bindingWorkspace(t, "", map[string]string{
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http", "service-dependencies:\n    - interface: codefly.dev/cache@^0.3\n"),
+	})
+	web, err := loadWebWith(unavailable, t, root)
+	require.NoError(t, err)
+	requireBound(t, web.ServiceDependencies[0], "platform", "redis")
+	root = bindingWorkspace(t, "", nil)
+	_, err = loadWebWith(unavailable, t, root)
+	require.ErrorContains(t, err, "release withdrawn")
+}
+
+func loadWebWith(ctx context.Context, t *testing.T, root string) (*resources.Service, error) {
+	t.Helper()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	return workspace.LoadService(ctx, &resources.ServiceWithModule{Module: "apps", Name: "web"})
+}
+
+// apiWithTwoGRPCEndpoints serves widgets 1.2.0 on grpc and 1.4.0 on grpc2.
+func apiWithTwoGRPCEndpoints() map[string]string {
+	return map[string]string{
+		"modules/platform/module.codefly.yaml": strings.Replace(platformModule, "    capabilities:",
+			"        - service: api\n          endpoint: grpc2\n          visibility: public\n          implements: [example.dev/widgets@1.4.0]\n    capabilities:", 1),
+		"modules/platform/services/api/service.codefly.yaml": "kind: service\nname: api\nversion: 0.0.0\n" + bindingAgent +
+			"endpoints:\n    - name: grpc\n      api: grpc\n    - name: grpc2\n      api: grpc\n",
+	}
+}
+
+// The endpoints a dependency names select the implementation: they
+// disambiguate one service implementing a line on two endpoints, and they
+// can never wire the consumer to an endpoint that does not implement it.
+func TestNamedEndpointsSelectTheImplementation(t *testing.T) {
+	ctx := context.Background()
+	for name, dependency := range map[string]string{
+		"named service":  "    - name: api\n      module: platform\n      interface: example.dev/widgets@^1.2\n      endpoints:\n        - name: grpc2\n",
+		"interface only": "    - interface: example.dev/widgets@^1.2\n      endpoints:\n        - name: grpc2\n",
+	} {
+		files := apiWithTwoGRPCEndpoints()
+		files["modules/apps/services/web/service.codefly.yaml"] = bindingService("web", "http", "service-dependencies:\n"+dependency)
+		web, err := loadWeb(ctx, t, bindingWorkspace(t, "", files))
+		require.NoError(t, err, name)
+		requireBound(t, web.ServiceDependencies[0], "platform", "api", "grpc2")
+	}
+
+	files := apiWithTwoGRPCEndpoints()
+	files["modules/apps/services/web/service.codefly.yaml"] = bindingService("web", "http",
+		"service-dependencies:\n    - name: api\n      module: platform\n      interface: example.dev/widgets@^1.2\n")
+	_, err := loadWeb(ctx, t, bindingWorkspace(t, "", files))
+	require.ErrorContains(t, err, "implements it more than once")
+
+	// The endpoint named does not implement the interface: refused, not wired.
+	files = map[string]string{
+		"modules/platform/services/api/service.codefly.yaml": apiWithTwoGRPCEndpoints()["modules/platform/services/api/service.codefly.yaml"],
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - interface: example.dev/widgets@^1.2\n      endpoints:\n        - name: grpc2\n"),
+	}
+	_, err = loadWeb(ctx, t, bindingWorkspace(t, "", files))
+	require.ErrorContains(t, err, "none of the endpoints it names (grpc2) implements a version in range; implementations in scope: platform/api/grpc (example.dev/widgets@1.2.0)")
+
+	// Naming the endpoint a capability consumer connects to does not narrow
+	// which service provides the capability.
+	web, err := loadWeb(ctx, t, bindingWorkspace(t, "", map[string]string{
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - interface: codefly.dev/cache@^0.3\n      endpoints:\n        - name: tcp\n"),
+	}))
+	require.NoError(t, err)
+	requireBound(t, web.ServiceDependencies[0], "platform", "redis", "tcp")
+}
+
+// A consumer migrating between major lines requires both at once; only the
+// same requirement declared twice is a duplicate.
+func TestConsumerRequiresTwoLinesOfOneInterface(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", map[string]string{
+		"modules/platform/module.codefly.yaml": strings.Replace(platformModule, "              - example.dev/widgets@1.2.0\n",
+			"              - example.dev/widgets@1.2.0\n              - example.dev/widgets@2.0.0\n", 1),
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - interface: example.dev/widgets@^1\n    - interface: example.dev/widgets@^2\n"),
+	})
+	web, err := loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	requireBound(t, web.ServiceDependencies[0], "platform", "api", "grpc")
+	requireBound(t, web.ServiceDependencies[1], "platform", "api", "grpc")
+
+	root = bindingWorkspace(t, "", map[string]string{
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - interface: example.dev/widgets@^1\n    - interface: example.dev/widgets@^1\n"),
+	})
+	_, err = loadWeb(ctx, t, root)
+	require.ErrorContains(t, err, `duplicate interface requirement "example.dev/widgets@^1": declare it once`)
+}
+
+// A module whose interface declares only capabilities has declared one: it
+// exports no endpoint contract, and is not told it declares no interface.
+func TestCapabilityOnlyModuleExportsNoEndpoints(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", map[string]string{
+		"modules/platform/module.codefly.yaml": "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\ninterface:\n    capabilities:\n        - service: redis\n          implements: [codefly.dev/cache@0.3.0]\n",
+	})
+	platform, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
+	require.NoError(t, err)
+	exported, err := platform.ExportedEndpointsForPackage(ctx)
+	require.NoError(t, err)
+	require.Empty(t, exported)
 }

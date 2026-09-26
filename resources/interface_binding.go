@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -104,29 +105,56 @@ func (workspace *Workspace) BindInterfaceDependencies(ctx context.Context, servi
 	if err != nil {
 		return w.Wrap(err)
 	}
-	if err := bindInterfaceDependencies(service, providers, workspace.InterfaceBindings); err != nil {
+	bound, err := bindInterfaceDependencies(service, providers, workspace.InterfaceBindings)
+	if err != nil {
 		return w.Wrap(err)
+	}
+	// With a resolver attached, each implementation a consumer is bound to is
+	// checked against its published definition, and only those: a definition
+	// the host cannot resolve fails the consumers relying on it, not every
+	// load of the module that declares it.
+	if !hasInterfaceResolver(ctx) {
+		return nil
+	}
+	checked := make(map[string]bool)
+	for _, provider := range bound {
+		key := provider.String()
+		if checked[key] {
+			continue
+		}
+		checked[key] = true
+		mod, err := workspace.LoadModuleFromName(ctx, provider.Module)
+		if err != nil {
+			return w.Wrap(err)
+		}
+		if err := mod.validateImplementation(ctx, provider); err != nil {
+			return w.Wrapf(err, "service %s is bound to %s", service.label(), provider)
+		}
 	}
 	return nil
 }
 
-func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider, bindings []*InterfaceBinding) error {
+// bindInterfaceDependencies binds the service's interface dependencies and
+// returns the implementations it bound them to.
+func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider, bindings []*InterfaceBinding) ([]*InterfaceProvider, error) {
 	chosen, err := validateInterfaceBindings(providers, bindings)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var bound []*InterfaceProvider
 	for _, dep := range service.ServiceDependencies {
 		if dep.Interface == "" || dep.binding != nil || dep.interfaceVerified {
 			continue
 		}
 		requirement, err := ParseInterfaceRequirement(dep.Interface)
 		if err != nil {
-			return fmt.Errorf("service %s: %w", service.label(), err)
+			return nil, fmt.Errorf("service %s: %w", service.label(), err)
 		}
 		provider, err := selectInterfaceProvider(dep, requirement, providers, chosen[requirement.Key()])
 		if err != nil {
-			return fmt.Errorf("service %s requires %s: %w", service.label(), requirement, err)
+			return nil, fmt.Errorf("service %s requires %s: %w", service.label(), requirement, err)
 		}
+		bound = append(bound, provider)
 		if dep.Name != "" {
 			dep.interfaceVerified = true
 			continue
@@ -145,7 +173,7 @@ func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider,
 	// separate declarations, not one written twice: the dependency graph merges
 	// their edges and unions their kinds, and network mappings union what each
 	// consumes.
-	return nil
+	return bound, nil
 }
 
 // validateInterfaceBindings checks every binding the workspace declares, not
@@ -230,6 +258,23 @@ func selectInterfaceProvider(dep *ServiceDependency, requirement *InterfaceRequi
 		}
 		satisfying = matched
 	}
+	// Endpoints the dependency names select among endpoint implementations: a
+	// consumer that names one is served by that endpoint, so it must be one
+	// that implements the requirement. A capability is implemented by the
+	// service, not an endpoint, and a consumer may name the endpoint it
+	// connects to without narrowing which service provides the capability.
+	if named := namedEndpoints(dep); len(named) > 0 {
+		var matched []*InterfaceProvider
+		for _, provider := range satisfying {
+			if provider.Endpoint == "" || slices.Contains(named, provider.Endpoint) {
+				matched = append(matched, provider)
+			}
+		}
+		if len(matched) == 0 {
+			return nil, fmt.Errorf("none of the endpoints it names (%s) implements a version in range; implementations in scope: %s", strings.Join(named, ", "), describeProviders(implementing))
+		}
+		satisfying = matched
+	}
 	switch len(satisfying) {
 	case 0:
 		return nil, fmt.Errorf("no provider in scope satisfies it; implementations in scope: %s", describeProviders(implementing))
@@ -240,6 +285,16 @@ func selectInterfaceProvider(dep *ServiceDependency, requirement *InterfaceRequi
 		return nil, fmt.Errorf("%s %s/%s implements it more than once (%s); name the endpoint in the dependency", source, module, name, describeProviders(satisfying))
 	}
 	return nil, fmt.Errorf("several providers satisfy it (%s); choose one in the workspace's interface-bindings", describeProviders(satisfying))
+}
+
+func namedEndpoints(dep *ServiceDependency) []string {
+	var named []string
+	for _, reference := range dep.Endpoints {
+		if reference != nil && reference.Name != "" {
+			named = append(named, reference.Name)
+		}
+	}
+	return named
 }
 
 func describeProviders(providers []*InterfaceProvider) string {

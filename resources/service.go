@@ -583,10 +583,17 @@ func validateServiceDependencyNames(dependencies []*ServiceDependency) error {
 		if dep == nil {
 			return fmt.Errorf("service dependency cannot be nil")
 		}
-		unique := dep.Unique()
+		// Requirements of one interface at different ranges are distinct: a
+		// consumer migrating between major lines requires both at once.
 		if dep.interfaceOnly() {
-			unique, _, _ = strings.Cut(dep.Interface, "@")
+			key := "interface " + dep.Interface
+			if _, exists := seen[key]; exists {
+				return fmt.Errorf("duplicate interface requirement %q: declare it once", dep.Interface)
+			}
+			seen[key] = struct{}{}
+			continue
 		}
+		unique := dep.Unique()
 		if _, exists := seen[unique]; exists {
 			return fmt.Errorf("duplicate service dependency %q: merge the entries, including their endpoints", unique)
 		}

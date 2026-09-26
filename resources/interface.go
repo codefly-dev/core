@@ -444,6 +444,10 @@ func (i *Interface) ValidateConfiguration(configuration *basev0.Configuration) e
 			problems = append(problems, fmt.Sprintf("key %q is not part of the interface", value.Key))
 			continue
 		}
+		if _, again := emitted[value.Key]; again {
+			problems = append(problems, fmt.Sprintf("key %q is emitted more than once", value.Key))
+			continue
+		}
 		emitted[value.Key] = struct{}{}
 		if key.Secret != value.Secret {
 			problems = append(problems, fmt.Sprintf("key %q must have secret=%t", value.Key, key.Secret))

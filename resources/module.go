@@ -358,14 +358,6 @@ func LoadModuleFromDir(ctx context.Context, dir string) (*Module, error) {
 	if err := mod.ValidateInterface(ctx); err != nil {
 		return nil, w.Wrapf(err, "cannot load module %s: invalid interface", mod.Name)
 	}
-	// With a resolver attached the published definitions are at hand, so a
-	// module that misdeclares what it implements fails here rather than at the
-	// consumer that trusted the declaration.
-	if hasInterfaceResolver(ctx) {
-		if err := mod.ValidateInterfaceConformance(ctx); err != nil {
-			return nil, w.Wrapf(err, "cannot load module %s", mod.Name)
-		}
-	}
 	return mod, nil
 }
 
@@ -738,9 +730,10 @@ func (mod *Module) ExposedEndpoints(ctx context.Context) ([]*basev0.Endpoint, er
 
 // ExportedEndpointsForPackage returns the interface endpoints to export as API
 // contracts. It is ExposedEndpoints guarded by a declared interface: a module
-// without one cannot publish contracts by accident.
+// without one cannot publish contracts by accident. A module whose interface
+// declares only capabilities has declared one, and exports no endpoint.
 func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.Endpoint, error) {
-	if !mod.HasInterface() {
+	if mod.Interface == nil || (len(mod.Interface.Endpoints) == 0 && len(mod.Interface.Capabilities) == 0) {
 		return nil, wool.Get(ctx).In("Module::ExportedEndpointsForPackage", wool.ThisField(mod)).
 			NewError("module %s declares no interface; an interface is required to export API contracts", mod.Name)
 	}
@@ -884,27 +877,37 @@ func (mod *Module) ValidateInterfaceConformance(ctx context.Context) error {
 		return w.Wrap(err)
 	}
 	for _, provider := range providers {
-		definition, err := ResolveInterface(ctx, provider.Identity)
-		if err != nil {
+		if err := mod.validateImplementation(ctx, provider); err != nil {
 			return w.Wrap(err)
 		}
-		if provider.Endpoint == "" {
-			if definition.Type != InterfaceTypeCapability {
-				return w.NewError("%s declares capability %s, which is a %s interface; an endpoint must implement it", provider.location(), provider.Identity, definition.Type)
-			}
-			continue
+	}
+	return nil
+}
+
+// validateImplementation checks one implementation this module declares
+// against the published definition: an endpoint implements an interface of
+// its own API, and a capability entry implements a capability interface.
+func (mod *Module) validateImplementation(ctx context.Context, provider *InterfaceProvider) error {
+	definition, err := ResolveInterface(ctx, provider.Identity)
+	if err != nil {
+		return err
+	}
+	if provider.Endpoint == "" {
+		if definition.Type != InterfaceTypeCapability {
+			return fmt.Errorf("%s declares capability %s, which is a %s interface; an endpoint must implement it", provider.location(), provider.Identity, definition.Type)
 		}
-		if !definition.Type.ImplementedByEndpoint() {
-			return w.NewError("%s implements %s, which is a capability; declare it under capabilities", provider.location(), provider.Identity)
-		}
-		service, err := mod.loadDeclaredService(ctx, provider.Service)
-		if err != nil {
-			return w.Wrap(err)
-		}
-		for _, endpoint := range service.Endpoints {
-			if endpoint.Name == provider.Endpoint && endpoint.API != string(definition.Type) {
-				return w.NewError("%s serves %s but implements %s, a %s interface", provider.location(), endpoint.API, provider.Identity, definition.Type)
-			}
+		return nil
+	}
+	if !definition.Type.ImplementedByEndpoint() {
+		return fmt.Errorf("%s implements %s, which is a capability; declare it under capabilities", provider.location(), provider.Identity)
+	}
+	service, err := mod.loadDeclaredService(ctx, provider.Service)
+	if err != nil {
+		return err
+	}
+	for _, endpoint := range service.Endpoints {
+		if endpoint.Name == provider.Endpoint && endpoint.API != string(definition.Type) {
+			return fmt.Errorf("%s serves %s but implements %s, a %s interface", provider.location(), endpoint.API, provider.Identity, definition.Type)
 		}
 	}
 	return nil
