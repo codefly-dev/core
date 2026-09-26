@@ -482,13 +482,6 @@ func (s *Service) AddDependency(ctx context.Context, requirement *ServiceIdentit
 	w := wool.Get(ctx).In("Service::AddDependency", wool.NameField(s.Name))
 	dep, ok := s.ExistsDependency(requirement)
 	if !ok {
-		// A named edge onto the provider an interface dependency is bound to
-		// would declare that edge twice, which the next load rejects.
-		for _, bound := range s.ServiceDependencies {
-			if bound.boundByInterface() && bound.Name == requirement.Name && bound.Module == requirement.Module {
-				return w.NewError("%s/%s is already a dependency, bound through interface %s; declare the endpoints on that dependency instead", requirement.Module, requirement.Name, bound.Interface)
-			}
-		}
 		dep = &ServiceDependency{
 			Name:   requirement.Name,
 			Module: requirement.Module,

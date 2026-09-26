@@ -26,18 +26,20 @@ type InterfaceEndpoint struct {
 	Service    string `yaml:"service"`
 	Endpoint   string `yaml:"endpoint"`
 	Visibility string `yaml:"visibility,omitempty"` // "internal", "module" or "public"; defaults to "module"
-	// Implements names the published interface version the endpoint serves,
-	// <publisher>/<name>@<version>. It is what lets a consumer depend on the
+	// Implements lists the published interface versions the endpoint serves,
+	// each <publisher>/<name>@<version>. One endpoint can serve several: a
+	// gRPC port carries several protobuf services, and often two major
+	// versions of one side by side. It is what lets a consumer depend on an
 	// interface instead of on this service.
-	Implements string `yaml:"implements,omitempty"`
+	Implements []string `yaml:"implements,omitempty"`
 }
 
-// InterfaceCapabilityExport declares that a service provides a capability
-// interface: a configuration group consumers read through a library driver
+// InterfaceCapabilityExport declares the capability interfaces a service
+// provides: configuration groups consumers read through a library driver
 // rather than an endpoint they call.
 type InterfaceCapabilityExport struct {
-	Service    string `yaml:"service"`
-	Implements string `yaml:"implements"`
+	Service    string   `yaml:"service"`
+	Implements []string `yaml:"implements"`
 }
 
 // exportedVisibility is the visibility this entry grants across module
@@ -787,9 +789,17 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 			return w.NewError("interface references unknown endpoint %q on service %q", ie.Endpoint, ie.Service)
 		}
 	}
+	capabilityServices := make(map[string]struct{}, len(mod.Interface.Capabilities))
 	for _, capability := range mod.Interface.Capabilities {
 		if capability == nil {
 			return w.NewError("interface contains a nil capability")
+		}
+		if _, exists := capabilityServices[capability.Service]; exists {
+			return w.NewError("interface declares the capabilities of service %q twice; list them in one entry", capability.Service)
+		}
+		capabilityServices[capability.Service] = struct{}{}
+		if len(capability.Implements) == 0 {
+			return w.NewError("interface capability entry for service %q implements nothing", capability.Service)
 		}
 		if _, err := mod.loadDeclaredService(ctx, capability.Service); err != nil {
 			return w.Wrapf(err, "interface capability references unknown service %q", capability.Service)
@@ -824,23 +834,33 @@ func (mod *Module) InterfaceProviders() ([]*InterfaceProvider, error) {
 	}
 	var providers []*InterfaceProvider
 	seen := make(map[string]string)
-	add := func(implements, service, endpoint string) error {
-		identity, err := ParseInterfaceIdentity(implements)
-		if err != nil {
-			return fmt.Errorf("module %s: %w", mod.Name, err)
+	// add registers what one entry implements. Within an entry, two versions
+	// of one compatible line are refused: the higher already covers the lower,
+	// and every consumer of that line would find two providers in one place.
+	add := func(implements []string, service, endpoint string) error {
+		var entry []*InterfaceIdentity
+		for _, value := range implements {
+			identity, err := ParseInterfaceIdentity(value)
+			if err != nil {
+				return fmt.Errorf("module %s: %w", mod.Name, err)
+			}
+			provider := &InterfaceProvider{Identity: identity, Module: mod.Name, Service: service, Endpoint: endpoint}
+			if previous, exists := seen[identity.String()]; exists {
+				return fmt.Errorf("module %s implements %s twice: by %s and by %s", mod.Name, identity, previous, provider.location())
+			}
+			for _, other := range entry {
+				if other.Key() == identity.Key() && sameCompatibleLine(other, identity) {
+					return fmt.Errorf("module %s: %s implements %s at both %s and %s, one compatible line; list only the higher version",
+						mod.Name, provider.location(), identity.Key(), other.Version, identity.Version)
+				}
+			}
+			entry = append(entry, identity)
+			seen[identity.String()] = provider.location()
+			providers = append(providers, provider)
 		}
-		provider := &InterfaceProvider{Identity: identity, Module: mod.Name, Service: service, Endpoint: endpoint}
-		if previous, exists := seen[identity.String()]; exists {
-			return fmt.Errorf("module %s implements %s twice: by %s and by %s", mod.Name, identity, previous, provider.location())
-		}
-		seen[identity.String()] = provider.location()
-		providers = append(providers, provider)
 		return nil
 	}
 	for _, ie := range mod.Interface.Endpoints {
-		if ie.Implements == "" {
-			continue
-		}
 		if err := add(ie.Implements, ie.Service, ie.Endpoint); err != nil {
 			return nil, err
 		}

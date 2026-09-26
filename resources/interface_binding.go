@@ -140,9 +140,12 @@ func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider,
 			dep.Endpoints = []*EndpointReference{{Name: provider.Endpoint}}
 		}
 	}
-	// A bound interface can land on a service the consumer also names
-	// directly; the two entries would then be one dependency declared twice.
-	return validateServiceDependencyNames(service.ServiceDependencies)
+	// Two requirements may bind to one provider — two interfaces one endpoint
+	// serves, or an interface and a service the consumer also names. They are
+	// separate declarations, not one written twice: the dependency graph merges
+	// their edges and unions their kinds, and network mappings union what each
+	// consumes.
+	return nil
 }
 
 // validateInterfaceBindings checks every binding the workspace declares, not

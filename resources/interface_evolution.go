@@ -76,6 +76,16 @@ func leavesCaretRange(before, after *semver.Version) bool {
 	return !caret.Check(after)
 }
 
+// sameCompatibleLine reports whether two versions of one interface fall in
+// one caret range: a consumer requiring either would accept the other.
+func sameCompatibleLine(a, b *InterfaceIdentity) bool {
+	low, high := semver.MustParse(a.Version), semver.MustParse(b.Version)
+	if high.LessThan(low) {
+		low, high = high, low
+	}
+	return !leavesCaretRange(low, high)
+}
+
 // CompareInterfaces returns what changed between two definitions of one
 // interface, whatever their versions: the breaking and the additive changes to
 // the surface.

@@ -35,10 +35,12 @@ interface:
         - service: api
           endpoint: grpc
           visibility: public
-          implements: example.dev/widgets@1.2.0
+          implements:
+              - example.dev/widgets@1.2.0
     capabilities:
         - service: redis
-          implements: codefly.dev/cache@0.3.0
+          implements:
+              - codefly.dev/cache@0.3.0
 `
 
 func bindingService(name, api, dependencies string) string {
@@ -141,7 +143,8 @@ interface:
           visibility: public
     capabilities:
         - service: memcache
-          implements: codefly.dev/cache@0.3.2
+          implements:
+              - codefly.dev/cache@0.3.2
 `,
 		"modules/edge/services/memcache/service.codefly.yaml": bindingService("memcache", "tcp", ""),
 	}
@@ -268,7 +271,7 @@ func TestAgentPathSavesTheRequirementAsDeclared(t *testing.T) {
 func TestModuleImplementsEachInterfaceVersionOnce(t *testing.T) {
 	ctx := context.Background()
 	root := bindingWorkspace(t, "", map[string]string{
-		"modules/platform/module.codefly.yaml": platformModule + "        - service: api\n          implements: codefly.dev/cache@0.3.0\n",
+		"modules/platform/module.codefly.yaml": platformModule + "        - service: api\n          implements: [codefly.dev/cache@0.3.0]\n",
 	})
 	_, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
 	require.ErrorContains(t, err, "module platform implements codefly.dev/cache@0.3.0 twice: by platform/redis and by platform/api")
@@ -287,11 +290,11 @@ func TestModuleConformsToThePublishedDefinitions(t *testing.T) {
 	}
 	for message, module := range map[string]string{
 		"platform/redis/tcp serves tcp but implements example.dev/widgets@1.2.0, a grpc interface": moduleWith(
-			"    endpoints:\n        - service: redis\n          endpoint: tcp\n          implements: example.dev/widgets@1.2.0\n"),
+			"    endpoints:\n        - service: redis\n          endpoint: tcp\n          implements: [example.dev/widgets@1.2.0]\n"),
 		"platform/redis declares capability example.dev/widgets@1.2.0, which is a grpc interface": moduleWith(
-			"    capabilities:\n        - service: redis\n          implements: example.dev/widgets@1.2.0\n"),
+			"    capabilities:\n        - service: redis\n          implements: [example.dev/widgets@1.2.0]\n"),
 		"platform/api/grpc implements codefly.dev/cache@0.3.0, which is a capability": moduleWith(
-			"    endpoints:\n        - service: api\n          endpoint: grpc\n          implements: codefly.dev/cache@0.3.0\n"),
+			"    endpoints:\n        - service: api\n          endpoint: grpc\n          implements: [codefly.dev/cache@0.3.0]\n"),
 	} {
 		root := bindingWorkspace(t, "", map[string]string{"modules/platform/module.codefly.yaml": module})
 		platform, err := resources.LoadModuleFromDir(context.Background(), filepath.Join(root, "modules/platform"))
@@ -323,7 +326,7 @@ func TestCapabilityOnlyInterfaceIsNoExportBoundary(t *testing.T) {
 	ctx := context.Background()
 	root := bindingWorkspace(t, "", map[string]string{
 		"modules/platform/module.codefly.yaml": "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\n" +
-			"interface:\n    capabilities:\n        - service: redis\n          implements: codefly.dev/cache@0.3.0\n",
+			"interface:\n    capabilities:\n        - service: redis\n          implements: [codefly.dev/cache@0.3.0]\n",
 		"modules/platform/services/redis/service.codefly.yaml": strings.Replace(bindingService("redis", "tcp", ""), "api: tcp\n", "api: tcp\n      visibility: public\n", 1),
 	})
 	platform, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
@@ -379,16 +382,23 @@ func TestDeletingTheProviderKeepsTheRequirement(t *testing.T) {
 	require.Contains(t, string(saved), "interface: example.dev/widgets@^1.1")
 }
 
-// Adding a named edge onto the bound provider would declare the edge twice and
-// make the service unloadable, so it is refused rather than dropped at save.
-// A service that names its provider keeps what is added to it.
+// A named edge onto the provider an interface is bound to is a separate
+// declaration: it is written as the author asked, and both bind on reload. A
+// dependency that names its provider keeps what is added to it.
 func TestAddingADependencyOnABoundProvider(t *testing.T) {
 	ctx := context.Background()
 	root := bindingWorkspace(t, "", nil)
 	web, err := loadWeb(ctx, t, root)
 	require.NoError(t, err)
-	err = web.AddDependency(ctx, &resources.ServiceIdentity{Name: "api", Module: "platform"}, []*resources.Endpoint{{Name: "grpc"}})
-	require.ErrorContains(t, err, "platform/api is already a dependency, bound through interface example.dev/widgets@^1.1")
+	require.NoError(t, web.AddDependency(ctx, &resources.ServiceIdentity{Name: "api", Module: "platform"}, []*resources.Endpoint{{Name: "grpc"}}))
+	require.NoError(t, web.Save(ctx))
+	saved, err := os.ReadFile(filepath.Join(root, "modules/apps/services/web", resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	require.Contains(t, string(saved), "interface: example.dev/widgets@^1.1")
+	require.Contains(t, string(saved), "- name: api\n      module: platform")
+	reloaded, err := loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	require.Len(t, reloaded.ServiceDependencies, 3)
 
 	root = bindingWorkspace(t, "", map[string]string{
 		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
@@ -398,9 +408,76 @@ func TestAddingADependencyOnABoundProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, web.AddDependency(ctx, &resources.ServiceIdentity{Name: "api", Module: "platform"}, []*resources.Endpoint{{Name: "grpc"}}))
 	require.NoError(t, web.Save(ctx))
-	saved, err := os.ReadFile(filepath.Join(root, "modules/apps/services/web", resources.ServiceConfigurationName))
+	saved, err = os.ReadFile(filepath.Join(root, "modules/apps/services/web", resources.ServiceConfigurationName))
 	require.NoError(t, err)
 	require.Contains(t, string(saved), "endpoints:\n        - api: \"\"\n          name: grpc")
+}
+
+// One gRPC endpoint serves several interfaces, and two major lines of one
+// side by side. Each requirement binds to the version in its range, on the
+// same endpoint, and the requirements stay separate dependencies.
+func TestOneEndpointImplementsSeveralInterfaces(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", map[string]string{
+		"modules/platform/module.codefly.yaml": strings.Replace(platformModule, "              - example.dev/widgets@1.2.0\n",
+			"              - example.dev/widgets@1.2.0\n              - example.dev/widgets@2.0.0\n              - example.dev/admin@1.0.0\n", 1),
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - interface: example.dev/widgets@^2\n    - interface: example.dev/admin@^1\n"),
+	})
+	web, err := loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	requireBound(t, web.ServiceDependencies[0], "platform", "api", "grpc")
+	requireBound(t, web.ServiceDependencies[1], "platform", "api", "grpc")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	require.NoError(t, workspace.ValidateServiceDependencies(ctx))
+	providers, err := workspace.InterfaceProviders(ctx)
+	require.NoError(t, err)
+	var onGRPC []string
+	for _, provider := range providers {
+		if provider.Endpoint == "grpc" {
+			onGRPC = append(onGRPC, provider.Identity.String())
+		}
+	}
+	require.ElementsMatch(t, []string{"example.dev/widgets@1.2.0", "example.dev/widgets@2.0.0", "example.dev/admin@1.0.0"}, onGRPC)
+}
+
+// One service provides several capabilities from one entry.
+func TestOneServiceProvidesSeveralCapabilities(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", map[string]string{
+		"modules/platform/module.codefly.yaml": strings.Replace(platformModule, "              - codefly.dev/cache@0.3.0\n",
+			"              - codefly.dev/cache@0.3.0\n              - codefly.dev/queue@1.0.0\n", 1),
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			"service-dependencies:\n    - interface: codefly.dev/cache@^0.3\n    - interface: codefly.dev/queue@^1\n"),
+	})
+	web, err := loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	requireBound(t, web.ServiceDependencies[0], "platform", "redis")
+	requireBound(t, web.ServiceDependencies[1], "platform", "redis")
+}
+
+// What a module interface refuses, each with the reason it gives.
+func TestModuleInterfaceDeclarationsAreUnambiguous(t *testing.T) {
+	ctx := context.Background()
+	module := func(entries string) string {
+		return "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\ninterface:\n" + entries
+	}
+	for message, declaration := range map[string]string{
+		"platform/api/grpc implements example.dev/widgets at both 1.2.0 and 1.4.0, one compatible line; list only the higher version": module(
+			"    endpoints:\n        - service: api\n          endpoint: grpc\n          implements: [example.dev/widgets@1.2.0, example.dev/widgets@1.4.0]\n"),
+		`declares the capabilities of service "redis" twice; list them in one entry`: module(
+			"    capabilities:\n        - service: redis\n          implements: [codefly.dev/cache@0.3.0]\n        - service: redis\n          implements: [codefly.dev/queue@1.0.0]\n"),
+		`capability entry for service "redis" implements nothing`: module(
+			"    capabilities:\n        - service: redis\n"),
+		"cannot unmarshal": module(
+			"    endpoints:\n        - service: api\n          endpoint: grpc\n          implements: example.dev/widgets@1.2.0\n"),
+	} {
+		root := bindingWorkspace(t, "", map[string]string{"modules/platform/module.codefly.yaml": declaration})
+		_, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
+		require.ErrorContains(t, err, message)
+	}
 }
 
 // One service may require the same interface twice: from whichever provider is
@@ -408,7 +485,7 @@ func TestAddingADependencyOnABoundProvider(t *testing.T) {
 func TestReloadKeepsEachRequirementOnItsProvider(t *testing.T) {
 	ctx := context.Background()
 	root := bindingWorkspace(t, "    - name: edge\ninterface-bindings:\n    - interface: codefly.dev/cache\n      module: platform\n      service: redis\n", map[string]string{
-		"modules/edge/module.codefly.yaml":                    "kind: module\nname: edge\nservices:\n    - name: memcache\ninterface:\n    endpoints:\n        - service: memcache\n          endpoint: tcp\n          visibility: public\n    capabilities:\n        - service: memcache\n          implements: codefly.dev/cache@0.3.2\n",
+		"modules/edge/module.codefly.yaml":                    "kind: module\nname: edge\nservices:\n    - name: memcache\ninterface:\n    endpoints:\n        - service: memcache\n          endpoint: tcp\n          visibility: public\n    capabilities:\n        - service: memcache\n          implements: [codefly.dev/cache@0.3.2]\n",
 		"modules/edge/services/memcache/service.codefly.yaml": bindingService("memcache", "tcp", ""),
 		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
 			"service-dependencies:\n    - interface: codefly.dev/cache@^0.3\n    - name: memcache\n      module: edge\n      interface: codefly.dev/cache@^0.3\n"),
@@ -456,7 +533,7 @@ func TestInterfaceBindingsAreValidated(t *testing.T) {
 func TestModuleLoadChecksConformanceWhenDefinitionsAreAvailable(t *testing.T) {
 	ctx := resources.WithInterfaceResolver(context.Background(), definitionResolver)
 	root := bindingWorkspace(t, "", map[string]string{
-		"modules/platform/module.codefly.yaml": "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\ninterface:\n    capabilities:\n        - service: redis\n          implements: example.dev/widgets@1.2.0\n",
+		"modules/platform/module.codefly.yaml": "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\ninterface:\n    capabilities:\n        - service: redis\n          implements: [example.dev/widgets@1.2.0]\n",
 	})
 	_, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
 	require.ErrorContains(t, err, "platform/redis declares capability example.dev/widgets@1.2.0, which is a grpc interface")
