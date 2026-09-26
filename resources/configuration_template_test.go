@@ -229,14 +229,16 @@ func TestValidateTemplatedConfigurationValue(t *testing.T) {
 		{"padded key", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
 			Segments: []*basev0.ConfigurationValueTemplateSegment{templateReference("postgres", "KEY\t", validEscape)},
 		}}, false},
-		// A literal is the template source in any engine a renderer translates
-		// into, so one carrying that engine's delimiters cannot be reproduced.
+		// A literal carrying a target engine's delimiters is valid: escaping it
+		// belongs to the renderer, where the engine is known. The CLI's
+		// ExternalSecrets renderer emits such a literal as a quoted template
+		// string constant, which the engine renders back byte for byte.
 		{"literal opens an action", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
 			Segments: []*basev0.ConfigurationValueTemplateSegment{templateLiteral("prefix{{ .password }}")},
-		}}, false},
+		}}, true},
 		{"literal closes an action", &basev0.ConfigurationValue{Key: "k", Secret: true, Template: &basev0.ConfigurationValueTemplate{
 			Segments: []*basev0.ConfigurationValueTemplateSegment{templateLiteral("trailing }} brace")},
-		}}, false},
+		}}, true},
 	}
 	for _, c := range cases {
 		err := ValidateTemplatedConfigurationValue(c.value)
@@ -262,5 +264,23 @@ func TestEscapeWireValuesAreFixed(t *testing.T) {
 		if int32(escape) != want {
 			t.Errorf("%s has wire value %d, want %d — moving it reinterprets a released producer's declarations", escape, int32(escape), want)
 		}
+	}
+}
+
+// A literal carrying template delimiters is copied verbatim by the reference
+// semantics, which is what a renderer must reproduce. Rejecting such a literal
+// would refuse a value this evaluator assembles correctly.
+func TestEvaluateCopiesTemplateDelimitersInALiteralVerbatim(t *testing.T) {
+	template := &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{
+		templateLiteral(`a{{ .x }}"b`),
+		templateReference("postgres", "PASSWORD", basev0.ConfigurationValueEscape_CONFIGURATION_VALUE_ESCAPE_NONE),
+		templateLiteral("}}tail"),
+	}}
+	assembled, err := EvaluateConfigurationValueTemplate(template, func(string, string) (string, bool) { return "v", true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assembled != `a{{ .x }}"bv}}tail` {
+		t.Errorf("assembled = %q", assembled)
 	}
 }

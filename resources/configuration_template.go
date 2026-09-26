@@ -63,15 +63,10 @@ func ProducerConfigurationValueLookup(conf *basev0.Configuration) ConfigurationV
 	}
 }
 
-// templateEngineDelimiters are the delimiters a text/template renderer reads as
-// the start and end of an action. A literal carrying one cannot survive a
-// translation into such an engine, where the literals become template source.
-var templateEngineDelimiters = []string{"{{", "}}"}
-
 // ValidateConfigurationValueTemplate reports whether a template is one a
-// renderer can deliver: at least one segment, every segment either a literal a
-// target engine can carry or a complete reference, and every reference stating
-// an escape this package knows.
+// renderer can deliver: at least one segment, every segment either a literal or
+// a complete reference, and every reference stating an escape this package
+// knows.
 func ValidateConfigurationValueTemplate(template *basev0.ConfigurationValueTemplate) error {
 	if template == nil {
 		return fmt.Errorf("configuration value template is nil")
@@ -82,11 +77,13 @@ func ValidateConfigurationValueTemplate(template *basev0.ConfigurationValueTempl
 	for index, segment := range template.GetSegments() {
 		switch content := segment.GetContent().(type) {
 		case *basev0.ConfigurationValueTemplateSegment_Literal:
-			for _, delimiter := range templateEngineDelimiters {
-				if strings.Contains(content.Literal, delimiter) {
-					return fmt.Errorf("configuration value template segment %d is a literal containing %q, which a template engine would read as its own syntax", index, delimiter)
-				}
-			}
+			// A literal is copied verbatim and needs nothing of it. It may carry
+			// a target engine's delimiters: escaping them is the renderer's job,
+			// where the engine is known, and the CLI's ExternalSecrets renderer
+			// does it by emitting such a literal as a quoted template string
+			// constant. Refusing it here rejected an input this package's own
+			// evaluator concatenates correctly and that renderer reproduces byte
+			// for byte.
 		case *basev0.ConfigurationValueTemplateSegment_Reference:
 			reference := content.Reference
 			if reference == nil {
