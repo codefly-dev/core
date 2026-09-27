@@ -187,3 +187,16 @@ func TestClassifyServedRefusesACallItCannotRecord(t *testing.T) {
 	_, err = runnable.ClassifyServed(inv, pkg, backwards)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 }
+
+// TestServedCallHeadersAreTheOnesTheRuntimeAlreadySends pins the spellings
+// rather than the fact that constants exist. A caller and an owner disagreeing
+// here fails invisibly: the owner reads no effect id and treats a retry as a new
+// effect, or reads no typed failure code and the caller concludes "unproven"
+// about a failure the owner did state. These are module-runtime's own values,
+// adopted so that pinning them changes nothing already running.
+func TestServedCallHeadersAreTheOnesTheRuntimeAlreadySends(t *testing.T) {
+	require.Equal(t, "Codefly-Runnable-Effect-Id", runnable.EffectHeader)
+	require.Equal(t, "Codefly-Runnable-Deadline", runnable.DeadlineHeader)
+	require.Equal(t, "Codefly-Runnable-Failure-Code", runnable.FailureCodeHeader)
+	require.Equal(t, "Codefly-Work-Context", runnable.WorkContextHeader)
+}

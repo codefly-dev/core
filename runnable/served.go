@@ -10,6 +10,34 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
+// The header names one served call's per-call facts travel under. They are
+// pinned here because the contract is core's: a caller and an owner that
+// disagree on the spelling do not fail visibly — the owner reads no effect id
+// and treats a retry as a new effect, or reads no typed failure code and a
+// caller concludes "unproven" about a failure the owner did state.
+//
+// The values are the ones obin-ai/module-runtime's transport already sends,
+// adopted rather than chosen, so pinning them changes no running behaviour. Its
+// three constants were explicitly placeholders awaiting this.
+const (
+	// EffectHeader carries the invocation's effect id, the idempotency key an
+	// owner keys its receipt by.
+	EffectHeader = "Codefly-Runnable-Effect-Id"
+	// DeadlineHeader carries the instant the caller stops waiting, RFC 3339 with
+	// nanoseconds, so an owner can decline work it cannot finish in time rather
+	// than starting an effect nobody will hear the outcome of.
+	DeadlineHeader = "Codefly-Runnable-Deadline"
+	// FailureCodeHeader carries an owner's own typed failure code on a REST
+	// route, where there is no status vocabulary that could state one. Its
+	// presence is what makes a failure PROVEN to have committed nothing; a
+	// response without it proves nothing, whatever its status.
+	FailureCodeHeader = "Codefly-Runnable-Failure-Code"
+	// WorkContextHeader carries the minted Work Context for the call. It is the
+	// transport half of RunnableInvocation.identity: the invocation document says
+	// which authority the call runs under, and this is how it reaches the owner.
+	WorkContextHeader = "Codefly-Work-Context"
+)
+
 // Call is what a caller saw of one call to a served operation. It is raw
 // observation, exactly as Observation was for a process: ClassifyServed turns it
 // into the typed outcome, so every caller of a served operation draws the line
