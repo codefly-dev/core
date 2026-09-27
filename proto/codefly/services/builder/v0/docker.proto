@@ -75,6 +75,28 @@ message DockerBuildRecipe {
   // value requires the v4 recipe contract and participates in its digest;
   // older hosts must reject that contract rather than silently build source.
   RecipeContextRoot context_root = 9;
+  // go_module_downloads are the Go modules whose dependency graph this recipe
+  // downloads while it builds. Declaring them moves the download out of the
+  // build: the caller fetches each graph once, before it builds any image, with
+  // the credentials of the machine running the build, and supplies it to the
+  // build as a module proxy. A recipe that declares its downloads therefore
+  // needs no credential inside the build, and none is mounted into it. A
+  // non-empty list requires the v5 recipe contract and participates in its
+  // digest; older hosts reject v5 rather than build without supplying it.
+  repeated GoModuleDownload go_module_downloads = 10;
+}
+
+// GoModuleDownload is one Go module graph a recipe downloads.
+message GoModuleDownload {
+  // module_root is the directory holding the module's go.mod, relative to the
+  // recipe's build context. It must stay inside that context.
+  string module_root = 1;
+  // proxy_context names the build context the caller supplies the downloaded
+  // graph as: a directory in the Go module proxy layout (the module cache's
+  // cache/download tree), which the Dockerfile reads as GOPROXY=file://. The
+  // Dockerfile declares a stage of the same name (FROM scratch) so it still
+  // builds, from the network, when no caller supplies one.
+  string proxy_context = 2;
 }
 
 // RecipeInventoryScope states what a plan's file inventory claims to cover, so
