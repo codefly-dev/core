@@ -50,6 +50,16 @@ type Service struct {
 	// Dependencies
 	WorkspaceConfigurationDependencies []string `yaml:"workspace-configuration-dependencies,omitempty"`
 
+	// ModuleIdentity declares that this service authenticates to its host as
+	// its module's principal: it presents a module identity secret to mint the
+	// module's own Work Context, whether or not the module federates a gateway
+	// facade. A run provisions that secret into the service and its digest to
+	// the host; without the declaration only a module consumed under a facade
+	// prefix receives one. It names no host and no product — which host admits
+	// the module, and with what authority, is that host's own configuration.
+	// CLI-side; not serialized to proto.
+	ModuleIdentity bool `yaml:"module-identity,omitempty"`
+
 	// Endpoints exposed by the service
 	Endpoints []*Endpoint `yaml:"endpoints,omitempty"`
 

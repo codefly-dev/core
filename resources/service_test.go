@@ -147,3 +147,36 @@ func TestSpecSave(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "testKind", field.TestField)
 }
+
+// TestServiceModuleIdentityRoundTrips pins the declaration a run reads to decide
+// that a service needs its module's identity: it is modeled, not left in
+// ExtraFields, and it survives a load → save → load round trip.
+func TestServiceModuleIdentityRoundTrips(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	manifest := `name: worker
+version: 0.0.0
+agent:
+  kind: service
+  publisher: codefly.dev
+  name: go
+  version: 0.0.0
+module-identity: true
+`
+	require.NoError(t, os.WriteFile(path.Join(tmp, resources.ServiceConfigurationName), []byte(manifest), 0o600))
+
+	s, err := resources.LoadServiceFromDir(ctx, tmp)
+	require.NoError(t, err)
+	require.True(t, s.ModuleIdentity)
+	require.NotContains(t, s.ExtraFields, "module-identity")
+
+	require.NoError(t, s.Save(ctx))
+	s, err = resources.LoadServiceFromDir(ctx, tmp)
+	require.NoError(t, err)
+	require.True(t, s.ModuleIdentity)
+
+	undeclared := &resources.Service{Name: "api"}
+	out, err := yaml.Marshal(undeclared)
+	require.NoError(t, err)
+	require.NotContains(t, string(out), "module-identity")
+}
