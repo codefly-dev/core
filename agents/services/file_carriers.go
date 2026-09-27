@@ -25,8 +25,15 @@ const (
 	secretFileCarrierVolume = "codefly-secret-configuration-files"
 	fileCarrierManifest     = "configuration-files.yaml"
 
+	// fileCarrierMode lets any user of the pod read a public file-delivered
+	// value, whatever user the container runs as; it is public configuration,
+	// the same bytes the ConfigMap would otherwise carry as environment.
+	fileCarrierMode = 0o444
 	// secretFileCarrierMode lets the pod's fsGroup read a secret file and
-	// grants nothing to anyone else.
+	// grants nothing to anyone else. The kubelet makes the volume's files
+	// group-owned by the fsGroup and adds that group to every container's
+	// supplemental groups, so the workload's user reads them whatever uid it
+	// runs as (ensureSecretReadable).
 	secretFileCarrierMode = 0o440
 )
 
@@ -229,6 +236,13 @@ func mountIntoWorkload(root *yaml.Node, volumes []fileCarrierMount) (bool, error
 	if spec == nil || spec.Kind != yaml.MappingNode {
 		return false, nil
 	}
+	for _, volume := range volumes {
+		if volume.secret != "" {
+			if err := ensureSecretReadable(spec); err != nil {
+				return false, err
+			}
+		}
+	}
 	podVolumes := ensureSequenceChild(spec, "volumes")
 	for _, volume := range volumes {
 		for _, existing := range podVolumes.Content {
@@ -244,6 +258,7 @@ func mountIntoWorkload(root *yaml.Node, volumes []fileCarrierMount) (bool, error
 			appendInt(source, "defaultMode", secretFileCarrierMode)
 		} else {
 			appendScalar(source, "name", volume.configMap)
+			appendInt(source, "defaultMode", fileCarrierMode)
 		}
 		entry := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		appendScalar(entry, "name", volume.name)
@@ -291,4 +306,59 @@ func appendInt(node *yaml.Node, key string, value int) {
 	node.Content = append(node.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprintf("%d", value)})
+}
+
+// ensureSecretReadable makes a secret volume readable by the workload's user
+// and nobody else. A secret volume's files are owned by root; with mode 0440
+// only their group reads them, and that group is the pod's fsGroup. A pod
+// that declares one keeps it. Otherwise the fsGroup is the group the pod runs
+// as — its runAsGroup, else its runAsUser — declared on the pod or, the same
+// on every container, on its containers. A pod that says neither cannot be
+// given a secret file its user can read without making it world-readable, so
+// the render is refused.
+func ensureSecretReadable(spec *yaml.Node) error {
+	security := mappingChild(spec, "securityContext")
+	if security != nil && mappingScalar(security, "fsGroup") != "" {
+		return nil
+	}
+	group := ""
+	if security != nil {
+		group = firstNonEmpty(mappingScalar(security, "runAsGroup"), mappingScalar(security, "runAsUser"))
+	}
+	if group == "" {
+		if containers := mappingChild(spec, "containers"); containers != nil {
+			for _, container := range containers.Content {
+				context := mappingChild(container, "securityContext")
+				candidate := ""
+				if context != nil {
+					candidate = firstNonEmpty(mappingScalar(context, "runAsGroup"), mappingScalar(context, "runAsUser"))
+				}
+				if candidate == "" || (group != "" && candidate != group) {
+					group = ""
+					break
+				}
+				group = candidate
+			}
+		}
+	}
+	if group == "" {
+		return fmt.Errorf("a secret delivered by file needs the pod to declare the user it runs as (securityContext fsGroup, runAsGroup or runAsUser): without one the file is readable either by no one or by everyone")
+	}
+	if security == nil {
+		security = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		spec.Content = append(spec.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "securityContext"}, security)
+	}
+	security.Content = append(security.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fsGroup"},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: group})
+	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

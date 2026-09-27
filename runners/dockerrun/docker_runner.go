@@ -107,10 +107,9 @@ type DockerEnvironment struct {
 	// Recovery ownership is fixed on first use. A later flow changing the
 	// process marker must not redirect this environment's lookup or shutdown.
 	recoveryScope *ContainerRecoveryScope
-	// carrierDir is the host directory the container's file-delivered
-	// configuration values are written to, bind-mounted read-only at
-	// resources.ContainerFileCarrierMount; empty when it has none.
-	carrierDir string
+	// carriers are the container's file-delivered configuration values,
+	// copied into it between create and start (copyCarriers).
+	carriers []resources.FileCarrier
 }
 
 var _ base.RunnerEnvironment = &DockerEnvironment{}
@@ -380,7 +379,12 @@ func (docker *DockerEnvironment) createAndStartContainer(
 	docker.instance = &DockerContainerInstance{ID: resp.ID}
 	w.Debug("created container", wool.Field("id", resp.ID))
 
-	if err := docker.startContainer(ctx, resp.ID); err != nil {
+	// A value delivered by file is in place before the process starts.
+	err = docker.copyCarriers(ctx, resp.ID)
+	if err == nil {
+		err = docker.startContainer(ctx, resp.ID)
+	}
+	if err != nil {
 		// Clean up the created-but-unstartable container — otherwise it
 		// accumulates under the workspace name and blocks the next run
 		// from creating its own container with the same name. Use a fresh
@@ -1100,7 +1104,6 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 			return w.Wrapf(err, "cannot remove container")
 		}
 	}
-	docker.releaseCarriers()
 	return nil
 }
 
@@ -1496,7 +1499,7 @@ func (proc *DockerProc) start(ctx context.Context) error {
 		}
 		envs = append(envs, env)
 	}
-	envs, err = proc.env.execCarriers(envs)
+	envs, err = proc.env.execCarriers(ctx, proc.env.instance.ID, envs)
 	if err != nil {
 		return w.Wrapf(err, "cannot prepare the process environment")
 	}

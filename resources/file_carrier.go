@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -48,8 +49,10 @@ const (
 	// file-delivered values are mounted.
 	KubernetesSecretFileCarrierMount = "/var/run/codefly/secret-configuration"
 	// ContainerFileCarrierMount is where a locally run container sees its
-	// file-delivered values.
-	ContainerFileCarrierMount = "/var/run/codefly/configuration"
+	// file-delivered values. The runner copies them into the container, so
+	// the directory is a new top-level one: no image's symbolic links (such
+	// as /var/run -> /run) lie on its path.
+	ContainerFileCarrierMount = "/codefly/configuration"
 )
 
 // ErrEnvironmentLimit refuses a process environment a platform would refuse
@@ -96,19 +99,28 @@ func deliverByFile(env *EnvironmentVariable, secret bool) *EnvironmentVariable {
 	return env
 }
 
-// MaterializeFileCarriers writes every file-delivered variable of envs into
-// dir and returns the environment a process starts with: inline variables
-// unchanged, and for each file-delivered one its FileCarrierKey set to
-// visibleDir joined with the file's name. visibleDir is dir as the process
-// sees it — dir itself for a host process, the mount point for a container.
+// FileCarrier is one value delivered by file: the file's name within its
+// carrier directory, its content, and whether it came from a secret
+// namespace.
+type FileCarrier struct {
+	Name    string
+	Content []byte
+	Secret  bool
+}
+
+// PlanFileCarriers separates envs into the environment a process starts with
+// and the files it reads: inline variables unchanged, and for each
+// file-delivered one its FileCarrierKey set to visibleDir joined with the
+// file's name. visibleDir is the carrier directory as the process sees it.
 //
-// dir is created 0700 when absent; files are written 0600 and named by the
-// value key and a digest of the content, so a changed value is a different
-// path and a process reading an unchanged one sees the same path. A
-// file-delivered variable whose key cannot name a file is refused.
-func MaterializeFileCarriers(dir, visibleDir string, envs []*EnvironmentVariable) ([]*EnvironmentVariable, error) {
+// A file is named by its value key and a digest of the content, so a changed
+// value is a different path and a process reading an unchanged one sees the
+// same path. A file-delivered variable whose key cannot name a file is
+// refused. Whoever starts the process writes the files (MaterializeFileCarriers
+// on a host; a container runner copies them into the container).
+func PlanFileCarriers(visibleDir string, envs []*EnvironmentVariable) ([]*EnvironmentVariable, []FileCarrier, error) {
 	var out []*EnvironmentVariable
-	created := false
+	var files []FileCarrier
 	for _, env := range envs {
 		if env == nil {
 			continue
@@ -118,24 +130,35 @@ func MaterializeFileCarriers(dir, visibleDir string, envs []*EnvironmentVariable
 			continue
 		}
 		if !fileCarrierName.MatchString(env.Key) {
-			return nil, fmt.Errorf("%w: key %q cannot name a delivered file", ErrFileCarrier, env.Key)
-		}
-		if !created {
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return nil, fmt.Errorf("%w: create %s: %v", ErrFileCarrier, dir, err)
-			}
-			if err := os.Chmod(dir, 0o700); err != nil {
-				return nil, fmt.Errorf("%w: restrict %s: %v", ErrFileCarrier, dir, err)
-			}
-			created = true
+			return nil, nil, fmt.Errorf("%w: key %q cannot name a delivered file", ErrFileCarrier, env.Key)
 		}
 		content := []byte(env.ValueAsString())
 		sum := sha256.Sum256(content)
 		name := env.Key + "." + hex.EncodeToString(sum[:8])
-		if err := writePrivateFile(filepath.Join(dir, name), content); err != nil {
-			return nil, fmt.Errorf("%w: %s: %v", ErrFileCarrier, env.Key, err)
+		files = append(files, FileCarrier{Name: name, Content: content, Secret: env.Secret})
+		out = append(out, &EnvironmentVariable{Key: FileCarrierKey(env.Key), Value: path.Join(visibleDir, name), Secret: env.Secret})
+	}
+	return out, files, nil
+}
+
+// MaterializeFileCarriers plans envs (PlanFileCarriers) and writes the files
+// into dir, created 0700 when absent, each 0600: for a process that runs as
+// the user writing them. visibleDir is dir as the process sees it.
+func MaterializeFileCarriers(dir, visibleDir string, envs []*EnvironmentVariable) ([]*EnvironmentVariable, error) {
+	out, files, err := PlanFileCarriers(filepath.ToSlash(visibleDir), envs)
+	if err != nil || len(files) == 0 {
+		return out, err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("%w: create %s: %v", ErrFileCarrier, dir, err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("%w: restrict %s: %v", ErrFileCarrier, dir, err)
+	}
+	for _, file := range files {
+		if err := writePrivateFile(filepath.Join(dir, file.Name), file.Content); err != nil {
+			return nil, fmt.Errorf("%w: %s: %v", ErrFileCarrier, file.Name, err)
 		}
-		out = append(out, &EnvironmentVariable{Key: FileCarrierKey(env.Key), Value: filepath.ToSlash(filepath.Join(visibleDir, name)), Secret: env.Secret})
 	}
 	return out, nil
 }
