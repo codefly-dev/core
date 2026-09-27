@@ -62,7 +62,7 @@ func TestPackageFromOpenAPIOperationIsByteStable(t *testing.T) {
 	pkg, spec := derivedRestIngestion(t)
 	require.NoError(t, runnable.VerifyPackage(pkg))
 	require.Equal(t, applyTextRoute, spec.Method)
-	require.Equal(t, "3bb7c8f93cf2e9c0a9320d47451ad8a32ad54eceb4a8c5e9955fb4077d608d6f", pkg.GetDigest())
+	require.Equal(t, "d6a8f8c69ff924836aa768cf1286a6524065671282932a6867e5b85fa7034458", pkg.GetDigest())
 
 	again, _ := derivedRestIngestion(t)
 	require.True(t, proto.Equal(pkg, again))
@@ -83,6 +83,7 @@ func TestPackageFromOpenAPIOperationDerivesTheWholePackage(t *testing.T) {
 		Timeout:        durationpb.New(spec.TotalTimeout),
 		Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
 		Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
+		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
 		MaxInputBytes:  resources.DefaultRunnablePayloadBytes,
 		MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
 	}, pkg.GetExecution()), "execution %v", pkg.GetExecution())

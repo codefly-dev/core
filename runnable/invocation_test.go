@@ -26,6 +26,9 @@ func sampleInvocation(pkg *basev0.RunnablePackage) *basev0.RunnableInvocation {
 		IssuedAt:     timestamppb.New(issued),
 		Deadline:     timestamppb.New(issued.Add(2 * time.Minute)),
 		Input:        []byte(`{"text":"the quick brown fox"}`),
+		Identity: &basev0.RunnableInvocationIdentity{
+			Carrier: &basev0.RunnableInvocationIdentity_WorkContext{WorkContext: "eyJ0eXAiOiJjb2RlZmx5LndvcmstY29udGV4dC92MSJ9.signed"},
+		},
 	}
 }
 

@@ -60,6 +60,7 @@ func canonicalFixture() *basev0.RunnablePackage {
 			Timeout:        durationpb.New(2 * time.Minute),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_SIGNAL,
 			Recovery:       basev0.RunnableExecution_RECOVERY_RECOMPUTE,
+			Completion:     basev0.RunnableExecution_COMPLETION_CALL,
 			MaxInputBytes:  65536,
 			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
 			MaxLogBytes:    resources.DefaultRunnableLogBytes,

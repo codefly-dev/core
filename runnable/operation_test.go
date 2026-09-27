@@ -33,6 +33,7 @@ func declaredOperation() *runnablev0.Operation {
 		InvokeScopes:   []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}}},
 		LookupScopes:   []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"read"}}},
 		LookupMethod:   "/documents.ingest.v1.IngestionService/LookupText",
+		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
 	}
 }
 
@@ -112,7 +113,7 @@ func derivedIngestion(t *testing.T) (*basev0.RunnablePackage, *runnable.Operatio
 func TestPackageFromMethodIsByteStable(t *testing.T) {
 	pkg, _ := derivedIngestion(t)
 	require.NoError(t, runnable.VerifyPackage(pkg))
-	require.Equal(t, "4c26fb95a0236b94107b30f34783cd893f2be36e0d157340c247013fd93a9a1f", pkg.GetDigest())
+	require.Equal(t, "ee460290f91e2cad2d9e7efe6d740ba35ff5ec89b4395bbde1e8bd19bd8291a0", pkg.GetDigest())
 
 	again, _ := derivedIngestion(t)
 	require.True(t, proto.Equal(pkg, again))
@@ -160,6 +161,7 @@ func TestPackageFromMethodReproducesTheHandWrittenOracle(t *testing.T) {
 			Timeout:        durationpb.New(time.Minute),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
 			Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
+			Completion:     basev0.RunnableExecution_COMPLETION_CALL,
 			MaxInputBytes:  resources.DefaultRunnablePayloadBytes,
 			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
 		},

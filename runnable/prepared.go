@@ -165,5 +165,6 @@ func preparedPolicy(binding *runnablev0.PreparedBinding, codes CodeVocabulary) *
 		LookupMethod:   declared.GetLookupMethod(),
 		MaxInputBytes:  declared.GetMaxInputBytes(),
 		MaxOutputBytes: declared.GetMaxOutputBytes(),
+		Completion:     declared.GetCompletion(),
 	}
 }

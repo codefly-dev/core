@@ -624,3 +624,32 @@ func TestServiceBackedRunnableDeclaresNoEntrypoint(t *testing.T) {
 	require.Zero(t, wire.GetExecution().GetMaxLogBytes())
 	require.Equal(t, basev0.Agent_SERVICE, wire.GetAgent().GetKind())
 }
+
+// TestDeclaredCompletionModeDefaultsToTheReply pins the one place the
+// declaration is deliberately more forgiving than the wire enum. A descriptor
+// carrying COMPLETION_UNKNOWN is a producer that failed to state a mode and is
+// refused; a declaration omitting it is an author whose operation answers in
+// its reply, which is what every runnable written before the mode existed does.
+func TestDeclaredCompletionModeDefaultsToTheReply(t *testing.T) {
+	execution := &resources.RunnableExecution{
+		Facilities:   []resources.RunnableFacility{resources.RunnableFacilityService},
+		Timeout:      "1m",
+		Cancellation: resources.RunnableCancellationNone,
+		Recovery:     resources.RunnableRecoveryReceipt,
+	}
+	require.NoError(t, execution.Validate())
+	require.Equal(t, resources.RunnableCompletionCall, execution.GetCompletion())
+	require.Equal(t, basev0.RunnableExecution_COMPLETION_CALL, execution.Proto().GetCompletion())
+
+	execution.Completion = resources.RunnableCompletionSubmit
+	require.NoError(t, execution.Validate())
+	require.Equal(t, basev0.RunnableExecution_COMPLETION_SUBMIT, execution.Proto().GetCompletion())
+
+	// Submit with recompute recovery would resolve a lost terminal answer by
+	// running the effect a second time.
+	execution.Recovery = resources.RunnableRecoveryRecompute
+	require.ErrorContains(t, execution.Validate(), "requires recovery")
+
+	execution.Completion = "eventually"
+	require.ErrorContains(t, execution.Validate(), "not supported")
+}

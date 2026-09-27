@@ -229,6 +229,26 @@ var runnableCancellationProto = map[RunnableCancellation]basev0.RunnableExecutio
 	RunnableCancellationSignal: basev0.RunnableExecution_CANCELLATION_SIGNAL,
 }
 
+// RunnableCompletion is the YAML spelling of how an operation's answer arrives.
+type RunnableCompletion string
+
+const (
+	// RunnableCompletionCall answers in the reply to the call.
+	RunnableCompletionCall RunnableCompletion = "call"
+	// RunnableCompletionSubmit accepts the work and answers later, by callback
+	// or by a status read against the handle the acceptance carried. It requires
+	// recovery "receipt": a submitted invocation's reply proves only that the
+	// work was accepted, so a terminal answer the caller never received is
+	// resolved by reading the effect receipt and never by running the effect
+	// again.
+	RunnableCompletionSubmit RunnableCompletion = "submit"
+)
+
+var runnableCompletionProto = map[RunnableCompletion]basev0.RunnableExecution_Completion{
+	RunnableCompletionCall:   basev0.RunnableExecution_COMPLETION_CALL,
+	RunnableCompletionSubmit: basev0.RunnableExecution_COMPLETION_SUBMIT,
+}
+
 // RunnableRecovery is the YAML spelling of the declared effect semantics: how
 // an uncertain outcome is resolved.
 type RunnableRecovery string
@@ -270,9 +290,23 @@ type RunnableExecution struct {
 	Timeout      string               `yaml:"timeout"`
 	Cancellation RunnableCancellation `yaml:"cancellation"`
 	Recovery     RunnableRecovery     `yaml:"recovery"`
+	Completion   RunnableCompletion   `yaml:"completion,omitempty"`
 	Concurrency  uint32               `yaml:"concurrency,omitempty"`
 	Payload      *RunnablePayload     `yaml:"payload,omitempty"`
 	Logs         *RunnableLogs        `yaml:"logs,omitempty"`
+}
+
+// GetCompletion returns the declared completion mode, defaulting to "call".
+// The wire enum refuses its zero value and this does not, which is deliberate:
+// a descriptor carrying COMPLETION_UNKNOWN is a producer that failed to state a
+// mode, while a declaration omitting it is an author whose operation answers in
+// its reply — which is what every runnable declared before the mode existed
+// does, and reading those as anything else would change what they mean.
+func (e *RunnableExecution) GetCompletion() RunnableCompletion {
+	if e.Completion == "" {
+		return RunnableCompletionCall
+	}
+	return e.Completion
 }
 
 // GetTimeout returns the declared timeout. Validate guarantees it parses.
@@ -712,6 +746,13 @@ func (e *RunnableExecution) Validate() error {
 	if _, ok := runnableRecoveryProto[e.Recovery]; !ok {
 		return fmt.Errorf("recovery %q is not supported: expected %q or %q", e.Recovery, RunnableRecoveryRecompute, RunnableRecoveryReceipt)
 	}
+	if _, ok := runnableCompletionProto[e.GetCompletion()]; !ok {
+		return fmt.Errorf("completion %q is not supported: expected %q or %q", e.Completion, RunnableCompletionCall, RunnableCompletionSubmit)
+	}
+	if e.GetCompletion() == RunnableCompletionSubmit && e.Recovery != RunnableRecoveryReceipt {
+		return fmt.Errorf("completion %q requires recovery %q: a submitted invocation's reply proves only that the work was accepted, so a terminal answer the caller never received is resolved by reading the effect receipt, and %q would resolve it by running the effect a second time",
+			RunnableCompletionSubmit, RunnableRecoveryReceipt, e.Recovery)
+	}
 	if e.Cancellation == RunnableCancellationSignal {
 		for _, facility := range e.Facilities {
 			if !runnableFacilityTable[facility].Launched {
@@ -885,6 +926,7 @@ func (e *RunnableExecution) Proto() *basev0.RunnableExecution {
 		Timeout:        durationpb.New(e.GetTimeout()),
 		Cancellation:   runnableCancellationProto[e.Cancellation],
 		Recovery:       runnableRecoveryProto[e.Recovery],
+		Completion:     runnableCompletionProto[e.GetCompletion()],
 		MaxInputBytes:  e.MaxInputBytes(),
 		MaxOutputBytes: e.MaxOutputBytes(),
 		Concurrency:    e.Concurrency,

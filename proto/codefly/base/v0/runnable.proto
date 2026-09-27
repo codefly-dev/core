@@ -5,6 +5,7 @@ import "buf/validate/validate.proto";
 import "codefly/base/v0/agent.proto";
 import "codefly/base/v0/library.proto";
 import "codefly/base/v0/network.proto";
+import "codefly/base/v0/work_context.proto";
 import "google/protobuf/duration.proto";
 
 /*
@@ -290,6 +291,30 @@ message RunnableExecution {
     // never by re-running.
     RECOVERY_RECEIPT = 2;
   }
+  // Completion enumerates how an operation's answer arrives. It is a property
+  // of the work rather than of one caller's patience: an operation whose effect
+  // takes an hour cannot be made synchronous by a caller willing to wait, and
+  // one that answers in a millisecond gains nothing from a callback.
+  enum Completion {
+    // COMPLETION_UNKNOWN is the default value when completion is not
+    // specified; a declaration carrying it named no mode and is rejected
+    // rather than assumed synchronous, because a caller that assumed wrongly
+    // either abandons work that is still running or waits for a reply that was
+    // never going to come.
+    COMPLETION_UNKNOWN = 0;
+    // COMPLETION_CALL answers in the reply to the call: one request, one
+    // response, bounded by the attempt.
+    COMPLETION_CALL = 1;
+    // COMPLETION_SUBMIT accepts the work and answers later — an acceptance
+    // carrying a handle, heartbeats while it runs, and a terminal answer by
+    // callback or read back by the handle (codefly/runnable/v0/submit.proto).
+    //
+    // It requires RECOVERY_RECEIPT. A submitted invocation's reply proves only
+    // acceptance, so every terminal answer it could later give is one the
+    // caller may fail to receive, and RECOVERY_RECOMPUTE has no way to tell a
+    // lost callback from work that never happened.
+    COMPLETION_SUBMIT = 2;
+  }
   // facilities are the execution facilities the runnable may be bound to.
   repeated RunnableFacility facilities = 1 [(buf.validate.field).repeated.min_items = 1];
   // timeout bounds one invocation's duration.
@@ -305,6 +330,8 @@ message RunnableExecution {
   // concurrency bounds simultaneous invocations of one worker; 0 means the
   // facility default.
   uint32 concurrency = 7;
+  // completion is how the answer arrives, and it is required: see Completion.
+  Completion completion = 9 [(buf.validate.field).enum.defined_only = true];
   // max_log_bytes bounds the diagnostics a launcher captures from each log
   // stream. Exceeding it truncates the stream and never changes the outcome,
   // unlike max_output_bytes, whose payload is completion data. It is set only
@@ -447,6 +474,28 @@ message RunnablePackage {
   repeated RunnableFunction functions = 12;
 }
 
+// RunnableAuthority is the Work Context authority one installation calls under.
+// It is on the binding rather than the package because two installations of one
+// contract may run under different authority, and it is on EVERY binding
+// because identity is a property of the work, not of where the work happens to
+// run: a facility exception here is what let a function or a job invocation run
+// as the platform itself rather than as the principal whose work it is.
+message RunnableAuthority {
+  // audience is the exact trust boundary the child capability is minted for,
+  // spelled as WorkContextV1.audience is.
+  string audience = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // invoke_scopes are the scopes bound for the call that produces the effect.
+  // At least one is required: with no scopes there is nothing to mint a child
+  // capability from, and a call with no authority is what this field exists to
+  // make impossible.
+  repeated WorkScopeV1 invoke_scopes = 2 [(buf.validate.field).repeated.min_items = 1];
+  // lookup_scopes are the scopes bound to read an effect receipt. They must be
+  // a read-only subset of invoke_scopes — recovering an outcome never carries
+  // more authority than producing it did — which is a relation between two
+  // fields and so is enforced by the runnable package rather than here.
+  repeated WorkScopeV1 lookup_scopes = 3;
+}
+
 // RunnableBinding is the immutable installation of one package on one
 // execution facility. Infrastructure coordinates and credential references
 // live here, under deployment trust, never in an invocation payload.
@@ -486,4 +535,10 @@ message RunnableBinding {
   // target locates the executor this installation dispatches to; its
   // coordinates variant must match facility.
   RunnableTarget target = 10 [(buf.validate.field).required = true];
+  // authority is the Work Context this installation calls under. It is
+  // required, in every facility: an installation carrying a binding without one
+  // is refused at load rather than discovered on the first call, because a
+  // binding that reaches a call with no authority has already lost the property
+  // this field exists to hold.
+  RunnableAuthority authority = 13 [(buf.validate.field).required = true];
 }

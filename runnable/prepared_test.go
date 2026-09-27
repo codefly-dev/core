@@ -32,6 +32,7 @@ func preparedPolicy() *runnablev0.Operation {
 		Audience:       "acme.items",
 		InvokeScopes:   []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}},
 		LookupScopes:   []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}},
+		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
 	}
 }
 

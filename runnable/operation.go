@@ -142,6 +142,8 @@ type OperationSpec struct {
 	// payloads; zero keeps resources.DefaultRunnablePayloadBytes.
 	MaxInputBytes  uint64
 	MaxOutputBytes uint64
+	// Completion is how the operation's answer arrives.
+	Completion basev0.RunnableExecution_Completion
 }
 
 // ServiceOwner is the published service a derived operation is reached on: the
@@ -217,6 +219,7 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 		LookupMethod:   declared.GetLookupMethod(),
 		MaxInputBytes:  declared.GetMaxInputBytes(),
 		MaxOutputBytes: declared.GetMaxOutputBytes(),
+		Completion:     declared.GetCompletion(),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err
@@ -304,21 +307,62 @@ func (s *OperationSpec) Validate() error {
 		}
 		seen[name] = struct{}{}
 	}
-	if !boundedScopeValue(s.Audience, MaxAudienceLength) {
-		return fmt.Errorf("%w: %s audience %q is not a trust boundary the runtime can mint authority for", ErrInvalid, s.Method, s.Audience)
+	// Whether the mode is admissible against the operation's recovery is a
+	// relation between two fields of the derived package, and is checked where
+	// both are in view (validateExecution). Here the only question is whether
+	// the owner named one at all.
+	if s.Completion != basev0.RunnableExecution_COMPLETION_CALL && s.Completion != basev0.RunnableExecution_COMPLETION_SUBMIT {
+		return fmt.Errorf("%w: %s declares no completion mode; %s and %s are the two, and an operation that did not say is not a synchronous one",
+			ErrInvalid, s.Method, basev0.RunnableExecution_COMPLETION_CALL, basev0.RunnableExecution_COMPLETION_SUBMIT)
 	}
-	if err := s.validateScopes("invoke_scopes", s.InvokeScopes); err != nil {
+	return s.authority().validate()
+}
+
+// authority is the audience-and-scopes half of the policy, as the same rule
+// a binding's own authority is held to. One spelling on purpose: the relation
+// protovalidate cannot express — that lookup scopes are a read-only subset of
+// invoke scopes — is the one that matters most, and a second copy of it is a
+// second place for it to be almost right.
+func (s *OperationSpec) authority() authoritySpec {
+	return authoritySpec{
+		subject:      s.Method,
+		audience:     s.Audience,
+		invokeScopes: s.InvokeScopes,
+		lookupScopes: s.LookupScopes,
+	}
+}
+
+// authoritySpec is one Work Context authority: the audience a child capability
+// is minted for and the scopes bound for invoking and for reading a receipt.
+// It is validated identically wherever it appears — a method's declared policy,
+// a prepared binding's delivered policy, an installed binding's own authority —
+// because an authority the generator would have refused must not become
+// acceptable by arriving through a different door.
+type authoritySpec struct {
+	// subject names what the authority belongs to, for the error message: an
+	// operation spelling, or a binding's facility.
+	subject      string
+	audience     string
+	invokeScopes []*basev0.WorkScopeV1
+	lookupScopes []*basev0.WorkScopeV1
+}
+
+func (a authoritySpec) validate() error {
+	if !boundedScopeValue(a.audience, MaxAudienceLength) {
+		return fmt.Errorf("%w: %s audience %q is not a trust boundary the runtime can mint authority for", ErrInvalid, a.subject, a.audience)
+	}
+	if err := a.validateScopes("invoke_scopes", a.invokeScopes); err != nil {
 		return err
 	}
-	if err := s.validateScopes("lookup_scopes", s.LookupScopes); err != nil {
+	if err := a.validateScopes("lookup_scopes", a.lookupScopes); err != nil {
 		return err
 	}
-	for _, scope := range s.LookupScopes {
+	for _, scope := range a.lookupScopes {
 		if len(scope.GetActions()) != 1 || scope.GetActions()[0] != ReadOnlyScopeAction {
-			return fmt.Errorf("%w: %s lookup scope %q is not read-only: recovering an outcome may only %q it", ErrInvalid, s.Method, scope.GetResourceKind(), ReadOnlyScopeAction)
+			return fmt.Errorf("%w: %s lookup scope %q is not read-only: recovering an outcome may only %q it", ErrInvalid, a.subject, scope.GetResourceKind(), ReadOnlyScopeAction)
 		}
-		if !scopeContained(scope, s.InvokeScopes) {
-			return fmt.Errorf("%w: %s lookup scope %q is not covered by its invoke scopes", ErrInvalid, s.Method, scope.GetResourceKind())
+		if !scopeContained(scope, a.invokeScopes) {
+			return fmt.Errorf("%w: %s lookup scope %q is not covered by its invoke scopes", ErrInvalid, a.subject, scope.GetResourceKind())
 		}
 	}
 	return nil
@@ -328,44 +372,44 @@ func (s *OperationSpec) Validate() error {
 // authority. An unauthorized operation is not a lenient one: with no audience
 // and no scopes there is nothing to mint a child capability from, and the
 // runtime refuses the installation rather than calling without authority.
-func (s *OperationSpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) error {
+func (a authoritySpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) error {
 	if len(scopes) == 0 || len(scopes) > MaxScopes {
-		return fmt.Errorf("%w: %s declares %d %s; between 1 and %d are required", ErrInvalid, s.Method, len(scopes), at, MaxScopes)
+		return fmt.Errorf("%w: %s declares %d %s; between 1 and %d are required", ErrInvalid, a.subject, len(scopes), at, MaxScopes)
 	}
 	kinds := make(map[string]struct{}, len(scopes))
 	for _, scope := range scopes {
 		kind := scope.GetResourceKind()
 		if !boundedScopeValue(kind, MaxScopeKindLength) {
-			return fmt.Errorf("%w: %s declares a %s entry whose resource kind %q is not a usable name", ErrInvalid, s.Method, at, kind)
+			return fmt.Errorf("%w: %s declares a %s entry whose resource kind %q is not a usable name", ErrInvalid, a.subject, at, kind)
 		}
 		if _, exists := kinds[kind]; exists {
-			return fmt.Errorf("%w: %s declares %s scope %q twice", ErrInvalid, s.Method, at, kind)
+			return fmt.Errorf("%w: %s declares %s scope %q twice", ErrInvalid, a.subject, at, kind)
 		}
 		kinds[kind] = struct{}{}
 		if len(scope.GetActions()) == 0 || len(scope.GetActions()) > MaxScopeActions {
-			return fmt.Errorf("%w: %s %s scope %q names %d actions; between 1 and %d are required", ErrInvalid, s.Method, at, kind, len(scope.GetActions()), MaxScopeActions)
+			return fmt.Errorf("%w: %s %s scope %q names %d actions; between 1 and %d are required", ErrInvalid, a.subject, at, kind, len(scope.GetActions()), MaxScopeActions)
 		}
 		if len(scope.GetResourceIds()) > MaxScopeResourceIds {
-			return fmt.Errorf("%w: %s %s scope %q names %d resource ids; at most %d may be declared", ErrInvalid, s.Method, at, kind, len(scope.GetResourceIds()), MaxScopeResourceIds)
+			return fmt.Errorf("%w: %s %s scope %q names %d resource ids; at most %d may be declared", ErrInvalid, a.subject, at, kind, len(scope.GetResourceIds()), MaxScopeResourceIds)
 		}
-		if err := s.validateScopeValues(at, kind, "action", scope.GetActions(), MaxScopeActionLength); err != nil {
+		if err := a.validateScopeValues(at, kind, "action", scope.GetActions(), MaxScopeActionLength); err != nil {
 			return err
 		}
-		if err := s.validateScopeValues(at, kind, "resource id", scope.GetResourceIds(), MaxScopeResourceIdLength); err != nil {
+		if err := a.validateScopeValues(at, kind, "resource id", scope.GetResourceIds(), MaxScopeResourceIdLength); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *OperationSpec) validateScopeValues(at, kind, what string, values []string, bound int) error {
+func (a authoritySpec) validateScopeValues(at, kind, what string, values []string, bound int) error {
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		if !boundedScopeValue(value, bound) {
-			return fmt.Errorf("%w: %s %s scope %q names %s %q, which is not a usable value", ErrInvalid, s.Method, at, kind, what, value)
+			return fmt.Errorf("%w: %s %s scope %q names %s %q, which is not a usable value", ErrInvalid, a.subject, at, kind, what, value)
 		}
 		if _, exists := seen[value]; exists {
-			return fmt.Errorf("%w: %s %s scope %q names %s %q twice", ErrInvalid, s.Method, at, kind, what, value)
+			return fmt.Errorf("%w: %s %s scope %q names %s %q twice", ErrInvalid, a.subject, at, kind, what, value)
 		}
 		seen[value] = struct{}{}
 	}
@@ -475,6 +519,7 @@ func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableL
 			Timeout:        durationpb.New(spec.TotalTimeout),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
 			Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
+			Completion:     spec.Completion,
 			MaxInputBytes:  payloadBound(spec.MaxInputBytes),
 			MaxOutputBytes: payloadBound(spec.MaxOutputBytes),
 		},

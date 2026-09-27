@@ -61,6 +61,7 @@ func OperationFromOpenAPIMarker(marker json.RawMessage, operation string) (*Oper
 		LookupScopes:   clonedScopes(declared.GetLookupScopes()),
 		MaxInputBytes:  declared.GetMaxInputBytes(),
 		MaxOutputBytes: declared.GetMaxOutputBytes(),
+		Completion:     declared.GetCompletion(),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err
