@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -34,13 +35,26 @@ const DockerBuildRecipeContractVersion = "codefly.dev/docker-build-recipe/v3"
 // coordinated rebuild; old hosts reject v4 before executing its new semantics.
 const DockerBuildRecipeContextContractVersion = "codefly.dev/docker-build-recipe/v4"
 
+// DockerBuildRecipeGoModulesContractVersion adds declared Go module downloads
+// (DockerBuildRecipe.go_module_downloads) to the recipe digest, on top of v4's
+// explicit context root. A recipe that declares downloads expects the caller to
+// fetch them before the build and supply them as a module proxy; an older host
+// that does not know the field would build without supplying it, so the plan
+// carries v5 and such a host rejects it instead. Recipes without downloads keep
+// emitting v3 or v4, so existing agents need no coordinated rebuild.
+const DockerBuildRecipeGoModulesContractVersion = "codefly.dev/docker-build-recipe/v5"
+
 func recipeContractVersion(recipes []*builderv0.DockerBuildRecipe) string {
+	version := DockerBuildRecipeContractVersion
 	for _, recipe := range recipes {
+		if len(recipe.GetGoModuleDownloads()) > 0 {
+			return DockerBuildRecipeGoModulesContractVersion
+		}
 		if recipe.GetContextRoot() != builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_UNSPECIFIED {
-			return DockerBuildRecipeContextContractVersion
+			version = DockerBuildRecipeContextContractVersion
 		}
 	}
-	return DockerBuildRecipeContractVersion
+	return version
 }
 
 // ValidateBuildRequestOutputDirectory enforces the BuildRequest.output_directory
@@ -382,6 +396,9 @@ func validateRecipes(destination string, recipes []*builderv0.DockerBuildRecipe,
 		if _, err := recipeRelPath(destination, recipe.GetContext()); err != nil {
 			return fmt.Errorf("recipe %q context: %w", recipe.GetName(), err)
 		}
+		if err := validateGoModuleDownloads(recipe); err != nil {
+			return err
+		}
 		if ignore := recipe.GetDockerignore(); ignore != "" {
 			dockerignore, err := recipeRelPath(destination, ignore)
 			if err != nil {
@@ -391,6 +408,39 @@ func validateRecipes(destination string, recipes []*builderv0.DockerBuildRecipe,
 				return fmt.Errorf("recipe %q dockerignore %q is not present in the recipe tree", recipe.GetName(), recipe.GetDockerignore())
 			}
 		}
+	}
+	return nil
+}
+
+// proxyContextName is what a named build context may be called. BuildKit
+// resolves a context name the way it resolves a stage name, and a Dockerfile
+// stage name is lowercase.
+var proxyContextName = regexp.MustCompile(`^[a-z][a-z0-9_.-]*$`)
+
+// validateGoModuleDownloads checks a recipe's declared Go module downloads: each
+// names a module root that stays inside the build context and a proxy context
+// that is a valid, distinct build-context name. The root is resolved against the
+// context by the caller, so it is checked here for shape, not existence.
+func validateGoModuleDownloads(recipe *builderv0.DockerBuildRecipe) error {
+	contexts := make(map[string]struct{}, len(recipe.GetGoModuleDownloads()))
+	for _, download := range recipe.GetGoModuleDownloads() {
+		root := download.GetModuleRoot()
+		if root == "" {
+			return fmt.Errorf("recipe %q declares a Go module download with no module root", recipe.GetName())
+		}
+		// The context is not known here; any non-root stand-in shows whether the
+		// root climbs out of it (joining onto "/" would clamp "..").
+		if _, err := recipeRelPath(filepath.Join(string(filepath.Separator), "context"), root); err != nil {
+			return fmt.Errorf("recipe %q Go module root: %w", recipe.GetName(), err)
+		}
+		name := download.GetProxyContext()
+		if !proxyContextName.MatchString(name) {
+			return fmt.Errorf("recipe %q Go module proxy context %q is not a valid build context name", recipe.GetName(), name)
+		}
+		if _, ok := contexts[name]; ok {
+			return fmt.Errorf("recipe %q supplies Go module proxy context %q twice", recipe.GetName(), name)
+		}
+		contexts[name] = struct{}{}
 	}
 	return nil
 }
@@ -490,7 +540,9 @@ func fileDigest(path string) (string, error) {
 // unchanged.
 func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*builderv0.RecipeFile, scope builderv0.RecipeInventoryScope) string {
 	hasher := sha256.New()
-	explicitRoots := recipeContractVersion(recipes) == DockerBuildRecipeContextContractVersion
+	version := recipeContractVersion(recipes)
+	explicitRoots := version == DockerBuildRecipeContextContractVersion || version == DockerBuildRecipeGoModulesContractVersion
+	goModules := version == DockerBuildRecipeGoModulesContractVersion
 	// The scope decides how strictly the inventory is verified, so it is covered
 	// here: rewriting a TREE plan's scope to EMITTED would otherwise silently stop
 	// added files from being detected without disturbing the digest.
@@ -504,6 +556,14 @@ func aggregateRecipeDigest(recipes []*builderv0.DockerBuildRecipe, files []*buil
 		hashField(hasher, recipe.GetContext())
 		if explicitRoots {
 			hashField(hasher, recipe.GetContextRoot().String())
+		}
+		if goModules {
+			downloads := recipe.GetGoModuleDownloads()
+			hashCount(hasher, len(downloads))
+			for _, download := range downloads {
+				hashField(hasher, download.GetModuleRoot())
+				hashField(hasher, download.GetProxyContext())
+			}
 		}
 		hashField(hasher, recipe.GetDockerignore())
 		hashField(hasher, recipe.GetImage())
