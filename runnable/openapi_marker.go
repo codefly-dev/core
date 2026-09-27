@@ -55,10 +55,12 @@ func OperationFromOpenAPIMarker(marker json.RawMessage, operation string) (*Oper
 		RetryableCodes: slices.Clone(declared.GetRetryableCodes()),
 		// A REST operation names the outcomes it retries by HTTP status, and
 		// the validator holds it to that vocabulary.
-		Codes:        HTTPStatusCodes,
-		Audience:     declared.GetAudience(),
-		InvokeScopes: clonedScopes(declared.GetInvokeScopes()),
-		LookupScopes: clonedScopes(declared.GetLookupScopes()),
+		Codes:          HTTPStatusCodes,
+		Audience:       declared.GetAudience(),
+		InvokeScopes:   clonedScopes(declared.GetInvokeScopes()),
+		LookupScopes:   clonedScopes(declared.GetLookupScopes()),
+		MaxInputBytes:  declared.GetMaxInputBytes(),
+		MaxOutputBytes: declared.GetMaxOutputBytes(),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err

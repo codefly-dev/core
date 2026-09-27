@@ -2,6 +2,7 @@ package runnable_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 
@@ -330,4 +331,34 @@ func TestPackageFromOpenAPIOperationRequiresAReadableDocumentAndARelease(t *test
 		require.ErrorIs(t, err, runnable.ErrInvalid)
 		require.ErrorContains(t, err, "release identity")
 	}
+}
+
+// A REST owner states its inline bounds on the marker exactly as a gRPC owner
+// states them on the option, and the derived package carries them. The bounds
+// are what a caller holds a payload to, and a prepared binding carries no
+// package, so dropping them here would install an operation whose declared
+// bound exists nowhere.
+func TestPackageFromOpenAPIOperationCarriesTheDeclaredPayloadBounds(t *testing.T) {
+	document := ingestionDocument(t, func(doc map[string]any) {
+		marker := applyTextOperation(doc)[runnable.OpenAPIOperationMarker].(map[string]any)
+		marker["max_input_bytes"] = "4096"
+		marker["max_output_bytes"] = "65536"
+	})
+	pkg, spec, err := runnable.PackageFromOpenAPIOperation(document, ingestLocation(), ingestRestOwner(), "POST", ingestPath)
+	require.NoError(t, err)
+	require.Equal(t, uint64(4096), spec.MaxInputBytes)
+	require.Equal(t, uint64(4096), pkg.GetExecution().GetMaxInputBytes())
+	require.Equal(t, uint64(65536), pkg.GetExecution().GetMaxOutputBytes())
+	require.NoError(t, runnable.VerifyPackage(pkg))
+
+	undeclared, _ := derivedRestIngestion(t)
+	require.Equal(t, resources.DefaultRunnablePayloadBytes, undeclared.GetExecution().GetMaxInputBytes())
+	require.Equal(t, resources.DefaultRunnablePayloadBytes, undeclared.GetExecution().GetMaxOutputBytes())
+
+	over := ingestionDocument(t, func(doc map[string]any) {
+		marker := applyTextOperation(doc)[runnable.OpenAPIOperationMarker].(map[string]any)
+		marker["max_input_bytes"] = fmt.Sprintf("%d", resources.DefaultRunnablePayloadBytes+1)
+	})
+	_, _, err = runnable.PackageFromOpenAPIOperation(over, ingestLocation(), ingestRestOwner(), "POST", ingestPath)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
 }

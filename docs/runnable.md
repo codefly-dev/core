@@ -342,9 +342,11 @@ own facility compatibility, reachability and the declared readiness predicates.
 
 ## Operations derived from a service method
 
-How a prepared binding of a derived operation reaches the worker that installs
-it — the descriptor set shared by digest, and large values delivered by file —
-is in [Runnable binding delivery](runnable-binding-delivery.md).
+How a prepared binding of a derived operation reaches the caller that installs
+it — what the prepared value carries, and how any large configuration value is
+delivered by file — is in [Runnable binding delivery](runnable-binding-delivery.md).
+An owner is called with JSON: a gRPC owner on its Connect endpoint, a REST owner
+on its real route, so no protobuf descriptor is delivered to a caller.
 
 A unary, idempotent operation an owner service already publishes becomes a
 Runnable by derivation, not by authoring. The owner marks it and the contract

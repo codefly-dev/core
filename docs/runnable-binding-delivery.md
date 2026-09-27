@@ -1,81 +1,98 @@
 # Runnable binding delivery
 
-How a prepared Runnable binding reaches the process that installs it, and how
-any large workspace configuration value reaches a process at all. Two parts,
-one design: a prepared binding stops carrying what it can share, and a
-configuration value that is too large for a process environment is delivered
-as a file whose path the environment carries.
+How a prepared Runnable binding reaches the process that calls it, and how any
+large workspace configuration value reaches a process at all. Two parts, and
+they are independent: a prepared binding carries only what a call needs, and a
+configuration value too large for a process environment is delivered as a file
+whose path the environment carries.
 
 Status: design of record for codefly-dev/core#670. `docs/runnable.md` owns the
 package and binding contracts themselves; this page owns their delivery.
 
-## What a binding is
+## What a prepared binding is
 
-A `RunnableBinding` (`docs/runnable.md`, "Immutable installation facts") is the
-immutable installation of one verified `RunnablePackage` on one execution
-facility. For an operation derived from an owner's service method, `codefly
-generate runnable-bindings` *prepares* one per operation for one environment:
-the package, the binding targeting the owner endpoint at the address that
-environment resolves, the execution policy and authority the method declared,
-and — for a gRPC owner — the descriptors a generic caller resolves the method
-in. The prepared value is written to the `runnable-bindings` workspace
-configuration group, keyed `<MODULE>__<OPERATION>`, and a worker that declares
-that group as a workspace configuration dependency receives it like any other
-group. No module names another.
+For an operation derived from an owner's service method or route (`docs/runnable.md`,
+"Operations derived from a service method"), `codefly generate runnable-bindings`
+*prepares* one value per operation for one environment. Composition wires the
+owner's resolved address into it, so the caller never names an owner. The value
+is written to the `runnable-bindings` workspace configuration group, keyed
+`<MODULE>__<OPERATION>`, and a caller that declares that group as a workspace
+configuration dependency receives it like any other group. No module names
+another.
 
-The prepared value is a `runnable.Prepared` document, schema
-`codefly.runnable-prepared/v2`:
+What a call needs is five facts — *this endpoint, this method, this identity,
+this input, this policy* — and they have two lifetimes. The four fixed when the
+operation is installed are the prepared value; identity and input belong to one
+call and are no part of an installation fact.
+
+The value is a `codefly.runnable.v0.PreparedBinding`, schema
+`codefly.runnable-prepared/v3`, delivered as its canonical proto3 JSON
+(`runnable.EncodePrepared`):
 
 | Field | What it is |
 | --- | --- |
-| `package` | the canonical `RunnablePackage` (`runnable.CanonicalJSON`) |
-| `binding` | the canonical `RunnableBinding`, prepared and verified by core |
-| `operation` | the policy and authority the method declared; owned by the writer and its reader, opaque to core |
-| `descriptor_set` | a **reference** to the owner endpoint's descriptor set: its `digest`, and the `contract` digest it was derived from |
+| `operation` | the owner coordinates (module, service, endpoint) and the operation **as the owner spells it**: `/pkg.Service/Method` or `POST /path`. This is the audit identity, and what an effect receipt is keyed by |
+| `call` | where one call is sent: the `address` the environment resolves — an HTTP base URL, since both routes are HTTP — and a typed route: `connect` (a procedure POSTed as JSON on the owner's Connect endpoint) or `rest` (the owner's own verb and path with the plain JSON body) |
+| `contract` | the bounded input and output schema, carried whole |
+| `contract_digest` | `sha256:<hex>` over that contract's canonical form (`runnable.ContractDigest`) |
+| `policy` | the `codefly.runnable.v0.Operation` the owner declared — the attempt budget, and the authority: audience, invoke and lookup scopes |
 
-## What is shared by digest
+`runnable.EncodePrepared` fills the schema and the digest when a writer leaves
+them empty and refuses a stated value that is not the right one, the rule a
+supplied package digest already follows: conflicting immutable bytes are never
+silently repaired.
 
-The operations of one owner endpoint are resolved in the same descriptors. In
-the embedded form (`v1`, no `schema` field) every prepared value carried its own
-copy of the method's descriptor closure: roughly 100 KB decoded, 138 KB as the
-base64 the value holds, per operation — five operations of one endpoint were
-689 KB of the same bytes five times over.
+It is a proto message rather than a hand-written JSON document because it is a
+contract between core, the CLI, a caller and the SDKs of several languages:
+protovalidate states its bounds once, every language generates a reader, and a
+later field is a field on one schema rather than a third parser.
 
-In `v2` a prepared value references its owner endpoint's descriptor set by
-digest instead:
+## What it does not carry, and why that is not a size optimization
 
-- **The set.** `runnable.LeanDescriptorSet` takes the endpoint's published
-  contract — the `contract.binpb` the API contract catalog records for that
-  endpoint (`codefly generate contracts`) — and returns it with every file's
-  `SourceCodeInfo` removed, marshalled deterministically. Comments and source
-  locations are no part of resolving a method, and they are most of a
-  descriptor's size. The whole endpoint set is kept rather than a per-method
-  closure: it is a superset of every closure on that endpoint, so one copy
-  serves every operation on it.
-- **The digest.** `runnable.DescriptorSetDigest` is `sha256:<hex>` of those
-  bytes. The reference also records the catalog's own digest of the source
-  `contract.binpb` as `contract`, so a reviewer can tie the delivered set to
-  the published contract without it being delivered twice.
-- **The delivery.** The set is written once per distinct digest into the same
-  `runnable-bindings` group, under `runnable.DescriptorSetKey(digest)`
-  (`DESCRIPTOR_SET__<HEX>`), as standard base64. N operations on one endpoint
-  are N small values plus one set.
+An owner is called with **JSON**: a gRPC owner on its Connect endpoint
+(`POST /pkg.Service/Method`, `application/json`), a REST owner on its real
+route. Protobuf descriptors existed so a generic caller could resolve a method
+for a *binary* gRPC call, so calling with JSON removes the reason for them and
+not merely their bulk. The form that carried them embedded an owner's whole
+descriptor closure per operation — about 100 KB decoded, 138 KB as the base64 a
+value holds — and five operations of one endpoint were 689 KB of the same bytes
+five times over. A prepared value is now a few hundred bytes to a few kilobytes:
+the bounded contract is the size of the operation's own field list.
 
-## What the worker verifies
+The canonical `RunnablePackage` and `RunnableBinding` are not carried either.
+They are the immutable installation facts of a *launched* release
+(`docs/runnable.md`); what a caller of a derived operation does with them is
+exactly what the five fields above state directly.
 
-`runnable.DecodePrepared` reads a value strictly: unknown fields are refused,
-the schema must be `v2`, and the reference's digest must be well formed.
-`runnable.ResolveDescriptorSet(reference, lookup)` derives the key from the
-digest, reads the value through the caller's lookup, decodes it, and **refuses
-it unless the sha256 of the decoded bytes equals the referenced digest**. Only
-then is it parsed as a `FileDescriptorSet`. A worker never resolves a method in
-bytes whose identity it did not check; a mismatch — a stale group, a value
-from another generation, a truncated file — fails the installation closed and
-names the key, never the content.
+## What a caller verifies
 
-The package and binding keep their existing verification (`VerifyBinding`
-against the package); the descriptor digest is not part of either digest, so
-sharing the set changed no package or binding identity.
+`runnable.DecodePrepared` reads a value strictly — a field the schema does not
+declare is refused rather than dropped, because an unknown field in an
+installation fact is either another schema's value or one the reader would have
+had to act on. `runnable.VerifyPrepared` then holds it to four things:
+
+- **the wire contract's own bounds**, through protovalidate;
+- **the contract digest covers the contract delivered with it.** An owner that
+  republishes a changed contract derives another digest, so the value prepared
+  for the contract it used to publish is refused rather than called with a
+  payload shaped for a contract nobody serves. `runnable.ContractDigest` is
+  prefixed by `ContractDigestFormatV1`, so a change in how the digest is
+  computed changes every digest instead of colliding with the previous format;
+- **the address is an HTTP base URL.** A gRPC endpoint's bare `host:port`
+  reaching that field would address the owner on the port that serves no JSON;
+- **the route is the operation the value names.** A `connect` procedure must be
+  the operation's spelling, and a `rest` verb and path must spell it. The two
+  are checked together because they had one cause: a form that read one string
+  as both the audit identity and the dial target refused every REST operation,
+  since `POST /path` is not a method path;
+- **the policy is inside the bounds an installation enforces**, by reading it
+  back as the `OperationSpec` core already validates. The retry vocabulary
+  follows from the route — `google.rpc.Code` names for `connect`, HTTP statuses
+  for `rest` — so it is never restated, and a policy that installs is a policy
+  that would have generated.
+
+Everything fails closed, and the error names the key, the operation or the
+digest — never a value.
 
 ## How a value is delivered: environment or file
 
@@ -85,8 +102,7 @@ variable, set at process start: `CODEFLY__WORKSPACE_CONFIGURATION__<GROUP>__<KEY
 limits make that the wrong carrier for a large value:
 
 - Linux refuses `execve` when one `KEY=VALUE` string is longer than
-  `MAX_ARG_STRLEN`, 128 KiB (`E2BIG`). One owner's descriptor set alone is
-  above that.
+  `MAX_ARG_STRLEN`, 128 KiB (`E2BIG`).
 - macOS caps the environment plus arguments at about 1 MiB (`ARG_MAX`).
 
 So a flat configuration value is delivered **by file** when it is larger than
@@ -148,15 +164,15 @@ the value whichever carrier delivered it.
   running process reads; a new value reaches a process by restarting it, as it
   always has.
 - **Regeneration.** `codefly generate runnable-bindings` rewrites the group
-  whole: every prepared value and the descriptor sets they reference, and only
-  those. A set no value references is not written. `--check` compares the whole
-  file, so a stale set is drift.
-- **Migration from the embedded form.** There is no transition window. A value
-  with no `schema`, or with an inline `descriptors` field, is refused by
-  `DecodePrepared` with `runnable.ErrEmbeddedDescriptors`, whose message says to
-  run `codefly generate runnable-bindings`. Accepting both would keep the
-  oversized form alive in every workspace that never regenerates, which is the
-  failure this change exists to remove, and a worker refusing at installation
+  whole: every prepared value of the workspace and only those. `--check`
+  compares the whole file, so a value prepared against a contract the owner no
+  longer publishes is drift at generation time, before any caller reads it.
+- **One schema, no transition window.** A reader accepts exactly
+  `codefly.runnable-prepared/v3`. A value of an earlier schema, or carrying a
+  field this schema does not declare, is refused rather than partly read — and a
+  field a caller must not proceed without therefore arrives as a new schema,
+  never as one an older reader tolerates by ignoring it. Regenerating the group
+  is what moves a workspace forward, and a caller that refuses at installation
   fails before it admits any work.
 
 ## Failure modes
@@ -177,8 +193,10 @@ Everything fails closed, and as early as the information exists:
   exceeds `resources.MaxFileCarrierBytes`, or cannot be read is an error, not
   an absent value: an unreadable credential never reads as an unset one. A key
   delivered both inline and by file is refused as two sources for one fact.
-- **Install time.** A descriptor set whose digest does not match, a missing set,
-  and the embedded form are refused before any operation is installed.
+- **Install time.** A contract digest that does not cover the contract delivered
+  with it, a route that is not the operation the value names, a policy outside
+  the installation bounds, an unknown field and an earlier schema are each
+  refused before any operation is installed (*What a caller verifies*).
 
 ## Security
 
@@ -205,14 +223,23 @@ Everything fails closed, and as early as the information exists:
   rejected: it would make core name a group, and a small value gains nothing
   from a file. Every value above the threshold goes by file whoever declared
   it, so a group that grows past the threshold later needs no declaration.
-- **The whole endpoint set, not a per-method closure.** A closure per method
-  is smaller for one operation and larger for every endpoint with two or more,
-  and it gives each method its own digest, which defeats sharing.
-- **No dual reader.** A worker that also read the embedded form would keep it
-  alive in every workspace that never regenerates (see *Migration*).
-- **Core owns the reader's rules.** `DecodePrepared`,
-  `ResolveDescriptorSet` and `ResolveFileCarriers` are the rules; a worker
-  and an SDK call them rather than restating them, so they cannot drift.
+- **Descriptors, and sharing them by digest, were both removed.** An earlier
+  design shared one descriptor set per owner endpoint, referenced by digest, so
+  that N operations on one endpoint carried one copy instead of N. It made the
+  group smaller and left the reason for descriptors in place. Calling an owner
+  with JSON removes that reason, so there is no set to share, no
+  `DESCRIPTOR_SET__` key space and no digest to resolve a set by — and the
+  bounded contract, which a caller does need, is small enough to carry whole.
+- **The bounded contract travels in the value, not by reference.** A digest-only
+  value would be smaller by a kilobyte and would oblige every caller to fetch a
+  contract from somewhere before it could validate a payload. The digest is
+  there to make drift visible, not to stand in for the contract.
+- **The audit spelling and the dial target are separate fields.** One string
+  serving as both is what refused every REST operation. Keeping the owner's own
+  spelling matters independently: it is what an effect receipt is keyed by.
+- **Core owns the reader's rules.** `DecodePrepared`, `VerifyPrepared` and
+  `ResolveFileCarriers` are the rules; a caller and an SDK call them rather than
+  restating them, so they cannot drift.
 
 ## Rollout order
 
@@ -222,21 +249,20 @@ usefulness, never of safety:
 1. core (this document, the types, the carriers and their emitters);
 2. `sdk-go`: `LoadEnvironmentVariables` and direct lookups resolve file
    carriers;
-3. the CLI: `codefly generate runnable-bindings` writes `v2` and the shared
-   sets;
-4. the worker: reads `v2` through core and refuses the embedded form;
+3. the CLI: `codefly generate runnable-bindings` writes `v3`;
+4. the caller: reads `v3` through core and refuses anything else;
 5. each workspace regenerates its `runnable-bindings` group.
 
-A worker built before step 4 that reads a `v2` value finds no inline
-descriptors and refuses the binding; a worker built after it refuses an
-embedded value with `ErrEmbeddedDescriptors`. Neither installs from the wrong
-bytes.
+A caller built before step 4 reading a `v3` value refuses it as an unknown
+schema, and one built after it refuses an earlier value the same way. Neither
+calls an owner from the wrong bytes.
 
 The emitters run inside the process that starts or renders the workload — a
 service agent built with core — so a local run and a Kubernetes render deliver
-by file once that service's agent is built with this core. Until then the
-agent emits every value inline exactly as before; the shared descriptor sets
-still shrink the group, but a set above 128 KiB is still an inline string.
+by file once that service's agent is built with this core. Until then the agent
+emits every value inline exactly as before. A prepared binding is far below the
+threshold either way: file delivery is a general capability for large values,
+and no longer something runnable bindings depend on.
 
 ## Not covered
 

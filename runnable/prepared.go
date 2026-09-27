@@ -1,213 +1,169 @@
 package runnable
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"regexp"
-	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/descriptorpb"
+
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
 )
 
-// PreparedSchemaV2 is the schema of a prepared binding value that references
-// its owner endpoint's descriptor set by digest. The embedded form that came
-// before it carried no schema at all. See docs/runnable-binding-delivery.md.
-const PreparedSchemaV2 = "codefly.runnable-prepared/v2"
+// PreparedSchemaV3 is the schema of a prepared binding: one derived operation
+// installed for one environment, carrying what a call needs and nothing a call
+// does not. See docs/runnable-binding-delivery.md.
+const PreparedSchemaV3 = "codefly.runnable-prepared/v3"
 
-// DescriptorSetKeyPrefix begins the configuration key a shared descriptor set
-// is delivered under, beside the prepared values that reference it.
-const DescriptorSetKeyPrefix = "DESCRIPTOR_SET__"
+// ContractDigestFormatV1 is mixed into a contract digest so a change in how the
+// digest is computed changes every digest instead of colliding with the
+// previous format.
+const ContractDigestFormatV1 = "codefly.runnable-contract.digest/v1"
 
-// MaxDescriptorSetBytes bounds one decoded descriptor set. A real owner
-// endpoint's lean set is around 100 KB; nothing larger is parsed.
-const MaxDescriptorSetBytes = 4 << 20
-
-// MaxPreparedBytes bounds one prepared value: the canonical package and
-// binding, the operation policy and one reference. It carries no descriptors.
+// MaxPreparedBytes bounds one prepared value while it is still only bytes. A
+// real value is a few hundred bytes to a few kilobytes — the operation, the
+// call, the bounded contract and the declared policy — so this bounds parsing
+// rather than describing what is delivered: the widest contract the projection
+// profile admits is far larger than anything an owner publishes.
 const MaxPreparedBytes = 256 << 10
 
-var (
-	// ErrEmbeddedDescriptors refuses a prepared value in the embedded form,
-	// which carried its own descriptor closure per operation.
-	ErrEmbeddedDescriptors = errors.New("prepared binding embeds its descriptors: that form is no longer accepted, run `codefly generate runnable-bindings` to regenerate the runnable-bindings group")
-	// ErrDescriptorSetMismatch refuses a delivered descriptor set whose bytes
-	// are not the ones its reference names.
-	ErrDescriptorSetMismatch = errors.New("descriptor set does not match its digest")
-)
-
-var descriptorSetDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-
-// Prepared is one value of the runnable-bindings workspace configuration: an
-// operation installed for one environment.
-type Prepared struct {
-	// Schema is PreparedSchemaV2.
-	Schema string `json:"schema"`
-	// Package is the canonical RunnablePackage (CanonicalJSON).
-	Package json.RawMessage `json:"package"`
-	// Binding is the canonical RunnableBinding, prepared and verified.
-	Binding json.RawMessage `json:"binding"`
-	// Operation is the execution policy and authority the owner's method
-	// declared. Its shape belongs to the writer and its reader; core carries
-	// it without interpreting it.
-	Operation json.RawMessage `json:"operation"`
-	// DescriptorSet references the owner endpoint's descriptor set, delivered
-	// once beside every value that references it.
-	DescriptorSet *DescriptorSetReference `json:"descriptor_set,omitempty"`
-}
-
-// DescriptorSetReference names a shared descriptor set by content.
-type DescriptorSetReference struct {
-	// Digest is DescriptorSetDigest of the delivered (lean) set.
-	Digest string `json:"digest"`
-	// Contract is the API contract catalog's digest of the published
-	// contract.binpb the set was derived from, recorded for provenance.
-	Contract string `json:"contract"`
-}
-
-// Key is the configuration key the referenced set is delivered under.
-func (r *DescriptorSetReference) Key() (string, error) {
-	if r == nil {
-		return "", fmt.Errorf("%w: descriptor set reference is required", ErrInvalid)
+// ContractDigest is the identity of a bounded contract: the sha256 of its
+// canonical form, prefixed by the digest format. An owner whose published
+// contract no longer derives the digest a prepared binding carries has drifted
+// from what its callers were prepared for.
+func ContractDigest(contract *basev0.RunnableContract) (string, error) {
+	canonical, err := CanonicalJSON(contract)
+	if err != nil {
+		return "", fmt.Errorf("%w: contract: %v", ErrInvalid, err)
 	}
-	return DescriptorSetKey(r.Digest)
+	hash := sha256.New()
+	hash.Write([]byte(ContractDigestFormatV1))
+	hash.Write([]byte{0})
+	hash.Write(canonical)
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// DescriptorSetKey is the configuration key a descriptor set with this digest
-// is delivered under: DESCRIPTOR_SET__ and the hex digest, upper-cased, so the
-// SDK's workspace-value lookup finds it unchanged.
-func DescriptorSetKey(digest string) (string, error) {
-	if !descriptorSetDigestPattern.MatchString(digest) {
-		return "", fmt.Errorf("%w: descriptor set digest %q is not sha256:<64 lowercase hex>", ErrInvalid, digest)
+// EncodePrepared returns the configuration value binding is delivered as:
+// canonical proto3 JSON. The schema and the contract digest are filled when the
+// caller leaves them empty, so a writer can neither forget the digest nor
+// compute it another way; a stated value that is not the right one is refused
+// rather than repaired, exactly as a supplied package digest is. A value whose
+// digest does not cover its own contract would make every later drift check
+// meaningless, and one claiming another schema was written for another reader.
+func EncodePrepared(binding *runnablev0.PreparedBinding) ([]byte, error) {
+	if binding == nil {
+		return nil, fmt.Errorf("%w: prepared binding is required", ErrInvalid)
 	}
-	return DescriptorSetKeyPrefix + strings.ToUpper(strings.TrimPrefix(digest, "sha256:")), nil
-}
-
-// DescriptorSetDigest is the identity of a delivered descriptor set: the
-// sha256 of its bytes.
-func DescriptorSetDigest(set []byte) string {
-	sum := sha256.Sum256(set)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-// LeanDescriptorSet derives the set delivered for an owner endpoint from its
-// published contract: every file kept, in order, with SourceCodeInfo removed,
-// marshalled deterministically. Equal contracts give equal bytes, and so equal
-// digests, on every machine running the same protobuf runtime.
-func LeanDescriptorSet(contract []byte) ([]byte, error) {
-	if len(contract) == 0 || len(contract) > MaxDescriptorSetBytes {
-		return nil, fmt.Errorf("%w: contract of %d bytes is outside (0, %d]", ErrInvalid, len(contract), MaxDescriptorSetBytes)
+	prepared := proto.CloneOf(binding)
+	if prepared.GetSchema() != "" && prepared.GetSchema() != PreparedSchemaV3 {
+		return nil, fmt.Errorf("%w: prepared binding states schema %q, and this core writes %s",
+			ErrInvalid, prepared.GetSchema(), PreparedSchemaV3)
 	}
-	set := &descriptorpb.FileDescriptorSet{}
-	if err := proto.Unmarshal(contract, set); err != nil {
-		return nil, fmt.Errorf("%w: contract is not a FileDescriptorSet: %v", ErrInvalid, err)
-	}
-	if len(set.GetFile()) == 0 {
-		return nil, fmt.Errorf("%w: contract declares no file", ErrInvalid)
-	}
-	for _, file := range set.GetFile() {
-		file.SourceCodeInfo = nil
-	}
-	return proto.MarshalOptions{Deterministic: true}.Marshal(set)
-}
-
-// EncodeDescriptorSet is the configuration value a descriptor set is delivered
-// as: standard base64.
-func EncodeDescriptorSet(set []byte) string {
-	return base64.StdEncoding.EncodeToString(set)
-}
-
-// ResolveDescriptorSet reads the set a reference names through lookup (a
-// workspace value lookup in the reference's group), and returns its bytes only
-// when their digest is the referenced one.
-func ResolveDescriptorSet(reference *DescriptorSetReference, lookup func(key string) (string, error)) ([]byte, error) {
-	key, err := reference.Key()
+	prepared.Schema = PreparedSchemaV3
+	digest, err := ContractDigest(prepared.GetContract())
 	if err != nil {
 		return nil, err
 	}
-	value, err := lookup(key)
-	if err != nil {
-		return nil, fmt.Errorf("descriptor set %s: %w", key, err)
+	if prepared.GetContractDigest() != "" && prepared.GetContractDigest() != digest {
+		return nil, fmt.Errorf("%w: prepared binding states contract digest %s, and its contract derives %s",
+			ErrInvalid, prepared.GetContractDigest(), digest)
 	}
-	if base64.StdEncoding.DecodedLen(len(value)) > MaxDescriptorSetBytes {
-		return nil, fmt.Errorf("%w: descriptor set %s exceeds %d bytes", ErrInvalid, key, MaxDescriptorSetBytes)
+	prepared.ContractDigest = digest
+	if err = VerifyPrepared(prepared); err != nil {
+		return nil, err
 	}
-	set, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
-	if err != nil {
-		return nil, fmt.Errorf("%w: descriptor set %s is not standard base64", ErrInvalid, key)
-	}
-	if err := VerifyDescriptorSet(reference.Digest, set); err != nil {
-		return nil, fmt.Errorf("descriptor set %s: %w", key, err)
-	}
-	return set, nil
+	return CanonicalJSON(prepared)
 }
 
-// VerifyDescriptorSet refuses set unless it is a FileDescriptorSet whose digest
-// is digest.
-func VerifyDescriptorSet(digest string, set []byte) error {
-	if !descriptorSetDigestPattern.MatchString(digest) {
-		return fmt.Errorf("%w: descriptor set digest %q is not sha256:<64 lowercase hex>", ErrInvalid, digest)
-	}
-	if actual := DescriptorSetDigest(set); actual != digest {
-		return fmt.Errorf("%w: delivered %s, referenced %s", ErrDescriptorSetMismatch, actual, digest)
-	}
-	if err := proto.Unmarshal(set, &descriptorpb.FileDescriptorSet{}); err != nil {
-		return fmt.Errorf("%w: descriptor set is not a FileDescriptorSet: %v", ErrInvalid, err)
-	}
-	return nil
-}
-
-// DecodePrepared reads one runnable-bindings value strictly. The embedded form
-// (no schema, an inline "descriptors" field) is refused with
-// ErrEmbeddedDescriptors; unknown fields, trailing content and a malformed
-// reference are refused as invalid.
-func DecodePrepared(value []byte) (*Prepared, error) {
+// DecodePrepared reads one runnable-bindings value strictly. A field the schema
+// does not declare is refused rather than dropped: an unknown field in an
+// installation fact is either another schema's value or a field this reader
+// would have had to act on, and neither is something to install past.
+func DecodePrepared(value []byte) (*runnablev0.PreparedBinding, error) {
 	if len(value) == 0 || len(value) > MaxPreparedBytes {
 		return nil, fmt.Errorf("%w: prepared binding of %d bytes is outside (0, %d]", ErrInvalid, len(value), MaxPreparedBytes)
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(value, &fields); err != nil {
-		return nil, fmt.Errorf("%w: prepared binding is not a JSON object", ErrInvalid)
+	binding := &runnablev0.PreparedBinding{}
+	if err := protojson.Unmarshal(value, binding); err != nil {
+		return nil, fmt.Errorf("%w: prepared binding is not a %s document: %v", ErrInvalid, PreparedSchemaV3, err)
 	}
-	if _, embedded := fields["descriptors"]; embedded {
-		return nil, ErrEmbeddedDescriptors
+	if err := VerifyPrepared(binding); err != nil {
+		return nil, err
 	}
-	if _, stated := fields["schema"]; !stated {
-		return nil, ErrEmbeddedDescriptors
-	}
-	decoder := json.NewDecoder(bytes.NewReader(value))
-	decoder.DisallowUnknownFields()
-	prepared := &Prepared{}
-	if err := decoder.Decode(prepared); err != nil {
-		return nil, fmt.Errorf("%w: prepared binding: %v", ErrInvalid, err)
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return nil, fmt.Errorf("%w: trailing prepared binding content", ErrInvalid)
-	}
-	if prepared.Schema != PreparedSchemaV2 {
-		return nil, fmt.Errorf("%w: prepared binding schema %q is not %q", ErrInvalid, prepared.Schema, PreparedSchemaV2)
-	}
-	if !present(prepared.Package) || !present(prepared.Binding) || !present(prepared.Operation) {
-		return nil, fmt.Errorf("%w: prepared binding requires package, binding and operation", ErrInvalid)
-	}
-	if prepared.DescriptorSet != nil {
-		if _, err := prepared.DescriptorSet.Key(); err != nil {
-			return nil, err
-		}
-		if !descriptorSetDigestPattern.MatchString(prepared.DescriptorSet.Contract) {
-			return nil, fmt.Errorf("%w: descriptor set contract digest %q is not sha256:<64 lowercase hex>", ErrInvalid, prepared.DescriptorSet.Contract)
-		}
-	}
-	return prepared, nil
+	return binding, nil
 }
 
-func present(raw json.RawMessage) bool {
-	trimmed := bytes.TrimSpace(raw)
-	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
+// VerifyPrepared refuses a prepared binding a caller must not act on: the wire
+// contract's own bounds, a contract digest that does not cover the contract
+// delivered with it, a route that is not the operation the binding names, and a
+// policy outside the bounds an installation enforces.
+func VerifyPrepared(binding *runnablev0.PreparedBinding) error {
+	if binding == nil {
+		return fmt.Errorf("%w: prepared binding is required", ErrInvalid)
+	}
+	if err := validator.Validate(binding); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	digest, err := ContractDigest(binding.GetContract())
+	if err != nil {
+		return err
+	}
+	if binding.GetContractDigest() != digest {
+		return fmt.Errorf("%w: prepared binding carries contract digest %s, and its contract derives %s",
+			ErrInvalid, binding.GetContractDigest(), digest)
+	}
+	codes, err := verifyPreparedRoute(binding)
+	if err != nil {
+		return err
+	}
+	return preparedPolicy(binding, codes).Validate()
+}
+
+// verifyPreparedRoute holds the dial target to the operation the binding names,
+// and answers with the vocabulary that route's retryable codes are spelled in.
+// The two are one check because they have one cause: a gRPC procedure and a
+// REST route are different targets *and* different code vocabularies, and the
+// form that read one spelling as both refused every REST operation — "POST
+// /path" is not a method path.
+func verifyPreparedRoute(binding *runnablev0.PreparedBinding) (CodeVocabulary, error) {
+	spelling := binding.GetOperation().GetSpelling()
+	switch route := binding.GetCall().GetRoute().(type) {
+	case *runnablev0.PreparedCall_Connect:
+		if procedure := route.Connect.GetProcedure(); procedure != spelling {
+			return GRPCStatusNames, fmt.Errorf("%w: prepared binding calls procedure %q for operation %q", ErrInvalid, procedure, spelling)
+		}
+		return GRPCStatusNames, nil
+	case *runnablev0.PreparedCall_Rest:
+		if spelled := Route(route.Rest.GetVerb(), route.Rest.GetPath()); spelled != spelling {
+			return HTTPStatusCodes, fmt.Errorf("%w: prepared binding calls route %q for operation %q", ErrInvalid, spelled, spelling)
+		}
+		return HTTPStatusCodes, nil
+	default:
+		return GRPCStatusNames, fmt.Errorf("%w: prepared binding for operation %q names no route to call", ErrInvalid, spelling)
+	}
+}
+
+// preparedPolicy reads the declared policy back as the spec core validates, so
+// a policy that installs is a policy that would have generated: the bounds live
+// in OperationSpec.Validate and are applied to what was delivered rather than
+// trusted because a generator once checked them.
+func preparedPolicy(binding *runnablev0.PreparedBinding, codes CodeVocabulary) *OperationSpec {
+	declared := binding.GetPolicy()
+	return &OperationSpec{
+		Method:         binding.GetOperation().GetSpelling(),
+		AttemptTimeout: declared.GetAttemptTimeout().AsDuration(),
+		TotalTimeout:   declared.GetTotalTimeout().AsDuration(),
+		MaxAttempts:    declared.GetMaxAttempts(),
+		Backoff:        declared.GetBackoff().AsDuration(),
+		RetryableCodes: declared.GetRetryableCodes(),
+		Codes:          codes,
+		Audience:       declared.GetAudience(),
+		InvokeScopes:   declared.GetInvokeScopes(),
+		LookupScopes:   declared.GetLookupScopes(),
+		LookupMethod:   declared.GetLookupMethod(),
+		MaxInputBytes:  declared.GetMaxInputBytes(),
+		MaxOutputBytes: declared.GetMaxOutputBytes(),
+	}
 }

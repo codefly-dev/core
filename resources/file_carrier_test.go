@@ -1,14 +1,12 @@
 package resources_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/internal/runnablefixture"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 )
@@ -150,51 +148,4 @@ func TestCheckProcessEnvironmentRefusesWhatExecWould(t *testing.T) {
 	unmaterialized := resources.Env("KEY", "v")
 	unmaterialized.File = true
 	require.ErrorIs(t, resources.CheckProcessEnvironment([]*resources.EnvironmentVariable{unmaterialized}), resources.ErrEnvironmentLimit)
-}
-
-// The regression the change exists for: a worker that installs derived
-// operations receives every prepared binding of its workspace. At production
-// sizes, twenty-four operations over two owner endpoints in the embedded form
-// put a 150 KB string per operation into the environment, which Linux refuses
-// at exec and macOS refuses in total. Delivered as planned now, no one string
-// reaches 128 KiB and the whole environment stays under its budget.
-func TestAWorkerReceivingTwentyFourOperationsStaysUnderLinuxLimits(t *testing.T) {
-	fixture, err := runnablefixture.Build(24, 2)
-	require.NoError(t, err)
-
-	manager := resources.NewEnvironmentVariableManager()
-	manager.SetEnvironment(&basev0.Environment{Name: "local"})
-	require.NoError(t, manager.AddConfigurations(context.Background(), fixture.Configuration()))
-	envs, err := manager.All()
-	require.NoError(t, err)
-
-	files := 0
-	for _, env := range envs {
-		if env.File {
-			files++
-			require.Contains(t, env.Key, "__DESCRIPTOR_SET__", "only the shared descriptor sets are large")
-		}
-	}
-	require.Equal(t, len(fixture.Endpoints), files, "one descriptor set per owner endpoint, not per operation")
-
-	dir := t.TempDir()
-	delivered, err := resources.MaterializeFileCarriers(dir, dir, envs)
-	require.NoError(t, err)
-	require.NoError(t, resources.CheckProcessEnvironment(delivered))
-	total := 0
-	for _, entry := range resources.EnvironmentVariableAsStrings(delivered) {
-		require.Less(t, len(entry)+1, resources.MaxEnvironmentStringBytes, strings.SplitN(entry, "=", 2)[0])
-		total += len(entry) + 1
-	}
-	require.Less(t, total, 1<<20)
-	t.Logf("24 operations: %d environment bytes, %d descriptor set file(s)", total, files)
-
-	// The same workspace in the embedded form, delivered inline as it was
-	// before file delivery, is refused before any process is started.
-	embedded, err := resources.ConfigurationAsEnvironmentVariables(fixture.Embedded(), "local", false)
-	require.NoError(t, err)
-	for _, env := range embedded {
-		env.File = false
-	}
-	require.ErrorIs(t, resources.CheckProcessEnvironment(embedded), resources.ErrEnvironmentLimit)
 }

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/internal/runnablefixture"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
@@ -19,16 +18,35 @@ import (
 
 const carrierChild = "CODEFLY_TEST_CARRIER_CHILD"
 
+// carriedValues is a workspace configuration group whose values are larger
+// than a process environment can carry, beside small ones that stay inline.
+// The content of each large value follows from its key, so the process started
+// with it can say whether what it read is what was delivered.
+func carriedValues() (*basev0.Configuration, []string) {
+	info := &basev0.ConfigurationInformation{Name: "catalog"}
+	var keys []string
+	for i := 0; i < 4; i++ {
+		key := fmt.Sprintf("BUNDLE_%02d", i)
+		keys = append(keys, key)
+		info.ConfigurationValues = append(info.ConfigurationValues,
+			&basev0.ConfigurationValue{Key: key, Value: carriedValue(key)},
+			&basev0.ConfigurationValue{Key: fmt.Sprintf("MODE_%02d", i), Value: "fast"},
+		)
+	}
+	return &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}, keys
+}
+
+func carriedValue(key string) string {
+	return strings.Repeat(key, resources.MaxEnvironmentStringBytes/len(key)+1)
+}
+
 // TestCarrierChildProcess is the process the runner starts in
-// TestANativeProcessReceivesTwentyFourOperations. It is a worker in
-// miniature: it reads its environment the way the SDK does
-// (resources.ResolveFileCarriers), then installs every prepared operation
-// as a worker does (runnablefixture.Install): verify its package and
-// binding, resolve its owner's descriptor set by digest, and find the method
-// in it.
+// TestANativeProcessReceivesValuesTooLargeForItsEnvironment. It reads its
+// environment the way an SDK does (resources.ResolveFileCarriers) and reports
+// whether each value it was given arrived whole.
 func TestCarrierChildProcess(t *testing.T) {
 	if os.Getenv(carrierChild) == "" {
-		t.Skip("run by TestANativeProcessReceivesTwentyFourOperations")
+		t.Skip("run by TestANativeProcessReceivesValuesTooLargeForItsEnvironment")
 	}
 	total := 0
 	for _, entry := range os.Environ() {
@@ -48,42 +66,35 @@ func TestCarrierChildProcess(t *testing.T) {
 		fmt.Printf("ERROR %v\n", err)
 		return
 	}
-	lookup := func(key string) (string, error) {
-		carrier := resources.WorkspaceConfigurationPrefix + "__RUNNABLE_BINDINGS__" + key
-		if value := os.Getenv(carrier); value != "" {
-			return value, nil
-		}
-		if value, ok := files[carrier]; ok {
-			return value, nil
-		}
-		return "", fmt.Errorf("no value for %s", key)
-	}
-	installed := 0
+	read := 0
 	for _, key := range strings.Split(os.Getenv(carrierChild), ",") {
-		value, err := lookup(key)
-		if err == nil {
-			_, err = runnablefixture.Install(value, lookup)
+		carrier := resources.WorkspaceConfigurationPrefix + "__CATALOG__" + key
+		value, found := os.LookupEnv(carrier)
+		if !found {
+			value, found = files[carrier]
 		}
-		if err != nil {
-			fmt.Printf("ERROR %s: %v\n", key, err)
-			continue
+		switch {
+		case !found:
+			fmt.Printf("ERROR %s: no value\n", key)
+		case value != carriedValue(key):
+			fmt.Printf("ERROR %s: %d bytes are not the %d delivered\n", key, len(value), len(carriedValue(key)))
+		default:
+			read++
 		}
-		installed++
 	}
-	fmt.Printf("INSTALLED %d\n", installed)
+	fmt.Printf("READ %d\n", read)
 }
 
-// A native process is started with a workspace's twenty-four prepared
-// operations, as a worker is: the shared descriptor sets arrive by file, no
-// environment string reaches Linux's 128 KiB limit, and the process installs
-// every operation from what it received. The files are gone once it exits.
-func TestANativeProcessReceivesTwentyFourOperations(t *testing.T) {
+// A native process is started with configuration values larger than its
+// environment can carry: they arrive by file, no environment string reaches
+// Linux's 128 KiB limit, and the process reads every one of them whole through
+// the same resolution an SDK uses. The files are gone once it exits.
+func TestANativeProcessReceivesValuesTooLargeForItsEnvironment(t *testing.T) {
 	ctx := context.Background()
-	fixture, err := runnablefixture.Build(24, 2)
-	require.NoError(t, err)
+	configuration, keys := carriedValues()
 	manager := resources.NewEnvironmentVariableManager()
 	manager.SetEnvironment(&basev0.Environment{Name: "local"})
-	require.NoError(t, manager.AddConfigurations(ctx, fixture.Configuration()))
+	require.NoError(t, manager.AddConfigurations(ctx, configuration))
 	envs, err := manager.All()
 	require.NoError(t, err)
 
@@ -91,10 +102,6 @@ func TestANativeProcessReceivesTwentyFourOperations(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, env.Init(ctx))
 	env.WithEnvironmentVariables(ctx, envs...)
-	var keys []string
-	for _, operation := range fixture.Operations {
-		keys = append(keys, operation.Key)
-	}
 	proc, err := env.NewProcess(os.Args[0], "-test.run=^TestCarrierChildProcess$", "-test.v")
 	require.NoError(t, err)
 	proc.WithEnvironmentVariables(ctx, resources.Env(carrierChild, strings.Join(keys, ",")))
@@ -105,7 +112,7 @@ func TestANativeProcessReceivesTwentyFourOperations(t *testing.T) {
 	lines := strings.Join(output.Snapshot(), "\n")
 	require.NotContains(t, lines, "OVERSIZED")
 	require.NotContains(t, lines, "ERROR")
-	require.Contains(t, lines, "INSTALLED 24")
+	require.Contains(t, lines, fmt.Sprintf("READ %d", len(keys)))
 	var codeflyBytes int
 	var carrierDir string
 	for _, line := range output.Snapshot() {
@@ -119,7 +126,7 @@ func TestANativeProcessReceivesTwentyFourOperations(t *testing.T) {
 	require.Positive(t, codeflyBytes)
 	require.Less(t, codeflyBytes, 1<<20)
 	t.Logf("the process started with %d bytes of Codefly environment", codeflyBytes)
-	require.NotEmpty(t, carrierDir, "the descriptor sets arrive by file")
+	require.NotEmpty(t, carrierDir, "the large values arrive by file")
 	require.Eventually(t, func() bool {
 		_, err := os.Stat(carrierDir)
 		return os.IsNotExist(err)
