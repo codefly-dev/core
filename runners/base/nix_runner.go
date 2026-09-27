@@ -910,55 +910,11 @@ func (proc *NixProc) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	pgid := cmd.Process.Pid
-	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
-	// Signal every authenticated member, including test workers spawned by the
-	// nix-develop wrapper.
-	if group != nil {
-		_ = group.Signal(context.Background(), syscall.SIGTERM)
-	}
-
-	// Poll for exit every 100ms up to a 5s SIGTERM grace, honoring ctx.
-	const sigtermGrace = 5 * time.Second
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	deadline := time.Now().Add(sigtermGrace)
-	exited := false
-waitLoop:
-	for {
-		select {
-		case <-ctx.Done():
-			// Caller gave up; still ensure we don't leave the process
-			// running — fall through to the force-kill path.
-			break waitLoop
-		case <-ticker.C:
-			if err := syscall.Kill(-pgid, syscall.Signal(0)); err != nil {
-				exited = true
-				break waitLoop
-			}
-			if time.Now().After(deadline) {
-				break waitLoop
-			}
-		}
-	}
-
-	if !exited {
-		w.Trace("nix pgroup still alive after SIGTERM grace, sending SIGKILL", wool.Field("pgid", pgid))
-		if group != nil {
-			_ = group.Signal(context.Background(), syscall.SIGKILL)
-		}
-	} else {
-		w.Trace("nix pgroup exited after SIGTERM")
-	}
-
-	// Remove the registration only if the entire group is confirmed dead.
-	if perr := group.RemoveIfDead(); perr != nil {
-		w.Trace("could not remove pgid file", wool.Field("err", perr))
-	}
+	err := stopTrackedProcessGroup(ctx, cmd, group, proc.exitCh)
 
 	// close-once to avoid the previous chan-send goroutine leak: if Run
 	// already exited via the `done` path, nobody was reading `stopped`
 	// and the goroutine blocked forever.
 	proc.stopOnce.Do(func() { close(proc.stopped) })
-	return nil
+	return err
 }

@@ -535,6 +535,46 @@ func (group *TrackedProcessGroup) Signal(ctx context.Context, signal syscall.Sig
 	return signalAuthenticatedGroup(ctx, group.record, signal)
 }
 
+// terminateAsOwner ends every member of this group with the bounded SIGTERM →
+// SIGKILL escalation OwnedProcessGroup.Terminate uses, and returns nil only once
+// the group is empty. Liveness is observed on the group, never on the leader, so
+// a descendant that outlives a leader which exited promptly on SIGTERM is still
+// escalated, and one that outlives SIGKILL is reported rather than leaked.
+//
+// It authenticates the way the owner may (authenticateOwnedProcessGroup), and
+// only when this process is the one the record names as owner: the process that
+// started the leader as its own child, so the pgid could not have been recycled
+// while the leader was unreaped, and afterwards only by the group emptying. Any
+// other holder of the handle — one rebuilt from the registry by
+// LookupProcessGroup — gets the reaper's proof, exactly as Terminate gives it.
+//
+// The reaper's proof is wrong for the owner. It refuses a leaderless group whose
+// members' environments the platform withholds (any Apple platform binary on
+// Darwin), and a group whose leader is an unreaped zombie it cannot inspect —
+// which is the state a runner is in while its forwarders wait for a descendant
+// to release the leader's stdout. Under it, a runner's Stop signalled nothing.
+//
+// A group that is already gone, or whose pgid provably names another group now,
+// is not an error. The registry record is left for the caller to remove once
+// the leader is reaped (RemoveIfDead).
+func (group *TrackedProcessGroup) terminateAsOwner(ctx context.Context, termGrace time.Duration) error {
+	if group == nil {
+		return ErrProcessGroupNotRegistered
+	}
+	if !isProcessGroupAlive(group.record.PGID) {
+		return nil
+	}
+	authenticate := authenticateProcessGroup
+	if owner, err := inspectProcess(os.Getpid()); err == nil && owner.matches(group.record.Owner) {
+		authenticate = authenticateOwnedProcessGroup
+	}
+	err := terminateGroup(ctx, group.record, authenticate, termGrace)
+	if errors.Is(err, errProcessGroupIdentityChanged) {
+		return nil
+	}
+	return err
+}
+
 func abortUnregisteredProcessGroup(cmd *exec.Cmd, group *TrackedProcessGroup, authentication string) error {
 	var failures []error
 	if group != nil {
