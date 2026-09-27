@@ -342,6 +342,10 @@ own facility compatibility, reachability and the declared readiness predicates.
 
 ## Operations derived from a service method
 
+How a prepared binding of a derived operation reaches the worker that installs
+it — the descriptor set shared by digest, and large values delivered by file —
+is in [Runnable binding delivery](runnable-binding-delivery.md).
+
 A unary, idempotent operation an owner service already publishes becomes a
 Runnable by derivation, not by authoring. The owner marks it and the contract
 follows from the payloads the owner already describes. Nothing is written

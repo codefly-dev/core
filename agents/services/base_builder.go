@@ -638,6 +638,9 @@ type DeploymentParameters struct {
 	SecretReferences map[string]*builderv0.KubernetesSecretKeyReference
 	Parameters       any
 	PodOverlay       *PodTemplateOverlay
+	// FileCarriers are the values delivered by file rather than as
+	// environment; core mounts them after the agent's templates render.
+	FileCarriers *FileCarrierDelivery
 }
 
 // DeploymentInputs declares which standard Codefly inputs a Kubernetes
@@ -904,17 +907,33 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 			}
 		}
 	}
+	// A value too large for the environment reaches the workload as a file
+	// in a mounted volume; the environment carries only its path.
+	fileCarriers := &FileCarrierDelivery{ConfigMap: map[string]string{}, Secret: map[string]string{}}
+	if configurations, err = splitFileCarriers(configurations, resources.KubernetesFileCarrierMount, fileCarriers.ConfigMap); err != nil {
+		return fail(err)
+	}
 	configMap, err := EnvsAsConfigMapData(configurations...)
 	if err != nil {
 		return fail(err)
 	}
 	var secretMap EnvironmentMap
+	var inlineSecrets []*resources.EnvironmentVariable
 	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 {
 		secrets := append(secretValues, deploymentContext.Secrets...)
-		secretMap, err = EnvsAsSecretData(secrets...)
+		if inlineSecrets, err = splitFileCarriers(secrets, resources.KubernetesSecretFileCarrierMount, fileCarriers.Secret); err != nil {
+			return fail(err)
+		}
+		secretMap, err = EnvsAsSecretData(inlineSecrets...)
 		if err != nil {
 			return fail(err)
 		}
+	}
+	// The ConfigMap and Secret are loaded as the container's environment: a
+	// render the kubelet could not start is refused here, naming the key,
+	// rather than as an E2BIG in a crash-looping pod.
+	if err = resources.CheckProcessEnvironment(append(append([]*resources.EnvironmentVariable(nil), configurations...), inlineSecrets...)); err != nil {
+		return fail(err)
 	}
 
 	parameters := DeploymentParameters{
@@ -923,6 +942,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		SecretReferences: kubernetes.GetSecretReferences(),
 		Parameters:       deploymentContext.Parameters,
 		PodOverlay:       deploymentContext.PodOverlay,
+		FileCarriers:     fileCarriers,
 	}
 	if err = s.KustomizeDeploy(ctx, req.GetEnvironment(), kubernetes, deployment.Templates, parameters); err != nil {
 		return fail(err)
@@ -1053,18 +1073,21 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 	if base.Information != nil && base.Information.Service != nil {
 		wrapper.Name = base.Information.Service.Name.DNSCase
 	}
+	var fileCarriers *FileCarrierDelivery
 	switch deployment := params.(type) {
 	case DeploymentParameters:
 		wrapper.ConfigMap = deployment.ConfigMap
 		wrapper.SecretMap = deployment.SecretMap
 		wrapper.SecretReferences = deployment.SecretReferences
 		wrapper.PodOverlay = deployment.PodOverlay
+		fileCarriers = deployment.FileCarriers
 	case *DeploymentParameters:
 		if deployment != nil {
 			wrapper.ConfigMap = deployment.ConfigMap
 			wrapper.SecretMap = deployment.SecretMap
 			wrapper.SecretReferences = deployment.SecretReferences
 			wrapper.PodOverlay = deployment.PodOverlay
+			fileCarriers = deployment.FileCarriers
 		}
 	}
 	// Delete
@@ -1088,6 +1111,9 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 	overlayResult, err := applyPodOverlay(ctx, baseDir, wrapper.PodOverlay)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot apply pod overlay")
+	}
+	if err = emitFileCarriers(baseDir, path.Join(k.Destination, "overlays", base.Environment.Name), base.Namespace, wrapper.Name, fileCarriers); err != nil {
+		return s.Wool.Wrapf(err, "cannot deliver configuration by file")
 	}
 	if wrapper.PodOverlay.HasServiceAccount() && !overlayResult.boundServiceAccount {
 		s.Wool.Warn("pod overlay requested a service account but no workload manifest carried a pod template to bind it to; pods will run under the namespace default",
