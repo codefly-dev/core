@@ -86,3 +86,19 @@ func TestRecipeGoModuleDownloadsAreValidated(t *testing.T) {
 	_, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
 	require.ErrorContains(t, err, "twice")
 }
+
+func TestSingleImageBuildPlanDeclaresGoModuleDownloads(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644))
+	plan, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"},
+		WithGoModuleDownloads(&builderv0.GoModuleDownload{ModuleRoot: "code", ProxyContext: "gomodproxy"}))
+	require.NoError(t, err)
+	require.Equal(t, DockerBuildRecipeGoModulesContractVersion, plan.GetContractVersion())
+	require.Equal(t, "code", plan.GetRecipes()[0].GetGoModuleDownloads()[0].GetModuleRoot())
+	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
+
+	// Without the option the helper emits exactly what it always did.
+	legacy, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"})
+	require.NoError(t, err)
+	require.Equal(t, DockerBuildRecipeContractVersion, legacy.GetContractVersion())
+}

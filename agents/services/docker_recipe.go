@@ -227,7 +227,21 @@ func BuildPlanRequested(req *builderv0.BuildRequest) bool {
 // copies the referenced ignore to the path buildx discovers and applies it, so an
 // ignore left behind by an older template set would silently keep files out of
 // the image with no error and no diff.
-func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emitted []string) (*builderv0.DockerBuildPlan, error) {
+// RecipeOption adds a declaration to the recipe a plan helper assembles.
+type RecipeOption func(*builderv0.DockerBuildRecipe)
+
+// WithGoModuleDownloads declares the Go modules the recipe downloads while it
+// builds (DockerBuildRecipe.go_module_downloads): each module root, relative to
+// the recipe's build context, is read from the named proxy build context. The
+// caller fetches them before any image build and supplies them, so the build
+// needs no credential. A recipe carrying a download emits the v5 contract.
+func WithGoModuleDownloads(downloads ...*builderv0.GoModuleDownload) RecipeOption {
+	return func(recipe *builderv0.DockerBuildRecipe) {
+		recipe.GoModuleDownloads = append(recipe.GoModuleDownloads, downloads...)
+	}
+}
+
+func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emitted []string, options ...RecipeOption) (*builderv0.DockerBuildPlan, error) {
 	dockerignore := ""
 	for _, name := range emitted {
 		if name == "dockerignore" {
@@ -242,6 +256,9 @@ func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emi
 		Dockerignore: dockerignore,
 		Image:        image,
 		Platforms:    platforms,
+	}
+	for _, option := range options {
+		option(recipe)
 	}
 	return BuildEmittedDockerBuildPlan(outputDirectory, []*builderv0.DockerBuildRecipe{recipe}, emitted)
 }
