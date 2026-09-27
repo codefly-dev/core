@@ -138,6 +138,10 @@ type OperationSpec struct {
 	// LookupMethod is the paired receipt method on the same service, empty when
 	// the SDK's generic receipt lookup answers instead.
 	LookupMethod string
+	// MaxInputBytes and MaxOutputBytes bound the derived package's inline
+	// payloads; zero keeps resources.DefaultRunnablePayloadBytes.
+	MaxInputBytes  uint64
+	MaxOutputBytes uint64
 }
 
 // ServiceOwner is the published service a derived operation is reached on: the
@@ -211,6 +215,8 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 		InvokeScopes:   clonedScopes(declared.GetInvokeScopes()),
 		LookupScopes:   clonedScopes(declared.GetLookupScopes()),
 		LookupMethod:   declared.GetLookupMethod(),
+		MaxInputBytes:  declared.GetMaxInputBytes(),
+		MaxOutputBytes: declared.GetMaxOutputBytes(),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err
@@ -273,6 +279,14 @@ func (s *OperationSpec) Validate() error {
 	}
 	if s.MaxAttempts < 1 || s.MaxAttempts > MaxOperationAttempts {
 		return fmt.Errorf("%w: %s max_attempts %d is outside 1..%d", ErrInvalid, s.Method, s.MaxAttempts, MaxOperationAttempts)
+	}
+	for _, bound := range []struct {
+		field string
+		value uint64
+	}{{"max_input_bytes", s.MaxInputBytes}, {"max_output_bytes", s.MaxOutputBytes}} {
+		if bound.value > resources.DefaultRunnablePayloadBytes {
+			return fmt.Errorf("%w: %s %s %d exceeds the inline payload bound %d; larger data travels as references", ErrInvalid, s.Method, bound.field, bound.value, resources.DefaultRunnablePayloadBytes)
+		}
 	}
 	if s.Backoff < MinBackoff || s.Backoff > MaxBackoff {
 		return fmt.Errorf("%w: %s backoff %s is outside %s..%s", ErrInvalid, s.Method, s.Backoff, MinBackoff, MaxBackoff)
@@ -461,8 +475,8 @@ func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableL
 			Timeout:        durationpb.New(spec.TotalTimeout),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
 			Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
-			MaxInputBytes:  resources.DefaultRunnablePayloadBytes,
-			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
+			MaxInputBytes:  payloadBound(spec.MaxInputBytes),
+			MaxOutputBytes: payloadBound(spec.MaxOutputBytes),
 		},
 		ServiceOperations: []*basev0.RunnableServiceOperation{{
 			Module:        owner.Module,
@@ -478,4 +492,13 @@ func PackageFromMethod(files *protoregistry.Files, location *resources.RunnableL
 		return nil, nil, err
 	}
 	return pkg, spec, nil
+}
+
+// payloadBound is a declared inline payload bound, or the default when the
+// operation declares none.
+func payloadBound(declared uint64) uint64 {
+	if declared == 0 {
+		return resources.DefaultRunnablePayloadBytes
+	}
+	return declared
 }

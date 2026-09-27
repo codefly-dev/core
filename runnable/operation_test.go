@@ -447,3 +447,33 @@ func TestPackageFromMethodRejectsAWellKnownPayload(t *testing.T) {
 		})
 	}
 }
+
+// An owner whose caller holds payloads tighter than the default states its own
+// inline bounds on the option, and the derived package carries them, so an
+// installer can refuse at install what it would otherwise refuse on a call.
+// Declaring none keeps the default; declaring more than the inline bound is
+// refused, since larger data travels as references.
+func TestPackageFromMethodCarriesTheDeclaredPayloadBounds(t *testing.T) {
+	declared := declaredOperation()
+	declared.MaxInputBytes, declared.MaxOutputBytes = 4096, 64*1024
+	pkg, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+	require.NoError(t, err)
+	require.Equal(t, uint64(4096), spec.MaxInputBytes)
+	require.Equal(t, uint64(4096), pkg.GetExecution().GetMaxInputBytes())
+	require.Equal(t, uint64(64*1024), pkg.GetExecution().GetMaxOutputBytes())
+	require.NoError(t, runnable.VerifyPackage(pkg))
+
+	undeclared, _ := derivedIngestion(t)
+	require.Equal(t, resources.DefaultRunnablePayloadBytes, undeclared.GetExecution().GetMaxInputBytes())
+	require.Equal(t, resources.DefaultRunnablePayloadBytes, undeclared.GetExecution().GetMaxOutputBytes())
+
+	for _, over := range []func(*runnablev0.Operation){
+		func(o *runnablev0.Operation) { o.MaxInputBytes = resources.DefaultRunnablePayloadBytes + 1 },
+		func(o *runnablev0.Operation) { o.MaxOutputBytes = resources.DefaultRunnablePayloadBytes + 1 },
+	} {
+		declared := declaredOperation()
+		over(declared)
+		_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+		require.ErrorIs(t, err, runnable.ErrInvalid)
+	}
+}
