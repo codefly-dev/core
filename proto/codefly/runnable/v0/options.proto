@@ -24,10 +24,10 @@ runs.
 // deliberately not part of the package the method derives: the package is the
 // contract, and two installations of it may run under different policies.
 //
-// The option's presence is the marking; every field below except lookup_method
-// is required. An attempt budget and an authority nobody chose are not defaults
-// core may invent on an owner's behalf, so an empty option is rejected rather
-// than filled in.
+// The option's presence is the marking; every field below except
+// lookup_method, max_input_bytes and max_output_bytes is required. An attempt
+// budget and an authority nobody chose are not defaults core may invent on an
+// owner's behalf, so an empty option is rejected rather than filled in.
 message Operation {
   // attempt_timeout bounds one attempt.
   google.protobuf.Duration attempt_timeout = 1;
@@ -54,6 +54,14 @@ message Operation {
   // leaves the answer to the SDK's generic receipt lookup. It may not name the
   // operation itself: recovery reads the receipt and never re-runs the effect.
   string lookup_method = 9;
+  // max_input_bytes bounds the operation's inline input as the derived package
+  // declares it; zero keeps the default inline payload bound. An owner states
+  // its bounds when its caller holds payloads tighter than that default, so an
+  // installer refuses at install what it could otherwise refuse only on a call.
+  uint64 max_input_bytes = 10;
+  // max_output_bytes bounds the operation's inline output the same way; zero
+  // keeps the default.
+  uint64 max_output_bytes = 11;
 }
 
 extend google.protobuf.MethodOptions {

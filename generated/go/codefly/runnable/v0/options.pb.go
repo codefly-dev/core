@@ -30,10 +30,10 @@ const (
 // deliberately not part of the package the method derives: the package is the
 // contract, and two installations of it may run under different policies.
 //
-// The option's presence is the marking; every field below except lookup_method
-// is required. An attempt budget and an authority nobody chose are not defaults
-// core may invent on an owner's behalf, so an empty option is rejected rather
-// than filled in.
+// The option's presence is the marking; every field below except
+// lookup_method, max_input_bytes and max_output_bytes is required. An attempt
+// budget and an authority nobody chose are not defaults core may invent on an
+// owner's behalf, so an empty option is rejected rather than filled in.
 type Operation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// attempt_timeout bounds one attempt.
@@ -60,9 +60,17 @@ type Operation struct {
 	// id and answers with the receipt, spelled "/package.Service/Method". Empty
 	// leaves the answer to the SDK's generic receipt lookup. It may not name the
 	// operation itself: recovery reads the receipt and never re-runs the effect.
-	LookupMethod  string `protobuf:"bytes,9,opt,name=lookup_method,json=lookupMethod,proto3" json:"lookup_method,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LookupMethod string `protobuf:"bytes,9,opt,name=lookup_method,json=lookupMethod,proto3" json:"lookup_method,omitempty"`
+	// max_input_bytes bounds the operation's inline input as the derived package
+	// declares it; zero keeps the default inline payload bound. An owner states
+	// its bounds when its caller holds payloads tighter than that default, so an
+	// installer refuses at install what it could otherwise refuse only on a call.
+	MaxInputBytes uint64 `protobuf:"varint,10,opt,name=max_input_bytes,json=maxInputBytes,proto3" json:"max_input_bytes,omitempty"`
+	// max_output_bytes bounds the operation's inline output the same way; zero
+	// keeps the default.
+	MaxOutputBytes uint64 `protobuf:"varint,11,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Operation) Reset() {
@@ -158,6 +166,20 @@ func (x *Operation) GetLookupMethod() string {
 	return ""
 }
 
+func (x *Operation) GetMaxInputBytes() uint64 {
+	if x != nil {
+		return x.MaxInputBytes
+	}
+	return 0
+}
+
+func (x *Operation) GetMaxOutputBytes() uint64 {
+	if x != nil {
+		return x.MaxOutputBytes
+	}
+	return 0
+}
+
 var file_codefly_runnable_v0_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
@@ -182,7 +204,7 @@ var File_codefly_runnable_v0_options_proto protoreflect.FileDescriptor
 
 const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\n" +
-	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\xd7\x03\n" +
+	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\xa9\x04\n" +
 	"\tOperation\x12B\n" +
 	"\x0fattempt_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0eattemptTimeout\x12>\n" +
 	"\rtotal_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\ftotalTimeout\x12!\n" +
@@ -192,7 +214,10 @@ const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\baudience\x18\x06 \x01(\tR\baudience\x12A\n" +
 	"\rinvoke_scopes\x18\a \x03(\v2\x1c.codefly.base.v0.WorkScopeV1R\finvokeScopes\x12A\n" +
 	"\rlookup_scopes\x18\b \x03(\v2\x1c.codefly.base.v0.WorkScopeV1R\flookupScopes\x12#\n" +
-	"\rlookup_method\x18\t \x01(\tR\flookupMethod:^\n" +
+	"\rlookup_method\x18\t \x01(\tR\flookupMethod\x12&\n" +
+	"\x0fmax_input_bytes\x18\n" +
+	" \x01(\x04R\rmaxInputBytes\x12(\n" +
+	"\x10max_output_bytes\x18\v \x01(\x04R\x0emaxOutputBytes:^\n" +
 	"\toperation\x12\x1e.google.protobuf.MethodOptions\x18\xbb\x8e\x03 \x01(\v2\x1e.codefly.runnable.v0.OperationR\toperationB\xd3\x01\n" +
 	"\x17com.codefly.runnable.v0B\fOptionsProtoP\x01Z<github.com/codefly-dev/core/generated/go/codefly/runnable/v0\xa2\x02\x03CRV\xaa\x02\x13Codefly.Runnable.V0\xca\x02\x13Codefly\\Runnable\\V0\xe2\x02\x1fCodefly\\Runnable\\V0\\GPBMetadata\xea\x02\x15Codefly::Runnable::V0b\x06proto3"
 
