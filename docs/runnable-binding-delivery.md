@@ -101,8 +101,30 @@ name of a group, so no emitter needs to know what the value is.
 | Where | Who writes the file | Where the file is |
 | --- | --- | --- |
 | a native or Nix process | the core runner, at process start | a per-process `0700` directory, `0600` files, removed when the process ends |
-| a Docker container | the core Docker runner, before the container is created | a per-container `0700` directory, bind-mounted read-only at `/var/run/codefly/configuration` |
-| Kubernetes | the core Kustomize render | ConfigMap `cmf-<service>` (public) and Secret `secretf-<service>` (secret, local-apply only) mounted read-only at `/var/run/codefly/configuration` and `/var/run/codefly/secret-configuration` |
+| a Docker container | the core Docker runner, between creating the container and starting it (and before an exec) | copied into the container at `/codefly/configuration`, owned by the user the container runs as, directory `0500` and files `0400`; nothing stays on the host |
+| Kubernetes | the core Kustomize render | ConfigMap `cmf-<service>` (public, `defaultMode: 0444`) and Secret `secretf-<service>` (secret, local-apply only, `defaultMode: 0440` with the pod's `fsGroup`) mounted read-only at `/var/run/codefly/configuration` and `/var/run/codefly/secret-configuration` |
+
+### Who can read a delivered file
+
+A file is readable by the user the workload runs as, and a secret file by
+nobody else:
+
+- **Native and Nix.** The process runs as the user that wrote the file.
+- **Docker.** A bind mount keeps host ownership: a `0600` file is unreadable
+  to a container running as another non-root user, and a file readable on the
+  host is readable by every host user. So the runner copies the files into the
+  container instead, owned by its user. That user is the container's `User`, or
+  the image's; a name is resolved through the container's own `/etc/passwd`
+  and `/etc/group`. A user that cannot be resolved refuses the delivery: a
+  value whose reader nobody can name is not delivered.
+- **Kubernetes.** Volume files are owned by root. A public file is `0444`,
+  readable whatever user the container runs as; it is public configuration.
+  A secret file is `0440`, and its group is the pod's `fsGroup`, which the
+  kubelet adds to every container's groups. The render keeps a declared
+  `fsGroup`. Otherwise it sets it to the group the pod runs as (its
+  `runAsGroup`, else its `runAsUser`, from the pod or from every container
+  alike). A pod that declares neither is refused rather than given a
+  world-readable secret.
 
 Two carriers keep their values inline. A configuration document is already
 bounded at 64 KiB by its envelope (`docs/configuration-contract.md`), under the
@@ -160,12 +182,14 @@ Everything fails closed, and as early as the information exists:
 
 ## Security
 
-- Local files are written `0600` in a `0700` directory owned by the running
-  user, and are removed with the process or container that read them.
+- Host files are written `0600` in a `0700` directory owned by the running
+  user, and are removed with the process that read them. A container's files
+  are copied into it, owned by its user, and go with the container.
 - A secret delivered by file is read with the same rule the SDK applies to an
   `--output-env` export: a secret file accessible by others is refused.
-  Kubernetes secret volumes are mounted with `defaultMode: 0440`, which the
-  pod's `fsGroup` needs to read them and which grants nothing to others.
+  Kubernetes secret volumes are mounted with `defaultMode: 0440` and the
+  pod's `fsGroup` (see *Who can read a delivered file*), which grants nothing
+  to others.
 - A secret value never enters a restricted render in plaintext: the restricted
   profile carries no secret values at all (`docs/configuration-contract.md`),
   so there is nothing to file-deliver; its secrets reach the workload through
@@ -222,8 +246,3 @@ still shrink the group, but a set above 128 KiB is still an inline string.
   secret-volume reference, which the restricted contract does not declare yet.
 - A service that reads the process environment directly, rather than through a
   Codefly SDK, must read `CODEFLY__FILE__*` itself.
-- A locally run container reads its carrier files through a bind mount of
-  `0600` files owned by the user running Codefly. A container that runs as a
-  different non-root user on a Linux host cannot read them, and its SDK
-  refuses the value as unreadable rather than as unset. Docker Desktop's file
-  sharing maps ownership, so this does not arise there.

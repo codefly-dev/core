@@ -121,9 +121,10 @@ func TestARenderedWorkerReceivesTwentyFourOperationsUnderLinuxLimits(t *testing.
 
 	deployment := readDocuments(t, filepath.Join(destination, "base", "deployment.yaml"))[0]
 	pod := deployment["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
-	require.Contains(t, pod["volumes"], map[string]any{"name": "codefly-configuration-files", "configMap": map[string]any{"name": "cmf-worker"}})
+	require.Contains(t, pod["volumes"], map[string]any{"name": "codefly-configuration-files", "configMap": map[string]any{"name": "cmf-worker", "defaultMode": 0o444}})
 	container := pod["containers"].([]any)[0].(map[string]any)
 	require.Contains(t, container["volumeMounts"], map[string]any{"name": "codefly-configuration-files", "mountPath": resources.KubernetesFileCarrierMount, "readOnly": true})
+	requireReadableOnlyByTheWorkload(t, pod)
 }
 
 // A workload with nothing large renders exactly as before: no file manifest,
@@ -163,6 +164,68 @@ func TestALargeSecretIsDeliveredByASecretVolume(t *testing.T) {
 	deployment := readDocuments(t, filepath.Join(destination, "base", "deployment.yaml"))[0]
 	pod := deployment["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
 	require.Contains(t, pod["volumes"], map[string]any{"name": "codefly-secret-configuration-files", "secret": map[string]any{"secretName": "secretf-worker", "defaultMode": 0o440}})
+	requireReadableOnlyByTheWorkload(t, pod)
+}
+
+// requireReadableOnlyByTheWorkload holds a rendered pod's carrier volumes to
+// the user its securityContext says it runs as. Kubernetes makes a volume's
+// files owned by root and, when the pod declares an fsGroup, group-owned by
+// it, adding that group to every container. So: a public file is readable by
+// whoever the container runs as; a secret file is readable by the fsGroup —
+// which must be the group the pod runs as — and never by others.
+func requireReadableOnlyByTheWorkload(t *testing.T, pod map[string]any) {
+	t.Helper()
+	security, _ := pod["securityContext"].(map[string]any)
+	require.Equal(t, true, security["runAsNonRoot"], "the workload runs as a non-root user")
+	runAs := security["runAsGroup"]
+	if runAs == nil {
+		runAs = security["runAsUser"]
+	}
+	for _, raw := range pod["volumes"].([]any) {
+		volume := raw.(map[string]any)
+		if secret, ok := volume["secret"].(map[string]any); ok && strings.HasPrefix(volume["name"].(string), "codefly-") {
+			mode := secret["defaultMode"].(int)
+			require.Zero(t, mode&0o007, "a secret file is never readable by others")
+			require.NotZero(t, mode&0o040, "a secret file is readable by the pod's fsGroup")
+			require.NotNil(t, security["fsGroup"], "a secret volume needs an fsGroup, or its root-owned files are unreadable to a non-root user")
+			require.Equal(t, runAs, security["fsGroup"], "the fsGroup is the group the workload runs as")
+		}
+		if configMap, ok := volume["configMap"].(map[string]any); ok && strings.HasPrefix(volume["name"].(string), "codefly-") {
+			require.Equal(t, 0o444, configMap["defaultMode"], "a public file is readable whatever user the container runs as")
+		}
+	}
+}
+
+// A pod that says what user it runs as keeps its own fsGroup when it declares
+// one, and otherwise gets the group it runs as; one that says nothing cannot
+// be given a secret file only its user reads, and the render refuses it.
+func TestASecretCarrierFollowsThePodsSecurityContext(t *testing.T) {
+	mount := []fileCarrierMount{{name: secretFileCarrierVolume, mountPath: resources.KubernetesSecretFileCarrierMount, secret: "secretf-worker"}}
+	render := func(securityContext string) (map[string]any, error) {
+		manifest := "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\nspec:\n  template:\n    spec:\n" + securityContext +
+			"      containers:\n        - name: service\n          image: example/worker\n"
+		var root yaml.Node
+		require.NoError(t, yaml.Unmarshal([]byte(manifest), &root))
+		if _, err := mountIntoWorkload(root.Content[0], mount); err != nil {
+			return nil, err
+		}
+		out, err := yaml.Marshal(&root)
+		require.NoError(t, err)
+		var deployment map[string]any
+		require.NoError(t, yaml.Unmarshal(out, &deployment))
+		return deployment["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any), nil
+	}
+	for name, context := range map[string]string{
+		"runAsUser":  "      securityContext:\n        runAsNonRoot: true\n        runAsUser: 10001\n",
+		"runAsGroup": "      securityContext:\n        runAsNonRoot: true\n        runAsUser: 10001\n        runAsGroup: 20002\n",
+		"fsGroup":    "      securityContext:\n        runAsNonRoot: true\n        runAsGroup: 30003\n        fsGroup: 30003\n",
+	} {
+		pod, err := render(context)
+		require.NoError(t, err, name)
+		requireReadableOnlyByTheWorkload(t, pod)
+	}
+	_, err := render("      securityContext:\n        runAsNonRoot: true\n")
+	require.ErrorContains(t, err, "needs the pod to declare the user it runs as")
 }
 
 // A file object the API server would refuse fails the render instead.
