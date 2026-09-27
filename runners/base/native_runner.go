@@ -89,6 +89,9 @@ type NativeProc struct {
 	exec   *exec.Cmd
 	group  *TrackedProcessGroup
 	envs   []*resources.EnvironmentVariable
+	// carriers holds the file-delivered values this process was started
+	// with; they are removed once it has exited.
+	carriers *processCarriers
 
 	// lifecycleMu serializes Start's cmd.Start/exec publication with Stop and
 	// IsRunning. stopRequested prevents a Stop-before-Start race from launching
@@ -288,7 +291,7 @@ func (proc *NativeProc) Start(ctx context.Context) error {
 	return proc.start(ctx)
 }
 
-func (proc *NativeProc) start(ctx context.Context) error {
+func (proc *NativeProc) start(ctx context.Context) (startErr error) {
 	w := wool.Get(ctx).In("NativeProc.start", wool.DirField(proc.env.dir))
 	// #nosec G204
 	cmd := exec.CommandContext(ctx, proc.cmd[0], proc.cmd[1:]...)
@@ -317,8 +320,18 @@ func (proc *NativeProc) start(ctx context.Context) error {
 	proc.env.mu.Lock()
 	envSnapshot := append([]*resources.EnvironmentVariable(nil), proc.env.envs...)
 	proc.env.mu.Unlock()
-	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(envSnapshot)...)
-	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
+	carriers, err := prepareProcessCarriers(envSnapshot, proc.envs)
+	if err != nil {
+		return w.Wrapf(err, "cannot prepare the process environment")
+	}
+	cmd.Env = append(cmd.Env, carriers.environ...)
+	proc.carriers = carriers
+	defer func() {
+		// A process that never started never exits: release its files now.
+		if startErr != nil {
+			carriers.release()
+		}
+	}()
 	w.Trace("envs", wool.Field("count", len(cmd.Env)))
 
 	// Wire stdin pipe if requested
@@ -445,6 +458,7 @@ func (proc *NativeProc) publishExit(err error) {
 		if cmd != nil && cmd.Process != nil && group != nil {
 			_ = group.RemoveIfDead()
 		}
+		proc.carriers.release()
 		close(proc.exitCh)
 	})
 }

@@ -74,4 +74,8 @@ plus typed decoding methods. This transport is generic runtime behavior, not a
 reason to restore deployment or database models to Core. Existing flat JSON strings
 remain strings and are not silently converted into documents.
 
+A flat value larger than 32 KiB is delivered as a file whose path the
+environment carries, so no value is lost to a platform's environment limit;
+see [Runnable binding delivery](runnable-binding-delivery.md).
+
 See [the boundary and migration decision](core-cli-boundary.md).

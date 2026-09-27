@@ -107,6 +107,10 @@ type DockerEnvironment struct {
 	// Recovery ownership is fixed on first use. A later flow changing the
 	// process marker must not redirect this environment's lookup or shutdown.
 	recoveryScope *ContainerRecoveryScope
+	// carrierDir is the host directory the container's file-delivered
+	// configuration values are written to, bind-mounted read-only at
+	// resources.ContainerFileCarrierMount; empty when it has none.
+	carrierDir string
 }
 
 var _ base.RunnerEnvironment = &DockerEnvironment{}
@@ -422,6 +426,9 @@ func (docker *DockerEnvironment) desiredContainerConfigs(ctx context.Context) (*
 		}
 	}
 	hostConfig := docker.createHostConfig(ctx)
+	if err = docker.deliverCarriers(containerConfig, hostConfig); err != nil {
+		return nil, nil, err
+	}
 	fingerprint, err := containerConfigFingerprint(containerConfig, hostConfig)
 	if err != nil {
 		return nil, nil, err
@@ -1093,6 +1100,7 @@ func (docker *DockerEnvironment) Shutdown(ctx context.Context) error {
 			return w.Wrapf(err, "cannot remove container")
 		}
 	}
+	docker.releaseCarriers()
 	return nil
 }
 
@@ -1487,6 +1495,10 @@ func (proc *DockerProc) start(ctx context.Context) error {
 			continue
 		}
 		envs = append(envs, env)
+	}
+	envs, err = proc.env.execCarriers(envs)
+	if err != nil {
+		return w.Wrapf(err, "cannot prepare the process environment")
 	}
 	command := proc.prepareCommand()
 	// Create an exec configuration

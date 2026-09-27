@@ -13,6 +13,13 @@ import (
 type EnvironmentVariable struct {
 	Key   string
 	Value any
+	// File marks a value too large to be delivered inline
+	// (FileCarrierThreshold): whatever starts the process writes it to a file
+	// and sets FileCarrierKey(Key) to its path instead (MaterializeFileCarriers).
+	File bool
+	// Secret marks a value from a secret namespace, which a file delivery
+	// keeps out of any public carrier.
+	Secret bool
 }
 
 func (v EnvironmentVariable) String() string {
@@ -721,7 +728,7 @@ func configurationAsEnvironmentVariables(conf *basev0.Configuration, environment
 			if err != nil {
 				return nil, fmt.Errorf("configuration %q key %q from %q: %w", info.Name, value.Key, conf.Origin, err)
 			}
-			env = append(env, Env(ConfigurationValueEnvironmentKey(conf, info.Name, value), resolved))
+			env = append(env, deliverByFile(Env(ConfigurationValueEnvironmentKey(conf, info.Name, value), resolved), value.Secret))
 		}
 	}
 	return env, nil

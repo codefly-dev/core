@@ -502,6 +502,7 @@ func (proc *NixProc) publishExit(err error) {
 		if cmd != nil && cmd.Process != nil && group != nil {
 			_ = group.RemoveIfDead()
 		}
+		proc.carriers.release()
 		close(proc.exitCh)
 	})
 }
@@ -516,6 +517,9 @@ type NixProc struct {
 	exec   *exec.Cmd
 	group  *TrackedProcessGroup
 	envs   []*resources.EnvironmentVariable
+	// carriers holds the file-delivered values this process was started
+	// with; they are removed once it has exited.
+	carriers *processCarriers
 
 	lifecycleMu   sync.Mutex
 	stopRequested bool
@@ -697,7 +701,7 @@ func (proc *NixProc) Start(ctx context.Context) error {
 	return proc.start(ctx)
 }
 
-func (proc *NixProc) start(ctx context.Context) error {
+func (proc *NixProc) start(ctx context.Context) (startErr error) {
 	w := wool.Get(ctx).In("NixProc.start", wool.DirField(proc.env.dir))
 	materialized, environmentVariables := proc.env.runtimeSnapshot()
 	bin := proc.cmd[0]
@@ -755,8 +759,18 @@ func (proc *NixProc) start(ctx context.Context) error {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}
-	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(environmentVariables)...)
-	cmd.Env = append(cmd.Env, resources.EnvironmentVariableAsStrings(proc.envs)...)
+	carriers, err := prepareProcessCarriers(environmentVariables, proc.envs)
+	if err != nil {
+		return w.Wrapf(err, "cannot prepare the process environment")
+	}
+	cmd.Env = append(cmd.Env, carriers.environ...)
+	proc.carriers = carriers
+	defer func() {
+		// A process that never started never exits: release its files now.
+		if startErr != nil {
+			carriers.release()
+		}
+	}()
 
 	// Wire stdin pipe if requested
 	if proc.stdinReader != nil {
