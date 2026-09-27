@@ -14,9 +14,12 @@ contract — a package built from a method is
 codefly.base.v0.RunnablePackage like any other.
 
 The option's bounds are enforced by the runnable Go package, not by
-protovalidate: these values are read off a descriptor at generation time, never
-off a wire message, so a constraint here would describe a validation nobody
-runs.
+protovalidate. They are read off a descriptor at generation time, and the same
+message is delivered as a prepared binding's policy (PreparedBinding.policy),
+where runnable.VerifyPrepared applies those same bounds to what was delivered.
+Stating them here as well would put the numbers in two places, and the one a
+constraint could not express — that lookup_scopes are a read-only subset of
+invoke_scopes — is the one that matters most.
 */
 
 // Operation marks one method as a Runnable operation and declares how it is
