@@ -325,3 +325,36 @@ func TestDockerRunWithModAndCGO(t *testing.T) {
 	err = env.Shutdown(ctx)
 	require.NoError(t, err)
 }
+
+// A service whose go.mod replaces a module with a local directory compiles that
+// directory into its binary: a change there must invalidate the cached binary,
+// or the service runs code older than its sources.
+func TestNativeRunInvalidatesCacheOnLocallyReplacedModuleChange(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	cacheDir := t.TempDir()
+	write := func(name string, contents string) {
+		t.Helper()
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(contents), 0644))
+	}
+	write("lib/go.mod", "module example.com/lib\n\ngo 1.21\n")
+	write("lib/answer/answer.go", "package answer\n\nfunc Value() string { return \"one\" }\n")
+	write("service/go.mod", "module example.com/service\n\ngo 1.21\n\nrequire example.com/lib v0.0.0\n\nreplace example.com/lib => ../lib\n")
+	write("service/main.go", "package main\n\nimport (\n\t\"fmt\"\n\n\t\"example.com/lib/answer\"\n)\n\nfunc main() { fmt.Println(answer.Value()) }\n")
+
+	env, err := golang.NewNativeGoRunner(ctx, filepath.Join(root, "service"), ".")
+	require.NoError(t, err)
+	env.WithLocalCacheDir(cacheDir)
+	defer func() { require.NoError(t, env.Shutdown(ctx)) }()
+
+	require.NoError(t, env.Init(ctx))
+	require.NoError(t, env.BuildBinary(ctx))
+	require.False(t, env.UsedCache())
+	require.NoError(t, env.BuildBinary(ctx))
+	require.True(t, env.UsedCache(), "nothing changed")
+
+	write("lib/answer/answer.go", "package answer\n\nfunc Value() string { return \"two\" }\n")
+	require.NoError(t, env.BuildBinary(ctx))
+	require.False(t, env.UsedCache(), "the replaced module changed, so the cached binary is stale")
+}

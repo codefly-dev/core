@@ -509,6 +509,13 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	}
 	if r.withGoModules {
 		components = append(components, builders.NewDependency("go.mod", "go.sum").Localize(hashDir))
+		// A module replaced with a local directory is compiled into the
+		// binary, so its sources are part of the cache key too.
+		for _, dir := range localReplaceModuleDirs(hashDir) {
+			components = append(components,
+				builders.NewDependency(dir).WithPathSelect(shared.NewSelect("*.go")),
+				builders.NewDependency("go.mod", "go.sum").Localize(dir))
+		}
 	}
 	r.requirements = builders.NewDependencies("go", components...)
 
