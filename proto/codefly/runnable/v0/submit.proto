@@ -1,0 +1,158 @@
+syntax = "proto3";
+package codefly.runnable.v0;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v0/runnable_invocation.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+/*
+Submit mode: the four shapes an operation declaring COMPLETION_SUBMIT answers
+through. A call-mode operation uses none of them — its answer is the reply to
+the call — so nothing here is a second way to say what a reply already says.
+
+The whole difference submit makes is that the reply proves acceptance rather
+than outcome. Everything below follows from that one fact:
+
+  - an acceptance names the accepted work, because a caller that cannot name it
+    cannot ask about it again;
+  - heartbeats say the work is still live, because silence otherwise cannot be
+    told from a worker that died;
+  - a callback delivers the terminal answer to a caller that is no longer
+    waiting;
+  - a status read answers the caller whose callback never arrived.
+
+None of these is authoritative about an effect. A callback that was lost, a
+heartbeat that stopped and a status that says nothing are all *unproven*, and
+the effect receipt is the only evidence — which is why COMPLETION_SUBMIT
+requires RECOVERY_RECEIPT rather than merely recommending it.
+
+The callback is authenticated by the caller's own workload identity, and there
+is deliberately no signature, token or shared-secret field anywhere in these
+messages. A shared HMAC key would have to be delivered to every owner that may
+report completion, which makes every owner able to forge every other owner's
+completions; a workload identity is attested by the platform and attributable to
+one workload. An owner that cannot present one cannot report a completion, and
+the caller resolves the outcome by reading the receipt instead.
+*/
+
+// RunnableAcceptance is the reply to a submit-mode invocation. It proves the
+// work was accepted and nothing about its outcome.
+message RunnableAcceptance {
+  // schema is the acceptance schema, "codefly.runnable-acceptance/v1".
+  string schema = 1 [(buf.validate.field).string.const = "codefly.runnable-acceptance/v1"];
+  // invocation_id echoes the invocation this accepts, so a reply that arrives
+  // on a reused connection is matched to the request rather than assumed.
+  string invocation_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // handle names the accepted work to the owner that accepted it. It is minted
+  // by the owner and opaque to the caller: a caller that derived it from the
+  // invocation could ask about work the owner never accepted, and would get an
+  // absence it could not distinguish from a lost acceptance.
+  string handle = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 256];
+  // accepted_at is when the owner took responsibility for the work.
+  google.protobuf.Timestamp accepted_at = 4 [(buf.validate.field).required = true];
+  // heartbeat_interval is how often the owner undertakes to report liveness.
+  // Absence beyond it means the caller has stopped hearing, which is unproven
+  // and never a failure: a worker whose heartbeats stopped may have committed
+  // its effect in the same instant.
+  google.protobuf.Duration heartbeat_interval = 5 [(buf.validate.field).required = true];
+}
+
+// RunnableProgress is what an owner has done so far. It is diagnostics, in the
+// same sense logs are: a caller may show it and may not conclude from it. An
+// operation that reported 100 percent and then crashed has an unproven effect,
+// exactly as if it had reported nothing.
+message RunnableProgress {
+  // done and total are units the operation chose. total zero means the owner
+  // cannot say how much work there is, which is the honest answer for work
+  // discovered as it runs, and is not the same as no work.
+  uint64 done = 1;
+  // total is the denominator when the owner knows it.
+  uint64 total = 2;
+  // note describes the current stage to a human, bounded because a heartbeat is
+  // a liveness signal and must not become a log transport.
+  string note = 3 [(buf.validate.field).string.max_len = 512];
+}
+
+// RunnableHeartbeat is one liveness report from an owner holding accepted work.
+message RunnableHeartbeat {
+  // schema is the heartbeat schema, "codefly.runnable-heartbeat/v1".
+  string schema = 1 [(buf.validate.field).string.const = "codefly.runnable-heartbeat/v1"];
+  // handle is the accepted work, as the acceptance named it.
+  string handle = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 256];
+  // invocation_id is the invocation the work was accepted for.
+  string invocation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // observed_at is when the owner observed itself alive. It is the owner's
+  // clock, so a caller measures staleness against its own receipt of
+  // heartbeats rather than against this value.
+  google.protobuf.Timestamp observed_at = 4 [(buf.validate.field).required = true];
+  // progress is optional and never terminal.
+  RunnableProgress progress = 5;
+}
+
+// RunnableCompletionCallback delivers the terminal answer to a caller that is
+// no longer waiting on a reply. It carries the harness's own result, unchanged:
+// the answer a submit-mode operation gives is the same answer a call-mode one
+// would have given, arriving by a different route.
+message RunnableCompletionCallback {
+  // schema is the callback schema, "codefly.runnable-callback/v1".
+  string schema = 1 [(buf.validate.field).string.const = "codefly.runnable-callback/v1"];
+  // handle is the accepted work this completes.
+  string handle = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 256];
+  // invocation_id is the invocation this completes.
+  string invocation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // effect_id is the idempotency key the invocation presented, repeated so a
+  // caller holding only this callback can read the receipt without first
+  // finding the invocation it came from.
+  string effect_id = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // result is what the harness reported: output, or a typed failure, or an
+  // interruption. A callback carrying no result is malformed rather than an
+  // outcome — it would say the work ended and refuse to say how.
+  codefly.base.v0.RunnableResult result = 5 [(buf.validate.field).required = true];
+  // completed_at is when the owner finished the work.
+  google.protobuf.Timestamp completed_at = 6 [(buf.validate.field).required = true];
+}
+
+// RunnableStatusRequest asks an owner what became of work it accepted. It is
+// the answer for a caller whose callback never arrived, and it is a read: a
+// status request never starts, resumes or retries anything.
+message RunnableStatusRequest {
+  // handle is the accepted work, as the acceptance named it.
+  string handle = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 256];
+}
+
+// RunnableStatus is what an owner can say about work it accepted.
+message RunnableStatus {
+  // State is how far the accepted work has got.
+  enum State {
+    // STATE_UNKNOWN is the default value when state is not specified; a status
+    // carrying it is not a valid status.
+    STATE_UNKNOWN = 0;
+    // STATE_ACCEPTED means the owner holds the work and has not started it.
+    STATE_ACCEPTED = 1;
+    // STATE_RUNNING means the work is in progress.
+    STATE_RUNNING = 2;
+    // STATE_COMPLETED means the work ended and result carries the answer. It is
+    // the one state that says anything about the effect, and it says exactly
+    // what a call-mode reply would have said.
+    STATE_COMPLETED = 3;
+    // STATE_LOST means the owner no longer knows: it accepted this handle and
+    // cannot say what became of it. It is reported rather than withheld,
+    // because a caller told "lost" reads the receipt, while a caller told
+    // nothing cannot tell this from an owner that never accepted the work.
+    STATE_LOST = 4;
+  }
+  // schema is the status schema, "codefly.runnable-status/v1".
+  string schema = 1 [(buf.validate.field).string.const = "codefly.runnable-status/v1"];
+  // handle is the accepted work this describes.
+  string handle = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 256];
+  // invocation_id is the invocation the work was accepted for.
+  string invocation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // state is how far the work has got.
+  State state = 4 [(buf.validate.field).enum.defined_only = true];
+  // result is the terminal answer, present for exactly STATE_COMPLETED.
+  codefly.base.v0.RunnableResult result = 5;
+  // progress is the last progress the owner observed, for the states that have
+  // not ended.
+  RunnableProgress progress = 6;
+}

@@ -35,6 +35,59 @@ processes a facility runs at once, not a pool inside one of them; there is no
 way to hand a second invocation to a process already running.
 */
 
+// RunnableGrantReference is an opaque, revocable reference to a delegation the
+// invocation's authority is minted from. It is not a capability: presenting it
+// mints nothing by itself, and every mint is a fresh exchange under a live
+// re-check of the delegation, so revoking it takes effect on the next exchange
+// rather than whenever a long-lived token would have expired.
+//
+// It exists because the alternative does not work for work that starts later
+// than it was admitted. A child capability projected when an invocation is
+// submitted presents an expired capability by the time a job container starts
+// or a provider retries it — nothing long-lived is minted anywhere, so there is
+// no token that could span the gap. Whatever performs the invocation mints, at
+// the moment it invokes, from this.
+message RunnableGrantReference {
+  // delegation_id identifies the delegation, opaque to everything that carries
+  // it: only the authority that recorded it can resolve it, which is what keeps
+  // it from being usable as a bearer value if it leaks.
+  string delegation_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // audience is the trust boundary the exchanged child must be minted for. It
+  // repeats the binding authority's audience so an invocation document is
+  // self-contained: whatever exchanges this has the invocation and nothing else.
+  string audience = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// RunnableInvocationIdentity is the Work Context one invocation runs under, and
+// it is required. An optional identity slot is not a lenient one: it reinstates
+// exactly the state it exists to remove, where an invocation nobody minted for
+// runs under the platform's own identity, and it does so silently — the caller
+// that forgot to fill it and the caller that had no authority to fill it are
+// indistinguishable.
+//
+// It is on the invocation document rather than in the environment because the
+// document is already 0600 in a per-process directory removed with the process,
+// while an environment variable is readable by every descendant and appears in
+// whatever collects process metadata.
+message RunnableInvocationIdentity {
+  // carrier is how the authority arrives. Which arm is set follows from when the
+  // invocation runs, not from which facility runs it: a call happening now
+  // carries the minted capability, and work that starts later carries the
+  // reference it is minted from.
+  oneof carrier {
+    // An invocation with neither reaches an owner with no identity, which is
+    // the one thing this message exists to prevent, so the arm is required.
+    option (buf.validate.oneof).required = true;
+    // work_context is the already-minted, short-lived capability, in the signed
+    // wire representation Codefly SDKs own. A holder must not parse or
+    // reconstruct it; it is carried verbatim to the owner.
+    string work_context = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 8192];
+    // grant is the reference a child is exchanged from at the moment of the
+    // call.
+    RunnableGrantReference grant = 2;
+  }
+}
+
 // RunnableInvocation is the document a launcher hands a harness. Unlike a
 // package or a binding it is not content-addressed: it names one run of an
 // already-installed binding rather than an immutable installation fact.
@@ -75,6 +128,9 @@ message RunnableInvocation {
   // apply to exactly the document that was bounded. A proto3 JSON encoder
   // base64-encodes this field; the bound is on the decoded document.
   bytes input = 8 [(buf.validate.field).bytes.min_len = 1];
+  // identity is the Work Context this invocation runs under. Required: there is
+  // no invocation without an identity to run it as.
+  RunnableInvocationIdentity identity = 9 [(buf.validate.field).required = true];
 }
 
 // RunnableError is a handler's own typed failure. The code is the operation's

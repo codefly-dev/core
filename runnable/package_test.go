@@ -1,6 +1,7 @@
 package runnable_test
 
 import (
+	"slices"
 	"context"
 	"strings"
 	"testing"
@@ -45,6 +46,7 @@ func samplePackage(t *testing.T) *basev0.RunnablePackage {
 			Timeout:        durationpb.New(2 * time.Minute),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_SIGNAL,
 			Recovery:       basev0.RunnableExecution_RECOVERY_RECOMPUTE,
+			Completion:     basev0.RunnableExecution_COMPLETION_CALL,
 			MaxInputBytes:  65536,
 			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
 			MaxLogBytes:    resources.DefaultRunnableLogBytes,
@@ -101,7 +103,7 @@ func TestPreparePackageIsCanonicalAndDeterministic(t *testing.T) {
 
 	// The digest is a property of the canonical form, not of this binary's
 	// wire encoding, and is mixed with its format identifier.
-	require.Equal(t, "10f2057841e8a0a2056cd9c7ea6107cea302c2845953dc766586aa3c873eb38c", preparedPackage(t).GetDigest())
+	require.Equal(t, "fce55f6c19ea5efbc6044f7f7ceb9af28722caa3475655efa8e5738c3dd2ad05", preparedPackage(t).GetDigest())
 
 	// The input is never mutated, and a supplied digest must match.
 	original := samplePackage(t)
@@ -311,6 +313,16 @@ func functionPackage(t *testing.T) *basev0.RunnablePackage {
 	return pkg
 }
 
+// sampleAuthority is the Work Context every binding installs under, whatever
+// its facility.
+func sampleAuthority() *basev0.RunnableAuthority {
+	return &basev0.RunnableAuthority{
+		Audience:     "with-runnables.word-count",
+		InvokeScopes: []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"count", "read"}}},
+		LookupScopes: []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"read"}}},
+	}
+}
+
 func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifact, facility basev0.RunnableFacility_Kind) *basev0.RunnableBinding {
 	binding := &basev0.RunnableBinding{
 		Schema:        runnable.BindingSchemaV1,
@@ -327,6 +339,7 @@ func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifac
 		CredentialReferences:    []string{"store/password", "artifact-store/token"},
 		ConfigurationReferences: []string{"openai", "artifact-store"},
 		Target:                  sampleTarget(facility),
+		Authority:               sampleAuthority(),
 	}
 	if artifact != nil {
 		binding.Implementation = &basev0.RunnableBinding_Artifact{Artifact: proto.Clone(artifact).(*basev0.RunnableArtifact)}
@@ -832,4 +845,128 @@ func TestEndpointCoordinatesCanAlwaysNameARealEndpoint(t *testing.T) {
 	// a list of uniformly valid names would pass with no constraint at all.
 	require.Positive(t, agreedAccepted)
 	require.Positive(t, agreedRejected)
+}
+
+// packageForFacility is a release installable on exactly one facility, so the
+// authority table below can install every facility from one helper rather than
+// repeating each one's implementation and target.
+func packageForFacility(t *testing.T, facility basev0.RunnableFacility_Kind) (*basev0.RunnablePackage, *basev0.RunnableBinding) {
+	t.Helper()
+	var pkg *basev0.RunnablePackage
+	switch facility {
+	case basev0.RunnableFacility_SERVICE:
+		pkg = ownerHandlerPackage(t)
+	case basev0.RunnableFacility_FUNCTION:
+		pkg = functionPackage(t)
+	default:
+		pkg = samplePackage(t)
+		pkg.Execution.Facilities = []*basev0.RunnableFacility{{Kind: facility}}
+		// core ties an artifact kind to its facility, so a release declaring one
+		// facility may carry only that facility's artifact.
+		kind := basev0.RunnableArtifact_IMAGE
+		if facility == basev0.RunnableFacility_NATIVE {
+			kind = basev0.RunnableArtifact_NATIVE
+		}
+		pkg.Artifacts = slices.DeleteFunc(pkg.Artifacts, func(a *basev0.RunnableArtifact) bool { return a.GetKind() != kind })
+	}
+	prepared, err := runnable.PreparePackage(pkg)
+	require.NoError(t, err)
+	binding := sampleBinding(prepared, nil, facility)
+	switch facility {
+	case basev0.RunnableFacility_SERVICE:
+		binding.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+	case basev0.RunnableFacility_FUNCTION:
+		binding.Implementation = &basev0.RunnableBinding_Function{Function: prepared.GetFunctions()[0]}
+	default:
+		binding.Implementation = &basev0.RunnableBinding_Artifact{Artifact: artifactFor(prepared, facility)}
+	}
+	return prepared, binding
+}
+
+// artifactFor picks the package artifact a launched facility installs.
+func artifactFor(pkg *basev0.RunnablePackage, facility basev0.RunnableFacility_Kind) *basev0.RunnableArtifact {
+	want := basev0.RunnableArtifact_IMAGE
+	if facility == basev0.RunnableFacility_NATIVE {
+		want = basev0.RunnableArtifact_NATIVE
+	}
+	for _, artifact := range pkg.GetArtifacts() {
+		if artifact.GetKind() == want {
+			return proto.Clone(artifact).(*basev0.RunnableArtifact)
+		}
+	}
+	return nil
+}
+
+// TestEveryFacilityInstallsUnderAWorkContext is a table over facilities on
+// purpose. The rule it enforces used to be facility-dependent — a SERVICE
+// binding required an authority and a compute binding was refused for carrying
+// one — so a test covering one facility would pass both before and after the
+// change and prove nothing. Identity is a property of the work, not of where
+// the work runs, and that is only visible across the whole table.
+func TestEveryFacilityInstallsUnderAWorkContext(t *testing.T) {
+	for _, facility := range []basev0.RunnableFacility_Kind{
+		basev0.RunnableFacility_NATIVE,
+		basev0.RunnableFacility_KUBERNETES,
+		basev0.RunnableFacility_SERVICE,
+		basev0.RunnableFacility_FUNCTION,
+	} {
+		t.Run(facility.String(), func(t *testing.T) {
+			pkg, binding := packageForFacility(t, facility)
+			installed, err := runnable.PrepareBinding(binding, pkg)
+			require.NoError(t, err)
+			require.Equal(t, sampleAuthority().GetAudience(), installed.GetAuthority().GetAudience())
+
+			// No authority at all is refused at load, naming the facility so an
+			// operator reading the refusal knows which binding to fix.
+			_, missing := packageForFacility(t, facility)
+			missing.Authority = nil
+			_, err = runnable.PrepareBinding(missing, pkg)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, facility.String())
+
+			// An authority with no invoke scopes is the same defect wearing a
+			// present field: there is nothing to mint a child capability from.
+			_, scopeless := packageForFacility(t, facility)
+			scopeless.Authority = sampleAuthority()
+			scopeless.Authority.InvokeScopes = nil
+			_, err = runnable.PrepareBinding(scopeless, pkg)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+
+			// A lookup scope that is not a read-only subset of the invoke
+			// scopes would let recovering an outcome carry more authority than
+			// producing it did.
+			_, widened := packageForFacility(t, facility)
+			widened.Authority = sampleAuthority()
+			widened.Authority.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"write"}}}
+			_, err = runnable.PrepareBinding(widened, pkg)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, "read-only")
+		})
+	}
+}
+
+// TestSubmitCompletionRequiresReceiptRecovery covers the one relation between
+// the completion mode and the recovery policy. A submitted invocation's reply
+// proves only acceptance, so a terminal answer the caller never received has to
+// be resolvable by reading the effect receipt; RECOVERY_RECOMPUTE would resolve
+// it by running the effect a second time.
+func TestSubmitCompletionRequiresReceiptRecovery(t *testing.T) {
+	pkg := samplePackage(t)
+	pkg.Execution.Completion = basev0.RunnableExecution_COMPLETION_SUBMIT
+	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, pkg.GetExecution().GetRecovery())
+	_, err := runnable.PreparePackage(pkg)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "COMPLETION_SUBMIT")
+
+	pkg.Execution.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+	_, err = runnable.PreparePackage(pkg)
+	require.NoError(t, err)
+
+	// A package naming no mode at all is refused rather than assumed
+	// synchronous: a caller that assumed wrongly either abandons work that is
+	// still running or waits for a reply that was never going to come.
+	pkg.Execution.Completion = basev0.RunnableExecution_COMPLETION_UNKNOWN
+	_, err = runnable.PreparePackage(pkg)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "no completion mode")
 }

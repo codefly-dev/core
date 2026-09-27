@@ -1,0 +1,104 @@
+syntax = "proto3";
+package codefly.base.v0;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v0/runnable.proto";
+import "codefly/base/v0/runnable_invocation.proto";
+import "google/protobuf/timestamp.proto";
+
+/*
+The served-mode outcome taxonomy: what a caller may conclude about an effect
+from one call.
+
+Every facility is reached by calling something that serves the contract — an
+owner service, a provider function, a job container running the same harness —
+so what is classified is a call, not a process. This replaces the taxonomy the
+launcher owned, which was built around a process: a non-zero exit, a signal, a
+harness that never wrote a result. That vocabulary had no meaning for a call,
+and the line it drew is the one recovery depends on, so the served equivalent
+is stated here rather than lost with the launcher.
+
+Two rules carry the weight the launcher's taxonomy carried, and they are the two
+a caller must never confuse.
+
+**Only the owner's own typed assertion proves a no-effect failure.** A bare
+error status does not, however plausible it looks. A 4xx with no typed code, a
+dropped connection and a timeout are all UNPROVEN, which is the side on which
+the operation retries under its attempt budget or ends unknown — never the side
+on which a second attempt is issued against an effect that may already have
+committed. The code must be a value in the protocol's own vocabulary, never
+inferred from a status class.
+
+**Absent is not "no", it is "not yet known".** A receipt read that finds nothing
+is the answer recovery exists to get, and it must be reachable without an error.
+A caller reads it as inconclusive and never as permission to invoke again. An
+owner serving no receipt route answers with neither, which is also inconclusive,
+so an owner cannot make its effects look absent by declining to report them.
+
+There is deliberately no outcome for a container that exits without answering.
+Served, that is not a distinct case: it is a call that did not complete, so it is
+OWNER_UNAVAILABLE and the receipt is the only evidence — exactly what it would
+have been had the container answered and the reply been lost. Collapsing the two
+is the point rather than a gap. A caller never had a way to tell them apart, and
+separate outcomes for them implied a certainty it did not have.
+*/
+
+// RunnableServedOutcome is what one call to a served operation concluded.
+enum RunnableServedOutcome {
+  // SERVED_UNKNOWN is the default value when the outcome is not specified; a
+  // completion carrying it classified nothing and is not a valid completion.
+  SERVED_UNKNOWN = 0;
+  // SERVED_SUCCEEDED means the owner answered with a response that validates
+  // against the installed output schema. The effect is proven committed.
+  SERVED_SUCCEEDED = 1;
+  // SERVED_OWNER_FAILED means the owner asserted, in its own typed vocabulary,
+  // that it completed without its effect. The effect is proven not committed,
+  // and this is the only outcome other than a refused call that proves it.
+  SERVED_OWNER_FAILED = 2;
+  // SERVED_AUTHORITY_UNAVAILABLE means no authority was resolved, so nothing
+  // was sent. The effect is proven not committed — not because the owner said
+  // so, but because the call never left.
+  SERVED_AUTHORITY_UNAVAILABLE = 3;
+  // SERVED_INVOCATION_INTEGRITY means the owner answered with something that is
+  // not this invocation's valid response: malformed, another invocation's, or
+  // failing the output schema. Unproven — the effect may well have committed
+  // before the answer was spoiled.
+  SERVED_INVOCATION_INTEGRITY = 4;
+  // SERVED_OWNER_UNAVAILABLE means the call did not complete, or completed with
+  // a status carrying no typed code. Unproven. It is also where a container
+  // that exited without answering lands.
+  SERVED_OWNER_UNAVAILABLE = 5;
+  // SERVED_EFFECT_OUTCOME_UNKNOWN means the owner reported an interrupted
+  // invocation. Unproven: the effect is left unproven rather than disproven,
+  // because a handler interrupted mid-effect has not said which side of it it
+  // stopped on.
+  SERVED_EFFECT_OUTCOME_UNKNOWN = 6;
+}
+
+// RunnableServedCompletion is a caller's typed record of one call. It replaces
+// the launcher's completion: no exit status, no signal and no captured log
+// bounds, because there is no process here to have produced them.
+message RunnableServedCompletion {
+  // runnable is the invoked release.
+  RunnableIdentity runnable = 1 [(buf.validate.field).required = true];
+  // invocation_id is the invocation this completes.
+  string invocation_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
+  // outcome is what the call concluded.
+  RunnableServedOutcome outcome = 3 [(buf.validate.field).enum.defined_only = true];
+  // result is the owner's own report, present for exactly SERVED_SUCCEEDED,
+  // SERVED_OWNER_FAILED and SERVED_EFFECT_OUTCOME_UNKNOWN — the three outcomes
+  // the owner spoke for itself in.
+  RunnableResult result = 4;
+  // failure_code is the owner's typed code as the protocol carried it, kept
+  // verbatim for SERVED_OWNER_FAILED. It is the evidence the outcome rests on,
+  // so a completion claiming a proven no-effect failure without one is
+  // malformed rather than trusted.
+  string failure_code = 5 [(buf.validate.field).string.max_len = 128];
+  // message explains an outcome that carries no result.
+  string message = 6;
+  // called_at is when the caller sent the call.
+  google.protobuf.Timestamp called_at = 7 [(buf.validate.field).required = true];
+  // answered_at is when the caller stopped waiting, which for an outcome that
+  // never got an answer is when it gave up rather than when anything replied.
+  google.protobuf.Timestamp answered_at = 8 [(buf.validate.field).required = true];
+}

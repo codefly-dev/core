@@ -27,7 +27,7 @@ func declaredMarker() map[string]any {
 		"retryable_codes": []any{"503"},
 		"audience":        "documents.ingestion",
 		"invoke_scopes":   []any{map[string]any{"resource_kind": "documents", "actions": []any{"ingest", "read"}}},
-		"lookup_scopes":   []any{map[string]any{"resource_kind": "documents", "actions": []any{"read"}}},
+		"completion": "COMPLETION_CALL", "lookup_scopes":   []any{map[string]any{"resource_kind": "documents", "actions": []any{"read"}}},
 	}
 }
 

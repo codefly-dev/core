@@ -395,6 +395,17 @@ func validateExecution(execution *basev0.RunnableExecution) (map[basev0.Runnable
 	if !launched && execution.GetMaxLogBytes() != 0 {
 		return nil, fmt.Errorf("%w: execution sets max_log_bytes but no declared facility has a launcher capturing streams", ErrInvalid)
 	}
+	switch execution.GetCompletion() {
+	case basev0.RunnableExecution_COMPLETION_CALL:
+	case basev0.RunnableExecution_COMPLETION_SUBMIT:
+		if execution.GetRecovery() != basev0.RunnableExecution_RECOVERY_RECEIPT {
+			return nil, fmt.Errorf("%w: execution declares %s with %s: a submitted invocation's reply proves only that the work was accepted, so a terminal answer the caller never received is resolved by reading the effect receipt, and %s has no way to tell a lost callback from work that never happened",
+				ErrInvalid, basev0.RunnableExecution_COMPLETION_SUBMIT, execution.GetRecovery(), basev0.RunnableExecution_RECOVERY_RECOMPUTE)
+		}
+	default:
+		return nil, fmt.Errorf("%w: execution declares no completion mode; %s and %s are the two, and an operation that did not say is not a synchronous one",
+			ErrInvalid, basev0.RunnableExecution_COMPLETION_CALL, basev0.RunnableExecution_COMPLETION_SUBMIT)
+	}
 	return facilities, nil
 }
 
@@ -483,6 +494,13 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 	if binding.GetSchema() != BindingSchemaV1 {
 		return fmt.Errorf("%w: binding schema %q is not supported; expected %s", ErrInvalid, binding.GetSchema(), BindingSchemaV1)
 	}
+	// Before the wire validation, so the refusal an operator reads names the
+	// facility of the binding to fix rather than a field path: an installation
+	// is refused here for the whole set, and "authority: value is required"
+	// does not say which binding in it.
+	if err := validateBindingAuthority(binding); err != nil {
+		return err
+	}
 	if err := validator.Validate(binding); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -517,6 +535,30 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 		return fmt.Errorf("%w: binding resolves configurations %v but the package declares %v", ErrInvalid, bound, required)
 	}
 	return nil
+}
+
+// validateBindingAuthority holds an installed binding's Work Context authority
+// to the same rule a declared policy is held to, in every facility.
+//
+// There is deliberately no facility that is exempt. The rule this replaces was
+// facility-dependent — a SERVICE binding required an authority and a compute
+// binding was refused for carrying one, on the reasoning that the host submits
+// to its provider under the platform's own identity so nothing would read the
+// scopes. That reasoning is what made identity a property of where an operation
+// happened to run, and its effect was that function and job invocations ran as
+// the platform rather than as the principal whose work it was.
+func validateBindingAuthority(binding *basev0.RunnableBinding) error {
+	authority := binding.GetAuthority()
+	if authority == nil {
+		return fmt.Errorf("%w: binding on facility %s carries no authority; every facility calls under a Work Context, and an installation missing one anywhere is refused here rather than on the first call it cannot mint for",
+			ErrInvalid, binding.GetFacility().GetKind())
+	}
+	return authoritySpec{
+		subject:      "binding on facility " + binding.GetFacility().GetKind().String(),
+		audience:     authority.GetAudience(),
+		invokeScopes: authority.GetInvokeScopes(),
+		lookupScopes: authority.GetLookupScopes(),
+	}.validate()
 }
 
 // validateImplementation checks that the installation selected one of the

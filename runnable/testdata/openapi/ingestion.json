@@ -19,7 +19,7 @@
           "invoke_scopes": [
             {"resource_kind": "documents", "actions": ["ingest", "read"]}
           ],
-          "lookup_scopes": [
+          "completion": "COMPLETION_CALL", "lookup_scopes": [
             {"resource_kind": "documents", "actions": ["read"]}
           ]
         },

@@ -654,6 +654,54 @@ evidence. `SUCCEEDED` and `FAILED` prove what happened to the effect;
 included, however the interruption was reported — leaves it unproven for the
 package's `recovery` policy to resolve. Core neither retries nor recovers.
 
+## What a served invocation's outcome proves
+
+Every facility is reached by **calling** something that serves the contract — an
+owner service, a provider function, a job container running the same harness — so
+what is classified is a call, not a process. The taxonomy above is the launcher's,
+built around a process: a non-zero exit, a signal, a harness that never wrote a
+result. None of that vocabulary means anything for a call, and the line it drew
+is the one recovery depends on, so the served equivalent is stated here rather
+than lost with the launcher. `runnable.ClassifyServed` makes the judgement and
+`runnable.ServedOutcomeIsCertain` draws the line, exactly as `Complete` and
+`OutcomeIsCertain` did for a process.
+
+| Outcome | What the caller saw | Effect |
+| --- | --- | --- |
+| `SERVED_SUCCEEDED` | a response that validates against the installed output schema | **proven committed** |
+| `SERVED_OWNER_FAILED` | the owner's own assertion, in the protocol's own vocabulary, that it completed without its effect | **proven not committed** |
+| `SERVED_AUTHORITY_UNAVAILABLE` | no authority was resolved, so nothing was sent | **proven not committed** |
+| `SERVED_INVOCATION_INTEGRITY` | a response that is malformed, another invocation's, or fails the output schema | unproven |
+| `SERVED_OWNER_UNAVAILABLE` | the call did not complete, or completed with a status carrying no typed code | unproven |
+| `SERVED_EFFECT_OUTCOME_UNKNOWN` | the owner reported an interrupted invocation | unproven |
+| a receipt read answering *absent* | nothing committed under this effect id **so far** | unproven |
+
+Two of these carry the weight the launcher's taxonomy carried, and they are the
+two a caller must never confuse.
+
+**Only the owner's own typed assertion proves a no-effect failure.** A bare error
+status does not, however plausible it looks. A `4xx` with no typed code, a dropped
+connection and a timeout are all unproven — the side on which the operation
+retries under its attempt budget or ends unknown, never the side on which a
+second attempt is issued against an effect that may already have committed. The
+code must be a value in the protocol's own vocabulary, never inferred from a
+status class, which is why `Call.FailureCode` is what the classifier reads and
+not the status.
+
+**Absent is not "no", it is "not yet known".** A receipt read that finds nothing
+is the answer recovery exists to get, and it must be reachable without an error.
+A caller reads it as inconclusive and never as permission to invoke again. An
+owner serving no receipt route answers with neither, which is also inconclusive,
+so an owner cannot make its effects look absent by declining to report them.
+
+There is deliberately **no outcome for a container that exits without
+answering**. Served, that is not a distinct case: it is a call that did not
+complete, so it is `SERVED_OWNER_UNAVAILABLE` and the receipt is the only
+evidence — exactly what it would have been had the container answered and the
+reply been lost. Collapsing the two is the point rather than a gap: a caller
+never had a way to tell them apart, and separate outcomes implied a certainty it
+did not have.
+
 ## Ownership of what is not here
 
 - **Agents** (`Builder.Build` with an `output_directory` → `DockerBuildPlan`;

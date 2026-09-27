@@ -31,7 +31,8 @@ const (
 // contract, and two installations of it may run under different policies.
 //
 // The option's presence is the marking; every field below except
-// lookup_method, max_input_bytes and max_output_bytes is required. An attempt
+// lookup_method, max_input_bytes and max_output_bytes is required, completion
+// included. An attempt
 // budget and an authority nobody chose are not defaults core may invent on an
 // owner's behalf, so an empty option is rejected rather than filled in.
 type Operation struct {
@@ -69,8 +70,13 @@ type Operation struct {
 	// max_output_bytes bounds the operation's inline output the same way; zero
 	// keeps the default.
 	MaxOutputBytes uint64 `protobuf:"varint,11,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// completion is how the answer arrives, and it is required like the rest of
+	// the policy: an operation that did not say is not a synchronous one, because
+	// a caller that assumed wrongly either abandons work that is still running or
+	// waits for a reply that was never going to come.
+	Completion    v0.RunnableExecution_Completion `protobuf:"varint,12,opt,name=completion,proto3,enum=codefly.base.v0.RunnableExecution_Completion" json:"completion,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Operation) Reset() {
@@ -180,6 +186,13 @@ func (x *Operation) GetMaxOutputBytes() uint64 {
 	return 0
 }
 
+func (x *Operation) GetCompletion() v0.RunnableExecution_Completion {
+	if x != nil {
+		return x.Completion
+	}
+	return v0.RunnableExecution_Completion(0)
+}
+
 var file_codefly_runnable_v0_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
@@ -204,7 +217,7 @@ var File_codefly_runnable_v0_options_proto protoreflect.FileDescriptor
 
 const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\n" +
-	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\xa9\x04\n" +
+	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\x1ecodefly/base/v0/runnable.proto\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\xf8\x04\n" +
 	"\tOperation\x12B\n" +
 	"\x0fattempt_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0eattemptTimeout\x12>\n" +
 	"\rtotal_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\ftotalTimeout\x12!\n" +
@@ -217,7 +230,10 @@ const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\rlookup_method\x18\t \x01(\tR\flookupMethod\x12&\n" +
 	"\x0fmax_input_bytes\x18\n" +
 	" \x01(\x04R\rmaxInputBytes\x12(\n" +
-	"\x10max_output_bytes\x18\v \x01(\x04R\x0emaxOutputBytes:^\n" +
+	"\x10max_output_bytes\x18\v \x01(\x04R\x0emaxOutputBytes\x12M\n" +
+	"\n" +
+	"completion\x18\f \x01(\x0e2-.codefly.base.v0.RunnableExecution.CompletionR\n" +
+	"completion:^\n" +
 	"\toperation\x12\x1e.google.protobuf.MethodOptions\x18\xbb\x8e\x03 \x01(\v2\x1e.codefly.runnable.v0.OperationR\toperationB\xd3\x01\n" +
 	"\x17com.codefly.runnable.v0B\fOptionsProtoP\x01Z<github.com/codefly-dev/core/generated/go/codefly/runnable/v0\xa2\x02\x03CRV\xaa\x02\x13Codefly.Runnable.V0\xca\x02\x13Codefly\\Runnable\\V0\xe2\x02\x1fCodefly\\Runnable\\V0\\GPBMetadata\xea\x02\x15Codefly::Runnable::V0b\x06proto3"
 
@@ -235,10 +251,11 @@ func file_codefly_runnable_v0_options_proto_rawDescGZIP() []byte {
 
 var file_codefly_runnable_v0_options_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_codefly_runnable_v0_options_proto_goTypes = []any{
-	(*Operation)(nil),                  // 0: codefly.runnable.v0.Operation
-	(*durationpb.Duration)(nil),        // 1: google.protobuf.Duration
-	(*v0.WorkScopeV1)(nil),             // 2: codefly.base.v0.WorkScopeV1
-	(*descriptorpb.MethodOptions)(nil), // 3: google.protobuf.MethodOptions
+	(*Operation)(nil),                    // 0: codefly.runnable.v0.Operation
+	(*durationpb.Duration)(nil),          // 1: google.protobuf.Duration
+	(*v0.WorkScopeV1)(nil),               // 2: codefly.base.v0.WorkScopeV1
+	(v0.RunnableExecution_Completion)(0), // 3: codefly.base.v0.RunnableExecution.Completion
+	(*descriptorpb.MethodOptions)(nil),   // 4: google.protobuf.MethodOptions
 }
 var file_codefly_runnable_v0_options_proto_depIdxs = []int32{
 	1, // 0: codefly.runnable.v0.Operation.attempt_timeout:type_name -> google.protobuf.Duration
@@ -246,13 +263,14 @@ var file_codefly_runnable_v0_options_proto_depIdxs = []int32{
 	1, // 2: codefly.runnable.v0.Operation.backoff:type_name -> google.protobuf.Duration
 	2, // 3: codefly.runnable.v0.Operation.invoke_scopes:type_name -> codefly.base.v0.WorkScopeV1
 	2, // 4: codefly.runnable.v0.Operation.lookup_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	3, // 5: codefly.runnable.v0.operation:extendee -> google.protobuf.MethodOptions
-	0, // 6: codefly.runnable.v0.operation:type_name -> codefly.runnable.v0.Operation
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	6, // [6:7] is the sub-list for extension type_name
-	5, // [5:6] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	3, // 5: codefly.runnable.v0.Operation.completion:type_name -> codefly.base.v0.RunnableExecution.Completion
+	4, // 6: codefly.runnable.v0.operation:extendee -> google.protobuf.MethodOptions
+	0, // 7: codefly.runnable.v0.operation:type_name -> codefly.runnable.v0.Operation
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	7, // [7:8] is the sub-list for extension type_name
+	6, // [6:7] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_codefly_runnable_v0_options_proto_init() }

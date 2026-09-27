@@ -1,6 +1,7 @@
 syntax = "proto3";
 package codefly.runnable.v0;
 
+import "codefly/base/v0/runnable.proto";
 import "codefly/base/v0/work_context.proto";
 import "google/protobuf/descriptor.proto";
 import "google/protobuf/duration.proto";
@@ -28,7 +29,8 @@ invoke_scopes — is the one that matters most.
 // contract, and two installations of it may run under different policies.
 //
 // The option's presence is the marking; every field below except
-// lookup_method, max_input_bytes and max_output_bytes is required. An attempt
+// lookup_method, max_input_bytes and max_output_bytes is required, completion
+// included. An attempt
 // budget and an authority nobody chose are not defaults core may invent on an
 // owner's behalf, so an empty option is rejected rather than filled in.
 message Operation {
@@ -65,6 +67,11 @@ message Operation {
   // max_output_bytes bounds the operation's inline output the same way; zero
   // keeps the default.
   uint64 max_output_bytes = 11;
+  // completion is how the answer arrives, and it is required like the rest of
+  // the policy: an operation that did not say is not a synchronous one, because
+  // a caller that assumed wrongly either abandons work that is still running or
+  // waits for a reply that was never going to come.
+  codefly.base.v0.RunnableExecution.Completion completion = 12;
 }
 
 extend google.protobuf.MethodOptions {
