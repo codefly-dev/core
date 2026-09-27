@@ -295,8 +295,8 @@ func PackageFromOpenAPIOperation(document []byte, location *resources.RunnableLo
 			Timeout:        durationpb.New(spec.TotalTimeout),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_NONE,
 			Recovery:       basev0.RunnableExecution_RECOVERY_RECEIPT,
-			MaxInputBytes:  resources.DefaultRunnablePayloadBytes,
-			MaxOutputBytes: resources.DefaultRunnablePayloadBytes,
+			MaxInputBytes:  payloadBound(spec.MaxInputBytes),
+			MaxOutputBytes: payloadBound(spec.MaxOutputBytes),
 		},
 		ServiceOperations: []*basev0.RunnableServiceOperation{{
 			Module:        owner.Module,

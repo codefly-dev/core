@@ -1,0 +1,116 @@
+syntax = "proto3";
+package codefly.runnable.v0;
+
+import "buf/validate/validate.proto";
+import "codefly/base/v0/runnable.proto";
+import "codefly/runnable/v0/options.proto";
+
+/*
+A prepared binding is one derived operation, installed for one environment and
+delivered to whoever calls it as workspace configuration: the group
+`runnable-bindings`, keyed `<MODULE>__<OPERATION>`. Composition wires the
+owner's address into it, so the caller never names an owner.
+
+What a call needs is five facts — this endpoint, this method, this identity,
+this input, this policy — and they have two lifetimes. The four that are fixed
+when the operation is installed are here. Identity and input belong to one
+call and are no part of an installation fact.
+
+Nothing here is a protobuf descriptor. An owner is called with JSON: a gRPC
+owner on its Connect endpoint, a REST owner on its real route. Descriptors
+existed to resolve a method for a binary call, so calling with JSON removes the
+reason for them rather than only their bulk — the earlier form carried an
+owner's whole descriptor closure per operation, about 138 KB of base64 each.
+*/
+
+// PreparedOperation names the operation an owner publishes, for audit and for
+// keying its effect receipts. It is deliberately not the dial target: reading
+// one spelling as both is what refused a REST operation, whose `POST /path` is
+// no method path. PreparedCall carries the dial target.
+message PreparedOperation {
+  // module is the owner service's module, named as an Endpoint's module is.
+  string module = 1 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 25];
+  // service is the owner service, named as an Endpoint's service is.
+  string service = 2 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 25];
+  // endpoint is the endpoint the operation is published on, named as an
+  // Endpoint's name is.
+  string endpoint = 3 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 20];
+  // spelling is the operation as the owner spells it: "/pkg.Service/Method"
+  // for a gRPC method, "POST /path" for a REST one. It is the identity a
+  // receipt is keyed by (codefly.runnable.receipts.v0.LookupRequest.method),
+  // so it is preserved rather than normalized into one transport's form.
+  string spelling = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// ConnectProcedure dials a gRPC owner in Connect's JSON mode: the procedure is
+// POSTed with an application/json body. Every Runnable owner serves a Connect
+// endpoint; a gRPC method marked runnable whose owner declares none fails at
+// generation rather than at a call.
+message ConnectProcedure {
+  // procedure is the fully-qualified procedure, "/pkg.Service/Method".
+  string procedure = 1 [(buf.validate.field).string.min_len = 3, (buf.validate.field).string.pattern = "^/[A-Za-z_][A-Za-z0-9_.]*/[A-Za-z_][A-Za-z0-9_]*$"];
+}
+
+// HTTPRoute dials a REST owner on its own route with the plain JSON body the
+// owner's schema declares. No Codefly envelope: a field Codefly added to that
+// body would be a field the owner never described.
+message HTTPRoute {
+  // verb is the request method, POST or PUT — the two an operation applying a
+  // retryable effect is derived from.
+  string verb = 1 [(buf.validate.field).string.in = "POST", (buf.validate.field).string.in = "PUT"];
+  // path is the route the owner publishes, beginning with "/".
+  string path = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.prefix = "/"];
+}
+
+// PreparedCall is where one call is sent. The address is resolved by
+// composition for the environment the binding is prepared for; the route is
+// typed rather than spelled into the address, so a caller never parses one
+// string to learn which transport it is holding.
+message PreparedCall {
+  // address is the owner endpoint's resolved address, host and port, as the
+  // environment's network mapping gives it.
+  string address = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // route is the transport-specific target. Which arm is set also fixes the
+  // vocabulary the policy's retryable_codes are read in — google.rpc.Code
+  // names for connect, HTTP statuses for rest — so neither is restated.
+  oneof route {
+    // A call with no route reaches nothing, so the arm is required rather than
+    // defaulted to one transport.
+    option (buf.validate.oneof).required = true;
+    // connect dials a gRPC owner's Connect endpoint.
+    ConnectProcedure connect = 2;
+    // rest dials a REST owner's published route.
+    HTTPRoute rest = 3;
+  }
+}
+
+// PreparedBinding is one derived operation as installed. It replaces a form
+// that delivered the canonical package, the canonical binding and a descriptor
+// closure per operation; what a caller does with those is what this states
+// directly, in a few hundred bytes to a few kilobytes.
+message PreparedBinding {
+  // schema is the prepared-binding schema, "codefly.runnable-prepared/v3".
+  // A reader accepts exactly this one: the fields a caller must not proceed
+  // without arrive as a new schema, never as a field an older reader tolerates
+  // by ignoring it.
+  string schema = 1 [(buf.validate.field).string.const = "codefly.runnable-prepared/v3"];
+  // operation names the operation this installs.
+  PreparedOperation operation = 2 [(buf.validate.field).required = true];
+  // call is where one call is sent.
+  PreparedCall call = 3 [(buf.validate.field).required = true];
+  // contract is the bounded input and output schema, carried whole rather than
+  // referenced: it is the size of the operation's own field list, and a caller
+  // that has it validates a payload without fetching anything.
+  codefly.base.v0.RunnableContract contract = 4 [(buf.validate.field).required = true];
+  // contract_digest is "sha256:<hex>" over the canonical contract above. It is
+  // what makes drift visible: an owner whose published contract no longer
+  // derives this digest is refused rather than called with a payload shaped
+  // for the contract it used to publish.
+  string contract_digest = 5 [(buf.validate.field).string.pattern = "^sha256:[0-9a-f]{64}$"];
+  // policy is the execution policy and Work Context authority the owner
+  // declared — the Operation value itself, as it was read from the method
+  // option or the x-codefly-operation marker, so what is installed cannot
+  // drift from what was declared. Its audience and its invoke and lookup
+  // scopes are the authority; the rest is the attempt budget.
+  Operation policy = 6 [(buf.validate.field).required = true];
+}

@@ -1,224 +1,256 @@
 package runnable_test
 
 import (
-	"encoding/base64"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	"github.com/codefly-dev/core/runnable"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protodesc"
-	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/known/durationpb"
+
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
+	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runnable"
 )
 
-// publishedContract is a real published contract: runnable.proto and its
-// imports, each file carrying SourceCodeInfo as `codefly generate contracts`
-// leaves it.
-func publishedContract(t *testing.T) []byte {
+const (
+	connectSpelling = "/acme.items.v1.Items/Apply"
+	restSpelling    = "POST /v1/items"
+)
+
+func preparedPolicy() *runnablev0.Operation {
+	return &runnablev0.Operation{
+		AttemptTimeout: durationpb.New(10 * time.Second),
+		TotalTimeout:   durationpb.New(time.Minute),
+		MaxAttempts:    3,
+		Backoff:        durationpb.New(time.Second),
+		RetryableCodes: []string{"UNAVAILABLE"},
+		Audience:       "acme.items",
+		InvokeScopes:   []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}},
+		LookupScopes:   []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}},
+	}
+}
+
+func preparedContract() *basev0.RunnableContract {
+	return &basev0.RunnableContract{
+		Protocol: resources.RunnableServiceProtocolV1,
+		Input:    &basev0.RunnableSchema{Fields: []*basev0.RunnableField{{Name: "item", Type: basev0.RunnableField_STRING}}},
+		Output:   &basev0.RunnableSchema{Fields: []*basev0.RunnableField{{Name: "applied", Type: basev0.RunnableField_BOOLEAN}}},
+	}
+}
+
+func connectBinding() *runnablev0.PreparedBinding {
+	return &runnablev0.PreparedBinding{
+		Operation: &runnablev0.PreparedOperation{Module: "owner", Service: "items", Endpoint: "grpc", Spelling: connectSpelling},
+		Call: &runnablev0.PreparedCall{
+			Address: "items-grpc.owner:9090",
+			Route:   &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: connectSpelling}},
+		},
+		Contract: preparedContract(),
+		Policy:   preparedPolicy(),
+	}
+}
+
+func restBinding() *runnablev0.PreparedBinding {
+	binding := connectBinding()
+	binding.Operation.Endpoint = "rest"
+	binding.Operation.Spelling = restSpelling
+	binding.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "POST", Path: "/v1/items"}}
+	// A REST operation names the outcomes it retries by HTTP status.
+	binding.Policy.RetryableCodes = []string{"503"}
+	return binding
+}
+
+func encoded(t *testing.T, binding *runnablev0.PreparedBinding) []byte {
 	t.Helper()
-	set := &descriptorpb.FileDescriptorSet{}
-	seen := map[string]bool{}
-	var visit func(protoreflect.FileDescriptor)
-	visit = func(file protoreflect.FileDescriptor) {
-		if seen[file.Path()] {
-			return
-		}
-		seen[file.Path()] = true
-		imports := file.Imports()
-		for i := 0; i < imports.Len(); i++ {
-			visit(imports.Get(i).FileDescriptor)
-		}
-		fileProto := protodesc.ToFileDescriptorProto(file)
-		fileProto.SourceCodeInfo = &descriptorpb.SourceCodeInfo{Location: []*descriptorpb.SourceCodeInfo_Location{{
-			Path: []int32{4, 0}, Span: []int32{1, 0, 10}, LeadingComments: proto.String(strings.Repeat("a comment no caller needs ", 64)),
-		}}}
-		set.File = append(set.File, fileProto)
-	}
-	visit(basev0.File_codefly_base_v0_runnable_proto)
-	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(set)
+	value, err := runnable.EncodePrepared(binding)
 	require.NoError(t, err)
-	return raw
+	return value
 }
 
-func TestLeanDescriptorSetIsStableAndCarriesNoSourceInfo(t *testing.T) {
-	contract := publishedContract(t)
-	first, err := runnable.LeanDescriptorSet(contract)
-	require.NoError(t, err)
-	second, err := runnable.LeanDescriptorSet(contract)
-	require.NoError(t, err)
-	require.Equal(t, first, second, "equal contracts must derive equal bytes")
-	require.Equal(t, runnable.DescriptorSetDigest(first), runnable.DescriptorSetDigest(second))
-	require.Less(t, len(first), len(contract))
+func TestAPreparedBindingRoundTripsAndCarriesNoDescriptors(t *testing.T) {
+	value := encoded(t, connectBinding())
 
-	set := &descriptorpb.FileDescriptorSet{}
-	require.NoError(t, proto.Unmarshal(first, set))
-	for _, file := range set.GetFile() {
-		require.Nil(t, file.GetSourceCodeInfo(), file.GetName())
-	}
-	// Every file of the contract is kept, in order: the set serves every
-	// operation on the endpoint, not one method's closure.
-	source := &descriptorpb.FileDescriptorSet{}
-	require.NoError(t, proto.Unmarshal(contract, source))
-	require.Len(t, set.GetFile(), len(source.GetFile()))
-	for i := range source.GetFile() {
-		require.Equal(t, source.GetFile()[i].GetName(), set.GetFile()[i].GetName())
-	}
-	// Leaning a lean set is the identity: the delivered set is a fixed point.
-	again, err := runnable.LeanDescriptorSet(first)
+	decoded, err := runnable.DecodePrepared(value)
 	require.NoError(t, err)
-	require.Equal(t, first, again)
+	require.Equal(t, runnable.PreparedSchemaV3, decoded.GetSchema())
+	require.Equal(t, connectSpelling, decoded.GetCall().GetConnect().GetProcedure())
+	require.Equal(t, "items-grpc.owner:9090", decoded.GetCall().GetAddress())
+	require.True(t, proto.Equal(preparedContract(), decoded.GetContract()))
+	require.True(t, proto.Equal(preparedPolicy(), decoded.GetPolicy()))
+
+	digest, err := runnable.ContractDigest(preparedContract())
+	require.NoError(t, err)
+	require.Equal(t, digest, decoded.GetContractDigest())
+
+	// The size claim the design rests on: what a caller installs is the
+	// operation, the call, the bounded contract and the policy.
+	require.Less(t, len(value), 1024, string(value))
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(value, &fields))
+	require.NotContains(t, fields, "descriptors")
+	require.NotContains(t, fields, "descriptor_set")
+	require.NotContains(t, fields, "package")
+	require.NotContains(t, fields, "binding")
 }
 
-func TestLeanDescriptorSetRefusesWhatIsNotAContract(t *testing.T) {
-	for name, raw := range map[string][]byte{"empty": nil, "garbage": []byte("\xff\xff\xff"), "no file": {}} {
-		_, err := runnable.LeanDescriptorSet(raw)
-		require.ErrorIs(t, err, runnable.ErrInvalid, name)
-	}
+func TestARESTOperationIsPreparedOnItsOwnRoute(t *testing.T) {
+	decoded, err := runnable.DecodePrepared(encoded(t, restBinding()))
+	require.NoError(t, err)
+	require.Equal(t, restSpelling, decoded.GetOperation().GetSpelling())
+	require.Equal(t, "POST", decoded.GetCall().GetRest().GetVerb())
+	require.Equal(t, "/v1/items", decoded.GetCall().GetRest().GetPath())
+	require.Equal(t, restSpelling, runnable.Route(decoded.GetCall().GetRest().GetVerb(), decoded.GetCall().GetRest().GetPath()))
 }
 
-func TestDescriptorSetKeyIsDerivedFromTheDigest(t *testing.T) {
-	digest := runnable.DescriptorSetDigest([]byte("x"))
-	key, err := runnable.DescriptorSetKey(digest)
-	require.NoError(t, err)
-	require.Equal(t, "DESCRIPTOR_SET__"+strings.ToUpper(strings.TrimPrefix(digest, "sha256:")), key)
-	for _, bad := range []string{"", "sha256:ABC", strings.ToUpper(digest), "md5:" + strings.TrimPrefix(digest, "sha256:")} {
-		_, err := runnable.DescriptorSetKey(bad)
-		require.ErrorIs(t, err, runnable.ErrInvalid, bad)
-	}
-}
+func TestAPreparedBindingsRouteMustBeTheOperationItNames(t *testing.T) {
+	elsewhere := connectBinding()
+	elsewhere.Call.Route = &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: "/acme.items.v1.Items/Cancel"}}
+	_, err := runnable.EncodePrepared(elsewhere)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), "/acme.items.v1.Items/Cancel")
 
-func TestResolveDescriptorSetVerifiesTheDigest(t *testing.T) {
-	set, err := runnable.LeanDescriptorSet(publishedContract(t))
-	require.NoError(t, err)
-	reference := &runnable.DescriptorSetReference{Digest: runnable.DescriptorSetDigest(set), Contract: runnable.DescriptorSetDigest([]byte("contract"))}
-	key, err := reference.Key()
-	require.NoError(t, err)
-	group := map[string]string{key: runnable.EncodeDescriptorSet(set)}
-	lookup := func(key string) (string, error) {
-		value, ok := group[key]
-		if !ok {
-			return "", fmt.Errorf("no value for %s", key)
-		}
-		return value, nil
-	}
+	otherRoute := restBinding()
+	otherRoute.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "PUT", Path: "/v1/items"}}
+	_, err = runnable.EncodePrepared(otherRoute)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), "PUT /v1/items")
 
-	resolved, err := runnable.ResolveDescriptorSet(reference, lookup)
-	require.NoError(t, err)
-	require.Equal(t, set, resolved)
-
-	// Any other bytes under the key are refused: a stale group, a set from
-	// another generation, a truncated file.
-	other := append([]byte(nil), set...)
-	other = other[:len(other)-1]
-	group[key] = runnable.EncodeDescriptorSet(other)
-	_, err = runnable.ResolveDescriptorSet(reference, lookup)
-	require.ErrorIs(t, err, runnable.ErrDescriptorSetMismatch)
-	require.Contains(t, err.Error(), key)
-
-	group[key] = "not base64!"
-	_, err = runnable.ResolveDescriptorSet(reference, lookup)
+	// A gRPC spelling read as a route, and a route read as a procedure: the
+	// conflation the typed target replaces.
+	asProcedure := restBinding()
+	asProcedure.Call.Route = &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: restSpelling}}
+	_, err = runnable.EncodePrepared(asProcedure)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 
-	delete(group, key)
-	_, err = runnable.ResolveDescriptorSet(reference, lookup)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), key)
-
-	// Bytes matching their digest but not a descriptor set are still refused.
-	junk := []byte("\xff\xff\xff")
-	junkReference := &runnable.DescriptorSetReference{Digest: runnable.DescriptorSetDigest(junk), Contract: reference.Contract}
-	junkKey, err := junkReference.Key()
-	require.NoError(t, err)
-	group[junkKey] = base64.StdEncoding.EncodeToString(junk)
-	_, err = runnable.ResolveDescriptorSet(junkReference, lookup)
+	noRoute := connectBinding()
+	noRoute.Call.Route = nil
+	_, err = runnable.EncodePrepared(noRoute)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 }
 
-func preparedValue(extra string) string {
-	digest := runnable.DescriptorSetDigest([]byte("set"))
-	contract := runnable.DescriptorSetDigest([]byte("contract"))
-	return `{"schema":"` + runnable.PreparedSchemaV2 + `","package":{"schema":"p"},"binding":{"schema":"b"},"operation":{"method":"/a.B/C"},` +
-		`"descriptor_set":{"digest":"` + digest + `","contract":"` + contract + `"}` + extra + `}`
+func TestARetryPolicyIsReadInItsTransportsVocabulary(t *testing.T) {
+	httpOnConnect := connectBinding()
+	httpOnConnect.Policy.RetryableCodes = []string{"503"}
+	_, err := runnable.EncodePrepared(httpOnConnect)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), "gRPC status code name")
+
+	grpcOnRest := restBinding()
+	grpcOnRest.Policy.RetryableCodes = []string{"UNAVAILABLE"}
+	_, err = runnable.EncodePrepared(grpcOnRest)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), "HTTP status")
 }
 
-func TestDecodePreparedReadsTheSharedForm(t *testing.T) {
-	prepared, err := runnable.DecodePrepared([]byte(preparedValue("")))
+func TestAPolicyOutsideTheInstallationBoundsIsRefused(t *testing.T) {
+	tooManyAttempts := connectBinding()
+	tooManyAttempts.Policy.MaxAttempts = runnable.MaxOperationAttempts + 1
+	_, err := runnable.EncodePrepared(tooManyAttempts)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+
+	noAuthority := connectBinding()
+	noAuthority.Policy.Audience = ""
+	_, err = runnable.EncodePrepared(noAuthority)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+
+	wideningLookup := connectBinding()
+	wideningLookup.Policy.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"write"}}}
+	_, err = runnable.EncodePrepared(wideningLookup)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+}
+
+func TestADeliveredValueIsHeldToItsContractDigest(t *testing.T) {
+	stated := connectBinding()
+	stated.ContractDigest = "sha256:" + strings.Repeat("0", 64)
+	_, err := runnable.EncodePrepared(stated)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), "derives")
+
+	// An owner that republishes a changed contract derives another digest, and
+	// the value delivered for the contract it used to publish is refused
+	// rather than called with a payload shaped for it.
+	drifted := connectBinding()
+	drifted.ContractDigest = ""
+	value := encoded(t, drifted)
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(value, &fields))
+	fields["contract"] = json.RawMessage(`{"protocol":"codefly.runnable.service/v1","input":{"fields":[{"name":"item","type":"STRING"},{"name":"revision","type":"INTEGER"}]},"output":{"fields":[{"name":"applied","type":"BOOLEAN"}]}}`)
+	tampered, err := json.Marshal(fields)
 	require.NoError(t, err)
-	require.Equal(t, runnable.PreparedSchemaV2, prepared.Schema)
-	require.Equal(t, runnable.DescriptorSetDigest([]byte("set")), prepared.DescriptorSet.Digest)
-	require.JSONEq(t, `{"method":"/a.B/C"}`, string(prepared.Operation))
+	_, err = runnable.DecodePrepared(tampered)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), "contract digest")
 }
 
-func TestDecodePreparedRefusesTheEmbeddedForm(t *testing.T) {
-	// The form every value had before v2: no schema, descriptors inline.
-	embedded := `{"package":{},"binding":{},"operation":{"method":"/a.B/C"},"descriptors":"AAAA"}`
-	_, err := runnable.DecodePrepared([]byte(embedded))
-	require.ErrorIs(t, err, runnable.ErrEmbeddedDescriptors)
-	require.Contains(t, err.Error(), "codefly generate runnable-bindings")
+func TestAPreparedValueIsReadStrictly(t *testing.T) {
+	value := encoded(t, connectBinding())
 
-	// Inline descriptors beside a v2 schema are still two sources for one fact.
-	_, err = runnable.DecodePrepared([]byte(preparedValue(`,"descriptors":"AAAA"`)))
-	require.ErrorIs(t, err, runnable.ErrEmbeddedDescriptors)
-}
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(value, &fields))
 
-func TestDecodePreparedIsStrict(t *testing.T) {
-	cases := map[string]string{
-		"unknown field":    preparedValue(`,"extra":1`),
-		"trailing":         preparedValue("") + `{}`,
-		"other schema":     strings.Replace(preparedValue(""), runnable.PreparedSchemaV2, "codefly.runnable-prepared/v3", 1),
-		"no operation":     strings.Replace(preparedValue(""), `"operation":{"method":"/a.B/C"}`, `"operation":null`, 1),
-		"malformed digest": strings.Replace(preparedValue(""), "sha256:", "sha256:X", 1),
-		"not an object":    `[]`,
-		"oversized":        `{"schema":"` + strings.Repeat("x", runnable.MaxPreparedBytes) + `"}`,
+	unknown := map[string]json.RawMessage{}
+	for key, raw := range fields {
+		unknown[key] = raw
 	}
-	for name, value := range cases {
-		_, err := runnable.DecodePrepared([]byte(value))
-		require.Error(t, err, name)
-		require.False(t, errors.Is(err, runnable.ErrEmbeddedDescriptors), name)
+	unknown["descriptors"] = json.RawMessage(`"AAAA"`)
+	withUnknown, err := json.Marshal(unknown)
+	require.NoError(t, err)
+	_, err = runnable.DecodePrepared(withUnknown)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+
+	otherSchema := map[string]json.RawMessage{}
+	for key, raw := range fields {
+		otherSchema[key] = raw
 	}
-}
-
-// pinnedContract is a fixed, hand-declared contract, so the digest pinned
-// below moves only when the derivation does, never when a core proto does.
-func pinnedContract(t *testing.T) []byte {
-	t.Helper()
-	set := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{{
-		Name:    proto.String("acme/items/v1/items.proto"),
-		Package: proto.String("acme.items.v1"),
-		Syntax:  proto.String("proto3"),
-		MessageType: []*descriptorpb.DescriptorProto{{
-			Name: proto.String("Item"),
-			Field: []*descriptorpb.FieldDescriptorProto{{
-				Name: proto.String("id"), Number: proto.Int32(1), JsonName: proto.String("id"),
-				Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), Type: descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
-			}},
-		}},
-		Service: []*descriptorpb.ServiceDescriptorProto{{
-			Name:   proto.String("Items"),
-			Method: []*descriptorpb.MethodDescriptorProto{{Name: proto.String("Get"), InputType: proto.String(".acme.items.v1.Item"), OutputType: proto.String(".acme.items.v1.Item")}},
-		}},
-		SourceCodeInfo: &descriptorpb.SourceCodeInfo{Location: []*descriptorpb.SourceCodeInfo_Location{{
-			Path: []int32{6, 0}, Span: []int32{3, 0, 5, 1}, LeadingComments: proto.String(" Items serves items.\n"),
-		}}},
-	}}}
-	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(set)
+	otherSchema["schema"] = json.RawMessage(`"codefly.runnable-prepared/v2"`)
+	withOtherSchema, err := json.Marshal(otherSchema)
 	require.NoError(t, err)
-	return raw
+	_, err = runnable.DecodePrepared(withOtherSchema)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+
+	_, err = runnable.DecodePrepared(nil)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	_, err = runnable.DecodePrepared([]byte(strings.Repeat("x", runnable.MaxPreparedBytes+1)))
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	_, err = runnable.DecodePrepared([]byte("not a document"))
+	require.ErrorIs(t, err, runnable.ErrInvalid)
 }
 
-// The delivered set's digest is what every prepared value references and what
-// a worker verifies, so the derivation is pinned: a change to it is one
-// reviewed decision that regenerates every runnable-bindings group, never an
-// incidental one.
-func TestLeanDescriptorSetDigestIsPinned(t *testing.T) {
-	lean, err := runnable.LeanDescriptorSet(pinnedContract(t))
+// A worker installing the derived operations of its workspace receives every
+// prepared binding as workspace configuration. The form that carried an
+// owner's descriptor closure per operation put a 150 KB string into the
+// environment for each, which Linux refuses at exec; these are small enough
+// that none of them is delivered by file at all.
+func TestAWorkerReceivingTwentyFourOperationsStaysUnderLinuxLimits(t *testing.T) {
+	info := &basev0.ConfigurationInformation{Name: "runnable-bindings"}
+	for i := 0; i < 24; i++ {
+		binding := connectBinding()
+		binding.Operation.Spelling = fmt.Sprintf("/acme.items.v1.Items/Apply%02d", i)
+		binding.Call.Route = &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: binding.Operation.GetSpelling()}}
+		info.ConfigurationValues = append(info.ConfigurationValues, &basev0.ConfigurationValue{
+			Key:   fmt.Sprintf("ACME__OPERATION_%02d", i),
+			Value: string(encoded(t, binding)),
+		})
+	}
+	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+
+	envs, err := resources.ConfigurationAsEnvironmentVariables(configuration, "local", false)
 	require.NoError(t, err)
-	require.Equal(t, pinnedLeanDigest, runnable.DescriptorSetDigest(lean))
+	require.Len(t, envs, 24)
+	total := 0
+	for _, env := range envs {
+		require.False(t, env.File, env.Key)
+	}
+	require.NoError(t, resources.CheckProcessEnvironment(envs))
+	for _, entry := range resources.EnvironmentVariableAsStrings(envs) {
+		require.Less(t, len(entry)+1, resources.MaxEnvironmentStringBytes, strings.SplitN(entry, "=", 2)[0])
+		total += len(entry) + 1
+	}
+	require.Less(t, total, resources.MaxEnvironmentStringBytes)
+	t.Logf("24 operations: %d environment bytes, no file carrier", total)
 }
-
-const pinnedLeanDigest = "sha256:a8fbb399dd8f414c8bca27f35f81907b9787b53ceed57c3027e8a28dcc3e0044"

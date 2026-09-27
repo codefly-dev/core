@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,9 +11,7 @@ import (
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	"github.com/codefly-dev/core/internal/runnablefixture"
 	"github.com/codefly-dev/core/resources"
-	"github.com/codefly-dev/core/runnable"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -72,16 +71,23 @@ func readDocuments(t *testing.T, path string) []map[string]any {
 	}
 }
 
-// A worker rendered for a Kubernetes cell with a workspace's twenty-four
-// prepared operations: its ConfigMap, which the container loads as
-// environment, carries each prepared value inline and each shared descriptor
-// set only as a path; the sets are in a ConfigMap mounted read-only into the
-// container; no environment value reaches Linux's 128 KiB limit; and the
+// A workload rendered for a Kubernetes cell with a group whose values are
+// larger than the environment can carry: its ConfigMap, which the container
+// loads as environment, carries each large value only as a path; the values
+// are in a ConfigMap mounted read-only into the container; every small value
+// stays inline; no environment value reaches Linux's 128 KiB limit; and the
 // render still passes the restricted manifest contract.
-func TestARenderedWorkerReceivesTwentyFourOperationsUnderLinuxLimits(t *testing.T) {
-	fixture, err := runnablefixture.Build(24, 2)
-	require.NoError(t, err)
-	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, fixture.Configuration())
+func TestARenderedWorkloadReceivesLargeValuesAsMountedFiles(t *testing.T) {
+	info := &basev0.ConfigurationInformation{Name: "catalog"}
+	for i := 0; i < 4; i++ {
+		info.ConfigurationValues = append(info.ConfigurationValues,
+			&basev0.ConfigurationValue{Key: fmt.Sprintf("BUNDLE_%02d", i), Value: strings.Repeat(fmt.Sprintf("%d", i), resources.MaxEnvironmentStringBytes+1)},
+			&basev0.ConfigurationValue{Key: fmt.Sprintf("MODE_%02d", i), Value: "fast"},
+		)
+	}
+	configuration := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: []*basev0.ConfigurationInformation{info}}
+
+	destination, response, err := renderWithConfiguration(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1, configuration)
 	require.NoError(t, err)
 	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
 	require.True(t, response.GetDeployment().GetKubernetes().GetValidation().GetRestricted(), response.GetDeployment().GetKubernetes().GetValidation().GetViolations())
@@ -94,26 +100,19 @@ func TestARenderedWorkerReceivesTwentyFourOperationsUnderLinuxLimits(t *testing.
 		total += len(entry) + 1
 	}
 	require.Less(t, total, resources.MaxCarriedEnvironmentBytes)
-	for _, operation := range fixture.Operations {
-		require.Contains(t, environment, resources.WorkspaceConfigurationPrefix+"__RUNNABLE_BINDINGS__"+operation.Key)
-	}
 
 	files := readDocuments(t, filepath.Join(destination, "overlays", "test", "configuration-files.yaml"))
 	require.Len(t, files, 1, "public values only: no Secret")
 	require.Equal(t, "ConfigMap", files[0]["kind"])
 	require.Equal(t, "cmf-worker", files[0]["metadata"].(map[string]any)["name"])
 	data := files[0]["data"].(map[string]any)
-	require.Len(t, data, len(fixture.Endpoints), "one descriptor set per owner endpoint")
-	for _, endpoint := range fixture.Endpoints {
-		key, err := endpoint.Reference.Key()
-		require.NoError(t, err)
-		carried := resources.WorkspaceConfigurationPrefix + "__RUNNABLE_BINDINGS__" + key
+	require.Len(t, data, 4, "one file per value too large to carry inline")
+	for i := 0; i < 4; i++ {
+		carried := resources.WorkspaceConfigurationPrefix + fmt.Sprintf("__CATALOG__BUNDLE_%02d", i)
 		require.NotContains(t, environment, carried)
 		require.Equal(t, resources.KubernetesFileCarrierMount+"/"+carried, environment[resources.FileCarrierKey(carried)])
-		// What the pod reads through the mount is the set its digest names.
-		set, err := runnable.ResolveDescriptorSet(endpoint.Reference, func(string) (string, error) { return data[carried].(string), nil })
-		require.NoError(t, err)
-		require.Equal(t, endpoint.Set, set)
+		require.Equal(t, strings.Repeat(fmt.Sprintf("%d", i), resources.MaxEnvironmentStringBytes+1), data[carried])
+		require.Equal(t, "fast", environment[resources.WorkspaceConfigurationPrefix+fmt.Sprintf("__CATALOG__MODE_%02d", i)])
 	}
 	kustomization, err := os.ReadFile(filepath.Join(destination, "overlays", "test", "kustomization.yaml"))
 	require.NoError(t, err)
