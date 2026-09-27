@@ -46,15 +46,21 @@ func ContractDigest(contract *basev0.RunnableContract) (string, error) {
 }
 
 // EncodePrepared returns the configuration value binding is delivered as:
-// canonical proto3 JSON. It fills the schema and the contract digest, so a
-// writer can neither forget the digest nor compute it another way, and refuses
-// a supplied digest that is not the contract's — a value whose digest does not
-// cover its own contract makes every later drift check meaningless.
+// canonical proto3 JSON. The schema and the contract digest are filled when the
+// caller leaves them empty, so a writer can neither forget the digest nor
+// compute it another way; a stated value that is not the right one is refused
+// rather than repaired, exactly as a supplied package digest is. A value whose
+// digest does not cover its own contract would make every later drift check
+// meaningless, and one claiming another schema was written for another reader.
 func EncodePrepared(binding *runnablev0.PreparedBinding) ([]byte, error) {
 	if binding == nil {
 		return nil, fmt.Errorf("%w: prepared binding is required", ErrInvalid)
 	}
 	prepared := proto.CloneOf(binding)
+	if prepared.GetSchema() != "" && prepared.GetSchema() != PreparedSchemaV3 {
+		return nil, fmt.Errorf("%w: prepared binding states schema %q, and this core writes %s",
+			ErrInvalid, prepared.GetSchema(), PreparedSchemaV3)
+	}
 	prepared.Schema = PreparedSchemaV3
 	digest, err := ContractDigest(prepared.GetContract())
 	if err != nil {

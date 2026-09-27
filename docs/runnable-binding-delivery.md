@@ -37,6 +37,11 @@ The value is a `codefly.runnable.v0.PreparedBinding`, schema
 | `contract_digest` | `sha256:<hex>` over that contract's canonical form (`runnable.ContractDigest`) |
 | `policy` | the `codefly.runnable.v0.Operation` the owner declared — the attempt budget, and the authority: audience, invoke and lookup scopes |
 
+`runnable.EncodePrepared` fills the schema and the digest when a writer leaves
+them empty and refuses a stated value that is not the right one, the rule a
+supplied package digest already follows: conflicting immutable bytes are never
+silently repaired.
+
 It is a proto message rather than a hand-written JSON document because it is a
 contract between core, the CLI, a caller and the SDKs of several languages:
 protovalidate states its bounds once, every language generates a reader, and a

@@ -177,6 +177,12 @@ func TestADeliveredValueIsHeldToItsContractDigest(t *testing.T) {
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.Contains(t, err.Error(), "derives")
 
+	otherSchemaStated := connectBinding()
+	otherSchemaStated.Schema = "codefly.runnable-prepared/v2"
+	_, err = runnable.EncodePrepared(otherSchemaStated)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.Contains(t, err.Error(), runnable.PreparedSchemaV3)
+
 	// An owner that republishes a changed contract derives another digest, and
 	// the value delivered for the contract it used to publish is refused
 	// rather than called with a payload shaped for it.
