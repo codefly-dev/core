@@ -67,9 +67,12 @@ message HTTPRoute {
 // typed rather than spelled into the address, so a caller never parses one
 // string to learn which transport it is holding.
 message PreparedCall {
-  // address is the owner endpoint's resolved address, host and port, as the
-  // environment's network mapping gives it.
-  string address = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // address is the base URL of the endpoint the call is sent to, as the
+  // environment's network mapping resolves it. Both routes are HTTP
+  // transports, so an address that is not an HTTP base URL is refused rather
+  // than dialed: a gRPC endpoint's bare host:port reaching this field would be
+  // an owner addressed on the port that serves no JSON.
+  string address = 1 [(buf.validate.field).string.pattern = "^https?://[^[:space:]]+$", (buf.validate.field).string.max_len = 512];
   // route is the transport-specific target. Which arm is set also fixes the
   // vocabulary the policy's retryable_codes are read in — google.rpc.Code
   // names for connect, HTTP statuses for rest — so neither is restated.

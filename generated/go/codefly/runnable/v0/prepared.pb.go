@@ -217,8 +217,11 @@ func (x *HTTPRoute) GetPath() string {
 // string to learn which transport it is holding.
 type PreparedCall struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// address is the owner endpoint's resolved address, host and port, as the
-	// environment's network mapping gives it.
+	// address is the base URL of the endpoint the call is sent to, as the
+	// environment's network mapping resolves it. Both routes are HTTP
+	// transports, so an address that is not an HTTP base URL is refused rather
+	// than dialed: a gRPC endpoint's bare host:port reaching this field would be
+	// an owner addressed on the port that serves no JSON.
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 	// route is the transport-specific target. Which arm is set also fixes the
 	// vocabulary the policy's retryable_codes are read in — google.rpc.Code
@@ -435,10 +438,9 @@ const file_codefly_runnable_v0_prepared_proto_rawDesc = "" +
 	"\tHTTPRoute\x12$\n" +
 	"\x04verb\x18\x01 \x01(\tB\x10\xbaH\rr\vR\x04POSTR\x03PUTR\x04verb\x12\x1e\n" +
 	"\x04path\x18\x02 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01:\x01/R\x04path\"\xbd\x01\n" +
-	"\fPreparedCall\x12$\n" +
-	"\aaddress\x18\x01 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\aaddress\x12A\n" +
+	"\xbaH\ar\x05\x10\x01:\x01/R\x04path\"\xd5\x01\n" +
+	"\fPreparedCall\x12<\n" +
+	"\aaddress\x18\x01 \x01(\tB\"\xbaH\x1fr\x1d\x18\x80\x042\x18^https?://[^[:space:]]+$R\aaddress\x12A\n" +
 	"\aconnect\x18\x02 \x01(\v2%.codefly.runnable.v0.ConnectProcedureH\x00R\aconnect\x124\n" +
 	"\x04rest\x18\x03 \x01(\v2\x1e.codefly.runnable.v0.HTTPRouteH\x00R\x04restB\x0e\n" +
 	"\x05route\x12\x05\xbaH\x02\b\x01\"\xa9\x03\n" +

@@ -47,7 +47,7 @@ func connectBinding() *runnablev0.PreparedBinding {
 	return &runnablev0.PreparedBinding{
 		Operation: &runnablev0.PreparedOperation{Module: "owner", Service: "items", Endpoint: "grpc", Spelling: connectSpelling},
 		Call: &runnablev0.PreparedCall{
-			Address: "items-grpc.owner:9090",
+			Address: "http://items-connect.owner:8081",
 			Route:   &runnablev0.PreparedCall_Connect{Connect: &runnablev0.ConnectProcedure{Procedure: connectSpelling}},
 		},
 		Contract: preparedContract(),
@@ -79,7 +79,7 @@ func TestAPreparedBindingRoundTripsAndCarriesNoDescriptors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, runnable.PreparedSchemaV3, decoded.GetSchema())
 	require.Equal(t, connectSpelling, decoded.GetCall().GetConnect().GetProcedure())
-	require.Equal(t, "items-grpc.owner:9090", decoded.GetCall().GetAddress())
+	require.Equal(t, "http://items-connect.owner:8081", decoded.GetCall().GetAddress())
 	require.True(t, proto.Equal(preparedContract(), decoded.GetContract()))
 	require.True(t, proto.Equal(preparedPolicy(), decoded.GetPolicy()))
 
@@ -130,6 +130,12 @@ func TestAPreparedBindingsRouteMustBeTheOperationItNames(t *testing.T) {
 	noRoute := connectBinding()
 	noRoute.Call.Route = nil
 	_, err = runnable.EncodePrepared(noRoute)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+
+	// The gRPC endpoint's own address serves no JSON call.
+	grpcAddress := connectBinding()
+	grpcAddress.Call.Address = "items-grpc.owner:9090"
+	_, err = runnable.EncodePrepared(grpcAddress)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 }
 

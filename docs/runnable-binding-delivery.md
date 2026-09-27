@@ -32,7 +32,7 @@ The value is a `codefly.runnable.v0.PreparedBinding`, schema
 | Field | What it is |
 | --- | --- |
 | `operation` | the owner coordinates (module, service, endpoint) and the operation **as the owner spells it**: `/pkg.Service/Method` or `POST /path`. This is the audit identity, and what an effect receipt is keyed by |
-| `call` | where one call is sent: the resolved `address`, and a typed route — `connect` (a procedure POSTed as JSON on the owner's Connect endpoint) or `rest` (the owner's own verb and path with the plain JSON body) |
+| `call` | where one call is sent: the `address` the environment resolves — an HTTP base URL, since both routes are HTTP — and a typed route: `connect` (a procedure POSTed as JSON on the owner's Connect endpoint) or `rest` (the owner's own verb and path with the plain JSON body) |
 | `contract` | the bounded input and output schema, carried whole |
 | `contract_digest` | `sha256:<hex>` over that contract's canonical form (`runnable.ContractDigest`) |
 | `policy` | the `codefly.runnable.v0.Operation` the owner declared — the attempt budget, and the authority: audience, invoke and lookup scopes |
@@ -73,6 +73,8 @@ had to act on. `runnable.VerifyPrepared` then holds it to four things:
   payload shaped for a contract nobody serves. `runnable.ContractDigest` is
   prefixed by `ContractDigestFormatV1`, so a change in how the digest is
   computed changes every digest instead of colliding with the previous format;
+- **the address is an HTTP base URL.** A gRPC endpoint's bare `host:port`
+  reaching that field would address the owner on the port that serves no JSON;
 - **the route is the operation the value names.** A `connect` procedure must be
   the operation's spelling, and a `rest` verb and path must spell it. The two
   are checked together because they had one cause: a form that read one string
