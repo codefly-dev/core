@@ -513,46 +513,74 @@ func (proc *NativeProc) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// Signal the authenticated process-group members so child processes also die.
-	pgid := cmd.Process.Pid
-	w.Trace("sending SIGTERM to process group", wool.Field("pgid", pgid))
-	if group != nil {
-		_ = group.Signal(context.Background(), syscall.SIGTERM)
-	}
-
-	// Block until the cmd.Wait goroutine publishes exit, or until the SIGTERM
-	// grace window elapses. Returning before the process is reaped is what
-	// caused the orphan-leak: callers (Flow.Stop) move on, the CLI exits,
-	// and the child outlives the parent. Wait on exitCh — that channel is
-	// closed by the single Wait()-on-exec goroutine spawned in start(), so
-	// it's the authoritative "process is dead" signal.
-	const sigtermGrace = 5 * time.Second
-	const sigkillGrace = 2 * time.Second
-	select {
-	case <-proc.exitCh:
-		w.Trace("process exited after SIGTERM")
-	case <-time.After(sigtermGrace):
-		w.Trace("process did not exit after SIGTERM, sending SIGKILL", wool.Field("pgid", pgid))
-		if group != nil {
-			_ = group.Signal(context.Background(), syscall.SIGKILL)
-		}
-		select {
-		case <-proc.exitCh:
-			w.Trace("process exited after SIGKILL")
-		case <-time.After(sigkillGrace):
-			w.Warn("process did not exit even after SIGKILL — leaking", wool.Field("pgid", pgid))
-		}
-	}
-
-	// Drop the registration only if no descendant remains in the group.
-	if perr := group.RemoveIfDead(); perr != nil {
-		w.Trace("could not remove pgid file", wool.Field("err", perr))
-	}
+	err := stopTrackedProcessGroup(ctx, cmd, group, proc.exitCh)
 
 	// Signal Run() to bail. close-instead-of-send avoids the previous
 	// goroutine leak: the old `go func() { proc.stopped <- struct{}{} }()`
 	// blocked forever if Run had already exited via the `done` path or
 	// if Stop was called twice. Use sync.Once to make double-close safe.
 	proc.stopOnce.Do(func() { close(proc.stopped) })
+	return err
+}
+
+// Stop budgets. stopTermGrace is what a service gets to honour SIGTERM — a dev
+// server flushing state, a database checkpointing — before the kill phase.
+// stopReapGrace bounds the wait for the leader to be reaped once its group is
+// empty: the forwarders reach EOF when the last member holding the leader's
+// stdout dies, so it only has to outlast scheduling.
+const (
+	stopTermGrace = 5 * time.Second
+	stopReapGrace = 2 * time.Second
+)
+
+// stopTrackedProcessGroup is the one teardown NativeProc and NixProc share: end
+// the whole process group, verify it is empty, then wait for the leader to be
+// reaped and drop the registry record.
+//
+// The unit is the group, never the leader. Stop used to signal the group once
+// and then watch the leader: a leader that exited on SIGTERM ended the wait
+// while a descendant that ignored it kept running, and the SIGKILL fallback
+// authenticated the group with the reaper's proof, which refused a group whose
+// leader was an unreaped zombie and signalled nothing. Either way the tree was
+// reparented to init still holding its port, and the next run of the service
+// failed to bind. terminateAsOwner escalates on group liveness and
+// reports a survivor instead;
+// see terminateAsOwner for why the owner authenticates differently.
+//
+// The teardown ignores the caller's cancellation: a Stop that gives up because
+// its caller did is exactly the leak this exists to prevent, and the escalation
+// is bounded on its own (stopTermGrace plus the kill sweeps).
+func stopTrackedProcessGroup(ctx context.Context, cmd *exec.Cmd, group *TrackedProcessGroup, exited <-chan struct{}) error {
+	w := wool.Get(ctx).In("stopTrackedProcessGroup")
+	pgid := cmd.Process.Pid
+	w.Trace("terminating process group", wool.Field("pgid", pgid))
+
+	var failures []error
+	if group != nil {
+		if err := group.terminateAsOwner(context.WithoutCancel(ctx), stopTermGrace); err != nil {
+			failures = append(failures, fmt.Errorf("terminate process group %d: %w", pgid, err))
+		}
+	}
+
+	// The group is empty, so every holder of the leader's stdout and stderr is
+	// gone and the single cmd.Wait goroutine can reap the leader.
+	select {
+	case <-exited:
+	case <-time.After(stopReapGrace):
+		failures = append(failures, fmt.Errorf("process group %d leader was not reaped within %s", pgid, stopReapGrace))
+	}
+
+	// Drop the registration only if no descendant remains in the group; a
+	// survivor keeps its record so the next start's reaper still finds it.
+	if group != nil {
+		if err := group.RemoveIfDead(); err != nil {
+			w.Trace("could not remove pgid file", wool.Field("err", err))
+		}
+	}
+	if len(failures) > 0 {
+		err := errors.Join(failures...)
+		w.Warn("process group survived Stop", wool.Field("pgid", pgid), wool.ErrField(err))
+		return err
+	}
 	return nil
 }
