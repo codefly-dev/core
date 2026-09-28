@@ -38,10 +38,10 @@ const (
 	// as certain relies on: a handler that abandons a half-applied effect owes
 	// an INTERRUPTED or a crash, never a FAILED.
 	RunnableResult_FAILED RunnableResult_Status = 2
-	// INTERRUPTED means the harness handled an interruption signal and stopped.
-	// A package declaring CANCELLATION_SIGNAL promises exactly this report, and
-	// without it such a harness would have to claim a failure it did not have:
-	// the effect is left unproven, not disproven.
+	// INTERRUPTED means the implementation handled an interruption signal and
+	// stopped. A package declaring CANCELLATION_SIGNAL promises exactly this
+	// report, and without it such an implementation would have to claim a
+	// failure it did not have: the effect is left unproven, not disproven.
 	RunnableResult_INTERRUPTED RunnableResult_Status = 3
 )
 
@@ -85,93 +85,7 @@ func (x RunnableResult_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunnableResult_Status.Descriptor instead.
 func (RunnableResult_Status) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{4, 0}
-}
-
-// Outcome enumerates the distinct ways one invocation ends.
-type RunnableCompletion_Outcome int32
-
-const (
-	// UNKNOWN is the default value when outcome is not specified.
-	RunnableCompletion_UNKNOWN RunnableCompletion_Outcome = 0
-	// SUCCEEDED means a valid result reported handler output.
-	RunnableCompletion_SUCCEEDED RunnableCompletion_Outcome = 1
-	// FAILED means a valid result reported a typed handler failure. The
-	// operation ran: this is a completion, not a launcher error.
-	RunnableCompletion_FAILED RunnableCompletion_Outcome = 2
-	// INVALID_OUTPUT means a result document exists but is not this
-	// invocation's valid result: malformed, another invocation's, missing its
-	// payload, or over max_output_bytes. A process that exits zero and writes
-	// such a document lands here, because the exit status is not the
-	// completion.
-	RunnableCompletion_INVALID_OUTPUT RunnableCompletion_Outcome = 3
-	// MISSING_OUTPUT means the process exited successfully without writing a
-	// result at all.
-	RunnableCompletion_MISSING_OUTPUT RunnableCompletion_Outcome = 4
-	// CRASHED means the process exited non-zero or died on a signal and left
-	// no result.
-	RunnableCompletion_CRASHED RunnableCompletion_Outcome = 5
-	// TIMED_OUT means the deadline passed and the launcher ended the process.
-	RunnableCompletion_TIMED_OUT RunnableCompletion_Outcome = 6
-	// CANCELED means the invocation was interrupted: the launcher acted on the
-	// caller's request, or the harness reported INTERRUPTED. Only a package
-	// declaring CANCELLATION_SIGNAL may be interrupted by a launcher; one
-	// declaring CANCELLATION_NONE runs to its deadline. A launcher that
-	// interrupts one anyway has broken the contract, and the completion says so
-	// in message rather than being withheld — the invocation ended, and
-	// discarding the record of how would lose an effect's only evidence.
-	RunnableCompletion_CANCELED RunnableCompletion_Outcome = 7
-)
-
-// Enum value maps for RunnableCompletion_Outcome.
-var (
-	RunnableCompletion_Outcome_name = map[int32]string{
-		0: "UNKNOWN",
-		1: "SUCCEEDED",
-		2: "FAILED",
-		3: "INVALID_OUTPUT",
-		4: "MISSING_OUTPUT",
-		5: "CRASHED",
-		6: "TIMED_OUT",
-		7: "CANCELED",
-	}
-	RunnableCompletion_Outcome_value = map[string]int32{
-		"UNKNOWN":        0,
-		"SUCCEEDED":      1,
-		"FAILED":         2,
-		"INVALID_OUTPUT": 3,
-		"MISSING_OUTPUT": 4,
-		"CRASHED":        5,
-		"TIMED_OUT":      6,
-		"CANCELED":       7,
-	}
-)
-
-func (x RunnableCompletion_Outcome) Enum() *RunnableCompletion_Outcome {
-	p := new(RunnableCompletion_Outcome)
-	*p = x
-	return p
-}
-
-func (x RunnableCompletion_Outcome) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (RunnableCompletion_Outcome) Descriptor() protoreflect.EnumDescriptor {
-	return file_codefly_base_v0_runnable_invocation_proto_enumTypes[1].Descriptor()
-}
-
-func (RunnableCompletion_Outcome) Type() protoreflect.EnumType {
-	return &file_codefly_base_v0_runnable_invocation_proto_enumTypes[1]
-}
-
-func (x RunnableCompletion_Outcome) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use RunnableCompletion_Outcome.Descriptor instead.
-func (RunnableCompletion_Outcome) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{7, 0}
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{5, 0}
 }
 
 // RunnableGrantReference is an opaque, revocable reference to a delegation the
@@ -251,10 +165,10 @@ func (x *RunnableGrantReference) GetAudience() string {
 // that forgot to fill it and the caller that had no authority to fill it are
 // indistinguishable.
 //
-// It is on the invocation document rather than in the environment because the
-// document is already 0600 in a per-process directory removed with the process,
-// while an environment variable is readable by every descendant and appears in
-// whatever collects process metadata.
+// It travels as the call's Work Context header rather than in the environment
+// of whatever serves the call: a capability is minted per call, immediately
+// before it, and an environment variable is readable by every descendant, lives
+// as long as the process and appears in whatever collects process metadata.
 type RunnableInvocationIdentity struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// carrier is how the authority arrives. Which arm is set follows from when the
@@ -347,18 +261,92 @@ func (*RunnableInvocationIdentity_WorkContext) isRunnableInvocationIdentity_Carr
 
 func (*RunnableInvocationIdentity_Grant) isRunnableInvocationIdentity_Carrier() {}
 
-// RunnableInvocation is the document a launcher hands a harness. Unlike a
-// package or a binding it is not content-addressed: it names one run of an
-// already-installed binding rather than an immutable installation fact.
+// RunnableCallbackTarget is where an owner reports a submitted invocation: the
+// terminal answer, and the heartbeats that say the work is still live. It is
+// the caller's own address, presented on the call, and it is what settles the
+// direction of every later report — an owner never chooses whether to push.
+//
+// A caller that presents none has undertaken to read the status by handle
+// instead, which is the recovery path an owner owes anyway because a callback
+// can always be lost. So the two mechanisms are one owner obligation and one
+// caller choice, rather than a negotiation.
+type RunnableCallbackTarget struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// address is the absolute URL the owner POSTs its reports to. Plaintext is
+	// admitted only to a loopback host: every other plaintext address would put
+	// a completion, and the Work Context authenticating it, on the wire in
+	// clear.
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// audience is the trust boundary the owner mints its own capability for when
+	// it reports. The callback is authenticated by the reporting workload's
+	// identity and by nothing else: a shared secret would have to be delivered
+	// to every owner that may report, which makes each of them able to forge
+	// every other's completions.
+	//
+	// It is stated rather than derived from the address, because an audience is
+	// a trust boundary and a URL host is a route to one. Deriving it would make
+	// a DNS name decide what a capability is minted for.
+	Audience      string `protobuf:"bytes,2,opt,name=audience,proto3" json:"audience,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunnableCallbackTarget) Reset() {
+	*x = RunnableCallbackTarget{}
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunnableCallbackTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunnableCallbackTarget) ProtoMessage() {}
+
+func (x *RunnableCallbackTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunnableCallbackTarget.ProtoReflect.Descriptor instead.
+func (*RunnableCallbackTarget) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RunnableCallbackTarget) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *RunnableCallbackTarget) GetAudience() string {
+	if x != nil {
+		return x.Audience
+	}
+	return ""
+}
+
+// RunnableInvocation is one call's per-call facts, as the caller issued them.
 type RunnableInvocation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// protocol is the framing this document is written in, matching the
+	// protocol is the invocation protocol the call is made over, matching the
 	// package contract's protocol.
 	Protocol string `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	// runnable is the release being invoked. A harness handed another release's
-	// invocation refuses it instead of running foreign input.
+	// runnable is the release being invoked. An implementation handed another
+	// release's invocation refuses it instead of running foreign input.
 	Runnable *RunnableIdentity `protobuf:"bytes,2,opt,name=runnable,proto3" json:"runnable,omitempty"`
-	// invocation_id identifies this one run of the process.
+	// invocation_id identifies this one call. It is the caller's own
+	// correlation identity: no header carries it, because nothing on the
+	// receiving side has anything to do with it.
 	InvocationId string `protobuf:"bytes,3,opt,name=invocation_id,json=invocationId,proto3" json:"invocation_id,omitempty"`
 	// intent_id is the caller's logical operation, stable across attempts. Core
 	// never decides that another attempt happens; it carries the identity that
@@ -372,32 +360,40 @@ type RunnableInvocation struct {
 	// forbidden by the target package's recovery policy would force every caller
 	// to branch on that policy before filling it.
 	EffectId string `protobuf:"bytes,5,opt,name=effect_id,json=effectId,proto3" json:"effect_id,omitempty"`
-	// issued_at is when the launcher wrote this document.
+	// issued_at is when the caller issued this invocation.
 	IssuedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=issued_at,json=issuedAt,proto3" json:"issued_at,omitempty"`
-	// deadline is when the launcher stops waiting, at most issued_at plus the
+	// deadline is when the caller stops waiting, at most issued_at plus the
 	// package's declared execution timeout: that timeout bounds one invocation's
-	// duration, so a launcher computing a deadline of its own may shorten it but
-	// never overrule the author. A harness budgeting its own work measures
-	// deadline minus issued_at from the moment it reads this document, so an
-	// offset between the two clocks neither shortens nor extends the budget.
+	// duration, so a caller computing a deadline of its own may shorten it but
+	// never overrule the author. It reaches the implementation as the call's
+	// deadline header, so an implementation may decline work it cannot finish in
+	// time rather than starting an effect nobody will hear the outcome of.
 	Deadline *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=deadline,proto3" json:"deadline,omitempty"`
 	// input is one UTF-8 JSON object matching the contract's input schema,
-	// bounded by RunnableExecution.max_input_bytes. Bytes rather than a
-	// structured value because proto3 JSON maps every number to a double while
-	// the bounded profile has a 64-bit integer, and because the bound must
-	// apply to exactly the document that was bounded. A proto3 JSON encoder
-	// base64-encodes this field; the bound is on the decoded document.
+	// bounded by RunnableExecution.max_input_bytes, and it is the call's request
+	// body verbatim. Bytes rather than a structured value because proto3 JSON
+	// maps every number to a double while the bounded profile has a 64-bit
+	// integer, and because the bound must apply to exactly the document that was
+	// sent. A proto3 JSON encoder base64-encodes this field; the bound is on the
+	// decoded document.
 	Input []byte `protobuf:"bytes,8,opt,name=input,proto3" json:"input,omitempty"`
 	// identity is the Work Context this invocation runs under. Required: there is
 	// no invocation without an identity to run it as.
-	Identity      *RunnableInvocationIdentity `protobuf:"bytes,9,opt,name=identity,proto3" json:"identity,omitempty"`
+	Identity *RunnableInvocationIdentity `protobuf:"bytes,9,opt,name=identity,proto3" json:"identity,omitempty"`
+	// callback is where the owner reports a submitted invocation, and it is the
+	// caller's own choice: present, the owner pushes its heartbeats and its
+	// terminal answer there; absent, the caller reads the status by the handle
+	// the acceptance gave it. It is set only for an operation declaring
+	// COMPLETION_SUBMIT — a call-mode invocation answers in the reply, so an
+	// address to report to later would describe a report nothing ever sends.
+	Callback      *RunnableCallbackTarget `protobuf:"bytes,10,opt,name=callback,proto3" json:"callback,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RunnableInvocation) Reset() {
 	*x = RunnableInvocation{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -409,7 +405,7 @@ func (x *RunnableInvocation) String() string {
 func (*RunnableInvocation) ProtoMessage() {}
 
 func (x *RunnableInvocation) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -422,7 +418,7 @@ func (x *RunnableInvocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableInvocation.ProtoReflect.Descriptor instead.
 func (*RunnableInvocation) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{2}
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RunnableInvocation) GetProtocol() string {
@@ -488,6 +484,13 @@ func (x *RunnableInvocation) GetIdentity() *RunnableInvocationIdentity {
 	return nil
 }
 
+func (x *RunnableInvocation) GetCallback() *RunnableCallbackTarget {
+	if x != nil {
+		return x.Callback
+	}
+	return nil
+}
+
 // RunnableError is a handler's own typed failure. The code is the operation's
 // vocabulary rather than Codefly's: a runnable that could not charge a card
 // says so in its own terms, and core never reinterprets it.
@@ -503,7 +506,7 @@ type RunnableError struct {
 
 func (x *RunnableError) Reset() {
 	*x = RunnableError{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -515,7 +518,7 @@ func (x *RunnableError) String() string {
 func (*RunnableError) ProtoMessage() {}
 
 func (x *RunnableError) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -528,7 +531,7 @@ func (x *RunnableError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableError.ProtoReflect.Descriptor instead.
 func (*RunnableError) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{3}
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RunnableError) GetCode() string {
@@ -545,17 +548,18 @@ func (x *RunnableError) GetMessage() string {
 	return ""
 }
 
-// RunnableResult is the document a harness writes. A harness reports only what
-// it observed of itself: the handler produced output, the handler ran and
-// failed, or an interruption stopped it. Every other way an invocation can end
-// is a judgement about a process that left no result, which only the launcher
-// is in a position to make.
+// RunnableResult is what an implementation answered for one call. It reports
+// only what the implementation observed of itself: the handler produced output,
+// the handler ran and failed, or an interruption stopped it. Every other way a
+// call can end is a judgement about an answer that never arrived or did not
+// validate, which only the caller is in a position to make — see
+// RunnableServedOutcome in runnable_served.proto.
 type RunnableResult struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// protocol is the framing this document is written in.
+	// protocol is the invocation protocol the call was made over.
 	Protocol string `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	// invocation_id echoes the invocation. A launcher reading another
-	// invocation's id has found a stale document, not this run's result.
+	// invocation_id echoes the invocation. A caller reading another invocation's
+	// id has found something that is not this call's answer.
 	InvocationId string `protobuf:"bytes,2,opt,name=invocation_id,json=invocationId,proto3" json:"invocation_id,omitempty"`
 	// status is what the harness observed.
 	Status RunnableResult_Status `protobuf:"varint,3,opt,name=status,proto3,enum=codefly.base.v0.RunnableResult_Status" json:"status,omitempty"`
@@ -563,8 +567,8 @@ type RunnableResult struct {
 	// contract's output schema, bounded by RunnableExecution.max_output_bytes
 	// and base64-encoded by a proto3 JSON encoder like the invocation input.
 	Output []byte `protobuf:"bytes,4,opt,name=output,proto3" json:"output,omitempty"`
-	// error is the FAILED cause, and optionally what an INTERRUPTED harness was
-	// doing when the signal arrived.
+	// error is the FAILED cause, and optionally what an INTERRUPTED
+	// implementation was doing when the signal arrived.
 	Error         *RunnableError `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -572,7 +576,7 @@ type RunnableResult struct {
 
 func (x *RunnableResult) Reset() {
 	*x = RunnableResult{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -584,7 +588,7 @@ func (x *RunnableResult) String() string {
 func (*RunnableResult) ProtoMessage() {}
 
 func (x *RunnableResult) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -597,7 +601,7 @@ func (x *RunnableResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableResult.ProtoReflect.Descriptor instead.
 func (*RunnableResult) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{4}
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RunnableResult) GetProtocol() string {
@@ -635,257 +639,6 @@ func (x *RunnableResult) GetError() *RunnableError {
 	return nil
 }
 
-// RunnableLogStream records what one log stream produced. The bytes stay
-// wherever the launcher put them; a completion carries bounded metadata, never
-// process output.
-type RunnableLogStream struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// bytes is how much the launcher captured, at most max_log_bytes.
-	Bytes uint64 `protobuf:"varint,1,opt,name=bytes,proto3" json:"bytes,omitempty"`
-	// truncated means the stream produced more than the bound allowed.
-	Truncated     bool `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RunnableLogStream) Reset() {
-	*x = RunnableLogStream{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RunnableLogStream) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RunnableLogStream) ProtoMessage() {}
-
-func (x *RunnableLogStream) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RunnableLogStream.ProtoReflect.Descriptor instead.
-func (*RunnableLogStream) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *RunnableLogStream) GetBytes() uint64 {
-	if x != nil {
-		return x.Bytes
-	}
-	return 0
-}
-
-func (x *RunnableLogStream) GetTruncated() bool {
-	if x != nil {
-		return x.Truncated
-	}
-	return false
-}
-
-// RunnableLogs separates diagnostics from completion data. Exceeding the log
-// bound truncates the stream and never changes the outcome, while exceeding
-// the output bound makes the result invalid.
-type RunnableLogs struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// stdout is the standard output stream.
-	Stdout *RunnableLogStream `protobuf:"bytes,1,opt,name=stdout,proto3" json:"stdout,omitempty"`
-	// stderr is the standard error stream.
-	Stderr        *RunnableLogStream `protobuf:"bytes,2,opt,name=stderr,proto3" json:"stderr,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RunnableLogs) Reset() {
-	*x = RunnableLogs{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RunnableLogs) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RunnableLogs) ProtoMessage() {}
-
-func (x *RunnableLogs) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RunnableLogs.ProtoReflect.Descriptor instead.
-func (*RunnableLogs) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *RunnableLogs) GetStdout() *RunnableLogStream {
-	if x != nil {
-		return x.Stdout
-	}
-	return nil
-}
-
-func (x *RunnableLogs) GetStderr() *RunnableLogStream {
-	if x != nil {
-		return x.Stderr
-	}
-	return nil
-}
-
-// RunnableCompletion is produced by the launcher, never by the harness.
-type RunnableCompletion struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// protocol is the framing the invocation used.
-	Protocol string `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	// runnable is the invoked release.
-	Runnable *RunnableIdentity `protobuf:"bytes,2,opt,name=runnable,proto3" json:"runnable,omitempty"`
-	// invocation_id is the invocation this completes.
-	InvocationId string `protobuf:"bytes,3,opt,name=invocation_id,json=invocationId,proto3" json:"invocation_id,omitempty"`
-	// outcome is the typed terminal state.
-	Outcome RunnableCompletion_Outcome `protobuf:"varint,4,opt,name=outcome,proto3,enum=codefly.base.v0.RunnableCompletion_Outcome" json:"outcome,omitempty"`
-	// result is the harness document, present for exactly SUCCEEDED and FAILED.
-	Result *RunnableResult `protobuf:"bytes,5,opt,name=result,proto3" json:"result,omitempty"`
-	// exit_code is the process exit status, meaningful when signal is empty.
-	ExitCode int32 `protobuf:"varint,6,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
-	// signal names the signal the process died on, empty when it exited.
-	Signal string `protobuf:"bytes,7,opt,name=signal,proto3" json:"signal,omitempty"`
-	// message explains an outcome that carries no result, and records a launcher
-	// breaking the package's declared cancellation policy whatever the outcome.
-	Message string `protobuf:"bytes,8,opt,name=message,proto3" json:"message,omitempty"`
-	// started_at is when the launcher started the process.
-	StartedAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	// ended_at is when the process ended.
-	EndedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
-	// logs record what the two log streams produced.
-	Logs          *RunnableLogs `protobuf:"bytes,11,opt,name=logs,proto3" json:"logs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RunnableCompletion) Reset() {
-	*x = RunnableCompletion{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RunnableCompletion) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RunnableCompletion) ProtoMessage() {}
-
-func (x *RunnableCompletion) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RunnableCompletion.ProtoReflect.Descriptor instead.
-func (*RunnableCompletion) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *RunnableCompletion) GetProtocol() string {
-	if x != nil {
-		return x.Protocol
-	}
-	return ""
-}
-
-func (x *RunnableCompletion) GetRunnable() *RunnableIdentity {
-	if x != nil {
-		return x.Runnable
-	}
-	return nil
-}
-
-func (x *RunnableCompletion) GetInvocationId() string {
-	if x != nil {
-		return x.InvocationId
-	}
-	return ""
-}
-
-func (x *RunnableCompletion) GetOutcome() RunnableCompletion_Outcome {
-	if x != nil {
-		return x.Outcome
-	}
-	return RunnableCompletion_UNKNOWN
-}
-
-func (x *RunnableCompletion) GetResult() *RunnableResult {
-	if x != nil {
-		return x.Result
-	}
-	return nil
-}
-
-func (x *RunnableCompletion) GetExitCode() int32 {
-	if x != nil {
-		return x.ExitCode
-	}
-	return 0
-}
-
-func (x *RunnableCompletion) GetSignal() string {
-	if x != nil {
-		return x.Signal
-	}
-	return ""
-}
-
-func (x *RunnableCompletion) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
-}
-
-func (x *RunnableCompletion) GetStartedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.StartedAt
-	}
-	return nil
-}
-
-func (x *RunnableCompletion) GetEndedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.EndedAt
-	}
-	return nil
-}
-
-func (x *RunnableCompletion) GetLogs() *RunnableLogs {
-	if x != nil {
-		return x.Logs
-	}
-	return nil
-}
-
 var File_codefly_base_v0_runnable_invocation_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_runnable_invocation_proto_rawDesc = "" +
@@ -900,7 +653,11 @@ const file_codefly_base_v0_runnable_invocation_proto_rawDesc = "" +
 	"\fwork_context\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80@H\x00R\vworkContext\x12?\n" +
 	"\x05grant\x18\x02 \x01(\v2'.codefly.base.v0.RunnableGrantReferenceH\x00R\x05grantB\x10\n" +
-	"\acarrier\x12\x05\xbaH\x02\b\x01\"\xf2\x03\n" +
+	"\acarrier\x12\x05\xbaH\x02\b\x01\"g\n" +
+	"\x16RunnableCallbackTarget\x12%\n" +
+	"\aaddress\x18\x01 \x01(\tB\v\xbaH\br\x06\x18\x80\x04\x88\x01\x01R\aaddress\x12&\n" +
+	"\baudience\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\baudience\"\xb7\x04\n" +
 	"\x12RunnableInvocation\x12#\n" +
 	"\bprotocol\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprotocol\x12E\n" +
 	"\brunnable\x18\x02 \x01(\v2!.codefly.base.v0.RunnableIdentityB\x06\xbaH\x03\xc8\x01\x01R\brunnable\x12/\n" +
@@ -912,7 +669,9 @@ const file_codefly_base_v0_runnable_invocation_proto_rawDesc = "" +
 	"\tissued_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\bissuedAt\x12>\n" +
 	"\bdeadline\x18\a \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\bdeadline\x12\x1d\n" +
 	"\x05input\x18\b \x01(\fB\a\xbaH\x04z\x02\x10\x01R\x05input\x12O\n" +
-	"\bidentity\x18\t \x01(\v2+.codefly.base.v0.RunnableInvocationIdentityB\x06\xbaH\x03\xc8\x01\x01R\bidentity\"I\n" +
+	"\bidentity\x18\t \x01(\v2+.codefly.base.v0.RunnableInvocationIdentityB\x06\xbaH\x03\xc8\x01\x01R\bidentity\x12C\n" +
+	"\bcallback\x18\n" +
+	" \x01(\v2'.codefly.base.v0.RunnableCallbackTargetR\bcallback\"I\n" +
 	"\rRunnableError\x12\x1e\n" +
 	"\x04code\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\x04code\x12\x18\n" +
@@ -929,38 +688,7 @@ const file_codefly_base_v0_runnable_invocation_proto_rawDesc = "" +
 	"\tSUCCEEDED\x10\x01\x12\n" +
 	"\n" +
 	"\x06FAILED\x10\x02\x12\x0f\n" +
-	"\vINTERRUPTED\x10\x03\"G\n" +
-	"\x11RunnableLogStream\x12\x14\n" +
-	"\x05bytes\x18\x01 \x01(\x04R\x05bytes\x12\x1c\n" +
-	"\ttruncated\x18\x02 \x01(\bR\ttruncated\"\x86\x01\n" +
-	"\fRunnableLogs\x12:\n" +
-	"\x06stdout\x18\x01 \x01(\v2\".codefly.base.v0.RunnableLogStreamR\x06stdout\x12:\n" +
-	"\x06stderr\x18\x02 \x01(\v2\".codefly.base.v0.RunnableLogStreamR\x06stderr\"\xc5\x05\n" +
-	"\x12RunnableCompletion\x12#\n" +
-	"\bprotocol\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprotocol\x12E\n" +
-	"\brunnable\x18\x02 \x01(\v2!.codefly.base.v0.RunnableIdentityB\x06\xbaH\x03\xc8\x01\x01R\brunnable\x12/\n" +
-	"\rinvocation_id\x18\x03 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\finvocationId\x12O\n" +
-	"\aoutcome\x18\x04 \x01(\x0e2+.codefly.base.v0.RunnableCompletion.OutcomeB\b\xbaH\x05\x82\x01\x02\x10\x01R\aoutcome\x127\n" +
-	"\x06result\x18\x05 \x01(\v2\x1f.codefly.base.v0.RunnableResultR\x06result\x12\x1b\n" +
-	"\texit_code\x18\x06 \x01(\x05R\bexitCode\x12\x16\n" +
-	"\x06signal\x18\a \x01(\tR\x06signal\x12\x18\n" +
-	"\amessage\x18\b \x01(\tR\amessage\x12A\n" +
-	"\n" +
-	"started_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\tstartedAt\x12=\n" +
-	"\bended_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\aendedAt\x121\n" +
-	"\x04logs\x18\v \x01(\v2\x1d.codefly.base.v0.RunnableLogsR\x04logs\"\x83\x01\n" +
-	"\aOutcome\x12\v\n" +
-	"\aUNKNOWN\x10\x00\x12\r\n" +
-	"\tSUCCEEDED\x10\x01\x12\n" +
-	"\n" +
-	"\x06FAILED\x10\x02\x12\x12\n" +
-	"\x0eINVALID_OUTPUT\x10\x03\x12\x12\n" +
-	"\x0eMISSING_OUTPUT\x10\x04\x12\v\n" +
-	"\aCRASHED\x10\x05\x12\r\n" +
-	"\tTIMED_OUT\x10\x06\x12\f\n" +
-	"\bCANCELED\x10\aB\xc6\x01\n" +
+	"\vINTERRUPTED\x10\x03B\xc6\x01\n" +
 	"\x13com.codefly.base.v0B\x17RunnableInvocationProtoP\x01Z8github.com/codefly-dev/core/generated/go/codefly/base/v0\xa2\x02\x03CBV\xaa\x02\x0fCodefly.Base.V0\xca\x02\x0fCodefly\\Base\\V0\xe2\x02\x1bCodefly\\Base\\V0\\GPBMetadata\xea\x02\x11Codefly::Base::V0b\x06proto3"
 
 var (
@@ -975,43 +703,33 @@ func file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP() []byte {
 	return file_codefly_base_v0_runnable_invocation_proto_rawDescData
 }
 
-var file_codefly_base_v0_runnable_invocation_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_codefly_base_v0_runnable_invocation_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_codefly_base_v0_runnable_invocation_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_codefly_base_v0_runnable_invocation_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_codefly_base_v0_runnable_invocation_proto_goTypes = []any{
 	(RunnableResult_Status)(0),         // 0: codefly.base.v0.RunnableResult.Status
-	(RunnableCompletion_Outcome)(0),    // 1: codefly.base.v0.RunnableCompletion.Outcome
-	(*RunnableGrantReference)(nil),     // 2: codefly.base.v0.RunnableGrantReference
-	(*RunnableInvocationIdentity)(nil), // 3: codefly.base.v0.RunnableInvocationIdentity
+	(*RunnableGrantReference)(nil),     // 1: codefly.base.v0.RunnableGrantReference
+	(*RunnableInvocationIdentity)(nil), // 2: codefly.base.v0.RunnableInvocationIdentity
+	(*RunnableCallbackTarget)(nil),     // 3: codefly.base.v0.RunnableCallbackTarget
 	(*RunnableInvocation)(nil),         // 4: codefly.base.v0.RunnableInvocation
 	(*RunnableError)(nil),              // 5: codefly.base.v0.RunnableError
 	(*RunnableResult)(nil),             // 6: codefly.base.v0.RunnableResult
-	(*RunnableLogStream)(nil),          // 7: codefly.base.v0.RunnableLogStream
-	(*RunnableLogs)(nil),               // 8: codefly.base.v0.RunnableLogs
-	(*RunnableCompletion)(nil),         // 9: codefly.base.v0.RunnableCompletion
-	(*RunnableIdentity)(nil),           // 10: codefly.base.v0.RunnableIdentity
-	(*timestamppb.Timestamp)(nil),      // 11: google.protobuf.Timestamp
+	(*RunnableIdentity)(nil),           // 7: codefly.base.v0.RunnableIdentity
+	(*timestamppb.Timestamp)(nil),      // 8: google.protobuf.Timestamp
 }
 var file_codefly_base_v0_runnable_invocation_proto_depIdxs = []int32{
-	2,  // 0: codefly.base.v0.RunnableInvocationIdentity.grant:type_name -> codefly.base.v0.RunnableGrantReference
-	10, // 1: codefly.base.v0.RunnableInvocation.runnable:type_name -> codefly.base.v0.RunnableIdentity
-	11, // 2: codefly.base.v0.RunnableInvocation.issued_at:type_name -> google.protobuf.Timestamp
-	11, // 3: codefly.base.v0.RunnableInvocation.deadline:type_name -> google.protobuf.Timestamp
-	3,  // 4: codefly.base.v0.RunnableInvocation.identity:type_name -> codefly.base.v0.RunnableInvocationIdentity
-	0,  // 5: codefly.base.v0.RunnableResult.status:type_name -> codefly.base.v0.RunnableResult.Status
-	5,  // 6: codefly.base.v0.RunnableResult.error:type_name -> codefly.base.v0.RunnableError
-	7,  // 7: codefly.base.v0.RunnableLogs.stdout:type_name -> codefly.base.v0.RunnableLogStream
-	7,  // 8: codefly.base.v0.RunnableLogs.stderr:type_name -> codefly.base.v0.RunnableLogStream
-	10, // 9: codefly.base.v0.RunnableCompletion.runnable:type_name -> codefly.base.v0.RunnableIdentity
-	1,  // 10: codefly.base.v0.RunnableCompletion.outcome:type_name -> codefly.base.v0.RunnableCompletion.Outcome
-	6,  // 11: codefly.base.v0.RunnableCompletion.result:type_name -> codefly.base.v0.RunnableResult
-	11, // 12: codefly.base.v0.RunnableCompletion.started_at:type_name -> google.protobuf.Timestamp
-	11, // 13: codefly.base.v0.RunnableCompletion.ended_at:type_name -> google.protobuf.Timestamp
-	8,  // 14: codefly.base.v0.RunnableCompletion.logs:type_name -> codefly.base.v0.RunnableLogs
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	1, // 0: codefly.base.v0.RunnableInvocationIdentity.grant:type_name -> codefly.base.v0.RunnableGrantReference
+	7, // 1: codefly.base.v0.RunnableInvocation.runnable:type_name -> codefly.base.v0.RunnableIdentity
+	8, // 2: codefly.base.v0.RunnableInvocation.issued_at:type_name -> google.protobuf.Timestamp
+	8, // 3: codefly.base.v0.RunnableInvocation.deadline:type_name -> google.protobuf.Timestamp
+	2, // 4: codefly.base.v0.RunnableInvocation.identity:type_name -> codefly.base.v0.RunnableInvocationIdentity
+	3, // 5: codefly.base.v0.RunnableInvocation.callback:type_name -> codefly.base.v0.RunnableCallbackTarget
+	0, // 6: codefly.base.v0.RunnableResult.status:type_name -> codefly.base.v0.RunnableResult.Status
+	5, // 7: codefly.base.v0.RunnableResult.error:type_name -> codefly.base.v0.RunnableError
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_runnable_invocation_proto_init() }
@@ -1029,8 +747,8 @@ func file_codefly_base_v0_runnable_invocation_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_runnable_invocation_proto_rawDesc), len(file_codefly_base_v0_runnable_invocation_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   8,
+			NumEnums:      1,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

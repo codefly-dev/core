@@ -27,9 +27,9 @@ const (
 	BindingSchemaV1 = "codefly.runnable-binding/v1"
 	// TargetSchemaV1 is the only execution-target schema this package accepts.
 	TargetSchemaV1 = "codefly.runnable-target/v1"
-	// ProtocolV1 is the launcher/harness invocation framing this package
-	// implements, and the only protocol a loaded contract may name.
-	ProtocolV1 = resources.RunnableProtocolV1
+	// ServedProtocolV1 is the invocation protocol of the harness a runnable
+	// agent generates, and the only protocol a loaded contract may name.
+	ServedProtocolV1 = resources.RunnableServedProtocolV1
 )
 
 var (
@@ -54,8 +54,8 @@ func init() {
 // artifactFacility is the facility an artifact form executes on. A binding may
 // only pair the two this way.
 var artifactFacility = map[basev0.RunnableArtifact_Kind]basev0.RunnableFacility_Kind{
-	basev0.RunnableArtifact_NATIVE: basev0.RunnableFacility_NATIVE,
-	basev0.RunnableArtifact_IMAGE:  basev0.RunnableFacility_KUBERNETES,
+	basev0.RunnableArtifact_ARCHIVE: basev0.RunnableFacility_GENERATED_SERVICE,
+	basev0.RunnableArtifact_IMAGE:   basev0.RunnableFacility_KUBERNETES,
 }
 
 // declaredFacilities spells the wire facilities the way the declaration does,
@@ -374,11 +374,11 @@ func validateExecution(execution *basev0.RunnableExecution) (map[basev0.Runnable
 	if execution.GetRecovery() == basev0.RunnableExecution_RECOVERY_UNKNOWN {
 		return nil, fmt.Errorf("%w: execution recovery is required", ErrInvalid)
 	}
-	launched := false
+	packaged := false
 	for _, facility := range declaredFacilities(execution) {
 		capabilities, _ := facility.Capabilities()
-		if capabilities.Launched {
-			launched = true
+		if capabilities.Packaged {
+			packaged = true
 			continue
 		}
 		if execution.GetCancellation() == basev0.RunnableExecution_CANCELLATION_SIGNAL {
@@ -386,14 +386,14 @@ func validateExecution(execution *basev0.RunnableExecution) (map[basev0.Runnable
 				ErrInvalid, facility, execution.GetCancellation())
 		}
 	}
-	// A log bound describes what a launcher captures. Requiring one where no
-	// launcher exists would put a number in the descriptor that describes
-	// nobody's behavior.
-	if launched && execution.GetMaxLogBytes() == 0 {
-		return nil, fmt.Errorf("%w: execution max_log_bytes must be positive when a facility is launched", ErrInvalid)
+	// A log bound describes what is captured from an artifact this build
+	// produced. Requiring one where no such artifact exists would put a number
+	// in the descriptor that describes nobody's behavior.
+	if packaged && execution.GetMaxLogBytes() == 0 {
+		return nil, fmt.Errorf("%w: execution max_log_bytes must be positive when a facility runs an artifact this package built", ErrInvalid)
 	}
-	if !launched && execution.GetMaxLogBytes() != 0 {
-		return nil, fmt.Errorf("%w: execution sets max_log_bytes but no declared facility has a launcher capturing streams", ErrInvalid)
+	if !packaged && execution.GetMaxLogBytes() != 0 {
+		return nil, fmt.Errorf("%w: execution sets max_log_bytes but no declared facility runs an artifact whose streams are captured", ErrInvalid)
 	}
 	switch execution.GetCompletion() {
 	case basev0.RunnableExecution_COMPLETION_CALL:
@@ -473,13 +473,13 @@ func validateArtifact(artifact *basev0.RunnableArtifact) error {
 		return fmt.Errorf("%w: artifact platform %q must be os/arch", ErrInvalid, artifact.GetPlatform())
 	}
 	switch artifact.GetKind() {
-	case basev0.RunnableArtifact_NATIVE:
+	case basev0.RunnableArtifact_ARCHIVE:
 		if len(artifact.GetCommand()) == 0 {
-			return fmt.Errorf("%w: native artifact for %s declares no launch command", ErrInvalid, artifact.GetPlatform())
+			return fmt.Errorf("%w: archive artifact for %s declares no command to start its harness", ErrInvalid, artifact.GetPlatform())
 		}
 	case basev0.RunnableArtifact_IMAGE:
 		if len(artifact.GetCommand()) > 0 {
-			return fmt.Errorf("%w: image artifact for %s must not declare a launch command; the image carries its entrypoint", ErrInvalid, artifact.GetPlatform())
+			return fmt.Errorf("%w: image artifact for %s must not declare a command; the image carries its entrypoint", ErrInvalid, artifact.GetPlatform())
 		}
 		if !strings.HasSuffix(artifact.GetReference(), "@"+artifact.GetDigest()) {
 			return fmt.Errorf("%w: image reference %q is not pinned to its digest %s", ErrInvalid, artifact.GetReference(), artifact.GetDigest())
@@ -598,22 +598,25 @@ func validateImplementation(binding *basev0.RunnableBinding, pkg *basev0.Runnabl
 }
 
 // validateTarget checks the coordinates an adapter dispatches to. The variant
-// is what keeps the dispatch forms apart: a NATIVE binding names a launcher
-// and the directory its artifact was unpacked into, and an owner handler
-// running inside a service its owner already operates has neither.
+// is what keeps the dispatch forms apart: a KUBERNETES binding names the
+// namespace its invocation Job is created in, a GENERATED_SERVICE binding names
+// the directory its archive was unpacked into and the address its harness
+// serves on, and an owner handler running inside a service its owner already
+// operates names only that owner's endpoint.
 func validateTarget(binding *basev0.RunnableBinding) error {
 	target, facility := binding.GetTarget(), binding.GetFacility().GetKind()
 	if target.GetSchema() != TargetSchemaV1 {
 		return fmt.Errorf("%w: target schema %q is not supported; expected %s", ErrInvalid, target.GetSchema(), TargetSchemaV1)
 	}
 	switch coordinates := target.GetCoordinates().(type) {
-	case *basev0.RunnableTarget_Host:
-		if facility != basev0.RunnableFacility_NATIVE {
-			return fmt.Errorf("%w: facility %s does not dispatch to a host target", ErrInvalid, facility)
+	case *basev0.RunnableTarget_Generated:
+		if facility != basev0.RunnableFacility_GENERATED_SERVICE {
+			return fmt.Errorf("%w: facility %s does not dispatch to a generated-service target", ErrInvalid, facility)
 		}
-		if err := validateInstallPath(coordinates.Host.GetInstallPath(), binding.GetArtifact().GetPlatform()); err != nil {
+		if err := validateInstallPath(coordinates.Generated.GetInstallPath(), binding.GetArtifact().GetPlatform()); err != nil {
 			return err
 		}
+		return validateNetworkInstances(networkMappingKey(coordinates.Generated.GetEndpoint()), coordinates.Generated.GetEndpoint().GetInstances())
 	case *basev0.RunnableTarget_Cluster:
 		if facility != basev0.RunnableFacility_KUBERNETES {
 			return fmt.Errorf("%w: facility %s does not dispatch to a cluster target", ErrInvalid, facility)
@@ -642,17 +645,17 @@ func validateTarget(binding *basev0.RunnableBinding) error {
 // bare leading-slash rule would let one be built and never bound.
 func validateInstallPath(installPath, platform string) error {
 	if strings.ContainsRune(installPath, 0) {
-		return fmt.Errorf("%w: host install path %q must not contain NUL", ErrInvalid, installPath)
+		return fmt.Errorf("%w: install path %q must not contain NUL", ErrInvalid, installPath)
 	}
 	operatingSystem, _, _ := strings.Cut(platform, "/")
 	if operatingSystem == "windows" {
 		if !windowsAbsolute(installPath) {
-			return fmt.Errorf("%w: host install path %q must be absolute on %s", ErrInvalid, installPath, platform)
+			return fmt.Errorf("%w: install path %q must be absolute on %s", ErrInvalid, installPath, platform)
 		}
 		return nil
 	}
 	if !strings.HasPrefix(installPath, "/") {
-		return fmt.Errorf("%w: host install path %q must be absolute", ErrInvalid, installPath)
+		return fmt.Errorf("%w: install path %q must be absolute", ErrInvalid, installPath)
 	}
 	return nil
 }

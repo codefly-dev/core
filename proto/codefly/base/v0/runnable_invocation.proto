@@ -6,33 +6,28 @@ import "codefly/base/v0/runnable.proto";
 import "google/protobuf/timestamp.proto";
 
 /*
-codefly.runnable/v1 — the framing between a launcher and a generated harness.
+The per-call facts of one Runnable invocation, and the answer an implementation
+gives for it.
 
-A launcher starts the bound artifact's command once per invocation. Three
-environment variables and two documents are the whole seam:
+Every facility is reached by calling something that serves the contract, so
+these are the facts of a call rather than the documents of a launched process.
+Identity, the effect identity and the deadline travel as the call's headers
+(runnable.WorkContextHeader, runnable.EffectHeader, runnable.DeadlineHeader) and
+the bounded input is the request body, with no Codefly envelope around it: a
+field Codefly added to an owner's body would be a field the owner never
+described.
 
-  CODEFLY__RUNNABLE_PROTOCOL    the protocol name, so a harness refuses a
-                                launcher it does not implement
-  CODEFLY__RUNNABLE_INVOCATION  absolute path of the RunnableInvocation
-                                document the launcher wrote before starting
-  CODEFLY__RUNNABLE_RESULT      absolute path the harness writes its
-                                RunnableResult document to
+RunnableInvocation is therefore the caller's own record of what it sent, not a
+document written anywhere for something else to read. It is not
+content-addressed like a package or a binding: it names one run of an
+already-installed binding rather than an immutable installation fact.
 
-Both documents are proto3 JSON spelled with these field names, so a harness
-generating bindings from these same sources reads and writes them without a
-hand-written spelling of the framing. The harness writes its result to a
-temporary file in the result path's directory and renames it onto the result
-path: a launcher never reads a half-written document, and no file there when
-the process ends means no result at all.
+Standard output and standard error stay logs. They never carry completion data:
+an implementation that printed its output would be indistinguishable from a
+library that printed a warning.
 
-Standard output and standard error are logs. They never carry completion data:
-a harness that printed its output would be indistinguishable from a library
-that printed a warning.
-
-One process runs one invocation: the paths name a single invocation and a
-single result. RunnableExecution.concurrency therefore bounds how many such
-processes a facility runs at once, not a pool inside one of them; there is no
-way to hand a second invocation to a process already running.
+One call carries one invocation, so RunnableExecution.concurrency bounds how
+many calls a facility serves at once rather than a pool inside one of them.
 */
 
 // RunnableGrantReference is an opaque, revocable reference to a delegation the
@@ -65,10 +60,10 @@ message RunnableGrantReference {
 // that forgot to fill it and the caller that had no authority to fill it are
 // indistinguishable.
 //
-// It is on the invocation document rather than in the environment because the
-// document is already 0600 in a per-process directory removed with the process,
-// while an environment variable is readable by every descendant and appears in
-// whatever collects process metadata.
+// It travels as the call's Work Context header rather than in the environment
+// of whatever serves the call: a capability is minted per call, immediately
+// before it, and an environment variable is readable by every descendant, lives
+// as long as the process and appears in whatever collects process metadata.
 message RunnableInvocationIdentity {
   // carrier is how the authority arrives. Which arm is set follows from when the
   // invocation runs, not from which facility runs it: a call happening now
@@ -88,17 +83,44 @@ message RunnableInvocationIdentity {
   }
 }
 
-// RunnableInvocation is the document a launcher hands a harness. Unlike a
-// package or a binding it is not content-addressed: it names one run of an
-// already-installed binding rather than an immutable installation fact.
+// RunnableCallbackTarget is where an owner reports a submitted invocation: the
+// terminal answer, and the heartbeats that say the work is still live. It is
+// the caller's own address, presented on the call, and it is what settles the
+// direction of every later report — an owner never chooses whether to push.
+//
+// A caller that presents none has undertaken to read the status by handle
+// instead, which is the recovery path an owner owes anyway because a callback
+// can always be lost. So the two mechanisms are one owner obligation and one
+// caller choice, rather than a negotiation.
+message RunnableCallbackTarget {
+  // address is the absolute URL the owner POSTs its reports to. Plaintext is
+  // admitted only to a loopback host: every other plaintext address would put
+  // a completion, and the Work Context authenticating it, on the wire in
+  // clear.
+  string address = 1 [(buf.validate.field).string.uri = true, (buf.validate.field).string.max_len = 512];
+  // audience is the trust boundary the owner mints its own capability for when
+  // it reports. The callback is authenticated by the reporting workload's
+  // identity and by nothing else: a shared secret would have to be delivered
+  // to every owner that may report, which makes each of them able to forge
+  // every other's completions.
+  //
+  // It is stated rather than derived from the address, because an audience is
+  // a trust boundary and a URL host is a route to one. Deriving it would make
+  // a DNS name decide what a capability is minted for.
+  string audience = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
+// RunnableInvocation is one call's per-call facts, as the caller issued them.
 message RunnableInvocation {
-  // protocol is the framing this document is written in, matching the
+  // protocol is the invocation protocol the call is made over, matching the
   // package contract's protocol.
   string protocol = 1 [(buf.validate.field).string.min_len = 1];
-  // runnable is the release being invoked. A harness handed another release's
-  // invocation refuses it instead of running foreign input.
+  // runnable is the release being invoked. An implementation handed another
+  // release's invocation refuses it instead of running foreign input.
   RunnableIdentity runnable = 2 [(buf.validate.field).required = true];
-  // invocation_id identifies this one run of the process.
+  // invocation_id identifies this one call. It is the caller's own
+  // correlation identity: no header carries it, because nothing on the
+  // receiving side has anything to do with it.
   string invocation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
   // intent_id is the caller's logical operation, stable across attempts. Core
   // never decides that another attempt happens; it carries the identity that
@@ -112,25 +134,33 @@ message RunnableInvocation {
   // forbidden by the target package's recovery policy would force every caller
   // to branch on that policy before filling it.
   string effect_id = 5 [(buf.validate.field).string.max_len = 128];
-  // issued_at is when the launcher wrote this document.
+  // issued_at is when the caller issued this invocation.
   google.protobuf.Timestamp issued_at = 6 [(buf.validate.field).required = true];
-  // deadline is when the launcher stops waiting, at most issued_at plus the
+  // deadline is when the caller stops waiting, at most issued_at plus the
   // package's declared execution timeout: that timeout bounds one invocation's
-  // duration, so a launcher computing a deadline of its own may shorten it but
-  // never overrule the author. A harness budgeting its own work measures
-  // deadline minus issued_at from the moment it reads this document, so an
-  // offset between the two clocks neither shortens nor extends the budget.
+  // duration, so a caller computing a deadline of its own may shorten it but
+  // never overrule the author. It reaches the implementation as the call's
+  // deadline header, so an implementation may decline work it cannot finish in
+  // time rather than starting an effect nobody will hear the outcome of.
   google.protobuf.Timestamp deadline = 7 [(buf.validate.field).required = true];
   // input is one UTF-8 JSON object matching the contract's input schema,
-  // bounded by RunnableExecution.max_input_bytes. Bytes rather than a
-  // structured value because proto3 JSON maps every number to a double while
-  // the bounded profile has a 64-bit integer, and because the bound must
-  // apply to exactly the document that was bounded. A proto3 JSON encoder
-  // base64-encodes this field; the bound is on the decoded document.
+  // bounded by RunnableExecution.max_input_bytes, and it is the call's request
+  // body verbatim. Bytes rather than a structured value because proto3 JSON
+  // maps every number to a double while the bounded profile has a 64-bit
+  // integer, and because the bound must apply to exactly the document that was
+  // sent. A proto3 JSON encoder base64-encodes this field; the bound is on the
+  // decoded document.
   bytes input = 8 [(buf.validate.field).bytes.min_len = 1];
   // identity is the Work Context this invocation runs under. Required: there is
   // no invocation without an identity to run it as.
   RunnableInvocationIdentity identity = 9 [(buf.validate.field).required = true];
+  // callback is where the owner reports a submitted invocation, and it is the
+  // caller's own choice: present, the owner pushes its heartbeats and its
+  // terminal answer there; absent, the caller reads the status by the handle
+  // the acceptance gave it. It is set only for an operation declaring
+  // COMPLETION_SUBMIT — a call-mode invocation answers in the reply, so an
+  // address to report to later would describe a report nothing ever sends.
+  RunnableCallbackTarget callback = 10;
 }
 
 // RunnableError is a handler's own typed failure. The code is the operation's
@@ -143,11 +173,12 @@ message RunnableError {
   string message = 2;
 }
 
-// RunnableResult is the document a harness writes. A harness reports only what
-// it observed of itself: the handler produced output, the handler ran and
-// failed, or an interruption stopped it. Every other way an invocation can end
-// is a judgement about a process that left no result, which only the launcher
-// is in a position to make.
+// RunnableResult is what an implementation answered for one call. It reports
+// only what the implementation observed of itself: the handler produced output,
+// the handler ran and failed, or an interruption stopped it. Every other way a
+// call can end is a judgement about an answer that never arrived or did not
+// validate, which only the caller is in a position to make — see
+// RunnableServedOutcome in runnable_served.proto.
 message RunnableResult {
   // Status enumerates what a harness can report about its own invocation.
   enum Status {
@@ -161,16 +192,16 @@ message RunnableResult {
     // as certain relies on: a handler that abandons a half-applied effect owes
     // an INTERRUPTED or a crash, never a FAILED.
     FAILED = 2;
-    // INTERRUPTED means the harness handled an interruption signal and stopped.
-    // A package declaring CANCELLATION_SIGNAL promises exactly this report, and
-    // without it such a harness would have to claim a failure it did not have:
-    // the effect is left unproven, not disproven.
+    // INTERRUPTED means the implementation handled an interruption signal and
+    // stopped. A package declaring CANCELLATION_SIGNAL promises exactly this
+    // report, and without it such an implementation would have to claim a
+    // failure it did not have: the effect is left unproven, not disproven.
     INTERRUPTED = 3;
   }
-  // protocol is the framing this document is written in.
+  // protocol is the invocation protocol the call was made over.
   string protocol = 1 [(buf.validate.field).string.min_len = 1];
-  // invocation_id echoes the invocation. A launcher reading another
-  // invocation's id has found a stale document, not this run's result.
+  // invocation_id echoes the invocation. A caller reading another invocation's
+  // id has found something that is not this call's answer.
   string invocation_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
   // status is what the harness observed.
   Status status = 3 [(buf.validate.field).enum.defined_only = true];
@@ -178,108 +209,7 @@ message RunnableResult {
   // contract's output schema, bounded by RunnableExecution.max_output_bytes
   // and base64-encoded by a proto3 JSON encoder like the invocation input.
   bytes output = 4;
-  // error is the FAILED cause, and optionally what an INTERRUPTED harness was
-  // doing when the signal arrived.
+  // error is the FAILED cause, and optionally what an INTERRUPTED
+  // implementation was doing when the signal arrived.
   RunnableError error = 5;
-}
-
-// RunnableLogStream records what one log stream produced. The bytes stay
-// wherever the launcher put them; a completion carries bounded metadata, never
-// process output.
-message RunnableLogStream {
-  // bytes is how much the launcher captured, at most max_log_bytes.
-  uint64 bytes = 1;
-  // truncated means the stream produced more than the bound allowed.
-  bool truncated = 2;
-}
-
-// RunnableLogs separates diagnostics from completion data. Exceeding the log
-// bound truncates the stream and never changes the outcome, while exceeding
-// the output bound makes the result invalid.
-message RunnableLogs {
-  // stdout is the standard output stream.
-  RunnableLogStream stdout = 1;
-  // stderr is the standard error stream.
-  RunnableLogStream stderr = 2;
-}
-
-/*
-
-RunnableCompletion — the launcher's typed record of one invocation.
-
-The outcomes are distinct because a caller does different things with them: a
-FAILED operation ran and reported why, a MISSING_OUTPUT process did not honor
-the protocol, and a TIMED_OUT one may or may not have had its effect. Only
-SUCCEEDED and FAILED prove what happened; every other outcome leaves the effect
-unproven and is resolved the way the package's recovery policy says.
-
-A launcher classifies by this precedence, highest first:
-
-  1. a valid result for this invocation, so an outcome the harness already
-     proved is never discarded because the launcher also ended the process;
-  2. the launcher ending the process — TIMED_OUT or CANCELED explain it better
-     than the exit status the kill produced;
-  3. a result document that is not this invocation's valid result;
-  4. a non-zero exit or a signal;
-  5. nothing at all from a process that exited successfully.
-
-*/
-
-// RunnableCompletion is produced by the launcher, never by the harness.
-message RunnableCompletion {
-  // Outcome enumerates the distinct ways one invocation ends.
-  enum Outcome {
-    // UNKNOWN is the default value when outcome is not specified.
-    UNKNOWN = 0;
-    // SUCCEEDED means a valid result reported handler output.
-    SUCCEEDED = 1;
-    // FAILED means a valid result reported a typed handler failure. The
-    // operation ran: this is a completion, not a launcher error.
-    FAILED = 2;
-    // INVALID_OUTPUT means a result document exists but is not this
-    // invocation's valid result: malformed, another invocation's, missing its
-    // payload, or over max_output_bytes. A process that exits zero and writes
-    // such a document lands here, because the exit status is not the
-    // completion.
-    INVALID_OUTPUT = 3;
-    // MISSING_OUTPUT means the process exited successfully without writing a
-    // result at all.
-    MISSING_OUTPUT = 4;
-    // CRASHED means the process exited non-zero or died on a signal and left
-    // no result.
-    CRASHED = 5;
-    // TIMED_OUT means the deadline passed and the launcher ended the process.
-    TIMED_OUT = 6;
-    // CANCELED means the invocation was interrupted: the launcher acted on the
-    // caller's request, or the harness reported INTERRUPTED. Only a package
-    // declaring CANCELLATION_SIGNAL may be interrupted by a launcher; one
-    // declaring CANCELLATION_NONE runs to its deadline. A launcher that
-    // interrupts one anyway has broken the contract, and the completion says so
-    // in message rather than being withheld — the invocation ended, and
-    // discarding the record of how would lose an effect's only evidence.
-    CANCELED = 7;
-  }
-  // protocol is the framing the invocation used.
-  string protocol = 1 [(buf.validate.field).string.min_len = 1];
-  // runnable is the invoked release.
-  RunnableIdentity runnable = 2 [(buf.validate.field).required = true];
-  // invocation_id is the invocation this completes.
-  string invocation_id = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 128];
-  // outcome is the typed terminal state.
-  Outcome outcome = 4 [(buf.validate.field).enum.defined_only = true];
-  // result is the harness document, present for exactly SUCCEEDED and FAILED.
-  RunnableResult result = 5;
-  // exit_code is the process exit status, meaningful when signal is empty.
-  int32 exit_code = 6;
-  // signal names the signal the process died on, empty when it exited.
-  string signal = 7;
-  // message explains an outcome that carries no result, and records a launcher
-  // breaking the package's declared cancellation policy whatever the outcome.
-  string message = 8;
-  // started_at is when the launcher started the process.
-  google.protobuf.Timestamp started_at = 9 [(buf.validate.field).required = true];
-  // ended_at is when the process ended.
-  google.protobuf.Timestamp ended_at = 10 [(buf.validate.field).required = true];
-  // logs record what the two log streams produced.
-  RunnableLogs logs = 11;
 }

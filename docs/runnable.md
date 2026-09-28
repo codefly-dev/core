@@ -7,9 +7,8 @@ to the module's services and jobs, so one module release can ship both a
 service surface and runnable work.
 
 This document covers what core owns. Language agents (`runnable-python`,
-`runnable-go`), CLI commands, the local launcher and Orchestration's execution
-adapters live in their own repositories and consume the contracts described
-here.
+`runnable-go`), CLI commands and Orchestration's execution adapters live in
+their own repositories and consume the contracts described here.
 
 ## Runnable vs. Job
 
@@ -39,7 +38,7 @@ agent:                         # exact language agent: kind is uniform, name is 
   version: 0.0.1
   publisher: codefly.dev
 contract:
-  protocol: codefly.runnable/v1
+  protocol: codefly.runnable.served/v1
   input:
     fields:
       - name: text
@@ -57,11 +56,11 @@ contract:
     fields:
       - name: count
         type: integer
-entrypoint:                    # launched facilities only; see below
+entrypoint:                    # only where a build produces an artifact; see below
   handler: handler.py          # the author entrypoint
   inputs: [pyproject.toml, uv.lock]   # everything else whose content changes the package
 execution:
-  facilities: [native, kubernetes]   # native | kubernetes | service | function
+  facilities: [generated-service, kubernetes]   # generated-service | kubernetes | service | function
   timeout: 2m
   cancellation: signal         # none | signal
   recovery: recompute          # recompute | receipt
@@ -115,7 +114,9 @@ The contract's schema is a small typed profile, not JSON Schema: `object`,
 `nullable` (value may be null) declared separately. Field names are
 identifiers so every language agent can generate typed bindings. Enumerations,
 arbitrary JSON Schema, expressions and coercion are not promised because a YAML
-key can be written; `codefly.runnable/v1` is the only protocol accepted.
+key can be written. `codefly.runnable.served/v1`, `codefly.runnable.service/v1`
+and `codefly.runnable.function/v1` are the protocols accepted, and which one a
+release may name follows from its facilities.
 
 ## Immutable installation facts
 
@@ -129,9 +130,9 @@ built release: identity, exact agent, contract, execution bounds, pinned build
 inputs (handler, declared inputs, generated harness, toolchain, effective
 configuration), typed service dependencies with the endpoints they consume,
 the workspace configurations the invocation needs, and the implementations of
-the operation: built artifacts (a `NATIVE` package with its launch command
-and/or a digest-pinned `IMAGE`, each with its platform), owner service methods
-and remote functions. Its `digest` is the sha256 of a canonical form core owns
+the operation: built artifacts (an `ARCHIVE` with the command that starts its
+harness and/or a digest-pinned `IMAGE`, each with its platform), owner service
+methods and remote functions. Its `digest` is the sha256 of a canonical form core owns
 (proto3 JSON with sorted keys, prefixed by a digest-format identifier) — not
 of the wire encoding, which protobuf only keeps stable within one binary. A
 message carrying fields outside the schema it claims is rejected rather than
@@ -204,8 +205,8 @@ operation does not inherently start a process:
 
 | Facility | The implementation it dispatches | Invocation protocol | Its target coordinates |
 | --- | --- | --- | --- |
-| `native` | a `NATIVE` artifact: an installed package the launcher starts | `codefly.runnable/v1` | `host`: the launcher, and the directory the package was unpacked into, absolute as the artifact's own platform spells it |
-| `kubernetes` | an `IMAGE` artifact, run as a finite invocation Job | `codefly.runnable/v1` | `cluster`: kubeconfig context, namespace, optional service account |
+| `generated-service` | an `ARCHIVE` artifact: the generated harness, unpacked and run as a service | `codefly.runnable.served/v1` | `generated`: the directory the package was unpacked into, absolute as the artifact's own platform spells it, and the resolved address the harness serves on |
+| `kubernetes` | an `IMAGE` artifact, run as a finite invocation Job | `codefly.runnable.served/v1` | `cluster`: kubeconfig context, namespace, optional service account |
 | `service` | a method an owner service already publishes | `codefly.runnable.service/v1` | `service`: the resolved mapping of the endpoint it is published on |
 | `function` | a provider-managed remote function | `codefly.runnable.function/v1` | `function`: provider, region and the deployed resource |
 
@@ -220,8 +221,8 @@ owner code and never decides which process the owner runs the method in.
 
 A service-only operation may name its owner's pinned `codefly:service` builder
 as `agent`: that agent built the running implementation. It needs no separate
-language Runnable builder. Native/Kubernetes artifacts still require a
-`codefly:runnable` agent, and service builders are not accepted for functions.
+language Runnable builder. A built artifact still requires a `codefly:runnable`
+agent, and service builders are not accepted for functions.
 
 A `service` implementation preserves what the owner already publishes — the
 service, endpoint, method name and the identities of the request and response
@@ -249,29 +250,37 @@ below is enforced when the declaration loads and again on the package, so a
 descriptor assembled by a CLI cannot assert what an author could not write.
 
 `contract.protocol` names how the operation is reached, so it follows from the
-facilities. `codefly.runnable/v1` is the launcher/harness seam — three
-environment variables, an invocation document and a result file — and it is
-the wrong answer for a method reached over the owner's endpoint or a function
-reached over the provider's transport, which is why each of those has its own
-protocol. Facilities whose protocols differ cannot share one release: a
-contract cannot name two transports, and a consumer choosing a transport from
-the protocol would have nothing to choose. `native` and `kubernetes` share
-`codefly.runnable/v1`, so one release still covers both.
+facilities. `codefly.runnable.served/v1` reaches the harness a runnable agent
+generated, and it is the wrong answer for a method reached over the owner's
+endpoint or a function reached over the provider's transport, which is why each
+of those has its own protocol. Facilities whose protocols differ cannot share
+one release: a contract cannot name two transports, and a consumer choosing a
+transport from the protocol would have nothing to choose.
 
-`entrypoint` is a launched-facility fact. A method an owner already publishes
+`generated-service` and `kubernetes` share `codefly.runnable.served/v1`, so one
+release covers both — and that sharing is the point rather than a convenience.
+They are the same generated harness, reached over the same transport, carrying
+the same identity. A runnable someone runs on their own machine is a service
+they run locally, called exactly the way the invocation Job is called, so local
+development exercises the production path instead of a second one. That is what
+replaced the native process placement, which had a framing of its own that
+nothing else used.
+
+`entrypoint` is a built-artifact fact. A method an owner already publishes
 is built by that owner's service agent, so there is no author entrypoint in
 the runnable directory and none may be declared; requiring one would make the
 author name a file that nothing reads and no build ever digests, which is the
 same fabrication the missing `build` avoids on the package.
 
-`logs.max-bytes` bounds what a launcher captures from a process's streams.
-Where no facility is launched nothing captures anything, so declaring a bound
-there is rejected and the wire form carries none, rather than stating a number
-that describes nobody's behavior.
+`logs.max-bytes` bounds what is captured from the streams of an artifact this
+build produced. Where no declared facility runs one nothing captures anything,
+so declaring a bound there is rejected and the wire form carries none, rather
+than stating a number that describes nobody's behavior.
 
 `cancellation: signal` promises a harness that reports `INTERRUPTED` when it is
-signalled, which needs a launcher that owns the execution. It is refused for
-`service` and `function`. The refusal is deliberately whole-declaration rather
+signalled, which needs something that owns the execution and can signal it —
+the process a `generated-service` runs, or the container a `kubernetes`
+invocation Job runs. It is refused for `service` and `function`. The refusal is deliberately whole-declaration rather
 than per-binding: cancellation is a promise the *operation* makes to its
 callers, so a release may not honor it on one facility and quietly not on
 another.
@@ -286,8 +295,8 @@ Stating them once, here, is what keeps them out of an invocation payload and
 out of `dependency_network_mappings` — those address what an invocation
 reaches, this addresses what executes it. The variant is also what holds the
 dispatch forms apart structurally: a method running inside a process its owner
-operates has neither a launcher nor an install root, so it cannot be written as
-a `native` binding.
+operates has no install root of its own, so it cannot be written as a
+`generated-service` binding.
 
 The cluster spelling follows the existing Kubernetes deployment inputs
 (`codefly.services.builder.v0.KubernetesDeployment`), which the target does not
@@ -315,8 +324,9 @@ set `Implementation` rather than `Artifact`. `RunnablePackage.build` and
 `artifacts` dropped their required and non-empty constraints, because a release
 with no artifact has neither, and the Go validation states the pairing instead.
 `Runnable.handler` and `RunnableExecution.max_log_bytes` dropped theirs for the
-same reason: both are launched-facility facts, and the Go validation now
-requires each exactly where its form provides it. A binding also no longer
+same reason: both are facts of a facility that runs an artifact this build
+produced, and the Go validation now requires each exactly where its form
+provides it. A binding also no longer
 carries an endpoint's `api_details`: that field holds raw `.proto` source or a
 serialized OpenAPI document and changes whenever the owner regenerates, which
 would make an installation whose coordinates never moved digest differently and
@@ -337,8 +347,8 @@ Each supplied mapping must have an endpoint and nonempty instance addresses.
 Use one mapping per module/service/endpoint/API key and one instance per
 access-kind/address key; duplicate keys are rejected even when other metadata
 differs, so mapping and instance order cannot change the binding digest.
-These checks validate resolved coordinates; installers and launchers still
-own facility compatibility, reachability and the declared readiness predicates.
+These checks validate resolved coordinates; installers still own facility
+compatibility, reachability and the declared readiness predicates.
 
 ## Operations derived from a service method
 
@@ -551,120 +561,115 @@ two places and nowhere else:
 
 Artifacts need no new RPC. `Builder.Build` with an `output_directory` already
 returns a `DockerBuildPlan` for the CLI to build (core#461), and
-`Builder.Package` emits native artifacts with their digests and, in
-`PackageArtifact.command`, how each one is launched. That command is the last
-build fact only the agent holds: deriving it from the toolchain or from a
-template name is exactly the language-specific shortcut a uniform agent kind
-exists to avoid. With the build inputs and the command, the CLI has every field
-a `RunnablePackage` and its `NATIVE` `RunnableArtifact` require. The `Runtime`
-service is not extended: a runnable has no agent-run process, because the CLI
-owns the launcher.
+`Builder.Package` emits archives with their digests and, in
+`PackageArtifact.command`, the command that starts each one's harness. That
+command is the last build fact only the agent holds: deriving it from the
+toolchain or from a template name is exactly the language-specific shortcut a
+uniform agent kind exists to avoid, and it is why the command stayed on the
+artifact when the launcher that used to run it went away. With the build inputs
+and the command, the CLI has every field a `RunnablePackage` and its `ARCHIVE`
+`RunnableArtifact` require.
 
-## Invocation framing
+## How one call is made
 
-`codefly.runnable/v1` is the seam between a launcher and a generated harness.
-The CLI is the only launcher core ships, but a harness in `runnable-python`
-has to agree with it byte for byte, so the framing is frozen here rather than
-guessed twice. `proto/codefly/base/v0/runnable_invocation.proto` carries it and
-the `runnable` Go package implements the launcher's half.
+Every facility is reached by **calling** something that serves the contract, so
+there is one shape for all of them: this endpoint, this method, this identity,
+this input, this policy. The four facts fixed when the operation is installed
+live in the binding; identity, input, the effect identity and the deadline
+belong to one call. `proto/codefly/base/v0/runnable_invocation.proto` carries
+the per-call facts and the answer, and the `runnable` Go package implements the
+caller's half.
 
-The whole seam is three environment variables and two documents:
+`codefly.runnable.served/v1` is the seam between a caller and the harness a
+runnable agent generated. A harness in `runnable-python` and one in
+`runnable-go` have to agree with the caller byte for byte, so it is frozen here
+rather than guessed three times.
 
-| Variable | Meaning |
+**The call.** `POST <address><route>` with `content-type: application/json`.
+The body is the bounded input object itself, with no Codefly envelope around it
+— a field Codefly added to an owner's body would be a field the owner never
+described. The per-call facts that are not the body travel as headers, pinned
+in `runnable/served.go` so a caller and an implementation cannot disagree
+invisibly:
+
+| Header | Meaning |
 | --- | --- |
-| `CODEFLY__RUNNABLE_PROTOCOL` | the protocol name, so a harness refuses a launcher it does not implement |
-| `CODEFLY__RUNNABLE_INVOCATION` | absolute path of the `RunnableInvocation` the launcher wrote before starting the process |
-| `CODEFLY__RUNNABLE_RESULT` | absolute path the harness writes its `RunnableResult` to |
+| `Codefly-Work-Context` (`X-Codefly-Work-Context`) | the Work Context minted for this call, carried verbatim |
+| `Codefly-Runnable-Effect-Id` | the effect identity an owner keys its receipt by |
+| `Codefly-Runnable-Deadline` | when the caller stops waiting, RFC 3339 with nanoseconds, in UTC |
+| `Codefly-Runnable-Failure-Code` | on the answer: the owner's own typed failure code |
 
-Both documents are proto3 JSON spelled with the proto field names, so a
-harness generating bindings from the same sources needs no hand-written
-spelling of the framing. The harness writes its result to a temporary file in
-the result path's directory and renames it onto the result path: a launcher
-never reads a half-written document, and nothing at that path when the process
-ends means no result at all. `runnable.InvocationEnvironment` builds the three
-variables and `runnable.EncodeInvocation` the document, so a launcher does not
-restate either.
+There is deliberately **no invocation-id and no intent-id header**. Both are the
+caller's own correlation identity and nothing on the receiving side does
+anything with them, so a header for either would be one more spelling two sides
+could disagree on for no gain.
 
-One process runs one invocation: the paths name a single invocation and a
-single result, and there is no way to hand a second invocation to a process
-already running. `execution.concurrency` therefore bounds how many such
-processes a facility runs at once, not a pool inside one of them.
+One call carries one invocation, and there is no way to hand a second to a
+call already in flight. `execution.concurrency` therefore bounds how many calls
+a facility serves at once, not a pool inside one of them.
 
 **Identity and deadline.** An invocation carries the release it invokes, an
-`invocation_id` for this one process, an `intent_id` stable across attempts of
-the caller's logical operation, and the `effect_id` an uncertain outcome is
-resolved by. A `recovery: receipt` package requires that effect identity; a
-`recompute` one may still carry it, because a caller with a single identity
-scheme for all of its work should not have to branch on the target package's
-recovery policy before filling a field, and nothing looks it up there.
-`issued_at` and `deadline` travel together so a harness budgeting its own work
-measures the remaining time as `deadline - issued_at` from the moment it reads
-the document, unaffected by an offset between the two clocks. That budget may
-not exceed the package's declared `timeout`, which bounds one invocation's
-duration: a launcher computing a deadline of its own may shorten it, never
-overrule the author.
+`invocation_id` for this one call, an `intent_id` stable across attempts of the
+caller's logical operation, and the `effect_id` an uncertain outcome is resolved
+by. A `recovery: receipt` package requires that effect identity; a `recompute`
+one may still carry it, because a caller with a single identity scheme for all
+of its work should not have to branch on the target package's recovery policy
+before filling a field, and nothing looks it up there. `issued_at` and
+`deadline` travel together so an implementation budgeting its own work measures
+the remaining time as `deadline - issued_at`, unaffected by an offset between
+the two clocks. That budget may not exceed the package's declared `timeout`,
+which bounds one invocation's duration: a caller computing a deadline of its own
+may shorten it, never overrule the author.
+
+The identity itself is required, in every facility, and it is a oneof: a
+`work_context` for a call happening now, or a `grant` reference for work that
+starts later. Which arm is set follows from *when* the invocation runs, not from
+which facility runs it — a child capability projected at submit time is already
+expired by the time a job container starts or a provider retries it.
 
 **Payload versus logs.** The input and output payloads are each one UTF-8 JSON
 object, bounded by `max_input_bytes` and `max_output_bytes`. They are carried
 as bytes rather than as a structured value because proto3 JSON maps every
 number to a double while the bounded profile has a 64-bit integer, and because
-the bound must apply to exactly the document that was bounded; a proto3 JSON
+the bound must apply to exactly the document that was sent; a proto3 JSON
 encoder base64-encodes them, and the bound is on the decoded document. Standard
-output and standard error are logs and never carry completion data — a harness
-that printed its output would be indistinguishable from a library that printed
-a warning. `max_log_bytes` bounds each captured stream; exceeding it truncates
-and never changes the outcome, while an output payload over its bound makes the
-result invalid. Core frames and bounds the payloads and proves they are objects;
-the harness type-checks them against the bindings generated from the contract.
+output and standard error are logs and never carry completion data — an
+implementation that printed its output would be indistinguishable from a library
+that printed a warning. `max_log_bytes` bounds each captured stream; exceeding
+it truncates and never changes the outcome, while an output payload over its
+bound makes the result invalid. Core frames and bounds the payloads and proves
+they are objects; the implementation type-checks them against the bindings
+generated from the contract.
 
-**Outcomes.** A harness reports only what it observed of itself: `SUCCEEDED`
-with output, `FAILED` with a typed handler error in the operation's own
-vocabulary, or `INTERRUPTED` when it handled a signal and stopped. A package
-declaring `cancellation: signal` promises exactly that third report, and
-without a status for it such a harness would have to claim a failure it did
-not have — which a caller reads as proof the effect did not happen. `FAILED`
-carries that weight too: it says the handler completed without its effect, so
-a handler abandoning a half-applied one owes an `INTERRUPTED` or a crash.
+**What an implementation may report.** Only what it observed of itself:
+`SUCCEEDED` with output, `FAILED` with a typed handler error in the operation's
+own vocabulary, or `INTERRUPTED` when it handled a signal and stopped. A package
+declaring `cancellation: signal` promises exactly that third report, and without
+a status for it such an implementation would have to claim a failure it did not
+have — which a caller reads as proof the effect did not happen. `FAILED` carries
+that weight too: it says the handler completed without its effect, so a handler
+abandoning a half-applied one owes an `INTERRUPTED` or a crash.
 
-Every other way an invocation ends is the launcher's judgement about a process
-that left no result, and `runnable.Complete` makes it, so a timeout, a crash
-and a harness that never wrote its result mean the same thing everywhere:
+Every other way a call ends is the caller's judgement, and the next section is
+where it is made.
 
-| Outcome | What the launcher saw |
-| --- | --- |
-| `SUCCEEDED` | a valid result reporting output |
-| `FAILED` | a valid result reporting a typed handler failure — the operation ran |
-| `INVALID_OUTPUT` | a result document that is malformed, another invocation's, missing its payload or over the output bound, including from a process that exited zero |
-| `MISSING_OUTPUT` | a process that exited successfully without writing a result |
-| `CRASHED` | a non-zero exit or a signal, with no result |
-| `TIMED_OUT` | the deadline passed and the launcher ended the process |
-| `CANCELED` | the harness reported `INTERRUPTED`, or the launcher interrupted the process at the caller's request |
-
-The precedence is: a valid result for this invocation first, so an outcome the
-harness already proved is never discarded because the launcher also ended the
-process; then the launcher ending it, which explains the process better than
-the exit status its own kill produced; then an invalid document; then a
-non-zero exit or signal; then nothing at all. Only a package declaring
-`cancellation: signal` may be interrupted by a launcher; a launcher that
-interrupts one declaring `none` has broken the contract, and the completion
-records that in its `message` rather than being withheld — the invocation
-ended, and discarding the record of how would throw away an effect's only
-evidence. `SUCCEEDED` and `FAILED` prove what happened to the effect;
-`runnable.OutcomeIsCertain` says so, and every other outcome — `CANCELED`
-included, however the interruption was reported — leaves it unproven for the
-package's `recovery` policy to resolve. Core neither retries nor recovers.
+> **The launcher framing is gone.** `codefly.runnable/v1` framed a process a
+> launcher started, around three `CODEFLY__RUNNABLE_*` environment variables, an
+> invocation document and a result file, with an outcome taxonomy built on exit
+> statuses and signals. The native placement it existed for was removed, and a
+> job container running the served harness is a finite process per attempt
+> without any of it. A package naming that protocol is refused by name rather
+> than half-read as a call. Its one load-bearing part — the line between a
+> proven and an unproven effect — was written in served terms *before* the
+> deletion, not after, and is below.
 
 ## What a served invocation's outcome proves
 
-Every facility is reached by **calling** something that serves the contract — an
-owner service, a provider function, a job container running the same harness — so
-what is classified is a call, not a process. The taxonomy above is the launcher's,
-built around a process: a non-zero exit, a signal, a harness that never wrote a
-result. None of that vocabulary means anything for a call, and the line it drew
-is the one recovery depends on, so the served equivalent is stated here rather
-than lost with the launcher. `runnable.ClassifyServed` makes the judgement and
-`runnable.ServedOutcomeIsCertain` draws the line, exactly as `Complete` and
-`OutcomeIsCertain` did for a process.
+What is classified is a call, not a process. The taxonomy this replaced was
+built around one — a non-zero exit, a signal, a harness that never wrote a
+result — and none of that vocabulary means anything for a call, while the line
+it drew is the one recovery depends on. `runnable.ClassifyServed` makes the
+judgement and `runnable.ServedOutcomeIsCertain` draws the line.
 
 | Outcome | What the caller saw | Effect |
 | --- | --- | --- |
@@ -676,8 +681,8 @@ than lost with the launcher. `runnable.ClassifyServed` makes the judgement and
 | `SERVED_EFFECT_OUTCOME_UNKNOWN` | the owner reported an interrupted invocation | unproven |
 | a receipt read answering *absent* | nothing committed under this effect id **so far** | unproven |
 
-Two of these carry the weight the launcher's taxonomy carried, and they are the
-two a caller must never confuse.
+Two of these carry the weight the process taxonomy carried, and they are the two
+a caller must never confuse.
 
 **Only the owner's own typed assertion proves a no-effect failure.** A bare error
 status does not, however plausible it looks. A `4xx` with no typed code, a dropped
@@ -702,16 +707,125 @@ reply been lost. Collapsing the two is the point rather than a gap: a caller
 never had a way to tell them apart, and separate outcomes implied a certainty it
 did not have.
 
+## Submit mode: the four shapes a later answer arrives in
+
+`COMPLETION_CALL` answers in the reply and everything above is the whole of it.
+`COMPLETION_SUBMIT` is for work whose effect takes longer than a call: the reply
+proves the work was **accepted** and nothing about the effect, and the answer
+arrives later. That one fact is where the rest follows from, and it is why the
+mode requires `recovery: receipt` — every terminal answer it could give is one
+the caller may fail to receive, and recomputing cannot tell a lost answer from
+work that never happened.
+
+The call itself does not change. Same address, same route, same four headers,
+the bounded input as the whole body. `proto/codefly/runnable/v0/submit.proto`
+carries the four shapes; `runnable/submit.go` is the caller's half of them.
+
+**The acceptance is the reply**, `RunnableAcceptance` as proto3 JSON:
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | `codefly.runnable-acceptance/v1` |
+| `invocation_id` | the invocation this accepts, so a reply on a reused connection is matched rather than assumed |
+| `handle` | what the owner minted to name the accepted work; everything the caller later says about it is keyed by this |
+| `accepted_at` | when the owner took responsibility |
+| `heartbeat_interval` | how often liveness is reported, or read |
+
+The handle is the owner's and opaque to the caller. A caller that derived it
+from the invocation could ask about work the owner never accepted and get an
+absence it could not tell from a lost acceptance.
+
+**Which shape a reply has follows from the declared completion mode**, fixed in
+the binding's policy when the operation was installed — never sniffed from the
+body, never read off a status. An owner whose contract happened to declare a
+`handle` field would otherwise have its own output document read as an
+acceptance. The acceptance answers `202`, which is for humans and proxies:
+`runnable.ClassifySubmit` never reads it, for the same reason `ClassifyServed`
+never reads a status class.
+
+**The reporting address travels as two headers**, and is recorded on the
+invocation as `RunnableCallbackTarget`:
+
+| Header | Meaning |
+| --- | --- |
+| `Codefly-Runnable-Callback` | the absolute URL the owner POSTs its reports to |
+| `Codefly-Runnable-Callback-Audience` | the trust boundary the owner mints its own capability for when it reports |
+
+Both are optional and they are the **caller's** choice, not the owner's: with
+them, the owner pushes; without them, the caller reads the status itself. An
+owner never decides which. The audience is stated rather than derived from the
+URL host, because an audience is a trust boundary and a host is a route to one
+— deriving it would make a DNS name decide what a capability is minted for. A
+call-mode invocation carrying either is refused at `PrepareInvocation`: it would
+describe a report nothing ever sends. Plaintext is admitted only to a loopback
+host; anything else would put a completion, and the Work Context authenticating
+it, on the wire in clear.
+
+**Heartbeats are pushed, and the direction is not negotiated.** It follows from
+the one fact the invocation already carries. With a callback address the owner
+POSTs `RunnableHeartbeat` there at `heartbeat_interval` and
+`RunnableCompletionCallback` when the work ends; with none it reports nothing
+and the caller reads `RunnableStatus` at that interval instead. Both documents
+arrive on that one URL, so `schema` is the discriminator **there** — the single
+place in this contract where a document's shape is read off the document rather
+than off the declaration.
+
+An owner serving submit mode serves the status route
+(`/codefly.runnable.v0.Runnable/Status`, a `RunnableStatusRequest` naming the
+handle) whether or not a callback address was presented. That is not a second
+mechanism: a callback can always be lost, so the read is the recovery path the
+owner owed anyway, and a caller that presented no address is using the recovery
+path as its only one.
+
+Silence is never a failure. A heartbeat that stopped, a callback that never
+arrived and a status that says `STATE_LOST` are all **unproven** — a worker
+whose heartbeats stopped may have committed its effect in the same instant — and
+the effect receipt is the only evidence. `STATE_LOST` is reported rather than
+withheld, because a caller told "lost" reads the receipt while a caller told
+nothing cannot tell that owner from one that never accepted the work.
+
+**The terminal answer is classified exactly as a reply is.** A
+`RunnableCompletionCallback` and a `STATE_COMPLETED` status both carry the
+harness's own `RunnableResult`, and `SUCCEEDED`, `FAILED` and `INTERRUPTED` map
+to the same three served outcomes they map to in a reply. The route differs;
+what the answer proves does not. The completion is dated by the owner's own
+`completed_at`, because a caller's clock records when it heard.
+
+**Identity is the one part that is not new.** There is still exactly one carrier
+on the wire — the Work Context header — and `RunnableInvocationIdentity` says
+where that capability comes from: `work_context` when whoever holds the
+invocation is calling now, `grant` when the invocation is handed to something
+that will call later. A container that starts an hour after the work was
+admitted is started with the **grant** arm in its invocation document, and
+exchanges it for a short child at the instant it calls. Nothing long-lived is
+minted, and a child projected at submit time would already have expired. The
+report is a call too: the owner authenticates it with its own workload identity,
+minted for `callback.audience`. There is deliberately no signature, token or
+shared-secret field in any of these messages — a shared key would have to reach
+every owner that may report, which makes each able to forge every other's
+completions.
+
+**The deadline means the acceptance.** On a submit-mode invocation the deadline
+header is when the caller stops waiting for the *acceptance*, not for the work:
+the work's own bound is the package's declared `timeout`, measured from
+`accepted_at`. An owner that cannot accept within the deadline declines rather
+than accepting work whose acceptance nobody is still waiting for.
+
+**What is not here yet.** The generated harnesses serve call mode
+(runnable-go#20, runnable-python). Nothing in this section is implemented by a
+harness; it is the contract an owner serving submit mode meets and the caller's
+half core implements, which is what the runtime builds its own half against.
+
 ## Ownership of what is not here
 
 - **Agents** (`Builder.Build` with an `output_directory` → `DockerBuildPlan`;
-  `Builder.Package` → native artifact) emit recipes and packages. The CLI
-  builds and publishes images (core#461) and assembles the descriptor; no
-  agent builds an image.
-- **CLI** owns the launcher: it executes the bound artifact's command with the
-  resolved configuration and the framing above, captures the streams and reads
-  the result document. The rules it applies to them — what a valid result is,
-  and which outcome each way of ending maps to — are core's, so the CLI
-  implements the process, not the contract.
+  `Builder.Package` → archive) emit recipes and packages, and generate the
+  harness that serves the contract. The CLI builds and publishes images
+  (core#461) and assembles the descriptor; no agent builds an image.
+- **CLI** runs a `generated-service`: it starts the bound artifact's command
+  with the resolved configuration, and calls it the way everything else does.
+  The rules applied to the answer — what a valid result is, and which outcome
+  each way of ending maps to — are core's, so the CLI implements the process,
+  not the contract.
 - **Orchestration** owns registration, activation, tasks, attempts and
   receipts, translating the binding into its own compute contract.

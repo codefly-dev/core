@@ -438,6 +438,12 @@ func (x *RunnableCompletionCallback) GetCompletedAt() *timestamppb.Timestamp {
 // RunnableStatusRequest asks an owner what became of work it accepted. It is
 // the answer for a caller whose callback never arrived, and it is a read: a
 // status request never starts, resumes or retries anything.
+//
+// It is POSTed to the status route beside the operation's own (runnable.
+// ServedStatusProcedure), with the Work Context the caller would have called
+// with. A handle the owner cannot account for is answered absent, which is
+// inconclusive in exactly the way an absent receipt is: never proof that the
+// work did not happen.
 type RunnableStatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// handle is the accepted work, as the acceptance named it.
@@ -498,7 +504,13 @@ type RunnableStatus struct {
 	Result *v0.RunnableResult `protobuf:"bytes,5,opt,name=result,proto3" json:"result,omitempty"`
 	// progress is the last progress the owner observed, for the states that have
 	// not ended.
-	Progress      *RunnableProgress `protobuf:"bytes,6,opt,name=progress,proto3" json:"progress,omitempty"`
+	Progress *RunnableProgress `protobuf:"bytes,6,opt,name=progress,proto3" json:"progress,omitempty"`
+	// completed_at is when the work ended, present for exactly STATE_COMPLETED.
+	// It is the owner's own clock and it is what the answer is dated by: a caller
+	// that dated a status read by its own clock would record work as having ended
+	// when it happened to ask, which for a caller reading hours later is a
+	// completion that appears to have taken the whole interval.
+	CompletedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -575,6 +587,13 @@ func (x *RunnableStatus) GetProgress() *RunnableProgress {
 	return nil
 }
 
+func (x *RunnableStatus) GetCompletedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CompletedAt
+	}
+	return nil
+}
+
 var File_codefly_runnable_v0_submit_proto protoreflect.FileDescriptor
 
 const file_codefly_runnable_v0_submit_proto_rawDesc = "" +
@@ -617,7 +636,7 @@ const file_codefly_runnable_v0_submit_proto_rawDesc = "" +
 	"\fcompleted_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\vcompletedAt\";\n" +
 	"\x15RunnableStatusRequest\x12\"\n" +
 	"\x06handle\x18\x01 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x06handle\"\xcf\x03\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x06handle\"\x8e\x04\n" +
 	"\x0eRunnableStatus\x129\n" +
 	"\x06schema\x18\x01 \x01(\tB!\xbaH\x1er\x1c\n" +
 	"\x1acodefly.runnable-status/v1R\x06schema\x12\"\n" +
@@ -627,7 +646,8 @@ const file_codefly_runnable_v0_submit_proto_rawDesc = "" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\finvocationId\x12I\n" +
 	"\x05state\x18\x04 \x01(\x0e2).codefly.runnable.v0.RunnableStatus.StateB\b\xbaH\x05\x82\x01\x02\x10\x01R\x05state\x127\n" +
 	"\x06result\x18\x05 \x01(\v2\x1f.codefly.base.v0.RunnableResultR\x06result\x12A\n" +
-	"\bprogress\x18\x06 \x01(\v2%.codefly.runnable.v0.RunnableProgressR\bprogress\"f\n" +
+	"\bprogress\x18\x06 \x01(\v2%.codefly.runnable.v0.RunnableProgressR\bprogress\x12=\n" +
+	"\fcompleted_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\"f\n" +
 	"\x05State\x12\x11\n" +
 	"\rSTATE_UNKNOWN\x10\x00\x12\x12\n" +
 	"\x0eSTATE_ACCEPTED\x10\x01\x12\x11\n" +
@@ -664,20 +684,21 @@ var file_codefly_runnable_v0_submit_proto_goTypes = []any{
 	(*v0.RunnableResult)(nil),          // 9: codefly.base.v0.RunnableResult
 }
 var file_codefly_runnable_v0_submit_proto_depIdxs = []int32{
-	7, // 0: codefly.runnable.v0.RunnableAcceptance.accepted_at:type_name -> google.protobuf.Timestamp
-	8, // 1: codefly.runnable.v0.RunnableAcceptance.heartbeat_interval:type_name -> google.protobuf.Duration
-	7, // 2: codefly.runnable.v0.RunnableHeartbeat.observed_at:type_name -> google.protobuf.Timestamp
-	2, // 3: codefly.runnable.v0.RunnableHeartbeat.progress:type_name -> codefly.runnable.v0.RunnableProgress
-	9, // 4: codefly.runnable.v0.RunnableCompletionCallback.result:type_name -> codefly.base.v0.RunnableResult
-	7, // 5: codefly.runnable.v0.RunnableCompletionCallback.completed_at:type_name -> google.protobuf.Timestamp
-	0, // 6: codefly.runnable.v0.RunnableStatus.state:type_name -> codefly.runnable.v0.RunnableStatus.State
-	9, // 7: codefly.runnable.v0.RunnableStatus.result:type_name -> codefly.base.v0.RunnableResult
-	2, // 8: codefly.runnable.v0.RunnableStatus.progress:type_name -> codefly.runnable.v0.RunnableProgress
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	7,  // 0: codefly.runnable.v0.RunnableAcceptance.accepted_at:type_name -> google.protobuf.Timestamp
+	8,  // 1: codefly.runnable.v0.RunnableAcceptance.heartbeat_interval:type_name -> google.protobuf.Duration
+	7,  // 2: codefly.runnable.v0.RunnableHeartbeat.observed_at:type_name -> google.protobuf.Timestamp
+	2,  // 3: codefly.runnable.v0.RunnableHeartbeat.progress:type_name -> codefly.runnable.v0.RunnableProgress
+	9,  // 4: codefly.runnable.v0.RunnableCompletionCallback.result:type_name -> codefly.base.v0.RunnableResult
+	7,  // 5: codefly.runnable.v0.RunnableCompletionCallback.completed_at:type_name -> google.protobuf.Timestamp
+	0,  // 6: codefly.runnable.v0.RunnableStatus.state:type_name -> codefly.runnable.v0.RunnableStatus.State
+	9,  // 7: codefly.runnable.v0.RunnableStatus.result:type_name -> codefly.base.v0.RunnableResult
+	2,  // 8: codefly.runnable.v0.RunnableStatus.progress:type_name -> codefly.runnable.v0.RunnableProgress
+	7,  // 9: codefly.runnable.v0.RunnableStatus.completed_at:type_name -> google.protobuf.Timestamp
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_codefly_runnable_v0_submit_proto_init() }

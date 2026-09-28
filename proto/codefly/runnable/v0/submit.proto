@@ -27,13 +27,39 @@ heartbeat that stopped and a status that says nothing are all *unproven*, and
 the effect receipt is the only evidence — which is why COMPLETION_SUBMIT
 requires RECOVERY_RECEIPT rather than merely recommending it.
 
-The callback is authenticated by the caller's own workload identity, and there
-is deliberately no signature, token or shared-secret field anywhere in these
-messages. A shared HMAC key would have to be delivered to every owner that may
-report completion, which makes every owner able to forge every other owner's
+The callback is authenticated by the reporting workload's own identity, and
+there is deliberately no signature, token or shared-secret field anywhere in
+these messages. A shared HMAC key would have to be delivered to every owner that
+may report completion, which makes every owner able to forge every other owner's
 completions; a workload identity is attested by the platform and attributable to
 one workload. An owner that cannot present one cannot report a completion, and
 the caller resolves the outcome by reading the receipt instead.
+
+Four facts fix how these shapes reach a caller, and none of them is negotiated
+per invocation:
+
+  - **The acceptance is the reply to the submit call**, at the same address,
+    route and headers a call-mode invocation uses. Which shape a reply has
+    follows from the operation's declared completion mode, fixed when the
+    binding was installed — never from sniffing the body and never from the
+    status. A reader that guessed would read an owner's own output document as
+    an acceptance the moment a contract happened to declare a `handle` field.
+  - **Reports go to the caller's own address** (RunnableCallbackTarget on the
+    invocation) when it presented one, and nowhere otherwise. The heartbeat and
+    the completion arrive on that one URL, so `schema` is the discriminator
+    there — the one place in this contract where a document's shape is read off
+    the document rather than off the declaration.
+  - **The status read is the owner's standing obligation.** It is the answer for
+    a caller whose callback never arrived, which is every caller eventually, so
+    an owner that serves submit mode serves it whether or not a callback address
+    was presented. A caller that presented none polls it at the acceptance's
+    heartbeat interval.
+  - **Whatever performs the invocation mints the identity it calls with**, at
+    the instant it calls, from RunnableInvocationIdentity. A child capability
+    projected when the work was submitted is expired by the time a container
+    starts, so the invocation carries the grant reference and the exchange
+    happens late; on the wire there is still exactly one identity carrier, the
+    Work Context header.
 */
 
 // RunnableAcceptance is the reply to a submit-mode invocation. It proves the
@@ -116,6 +142,12 @@ message RunnableCompletionCallback {
 // RunnableStatusRequest asks an owner what became of work it accepted. It is
 // the answer for a caller whose callback never arrived, and it is a read: a
 // status request never starts, resumes or retries anything.
+//
+// It is POSTed to the status route beside the operation's own (runnable.
+// ServedStatusProcedure), with the Work Context the caller would have called
+// with. A handle the owner cannot account for is answered absent, which is
+// inconclusive in exactly the way an absent receipt is: never proof that the
+// work did not happen.
 message RunnableStatusRequest {
   // handle is the accepted work, as the acceptance named it.
   string handle = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 256];
@@ -155,4 +187,10 @@ message RunnableStatus {
   // progress is the last progress the owner observed, for the states that have
   // not ended.
   RunnableProgress progress = 6;
+  // completed_at is when the work ended, present for exactly STATE_COMPLETED.
+  // It is the owner's own clock and it is what the answer is dated by: a caller
+  // that dated a status read by its own clock would record work as having ended
+  // when it happened to ask, which for a caller reading hours later is a
+  // completion that appears to have taken the whole interval.
+  google.protobuf.Timestamp completed_at = 7;
 }

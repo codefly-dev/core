@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	"github.com/codefly-dev/core/wool"
 )
 
 // The header names one served call's per-call facts travel under. They are
@@ -33,9 +34,49 @@ const (
 	// response without it proves nothing, whatever its status.
 	FailureCodeHeader = "Codefly-Runnable-Failure-Code"
 	// WorkContextHeader carries the minted Work Context for the call. It is the
-	// transport half of RunnableInvocation.identity: the invocation document says
-	// which authority the call runs under, and this is how it reaches the owner.
-	WorkContextHeader = "Codefly-Work-Context"
+	// transport half of RunnableInvocation.identity: the invocation says which
+	// authority the call runs under, and this is how it reaches the owner.
+	//
+	// It is wool.WorkContextHeader, which is sdk-go's WorkContextHeaderName,
+	// which is what every caller actually sends. #678 pinned "Codefly-Work-Context"
+	// here, believing it was adopting the running spelling; it was not, and
+	// HTTP header names are case-insensitive but not prefix-insensitive, so that
+	// value named a header nobody sets. An owner reading it finds no Work Context
+	// and answers 401, the caller records SERVED_AUTHORITY_UNAVAILABLE, and no
+	// call ever succeeds. TestWorkContextHeaderIsTheOneTheSDKSends holds the two
+	// equal so they cannot drift again.
+	WorkContextHeader = wool.WorkContextHeader
+)
+
+// Where a generated harness serves, and how it is told to.
+//
+// A caller dials whatever the binding's route names and imposes no convention
+// on it, so these are not a protocol requirement — they are the one spelling
+// every generated harness uses, pinned here because two harness repositories
+// and whoever writes the binding have to agree and none of them owns the
+// others. A harness that served one path while its binding named another would
+// fail as an unreachable owner, which reads as an outage rather than as a
+// mistake in a string.
+const (
+	// ListenAddressEnv is the address a generated harness listens on, as
+	// host:port. It is the one thing the harness cannot derive: the port is
+	// allocated by whatever placed it — network.ToNamedPort for a
+	// GENERATED_SERVICE, the Job's own spec for KUBERNETES — and a harness
+	// choosing its own would be the hardcoded port core exists to prevent.
+	ListenAddressEnv = "CODEFLY__RUNNABLE_ADDRESS"
+	// ServedInvokeProcedure is the procedure a generated harness answers calls
+	// on. It is shaped as a Connect procedure because that is what
+	// ConnectProcedure.procedure accepts — two path segments — and it names the
+	// harness's own service rather than a generated proto service, because
+	// there is no proto service here: the body is the bounded contract's own
+	// JSON, not a protobuf message.
+	ServedInvokeProcedure = "/codefly.runnable.v0.Runnable/Invoke"
+	// ServedLookupProcedure is the receipt route: the same bounded input
+	// document as the call, the effect identified by EffectHeader, and the
+	// operation's own output document as the answer. A package declaring
+	// RECOVERY_RECEIPT serves it, and an absent receipt answers "not found"
+	// without that being an error — absent is "not yet known", never "no".
+	ServedLookupProcedure = "/codefly.runnable.v0.Runnable/Lookup"
 )
 
 // Call is what a caller saw of one call to a served operation. It is raw
