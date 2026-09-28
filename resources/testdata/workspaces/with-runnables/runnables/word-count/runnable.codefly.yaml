@@ -10,7 +10,7 @@ agent:
   publisher: codefly.dev
 
 contract:
-  protocol: codefly.runnable/v1
+  protocol: codefly.runnable.served/v1
   input:
     fields:
       - name: text
@@ -41,7 +41,7 @@ entrypoint:
     - uv.lock
 
 execution:
-  facilities: [native, kubernetes]
+  facilities: [generated-service, kubernetes]
   timeout: 2m
   cancellation: signal
   recovery: recompute

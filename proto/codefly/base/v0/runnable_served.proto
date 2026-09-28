@@ -11,15 +11,16 @@ The served-mode outcome taxonomy: what a caller may conclude about an effect
 from one call.
 
 Every facility is reached by calling something that serves the contract — an
-owner service, a provider function, a job container running the same harness —
-so what is classified is a call, not a process. This replaces the taxonomy the
-launcher owned, which was built around a process: a non-zero exit, a signal, a
-harness that never wrote a result. That vocabulary had no meaning for a call,
-and the line it drew is the one recovery depends on, so the served equivalent
-is stated here rather than lost with the launcher.
+owner service, a provider function, a job container running the generated
+harness — so what is classified is a call, not a process. This is the whole
+taxonomy: the earlier one was built around a process, classifying a non-zero
+exit, a signal and a harness that never wrote a result, and none of that
+vocabulary means anything about a call. The line it drew is the one recovery
+depends on, which is why the served equivalent was written before the process
+one was deleted rather than after.
 
-Two rules carry the weight the launcher's taxonomy carried, and they are the two
-a caller must never confuse.
+Two rules carry the weight that taxonomy carried, and they are the two a caller
+must never confuse.
 
 **Only the owner's own typed assertion proves a no-effect failure.** A bare
 error status does not, however plausible it looks. A 4xx with no typed code, a
@@ -75,9 +76,9 @@ enum RunnableServedOutcome {
   SERVED_EFFECT_OUTCOME_UNKNOWN = 6;
 }
 
-// RunnableServedCompletion is a caller's typed record of one call. It replaces
-// the launcher's completion: no exit status, no signal and no captured log
-// bounds, because there is no process here to have produced them.
+// RunnableServedCompletion is a caller's typed record of one call: no exit
+// status, no signal and no captured log bounds, because a caller observes an
+// answer rather than a process.
 message RunnableServedCompletion {
   // runnable is the invoked release.
   RunnableIdentity runnable = 1 [(buf.validate.field).required = true];

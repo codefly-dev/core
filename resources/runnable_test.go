@@ -28,7 +28,7 @@ func TestLoadRunnable(t *testing.T) {
 	require.True(t, r.Agent.IsRunnable())
 	require.Equal(t, "python", r.Agent.Name)
 
-	require.Equal(t, resources.RunnableProtocolV1, r.Contract.Protocol)
+	require.Equal(t, resources.RunnableServedProtocolV1, r.Contract.Protocol)
 	require.Len(t, r.Contract.Input.Fields, 2)
 	options := r.Contract.Input.Fields[1]
 	require.Equal(t, resources.RunnableFieldObject, options.Type)
@@ -44,7 +44,7 @@ func TestLoadRunnable(t *testing.T) {
 	require.Equal(t, []string{"pyproject.toml", "uv.lock"}, r.Entrypoint.Inputs)
 	require.Equal(t, filepath.Join(r.Dir(), "handler.py"), r.HandlerPath())
 
-	require.Equal(t, []resources.RunnableFacility{resources.RunnableFacilityNative, resources.RunnableFacilityKubernetes}, r.Execution.Facilities)
+	require.Equal(t, []resources.RunnableFacility{resources.RunnableFacilityGenerated, resources.RunnableFacilityKubernetes}, r.Execution.Facilities)
 	require.Equal(t, 2*time.Minute, r.Execution.GetTimeout())
 	require.Equal(t, resources.RunnableCancellationSignal, r.Execution.Cancellation)
 	require.Equal(t, resources.RunnableRecoveryRecompute, r.Execution.Recovery)
@@ -124,7 +124,8 @@ func TestRunnableProtoRoundTripsContract(t *testing.T) {
 
 	execution := proto.GetExecution()
 	require.Len(t, execution.GetFacilities(), 2)
-	require.Equal(t, basev0.RunnableFacility_NATIVE, execution.GetFacilities()[0].GetKind())
+	require.Equal(t, basev0.RunnableFacility_GENERATED_SERVICE, execution.GetFacilities()[0].GetKind())
+	require.Equal(t, basev0.RunnableFacility_KUBERNETES, execution.GetFacilities()[1].GetKind())
 	require.Equal(t, 2*time.Minute, execution.GetTimeout().AsDuration())
 	require.Equal(t, basev0.RunnableExecution_CANCELLATION_SIGNAL, execution.GetCancellation())
 	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECOMPUTE, execution.GetRecovery())
@@ -222,7 +223,7 @@ func TestNewRunnableIsCompleteOrNothing(t *testing.T) {
 	r, err := resources.NewRunnable(ctx, "fresh", agent, "handler.py")
 	require.NoError(t, err)
 	require.Equal(t, resources.RunnableKind, r.Kind)
-	require.Equal(t, resources.RunnableProtocolV1, r.Contract.Protocol)
+	require.Equal(t, resources.RunnableServedProtocolV1, r.Contract.Protocol)
 	require.NoError(t, r.SaveToDir(ctx, t.TempDir()))
 
 	_, err = resources.NewRunnable(ctx, "fresh", nil, "handler.py")
@@ -367,7 +368,7 @@ func TestRunnableWireContractRequiresExplicitSchemas(t *testing.T) {
 	for _, missing := range []string{"input", "output"} {
 		t.Run(missing, func(t *testing.T) {
 			contract := &basev0.RunnableContract{
-				Protocol: resources.RunnableProtocolV1,
+				Protocol: resources.RunnableServedProtocolV1,
 				Input:    &basev0.RunnableSchema{},
 				Output:   &basev0.RunnableSchema{},
 			}
@@ -478,9 +479,12 @@ func TestRunnableValidationRejectsIncompleteContracts(t *testing.T) {
 			execution(d)["facilities"] = []any{"service"}
 		}, "cannot honor cancellation"},
 		{"forms reached over different protocols", func(d map[string]any) {
-			execution(d)["facilities"] = []any{"native", "service"}
+			execution(d)["facilities"] = []any{"kubernetes", "service"}
 			execution(d)["cancellation"] = "none"
 		}, "cannot be one release"},
+		{"the deleted native facility", func(d map[string]any) {
+			execution(d)["facilities"] = []any{"native"}
+		}, `facility "native" is not supported`},
 		{"protocol that does not reach the facilities", func(d map[string]any) {
 			execution(d)["facilities"] = []any{"service"}
 			execution(d)["cancellation"] = "none"
@@ -490,7 +494,7 @@ func TestRunnableValidationRejectsIncompleteContracts(t *testing.T) {
 			execution(d)["cancellation"] = "none"
 			contract(d)["protocol"] = "codefly.runnable.service/v1"
 		}, "no author entrypoint to name"},
-		{"log bound with no launcher to capture streams", func(d map[string]any) {
+		{"log bound with no captured streams", func(d map[string]any) {
 			execution(d)["facilities"] = []any{"service"}
 			execution(d)["cancellation"] = "none"
 			execution(d)["logs"] = map[string]any{"max-bytes": 1024}
@@ -613,11 +617,11 @@ func TestServiceBackedRunnableDeclaresNoEntrypoint(t *testing.T) {
 
 	r, err := resources.LoadRunnableFromDir(ctx, dir)
 	require.NoError(t, err)
-	require.False(t, r.Execution.Launched())
+	require.False(t, r.Execution.Packaged())
 	require.Empty(t, r.HandlerPath())
 
 	// Nothing downstream can mistake the owner's own method for a package
-	// built here: there is no handler to digest and no launcher log bound.
+	// built here: there is no handler to digest and no captured-stream bound.
 	wire, err := r.Proto(ctx)
 	require.NoError(t, err)
 	require.Empty(t, wire.GetHandler())
@@ -652,4 +656,36 @@ func TestDeclaredCompletionModeDefaultsToTheReply(t *testing.T) {
 
 	execution.Completion = "eventually"
 	require.ErrorContains(t, execution.Validate(), "not supported")
+}
+
+// TestTheGeneratedHarnessesTwoPlacementsAreOneRelease is the property the
+// native placement's replacement rests on. A runnable someone runs locally and
+// the same runnable run as an invocation Job are the same generated harness
+// reached the same way, so they share one invocation protocol and one release
+// may declare both. That is what makes local development exercise the
+// production path instead of a second one — which is the whole reason the
+// native process placement could be removed rather than reimplemented.
+func TestTheGeneratedHarnessesTwoPlacementsAreOneRelease(t *testing.T) {
+	both := []resources.RunnableFacility{resources.RunnableFacilityGenerated, resources.RunnableFacilityKubernetes}
+	protocol, err := resources.RunnableFacilityProtocol(both)
+	require.NoError(t, err)
+	require.Equal(t, resources.RunnableServedProtocolV1, protocol)
+
+	// Both build an artifact from the runnable directory, so both have an
+	// author entrypoint and captured streams.
+	for _, facility := range both {
+		capabilities, known := facility.Capabilities()
+		require.True(t, known)
+		require.True(t, capabilities.Packaged, facility)
+	}
+
+	// An owner's own method is reached over its own protocol, so it cannot
+	// share a release with either of them.
+	_, err = resources.RunnableFacilityProtocol(append(both, resources.RunnableFacilityService))
+	require.ErrorContains(t, err, "cannot be one release")
+
+	// The deleted placement is not a facility any more, under any spelling.
+	_, known := resources.RunnableFacility("native").Capabilities()
+	require.False(t, known)
+	require.NotContains(t, resources.RunnableFacilities(), resources.RunnableFacility("native"))
 }

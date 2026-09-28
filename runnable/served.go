@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	"github.com/codefly-dev/core/wool"
 )
 
 // The header names one served call's per-call facts travel under. They are
@@ -33,9 +34,18 @@ const (
 	// response without it proves nothing, whatever its status.
 	FailureCodeHeader = "Codefly-Runnable-Failure-Code"
 	// WorkContextHeader carries the minted Work Context for the call. It is the
-	// transport half of RunnableInvocation.identity: the invocation document says
-	// which authority the call runs under, and this is how it reaches the owner.
-	WorkContextHeader = "Codefly-Work-Context"
+	// transport half of RunnableInvocation.identity: the invocation says which
+	// authority the call runs under, and this is how it reaches the owner.
+	//
+	// It is wool.WorkContextHeader, which is sdk-go's WorkContextHeaderName,
+	// which is what every caller actually sends. #678 pinned "Codefly-Work-Context"
+	// here, believing it was adopting the running spelling; it was not, and
+	// HTTP header names are case-insensitive but not prefix-insensitive, so that
+	// value named a header nobody sets. An owner reading it finds no Work Context
+	// and answers 401, the caller records SERVED_AUTHORITY_UNAVAILABLE, and no
+	// call ever succeeds. TestWorkContextHeaderIsTheOneTheSDKSends holds the two
+	// equal so they cannot drift again.
+	WorkContextHeader = wool.WorkContextHeader
 )
 
 // Call is what a caller saw of one call to a served operation. It is raw

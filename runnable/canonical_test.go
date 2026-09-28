@@ -30,16 +30,16 @@ const (
 // fail this test too, and regenerating the golden is the right answer to that
 // and the catastrophic answer to a normalization change.
 //
-// The reference and one command argument carry `&`, `<` and `>` so the golden
-// pins how they are emitted. Go's encoding/json would escape them to \uXXXX,
-// which nothing outside Go reproduces.
+// The image reference and one command argument carry `&`, `<` and `>` so the
+// golden pins how they are emitted. Go's encoding/json would escape them to
+// \uXXXX, which nothing outside Go reproduces.
 func canonicalFixture() *basev0.RunnablePackage {
 	return &basev0.RunnablePackage{
 		Schema:   runnable.PackageSchemaV1,
 		Identity: &basev0.RunnableIdentity{Name: "word-count", Module: "with-runnables", Workspace: "qualification", Version: "0.1.0"},
 		Agent:    &basev0.Agent{Kind: basev0.Agent_RUNNABLE, Name: "python", Publisher: "codefly.dev", Version: "0.0.1"},
 		Contract: &basev0.RunnableContract{
-			Protocol: runnable.ProtocolV1,
+			Protocol: runnable.ServedProtocolV1,
 			Input: &basev0.RunnableSchema{Fields: []*basev0.RunnableField{
 				{Name: "text", Type: basev0.RunnableField_STRING},
 				{Name: "options", Type: basev0.RunnableField_OBJECT, Optional: true, Fields: []*basev0.RunnableField{
@@ -55,7 +55,7 @@ func canonicalFixture() *basev0.RunnablePackage {
 		Execution: &basev0.RunnableExecution{
 			Facilities: []*basev0.RunnableFacility{
 				{Kind: basev0.RunnableFacility_KUBERNETES},
-				{Kind: basev0.RunnableFacility_NATIVE},
+				{Kind: basev0.RunnableFacility_GENERATED_SERVICE},
 			},
 			Timeout:        durationpb.New(2 * time.Minute),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_SIGNAL,
@@ -83,11 +83,11 @@ func canonicalFixture() *basev0.RunnablePackage {
 				Digest:    fixtureDigestB,
 			},
 			{
-				Kind:      basev0.RunnableArtifact_NATIVE,
+				Kind:      basev0.RunnableArtifact_ARCHIVE,
 				Platform:  "darwin/arm64",
 				Reference: "word-count-0.1.0-darwin-arm64.tar.gz",
 				Digest:    fixtureDigestA,
-				Command:   []string{"sh", "-c", "prepare && exec python -m codefly_runnable.harness"},
+				Command:   []string{"sh", "-c", "prepare && exec python -m codefly_runnable.serve"},
 			},
 		},
 		ServiceDependencies:                []*basev0.RunnableDependency{{Name: "store", Module: "with-runnables", Kind: "runtime", Endpoints: []string{"tcp"}}},
@@ -158,7 +158,7 @@ func TestCanonicalJSONDoesNotCanonicalizeTheMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotEqual(t, string(fromPrepared), string(fromRaw))
-	require.Equal(t, basev0.RunnableArtifact_NATIVE, prepared.GetArtifacts()[0].GetKind())
+	require.Equal(t, basev0.RunnableArtifact_ARCHIVE, prepared.GetArtifacts()[0].GetKind())
 	require.Equal(t, basev0.RunnableArtifact_IMAGE, raw.GetArtifacts()[0].GetKind())
 }
 

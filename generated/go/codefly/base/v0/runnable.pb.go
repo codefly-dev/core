@@ -98,10 +98,9 @@ type RunnableFacility_Kind int32
 const (
 	// UNKNOWN is the default value when kind is not specified.
 	RunnableFacility_UNKNOWN RunnableFacility_Kind = 0
-	// NATIVE runs an installed native package as its own host process through
-	// the Codefly local launcher.
-	RunnableFacility_NATIVE RunnableFacility_Kind = 1
-	// KUBERNETES runs a digest-pinned image as a finite invocation Job.
+	// KUBERNETES runs a digest-pinned image as a finite invocation Job. The
+	// container serves the contract and answers one call, so it is a finite
+	// process per attempt reached the same way every other facility is.
 	RunnableFacility_KUBERNETES RunnableFacility_Kind = 2
 	// SERVICE calls an operation an owner service already publishes, executed
 	// inside the process that owner already operates. Nothing is launched and
@@ -111,23 +110,29 @@ const (
 	// provider SDK and the completion transport belong to the adapter that
 	// owns the provider; core names the implementation and its target.
 	RunnableFacility_FUNCTION RunnableFacility_Kind = 4
+	// GENERATED_SERVICE calls the harness a runnable agent generated, run from
+	// this package's own archive as a service. It is what a person running a
+	// runnable locally reaches, and it is the same harness, the same transport
+	// and the same identity carrier a KUBERNETES invocation Job uses — so
+	// local development exercises the production path rather than a second one.
+	RunnableFacility_GENERATED_SERVICE RunnableFacility_Kind = 5
 )
 
 // Enum value maps for RunnableFacility_Kind.
 var (
 	RunnableFacility_Kind_name = map[int32]string{
 		0: "UNKNOWN",
-		1: "NATIVE",
 		2: "KUBERNETES",
 		3: "SERVICE",
 		4: "FUNCTION",
+		5: "GENERATED_SERVICE",
 	}
 	RunnableFacility_Kind_value = map[string]int32{
-		"UNKNOWN":    0,
-		"NATIVE":     1,
-		"KUBERNETES": 2,
-		"SERVICE":    3,
-		"FUNCTION":   4,
+		"UNKNOWN":           0,
+		"KUBERNETES":        2,
+		"SERVICE":           3,
+		"FUNCTION":          4,
+		"GENERATED_SERVICE": 5,
 	}
 )
 
@@ -211,7 +216,7 @@ func (RunnableServiceOperation_Adaptation) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{7, 0}
 }
 
-// Cancellation enumerates what a launcher may do to a running invocation.
+// Cancellation enumerates what a caller may do to a running invocation.
 type RunnableExecution_Cancellation int32
 
 const (
@@ -396,8 +401,12 @@ type RunnableArtifact_Kind int32
 const (
 	// UNKNOWN is the default value when kind is not specified.
 	RunnableArtifact_UNKNOWN RunnableArtifact_Kind = 0
-	// NATIVE is an installed package the local launcher executes as a process.
-	RunnableArtifact_NATIVE RunnableArtifact_Kind = 1
+	// ARCHIVE is an installed package run as a GENERATED_SERVICE. It keeps the
+	// field number the launcher-era artifact had because it is the same form —
+	// an unpacked directory and a command — and only what starts it changed:
+	// the command now starts a server that answers calls until it is stopped,
+	// where it used to run one invocation and exit.
+	RunnableArtifact_ARCHIVE RunnableArtifact_Kind = 1
 	// IMAGE is a digest-pinned container image.
 	RunnableArtifact_IMAGE RunnableArtifact_Kind = 2
 )
@@ -406,12 +415,12 @@ const (
 var (
 	RunnableArtifact_Kind_name = map[int32]string{
 		0: "UNKNOWN",
-		1: "NATIVE",
+		1: "ARCHIVE",
 		2: "IMAGE",
 	}
 	RunnableArtifact_Kind_value = map[string]int32{
 		"UNKNOWN": 0,
-		"NATIVE":  1,
+		"ARCHIVE": 1,
 		"IMAGE":   2,
 	}
 )
@@ -792,8 +801,10 @@ func (x *RunnableSchema) GetFields() []*RunnableField {
 // RunnableContract is the typed finite operation a runnable implements.
 type RunnableContract struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// protocol is the invocation protocol between launcher and harness, such as
-	// "codefly.runnable/v1".
+	// protocol is the invocation protocol an implementation of this contract is
+	// reached over, such as "codefly.runnable.served/v1". Every one of them is a
+	// call: the protocol says what serves the contract, never how a process is
+	// started.
 	Protocol string `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
 	// input is the invocation input shape.
 	Input *RunnableSchema `protobuf:"bytes,2,opt,name=input,proto3" json:"input,omitempty"`
@@ -1069,35 +1080,38 @@ func (x *RunnableFunction) GetEntrypoint() string {
 	return ""
 }
 
-// RunnableHostTarget locates the launcher that runs an installed NATIVE
-// package as its own process, and the directory that package is unpacked
-// into: the artifact's command is relative to it, so an adapter dispatching
-// from elsewhere needs both.
-type RunnableHostTarget struct {
+// RunnableGeneratedTarget locates one GENERATED_SERVICE: the directory the
+// package's archive was unpacked into, and the resolved address the harness it
+// started serves on. Both are needed because they answer different questions —
+// the install path is what the artifact's command is relative to, and the
+// endpoint is where a call is sent.
+type RunnableGeneratedTarget struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// launcher identifies the launcher instance that owns the process.
-	Launcher string `protobuf:"bytes,1,opt,name=launcher,proto3" json:"launcher,omitempty"`
-	// install_path is the absolute directory the NATIVE artifact is unpacked
-	// into on that host.
-	InstallPath   string `protobuf:"bytes,2,opt,name=install_path,json=installPath,proto3" json:"install_path,omitempty"`
+	// install_path is the absolute directory the ARCHIVE artifact is unpacked
+	// into, spelled as the artifact's own platform spells an absolute path.
+	InstallPath string `protobuf:"bytes,1,opt,name=install_path,json=installPath,proto3" json:"install_path,omitempty"`
+	// endpoint is the resolved mapping of the address the harness serves on. It
+	// reuses the dependency network contract rather than a second address
+	// spelling, the same way RunnableServiceTarget does.
+	Endpoint      *NetworkMapping `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RunnableHostTarget) Reset() {
-	*x = RunnableHostTarget{}
+func (x *RunnableGeneratedTarget) Reset() {
+	*x = RunnableGeneratedTarget{}
 	mi := &file_codefly_base_v0_runnable_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RunnableHostTarget) String() string {
+func (x *RunnableGeneratedTarget) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RunnableHostTarget) ProtoMessage() {}
+func (*RunnableGeneratedTarget) ProtoMessage() {}
 
-func (x *RunnableHostTarget) ProtoReflect() protoreflect.Message {
+func (x *RunnableGeneratedTarget) ProtoReflect() protoreflect.Message {
 	mi := &file_codefly_base_v0_runnable_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1109,23 +1123,23 @@ func (x *RunnableHostTarget) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RunnableHostTarget.ProtoReflect.Descriptor instead.
-func (*RunnableHostTarget) Descriptor() ([]byte, []int) {
+// Deprecated: Use RunnableGeneratedTarget.ProtoReflect.Descriptor instead.
+func (*RunnableGeneratedTarget) Descriptor() ([]byte, []int) {
 	return file_codefly_base_v0_runnable_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *RunnableHostTarget) GetLauncher() string {
-	if x != nil {
-		return x.Launcher
-	}
-	return ""
-}
-
-func (x *RunnableHostTarget) GetInstallPath() string {
+func (x *RunnableGeneratedTarget) GetInstallPath() string {
 	if x != nil {
 		return x.InstallPath
 	}
 	return ""
+}
+
+func (x *RunnableGeneratedTarget) GetEndpoint() *NetworkMapping {
+	if x != nil {
+		return x.Endpoint
+	}
+	return nil
 }
 
 // RunnableClusterTarget locates the namespace one KUBERNETES invocation Job is
@@ -1337,7 +1351,7 @@ type RunnableTarget struct {
 	//
 	// Types that are valid to be assigned to Coordinates:
 	//
-	//	*RunnableTarget_Host
+	//	*RunnableTarget_Generated
 	//	*RunnableTarget_Cluster
 	//	*RunnableTarget_Service
 	//	*RunnableTarget_Function
@@ -1404,10 +1418,10 @@ func (x *RunnableTarget) GetCoordinates() isRunnableTarget_Coordinates {
 	return nil
 }
 
-func (x *RunnableTarget) GetHost() *RunnableHostTarget {
+func (x *RunnableTarget) GetGenerated() *RunnableGeneratedTarget {
 	if x != nil {
-		if x, ok := x.Coordinates.(*RunnableTarget_Host); ok {
-			return x.Host
+		if x, ok := x.Coordinates.(*RunnableTarget_Generated); ok {
+			return x.Generated
 		}
 	}
 	return nil
@@ -1444,9 +1458,12 @@ type isRunnableTarget_Coordinates interface {
 	isRunnableTarget_Coordinates()
 }
 
-type RunnableTarget_Host struct {
-	// host locates the launcher of a NATIVE process.
-	Host *RunnableHostTarget `protobuf:"bytes,4,opt,name=host,proto3,oneof"`
+type RunnableTarget_Generated struct {
+	// generated locates a GENERATED_SERVICE: its install directory and the
+	// address its harness serves on. It keeps the field number the launcher's
+	// host coordinates had, because it answers the same question for the
+	// placement that replaced it.
+	Generated *RunnableGeneratedTarget `protobuf:"bytes,4,opt,name=generated,proto3,oneof"`
 }
 
 type RunnableTarget_Cluster struct {
@@ -1464,7 +1481,7 @@ type RunnableTarget_Function struct {
 	Function *RunnableFunctionTarget `protobuf:"bytes,7,opt,name=function,proto3,oneof"`
 }
 
-func (*RunnableTarget_Host) isRunnableTarget_Coordinates() {}
+func (*RunnableTarget_Generated) isRunnableTarget_Coordinates() {}
 
 func (*RunnableTarget_Cluster) isRunnableTarget_Coordinates() {}
 
@@ -1492,11 +1509,12 @@ type RunnableExecution struct {
 	Concurrency uint32 `protobuf:"varint,7,opt,name=concurrency,proto3" json:"concurrency,omitempty"`
 	// completion is how the answer arrives, and it is required: see Completion.
 	Completion RunnableExecution_Completion `protobuf:"varint,9,opt,name=completion,proto3,enum=codefly.base.v0.RunnableExecution_Completion" json:"completion,omitempty"`
-	// max_log_bytes bounds the diagnostics a launcher captures from each log
-	// stream. Exceeding it truncates the stream and never changes the outcome,
-	// unlike max_output_bytes, whose payload is completion data. It is set only
-	// when a declared facility is launched: nothing captures streams from a
-	// method its owner runs, so a bound there would describe no one's behavior.
+	// max_log_bytes bounds the diagnostics whatever runs the implementation
+	// captures from each log stream. Exceeding it truncates the stream and never
+	// changes the outcome, unlike max_output_bytes, whose payload is completion
+	// data. It is set only when a declared facility runs an artifact this package
+	// built: nothing captures streams from a method its owner runs, so a bound
+	// there would describe no one's behavior.
 	MaxLogBytes   uint64 `protobuf:"varint,8,opt,name=max_log_bytes,json=maxLogBytes,proto3" json:"max_log_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1604,7 +1622,7 @@ type Runnable struct {
 	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
 	// version is the immutable release version.
 	Version string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	// agent is the pinned builder: a runnable agent for launched artifacts, or
+	// agent is the pinned builder: a runnable agent for built artifacts, or
 	// the owner's service agent for an operation exposed only by its service.
 	Agent *Agent `protobuf:"bytes,4,opt,name=agent,proto3" json:"agent,omitempty"`
 	// contract is the typed operation.
@@ -1820,13 +1838,16 @@ type RunnableArtifact struct {
 	Kind RunnableArtifact_Kind `protobuf:"varint,1,opt,name=kind,proto3,enum=codefly.base.v0.RunnableArtifact_Kind" json:"kind,omitempty"`
 	// platform is the supported platform in "os/arch" form, such as linux/amd64.
 	Platform string `protobuf:"bytes,2,opt,name=platform,proto3" json:"platform,omitempty"`
-	// reference locates the artifact: an archive path for NATIVE, an image
+	// reference locates the artifact: an archive path for ARCHIVE, an image
 	// reference for IMAGE.
 	Reference string `protobuf:"bytes,3,opt,name=reference,proto3" json:"reference,omitempty"`
 	// digest is the artifact content digest, formatted as "sha256:<hex>".
 	Digest string `protobuf:"bytes,4,opt,name=digest,proto3" json:"digest,omitempty"`
-	// command is the NATIVE launch command, relative to the unpacked package;
-	// an IMAGE carries its entrypoint itself.
+	// command starts an ARCHIVE's harness, relative to the unpacked package; an
+	// IMAGE carries its entrypoint itself. It stays on the artifact because how
+	// a language's harness is started is the agent's knowledge, not the caller's:
+	// core would otherwise have to hold a table of per-language start commands,
+	// which is exactly the agent-specific policy core does not own.
 	Command       []string `protobuf:"bytes,5,rep,name=command,proto3" json:"command,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2044,7 +2065,7 @@ type RunnablePackage struct {
 	Schema string `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
 	// identity is the release identity.
 	Identity *RunnableIdentity `protobuf:"bytes,2,opt,name=identity,proto3" json:"identity,omitempty"`
-	// agent is the pinned builder: a runnable agent for launched artifacts, or
+	// agent is the pinned builder: a runnable agent for built artifacts, or
 	// the owner's service agent for a service-only implementation.
 	Agent *Agent `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
 	// contract is the typed operation the artifacts implement.
@@ -2455,7 +2476,8 @@ type isRunnableBinding_Implementation interface {
 }
 
 type RunnableBinding_Artifact struct {
-	// artifact is the package artifact selected for NATIVE or KUBERNETES.
+	// artifact is the package artifact selected for GENERATED_SERVICE or
+	// KUBERNETES.
 	Artifact *RunnableArtifact `protobuf:"bytes,5,opt,name=artifact,proto3,oneof"`
 }
 
@@ -2514,17 +2536,16 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\x10RunnableContract\x12#\n" +
 	"\bprotocol\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprotocol\x12=\n" +
 	"\x05input\x18\x02 \x01(\v2\x1f.codefly.base.v0.RunnableSchemaB\x06\xbaH\x03\xc8\x01\x01R\x05input\x12?\n" +
-	"\x06output\x18\x03 \x01(\v2\x1f.codefly.base.v0.RunnableSchemaB\x06\xbaH\x03\xc8\x01\x01R\x06output\"\x9a\x01\n" +
+	"\x06output\x18\x03 \x01(\v2\x1f.codefly.base.v0.RunnableSchemaB\x06\xbaH\x03\xc8\x01\x01R\x06output\"\xb3\x01\n" +
 	"\x10RunnableFacility\x12:\n" +
-	"\x04kind\x18\x01 \x01(\x0e2&.codefly.base.v0.RunnableFacility.KindR\x04kind\"J\n" +
+	"\x04kind\x18\x01 \x01(\x0e2&.codefly.base.v0.RunnableFacility.KindR\x04kind\"c\n" +
 	"\x04Kind\x12\v\n" +
-	"\aUNKNOWN\x10\x00\x12\n" +
-	"\n" +
-	"\x06NATIVE\x10\x01\x12\x0e\n" +
+	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +
 	"KUBERNETES\x10\x02\x12\v\n" +
 	"\aSERVICE\x10\x03\x12\f\n" +
-	"\bFUNCTION\x10\x04\"\xe4\x03\n" +
+	"\bFUNCTION\x10\x04\x12\x15\n" +
+	"\x11GENERATED_SERVICE\x10\x05\"\x04\b\x01\x10\x01*\x06NATIVE\"\xe4\x03\n" +
 	"\x18RunnableServiceOperation\x122\n" +
 	"\x04name\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x04name\x126\n" +
 	"\x06module\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x06module\x121\n" +
@@ -2543,10 +2564,10 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\bprovider\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprovider\x12'\n" +
 	"\n" +
 	"entrypoint\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\n" +
-	"entrypoint\"e\n" +
-	"\x12RunnableHostTarget\x12#\n" +
-	"\blauncher\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\blauncher\x12*\n" +
-	"\finstall_path\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\vinstallPath\"\x8a\x01\n" +
+	"entrypoint\"\x8a\x01\n" +
+	"\x17RunnableGeneratedTarget\x12*\n" +
+	"\finstall_path\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\vinstallPath\x12C\n" +
+	"\bendpoint\x18\x02 \x01(\v2\x1f.codefly.base.v0.NetworkMappingB\x06\xbaH\x03\xc8\x01\x01R\bendpoint\"\x8a\x01\n" +
 	"\x15RunnableClusterTarget\x12!\n" +
 	"\acontext\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\acontext\x12%\n" +
 	"\tnamespace\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12'\n" +
@@ -2556,16 +2577,16 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\x16RunnableFunctionTarget\x12#\n" +
 	"\bprovider\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprovider\x12\x1f\n" +
 	"\x06region\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06region\x12#\n" +
-	"\bresource\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bresource\"\x9a\x03\n" +
+	"\bresource\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bresource\"\xaf\x03\n" +
 	"\x0eRunnableTarget\x12\x1f\n" +
 	"\x06schema\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06schema\x12)\n" +
 	"\venvironment\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\venvironment\x12#\n" +
-	"\brevision\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\brevision\x129\n" +
-	"\x04host\x18\x04 \x01(\v2#.codefly.base.v0.RunnableHostTargetH\x00R\x04host\x12B\n" +
+	"\brevision\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\brevision\x12H\n" +
+	"\tgenerated\x18\x04 \x01(\v2(.codefly.base.v0.RunnableGeneratedTargetH\x00R\tgenerated\x12B\n" +
 	"\acluster\x18\x05 \x01(\v2&.codefly.base.v0.RunnableClusterTargetH\x00R\acluster\x12B\n" +
 	"\aservice\x18\x06 \x01(\v2&.codefly.base.v0.RunnableServiceTargetH\x00R\aservice\x12E\n" +
 	"\bfunction\x18\a \x01(\v2'.codefly.base.v0.RunnableFunctionTargetH\x00R\bfunctionB\r\n" +
-	"\vcoordinates\"\xce\x06\n" +
+	"\vcoordinatesR\x04host\"\xce\x06\n" +
 	"\x11RunnableExecution\x12K\n" +
 	"\n" +
 	"facilities\x18\x01 \x03(\v2!.codefly.base.v0.RunnableFacilityB\b\xbaH\x05\x92\x01\x02\b\x01R\n" +
@@ -2610,18 +2631,17 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x04name\x126\n" +
 	"\x06module\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\x06module\x12\x12\n" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\x128\n" +
-	"\tendpoints\x18\x04 \x03(\tB\x1a\xbaH\x17\x92\x01\x14\"\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\tendpoints\"\x96\x02\n" +
+	"\tendpoints\x18\x04 \x03(\tB\x1a\xbaH\x17\x92\x01\x14\"\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\tendpoints\"\x9f\x02\n" +
 	"\x10RunnableArtifact\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.codefly.base.v0.RunnableArtifact.KindR\x04kind\x12#\n" +
 	"\bplatform\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x03R\bplatform\x12%\n" +
 	"\treference\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\treference\x124\n" +
 	"\x06digest\x18\x04 \x01(\tB\x1c\xbaH\x19r\x172\x15^sha256:[0-9a-f]{64}$R\x06digest\x12\x18\n" +
-	"\acommand\x18\x05 \x03(\tR\acommand\"*\n" +
+	"\acommand\x18\x05 \x03(\tR\acommand\"3\n" +
 	"\x04Kind\x12\v\n" +
-	"\aUNKNOWN\x10\x00\x12\n" +
-	"\n" +
-	"\x06NATIVE\x10\x01\x12\t\n" +
-	"\x05IMAGE\x10\x02\"h\n" +
+	"\aUNKNOWN\x10\x00\x12\v\n" +
+	"\aARCHIVE\x10\x01\x12\t\n" +
+	"\x05IMAGE\x10\x02*\x06NATIVE\"h\n" +
 	"\x13RunnableInputDigest\x12\x1b\n" +
 	"\x04path\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04path\x124\n" +
 	"\x06digest\x18\x02 \x01(\tB\x1c\xbaH\x19r\x172\x15^sha256:[0-9a-f]{64}$R\x06digest\"\xd2\x02\n" +
@@ -2699,7 +2719,7 @@ var file_codefly_base_v0_runnable_proto_goTypes = []any{
 	(*RunnableFacility)(nil),                 // 13: codefly.base.v0.RunnableFacility
 	(*RunnableServiceOperation)(nil),         // 14: codefly.base.v0.RunnableServiceOperation
 	(*RunnableFunction)(nil),                 // 15: codefly.base.v0.RunnableFunction
-	(*RunnableHostTarget)(nil),               // 16: codefly.base.v0.RunnableHostTarget
+	(*RunnableGeneratedTarget)(nil),          // 16: codefly.base.v0.RunnableGeneratedTarget
 	(*RunnableClusterTarget)(nil),            // 17: codefly.base.v0.RunnableClusterTarget
 	(*RunnableServiceTarget)(nil),            // 18: codefly.base.v0.RunnableServiceTarget
 	(*RunnableFunctionTarget)(nil),           // 19: codefly.base.v0.RunnableFunctionTarget
@@ -2729,48 +2749,49 @@ var file_codefly_base_v0_runnable_proto_depIdxs = []int32{
 	11, // 6: codefly.base.v0.RunnableContract.output:type_name -> codefly.base.v0.RunnableSchema
 	1,  // 7: codefly.base.v0.RunnableFacility.kind:type_name -> codefly.base.v0.RunnableFacility.Kind
 	2,  // 8: codefly.base.v0.RunnableServiceOperation.adaptation:type_name -> codefly.base.v0.RunnableServiceOperation.Adaptation
-	30, // 9: codefly.base.v0.RunnableServiceTarget.endpoint:type_name -> codefly.base.v0.NetworkMapping
-	16, // 10: codefly.base.v0.RunnableTarget.host:type_name -> codefly.base.v0.RunnableHostTarget
-	17, // 11: codefly.base.v0.RunnableTarget.cluster:type_name -> codefly.base.v0.RunnableClusterTarget
-	18, // 12: codefly.base.v0.RunnableTarget.service:type_name -> codefly.base.v0.RunnableServiceTarget
-	19, // 13: codefly.base.v0.RunnableTarget.function:type_name -> codefly.base.v0.RunnableFunctionTarget
-	13, // 14: codefly.base.v0.RunnableExecution.facilities:type_name -> codefly.base.v0.RunnableFacility
-	31, // 15: codefly.base.v0.RunnableExecution.timeout:type_name -> google.protobuf.Duration
-	3,  // 16: codefly.base.v0.RunnableExecution.cancellation:type_name -> codefly.base.v0.RunnableExecution.Cancellation
-	4,  // 17: codefly.base.v0.RunnableExecution.recovery:type_name -> codefly.base.v0.RunnableExecution.Recovery
-	5,  // 18: codefly.base.v0.RunnableExecution.completion:type_name -> codefly.base.v0.RunnableExecution.Completion
-	32, // 19: codefly.base.v0.Runnable.agent:type_name -> codefly.base.v0.Agent
-	12, // 20: codefly.base.v0.Runnable.contract:type_name -> codefly.base.v0.RunnableContract
-	23, // 21: codefly.base.v0.Runnable.service_dependencies:type_name -> codefly.base.v0.RunnableDependency
-	21, // 22: codefly.base.v0.Runnable.execution:type_name -> codefly.base.v0.RunnableExecution
-	33, // 23: codefly.base.v0.Runnable.library_dependencies:type_name -> codefly.base.v0.LibraryDependency
-	6,  // 24: codefly.base.v0.RunnableArtifact.kind:type_name -> codefly.base.v0.RunnableArtifact.Kind
-	25, // 25: codefly.base.v0.RunnableBuild.handler:type_name -> codefly.base.v0.RunnableInputDigest
-	25, // 26: codefly.base.v0.RunnableBuild.inputs:type_name -> codefly.base.v0.RunnableInputDigest
-	8,  // 27: codefly.base.v0.RunnablePackage.identity:type_name -> codefly.base.v0.RunnableIdentity
-	32, // 28: codefly.base.v0.RunnablePackage.agent:type_name -> codefly.base.v0.Agent
-	12, // 29: codefly.base.v0.RunnablePackage.contract:type_name -> codefly.base.v0.RunnableContract
-	21, // 30: codefly.base.v0.RunnablePackage.execution:type_name -> codefly.base.v0.RunnableExecution
-	26, // 31: codefly.base.v0.RunnablePackage.build:type_name -> codefly.base.v0.RunnableBuild
-	24, // 32: codefly.base.v0.RunnablePackage.artifacts:type_name -> codefly.base.v0.RunnableArtifact
-	23, // 33: codefly.base.v0.RunnablePackage.service_dependencies:type_name -> codefly.base.v0.RunnableDependency
-	14, // 34: codefly.base.v0.RunnablePackage.service_operations:type_name -> codefly.base.v0.RunnableServiceOperation
-	15, // 35: codefly.base.v0.RunnablePackage.functions:type_name -> codefly.base.v0.RunnableFunction
-	34, // 36: codefly.base.v0.RunnableAuthority.invoke_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	34, // 37: codefly.base.v0.RunnableAuthority.lookup_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	8,  // 38: codefly.base.v0.RunnableBinding.identity:type_name -> codefly.base.v0.RunnableIdentity
-	13, // 39: codefly.base.v0.RunnableBinding.facility:type_name -> codefly.base.v0.RunnableFacility
-	24, // 40: codefly.base.v0.RunnableBinding.artifact:type_name -> codefly.base.v0.RunnableArtifact
-	14, // 41: codefly.base.v0.RunnableBinding.service_operation:type_name -> codefly.base.v0.RunnableServiceOperation
-	15, // 42: codefly.base.v0.RunnableBinding.function:type_name -> codefly.base.v0.RunnableFunction
-	30, // 43: codefly.base.v0.RunnableBinding.dependency_network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	20, // 44: codefly.base.v0.RunnableBinding.target:type_name -> codefly.base.v0.RunnableTarget
-	28, // 45: codefly.base.v0.RunnableBinding.authority:type_name -> codefly.base.v0.RunnableAuthority
-	46, // [46:46] is the sub-list for method output_type
-	46, // [46:46] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	30, // 9: codefly.base.v0.RunnableGeneratedTarget.endpoint:type_name -> codefly.base.v0.NetworkMapping
+	30, // 10: codefly.base.v0.RunnableServiceTarget.endpoint:type_name -> codefly.base.v0.NetworkMapping
+	16, // 11: codefly.base.v0.RunnableTarget.generated:type_name -> codefly.base.v0.RunnableGeneratedTarget
+	17, // 12: codefly.base.v0.RunnableTarget.cluster:type_name -> codefly.base.v0.RunnableClusterTarget
+	18, // 13: codefly.base.v0.RunnableTarget.service:type_name -> codefly.base.v0.RunnableServiceTarget
+	19, // 14: codefly.base.v0.RunnableTarget.function:type_name -> codefly.base.v0.RunnableFunctionTarget
+	13, // 15: codefly.base.v0.RunnableExecution.facilities:type_name -> codefly.base.v0.RunnableFacility
+	31, // 16: codefly.base.v0.RunnableExecution.timeout:type_name -> google.protobuf.Duration
+	3,  // 17: codefly.base.v0.RunnableExecution.cancellation:type_name -> codefly.base.v0.RunnableExecution.Cancellation
+	4,  // 18: codefly.base.v0.RunnableExecution.recovery:type_name -> codefly.base.v0.RunnableExecution.Recovery
+	5,  // 19: codefly.base.v0.RunnableExecution.completion:type_name -> codefly.base.v0.RunnableExecution.Completion
+	32, // 20: codefly.base.v0.Runnable.agent:type_name -> codefly.base.v0.Agent
+	12, // 21: codefly.base.v0.Runnable.contract:type_name -> codefly.base.v0.RunnableContract
+	23, // 22: codefly.base.v0.Runnable.service_dependencies:type_name -> codefly.base.v0.RunnableDependency
+	21, // 23: codefly.base.v0.Runnable.execution:type_name -> codefly.base.v0.RunnableExecution
+	33, // 24: codefly.base.v0.Runnable.library_dependencies:type_name -> codefly.base.v0.LibraryDependency
+	6,  // 25: codefly.base.v0.RunnableArtifact.kind:type_name -> codefly.base.v0.RunnableArtifact.Kind
+	25, // 26: codefly.base.v0.RunnableBuild.handler:type_name -> codefly.base.v0.RunnableInputDigest
+	25, // 27: codefly.base.v0.RunnableBuild.inputs:type_name -> codefly.base.v0.RunnableInputDigest
+	8,  // 28: codefly.base.v0.RunnablePackage.identity:type_name -> codefly.base.v0.RunnableIdentity
+	32, // 29: codefly.base.v0.RunnablePackage.agent:type_name -> codefly.base.v0.Agent
+	12, // 30: codefly.base.v0.RunnablePackage.contract:type_name -> codefly.base.v0.RunnableContract
+	21, // 31: codefly.base.v0.RunnablePackage.execution:type_name -> codefly.base.v0.RunnableExecution
+	26, // 32: codefly.base.v0.RunnablePackage.build:type_name -> codefly.base.v0.RunnableBuild
+	24, // 33: codefly.base.v0.RunnablePackage.artifacts:type_name -> codefly.base.v0.RunnableArtifact
+	23, // 34: codefly.base.v0.RunnablePackage.service_dependencies:type_name -> codefly.base.v0.RunnableDependency
+	14, // 35: codefly.base.v0.RunnablePackage.service_operations:type_name -> codefly.base.v0.RunnableServiceOperation
+	15, // 36: codefly.base.v0.RunnablePackage.functions:type_name -> codefly.base.v0.RunnableFunction
+	34, // 37: codefly.base.v0.RunnableAuthority.invoke_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	34, // 38: codefly.base.v0.RunnableAuthority.lookup_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	8,  // 39: codefly.base.v0.RunnableBinding.identity:type_name -> codefly.base.v0.RunnableIdentity
+	13, // 40: codefly.base.v0.RunnableBinding.facility:type_name -> codefly.base.v0.RunnableFacility
+	24, // 41: codefly.base.v0.RunnableBinding.artifact:type_name -> codefly.base.v0.RunnableArtifact
+	14, // 42: codefly.base.v0.RunnableBinding.service_operation:type_name -> codefly.base.v0.RunnableServiceOperation
+	15, // 43: codefly.base.v0.RunnableBinding.function:type_name -> codefly.base.v0.RunnableFunction
+	30, // 44: codefly.base.v0.RunnableBinding.dependency_network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	20, // 45: codefly.base.v0.RunnableBinding.target:type_name -> codefly.base.v0.RunnableTarget
+	28, // 46: codefly.base.v0.RunnableBinding.authority:type_name -> codefly.base.v0.RunnableAuthority
+	47, // [47:47] is the sub-list for method output_type
+	47, // [47:47] is the sub-list for method input_type
+	47, // [47:47] is the sub-list for extension type_name
+	47, // [47:47] is the sub-list for extension extendee
+	0,  // [0:47] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_runnable_proto_init() }
@@ -2783,7 +2804,7 @@ func file_codefly_base_v0_runnable_proto_init() {
 	file_codefly_base_v0_network_proto_init()
 	file_codefly_base_v0_work_context_proto_init()
 	file_codefly_base_v0_runnable_proto_msgTypes[13].OneofWrappers = []any{
-		(*RunnableTarget_Host)(nil),
+		(*RunnableTarget_Generated)(nil),
 		(*RunnableTarget_Cluster)(nil),
 		(*RunnableTarget_Service)(nil),
 		(*RunnableTarget_Function)(nil),

@@ -50,7 +50,7 @@ func TestPrepareBindingRejectsUnresolvedEndpoints(t *testing.T) {
 		{"blank address", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Instances[0].Address = " " }, "nonempty instance address"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			b := sampleBinding(p, p.Artifacts[0], basev0.RunnableFacility_NATIVE)
+			b := sampleBinding(p, p.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
 			tc.mutate(b)
 			_, err := runnable.PrepareBinding(b, p)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
@@ -63,7 +63,7 @@ func TestPrepareBindingRejectsUnresolvedEndpoints(t *testing.T) {
 		p.ServiceDependencies[0].Endpoints = []string{"tcp", "admin"}
 		pkg, err := runnable.PreparePackage(p)
 		require.NoError(t, err)
-		b := sampleBinding(pkg, pkg.Artifacts[0], basev0.RunnableFacility_NATIVE)
+		b := sampleBinding(pkg, pkg.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
 		_, err = runnable.PrepareBinding(b, pkg)
 		require.ErrorContains(t, err, "does not resolve endpoint with-runnables/store/admin")
 	})
@@ -73,7 +73,7 @@ func TestPrepareBindingRejectsUnresolvedEndpoints(t *testing.T) {
 		p.ServiceDependencies[0].Endpoints = nil
 		pkg, err := runnable.PreparePackage(p)
 		require.NoError(t, err)
-		b := sampleBinding(pkg, pkg.Artifacts[0], basev0.RunnableFacility_NATIVE)
+		b := sampleBinding(pkg, pkg.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
 		b.DependencyNetworkMappings = nil
 		_, err = runnable.PrepareBinding(b, pkg)
 		require.ErrorContains(t, err, "does not resolve dependency")
@@ -91,7 +91,7 @@ func TestBindingRespectsDependencyKinds(t *testing.T) {
 			p.ServiceDependencies[0].Endpoints = nil
 			pkg, err := runnable.PreparePackage(p)
 			require.NoError(t, err)
-			b := sampleBinding(pkg, pkg.Artifacts[0], basev0.RunnableFacility_NATIVE)
+			b := sampleBinding(pkg, pkg.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
 			b.DependencyNetworkMappings = nil
 			_, err = runnable.PrepareBinding(b, pkg)
 			require.NoError(t, err, "endpointless prerequisites do not require network mappings")
@@ -103,7 +103,7 @@ func TestBindingRespectsDependencyKinds(t *testing.T) {
 			p.ServiceDependencies[0].Kind = string(kind)
 			pkg, err := runnable.PreparePackage(p)
 			require.NoError(t, err)
-			b := sampleBinding(pkg, pkg.Artifacts[0], basev0.RunnableFacility_NATIVE)
+			b := sampleBinding(pkg, pkg.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
 			b.DependencyNetworkMappings = nil
 			_, err = runnable.PrepareBinding(b, pkg)
 			require.ErrorContains(t, err, "does not resolve dependency")
@@ -114,7 +114,7 @@ func TestBindingRespectsDependencyKinds(t *testing.T) {
 func TestBindingRejectsAmbiguousMappingAndInstanceKeys(t *testing.T) {
 	p := preparedPackage(t)
 	t.Run("same endpoint with different instances", func(t *testing.T) {
-		b := sampleBinding(p, p.Artifacts[0], basev0.RunnableFacility_NATIVE)
+		b := sampleBinding(p, p.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
 		second := proto.Clone(b.DependencyNetworkMappings[0]).(*basev0.NetworkMapping)
 		b.DependencyNetworkMappings[0].Instances = b.DependencyNetworkMappings[0].Instances[:1]
 		second.Instances = second.Instances[1:]
@@ -126,7 +126,7 @@ func TestBindingRejectsAmbiguousMappingAndInstanceKeys(t *testing.T) {
 		}
 	})
 	t.Run("same instance key with different metadata", func(t *testing.T) {
-		b := sampleBinding(p, p.Artifacts[0], basev0.RunnableFacility_NATIVE)
+		b := sampleBinding(p, p.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
 		instances := b.DependencyNetworkMappings[0].Instances
 		instances[1].Address = instances[0].Address
 		for range 2 {
@@ -136,7 +136,7 @@ func TestBindingRejectsAmbiguousMappingAndInstanceKeys(t *testing.T) {
 		}
 	})
 	t.Run("same address with distinct access contexts is canonical", func(t *testing.T) {
-		b := sampleBinding(p, p.Artifacts[0], basev0.RunnableFacility_NATIVE)
+		b := sampleBinding(p, p.Artifacts[1], basev0.RunnableFacility_KUBERNETES)
 		instances := b.DependencyNetworkMappings[0].Instances
 		instances[1].Address = instances[0].Address
 		instances[0].Access = &basev0.NetworkAccess{Kind: "native"}

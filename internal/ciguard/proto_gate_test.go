@@ -156,7 +156,12 @@ func TestWorkflowBufMatchesTheCompanionImage(t *testing.T) {
 		"no workflow installs buf, so the proto breaking-change gate cannot run")
 }
 
-var makefileBreakingAgainst = regexp.MustCompile(`(?m)^.*breaking --against.*$`)
+// protoBreakingScript is the one implementation of the gate. The Makefile and
+// the workflow both run it, so "what CI checks" and "what I can run" cannot be
+// two different programs that drift.
+const protoBreakingScript = "scripts/check_proto_breaking.sh"
+
+var breakingAgainst = regexp.MustCompile(`(?m)^.*breaking --against.*$`)
 
 // The local breaking check has to take the MERGE BASE as its baseline, not the
 // tip of main. CI checks out the pull request already merged into main, so a
@@ -171,21 +176,58 @@ var makefileBreakingAgainst = regexp.MustCompile(`(?m)^.*breaking --against.*$`)
 // check whose verdict is not the gate's verdict. It is worse than an unpinned
 // buf, because a check that cries wolf is one developers stop running.
 func TestLocalBreakingCheckBaselineIsTheMergeBase(t *testing.T) {
-	makefile, err := os.ReadFile(filepath.Join(repoRoot(t), "Makefile"))
-	require.NoError(t, err)
+	script, err := os.ReadFile(filepath.Join(repoRoot(t), protoBreakingScript))
+	require.NoError(t, err,
+		"%s is the gate: the Makefile and the workflow both run it, so it is where "+
+			"the baseline lives", protoBreakingScript)
 
-	invocation := makefileBreakingAgainst.Find(makefile)
+	invocation := breakingAgainst.Find(script)
 	require.NotNil(t, invocation,
-		"the Makefile no longer runs `buf breaking --against`, so there is no local "+
-			"equivalent of the gate for a developer to run before pushing")
+		"%s no longer runs `buf breaking --against`, so neither CI nor a developer "+
+			"has a breaking-change gate at all", protoBreakingScript)
 
-	require.Contains(t, string(invocation), "git merge-base",
-		"the local breaking check takes its baseline from %q. CI compares the pull "+
+	require.Contains(t, string(script), "git merge-base",
+		"the breaking check takes its baseline from %q. CI compares the pull "+
 			"request MERGED INTO main against main, so a package main gained since this "+
 			"branch was cut is present on both of its sides; compared against main's tip "+
 			"the same package is missing here only and buf reports it as a deletion. Use "+
 			"$(git merge-base <remote>/main HEAD).",
 		strings.TrimSpace(string(invocation)))
+
+	makefile, err := os.ReadFile(filepath.Join(repoRoot(t), "Makefile"))
+	require.NoError(t, err)
+	require.Contains(t, string(makefile), protoBreakingScript,
+		"`make buf-breaking` no longer runs %s, so a developer running it locally is "+
+			"not running the gate CI runs", protoBreakingScript)
+}
+
+// TestTheBreakingGateStillFailsAnUndeclaredBreak is the guard on the escape
+// hatch itself. The gate admits a schema break when a commit touching proto/
+// declares it in Conventional Commits, which is the only way a reviewed
+// deletion can land without either turning main red or adding a permanent
+// buf.yaml ignore that goes on excusing that file forever.
+//
+// An escape hatch is worth exactly what it still refuses. Three properties make
+// this one an admission rather than a bypass, and every one of them is a
+// one-line edit away from being lost: the findings are printed whether or not
+// they are admitted, an undeclared break still exits 100, and only a commit
+// that touched proto/ can declare one — an unrelated breaking change elsewhere
+// in the branch is not a statement about the wire.
+func TestTheBreakingGateStillFailsAnUndeclaredBreak(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), protoBreakingScript))
+	require.NoError(t, err)
+	script := string(raw)
+
+	require.Contains(t, script, "exit 100",
+		"%s never exits 100, so an undeclared schema break lands green and the gate "+
+			"is decorative", protoBreakingScript)
+	require.Contains(t, script, `-- proto`,
+		"%s no longer restricts the declaring commit to one that touched proto/, so "+
+			"any breaking change anywhere in the branch admits a schema break it says "+
+			"nothing about", protoBreakingScript)
+	require.Regexp(t, `echo "\$findings"`, script,
+		"%s no longer prints the findings, so a reviewer reading the declaration "+
+			"cannot see what it admitted", protoBreakingScript)
 }
 
 const ciTableHeading = "CI additionally runs, and all of these are runnable locally:"
