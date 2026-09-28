@@ -1,0 +1,28 @@
+# REJECTED by validation alone: the backend artifact was rendered from
+# obin/pim@1.9.0 while the generation declares obin/pim@2.0.0. A partial
+# rollout must never be declarable as one generation.
+schema: codefly/solution-host-binding/v1
+binding: pim-eu-west-1-01
+generation: 1
+host:
+  coordinate: obin/prod/eu-west-1
+  component: saas-host
+release:
+  publisher: obin
+  name: pim
+  version: 2.0.0
+routes:
+  - alias: pim
+    surface: frontend
+artifacts:
+  - surface: frontend
+    name: web
+    release: obin/pim@2.0.0
+    digest: sha256:8243f3c23a1451d07076e3e8a65c08e6e1cc6f13cdddf2be097c875587b4a785
+  - surface: backend
+    name: api
+    release: obin/pim@1.9.0
+    digest: sha256:5cb757869c7206597388b0911070b2aab7e57e91d87066d6c75d528316eb39e2
+workload:
+  audience: https://prod.eu-west-1.obin.example/solutions
+  subject: system:serviceaccount:pim-eu-west-1-01:pim-api

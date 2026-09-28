@@ -1,0 +1,18 @@
+# Removal is a generation, not a missing file. The binding ID and the release
+# it removes stay on the record; routes, artifacts, modules and endpoints are
+# withdrawn, so a host can tell "declared absent" from "document not delivered".
+schema: codefly/solution-host-binding/v1
+binding: crm-eu-west-1-01
+generation: 5
+host:
+  coordinate: obin/prod/eu-west-1
+  component: saas-host
+release:
+  publisher: obin
+  name: crm
+  version: 1.4.0
+  digest: sha256:9be63530c89920649101897b5d651f1606944f8efaf623be0d0ab3be48c2d3df
+workload:
+  audience: https://prod.eu-west-1.obin.example/solutions
+  subject: system:serviceaccount:crm-eu-west-1-01:crm-api
+removed: true

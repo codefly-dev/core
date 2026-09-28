@@ -100,6 +100,7 @@ modelled, read it there first.
 | `network/` | deterministic port allocation, DNS, native/container/public modes |
 | `configurations/` | what services provide and consume, injected as env vars |
 | `runners/`, `companions/` | process execution; sidecar images for language tooling |
+| `solutionhost/` | `SolutionHostBinding`, the declared record of which solution runs where ([docs](docs/solution-host-binding.md)) |
 | `code/semantic` | the **only** package allowed to use cgo (tree-sitter) |
 | `internal/ciguard` | invariants about CI config that no other test would notice |
 
