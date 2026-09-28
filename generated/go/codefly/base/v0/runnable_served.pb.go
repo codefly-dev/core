@@ -107,9 +107,9 @@ func (RunnableServedOutcome) EnumDescriptor() ([]byte, []int) {
 	return file_codefly_base_v0_runnable_served_proto_rawDescGZIP(), []int{0}
 }
 
-// RunnableServedCompletion is a caller's typed record of one call. It replaces
-// the launcher's completion: no exit status, no signal and no captured log
-// bounds, because there is no process here to have produced them.
+// RunnableServedCompletion is a caller's typed record of one call: no exit
+// status, no signal and no captured log bounds, because a caller observes an
+// answer rather than a process.
 type RunnableServedCompletion struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// runnable is the invoked release.

@@ -51,32 +51,14 @@ jobs:
         # nothing in CI read it — a wire-breaking edit and its regenerated
         # bindings were verified only on the contributor's machine.
         #
-        # The baseline is origin/main, NOT main: for both event types
-        # actions/checkout leaves HEAD detached with no local branch, so
-        # `#branch=main` fails to resolve ("couldn't find remote ref main")
-        # even though it works on a developer checkout that has one.
-        #
-        # Exit 100 is buf's "rules were violated" — a verdict on the schema, so
-        # report it at once. Any other non-zero is buf itself failing, and this
-        # module resolves its buf.lock deps from the BSR on every run, so that
-        # is a flake to retry rather than a schema answer. Same reasoning as the
-        # apt retry in build.
-        working-directory: proto
-        run: |
-          for attempt in 1 2 3; do
-            if buf breaking --against "../.git#ref=origin/main,subdir=proto"; then
-              exit 0
-            else
-              code=$?
-            fi
-            if [ "$code" -eq 100 ]; then
-              exit 100
-            fi
-            echo "buf exited $code (attempt $attempt/3), not a rule violation; retrying in 15s" >&2
-            sleep 15
-          done
-          echo "buf breaking could not complete after 3 attempts" >&2
-          exit 1
+        # The script is the gate, and `make buf-breaking` runs the same one, so
+        # what CI checks and what a developer can run before pushing cannot
+        # drift into two programs. It owns the baseline (the merge base), the
+        # BSR retry, and the one way a reviewed schema deletion may land: a
+        # commit touching proto/ that declares the break in Conventional
+        # Commits. An undeclared break is still exit 100, and the findings are
+        # printed either way. internal/ciguard holds all three of those.
+        run: ./scripts/check_proto_breaking.sh
 
       - name: proto lint guard
         # proto/buf.yaml has selected BASIC + COMMENTS since the module landed

@@ -98,8 +98,10 @@ message RunnableSchema {
 
 // RunnableContract is the typed finite operation a runnable implements.
 message RunnableContract {
-  // protocol is the invocation protocol between launcher and harness, such as
-  // "codefly.runnable/v1".
+  // protocol is the invocation protocol an implementation of this contract is
+  // reached over, such as "codefly.runnable.served/v1". Every one of them is a
+  // call: the protocol says what serves the contract, never how a process is
+  // started.
   string protocol = 1 [(buf.validate.field).string.min_len = 1];
   // input is the invocation input shape.
   RunnableSchema input = 2 [(buf.validate.field).required = true];
@@ -116,10 +118,11 @@ message RunnableFacility {
   enum Kind {
     // UNKNOWN is the default value when kind is not specified.
     UNKNOWN = 0;
-    // NATIVE runs an installed native package as its own host process through
-    // the Codefly local launcher.
-    NATIVE = 1;
-    // KUBERNETES runs a digest-pinned image as a finite invocation Job.
+    reserved 1;
+    reserved "NATIVE";
+    // KUBERNETES runs a digest-pinned image as a finite invocation Job. The
+    // container serves the contract and answers one call, so it is a finite
+    // process per attempt reached the same way every other facility is.
     KUBERNETES = 2;
     // SERVICE calls an operation an owner service already publishes, executed
     // inside the process that owner already operates. Nothing is launched and
@@ -129,6 +132,12 @@ message RunnableFacility {
     // provider SDK and the completion transport belong to the adapter that
     // owns the provider; core names the implementation and its target.
     FUNCTION = 4;
+    // GENERATED_SERVICE calls the harness a runnable agent generated, run from
+    // this package's own archive as a service. It is what a person running a
+    // runnable locally reaches, and it is the same harness, the same transport
+    // and the same identity carrier a KUBERNETES invocation Job uses — so
+    // local development exercises the production path rather than a second one.
+    GENERATED_SERVICE = 5;
   }
   // kind is the facility.
   Kind kind = 1;
@@ -185,16 +194,19 @@ message RunnableFunction {
   string entrypoint = 2 [(buf.validate.field).string.min_len = 1];
 }
 
-// RunnableHostTarget locates the launcher that runs an installed NATIVE
-// package as its own process, and the directory that package is unpacked
-// into: the artifact's command is relative to it, so an adapter dispatching
-// from elsewhere needs both.
-message RunnableHostTarget {
-  // launcher identifies the launcher instance that owns the process.
-  string launcher = 1 [(buf.validate.field).string.min_len = 1];
-  // install_path is the absolute directory the NATIVE artifact is unpacked
-  // into on that host.
-  string install_path = 2 [(buf.validate.field).string.min_len = 1];
+// RunnableGeneratedTarget locates one GENERATED_SERVICE: the directory the
+// package's archive was unpacked into, and the resolved address the harness it
+// started serves on. Both are needed because they answer different questions —
+// the install path is what the artifact's command is relative to, and the
+// endpoint is where a call is sent.
+message RunnableGeneratedTarget {
+  // install_path is the absolute directory the ARCHIVE artifact is unpacked
+  // into, spelled as the artifact's own platform spells an absolute path.
+  string install_path = 1 [(buf.validate.field).string.min_len = 1];
+  // endpoint is the resolved mapping of the address the harness serves on. It
+  // reuses the dependency network contract rather than a second address
+  // spelling, the same way RunnableServiceTarget does.
+  NetworkMapping endpoint = 2 [(buf.validate.field).required = true];
 }
 
 // RunnableClusterTarget locates the namespace one KUBERNETES invocation Job is
@@ -252,11 +264,15 @@ message RunnableTarget {
   // therefore a different binding: an existing binding is never rerouted onto
   // its replacement.
   string revision = 3 [(buf.validate.field).string.min_len = 1];
+  reserved "host";
   // coordinates locate the executor. Which variant is set follows from the
   // binding's facility, and a facility with no variant cannot be installed.
   oneof coordinates {
-    // host locates the launcher of a NATIVE process.
-    RunnableHostTarget host = 4;
+    // generated locates a GENERATED_SERVICE: its install directory and the
+    // address its harness serves on. It keeps the field number the launcher's
+    // host coordinates had, because it answers the same question for the
+    // placement that replaced it.
+    RunnableGeneratedTarget generated = 4;
     // cluster locates the namespace a KUBERNETES invocation Job is created in.
     RunnableClusterTarget cluster = 5;
     // service locates the deployed owner service a SERVICE method is called on.
@@ -268,7 +284,7 @@ message RunnableTarget {
 
 // RunnableExecution declares the bounds and effect semantics of an invocation.
 message RunnableExecution {
-  // Cancellation enumerates what a launcher may do to a running invocation.
+  // Cancellation enumerates what a caller may do to a running invocation.
   enum Cancellation {
     // CANCELLATION_UNKNOWN is the default value when cancellation is not specified.
     CANCELLATION_UNKNOWN = 0;
@@ -332,11 +348,12 @@ message RunnableExecution {
   uint32 concurrency = 7;
   // completion is how the answer arrives, and it is required: see Completion.
   Completion completion = 9 [(buf.validate.field).enum.defined_only = true];
-  // max_log_bytes bounds the diagnostics a launcher captures from each log
-  // stream. Exceeding it truncates the stream and never changes the outcome,
-  // unlike max_output_bytes, whose payload is completion data. It is set only
-  // when a declared facility is launched: nothing captures streams from a
-  // method its owner runs, so a bound there would describe no one's behavior.
+  // max_log_bytes bounds the diagnostics whatever runs the implementation
+  // captures from each log stream. Exceeding it truncates the stream and never
+  // changes the outcome, unlike max_output_bytes, whose payload is completion
+  // data. It is set only when a declared facility runs an artifact this package
+  // built: nothing captures streams from a method its owner runs, so a bound
+  // there would describe no one's behavior.
   uint64 max_log_bytes = 8;
 }
 
@@ -348,7 +365,7 @@ message Runnable {
   string description = 2;
   // version is the immutable release version.
   string version = 3 [(buf.validate.field).string.min_len = 5];
-  // agent is the pinned builder: a runnable agent for launched artifacts, or
+  // agent is the pinned builder: a runnable agent for built artifacts, or
   // the owner's service agent for an operation exposed only by its service.
   Agent agent = 4 [(buf.validate.field).required = true];
   // contract is the typed operation.
@@ -393,8 +410,13 @@ message RunnableArtifact {
   enum Kind {
     // UNKNOWN is the default value when kind is not specified.
     UNKNOWN = 0;
-    // NATIVE is an installed package the local launcher executes as a process.
-    NATIVE = 1;
+    reserved "NATIVE";
+    // ARCHIVE is an installed package run as a GENERATED_SERVICE. It keeps the
+    // field number the launcher-era artifact had because it is the same form —
+    // an unpacked directory and a command — and only what starts it changed:
+    // the command now starts a server that answers calls until it is stopped,
+    // where it used to run one invocation and exit.
+    ARCHIVE = 1;
     // IMAGE is a digest-pinned container image.
     IMAGE = 2;
   }
@@ -402,13 +424,16 @@ message RunnableArtifact {
   Kind kind = 1;
   // platform is the supported platform in "os/arch" form, such as linux/amd64.
   string platform = 2 [(buf.validate.field).string.min_len = 3];
-  // reference locates the artifact: an archive path for NATIVE, an image
+  // reference locates the artifact: an archive path for ARCHIVE, an image
   // reference for IMAGE.
   string reference = 3 [(buf.validate.field).string.min_len = 1];
   // digest is the artifact content digest, formatted as "sha256:<hex>".
   string digest = 4 [(buf.validate.field).string.pattern = "^sha256:[0-9a-f]{64}$"];
-  // command is the NATIVE launch command, relative to the unpacked package;
-  // an IMAGE carries its entrypoint itself.
+  // command starts an ARCHIVE's harness, relative to the unpacked package; an
+  // IMAGE carries its entrypoint itself. It stays on the artifact because how
+  // a language's harness is started is the agent's knowledge, not the caller's:
+  // core would otherwise have to hold a table of per-language start commands,
+  // which is exactly the agent-specific policy core does not own.
   repeated string command = 5;
 }
 
@@ -443,7 +468,7 @@ message RunnablePackage {
   string schema = 1 [(buf.validate.field).string.min_len = 1];
   // identity is the release identity.
   RunnableIdentity identity = 2 [(buf.validate.field).required = true];
-  // agent is the pinned builder: a runnable agent for launched artifacts, or
+  // agent is the pinned builder: a runnable agent for built artifacts, or
   // the owner's service agent for a service-only implementation.
   Agent agent = 3 [(buf.validate.field).required = true];
   // contract is the typed operation the artifacts implement.
@@ -513,7 +538,8 @@ message RunnableBinding {
   // number, so an executable-package binding is byte-identical on the wire to
   // one written before the other forms existed.
   oneof implementation {
-    // artifact is the package artifact selected for NATIVE or KUBERNETES.
+    // artifact is the package artifact selected for GENERATED_SERVICE or
+    // KUBERNETES.
     RunnableArtifact artifact = 5;
     // service_operation is the owner method selected for SERVICE.
     RunnableServiceOperation service_operation = 11;

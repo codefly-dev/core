@@ -85,10 +85,7 @@ BASE_REMOTE ?= origin
 # wherever the ref last pointed.
 .PHONY: buf-breaking
 buf-breaking:
-	@git remote get-url $(BASE_REMOTE) | grep -qE 'codefly-dev/core(\.git)?$$' || \
-		{ echo "BASE_REMOTE=$(BASE_REMOTE) is not codefly-dev/core: its main is not the baseline the gate uses. Re-run with BASE_REMOTE=<remote>." >&2; exit 1; }
-	git fetch $(BASE_REMOTE) main
-	cd proto && $(BUF) breaking --against "../.git#ref=$$(git merge-base $(BASE_REMOTE)/main HEAD),subdir=proto"
+	BASE_REMOTE=$(BASE_REMOTE) BUF="$(BUF)" ./scripts/check_proto_breaking.sh
 
 # Companions: build images with scripts (run from core/)
 #   ./companions/scripts/build_companions.sh

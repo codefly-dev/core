@@ -41,7 +41,7 @@ func samplePackage(t *testing.T) *basev0.RunnablePackage {
 		Execution: &basev0.RunnableExecution{
 			Facilities: []*basev0.RunnableFacility{
 				{Kind: basev0.RunnableFacility_KUBERNETES},
-				{Kind: basev0.RunnableFacility_NATIVE},
+				{Kind: basev0.RunnableFacility_GENERATED_SERVICE},
 			},
 			Timeout:        durationpb.New(2 * time.Minute),
 			Cancellation:   basev0.RunnableExecution_CANCELLATION_SIGNAL,
@@ -63,7 +63,7 @@ func samplePackage(t *testing.T) *basev0.RunnablePackage {
 		},
 		Artifacts: []*basev0.RunnableArtifact{
 			{Kind: basev0.RunnableArtifact_IMAGE, Platform: "linux/amd64", Reference: "ghcr.io/example/word-count:0.1.0@" + digestB, Digest: digestB},
-			{Kind: basev0.RunnableArtifact_NATIVE, Platform: "darwin/arm64", Reference: "word-count-0.1.0-darwin-arm64.tar.gz", Digest: digestA, Command: []string{"python", "-m", "codefly_runnable.harness"}},
+			{Kind: basev0.RunnableArtifact_ARCHIVE, Platform: "darwin/arm64", Reference: "word-count-0.1.0-darwin-arm64.tar.gz", Digest: digestA, Command: []string{"python", "-m", "codefly_runnable.serve"}},
 		},
 		ServiceDependencies:                []*basev0.RunnableDependency{{Name: "store", Module: "with-runnables", Kind: "runtime", Endpoints: []string{"tcp"}}},
 		WorkspaceConfigurationDependencies: []string{"openai", "artifact-store"},
@@ -84,7 +84,7 @@ func TestPreparePackageIsCanonicalAndDeterministic(t *testing.T) {
 
 	// Build inputs sort by path, artifacts by kind then platform.
 	require.Equal(t, "pyproject.toml", first.GetBuild().GetInputs()[0].GetPath())
-	require.Equal(t, basev0.RunnableArtifact_NATIVE, first.GetArtifacts()[0].GetKind())
+	require.Equal(t, basev0.RunnableArtifact_ARCHIVE, first.GetArtifacts()[0].GetKind())
 
 	// The same content in another order is the same package.
 	reordered := samplePackage(t)
@@ -103,7 +103,7 @@ func TestPreparePackageIsCanonicalAndDeterministic(t *testing.T) {
 
 	// The digest is a property of the canonical form, not of this binary's
 	// wire encoding, and is mixed with its format identifier.
-	require.Equal(t, "fce55f6c19ea5efbc6044f7f7ceb9af28722caa3475655efa8e5738c3dd2ad05", preparedPackage(t).GetDigest())
+	require.Equal(t, "ddeb7e8490a679d10dbe7b86cb49359f48df542cedf40d734fd5582c6585eb45", preparedPackage(t).GetDigest())
 
 	// The input is never mutated, and a supplied digest must match.
 	original := samplePackage(t)
@@ -161,12 +161,16 @@ func TestPreparePackageRejectsIncompleteDescriptors(t *testing.T) {
 		{"no toolchain", func(p *basev0.RunnablePackage) { p.Build.Toolchain = "" }, "toolchain"},
 		{"no implementation", func(p *basev0.RunnablePackage) { p.Artifacts, p.Build = nil, nil }, "declares no implementation"},
 		{"bad platform", func(p *basev0.RunnablePackage) { p.Artifacts[0].Platform = "linux" }, "must be os/arch"},
-		{"native without command", func(p *basev0.RunnablePackage) { p.Artifacts[1].Command = nil }, "declares no launch command"},
-		{"image with command", func(p *basev0.RunnablePackage) { p.Artifacts[0].Command = []string{"python"} }, "must not declare a launch command"},
 		{"unpinned image", func(p *basev0.RunnablePackage) { p.Artifacts[0].Reference = "ghcr.io/example/word-count:0.1.0" }, "not pinned to its digest"},
 		{"duplicate artifact", func(p *basev0.RunnablePackage) {
 			p.Artifacts[1] = proto.Clone(p.Artifacts[0]).(*basev0.RunnableArtifact)
 		}, "declared twice"},
+		{"archive without a command to start its harness", func(p *basev0.RunnablePackage) {
+			p.Artifacts[1].Command = nil
+		}, "declares no command to start its harness"},
+		{"image with a command", func(p *basev0.RunnablePackage) {
+			p.Artifacts[0].Command = []string{"python"}
+		}, "must not declare a command"},
 		{"artifact without facility", func(p *basev0.RunnablePackage) {
 			p.Execution.Facilities = p.Execution.Facilities[1:]
 		}, "needs facility KUBERNETES, which the package does not declare"},
@@ -219,7 +223,7 @@ func TestCompareReleaseIsIdempotentAndConflictsOnChangedContent(t *testing.T) {
 	_, err = runnable.PreparePackage(nested)
 	require.ErrorContains(t, err, "outside its declared schema")
 	inList := samplePackage(t)
-	inList.Artifacts[1].ProtoReflect().SetUnknown([]byte{0xf8, 0x7f, 0x01})
+	inList.Artifacts[0].ProtoReflect().SetUnknown([]byte{0xf8, 0x7f, 0x01})
 	_, err = runnable.PreparePackage(inList)
 	require.ErrorContains(t, err, "outside its declared schema")
 }
@@ -227,10 +231,13 @@ func TestCompareReleaseIsIdempotentAndConflictsOnChangedContent(t *testing.T) {
 func sampleTarget(facility basev0.RunnableFacility_Kind) *basev0.RunnableTarget {
 	target := &basev0.RunnableTarget{Schema: runnable.TargetSchemaV1, Environment: "local", Revision: "install-7"}
 	switch facility {
-	case basev0.RunnableFacility_NATIVE:
-		target.Coordinates = &basev0.RunnableTarget_Host{Host: &basev0.RunnableHostTarget{
-			Launcher:    "launcher-0",
+	case basev0.RunnableFacility_GENERATED_SERVICE:
+		target.Coordinates = &basev0.RunnableTarget_Generated{Generated: &basev0.RunnableGeneratedTarget{
 			InstallPath: "/opt/codefly/runnables/word-count-0.1.0",
+			Endpoint: &basev0.NetworkMapping{
+				Endpoint:  &basev0.Endpoint{Name: "http", Service: "word-count", Module: "with-runnables", Api: "http", Visibility: "module"},
+				Instances: []*basev0.NetworkInstance{{Address: "http://127.0.0.1:41120"}},
+			},
 		}}
 	case basev0.RunnableFacility_KUBERNETES:
 		target.Coordinates = &basev0.RunnableTarget_Cluster{Cluster: &basev0.RunnableClusterTarget{
@@ -349,7 +356,7 @@ func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifac
 
 func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	pkg := preparedPackage(t)
-	native, image := pkg.GetArtifacts()[0], pkg.GetArtifacts()[1]
+	archive, image := pkg.GetArtifacts()[0], pkg.GetArtifacts()[1]
 
 	binding, err := runnable.PrepareBinding(sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES), pkg)
 	require.NoError(t, err)
@@ -380,10 +387,6 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, shuffledPrepared.GetDigest(), orderedPrepared.GetDigest())
 
-	nativeBinding, err := runnable.PrepareBinding(sampleBinding(pkg, native, basev0.RunnableFacility_NATIVE), pkg)
-	require.NoError(t, err)
-	require.NotEqual(t, binding.GetDigest(), nativeBinding.GetDigest())
-
 	// The executor is part of the installation: one package installed onto two
 	// namespaces is two bindings, not one routed by something outside them.
 	elsewhere := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
@@ -399,19 +402,6 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	reprovisionedPrepared, err := runnable.PrepareBinding(reprovisioned, pkg)
 	require.NoError(t, err)
 	require.NotEqual(t, binding.GetDigest(), reprovisionedPrepared.GetDigest())
-
-	// A native binding names a launcher and the absolute directory its
-	// artifact was unpacked into; an in-process handler has neither, so it
-	// cannot be installed as one.
-	relativeInstall := sampleBinding(pkg, native, basev0.RunnableFacility_NATIVE)
-	relativeInstall.Target.GetHost().InstallPath = "opt/codefly/word-count"
-	_, err = runnable.PrepareBinding(relativeInstall, pkg)
-	require.ErrorContains(t, err, "must be absolute")
-
-	clusterOnNative := sampleBinding(pkg, native, basev0.RunnableFacility_NATIVE)
-	clusterOnNative.Target = sampleTarget(basev0.RunnableFacility_KUBERNETES)
-	_, err = runnable.PrepareBinding(clusterOnNative, pkg)
-	require.ErrorContains(t, err, "facility NATIVE does not dispatch to a cluster target")
 
 	// A binding is tied to the exact package bytes it installed: a rebuilt
 	// release with the same identity does not verify against it.
@@ -433,9 +423,6 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	}{
 		{"unknown schema", func(b *basev0.RunnableBinding) { b.Schema = "codefly.runnable-binding/v0" }, "not supported"},
 		{"other release", func(b *basev0.RunnableBinding) { b.Identity.Version = "0.2.0" }, "does not match the package release identity"},
-		{"native artifact on kubernetes", func(b *basev0.RunnableBinding) {
-			b.Implementation = &basev0.RunnableBinding_Artifact{Artifact: proto.Clone(native).(*basev0.RunnableArtifact)}
-		}, "NATIVE artifact cannot execute on facility KUBERNETES"},
 		{"foreign artifact", func(b *basev0.RunnableBinding) { b.GetArtifact().Digest = digestC }, "not one of the package artifacts"},
 		{"undeclared dependency", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Endpoint.Service = "cache" }, "does not declare as a dependency"},
 		{"unconsumed endpoint", func(b *basev0.RunnableBinding) { b.DependencyNetworkMappings[0].Endpoint.Name = "admin" }, "does not consume"},
@@ -455,9 +442,12 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 		}, "target schema"},
 		{"no environment", func(b *basev0.RunnableBinding) { b.Target.Environment = "" }, "environment"},
 		{"no coordinates", func(b *basev0.RunnableBinding) { b.Target.Coordinates = nil }, "carries no target coordinates"},
-		{"host target on kubernetes", func(b *basev0.RunnableBinding) {
-			b.Target = sampleTarget(basev0.RunnableFacility_NATIVE)
-		}, "facility KUBERNETES does not dispatch to a host target"},
+		{"generated-service target on kubernetes", func(b *basev0.RunnableBinding) {
+			b.Target = sampleTarget(basev0.RunnableFacility_GENERATED_SERVICE)
+		}, "facility KUBERNETES does not dispatch to a generated-service target"},
+		{"archive artifact on kubernetes", func(b *basev0.RunnableBinding) {
+			b.Implementation = &basev0.RunnableBinding_Artifact{Artifact: proto.Clone(archive).(*basev0.RunnableArtifact)}
+		}, "ARCHIVE artifact cannot execute on facility KUBERNETES"},
 		{"no namespace", func(b *basev0.RunnableBinding) { b.Target.GetCluster().Namespace = "" }, "namespace"},
 		{"no revision", func(b *basev0.RunnableBinding) { b.Target.Revision = "" }, "revision"},
 		{"no implementation", func(b *basev0.RunnableBinding) { b.Implementation = nil }, "selects no implementation"},
@@ -475,12 +465,36 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 		})
 	}
 
-	nativeOnly := samplePackage(t)
-	nativeOnly.Execution.Facilities = nativeOnly.Execution.Facilities[1:]
-	nativeOnly.Artifacts = nativeOnly.Artifacts[1:]
-	nativeOnlyPkg, err := runnable.PreparePackage(nativeOnly)
+	// The two placements of one generated harness are separate installations:
+	// running it locally does not replace the Job, and neither routes to the
+	// other.
+	generated, err := runnable.PrepareBinding(sampleBinding(pkg, archive, basev0.RunnableFacility_GENERATED_SERVICE), pkg)
 	require.NoError(t, err)
-	_, err = runnable.PrepareBinding(sampleBinding(nativeOnlyPkg, image, basev0.RunnableFacility_KUBERNETES), nativeOnlyPkg)
+	require.NotEqual(t, binding.GetDigest(), generated.GetDigest())
+
+	// A generated service names the directory its archive was unpacked into,
+	// absolute as the artifact's own platform spells it.
+	relativeInstall := sampleBinding(pkg, archive, basev0.RunnableFacility_GENERATED_SERVICE)
+	relativeInstall.Target.GetGenerated().InstallPath = "opt/codefly/word-count"
+	_, err = runnable.PrepareBinding(relativeInstall, pkg)
+	require.ErrorContains(t, err, "must be absolute")
+
+	// It also names where the harness serves: an install path alone locates
+	// nothing to call.
+	unaddressed := sampleBinding(pkg, archive, basev0.RunnableFacility_GENERATED_SERVICE)
+	unaddressed.Target.GetGenerated().GetEndpoint().Instances = nil
+	_, err = runnable.PrepareBinding(unaddressed, pkg)
+	require.ErrorContains(t, err, "requires a network instance")
+
+	clusterOnGenerated := sampleBinding(pkg, archive, basev0.RunnableFacility_GENERATED_SERVICE)
+	clusterOnGenerated.Target = sampleTarget(basev0.RunnableFacility_KUBERNETES)
+	_, err = runnable.PrepareBinding(clusterOnGenerated, pkg)
+	require.ErrorContains(t, err, "facility GENERATED_SERVICE does not dispatch to a cluster target")
+
+	serviceOnly := ownerHandlerPackage(t)
+	serviceOnlyPkg, err := runnable.PreparePackage(serviceOnly)
+	require.NoError(t, err)
+	_, err = runnable.PrepareBinding(sampleBinding(serviceOnlyPkg, image, basev0.RunnableFacility_KUBERNETES), serviceOnlyPkg)
 	require.ErrorContains(t, err, "does not allow execution facility KUBERNETES")
 }
 
@@ -509,8 +523,8 @@ func TestOwnerHandlerInstallsWithoutAnExecutablePackage(t *testing.T) {
 			p.ServiceOperations = nil
 		}, "declares no implementation"},
 		{"operation without its facility", func(p *basev0.RunnablePackage) {
-			p.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_NATIVE}}
-			p.Contract.Protocol = resources.RunnableProtocolV1
+			p.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_KUBERNETES}}
+			p.Contract.Protocol = resources.RunnableServedProtocolV1
 			p.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
 		}, "needs facility SERVICE"},
 		{"unsupported adaptation", func(p *basev0.RunnablePackage) {
@@ -544,9 +558,9 @@ func TestOwnerHandlerInstallsWithoutAnExecutablePackage(t *testing.T) {
 		{"target without an address", func(b *basev0.RunnableBinding) {
 			b.Target.GetService().GetEndpoint().Instances = nil
 		}, "requires a network instance"},
-		{"host target for an owner handler", func(b *basev0.RunnableBinding) {
-			b.Target = sampleTarget(basev0.RunnableFacility_NATIVE)
-		}, "facility SERVICE does not dispatch to a host target"},
+		{"cluster target for an owner handler", func(b *basev0.RunnableBinding) {
+			b.Target = sampleTarget(basev0.RunnableFacility_KUBERNETES)
+		}, "facility SERVICE does not dispatch to a cluster target"},
 	}
 	for _, tc := range bindings {
 		t.Run(tc.name, func(t *testing.T) {
@@ -578,14 +592,14 @@ func TestRemoteFunctionIsDeclaredAndTargetedWithoutProvisioning(t *testing.T) {
 	require.ErrorContains(t, err, `function target is on provider "gcp.functions"`)
 
 	undeclared := functionPackage(t)
-	undeclared.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_NATIVE}}
-	undeclared.Contract.Protocol = resources.RunnableProtocolV1
+	undeclared.Execution.Facilities = []*basev0.RunnableFacility{{Kind: basev0.RunnableFacility_KUBERNETES}}
+	undeclared.Contract.Protocol = resources.RunnableServedProtocolV1
 	undeclared.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
 	_, err = runnable.PreparePackage(undeclared)
 	require.ErrorContains(t, err, "needs facility FUNCTION")
 }
 
-func TestSignalCancellationNeedsAFacilityALauncherOwns(t *testing.T) {
+func TestSignalCancellationNeedsAFacilityRunningThisPackagesArtifact(t *testing.T) {
 	// A harness promises an INTERRUPTED report only where something can signal
 	// it; an owner's own process and a provider's function cannot be.
 	for _, pkg := range []*basev0.RunnablePackage{ownerHandlerPackage(t), functionPackage(t)} {
@@ -648,20 +662,29 @@ func TestDispatchFormsMustAgreeOnTheInvocationProtocol(t *testing.T) {
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "cannot be one release")
 
-	// A service-backed release claiming the launcher/harness framing asserts
-	// an invocation document and a result file that nothing writes.
+	// A service-backed release claiming the generated harness's protocol
+	// asserts a harness that was never built for it.
 	wrongProtocol := ownerHandlerPackage(t)
-	wrongProtocol.Contract.Protocol = resources.RunnableProtocolV1
+	wrongProtocol.Contract.Protocol = resources.RunnableServedProtocolV1
 	_, err = runnable.PreparePackage(wrongProtocol)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "does not reach the declared facilities")
 
-	require.Equal(t, resources.RunnableProtocolV1, preparedPackage(t).GetContract().GetProtocol())
+	// The deleted launcher framing is not one of the protocols this core
+	// understands at all, whatever facility claims it, so it is refused by name
+	// rather than half-read as a call.
+	deletedFraming := samplePackage(t)
+	deletedFraming.Contract.Protocol = "codefly.runnable/v1"
+	_, err = runnable.PreparePackage(deletedFraming)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, `protocol "codefly.runnable/v1" is not supported`)
 
-	launcherless := ownerHandlerPackage(t)
-	launcherless.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
-	_, err = runnable.PreparePackage(launcherless)
-	require.ErrorContains(t, err, "no declared facility has a launcher capturing streams")
+	require.Equal(t, resources.RunnableServedProtocolV1, preparedPackage(t).GetContract().GetProtocol())
+
+	unbuilt := ownerHandlerPackage(t)
+	unbuilt.Execution.MaxLogBytes = resources.DefaultRunnableLogBytes
+	_, err = runnable.PreparePackage(unbuilt)
+	require.ErrorContains(t, err, "no declared facility runs an artifact whose streams are captured")
 }
 
 func TestTwoPlatformsOfOneReleaseInstallSideBySide(t *testing.T) {
@@ -683,6 +706,11 @@ func TestTwoPlatformsOfOneReleaseInstallSideBySide(t *testing.T) {
 	}
 	require.NotNil(t, amd64)
 	require.NotNil(t, arm64)
+	// Artifacts sort by kind then platform, so the set is stable whatever order
+	// a builder emitted it in: the archive first, then the images by platform.
+	require.Equal(t, basev0.RunnableArtifact_ARCHIVE, pkg.GetArtifacts()[0].GetKind())
+	require.Equal(t, []string{"linux/amd64", "linux/arm64"},
+		[]string{pkg.GetArtifacts()[1].GetPlatform(), pkg.GetArtifacts()[2].GetPlatform()})
 
 	install := func(artifact *basev0.RunnableArtifact) *basev0.RunnableBinding {
 		prepared, err := runnable.PrepareBinding(sampleBinding(pkg, artifact, basev0.RunnableFacility_KUBERNETES), pkg)
@@ -727,37 +755,6 @@ func TestRegeneratedEndpointSchemaDoesNotChangeAnInstallation(t *testing.T) {
 	require.Nil(t, prepared.GetDependencyNetworkMappings()[0].GetEndpoint().GetApiDetails())
 	require.Equal(t, plain.GetDigest(), prepared.GetDigest())
 	require.NoError(t, runnable.CompareBinding(plain, prepared, pkg))
-}
-
-func TestInstallPathIsAbsoluteForTheArtifactsOwnPlatform(t *testing.T) {
-	windows := samplePackage(t)
-	windows.Artifacts = append(windows.Artifacts, &basev0.RunnableArtifact{
-		Kind: basev0.RunnableArtifact_NATIVE, Platform: "windows/amd64",
-		Reference: "word-count-0.1.0-windows-amd64.zip", Digest: digestC,
-		Command: []string{"python", "-m", "codefly_runnable.harness"},
-	})
-	pkg, err := runnable.PreparePackage(windows)
-	require.NoError(t, err)
-	var artifact *basev0.RunnableArtifact
-	for _, candidate := range pkg.GetArtifacts() {
-		if candidate.GetPlatform() == "windows/amd64" {
-			artifact = candidate
-		}
-	}
-	require.NotNil(t, artifact)
-
-	bind := func(installPath string) error {
-		b := sampleBinding(pkg, artifact, basev0.RunnableFacility_NATIVE)
-		b.Target.GetHost().InstallPath = installPath
-		_, err := runnable.PrepareBinding(b, pkg)
-		return err
-	}
-	// A windows package is installed under a drive or UNC root; a leading-slash
-	// rule would let one be built and never bound.
-	require.NoError(t, bind(`C:\codefly\word-count`))
-	require.NoError(t, bind(`\\build\codefly\word-count`))
-	require.ErrorContains(t, bind("/opt/codefly/word-count"), "must be absolute on windows/amd64")
-	require.ErrorContains(t, bind(`codefly\word-count`), "must be absolute on windows/amd64")
 }
 
 func TestArtifactKeepsItsFieldNumberOnTheWire(t *testing.T) {
@@ -863,10 +860,7 @@ func packageForFacility(t *testing.T, facility basev0.RunnableFacility_Kind) (*b
 		pkg.Execution.Facilities = []*basev0.RunnableFacility{{Kind: facility}}
 		// core ties an artifact kind to its facility, so a release declaring one
 		// facility may carry only that facility's artifact.
-		kind := basev0.RunnableArtifact_IMAGE
-		if facility == basev0.RunnableFacility_NATIVE {
-			kind = basev0.RunnableArtifact_NATIVE
-		}
+		kind := artifactKindFor(facility)
 		pkg.Artifacts = slices.DeleteFunc(pkg.Artifacts, func(a *basev0.RunnableArtifact) bool { return a.GetKind() != kind })
 	}
 	prepared, err := runnable.PreparePackage(pkg)
@@ -883,12 +877,20 @@ func packageForFacility(t *testing.T, facility basev0.RunnableFacility_Kind) (*b
 	return prepared, binding
 }
 
-// artifactFor picks the package artifact a launched facility installs.
-func artifactFor(pkg *basev0.RunnablePackage, facility basev0.RunnableFacility_Kind) *basev0.RunnableArtifact {
-	want := basev0.RunnableArtifact_IMAGE
-	if facility == basev0.RunnableFacility_NATIVE {
-		want = basev0.RunnableArtifact_NATIVE
+// artifactKindFor is the artifact form a facility running a built artifact
+// installs. core ties the two together, so a test that picked the wrong one
+// would be refused at binding rather than testing what it meant to.
+func artifactKindFor(facility basev0.RunnableFacility_Kind) basev0.RunnableArtifact_Kind {
+	if facility == basev0.RunnableFacility_GENERATED_SERVICE {
+		return basev0.RunnableArtifact_ARCHIVE
 	}
+	return basev0.RunnableArtifact_IMAGE
+}
+
+// artifactFor picks the package artifact a facility running a built artifact
+// installs.
+func artifactFor(pkg *basev0.RunnablePackage, facility basev0.RunnableFacility_Kind) *basev0.RunnableArtifact {
+	want := artifactKindFor(facility)
 	for _, artifact := range pkg.GetArtifacts() {
 		if artifact.GetKind() == want {
 			return proto.Clone(artifact).(*basev0.RunnableArtifact)
@@ -905,7 +907,7 @@ func artifactFor(pkg *basev0.RunnablePackage, facility basev0.RunnableFacility_K
 // the work runs, and that is only visible across the whole table.
 func TestEveryFacilityInstallsUnderAWorkContext(t *testing.T) {
 	for _, facility := range []basev0.RunnableFacility_Kind{
-		basev0.RunnableFacility_NATIVE,
+		basev0.RunnableFacility_GENERATED_SERVICE,
 		basev0.RunnableFacility_KUBERNETES,
 		basev0.RunnableFacility_SERVICE,
 		basev0.RunnableFacility_FUNCTION,
