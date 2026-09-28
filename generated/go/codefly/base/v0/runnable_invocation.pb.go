@@ -85,7 +85,7 @@ func (x RunnableResult_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunnableResult_Status.Descriptor instead.
 func (RunnableResult_Status) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{4, 0}
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{5, 0}
 }
 
 // RunnableGrantReference is an opaque, revocable reference to a delegation the
@@ -261,6 +261,80 @@ func (*RunnableInvocationIdentity_WorkContext) isRunnableInvocationIdentity_Carr
 
 func (*RunnableInvocationIdentity_Grant) isRunnableInvocationIdentity_Carrier() {}
 
+// RunnableCallbackTarget is where an owner reports a submitted invocation: the
+// terminal answer, and the heartbeats that say the work is still live. It is
+// the caller's own address, presented on the call, and it is what settles the
+// direction of every later report — an owner never chooses whether to push.
+//
+// A caller that presents none has undertaken to read the status by handle
+// instead, which is the recovery path an owner owes anyway because a callback
+// can always be lost. So the two mechanisms are one owner obligation and one
+// caller choice, rather than a negotiation.
+type RunnableCallbackTarget struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// address is the absolute URL the owner POSTs its reports to. Plaintext is
+	// admitted only to a loopback host: every other plaintext address would put
+	// a completion, and the Work Context authenticating it, on the wire in
+	// clear.
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// audience is the trust boundary the owner mints its own capability for when
+	// it reports. The callback is authenticated by the reporting workload's
+	// identity and by nothing else: a shared secret would have to be delivered
+	// to every owner that may report, which makes each of them able to forge
+	// every other's completions.
+	//
+	// It is stated rather than derived from the address, because an audience is
+	// a trust boundary and a URL host is a route to one. Deriving it would make
+	// a DNS name decide what a capability is minted for.
+	Audience      string `protobuf:"bytes,2,opt,name=audience,proto3" json:"audience,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunnableCallbackTarget) Reset() {
+	*x = RunnableCallbackTarget{}
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunnableCallbackTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunnableCallbackTarget) ProtoMessage() {}
+
+func (x *RunnableCallbackTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunnableCallbackTarget.ProtoReflect.Descriptor instead.
+func (*RunnableCallbackTarget) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RunnableCallbackTarget) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *RunnableCallbackTarget) GetAudience() string {
+	if x != nil {
+		return x.Audience
+	}
+	return ""
+}
+
 // RunnableInvocation is one call's per-call facts, as the caller issued them.
 type RunnableInvocation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -305,14 +379,21 @@ type RunnableInvocation struct {
 	Input []byte `protobuf:"bytes,8,opt,name=input,proto3" json:"input,omitempty"`
 	// identity is the Work Context this invocation runs under. Required: there is
 	// no invocation without an identity to run it as.
-	Identity      *RunnableInvocationIdentity `protobuf:"bytes,9,opt,name=identity,proto3" json:"identity,omitempty"`
+	Identity *RunnableInvocationIdentity `protobuf:"bytes,9,opt,name=identity,proto3" json:"identity,omitempty"`
+	// callback is where the owner reports a submitted invocation, and it is the
+	// caller's own choice: present, the owner pushes its heartbeats and its
+	// terminal answer there; absent, the caller reads the status by the handle
+	// the acceptance gave it. It is set only for an operation declaring
+	// COMPLETION_SUBMIT — a call-mode invocation answers in the reply, so an
+	// address to report to later would describe a report nothing ever sends.
+	Callback      *RunnableCallbackTarget `protobuf:"bytes,10,opt,name=callback,proto3" json:"callback,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RunnableInvocation) Reset() {
 	*x = RunnableInvocation{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -324,7 +405,7 @@ func (x *RunnableInvocation) String() string {
 func (*RunnableInvocation) ProtoMessage() {}
 
 func (x *RunnableInvocation) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -337,7 +418,7 @@ func (x *RunnableInvocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableInvocation.ProtoReflect.Descriptor instead.
 func (*RunnableInvocation) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{2}
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RunnableInvocation) GetProtocol() string {
@@ -403,6 +484,13 @@ func (x *RunnableInvocation) GetIdentity() *RunnableInvocationIdentity {
 	return nil
 }
 
+func (x *RunnableInvocation) GetCallback() *RunnableCallbackTarget {
+	if x != nil {
+		return x.Callback
+	}
+	return nil
+}
+
 // RunnableError is a handler's own typed failure. The code is the operation's
 // vocabulary rather than Codefly's: a runnable that could not charge a card
 // says so in its own terms, and core never reinterprets it.
@@ -418,7 +506,7 @@ type RunnableError struct {
 
 func (x *RunnableError) Reset() {
 	*x = RunnableError{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -430,7 +518,7 @@ func (x *RunnableError) String() string {
 func (*RunnableError) ProtoMessage() {}
 
 func (x *RunnableError) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -443,7 +531,7 @@ func (x *RunnableError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableError.ProtoReflect.Descriptor instead.
 func (*RunnableError) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{3}
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RunnableError) GetCode() string {
@@ -488,7 +576,7 @@ type RunnableResult struct {
 
 func (x *RunnableResult) Reset() {
 	*x = RunnableResult{}
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -500,7 +588,7 @@ func (x *RunnableResult) String() string {
 func (*RunnableResult) ProtoMessage() {}
 
 func (x *RunnableResult) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_runnable_invocation_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -513,7 +601,7 @@ func (x *RunnableResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnableResult.ProtoReflect.Descriptor instead.
 func (*RunnableResult) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{4}
+	return file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RunnableResult) GetProtocol() string {
@@ -565,7 +653,11 @@ const file_codefly_base_v0_runnable_invocation_proto_rawDesc = "" +
 	"\fwork_context\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80@H\x00R\vworkContext\x12?\n" +
 	"\x05grant\x18\x02 \x01(\v2'.codefly.base.v0.RunnableGrantReferenceH\x00R\x05grantB\x10\n" +
-	"\acarrier\x12\x05\xbaH\x02\b\x01\"\xf2\x03\n" +
+	"\acarrier\x12\x05\xbaH\x02\b\x01\"g\n" +
+	"\x16RunnableCallbackTarget\x12%\n" +
+	"\aaddress\x18\x01 \x01(\tB\v\xbaH\br\x06\x18\x80\x04\x88\x01\x01R\aaddress\x12&\n" +
+	"\baudience\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\baudience\"\xb7\x04\n" +
 	"\x12RunnableInvocation\x12#\n" +
 	"\bprotocol\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bprotocol\x12E\n" +
 	"\brunnable\x18\x02 \x01(\v2!.codefly.base.v0.RunnableIdentityB\x06\xbaH\x03\xc8\x01\x01R\brunnable\x12/\n" +
@@ -577,7 +669,9 @@ const file_codefly_base_v0_runnable_invocation_proto_rawDesc = "" +
 	"\tissued_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\bissuedAt\x12>\n" +
 	"\bdeadline\x18\a \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\bdeadline\x12\x1d\n" +
 	"\x05input\x18\b \x01(\fB\a\xbaH\x04z\x02\x10\x01R\x05input\x12O\n" +
-	"\bidentity\x18\t \x01(\v2+.codefly.base.v0.RunnableInvocationIdentityB\x06\xbaH\x03\xc8\x01\x01R\bidentity\"I\n" +
+	"\bidentity\x18\t \x01(\v2+.codefly.base.v0.RunnableInvocationIdentityB\x06\xbaH\x03\xc8\x01\x01R\bidentity\x12C\n" +
+	"\bcallback\x18\n" +
+	" \x01(\v2'.codefly.base.v0.RunnableCallbackTargetR\bcallback\"I\n" +
 	"\rRunnableError\x12\x1e\n" +
 	"\x04code\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\x04code\x12\x18\n" +
@@ -610,30 +704,32 @@ func file_codefly_base_v0_runnable_invocation_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_base_v0_runnable_invocation_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_codefly_base_v0_runnable_invocation_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_codefly_base_v0_runnable_invocation_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_codefly_base_v0_runnable_invocation_proto_goTypes = []any{
 	(RunnableResult_Status)(0),         // 0: codefly.base.v0.RunnableResult.Status
 	(*RunnableGrantReference)(nil),     // 1: codefly.base.v0.RunnableGrantReference
 	(*RunnableInvocationIdentity)(nil), // 2: codefly.base.v0.RunnableInvocationIdentity
-	(*RunnableInvocation)(nil),         // 3: codefly.base.v0.RunnableInvocation
-	(*RunnableError)(nil),              // 4: codefly.base.v0.RunnableError
-	(*RunnableResult)(nil),             // 5: codefly.base.v0.RunnableResult
-	(*RunnableIdentity)(nil),           // 6: codefly.base.v0.RunnableIdentity
-	(*timestamppb.Timestamp)(nil),      // 7: google.protobuf.Timestamp
+	(*RunnableCallbackTarget)(nil),     // 3: codefly.base.v0.RunnableCallbackTarget
+	(*RunnableInvocation)(nil),         // 4: codefly.base.v0.RunnableInvocation
+	(*RunnableError)(nil),              // 5: codefly.base.v0.RunnableError
+	(*RunnableResult)(nil),             // 6: codefly.base.v0.RunnableResult
+	(*RunnableIdentity)(nil),           // 7: codefly.base.v0.RunnableIdentity
+	(*timestamppb.Timestamp)(nil),      // 8: google.protobuf.Timestamp
 }
 var file_codefly_base_v0_runnable_invocation_proto_depIdxs = []int32{
 	1, // 0: codefly.base.v0.RunnableInvocationIdentity.grant:type_name -> codefly.base.v0.RunnableGrantReference
-	6, // 1: codefly.base.v0.RunnableInvocation.runnable:type_name -> codefly.base.v0.RunnableIdentity
-	7, // 2: codefly.base.v0.RunnableInvocation.issued_at:type_name -> google.protobuf.Timestamp
-	7, // 3: codefly.base.v0.RunnableInvocation.deadline:type_name -> google.protobuf.Timestamp
+	7, // 1: codefly.base.v0.RunnableInvocation.runnable:type_name -> codefly.base.v0.RunnableIdentity
+	8, // 2: codefly.base.v0.RunnableInvocation.issued_at:type_name -> google.protobuf.Timestamp
+	8, // 3: codefly.base.v0.RunnableInvocation.deadline:type_name -> google.protobuf.Timestamp
 	2, // 4: codefly.base.v0.RunnableInvocation.identity:type_name -> codefly.base.v0.RunnableInvocationIdentity
-	0, // 5: codefly.base.v0.RunnableResult.status:type_name -> codefly.base.v0.RunnableResult.Status
-	4, // 6: codefly.base.v0.RunnableResult.error:type_name -> codefly.base.v0.RunnableError
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	3, // 5: codefly.base.v0.RunnableInvocation.callback:type_name -> codefly.base.v0.RunnableCallbackTarget
+	0, // 6: codefly.base.v0.RunnableResult.status:type_name -> codefly.base.v0.RunnableResult.Status
+	5, // 7: codefly.base.v0.RunnableResult.error:type_name -> codefly.base.v0.RunnableError
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_runnable_invocation_proto_init() }
@@ -652,7 +748,7 @@ func file_codefly_base_v0_runnable_invocation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_runnable_invocation_proto_rawDesc), len(file_codefly_base_v0_runnable_invocation_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

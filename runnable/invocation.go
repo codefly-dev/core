@@ -75,6 +75,19 @@ func validateInvocation(inv *basev0.RunnableInvocation, pkg *basev0.RunnablePack
 		return fmt.Errorf("%w: package declares %s, so the invocation must carry the effect identity an uncertain outcome is resolved with",
 			ErrInvalid, basev0.RunnableExecution_RECOVERY_RECEIPT)
 	}
+	if callback := inv.GetCallback(); callback != nil {
+		// A reporting address is meaningful only for work that answers later.
+		// Carried on a call-mode invocation it would describe a report nothing
+		// ever sends, and a caller waiting on it would wait forever for the
+		// answer it already received in the reply.
+		if completion := pkg.GetExecution().GetCompletion(); completion != basev0.RunnableExecution_COMPLETION_SUBMIT {
+			return fmt.Errorf("%w: invocation presents a callback address but the package declares %s, which answers in the reply to the call",
+				ErrInvalid, completion)
+		}
+		if err := ValidateCallbackTarget(callback); err != nil {
+			return err
+		}
+	}
 	return validatePayload("input", inv.GetInput(), pkg.GetExecution().GetMaxInputBytes())
 }
 
