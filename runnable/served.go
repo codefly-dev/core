@@ -48,6 +48,37 @@ const (
 	WorkContextHeader = wool.WorkContextHeader
 )
 
+// Where a generated harness serves, and how it is told to.
+//
+// A caller dials whatever the binding's route names and imposes no convention
+// on it, so these are not a protocol requirement — they are the one spelling
+// every generated harness uses, pinned here because two harness repositories
+// and whoever writes the binding have to agree and none of them owns the
+// others. A harness that served one path while its binding named another would
+// fail as an unreachable owner, which reads as an outage rather than as a
+// mistake in a string.
+const (
+	// ListenAddressEnv is the address a generated harness listens on, as
+	// host:port. It is the one thing the harness cannot derive: the port is
+	// allocated by whatever placed it — network.ToNamedPort for a
+	// GENERATED_SERVICE, the Job's own spec for KUBERNETES — and a harness
+	// choosing its own would be the hardcoded port core exists to prevent.
+	ListenAddressEnv = "CODEFLY__RUNNABLE_ADDRESS"
+	// ServedInvokeProcedure is the procedure a generated harness answers calls
+	// on. It is shaped as a Connect procedure because that is what
+	// ConnectProcedure.procedure accepts — two path segments — and it names the
+	// harness's own service rather than a generated proto service, because
+	// there is no proto service here: the body is the bounded contract's own
+	// JSON, not a protobuf message.
+	ServedInvokeProcedure = "/codefly.runnable.v0.Runnable/Invoke"
+	// ServedLookupProcedure is the receipt route: the same bounded input
+	// document as the call, the effect identified by EffectHeader, and the
+	// operation's own output document as the answer. A package declaring
+	// RECOVERY_RECEIPT serves it, and an absent receipt answers "not found"
+	// without that being an error — absent is "not yet known", never "no".
+	ServedLookupProcedure = "/codefly.runnable.v0.Runnable/Lookup"
+)
+
 // Call is what a caller saw of one call to a served operation. It is raw
 // observation, exactly as Observation was for a process: ClassifyServed turns it
 // into the typed outcome, so every caller of a served operation draws the line

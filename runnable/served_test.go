@@ -2,6 +2,7 @@ package runnable_test
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -232,4 +233,25 @@ func TestWorkContextHeaderIsTheOneTheSDKSends(t *testing.T) {
 	// gRPC metadata key is the lowercase form, so this is the equality that
 	// actually has to hold on the wire.
 	require.Equal(t, "x-codefly-work-context", strings.ToLower(runnable.WorkContextHeader))
+}
+
+// TestGeneratedHarnessEndpointIsOneSpelling pins where a generated harness
+// serves. The caller dials whatever its binding names and imposes no naming
+// convention, so this is not a protocol requirement — it is the single spelling
+// runnable-go, runnable-python and whoever writes the binding all use, and none
+// of those three owns the other two. A harness serving one path while its
+// binding names another is an unreachable owner, which reads as an outage
+// rather than as a mistake in a string.
+func TestGeneratedHarnessEndpointIsOneSpelling(t *testing.T) {
+	require.Equal(t, "CODEFLY__RUNNABLE_ADDRESS", runnable.ListenAddressEnv)
+	require.Equal(t, "/codefly.runnable.v0.Runnable/Invoke", runnable.ServedInvokeProcedure)
+	require.Equal(t, "/codefly.runnable.v0.Runnable/Lookup", runnable.ServedLookupProcedure)
+
+	// Both must satisfy ConnectProcedure.procedure, which is two path segments
+	// — a one-segment route would be refused at install rather than at a call,
+	// but only after a harness had already been generated serving it.
+	procedure := regexp.MustCompile(`^/[A-Za-z_][A-Za-z0-9_.]*/[A-Za-z_][A-Za-z0-9_]*$`)
+	require.Regexp(t, procedure, runnable.ServedInvokeProcedure)
+	require.Regexp(t, procedure, runnable.ServedLookupProcedure)
+	require.NotEqual(t, runnable.ServedInvokeProcedure, runnable.ServedLookupProcedure)
 }
