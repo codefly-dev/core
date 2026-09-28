@@ -16,6 +16,21 @@ func fixtureHost(t *testing.T) solutionhost.Host {
 	return host
 }
 
+// admitOne drives the single-document case every host-side test uses and
+// asserts the Admission agrees with the returned error.
+func admitOne(t *testing.T, host solutionhost.Host, document *solutionhost.SolutionHostBinding) (solutionhost.Decision, error) {
+	t.Helper()
+	admissions, err := host.Admit(document)
+	require.Len(t, admissions, 1)
+	if err != nil {
+		require.Error(t, admissions[0].Err)
+		require.ErrorIs(t, err, admissions[0].Err)
+		return "", err
+	}
+	require.NoError(t, admissions[0].Err)
+	return admissions[0].Decision, nil
+}
+
 func parse(t *testing.T, name string) *solutionhost.SolutionHostBinding {
 	t.Helper()
 	document, err := solutionhost.Parse(fixture(t, name))
@@ -40,14 +55,13 @@ func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 				require.Equal(t, solutionhost.OutcomeRejected, shipped.Outcome)
 				return
 			}
-			decisions, err := host.Admit(document)
+			decision, err := admitOne(t, host, document)
 			if shipped.Outcome == solutionhost.OutcomeRejected {
 				require.Error(t, err)
-				require.Nil(t, decisions)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, []solutionhost.Decision{shipped.Decision}, decisions)
+			require.Equal(t, shipped.Decision, decision)
 		})
 	}
 }
@@ -59,7 +73,7 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"duplicate-route-alias": composition.ErrCollision,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := host.Admit(parse(t, name))
+			_, err := admitOne(t, host, parse(t, name))
 			require.ErrorIs(t, err, target)
 		})
 	}
@@ -70,13 +84,13 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 func TestARereadOfTheAppliedGenerationIsCurrentAndARewriteIsAnError(t *testing.T) {
 	host := fixtureHost(t)
 
-	decisions, err := host.Admit(parse(t, "valid"))
+	decision, err := admitOne(t, host, parse(t, "valid"))
 	require.NoError(t, err)
-	require.Equal(t, []solutionhost.Decision{solutionhost.DecisionCurrent}, decisions)
+	require.Equal(t, solutionhost.DecisionCurrent, decision)
 
 	rewritten := parse(t, "valid")
 	rewritten.Artifacts[0].Digest = "sha256:" + strings.Repeat("0", 64)
-	_, err = host.Admit(rewritten)
+	_, err = admitOne(t, host, rewritten)
 	require.ErrorIs(t, err, solutionhost.ErrRewrittenGeneration)
 }
 
@@ -84,9 +98,9 @@ func TestATombstoneReleasesItsAliasForANewInstance(t *testing.T) {
 	host := fixtureHost(t)
 
 	tombstone := parse(t, "tombstone")
-	decisions, err := host.Admit(tombstone)
+	decision, err := admitOne(t, host, tombstone)
 	require.NoError(t, err)
-	require.Equal(t, []solutionhost.Decision{solutionhost.DecisionApply}, decisions)
+	require.Equal(t, solutionhost.DecisionApply, decision)
 
 	applied, err := solutionhost.AppliedFrom(tombstone)
 	require.NoError(t, err)
@@ -96,9 +110,9 @@ func TestATombstoneReleasesItsAliasForANewInstance(t *testing.T) {
 	// Once the tombstone is the applied generation, the alias is free — but the
 	// binding ID is not: its generation history survives removal.
 	removed := solutionhost.Host{Coordinate: solutionhost.FixtureCoordinate, Applied: []solutionhost.Applied{applied}}
-	_, err = removed.Admit(parse(t, "duplicate-route-alias"))
+	_, err = admitOne(t, removed, parse(t, "duplicate-route-alias"))
 	require.NoError(t, err)
-	_, err = removed.Admit(parse(t, "valid"))
+	_, err = admitOne(t, removed, parse(t, "valid"))
 	require.ErrorIs(t, err, solutionhost.ErrStaleGeneration)
 }
 
@@ -109,9 +123,9 @@ func TestABindingMovingItsOwnAliasDoesNotCollideWithItself(t *testing.T) {
 	next.Generation = 5
 	next.Routes = []solutionhost.Route{{Alias: "crm/v2", Surface: solutionhost.SurfaceFrontend}}
 
-	decisions, err := host.Admit(next)
+	decision, err := admitOne(t, host, next)
 	require.NoError(t, err)
-	require.Equal(t, []solutionhost.Decision{solutionhost.DecisionApply}, decisions)
+	require.Equal(t, solutionhost.DecisionApply, decision)
 }
 
 func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
@@ -126,15 +140,18 @@ func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
 	require.Contains(t, err.Error(), second.Binding)
 
 	second.Routes[0].Alias = "crm2"
-	decisions, err := solutionhost.Host{}.Admit(first, second)
+	admissions, err := solutionhost.Host{}.Admit(first, second)
 	require.NoError(t, err)
-	require.Equal(t, []solutionhost.Decision{solutionhost.DecisionApply, solutionhost.DecisionApply}, decisions)
+	require.Equal(t, []solutionhost.Admission{
+		{Binding: first.Binding, Decision: solutionhost.DecisionApply},
+		{Binding: second.Binding, Decision: solutionhost.DecisionApply},
+	}, admissions)
 
 	// An empty set is "nothing declared", not "remove everything": removal is a
 	// generation, so Admit has nothing to say about it.
-	decisions, err = solutionhost.Host{}.Admit()
+	admissions, err = solutionhost.Host{}.Admit()
 	require.NoError(t, err)
-	require.Empty(t, decisions)
+	require.Empty(t, admissions)
 }
 
 func TestOneSetDeclaresOneGenerationPerBinding(t *testing.T) {
@@ -152,7 +169,7 @@ func TestADocumentForAnotherHostIsRefused(t *testing.T) {
 	document := parse(t, "valid")
 	document.Host.Coordinate = "obin/prod/us-east-1"
 
-	_, err := fixtureHost(t).Admit(document)
+	_, err := admitOne(t, fixtureHost(t), document)
 	require.ErrorIs(t, err, solutionhost.ErrWrongHost)
 	require.Contains(t, err.Error(), "us-east-1")
 }
@@ -162,11 +179,11 @@ func TestAHostReservesRouteNamespaces(t *testing.T) {
 
 	document := parse(t, "valid")
 	document.Routes = []solutionhost.Route{{Alias: "codefly/admin", Surface: solutionhost.SurfaceFrontend}}
-	_, err := host.Admit(document)
+	_, err := admitOne(t, host, document)
 	require.ErrorIs(t, err, composition.ErrCollision)
 
 	document.Routes = []solutionhost.Route{{Alias: "codeflyer", Surface: solutionhost.SurfaceFrontend}}
-	_, err = host.Admit(document)
+	_, err = admitOne(t, host, document)
 	require.NoError(t, err)
 }
 
@@ -189,7 +206,7 @@ func TestInvalidAppliedStateIsRejectedRatherThanTrusted(t *testing.T) {
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := solutionhost.Host{Applied: applied}.Admit(document)
+			_, err := solutionhost.Host{Coordinate: solutionhost.FixtureCoordinate, Applied: applied}.Admit(document)
 			require.Error(t, err)
 		})
 	}

@@ -3,7 +3,9 @@ package solutionhost
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"sort"
 
 	"github.com/codefly-dev/core/composition"
 )
@@ -103,8 +105,21 @@ type Host struct {
 	Applied []Applied
 }
 
-// Admit checks one desired set against this host's state and reports, per
-// document and in the order given, what the host should do with it.
+// Admission is what Admit concluded about one document: the decision a host
+// should act on, or the reason that document alone was refused.
+type Admission struct {
+	// Binding is the document's binding ID. It is empty when the document did
+	// not parse far enough to name one.
+	Binding string
+	// Decision is what the host should do, and is set only when Err is nil.
+	Decision Decision
+	// Err is why this document was refused, or nil. It carries the same
+	// sentinels Admit returns, so errors.Is works on it.
+	Err error
+}
+
+// Admit checks one desired set against this host's state and returns one
+// Admission per document, in the order given.
 //
 // The set is checked as a whole because two of the rules are not properties of
 // a document: a route alias is unique within a host, and a generation is only
@@ -112,59 +127,148 @@ type Host struct {
 // what it is about to write, so a collision is refused where it was authored
 // instead of leaving the host to guess which of two claimants meant it.
 //
+// Validity, though, is per document, so one malformed binding does not freeze
+// every other binding on the host: each refusal lands on its own Admission and
+// the rest still carry a decision. The returned error is non-nil whenever any
+// document was refused, so a caller that checks only the error still applies
+// nothing; a caller that wants to apply what is sound reads the Admissions.
+//
+// Route aliases are unique within ONE host, so they are compared per
+// coordinate. That matters for the renderer, whose set legitimately spans every
+// host a product delivers to: the same alias on two coordinates is not a
+// collision.
+//
 // Admit decides admission only. It does not verify who signed the document or
-// how it arrived; a host still checks provenance and its expected target before
-// calling this, and applies nothing on any error.
-func (host Host) Admit(documents ...*SolutionHostBinding) ([]Decision, error) {
+// how it arrived; a host still checks provenance and its expected target first.
+func (host Host) Admit(documents ...*SolutionHostBinding) ([]Admission, error) {
 	applied, err := host.appliedByBinding()
 	if err != nil {
 		return nil, err
 	}
-	decisions := make([]Decision, 0, len(documents))
-	declared := make(map[string]struct{}, len(documents))
-	var claims []composition.Claim
+	// Applied state is one host's durable record and carries no coordinate of
+	// its own, so it is only interpretable against a named host. Without this,
+	// a caller mixing applied state into a coordinate-less check would have its
+	// aliases silently compared against documents for other hosts.
+	if len(host.Applied) != 0 && host.Coordinate == "" {
+		return nil, fmt.Errorf("%w: applied state belongs to a named host, so Host.Coordinate is required", ErrInvalid)
+	}
+
+	admissions := make([]Admission, len(documents))
+	declared := make(map[string]int, len(documents))
 	for index, document := range documents {
 		if err := document.Validate(); err != nil {
-			return nil, fmt.Errorf("document %d: %w", index, err)
+			admissions[index].Err = err
+			continue
 		}
+		admissions[index].Binding = document.Binding
 		if host.Coordinate != "" && document.Host.Coordinate != host.Coordinate {
-			return nil, fmt.Errorf("%w: binding %q targets %q, this host is %q", ErrWrongHost, document.Binding, document.Host.Coordinate, host.Coordinate)
+			admissions[index].Err = fmt.Errorf("%w: binding %q targets %q, this host is %q", ErrWrongHost, document.Binding, document.Host.Coordinate, host.Coordinate)
+			continue
 		}
 		// One desired set declares one generation per binding: two would make
 		// the applied generation depend on the order the host read them in.
-		if _, exists := declared[document.Binding]; exists {
-			return nil, fmt.Errorf("%w: binding %q is declared twice in one set", ErrInvalid, document.Binding)
+		if first, exists := declared[document.Binding]; exists {
+			admissions[index].Err = fmt.Errorf("%w: binding %q is declared twice in one set, at documents %d and %d", ErrInvalid, document.Binding, first, index)
+			continue
 		}
-		declared[document.Binding] = struct{}{}
+		declared[document.Binding] = index
 
 		decision, err := decide(applied[document.Binding], document)
 		if err != nil {
-			return nil, err
-		}
-		decisions = append(decisions, decision)
-
-		for _, alias := range document.Aliases() {
-			claims = append(claims, composition.Claim{Kind: composition.CollisionRoute, Key: alias, Owner: document.Binding})
-		}
-	}
-	// An applied binding the set does not mention keeps its aliases; one the
-	// set does mention releases them, because the document in hand is that
-	// binding's whole desired state.
-	for _, record := range host.Applied {
-		if _, exists := declared[record.Binding]; exists || record.Removed {
+			admissions[index].Err = err
 			continue
 		}
-		for _, alias := range record.Routes {
-			claims = append(claims, composition.Claim{Kind: composition.CollisionRoute, Key: alias, Owner: record.Binding})
+		// The host's reserved namespaces constrain what delivery is asking for
+		// now, so they are checked against this document's own claims and
+		// nothing else. Re-judging an alias an earlier generation already holds
+		// would let a newly reserved namespace refuse every unrelated binding
+		// on the host until an operator tombstoned the incumbent.
+		if err := composition.ValidateCollisions(routeClaims(document.Binding, document.Aliases()), host.Reserved); err != nil {
+			admissions[index].Err = err
+			continue
+		}
+		admissions[index].Decision = decision
+	}
+	host.refuseAliasCollisions(documents, admissions)
+	for index, admission := range admissions {
+		if admission.Err != nil {
+			return admissions, fmt.Errorf("document %d: %w", index, admission.Err)
 		}
 	}
-	// Route-alias uniqueness within a host, and the host's reserved namespaces,
-	// are exactly composition's collision vocabulary, so the same checker and
-	// the same composition.ErrCollision answer here.
-	if err := composition.ValidateCollisions(claims, host.Reserved); err != nil {
-		return nil, err
+	return admissions, nil
+}
+
+// refuseAliasCollisions refuses documents whose aliases are not free, one at a
+// time until the set is stable.
+//
+// It reruns rather than deciding the whole set at once because refusing a
+// document changes the question: the generation that document would have
+// replaced is not replaced after all, so it keeps the aliases the set had
+// assumed it was releasing. Deciding against the first snapshot would hand one
+// of those aliases to another document and collide at apply time.
+func (host Host) refuseAliasCollisions(documents []*SolutionHostBinding, admissions []Admission) {
+	for range documents {
+		if !host.refuseOneAliasCollision(documents, admissions) {
+			return
+		}
 	}
-	return decisions, nil
+}
+
+func (host Host) refuseOneAliasCollision(documents []*SolutionHostBinding, admissions []Admission) bool {
+	replaced := make(map[string]struct{}, len(documents))
+	byCoordinate := make(map[string][]int, len(documents))
+	for index, document := range documents {
+		if admissions[index].Err != nil {
+			continue
+		}
+		replaced[document.Binding] = struct{}{}
+		byCoordinate[document.Host.Coordinate] = append(byCoordinate[document.Host.Coordinate], index)
+	}
+	for _, coordinate := range slices.Sorted(maps.Keys(byCoordinate)) {
+		indexes := byCoordinate[coordinate]
+		// Binding-ID order, not the caller's argument order, so the same set
+		// yields the same answer however it was assembled.
+		sort.Slice(indexes, func(i, j int) bool {
+			return documents[indexes[i]].Binding < documents[indexes[j]].Binding
+		})
+		var held []composition.Claim
+		// An applied binding the set does not replace keeps its aliases; one it
+		// does replace releases them, because the document in hand is that
+		// binding's whole desired state. Applied state exists only for
+		// host.Coordinate, which the guard in Admit establishes.
+		if coordinate == host.Coordinate {
+			for _, record := range host.Applied {
+				if _, exists := replaced[record.Binding]; exists || record.Removed {
+					continue
+				}
+				held = append(held, routeClaims(record.Binding, record.Routes)...)
+			}
+		}
+		for _, index := range indexes {
+			document := documents[index]
+			next := append(slices.Clone(held), routeClaims(document.Binding, document.Aliases())...)
+			// Uniqueness only: the reserved-namespace policy was already
+			// applied to each document's own claims above.
+			if err := composition.ValidateCollisions(next, nil); err != nil {
+				admissions[index].Decision = ""
+				admissions[index].Err = err
+				return true
+			}
+			held = next
+		}
+	}
+	return false
+}
+
+func routeClaims(binding string, aliases []string) []composition.Claim {
+	// Route-alias uniqueness within a host, and the host's reserved
+	// namespaces, are exactly composition's collision vocabulary, so the same
+	// checker and the same composition.ErrCollision answer here.
+	claims := make([]composition.Claim, 0, len(aliases))
+	for _, alias := range aliases {
+		claims = append(claims, composition.Claim{Kind: composition.CollisionRoute, Key: alias, Owner: binding})
+	}
+	return claims
 }
 
 func decide(record Applied, document *SolutionHostBinding) (Decision, error) {

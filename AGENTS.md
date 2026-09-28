@@ -100,7 +100,7 @@ modelled, read it there first.
 | `network/` | deterministic port allocation, DNS, native/container/public modes |
 | `configurations/` | what services provide and consume, injected as env vars |
 | `runners/`, `companions/` | process execution; sidecar images for language tooling |
-| `solutionhost/` | `SolutionHostBinding`: the declared record of which solution runs where |
+| `solutionhost/` | `SolutionHostBinding`, the declared record of which solution runs where ([docs](docs/solution-host-binding.md)) |
 | `code/semantic` | the **only** package allowed to use cgo (tree-sitter) |
 | `internal/ciguard` | invariants about CI config that no other test would notice |
 
@@ -143,13 +143,6 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   requirement belongs where the identity is derived. Core owns the
   `approval_required` signal; the approvals engine is product-level. See
   [`docs/work-context.md`](docs/work-context.md).
-- **A solution's presence on a host is declared, never announced.**
-  `solutionhost.SolutionHostBinding` is the versioned record of what runs where;
-  delivery writes it, the host reconciles it, a runtime only reports health.
-  Removal is a generation, never a missing document. Rendered artifact digests
-  are required from v1 and the release digest is optional until signing exists —
-  a version step, never a stricter reading of v1 bytes. See
-  [`docs/solution-host-binding.md`](docs/solution-host-binding.md).
 - **Readiness is a gRPC health check, never a TCP connect.** An open port does
   not mean a ready service. Endpoints declare `health.readiness`; consumers go
   through `resources.PlanReadiness` and the `readiness` package. See

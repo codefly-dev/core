@@ -100,6 +100,14 @@ var bindingPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,126}[A-Za-
 // aliases it reserves.
 var namePattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$`)
 
+// release publishers and names are single-segment. Identity() joins them with
+// "/" and "@", so a "/" inside either part would let two different releases
+// render one identity string — publisher "obin" with name "crm/web", and
+// publisher "obin/crm" with name "web", both give "obin/crm/web@1.0.0". Every
+// artifact references its release by that string, and a consumer keying on it
+// would conflate the two.
+var segmentPattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
+
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // SolutionHostBinding is one deployment instance of one solution on one host:
@@ -174,7 +182,8 @@ type Release struct {
 
 // Identity is the release's stable name, independent of its digest. Artifacts
 // reference it, which is what makes a mixed-release generation detectable
-// before any release is signed.
+// before any release is signed. Publisher and Name are single-segment (see
+// segmentPattern), so the joined string maps back to exactly one of them.
 func (release Release) Identity() string {
 	return release.Publisher + "/" + release.Name + "@" + release.Version
 }
@@ -327,11 +336,11 @@ func (document *SolutionHostBinding) Validate() error {
 }
 
 func (release Release) validate() error {
-	if !namePattern.MatchString(release.Publisher) {
-		return fmt.Errorf("%w: release publisher %q is invalid", ErrInvalid, release.Publisher)
+	if !segmentPattern.MatchString(release.Publisher) {
+		return fmt.Errorf("%w: release publisher %q is invalid: it is one segment, never a path", ErrInvalid, release.Publisher)
 	}
-	if !namePattern.MatchString(release.Name) {
-		return fmt.Errorf("%w: release name %q is invalid", ErrInvalid, release.Name)
+	if !segmentPattern.MatchString(release.Name) {
+		return fmt.Errorf("%w: release name %q is invalid: it is one segment, never a path", ErrInvalid, release.Name)
 	}
 	if _, err := semver.StrictNewVersion(release.Version); err != nil {
 		return fmt.Errorf("%w: release version %q is not semantic: %v", ErrInvalid, release.Version, err)
@@ -458,10 +467,17 @@ func (identity WorkloadIdentity) validate() error {
 	return nil
 }
 
-// CanonicalBytes returns a deterministic JSON encoding of a validated document,
-// independent of the order collections were written in. Two renders of the same
-// desired state produce the same bytes, which is what lets a host tell a
-// re-read of the generation it already applied from a rewrite of it.
+// CanonicalBytes returns a deterministic JSON encoding of a validated document:
+// object keys in name order at every depth, collections in a defined order, and
+// every number kept as its exact literal.
+//
+// Sorting by key name is what keeps the encoding independent of this struct's
+// Go declaration order. Without it the digest below is a function of how the
+// fields happen to be written, so moving two of them for readability changes
+// every digest ever computed — and a host comparing its stored digest against a
+// freshly computed one would read its own Core upgrade as a rewritten
+// generation and stop reconciling. The digest must move only when the document
+// does.
 func (document *SolutionHostBinding) CanonicalBytes() ([]byte, error) {
 	if err := document.Validate(); err != nil {
 		return nil, err
@@ -489,11 +505,29 @@ func (document *SolutionHostBinding) CanonicalBytes() ([]byte, error) {
 		}
 		return left.Name < right.Name
 	})
-	return json.Marshal(normalized)
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, err
+	}
+	// Round-trip through a generic value: encoding/json emits map keys in name
+	// order, so re-encoding drops the struct's declaration order. UseNumber
+	// keeps each number as the literal it was written as, rather than a float64
+	// that would round a large generation into a neighbour's.
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	var generic any
+	if err := decoder.Decode(&generic); err != nil {
+		return nil, err
+	}
+	return json.Marshal(generic)
 }
 
 // Digest is the SHA-256 of the canonical encoding. A host records it alongside
-// the applied generation; see Applied.
+// the applied generation; see Applied. Two digests are comparable only when
+// both were produced by the same canonical encoding — a Core release that
+// changes the encoding must treat stored digests as stale rather than as
+// evidence a generation was rewritten. The encoding is pinned by test against
+// the shipped fixtures, so changing it cannot happen by accident.
 func (document *SolutionHostBinding) Digest() (string, error) {
 	canonical, err := document.CanonicalBytes()
 	if err != nil {
