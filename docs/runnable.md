@@ -707,6 +707,115 @@ reply been lost. Collapsing the two is the point rather than a gap: a caller
 never had a way to tell them apart, and separate outcomes implied a certainty it
 did not have.
 
+## Submit mode: the four shapes a later answer arrives in
+
+`COMPLETION_CALL` answers in the reply and everything above is the whole of it.
+`COMPLETION_SUBMIT` is for work whose effect takes longer than a call: the reply
+proves the work was **accepted** and nothing about the effect, and the answer
+arrives later. That one fact is where the rest follows from, and it is why the
+mode requires `recovery: receipt` — every terminal answer it could give is one
+the caller may fail to receive, and recomputing cannot tell a lost answer from
+work that never happened.
+
+The call itself does not change. Same address, same route, same four headers,
+the bounded input as the whole body. `proto/codefly/runnable/v0/submit.proto`
+carries the four shapes; `runnable/submit.go` is the caller's half of them.
+
+**The acceptance is the reply**, `RunnableAcceptance` as proto3 JSON:
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | `codefly.runnable-acceptance/v1` |
+| `invocation_id` | the invocation this accepts, so a reply on a reused connection is matched rather than assumed |
+| `handle` | what the owner minted to name the accepted work; everything the caller later says about it is keyed by this |
+| `accepted_at` | when the owner took responsibility |
+| `heartbeat_interval` | how often liveness is reported, or read |
+
+The handle is the owner's and opaque to the caller. A caller that derived it
+from the invocation could ask about work the owner never accepted and get an
+absence it could not tell from a lost acceptance.
+
+**Which shape a reply has follows from the declared completion mode**, fixed in
+the binding's policy when the operation was installed — never sniffed from the
+body, never read off a status. An owner whose contract happened to declare a
+`handle` field would otherwise have its own output document read as an
+acceptance. The acceptance answers `202`, which is for humans and proxies:
+`runnable.ClassifySubmit` never reads it, for the same reason `ClassifyServed`
+never reads a status class.
+
+**The reporting address travels as two headers**, and is recorded on the
+invocation as `RunnableCallbackTarget`:
+
+| Header | Meaning |
+| --- | --- |
+| `Codefly-Runnable-Callback` | the absolute URL the owner POSTs its reports to |
+| `Codefly-Runnable-Callback-Audience` | the trust boundary the owner mints its own capability for when it reports |
+
+Both are optional and they are the **caller's** choice, not the owner's: with
+them, the owner pushes; without them, the caller reads the status itself. An
+owner never decides which. The audience is stated rather than derived from the
+URL host, because an audience is a trust boundary and a host is a route to one
+— deriving it would make a DNS name decide what a capability is minted for. A
+call-mode invocation carrying either is refused at `PrepareInvocation`: it would
+describe a report nothing ever sends. Plaintext is admitted only to a loopback
+host; anything else would put a completion, and the Work Context authenticating
+it, on the wire in clear.
+
+**Heartbeats are pushed, and the direction is not negotiated.** It follows from
+the one fact the invocation already carries. With a callback address the owner
+POSTs `RunnableHeartbeat` there at `heartbeat_interval` and
+`RunnableCompletionCallback` when the work ends; with none it reports nothing
+and the caller reads `RunnableStatus` at that interval instead. Both documents
+arrive on that one URL, so `schema` is the discriminator **there** — the single
+place in this contract where a document's shape is read off the document rather
+than off the declaration.
+
+An owner serving submit mode serves the status route
+(`/codefly.runnable.v0.Runnable/Status`, a `RunnableStatusRequest` naming the
+handle) whether or not a callback address was presented. That is not a second
+mechanism: a callback can always be lost, so the read is the recovery path the
+owner owed anyway, and a caller that presented no address is using the recovery
+path as its only one.
+
+Silence is never a failure. A heartbeat that stopped, a callback that never
+arrived and a status that says `STATE_LOST` are all **unproven** — a worker
+whose heartbeats stopped may have committed its effect in the same instant — and
+the effect receipt is the only evidence. `STATE_LOST` is reported rather than
+withheld, because a caller told "lost" reads the receipt while a caller told
+nothing cannot tell that owner from one that never accepted the work.
+
+**The terminal answer is classified exactly as a reply is.** A
+`RunnableCompletionCallback` and a `STATE_COMPLETED` status both carry the
+harness's own `RunnableResult`, and `SUCCEEDED`, `FAILED` and `INTERRUPTED` map
+to the same three served outcomes they map to in a reply. The route differs;
+what the answer proves does not. The completion is dated by the owner's own
+`completed_at`, because a caller's clock records when it heard.
+
+**Identity is the one part that is not new.** There is still exactly one carrier
+on the wire — the Work Context header — and `RunnableInvocationIdentity` says
+where that capability comes from: `work_context` when whoever holds the
+invocation is calling now, `grant` when the invocation is handed to something
+that will call later. A container that starts an hour after the work was
+admitted is started with the **grant** arm in its invocation document, and
+exchanges it for a short child at the instant it calls. Nothing long-lived is
+minted, and a child projected at submit time would already have expired. The
+report is a call too: the owner authenticates it with its own workload identity,
+minted for `callback.audience`. There is deliberately no signature, token or
+shared-secret field in any of these messages — a shared key would have to reach
+every owner that may report, which makes each able to forge every other's
+completions.
+
+**The deadline means the acceptance.** On a submit-mode invocation the deadline
+header is when the caller stops waiting for the *acceptance*, not for the work:
+the work's own bound is the package's declared `timeout`, measured from
+`accepted_at`. An owner that cannot accept within the deadline declines rather
+than accepting work whose acceptance nobody is still waiting for.
+
+**What is not here yet.** The generated harnesses serve call mode
+(runnable-go#20, runnable-python). Nothing in this section is implemented by a
+harness; it is the contract an owner serving submit mode meets and the caller's
+half core implements, which is what the runtime builds its own half against.
+
 ## Ownership of what is not here
 
 - **Agents** (`Builder.Build` with an `output_directory` → `DockerBuildPlan`;

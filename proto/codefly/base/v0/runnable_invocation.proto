@@ -83,6 +83,33 @@ message RunnableInvocationIdentity {
   }
 }
 
+// RunnableCallbackTarget is where an owner reports a submitted invocation: the
+// terminal answer, and the heartbeats that say the work is still live. It is
+// the caller's own address, presented on the call, and it is what settles the
+// direction of every later report — an owner never chooses whether to push.
+//
+// A caller that presents none has undertaken to read the status by handle
+// instead, which is the recovery path an owner owes anyway because a callback
+// can always be lost. So the two mechanisms are one owner obligation and one
+// caller choice, rather than a negotiation.
+message RunnableCallbackTarget {
+  // address is the absolute URL the owner POSTs its reports to. Plaintext is
+  // admitted only to a loopback host: every other plaintext address would put
+  // a completion, and the Work Context authenticating it, on the wire in
+  // clear.
+  string address = 1 [(buf.validate.field).string.uri = true, (buf.validate.field).string.max_len = 512];
+  // audience is the trust boundary the owner mints its own capability for when
+  // it reports. The callback is authenticated by the reporting workload's
+  // identity and by nothing else: a shared secret would have to be delivered
+  // to every owner that may report, which makes each of them able to forge
+  // every other's completions.
+  //
+  // It is stated rather than derived from the address, because an audience is
+  // a trust boundary and a URL host is a route to one. Deriving it would make
+  // a DNS name decide what a capability is minted for.
+  string audience = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+}
+
 // RunnableInvocation is one call's per-call facts, as the caller issued them.
 message RunnableInvocation {
   // protocol is the invocation protocol the call is made over, matching the
@@ -127,6 +154,13 @@ message RunnableInvocation {
   // identity is the Work Context this invocation runs under. Required: there is
   // no invocation without an identity to run it as.
   RunnableInvocationIdentity identity = 9 [(buf.validate.field).required = true];
+  // callback is where the owner reports a submitted invocation, and it is the
+  // caller's own choice: present, the owner pushes its heartbeats and its
+  // terminal answer there; absent, the caller reads the status by the handle
+  // the acceptance gave it. It is set only for an operation declaring
+  // COMPLETION_SUBMIT — a call-mode invocation answers in the reply, so an
+  // address to report to later would describe a report nothing ever sends.
+  RunnableCallbackTarget callback = 10;
 }
 
 // RunnableError is a handler's own typed failure. The code is the operation's
