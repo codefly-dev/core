@@ -389,3 +389,40 @@ environments:
 		})
 	}
 }
+
+// Two composed modules vendoring the same group both collect its per-profile
+// requirement — identical definitions are deliberately not a conflict — and the
+// value is owed once, not once per offer.
+func TestAValueIsOwedOnceHoweverManyPlacesOfferedTheGroup(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: first
+  - name: second
+`)
+	for _, module := range []string{"first", "second"} {
+		writeConfigurationFile(t, root, "modules/"+module+"/module.codefly.yaml", "name: "+module+"\n")
+	}
+	// Each module is its own repository root, so each carries the group it ships —
+	// the same declaration, from two places.
+	for _, module := range []string{"first", "second"} {
+		dir := "modules/" + module
+		writeConfigurationFile(t, root, dir+"/workspace.codefly.yaml", "name: "+module+"\n")
+		writeConfigurationFile(t, root, dir+"/configurations/local/vendored.env", "audience=${profile}\n")
+	}
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	provided, err := configurations.ReadWorkspaceConfigurations(ctx, workspace, resources.LocalEnvironment())
+	require.NoError(t, err)
+	require.Len(t, provided.Unsupplied, 2, "both offers of the vendored group collect the requirement")
+
+	owed := configurations.StillUnsupplied(provided.Unsupplied, func(string) []*basev0.ConfigurationInformation {
+		return provided.Infos
+	})
+	require.Len(t, owed, 1, "one value, one line to fix")
+	assert.Equal(t, "vendored", owed[0].Group)
+	assert.Equal(t, "audience", owed[0].Key)
+}

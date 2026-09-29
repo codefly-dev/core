@@ -392,7 +392,17 @@ func ValueDeclaredPerProfile(value *basev0.ConfigurationValue) bool {
 // way around the declaration.
 func StillUnsupplied(requirements []ProfileRequirement, byOrigin func(origin string) []*basev0.ConfigurationInformation) []ProfileRequirement {
 	var out []ProfileRequirement
+	// One value is owed once, however many places offered the group. Two composed
+	// modules vendoring the same file both collect the requirement — identical
+	// definitions are deliberately not a conflict — and listing it twice would
+	// read as two problems to fix.
+	seen := make(map[string]bool, len(requirements))
 	for _, requirement := range requirements {
+		key := requirement.Origin + "\x00" + profileValueKey(requirement.Group, requirement.Key)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		if !stillCarriesMarker(byOrigin(requirement.Origin), requirement.Group, requirement.Key) {
 			continue
 		}
