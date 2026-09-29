@@ -13,6 +13,7 @@ import (
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -502,8 +503,12 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
-	// A leaf service depending on nothing gets an empty mapping set.
-	manager.WithLoader(loader).WithNetworkMappings(nil, resources.NewNativeNetworkAccess())
+	// A leaf service depending on nothing gets an empty mapping set. The render
+	// still states its run set — that is what says an empty mapping set is this
+	// consumer's view rather than a render that bound no network context at all.
+	manager.WithLoader(loader).
+		WithNetworkMappings(nil, resources.NewNativeNetworkAccess()).
+		WithRunProducers(func(unique string) bool { return unique == "saas/frontend" })
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
 	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
@@ -835,4 +840,36 @@ func TestManagerListsWorkspaceEndpointReferences(t *testing.T) {
 	require.ElementsMatch(t,
 		[]string{"saas/accounts/grpc", "saas/auth-gateway/rest"},
 		manager.WorkspaceEndpointReferences("platform", "work-context", "unknown"))
+}
+
+// The composition root's own groups reach every service through the run-wide
+// path, and that is the path a deployed render uses for the addresses no service
+// declares. A render that never stated what it was rendering used to have every
+// one of them removed with nothing but a DEBUG line: the workload booted, reported
+// healthy, and had no authority address. It now fails, naming the group and the
+// key, before anything is rendered.
+func TestManagerCompositionRootConfigurationsFailWhenTheRenderStatesNoRun(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas/frontend/http}/v1/auth/.well-known/jwks.json\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	_, err = manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.Error(t, err, "a render that bound no network context must not silently empty the root's groups")
+	assert.Contains(t, err.Error(), "work-context/authority-jwks-url")
+	assert.Contains(t, err.Error(), "stated no run producers")
 }

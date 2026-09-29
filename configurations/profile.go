@@ -1,9 +1,11 @@
 package configurations
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"sort"
@@ -35,9 +37,12 @@ const ProfileDerivationFile = "profile.codefly.yaml"
 // remembers to restate them.
 const ProfileValueMarker = "${profile}"
 
-// maxProfileDerivationDepth bounds the derivation walk. A chain deeper than this
-// is a modelling mistake rather than a composition, and the bound is what keeps a
-// malformed tree from being read forever.
+// maxProfileDerivationDepth is the largest number of directories one location is
+// read from: the selected profile and the profiles it derives from, counted
+// together. A chain deeper than this is a modelling mistake rather than a
+// composition, and the bound is what keeps a malformed tree from being read
+// forever. It is checked before a layer is appended, so the bound is the count a
+// read accepts and not one more.
 const maxProfileDerivationDepth = 8
 
 // ProfileDerivation is one profile directory's declaration of what it derives
@@ -54,6 +59,16 @@ type ProfileDerivation struct {
 // ErrProfileDerivation marks a derivation that cannot be honoured: a profile
 // deriving from one that is not there, a cycle, or a chain past the depth bound.
 var ErrProfileDerivation = errors.New("configuration profile derivation cannot be resolved")
+
+// ErrUndeclaredProfileKey marks a key a derived profile introduces into a group
+// the profile it derives from already declares. The base profile is the declared
+// set of a group's keys, and a key only one profile carries is a difference
+// between environments that the declared set never mentions: absent from the
+// profiles that do not carry it, it resolves to nothing at all — the empty string
+// every reader of a missing key gets — which is the silent, until-runtime failure
+// the declared set exists to prevent. Declaring it in the base, with
+// ProfileValueMarker when each profile must supply its own, is the remedy.
+var ErrUndeclaredProfileKey = errors.New("configuration key is not declared by the profile it is derived from")
 
 // ProfileRequirement is one configuration value a group declares as supplied per
 // profile (ProfileValueMarker) that the selected profile did not supply.
@@ -76,8 +91,14 @@ func (requirement ProfileRequirement) String() string {
 	if origin == "" {
 		origin = resources.ConfigurationWorkspace
 	}
-	return fmt.Sprintf("%s: %s/%s is supplied per profile (declared in %s) and profile %q supplies no value",
-		origin, requirement.Group, requirement.Key, requirement.DeclaredIn, requirement.Profile)
+	// An empty Key is a structured document: the whole document is the unit, so
+	// naming a key would invent one.
+	what := requirement.Group + "/" + requirement.Key
+	if requirement.Key == "" {
+		what = requirement.Group + " (the whole document)"
+	}
+	return fmt.Sprintf("%s: %s is supplied per profile (declared in %s) and profile %q supplies no value",
+		origin, what, requirement.DeclaredIn, requirement.Profile)
 }
 
 // UnsuppliedProfileValuesError lists every value the selected profile owes at
@@ -129,10 +150,19 @@ func ProfileLayers(ctx context.Context, base, kind string, profiles []string) ([
 		if err != nil {
 			return nil, false, err
 		}
-		if derivation == nil || strings.TrimSpace(derivation.DerivesFrom) == "" {
+		if derivation == nil {
 			break
 		}
+		// The file exists for one purpose. An empty or absent derives-from is a
+		// malformed declaration, never "this profile derives from nothing": read
+		// that way, a deployed profile holding only this file loads as a clean,
+		// empty profile and every group its author meant to start from is gone
+		// with no error at all.
 		name := strings.TrimSpace(derivation.DerivesFrom)
+		if name == "" {
+			return nil, false, fmt.Errorf("%s declares no derives-from; remove the file or name the profile this one derives from: %w",
+				path.Join(current, ProfileDerivationFile), ErrProfileDerivation)
+		}
 		if err := resources.ValidateConfigurationProfileName(name); err != nil {
 			return nil, false, fmt.Errorf("%s: %w: %w", path.Join(current, ProfileDerivationFile), err, ErrProfileDerivation)
 		}
@@ -140,8 +170,8 @@ func ProfileLayers(ctx context.Context, base, kind string, profiles []string) ([
 			return nil, false, fmt.Errorf("configuration profile %q at %s derives from %q, which is already in the chain: %w",
 				path.Base(current), path.Join(base, kind), name, ErrProfileDerivation)
 		}
-		if len(layers) > maxProfileDerivationDepth {
-			return nil, false, fmt.Errorf("configuration profile %q at %s derives through more than %d profiles: %w",
+		if len(layers) >= maxProfileDerivationDepth {
+			return nil, false, fmt.Errorf("configuration profile %q at %s is read from more than %d profiles: %w",
 				path.Base(selected), path.Join(base, kind), maxProfileDerivationDepth, ErrProfileDerivation)
 		}
 		dir := path.Join(base, kind, name)
@@ -183,6 +213,9 @@ func readProfileDerivation(ctx context.Context, dir string) (*ProfileDerivation,
 	decoder.KnownFields(true)
 	derivation := &ProfileDerivation{}
 	if err := decoder.Decode(derivation); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("%s is empty; remove the file or name the profile this one derives from: %w", file, ErrProfileDerivation)
+		}
 		return nil, fmt.Errorf("cannot read %s: %w", file, err)
 	}
 	return derivation, nil
@@ -299,6 +332,9 @@ func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationIn
 		existing := overlay.find(info.GetName())
 		if existing == nil {
 			overlay.infos = append(overlay.infos, info)
+			if info.GetData() != nil {
+				overlay.writtenIn[profileValueKey(info.GetName(), "")] = layer
+			}
 			for _, value := range info.GetConfigurationValues() {
 				overlay.writtenIn[profileValueKey(info.GetName(), value.GetKey())] = layer
 			}
@@ -310,13 +346,35 @@ func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationIn
 		}
 		if info.GetData() != nil {
 			existing.Data = info.GetData()
+			overlay.writtenIn[profileValueKey(info.GetName(), "")] = layer
 			continue
 		}
 		for _, value := range info.GetConfigurationValues() {
+			if !overlay.declares(existing, value.GetKey()) {
+				return fmt.Errorf("profile %q declares %s/%s, which the profile it derives from does not; declare it there (as %s when each profile supplies its own): %w",
+					path.Base(layer), info.GetName(), value.GetKey(), ProfileValueMarker, ErrUndeclaredProfileKey)
+			}
 			overlay.set(layer, existing, value)
 		}
 	}
 	return nil
+}
+
+// declares reports whether the group already carries the key, i.e. whether a
+// layer below this one declared it.
+//
+// A group a derived profile introduces WHOLE is not subject to this: it is absent
+// from every profile that does not carry it, and a consumer that declares a group
+// nothing provides is told so by name rather than reading an empty key. The rule
+// is about a key that hides inside a group the base already declares, where
+// absence is indistinguishable from an empty value.
+func (overlay *profileOverlay) declares(info *basev0.ConfigurationInformation, key string) bool {
+	for _, existing := range info.GetConfigurationValues() {
+		if resources.Match(existing.GetKey(), key) {
+			return true
+		}
+	}
+	return false
 }
 
 func (overlay *profileOverlay) find(name string) *basev0.ConfigurationInformation {
@@ -343,15 +401,30 @@ func (overlay *profileOverlay) set(layer string, info *basev0.ConfigurationInfor
 	info.ConfigurationValues = append(info.ConfigurationValues, value)
 }
 
-// unsupplied lists the values still carrying the marker once every layer is in.
-// The marker is looked for anywhere in the value, not only as the whole of it, so
-// a partially written declaration ("https://${profile}/token") is owed too rather
-// than shipped as an address. A structured document is not scanned: its content
-// is an opaque blob to Codefly, and reporting a marker inside one would claim a
-// key/value model it does not have.
+// unsupplied lists what still carries the marker once every layer is in. The
+// marker is looked for anywhere in a value, not only as the whole of it, so a
+// partially written declaration ("https://${profile}/token") is owed too rather
+// than shipped as an address.
+//
+// A structured document is scanned as a whole. Codefly has no key model inside
+// one — a derived profile replaces the document entire, never a field of it — so
+// a marker anywhere in its content means this document is the one each profile
+// supplies, and the requirement names the group with no key. It is scanned rather
+// than skipped because an author who writes the marker has declared something:
+// ignoring it shipped "${profile}" to the workload as the literal it is, which is
+// the declaration silently doing nothing and is worse than refusing to support
+// it. Overlaying ONE field of a structured document per profile is not supported;
+// such a group is declared per profile whole, or stays shared.
 func (overlay *profileOverlay) unsupplied(profile string) []ProfileRequirement {
 	var out []ProfileRequirement
 	for _, info := range overlay.infos {
+		if DataDeclaredPerProfile(info.GetData()) {
+			out = append(out, ProfileRequirement{
+				Group:      info.GetName(),
+				Profile:    profile,
+				DeclaredIn: overlay.writtenIn[profileValueKey(info.GetName(), "")],
+			})
+		}
 		for _, value := range info.GetConfigurationValues() {
 			if !ValueDeclaredPerProfile(value) {
 				continue
@@ -365,6 +438,13 @@ func (overlay *profileOverlay) unsupplied(profile string) []ProfileRequirement {
 		}
 	}
 	return out
+}
+
+// DataDeclaredPerProfile reports whether a structured document declares that each
+// profile supplies its own. The whole document is the unit: there is no key to
+// name, and none is reported.
+func DataDeclaredPerProfile(data *basev0.ConfigurationData) bool {
+	return data != nil && bytes.Contains(data.GetContent(), []byte(ProfileValueMarker))
 }
 
 // ValueDeclaredPerProfile reports whether a configuration value still declares
@@ -419,6 +499,9 @@ func stillCarriesMarker(infos []*basev0.ConfigurationInformation, group, key str
 	for _, info := range infos {
 		if !resources.Match(info.GetName(), group) {
 			continue
+		}
+		if key == "" {
+			return DataDeclaredPerProfile(info.GetData())
 		}
 		for _, value := range info.GetConfigurationValues() {
 			if resources.Match(value.GetKey(), key) {

@@ -2,6 +2,7 @@ package configurations_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -425,4 +426,137 @@ modules:
 	require.Len(t, owed, 1, "one value, one line to fix")
 	assert.Equal(t, "vendored", owed[0].Group)
 	assert.Equal(t, "audience", owed[0].Key)
+}
+
+// The base profile is the declared set of a group's keys. A key a derived profile
+// introduces into a group the base declares is a difference between environments
+// that the declared set never mentions: every profile that does not carry it
+// renders the group without it, and a missing key reads as the empty string, with
+// no error anywhere. That is the failure this whole row is about, so the
+// declaration is refused where it is written.
+func TestADerivedProfileCannotIntroduceAKeyTheBaseDoesNotDeclare(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "workspace.codefly.yaml", "name: solution\nlayout: modules\n")
+	writeConfigurationFile(t, root, "configurations/shared/work-context.env", "issuer-clock-skew=30s\n")
+	writeConfigurationFile(t, root, "configurations/local/profile.codefly.yaml", "derives-from: shared\n")
+	writeConfigurationFile(t, root, "configurations/local/work-context.env", "audience=http://localhost:8080\n")
+	writeConfigurationFile(t, root, "configurations/deployed/profile.codefly.yaml", "derives-from: shared\n")
+
+	// The key exists only in local. Reading local says so, naming the key and the
+	// remedy — rather than reading deployed and finding nothing wrong with it.
+	_, err := configurations.LoadProfileConfigurations(ctx, root, "configurations", []string{"local"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, configurations.ErrUndeclaredProfileKey)
+	assert.Contains(t, err.Error(), "work-context/audience")
+	assert.Contains(t, err.Error(), configurations.ProfileValueMarker, "the diagnostic names the remedy")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.Error(t, loader.Load(ctx, &resources.Environment{Name: "local"}),
+		"the load fails too, so no render can reach a workload from this composition")
+
+	// Declared in the base as supplied per profile, it is a difference the declared
+	// set names: local supplies it, and deployed is now told it owes one.
+	writeConfigurationFile(t, root, "configurations/shared/work-context.env",
+		"issuer-clock-skew=30s\naudience=${profile}\n")
+	local, err := configurations.LoadProfileConfigurations(ctx, root, "configurations", []string{"local"})
+	require.NoError(t, err)
+	assert.Empty(t, local.Unsupplied)
+	deployed, err := configurations.LoadProfileConfigurations(ctx, root, "configurations", []string{"deployed"})
+	require.NoError(t, err)
+	require.Len(t, deployed.Unsupplied, 1)
+	assert.Equal(t, "audience", deployed.Unsupplied[0].Key)
+}
+
+// A group a derived profile introduces WHOLE is not the same case: it is absent
+// from every profile that does not carry it, and a consumer that declares a group
+// nothing provides is told so by name rather than reading an empty key.
+func TestADerivedProfileMayIntroduceAWholeGroup(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "configurations/shared/work-context.env", "issuer-clock-skew=30s\n")
+	writeConfigurationFile(t, root, "configurations/deployed/profile.codefly.yaml", "derives-from: shared\n")
+	writeConfigurationFile(t, root, "configurations/deployed/scaling.env", "replicas=3\n")
+
+	provided, err := configurations.LoadProfileConfigurations(ctx, root, "configurations", []string{"deployed"})
+	require.NoError(t, err)
+	assert.Equal(t, "3", profileValue(t, provided, "scaling", "replicas"))
+	assert.Equal(t, "30s", profileValue(t, provided, "work-context", "issuer-clock-skew"))
+}
+
+// A structured document has no key model — a derived profile replaces it whole —
+// so the marker anywhere in its content declares that each profile supplies the
+// whole document. Scanned rather than skipped: an author who writes the marker has
+// declared something, and ignoring it shipped "${profile}" to the workload as the
+// literal it is, which is the declaration silently doing nothing.
+func TestAStructuredDocumentDeclaredPerProfileIsOwedWhole(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "workspace.codefly.yaml", "name: solution\nlayout: modules\n")
+	writeConfigurationFile(t, root, "configurations/shared/policy.yaml", "limits:\n  audience: ${profile}\n")
+	writeConfigurationFile(t, root, "configurations/deployed/profile.codefly.yaml", "derives-from: shared\n")
+
+	provided, err := configurations.LoadProfileConfigurations(ctx, root, "configurations", []string{"deployed"})
+	require.NoError(t, err)
+	require.Len(t, provided.Unsupplied, 1)
+	assert.Equal(t, "policy", provided.Unsupplied[0].Group)
+	assert.Empty(t, provided.Unsupplied[0].Key, "the whole document is the unit, so no key is invented")
+	assert.Contains(t, (&configurations.UnsuppliedProfileValuesError{Requirements: provided.Unsupplied}).Error(),
+		"the whole document")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	require.Error(t, loader.Load(ctx, &resources.Environment{Name: "deployed"}),
+		"the marker must never reach a workload as the literal it is")
+
+	// A profile that supplies the whole document owes nothing.
+	writeConfigurationFile(t, root, "configurations/deployed/policy.yaml", "limits:\n  audience: https://api.example.com\n")
+	require.NoError(t, loader.Load(ctx, &resources.Environment{Name: "deployed"}))
+}
+
+// The derivation file exists for one purpose, so an empty or absent value is a
+// malformed declaration rather than "this profile derives from nothing": read that
+// way, a profile holding only this file loads as a clean, empty profile and every
+// group its author meant to start from is gone with no error at all.
+func TestAnEmptyDerivationDeclarationFailsTheRead(t *testing.T) {
+	ctx := context.Background()
+	for _, content := range []string{"derives-from:\n", "derives-from: \"\"\n", "", "\n"} {
+		root := t.TempDir()
+		writeConfigurationFile(t, root, "configurations/shared/config.env", "required=value\n")
+		writeConfigurationFile(t, root, "configurations/deployed/profile.codefly.yaml", content)
+
+		_, err := configurations.LoadProfileConfigurations(ctx, root, "configurations", []string{"deployed"})
+		require.Error(t, err, "content %q", content)
+		require.ErrorIs(t, err, configurations.ErrProfileDerivation)
+	}
+}
+
+// The depth bound is the number of directories one location is read from, checked
+// before a layer is appended: the largest accepted chain is exactly that many.
+func TestTheDerivationDepthBoundIsTheNumberOfProfilesRead(t *testing.T) {
+	ctx := context.Background()
+	// profile-0 is the base; profile-N derives from profile-(N-1).
+	chain := func(t *testing.T, length int) string {
+		t.Helper()
+		root := t.TempDir()
+		writeConfigurationFile(t, root, "configurations/profile-0/base.env", "shared=yes\n")
+		for i := 1; i < length; i++ {
+			writeConfigurationFile(t, root, fmt.Sprintf("configurations/profile-%d/profile.codefly.yaml", i),
+				fmt.Sprintf("derives-from: profile-%d\n", i-1))
+		}
+		return root
+	}
+
+	accepted, err := configurations.LoadProfileConfigurations(ctx, chain(t, 8), "configurations", []string{"profile-7"})
+	require.NoError(t, err, "eight profiles is the advertised bound and must be accepted")
+	require.Len(t, accepted.Layers, 8)
+
+	_, err = configurations.LoadProfileConfigurations(ctx, chain(t, 9), "configurations", []string{"profile-8"})
+	require.Error(t, err, "the ninth profile is one past the bound")
+	require.ErrorIs(t, err, configurations.ErrProfileDerivation)
 }

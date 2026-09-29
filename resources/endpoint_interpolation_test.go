@@ -337,8 +337,12 @@ func TestInterpolateRunWideConfigurationEndpointsDropsReferenceAbsentFromConsume
 		},
 	}
 
-	// A leaf service that depends on nothing has an empty mapping set.
-	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	// A leaf service that depends on nothing has an empty mapping set. The render
+	// states its run set, as every render does; the producer is in it, and this
+	// consumer still cannot see the endpoint — which is exactly the case the
+	// run-wide path exists for.
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas/frontend" })
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
 	require.NoError(t, err)
 
 	dropped, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "authority-jwks-url")
@@ -374,7 +378,8 @@ func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing
 		},
 	}
 
-	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas/frontend" })
+	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, capture.count("omitting run-wide configuration value"),
@@ -402,7 +407,8 @@ func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedS
 	}
 
 	// gatewayMappings() gives the consumer only the http endpoint of auth-sidecar.
-	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(),
+		resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" }))
 	require.NoError(t, err)
 
 	// The sibling grpc reference is dropped; the http reference it does depend on
@@ -434,4 +440,62 @@ func TestInterpolateEndpointAuthority(t *testing.T) {
 	assert.Equal(t, "host.docker.internal:1234", out)
 	require.Equal(t, []string{"saas-starter/auth-sidecar/http"},
 		resources.EndpointReferences("${endpoint:saas-starter/auth-sidecar/http|authority}"))
+}
+
+// A value whose producer declared an assembly holds its text in the template's
+// literals and its Value is empty, so classifying by value.Value alone found no
+// reference at all, judged the value out of the run, and DELETED a credential
+// assembled around the address of a producer the caller had just said was in the
+// run. References are read from the whole value, as the plan-time check reads
+// them.
+func TestInterpolateConfigurationEndpointsFailsOnAnInRunProducerNamedOnlyInATemplateLiteral(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{{
+			Name: "db",
+			ConfigurationValues: []*basev0.ConfigurationValue{{
+				Key:    "CONNECTION",
+				Secret: true,
+				Template: &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{
+					{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "postgres://${endpoint:mod/store/postgres}/db"}},
+				}},
+			}},
+		}},
+	}
+
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "mod/store" })
+	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
+	require.Error(t, err, "the run contains the producer, so the consumer was not handed an address that exists")
+	assert.Contains(t, err.Error(), "db/CONNECTION")
+
+	// And one the run does not contain is still a drop, from the literal as from
+	// a plain value.
+	outside := resources.WithRunProducers(func(string) bool { return false })
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), outside)
+	require.NoError(t, err)
+	require.Len(t, resolved.Infos, 1)
+	assert.Empty(t, resolved.Infos[0].ConfigurationValues)
+}
+
+// The run-wide path carries the composition root's own groups — the addresses
+// every service reads without declaring them. A drop there is a judgement about
+// one consumer, so it needs a render that said what it was rendering: with no run
+// set stated, a render that never bound its network context is indistinguishable
+// from a leaf service that legitimately sees no endpoint, and the authority
+// address leaves the workload with a DEBUG line behind it.
+func TestInterpolateRunWideConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{{
+			Name:                "work-context",
+			ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/auth/http}/jwks"}},
+		}},
+	}
+
+	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "work-context/authority-jwks-url")
+	assert.Contains(t, err.Error(), "stated no run producers")
 }

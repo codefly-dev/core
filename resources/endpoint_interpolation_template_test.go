@@ -88,7 +88,7 @@ func TestInterpolateConfigurationEndpointsRefusesAnUnresolvableTemplateLiteral(t
 			return InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), outsideTheRun)
 		}},
 		{"run-wide", func() (*basev0.Configuration, error) {
-			return InterpolateRunWideConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess())
+			return InterpolateRunWideConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), outsideTheRun)
 		}},
 	} {
 		out, err := c.interpolate()

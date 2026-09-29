@@ -27,10 +27,14 @@
 // directory hand-copied from the first. ProfileLayers resolves that, and
 // LoadProfileConfigurations reads and overlays it.
 //
-// A value a group declares as ProfileValueMarker is owed by whichever profile is
-// selected. One still owed when every layer is in fails the load, naming the
-// group, the key and where it was declared — an environment-specific difference
-// that nothing declared is exactly the failure that renders cleanly and is wrong
+// The profile a derived one starts from is the declared set of a group's keys: a
+// key the derived profile introduces into a group the base declares is refused,
+// because a key only one profile carries is absent from the others and a missing
+// key reads as the empty string with no error anywhere. A value a group declares
+// as ProfileValueMarker is owed by whichever profile is selected, and one still
+// owed when every layer is in fails the load, naming the group, the key and where
+// it was declared. Between them, an environment-specific difference that nothing
+// declared cannot render: that is the failure that renders cleanly and is wrong
 // only at runtime. See docs/workspace-composition.md.
 //
 // Loader is the abstract interface a service must implement to plug
