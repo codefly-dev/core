@@ -13,6 +13,7 @@ import (
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -276,16 +277,15 @@ layout: modules
 	require.NoError(t, err)
 	require.Equal(t, "http://localhost:45123/v1/auth/.well-known/jwks.json", nativeURL)
 
-	// The shared manager holds no consumer's mappings, so the reference resolves
-	// to neither consumer's address. Asserted on the value rather than on an
-	// error: with no run producers declared, an unresolvable reference is dropped
-	// for the reader, and a leaked mapping would show up here as one of the two
-	// addresses above.
-	shared, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
-	require.NoError(t, err)
-	sharedURL, err := resources.GetConfigurationValue(ctx, shared[0], "work-context", "authority-jwks-url")
-	require.NoError(t, err)
-	require.Empty(t, sharedURL, "the shared manager must not keep a consumer's mappings")
+	// The shared manager holds no consumer's mappings and states no run set, so it
+	// cannot resolve the reference and must say so: neither address may leak into
+	// it, and the value may not quietly go missing either. The diagnostic naming
+	// the group is what a caller reading through the shared manager by mistake
+	// gets, instead of a service that boots with no authority address.
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.Error(t, err, "the shared manager must not silently drop a declared address")
+	require.NotContains(t, err.Error(), "localhost:45123", "the shared manager must not keep a consumer's mappings")
+	require.NotContains(t, err.Error(), "svc.cluster.local", "the shared manager must not keep a consumer's mappings")
 }
 
 // A reference to an endpoint outside the consumer's mappings, whose producer the
@@ -503,8 +503,12 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
-	// A leaf service depending on nothing gets an empty mapping set.
-	manager.WithLoader(loader).WithNetworkMappings(nil, resources.NewNativeNetworkAccess())
+	// A leaf service depending on nothing gets an empty mapping set. The render
+	// still states its run set — that is what says an empty mapping set is this
+	// consumer's view rather than a render that bound no network context at all.
+	manager.WithLoader(loader).
+		WithNetworkMappings(nil, resources.NewNativeNetworkAccess()).
+		WithRunProducers(func(unique string) bool { return unique == "saas/frontend" })
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
 	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
@@ -836,4 +840,36 @@ func TestManagerListsWorkspaceEndpointReferences(t *testing.T) {
 	require.ElementsMatch(t,
 		[]string{"saas/accounts/grpc", "saas/auth-gateway/rest"},
 		manager.WorkspaceEndpointReferences("platform", "work-context", "unknown"))
+}
+
+// The composition root's own groups reach every service through the run-wide
+// path, and that is the path a deployed render uses for the addresses no service
+// declares. A render that never stated what it was rendering used to have every
+// one of them removed with nothing but a DEBUG line: the workload booted, reported
+// healthy, and had no authority address. It now fails, naming the group and the
+// key, before anything is rendered.
+func TestManagerCompositionRootConfigurationsFailWhenTheRenderStatesNoRun(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+`)
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"authority-jwks-url=${endpoint:saas/frontend/http}/v1/auth/.well-known/jwks.json\n")
+
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager.WithLoader(loader)
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	_, err = manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.Error(t, err, "a render that bound no network context must not silently empty the root's groups")
+	assert.Contains(t, err.Error(), "work-context/authority-jwks-url")
+	assert.Contains(t, err.Error(), "stated no run producers")
 }

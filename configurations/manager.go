@@ -380,7 +380,11 @@ func (manager *Manager) interpolateEndpoints(ctx context.Context, name string, c
 // stay fail-fast so a mistyped module/service/endpoint still surfaces loudly.
 func (manager *Manager) interpolateEndpointsRunWide(ctx context.Context, name string, conf *basev0.Configuration) (*basev0.Configuration, error) {
 	w := wool.Get(ctx).In("Manager.interpolateEndpointsRunWide")
-	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess)
+	// The run set travels with the run-wide read as it does with the strict one:
+	// it is what tells a consumer that legitimately cannot see an endpoint from a
+	// render that never bound its network context at all.
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess,
+		resources.WithRunProducers(manager.runProducers))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot interpolate workspace configuration %s", name)
 	}

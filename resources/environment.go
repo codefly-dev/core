@@ -82,6 +82,15 @@ func (env *Environment) ConfigurationProfileName() (string, error) {
 	return names[0], nil
 }
 
+// ValidateConfigurationProfileName is the one rule a configuration profile
+// name answers to, wherever one is read: a single path component, never a
+// traversal. Profile names select directories on disk, so one body rather than a
+// check per reader — a reader with its own would let "../local" through where
+// another refuses it.
+func ValidateConfigurationProfileName(name string) error {
+	return validateResourcePathComponent("configuration profile", name)
+}
+
 // ConfigurationProfileNames is the ordered profile chain a configuration
 // directory is read through: ConfigurationProfiles when declared, otherwise
 // the single ConfigurationProfile, otherwise the environment's name.
@@ -95,7 +104,7 @@ func (env *Environment) ConfigurationProfileNames() ([]string, error) {
 		seen := make(map[string]bool, len(env.ConfigurationProfiles))
 		for _, name := range env.ConfigurationProfiles {
 			name = strings.TrimSpace(name)
-			if err := validateResourcePathComponent("configuration profile", name); err != nil {
+			if err := ValidateConfigurationProfileName(name); err != nil {
 				return nil, err
 			}
 			if seen[name] {
@@ -109,7 +118,7 @@ func (env *Environment) ConfigurationProfileNames() ([]string, error) {
 	if profile == "" {
 		profile = env.Name
 	}
-	if err := validateResourcePathComponent("configuration profile", profile); err != nil {
+	if err := ValidateConfigurationProfileName(profile); err != nil {
 		return nil, err
 	}
 	return []string{profile}, nil

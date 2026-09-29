@@ -101,6 +101,12 @@ type WorkspaceConfigurations struct {
 	// one that does gets the diagnostic and its remedy. See
 	// ConfigurationInformationLocalReader.AmbiguousWorkspaceConfigurations.
 	Ambiguous map[string]error
+	// Unsupplied are the values a group declares as supplied per profile
+	// (ProfileValueMarker) that the selected profile did not supply. This is a
+	// pure read, so they are reported rather than failed: Load fails on the ones
+	// an invocation-scoped override did not discharge, and a read-only diagnostic
+	// reports them without deciding.
+	Unsupplied []ProfileRequirement
 }
 
 // ReadWorkspaceConfigurations reads the workspace configurations env's profile
@@ -126,32 +132,32 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot select workspace configuration directory")
 	}
-	workspaceInfos, err := readOwnedWorkspaceConfigurations(ctx, workspace, profiles)
+	workspaceInfos, unsupplied, err := readOwnedWorkspaceConfigurations(ctx, workspace, profiles)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot inherit workspace configurations")
 	}
-	workspaceInfos, composedBy, ambiguous, err := composeModuleWorkspaceConfigurations(ctx, workspace, workspaceInfos, configurationDir, profiles)
+	workspaceInfos, composedBy, ambiguous, composedUnsupplied, err := composeModuleWorkspaceConfigurations(ctx, workspace, workspaceInfos, configurationDir, profiles)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compose module workspace configurations")
 	}
-	return &WorkspaceConfigurations{Infos: workspaceInfos, ComposedBy: composedBy, Ambiguous: ambiguous}, nil
+	return &WorkspaceConfigurations{
+		Infos:      workspaceInfos,
+		ComposedBy: composedBy,
+		Ambiguous:  ambiguous,
+		Unsupplied: append(unsupplied, composedUnsupplied...),
+	}, nil
 }
 
 // A product inherits its selected workspace's wiring. Its own groups override
 // the inherited groups; sibling workspaces must agree unless the product chooses.
 // Module defaults are composed separately, retaining their existing precedence.
-func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, profiles []string) ([]*basev0.ConfigurationInformation, error) {
-	dir, exists, err := ProfileDirectory(ctx, workspace.Dir(), "configurations", profiles)
+func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, profiles []string) ([]*basev0.ConfigurationInformation, []ProfileRequirement, error) {
+	provided, err := LoadProfileConfigurations(ctx, workspace.Dir(), "configurations", profiles)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var infos []*basev0.ConfigurationInformation
-	if exists {
-		infos, err = LoadConfigurationInformationsFromFiles(ctx, dir)
-		if err != nil {
-			return nil, err
-		}
-	}
+	infos := provided.Infos
+	unsupplied := provided.Unsupplied
 	owned := make(map[string]bool)
 	inherited := make(map[string]*basev0.ConfigurationInformation)
 	owners := make(map[string]string)
@@ -159,9 +165,9 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 		owned[info.Name] = true
 	}
 	for _, child := range workspace.ComposedWorkspaces() {
-		contributions, err := readOwnedWorkspaceConfigurations(ctx, child, profiles)
+		contributions, childUnsupplied, err := readOwnedWorkspaceConfigurations(ctx, child, profiles)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, info := range contributions {
 			if owned[info.Name] {
@@ -169,15 +175,24 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 			}
 			if previous, ok := inherited[info.Name]; ok {
 				if !proto.Equal(previous, info) {
-					return nil, fmt.Errorf("workspace configuration %q differs between workspaces %q and %q: %w", info.Name, owners[info.Name], child.Name, ErrConfigurationConflict)
+					return nil, nil, fmt.Errorf("workspace configuration %q differs between workspaces %q and %q: %w", info.Name, owners[info.Name], child.Name, ErrConfigurationConflict)
 				}
 				continue
 			}
 			inherited[info.Name], owners[info.Name] = info, child.Name
 			infos = append(infos, info)
 		}
+		// A composed workspace's requirement travels with the group it belongs to:
+		// a group this workspace owns wins, so only what was actually inherited is
+		// still owed.
+		for _, requirement := range childUnsupplied {
+			if owned[requirement.Group] {
+				continue
+			}
+			unsupplied = append(unsupplied, requirement)
+		}
 	}
-	return infos, nil
+	return infos, unsupplied, nil
 }
 
 func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *resources.Environment) error {
@@ -193,6 +208,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		return w.Wrap(err)
 	}
 	local.ambiguousConfigurations = provided.Ambiguous
+	unsupplied := provided.Unsupplied
 	workspaceInfos, overriddenNames, err := applyWorkspaceConfigurationOverrides(provided.Infos, os.Getenv(resources.WorkspaceConfigurationOverridesEnvironment))
 	if err != nil {
 		return w.Wrapf(err, "cannot load invocation-scoped workspace configurations")
@@ -235,14 +251,15 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			return w.Wrapf(err, "cannot get service identity")
 		}
 		serviceOrigins = append(serviceOrigins, identity.Unique())
-		serviceConfDir, exists, err := ProfileDirectory(ctx, svc.Dir(), "configurations", profiles)
+		serviceProfile, err := LoadProfileConfigurations(ctx, svc.Dir(), "configurations", profiles)
 		if err != nil {
-			return w.Wrapf(err, "cannot check service configuration directory")
+			return w.Wrapf(err, "cannot load service configuration profile")
 		}
-		if exists {
-			serviceInfos, err := LoadConfigurationInformationsFromFiles(ctx, serviceConfDir)
-			if err != nil {
-				return w.Wrapf(err, "cannot load service configurations")
+		if serviceProfile.Exists {
+			serviceInfos := serviceProfile.Infos
+			for _, requirement := range serviceProfile.Unsupplied {
+				requirement.Origin = identity.Unique()
+				unsupplied = append(unsupplied, requirement)
 			}
 
 			if len(serviceInfos) > 0 {
@@ -257,14 +274,9 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			}
 		}
 		// Load DNS
-		serviceDNSDir, _, err := ProfileDirectory(ctx, svc.Dir(), "dns", profiles)
+		dnsFile, exists, err := ProfileFile(ctx, svc.Dir(), "dns", profiles, "dns.codefly.yaml")
 		if err != nil {
-			return w.Wrapf(err, "cannot select service dns directory")
-		}
-		dnsFile := path.Join(serviceDNSDir, "dns.codefly.yaml")
-		exists, err = shared.FileExists(ctx, dnsFile)
-		if err != nil {
-			return w.Wrapf(err, "cannot check dns file")
+			return w.Wrapf(err, "cannot select service dns declaration")
 		}
 		if exists {
 			dns, err := loadDNS(ctx, dnsFile)
@@ -294,6 +306,20 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	sort.Strings(serviceNames)
 	for _, name := range serviceNames {
 		confs = append(confs, serviceConfs[name])
+	}
+	// Every value a group declared as supplied per profile is now either supplied
+	// or still owed. Owed ones fail the load, before anything is built, started or
+	// rendered: the whole point of the declaration is that the render stops here
+	// rather than delivering a plausible value — a development address, or nothing
+	// — that only fails once a client dials it. Overrides have been applied, so an
+	// operator supplying one with --set has discharged it.
+	if remaining := StillUnsupplied(unsupplied, func(origin string) []*basev0.ConfigurationInformation {
+		if origin == "" {
+			return workspaceInfos
+		}
+		return serviceConfs[origin].GetInfos()
+	}); len(remaining) > 0 {
+		return w.Wrap(&UnsuppliedProfileValuesError{Requirements: remaining})
 	}
 	local.configurations = confs
 	return nil
@@ -364,12 +390,12 @@ func composeModuleWorkspaceConfigurations(
 	workspaceInfos []*basev0.ConfigurationInformation,
 	workspaceConfigurationDir string,
 	profiles []string,
-) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, error) {
+) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
 	w := wool.Get(ctx).In("configurations.composeModuleWorkspaceConfigurations")
 
 	modules, err := workspace.LoadModules(ctx)
 	if err != nil {
-		return nil, nil, nil, w.Wrapf(err, "cannot load modules")
+		return nil, nil, nil, nil, w.Wrapf(err, "cannot load modules")
 	}
 	fromWorkspace := make(map[string]bool, len(workspaceInfos))
 	for _, info := range workspaceInfos {
@@ -433,6 +459,12 @@ func composeModuleWorkspaceConfigurations(
 	// collapse to one key and read the directory once; reading it twice would
 	// offer every configuration in it against itself.
 	loaded := make(map[string]bool)
+	// unsuppliedByGroup holds, per group name a composed module offers, the
+	// per-profile values that module left unsupplied. It is keyed by group so only
+	// the requirements of the offers that actually win are reported: a group the
+	// consuming workspace overrides, or that loses an ambiguity, is not
+	// provisioned and owes nothing.
+	unsuppliedByGroup := make(map[string][]ProfileRequirement)
 	readOnce := func(dir string) ([]*basev0.ConfigurationInformation, error) {
 		key := dir
 		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
@@ -442,14 +474,17 @@ func composeModuleWorkspaceConfigurations(
 			return nil, nil
 		}
 		loaded[key] = true
-		configurationDir, exists, err := ProfileDirectory(ctx, dir, "configurations", profiles)
+		provided, err := LoadProfileConfigurations(ctx, dir, "configurations", profiles)
 		if err != nil {
-			return nil, w.Wrapf(err, "cannot check module configuration directory")
+			return nil, w.Wrapf(err, "cannot load module configuration profile")
 		}
-		if !exists {
+		if !provided.Exists {
 			return nil, nil
 		}
-		return LoadConfigurationInformationsFromFiles(ctx, configurationDir)
+		for _, requirement := range provided.Unsupplied {
+			unsuppliedByGroup[requirement.Group] = append(unsuppliedByGroup[requirement.Group], requirement)
+		}
+		return provided.Infos, nil
 	}
 
 	for _, mod := range modules {
@@ -478,19 +513,19 @@ func composeModuleWorkspaceConfigurations(
 		// one, so skip either rather than load the same directory twice.
 		repoConfigurationDir, _, err := ProfileDirectory(ctx, repoDir, "configurations", profiles)
 		if err != nil {
-			return nil, nil, nil, w.Wrapf(err, "cannot select configuration directory for composed module %s", mod.Name)
+			return nil, nil, nil, nil, w.Wrapf(err, "cannot select configuration directory for composed module %s", mod.Name)
 		}
 		if !resources.SameDir(repoConfigurationDir, workspaceConfigurationDir) {
 			infos, err := readOnce(repoDir)
 			if err != nil {
-				return nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+				return nil, nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
 			}
 			offer(mod.Name, repo, true, infos)
 		}
 		if foreign && !resources.SameDir(mod.Dir(), repoDir) {
 			infos, err := readOnce(mod.Dir())
 			if err != nil {
-				return nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+				return nil, nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
 			}
 			offer(mod.Name, repo, false, infos)
 		}
@@ -498,6 +533,7 @@ func composeModuleWorkspaceConfigurations(
 
 	composedBy := make(map[string]string, len(order))
 	ambiguous := make(map[string]error)
+	var unsupplied []ProfileRequirement
 	for _, name := range order {
 		configuration := composed[name]
 		if configuration.conflict != nil {
@@ -508,8 +544,9 @@ func composeModuleWorkspaceConfigurations(
 		}
 		composedBy[name] = configuration.module
 		workspaceInfos = append(workspaceInfos, configuration.info)
+		unsupplied = append(unsupplied, unsuppliedByGroup[name]...)
 	}
-	return workspaceInfos, composedBy, ambiguous, nil
+	return workspaceInfos, composedBy, ambiguous, unsupplied, nil
 }
 
 // ProfileDirectory selects the profile directory one configuration location is

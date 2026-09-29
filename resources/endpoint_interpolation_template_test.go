@@ -75,18 +75,20 @@ func TestInterpolateConfigurationEndpointsResolvesTemplateLiterals(t *testing.T)
 // "${endpoint:…}" in the middle of a connection string, and never a value
 // assembled from a half-interpolated literal.
 func TestInterpolateConfigurationEndpointsRefusesAnUnresolvableTemplateLiteral(t *testing.T) {
-	// An endpoint this consumer does not depend on: both paths omit the value,
-	// which is what they already do for the same reference in value.Value.
+	// An endpoint this consumer does not depend on, and that the run provably does
+	// not contain: both paths omit the value, which is what they already do for the
+	// same reference in value.Value.
 	conf := templatedConnectionConfiguration("@${endpoint:mod/absent/postgres}/app")
+	outsideTheRun := WithRunProducers(func(string) bool { return false })
 	for _, c := range []struct {
 		name        string
 		interpolate func() (*basev0.Configuration, error)
 	}{
 		{"strict", func() (*basev0.Configuration, error) {
-			return InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess())
+			return InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), outsideTheRun)
 		}},
 		{"run-wide", func() (*basev0.Configuration, error) {
-			return InterpolateRunWideConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess())
+			return InterpolateRunWideConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), outsideTheRun)
 		}},
 	} {
 		out, err := c.interpolate()
@@ -105,7 +107,14 @@ func TestInterpolateConfigurationEndpointsRefusesAnUnresolvableTemplateLiteral(t
 	// A malformed reference is a hard error on the strict path, and a literal is
 	// no exception: assembling it would ship the unresolved marker.
 	malformed := templatedConnectionConfiguration("@${endpoint:nonsense}/app")
-	if out, err := InterpolateConfigurationEndpoints(context.Background(), malformed, nil, NewContainerNetworkAccess()); err == nil {
+	if out, err := InterpolateConfigurationEndpoints(context.Background(), malformed, nil, NewContainerNetworkAccess(), outsideTheRun); err == nil {
 		t.Fatalf("a malformed reference in a template literal must fail, got %v", out)
+	}
+
+	// The same literal, with the caller saying nothing about the run: the value is
+	// a credential assembled around an address, and omitting it because nobody
+	// said what was being rendered is how a workload boots with no database.
+	if out, err := InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess()); err == nil {
+		t.Fatalf("a template literal that cannot resolve must fail when the run is unstated, got %v", out)
 	}
 }

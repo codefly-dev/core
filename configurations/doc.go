@@ -15,6 +15,28 @@
 // exposes those via GetDNS. Consumers own deployment-specific fallback
 // policies; the CLI derives Kubernetes Service addresses.
 //
+// # Profiles
+//
+// Every configuration location — the workspace's own configurations/, each
+// composed workspace's and module's, each service's configurations/ and dns/ —
+// is read for ONE profile: the first of the environment's chain that location
+// holds (see resources.Environment.ConfigurationProfileNames and
+// ProfileDirectory). A profile directory may declare what it derives from in
+// profile.codefly.yaml, and then supplies only the values that differ: one
+// declared set of groups serves local and deployed alike, rather than a second
+// directory hand-copied from the first. ProfileLayers resolves that, and
+// LoadProfileConfigurations reads and overlays it.
+//
+// The profile a derived one starts from is the declared set of a group's keys: a
+// key the derived profile introduces into a group the base declares is refused,
+// because a key only one profile carries is absent from the others and a missing
+// key reads as the empty string with no error anywhere. A value a group declares
+// as ProfileValueMarker is owed by whichever profile is selected, and one still
+// owed when every layer is in fails the load, naming the group, the key and where
+// it was declared. Between them, an environment-specific difference that nothing
+// declared cannot render: that is the failure that renders cleanly and is wrong
+// only at runtime. See docs/workspace-composition.md.
+//
 // Loader is the abstract interface a service must implement to plug
 // into the manager (Identity, Load, Configurations, DNS). Concrete
 // loaders live in core/cli and similar consumer packages.

@@ -205,36 +205,71 @@ func TestInterpolateConfigurationEndpointsFailsOnAnEndpointAbsentFromTheConsumer
 // composition change would make it resolvable for that run: a run excluding
 // optional infrastructure, or starting one service rather than the workspace,
 // must still start. The value is dropped for this consumer and the group keeps
-// the keys it reads. The same holds when the caller says nothing about the run,
-// since then no producer is provably part of it.
+// the keys it reads.
 func TestInterpolateConfigurationEndpointsDropsAReferenceToAProducerOutsideTheRun(t *testing.T) {
 	ctx := context.Background()
 	// The shape of `codefly run` with infra/temporal excluded: the group the
 	// consumer declares carries a key for a service this run does not contain.
 	conf := platformConfiguration("temporal-address", "${endpoint:infra/temporal/grpc}")
-	for _, tc := range []struct {
-		name string
-		opts []resources.ConfigurationInterpolationOption
-	}{
-		{name: "the run is known and excludes the producer", opts: []resources.ConfigurationInterpolationOption{
-			resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" }),
-		}},
-		{name: "the caller says nothing about the run"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), tc.opts...)
-			require.NoError(t, err)
-			require.Len(t, resolved.Infos, 1)
-			require.Len(t, resolved.Infos[0].ConfigurationValues, 1, "the group keeps the keys this consumer reads")
-			assert.Equal(t, "gateway", resolved.Infos[0].ConfigurationValues[0].Key)
-			assert.Equal(t, "http://localhost:1234", resolved.Infos[0].ConfigurationValues[0].Value)
-		})
-	}
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
 
-	none, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), inRun)
+	require.NoError(t, err)
+	require.Len(t, resolved.Infos, 1)
+	require.Len(t, resolved.Infos[0].ConfigurationValues, 1, "the group keeps the keys this consumer reads")
+	assert.Equal(t, "gateway", resolved.Infos[0].ConfigurationValues[0].Key)
+	assert.Equal(t, "http://localhost:1234", resolved.Infos[0].ConfigurationValues[0].Value)
+
+	// A run of nothing this group names: every value of it drops and the group
+	// stays selected, so the consumer reports the key it reads rather than the run
+	// failing over a group written for a larger composition.
+	noneInRun := resources.WithRunProducers(func(string) bool { return false })
+	none, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), noneInRun)
 	require.NoError(t, err)
 	require.Len(t, none.Infos, 1, "the group stays selected when none of its values is for this consumer")
 	assert.Empty(t, none.Infos[0].ConfigurationValues)
+}
+
+// A render that states no run set has said nothing about what it is rendering, so
+// an endpoint it cannot resolve is not evidence that the producer is outside the
+// run — it is equally the symptom of a render that bound no mappings at all. The
+// strict path fails there rather than dropping the address and reporting a WARN:
+// everything renders, everything reports healthy, and one address is missing is
+// exactly the failure that is invisible until a client dials it.
+func TestInterpolateConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers(t *testing.T) {
+	ctx := context.Background()
+	conf := platformConfiguration("temporal-address", "${endpoint:infra/temporal/grpc}")
+
+	for _, tc := range []struct {
+		name     string
+		mappings []*basev0.NetworkMapping
+		key      string
+	}{
+		// The producer is absent from mappings the render did bind: it may be out
+		// of the run, or the mappings may be the wrong set — unstated, the two are
+		// the same picture.
+		{name: "mappings that do not carry the producer", mappings: gatewayMappings(), key: "platform/temporal-address"},
+		// A render that bound nothing: the value that resolves everywhere else —
+		// the gateway address every consumer of this group reads — is the one that
+		// used to vanish with a WARN.
+		{name: "no mappings bound at all", mappings: nil, key: "platform/gateway"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, tc.mappings, resources.NewNativeNetworkAccess())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.key)
+			assert.Contains(t, err.Error(), "stated no run producers",
+				"the diagnostic must name the one cause that cannot be derived from the reference")
+		})
+	}
+
+	// A run set that reports nothing is still a stated run set: the caller has
+	// said this run contains no producers, so the drop is its decision.
+	stated, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(),
+		resources.WithRunProducers(func(string) bool { return false }))
+	require.NoError(t, err)
+	require.Len(t, stated.Infos, 1)
+	assert.Empty(t, stated.Infos[0].ConfigurationValues)
 }
 
 // A value mixing a producer the run contains with one it does not is judged by
@@ -302,8 +337,12 @@ func TestInterpolateRunWideConfigurationEndpointsDropsReferenceAbsentFromConsume
 		},
 	}
 
-	// A leaf service that depends on nothing has an empty mapping set.
-	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	// A leaf service that depends on nothing has an empty mapping set. The render
+	// states its run set, as every render does; the producer is in it, and this
+	// consumer still cannot see the endpoint — which is exactly the case the
+	// run-wide path exists for.
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas/frontend" })
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
 	require.NoError(t, err)
 
 	dropped, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "authority-jwks-url")
@@ -339,7 +378,8 @@ func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing
 		},
 	}
 
-	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas/frontend" })
+	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, capture.count("omitting run-wide configuration value"),
@@ -367,7 +407,8 @@ func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedS
 	}
 
 	// gatewayMappings() gives the consumer only the http endpoint of auth-sidecar.
-	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(),
+		resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" }))
 	require.NoError(t, err)
 
 	// The sibling grpc reference is dropped; the http reference it does depend on
@@ -399,4 +440,62 @@ func TestInterpolateEndpointAuthority(t *testing.T) {
 	assert.Equal(t, "host.docker.internal:1234", out)
 	require.Equal(t, []string{"saas-starter/auth-sidecar/http"},
 		resources.EndpointReferences("${endpoint:saas-starter/auth-sidecar/http|authority}"))
+}
+
+// A value whose producer declared an assembly holds its text in the template's
+// literals and its Value is empty, so classifying by value.Value alone found no
+// reference at all, judged the value out of the run, and DELETED a credential
+// assembled around the address of a producer the caller had just said was in the
+// run. References are read from the whole value, as the plan-time check reads
+// them.
+func TestInterpolateConfigurationEndpointsFailsOnAnInRunProducerNamedOnlyInATemplateLiteral(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{{
+			Name: "db",
+			ConfigurationValues: []*basev0.ConfigurationValue{{
+				Key:    "CONNECTION",
+				Secret: true,
+				Template: &basev0.ConfigurationValueTemplate{Segments: []*basev0.ConfigurationValueTemplateSegment{
+					{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "postgres://${endpoint:mod/store/postgres}/db"}},
+				}},
+			}},
+		}},
+	}
+
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "mod/store" })
+	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
+	require.Error(t, err, "the run contains the producer, so the consumer was not handed an address that exists")
+	assert.Contains(t, err.Error(), "db/CONNECTION")
+
+	// And one the run does not contain is still a drop, from the literal as from
+	// a plain value.
+	outside := resources.WithRunProducers(func(string) bool { return false })
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), outside)
+	require.NoError(t, err)
+	require.Len(t, resolved.Infos, 1)
+	assert.Empty(t, resolved.Infos[0].ConfigurationValues)
+}
+
+// The run-wide path carries the composition root's own groups — the addresses
+// every service reads without declaring them. A drop there is a judgement about
+// one consumer, so it needs a render that said what it was rendering: with no run
+// set stated, a render that never bound its network context is indistinguishable
+// from a leaf service that legitimately sees no endpoint, and the authority
+// address leaves the workload with a DEBUG line behind it.
+func TestInterpolateRunWideConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers(t *testing.T) {
+	ctx := context.Background()
+	conf := &basev0.Configuration{
+		Origin: resources.ConfigurationWorkspace,
+		Infos: []*basev0.ConfigurationInformation{{
+			Name:                "work-context",
+			ConfigurationValues: []*basev0.ConfigurationValue{{Key: "authority-jwks-url", Value: "${endpoint:saas/auth/http}/jwks"}},
+		}},
+	}
+
+	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "work-context/authority-jwks-url")
+	assert.Contains(t, err.Error(), "stated no run producers")
 }
