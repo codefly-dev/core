@@ -276,16 +276,15 @@ layout: modules
 	require.NoError(t, err)
 	require.Equal(t, "http://localhost:45123/v1/auth/.well-known/jwks.json", nativeURL)
 
-	// The shared manager holds no consumer's mappings, so the reference resolves
-	// to neither consumer's address. Asserted on the value rather than on an
-	// error: with no run producers declared, an unresolvable reference is dropped
-	// for the reader, and a leaked mapping would show up here as one of the two
-	// addresses above.
-	shared, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
-	require.NoError(t, err)
-	sharedURL, err := resources.GetConfigurationValue(ctx, shared[0], "work-context", "authority-jwks-url")
-	require.NoError(t, err)
-	require.Empty(t, sharedURL, "the shared manager must not keep a consumer's mappings")
+	// The shared manager holds no consumer's mappings and states no run set, so it
+	// cannot resolve the reference and must say so: neither address may leak into
+	// it, and the value may not quietly go missing either. The diagnostic naming
+	// the group is what a caller reading through the shared manager by mistake
+	// gets, instead of a service that boots with no authority address.
+	_, err = manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.Error(t, err, "the shared manager must not silently drop a declared address")
+	require.NotContains(t, err.Error(), "localhost:45123", "the shared manager must not keep a consumer's mappings")
+	require.NotContains(t, err.Error(), "svc.cluster.local", "the shared manager must not keep a consumer's mappings")
 }
 
 // A reference to an endpoint outside the consumer's mappings, whose producer the

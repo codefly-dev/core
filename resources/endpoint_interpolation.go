@@ -124,11 +124,17 @@ func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.
 // resolvable for that run. One group commonly serves several consumers, so such
 // a value is dropped for this consumer — with a WARN naming it, because for a
 // group the consumer declared this is worth seeing — and the consumer reports
-// the missing key itself if it reads it. Pass WithRunProducers so this path can
-// tell the two apart; without it, no producer is provably part of the run and
-// every unavailable endpoint is a drop. What the run contains is the caller's
-// knowledge, not something mappings can be read for: an absent mapping is
-// exactly the symptom of the bug the strict path exists to catch.
+// the missing key itself if it reads it.
+//
+// Telling the two apart needs WithRunProducers, and a caller that does not pass
+// it has said nothing about the run: that is not evidence that the producer is
+// outside it, so an unresolvable reference is an ERROR there rather than a drop.
+// What the run contains is the caller's knowledge, not something mappings can be
+// read for — an absent mapping is exactly the symptom of the bug this path exists
+// to catch, and a render that binds none would otherwise have every address it
+// declares dropped and report nothing but a WARN. A deployed render losing one
+// address that way is invisible until a client dials it, which is the cost this
+// asymmetry buys back.
 //
 // For a configuration injected run-wide into services that never declared it,
 // use InterpolateRunWideConfigurationEndpoints.
@@ -150,7 +156,13 @@ type configurationInterpolation struct {
 // <module>/<service>. A reference naming one of them must resolve — it is in the
 // run, so its endpoint is missing because it was not ordered, not started, or
 // not handed to this consumer, which is a fault to report rather than a value to
-// drop. A reference naming anything else is not for this run.
+// drop. A reference naming anything else is not for this run and is dropped for
+// this consumer.
+//
+// It is what makes a drop legitimate. Passing no run set, or one that reports
+// nothing (a nil func), leaves the strict path with no basis to drop, so it fails
+// instead: silently omitting a declared address because the caller never said
+// what it was rendering is the failure this option exists to make impossible.
 func WithRunProducers(inRun func(unique string) bool) ConfigurationInterpolationOption {
 	return func(opt *configurationInterpolation) {
 		opt.producerInRun = inRun
@@ -192,10 +204,11 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 				// simply not for it: drop the value (and, below, an information
 				// left with no values) rather than fail the service. The strict
 				// path propagates the error, naming the key — unless the only
-				// thing wrong is that the value names a producer this run does
-				// not contain, which no composition change would fix for this
-				// run.
-				if !dropUnresolved && errors.Is(err, errEndpointNotAvailable) &&
+				// thing wrong is that the value names a producer this run
+				// provably does not contain, which no composition change would
+				// fix for this run. "Provably" is the caller's run set: with none,
+				// nothing is out of the run and nothing may be dropped.
+				if !dropUnresolved && errors.Is(err, errEndpointNotAvailable) && options.producerInRun != nil &&
 					!unresolvedNamesRunProducer(ctx, value.Value, mappings, access, options.producerInRun) {
 					// WARN, not DEBUG: the consumer selected this group by name,
 					// so a key of it going missing is worth seeing even though
@@ -223,6 +236,13 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 						wool.Field("key", value.Key),
 						wool.Field("reason", err.Error()))
 					continue
+				}
+				if !dropUnresolved && options.producerInRun == nil && errors.Is(err, errEndpointNotAvailable) {
+					// Naming the remedy here rather than leaving a bare "not
+					// found": the reference may be perfectly good and the render
+					// simply never bound the run's mappings, which is the one
+					// cause the diagnostic cannot be derived from.
+					return nil, w.Wrapf(err, "cannot interpolate configuration %s/%s: this render stated no run producers, so an endpoint it cannot resolve cannot be told from mappings it never bound; bind the run's network mappings and state its producers (configurations.Manager.WithNetworkMappings / WithRunProducers)", info.Name, value.Key)
 				}
 				return nil, w.Wrapf(err, "cannot interpolate configuration %s/%s", info.Name, value.Key)
 			}
