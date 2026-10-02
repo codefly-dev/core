@@ -178,6 +178,19 @@ type Fixture struct {
 	// SingleUse marks a capability a conforming verifier must consume: a
 	// second presentation is refused with ErrReplayed.
 	SingleUse bool
+
+	// NeedsIssuer marks a fixture whose stated Outcome is reachable ONLY by a
+	// verifier holding the issuer's own records — today, the approvals
+	// engine's record of a grant.
+	//
+	// It exists so the kit can certify the verify-only entrypoint without
+	// certifying a downgrade. A full verifier must reach Outcome for every
+	// fixture. An Authenticator holds no grant records, so for a fixture
+	// marked here it must refuse with ErrNeedsIssuer — and a weaker
+	// authenticator, one that let an unchecked approval through, ACCEPTS this
+	// fixture and fails. Without the mark, a kit run against an Authenticator
+	// would have had to be lenient about exactly the case that matters.
+	NeedsIssuer bool
 }
 
 // FixtureKeyPair returns the fixture signing key. THE PRIVATE KEY IS PUBLIC —
@@ -379,7 +392,10 @@ func Fixtures(now time.Time) ([]Fixture, error) {
 		},
 		{
 			Name: "grant", Form: FormGrant, Token: grant, Outcome: OutcomeAccepted, SingleUse: true,
-			Reason: "the capability an approval justifies: single-use, so a second presentation is refused as replayed",
+			NeedsIssuer: true,
+			Reason: "the capability an approval justifies: single-use, so a second presentation is refused as replayed. " +
+				"It is the one fixture whose acceptance needs the issuer's own record of the approval, so a verify-only " +
+				"entrypoint must refuse it with ErrNeedsIssuer rather than accept an approval it never checked",
 		},
 		{
 			Name: "foreign-encoding", Form: FormForeign, Token: FixtureForeignToken(),

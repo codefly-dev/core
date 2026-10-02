@@ -239,3 +239,78 @@ func TestEveryFixtureMessageIsProducedByCoresVerifier(t *testing.T) {
 	}
 	require.NotZero(t, named, "the kit must name at least one refusal message")
 }
+
+// Core's verify-only entrypoint passes the kit's authenticator mode.
+func TestCoresAuthenticatorPassesTheAuthenticatorMode(t *testing.T) {
+	settings := conformance.New(time.Now())
+	authenticator := settings.Authenticator()
+	conformance.RunAuthenticator(t, settings, func(ctx context.Context, token string) error {
+		_, err := authenticator.Authenticate(ctx, token)
+		return err
+	})
+}
+
+// The assertion the whole mode exists for: a verify-only entrypoint that let
+// an unchecked approval through FAILS, rather than passing the same kit a
+// full verifier passes.
+//
+// This is the downgrade in its most plausible form — a GrantSource that
+// answers whatever the capability claimed, which makes the grant hop
+// self-authorizing and looks, at the call site, exactly like a verifier that
+// checked something.
+func TestTheAuthenticatorModeFailsAnEntrypointThatAcceptsAnUncheckedApproval(t *testing.T) {
+	settings := conformance.New(time.Now())
+	// The full verifier, which accepts the grant fixture because it holds the
+	// issuer's record of the approval. Standing in for an Authenticator that
+	// had been given a permissive grant source instead of refusing.
+	permissive := settings.Verifier()
+
+	reported := &recorder{}
+	conformance.RunAuthenticator(reported, settings, func(ctx context.Context, token string) error {
+		_, err := permissive.Verify(ctx, token)
+		return err
+	})
+
+	require.Empty(t, reported.fatal)
+	require.Len(t, reported.errors, 1)
+	require.Contains(t, reported.errors[0], "grant")
+	require.Contains(t, reported.errors[0], "must refuse it with ErrNeedsIssuer")
+}
+
+// And an entrypoint that is weaker anywhere ELSE fails the mode too: the
+// fixtures that do not need the issuer's records are held to the full
+// verifier's outcome, not to a relaxed one.
+func TestTheAuthenticatorModeIsNotLenientOnTheRestOfTheKit(t *testing.T) {
+	settings := conformance.New(time.Now())
+	authenticator := settings.Authenticator()
+
+	reported := &recorder{}
+	conformance.RunAuthenticator(reported, settings, func(ctx context.Context, token string) error {
+		err := authenticateWith(ctx, authenticator, token)
+		// Stand in for an entrypoint that skipped the seal comparison: it
+		// accepts a capability sealed to a superseded installation.
+		if errors.Is(err, workcontext.ErrRevoked) {
+			return nil
+		}
+		return err
+	})
+
+	require.Empty(t, reported.fatal)
+	require.NotEmpty(t, reported.errors)
+	for _, reportedError := range reported.errors {
+		require.Contains(t, reportedError, "must be refused and was accepted")
+	}
+}
+
+// The mode needs an entrypoint, like Run does.
+func TestTheAuthenticatorModeNeedsAnEntrypoint(t *testing.T) {
+	reported := &recorder{}
+	conformance.RunAuthenticator(reported, conformance.New(time.Now()), nil)
+	require.Len(t, reported.fatal, 1)
+	require.Contains(t, reported.fatal[0], "no verification entrypoint")
+}
+
+func authenticateWith(ctx context.Context, authenticator *workcontext.Authenticator, token string) error {
+	_, err := authenticator.Authenticate(ctx, token)
+	return err
+}

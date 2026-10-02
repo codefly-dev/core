@@ -99,7 +99,20 @@ replay store passes everything else and fails there. Single-use is a property of
 the verifier, not of the token.
 
 `Verifier` requires all four sources and refuses everything if any is missing.
-That makes it issuer-shaped, and a consumer verifying incoming capabilities
-needs all four. That is a real cost of there being one implementation, and it is
-the correct cost: the alternative is a second verifier answering a weaker
-question.
+That makes it issuer-shaped, which is the correct shape for the party that mints.
+
+For a party that verifies **without minting** — the host's gateway — there is
+`Authenticator.Authenticate`, and `conformance.RunAuthenticator` is the mode
+that certifies it. It is a second entrypoint and deliberately not a second
+strength: `Authenticate` assembles a `Verifier` and calls `Verify`, so there is
+one check path; a capability carrying a grant hop is **refused** with
+`ErrNeedsIssuer` rather than accepted unchecked; `Seals` is still required,
+because no entrypoint skips the seal comparison; the authorization revision is
+a number the caller states, so the one axis that depends on the caller's own
+freshness is visible at the call site; and the result is `*Authenticated`, which
+`policy.PrincipalFromWorkContext`, `Authority.Child` and `Authority.Grant` will
+not take. `RunAuthenticator` is stricter than `Run`, not laxer: identical
+outcomes everywhere except the fixtures marked `NeedsIssuer`, which must be
+refused — the one assertion a downgraded authenticator fails.
+
+See `docs/work-context.md`, "Two entrypoints, one implementation, one strength".

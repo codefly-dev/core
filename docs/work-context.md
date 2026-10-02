@@ -315,8 +315,70 @@ sites to this package and runs the conformance helper in its own suites. The
 cutover is cold — every token changes format at once, and an old token is
 refused with `ErrNotACoreToken` rather than accepted.
 
-Core's `Verifier` is issuer-shaped: it requires a revision source, a replay
-store, a grant source and a seal source, all four load-bearing. A consumer that
-verifies incoming capabilities needs all four too, which is a real cost of there
-being one implementation and is the correct cost — the alternative is a second
-verifier that answers a weaker question.
+### Two entrypoints, one implementation, one strength
+
+`Verifier` is issuer-shaped: it requires a revision source, a replay store, a
+grant source and a seal source, all four load-bearing. A party that verifies
+without minting — the host's gateway — holds the sealed state and the replay
+store but not the approvals engine's records, and generally cannot read the
+issuer's authorization revision live. It needs a verify-only entrypoint, and
+the question is how to have one without having two *strengths*: a consumer
+reaching for the weaker one where the stronger was needed is a silent
+downgrade, and that is the same class of failure as the two encodings, which
+also looked fine right up to the point where it mattered.
+
+`Authenticator.Authenticate` is that entrypoint, and it is built so the second
+strength does not exist:
+
+- **It is not a second implementation.** `Authenticate` assembles a `Verifier`
+  and calls `Verify`. Every rule is applied by the same code in the same order,
+  so a change to a rule reaches both entrypoints or neither. A test holds all
+  of core's fixtures against both and requires the refusals to be identical
+  *including the message text*, which is a stronger claim than identical
+  outcomes: two implementations can agree on accept/refuse for every case
+  anyone thought to test and still differ on which rule fired, and that is the
+  failure `ErrNotACoreToken` exists because of.
+- **What it lacks becomes a refusal, not a skipped check.** It holds no grant
+  records, so a capability carrying a grant hop is refused with
+  `ErrNeedsIssuer` — a routing fact ("present this to the party that holds
+  those records"), not a judgement about the capability. Returning a
+  synthesised grant that matched whatever the capability claimed would make the
+  hop self-authorizing, and would be reached by a verifier that looked entirely
+  correct.
+- **The one axis that depends on the caller's freshness is a field, not a
+  source.** `AuthorizationRevision` is a number the caller states. A revision
+  bump reaches this entrypoint only when that value moves, so a caller writing
+  a literal there has turned the tenant-wide lever off for its own path — which
+  may be right, since the capability was verified at full strength by the party
+  that minted it, but it is a posture choice and it belongs where a reviewer
+  reads it rather than hidden inside a source that answers one number forever.
+- **`Seals` is still required, and there is no seal-less mode in any
+  entrypoint.** Sealed state is not the issuer's bookkeeping: it is the live
+  binding of the presented capability to one installation, one epoch, one build
+  and one operation binding, and it is what makes every revocation here reach a
+  capability already in flight. A caller holding none cannot authenticate at
+  full strength, and core does not offer it a way to appear to.
+- **The result type carries which question was answered.** `Authenticate`
+  returns `*Authenticated`, never `*Verified`. `policy.PrincipalFromWorkContext`
+  takes a `*Verified`, so an authenticated capability cannot become a
+  `Principal` by accident; `Authority.Child` and `Authority.Grant` take one too,
+  so it cannot be exchanged for a derived capability — which is right beyond
+  types, since deriving holds the parent's inherited seal against live state and
+  that is the issuer's to answer. There is no conversion in either direction and
+  a test guards against one being added, because that addition is the whole
+  downgrade in one function.
+
+`conformance.RunAuthenticator` is the kit's second mode, and it is **stricter**
+than `Run` rather than more lenient. For every fixture that does not need the
+issuer's own records it requires the same outcome and the same named reason; for
+the fixtures that do, marked `NeedsIssuer` in the kit, it requires a refusal
+naming `ErrNeedsIssuer`. That last assertion is the one a downgraded
+authenticator fails, because an entrypoint that accepted an approval it never
+checked *accepts* those fixtures. A kit that simply passed a verify-only
+verifier unchanged would have been certifying the downgrade.
+
+What remains a seam, stated rather than implied: a consumer that holds no
+sealed state at all still cannot verify at full strength, and nothing here
+changes that. The answer for such a consumer is that the gateway verifies and
+the consumer checks what it can, documenting what it does not — not a weaker
+core entrypoint.

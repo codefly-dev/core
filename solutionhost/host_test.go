@@ -292,17 +292,17 @@ func TestOneDeliverySpeaksForOneDomain(t *testing.T) {
 // legitimately carries one domain per delivery. Admit must not refuse that,
 // which is the whole reason OneDelivery is a separate call.
 func TestAHostAdmitsAMountHoldingSeveralDeliveries(t *testing.T) {
-	fromCRM := parse(t, "valid")
-	fromPIM := parse(t, "module-presence")
-	fromPIM.OwnershipDomain = "beta"
-	fromPIM.Routes = nil
+	fromAlpha := parse(t, "valid")
+	fromBeta := parse(t, "module-presence")
+	fromBeta.OwnershipDomain = "beta"
+	fromBeta.Routes = nil
 
 	host := solutionhost.Host{
 		Coordinate: solutionhost.FixtureCoordinate,
 		Domains:    []string{solutionhost.FixtureDomain, "beta"},
 		Applied:    fixtureHost(t).Applied,
 	}
-	admissions, err := host.Admit(fromCRM, fromPIM)
+	admissions, err := host.Admit(fromAlpha, fromBeta)
 	require.NoError(t, err, "two deliveries into one mount is the normal case, not a straddle")
 	require.Equal(t, solutionhost.DecisionCurrent, admissions[0].Decision)
 	require.Equal(t, solutionhost.DecisionApply, admissions[1].Decision)
@@ -314,7 +314,7 @@ func TestAHostAdmitsAMountHoldingSeveralDeliveries(t *testing.T) {
 		Domains:    []string{solutionhost.FixtureDomain},
 		Applied:    fixtureHost(t).Applied,
 	}
-	_, err = admitOne(t, narrow, fromPIM)
+	_, err = admitOne(t, narrow, fromBeta)
 	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
 	require.Contains(t, err.Error(), "does not accept")
 }

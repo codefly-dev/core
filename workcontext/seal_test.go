@@ -404,7 +404,7 @@ func TestChild_ResolvesTheBindingItNames(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 	// Granted to the HOP's principal, because the hop is what exercises it.
 	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
-		ID: "binding:crm:read", PrincipalID: agentID, InstallationID: installation,
+		ID: "binding:alpha:read", PrincipalID: agentID, InstallationID: installation,
 		Revision: 1, Incarnation: 7,
 	}))
 
@@ -415,13 +415,13 @@ func TestChild_ResolvesTheBindingItNames(t *testing.T) {
 		DelegationID:       "d-1",
 		GrantedScopes:      []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:           audience,
-		OperationBindingID: "binding:crm:read",
+		OperationBindingID: "binding:alpha:read",
 		TTL:                time.Minute,
 	})
 	require.NoError(t, err)
 
 	binding := child.GetOperationBinding()
-	require.Equal(t, "binding:crm:read", binding.GetBindingId())
+	require.Equal(t, "binding:alpha:read", binding.GetBindingId())
 	require.Equal(t, uint64(1), binding.GetRevision())
 	require.Equal(t, uint64(7), binding.GetIncarnation())
 }

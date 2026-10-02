@@ -25,8 +25,8 @@ const (
 	taskID       = "task-42"
 	audience     = "codefly.dev/github-bot:0.1.0"
 	organization = "org-platform"
-	installation = "inst-acme-crm"
-	bindingID    = "binding:crm:reconcile"
+	installation = "inst-alpha"
+	bindingID    = "binding:alpha:reconcile"
 )
 
 // harness holds the real signer and verifier every test in this package runs

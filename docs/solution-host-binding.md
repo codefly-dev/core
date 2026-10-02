@@ -202,28 +202,40 @@ cannot widen it.
 
 ### "One delivery speaks for one domain" is not a rule `Admit` can enforce
 
-A set that straddles two domains cannot satisfy "within D the delivered set is
-exactly desired" for any single D, so removal within it is not expressible. That
-is a real rule — and it is a property of **one delivery**, which is not the same
-set as "the documents a host can see". The difference decides the answer:
+A delivery that straddles two domains is authored wrong: a renderer writing one
+calls `solutionhost.OneDelivery(docs...)` on the set it is about to write, and a
+straddle is refused where it was authored.
 
-- A **renderer** writing one delivery calls `solutionhost.OneDelivery(docs...)`
-  on the set it is about to write, and a straddle is refused where it was
-  authored.
-- A **host** does not call it on its mount. A mount is the union of however many
-  deliveries reached it, so it legitimately carries one domain per delivery.
-  Refusing that inside `Admit` would refuse the normal case the moment a second
-  module delivered to the same host. A host uses
-  `solutionhost.ByDomain(docs...)` instead: within each group the documents
-  present are the desired set, and a binding of that domain absent at a higher
-  generation has been removed.
+A **host** does not call it on its mount. A mount is the union of however many
+deliveries reached it, so it legitimately carries one domain per delivery, and
+refusing that inside `Admit` would refuse the normal case the moment a second
+module delivered to the same host. So `OneDelivery` is deliberately a separate
+call rather than part of `Admit`, because putting it in `Admit` makes core
+decide that a host's mount is one delivery — which is exactly the question the
+renderer and the host have not settled between them (one ConfigMap per solution
+namespace, or one tree in the host's).
 
-This is deliberately a separate call rather than part of `Admit`, because
-putting it in `Admit` makes core decide that a host's mount is one delivery —
-which is exactly the question the renderer and the host have not yet settled
-between them (one ConfigMap per solution namespace, or one tree in the host's).
-Core enforces what is true either way and hands the caller the grouping for
-what is not.
+### Absence is never removal, and there is no API that makes it one
+
+An earlier draft of this document told a host to group its mount by domain and
+treat a binding of that domain *absent at a higher generation* as removed. That
+was wrong twice over, and a review caught it:
+
+- It contradicts this package's own invariant two sections above — **removal is
+  a generation, never an absence**. The signed tombstone is the removal
+  mechanism, and it is signed precisely so that a withdrawal is attributable to
+  the delivery that authored it.
+- A set assembled from a mount silently omits every document that failed to
+  parse. One malformed document beside a sound one in the same domain would
+  have read as a *withdrawal* of the sound one — a parse error turning into a
+  deletion. And nothing in a delivered set establishes that the set is
+  complete, so "absent" cannot be distinguished from "not delivered yet".
+
+The grouping helper that guidance named is deleted rather than documented away.
+A host removes a binding when it admits a tombstone for it, and at no other
+time. If complete-set replacement is ever wanted, the complete set has to be
+modelled and signed as such before any deletion is authorized by it — which is
+a new document type, not a grouping of the ones here.
 
 ## The authority document
 

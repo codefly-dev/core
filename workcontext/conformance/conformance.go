@@ -35,6 +35,22 @@
 // Settings returns exactly those, and Verifier assembles core's Verifier from
 // them for a consumer whose entrypoint simply is core's.
 //
+// # Two modes, because there are two entrypoints
+//
+// Run is for a consumer whose entrypoint is a full verifier: it holds the
+// issuer's grant records and its live authorization revision, and it must
+// reach every fixture's declared outcome.
+//
+// RunAuthenticator is for a consumer whose entrypoint is verify-only —
+// workcontext.Authenticator, or a wrapper around it. It is STRICTER, not more
+// lenient: every fixture that does not need the issuer's own records must
+// reach the same outcome with the same named reason, and the fixtures that do
+// must be REFUSED with workcontext.ErrNeedsIssuer. That last assertion is what
+// keeps a second entrypoint from becoming a second strength, because an
+// entrypoint that accepted an approval it never checked accepts those
+// fixtures and fails here. A consumer picks the mode that matches its
+// entrypoint; running the other one fails rather than passing quietly.
+//
 // The replay store matters: one of the fixtures is single-use, and Run presents
 // it twice to check that the second presentation is refused. So the entrypoint
 // must hold one replay store across the whole Run, which is what a real
@@ -140,6 +156,27 @@ func (s Settings) Verifier() *workcontext.Verifier {
 // Verifier is New(time.Now()).Verifier() — the common case.
 func Verifier() *workcontext.Verifier { return New(time.Now()).Verifier() }
 
+// Authenticator assembles core's verify-only entrypoint from the kit's
+// settings, for a consumer whose entrypoint is that one. It is handed to
+// RunAuthenticator, never to Run: the two modes require different outcomes for
+// the fixtures the kit marks as needing the issuer's own records, and running
+// the wrong one would either fail a conforming authenticator or pass a
+// downgraded one.
+//
+// The authorization revision is stated rather than sourced, which is the
+// shape of the entrypoint — see workcontext.Authenticator.AuthorizationRevision.
+func (s Settings) Authenticator() *workcontext.Authenticator {
+	return &workcontext.Authenticator{
+		Issuer:                s.Issuer,
+		Audience:              s.Audience,
+		Keys:                  workcontext.FixtureKeys(),
+		Seals:                 s.Seals,
+		AuthorizationRevision: workcontext.FixtureAuthorizationRevision,
+		Replay:                s.Replay,
+		Now:                   s.Now,
+	}
+}
+
 // Run drives every fixture against verify and reports, per fixture, any
 // outcome that differs from the contract. It uses a clock of its own and mints
 // the fixtures fresh, so two consumers running it cannot interfere.
@@ -172,60 +209,144 @@ func RunWith(t TestingT, settings Settings, verify Verify) {
 	ctx := context.Background()
 	var accepted, rejected int
 	for _, fixture := range fixtures {
-		err := verify(ctx, fixture.Token)
-		switch fixture.Outcome {
-		case workcontext.OutcomeAccepted:
+		if fixture.Outcome == workcontext.OutcomeAccepted {
 			accepted++
-			if err != nil {
-				t.Errorf("work context conformance: fixture %q (%s) must verify and did not: %v\n  it is: %s",
-					fixture.Name, fixture.Form, err, fixture.Reason)
-				continue
-			}
-			if fixture.SingleUse {
-				// A single-use capability is consumed by verifying it, so
-				// presenting it again must be refused. A verifier without a
-				// durable replay store passes everything above and fails here,
-				// which is the point: single-use is a property of the verifier,
-				// not of the token.
-				if second := verify(ctx, fixture.Token); !errors.Is(second, workcontext.ErrReplayed) {
-					t.Errorf("work context conformance: fixture %q is single-use; a second presentation must be refused with ErrReplayed, got %v",
-						fixture.Name, second)
-				}
-			}
-		case workcontext.OutcomeRejected:
+		} else {
 			rejected++
-			if err == nil {
-				t.Errorf("work context conformance: fixture %q (%s) must be refused and was accepted\n  it is: %s",
-					fixture.Name, fixture.Form, fixture.Reason)
-				continue
-			}
-			// The named reason is part of the contract. "Refused" and "refused
-			// for the stated reason" are different guarantees, and the whole
-			// reason this kit exists is an implementation that refused the
-			// right token with the wrong error.
-			if fixture.Err != nil && !errors.Is(err, fixture.Err) {
-				t.Errorf("work context conformance: fixture %q (%s) must be refused with %v, got %v\n  it is: %s",
-					fixture.Name, fixture.Form, fixture.Err, err, fixture.Reason)
-				continue
-			}
-			// Several fixtures share a sentinel, so where the sentinel is an
-			// umbrella the fixture also names the refusal it must be. The
-			// tampered payload is the case that matters: it exists to be the
-			// one SIGNATURE failure, and asserting only ErrInvalid would let
-			// it pass for any unrelated invalidity.
-			if fixture.Message != "" && !strings.Contains(err.Error(), fixture.Message) {
-				t.Errorf("work context conformance: fixture %q (%s) must be refused with a message containing %q, got %v\n  it is: %s",
-					fixture.Name, fixture.Form, fixture.Message, err, fixture.Reason)
-			}
-		default:
-			t.Errorf("work context conformance: fixture %q declares outcome %q, which is neither accepted nor rejected",
-				fixture.Name, fixture.Outcome)
 		}
+		checkFixture(t, ctx, fixture, verify, verify(ctx, fixture.Token))
 	}
 	// A kit that drove no accepted fixture, or no refused one, would pass for a
 	// verifier that answered the same way to everything.
 	if accepted == 0 || rejected == 0 {
 		t.Fatalf("work context conformance: the kit must drive both outcomes, got %d accepted and %d refused", accepted, rejected)
+	}
+	if err := checkForms(fixtures); err != nil {
+		t.Fatalf("work context conformance: %v", err)
+	}
+}
+
+// checkFixture holds one fixture's result against its declared contract. Both
+// Run and RunAuthenticator call it, so the two modes cannot drift into judging
+// the same fixture differently — the only thing RunAuthenticator decides for
+// itself is which fixtures are deferred to the issuer, and it asserts those
+// separately.
+func checkFixture(t TestingT, ctx context.Context, fixture workcontext.Fixture, verify Verify, err error) {
+	t.Helper()
+	switch fixture.Outcome {
+	case workcontext.OutcomeAccepted:
+		if err != nil {
+			t.Errorf("work context conformance: fixture %q (%s) must verify and did not: %v\n  it is: %s",
+				fixture.Name, fixture.Form, err, fixture.Reason)
+			return
+		}
+		if fixture.SingleUse {
+			// A single-use capability is consumed by verifying it, so
+			// presenting it again must be refused. A verifier without a
+			// durable replay store passes everything above and fails here,
+			// which is the point: single-use is a property of the verifier,
+			// not of the token.
+			if second := verify(ctx, fixture.Token); !errors.Is(second, workcontext.ErrReplayed) {
+				t.Errorf("work context conformance: fixture %q is single-use; a second presentation must be refused with ErrReplayed, got %v",
+					fixture.Name, second)
+			}
+		}
+	case workcontext.OutcomeRejected:
+		if err == nil {
+			t.Errorf("work context conformance: fixture %q (%s) must be refused and was accepted\n  it is: %s",
+				fixture.Name, fixture.Form, fixture.Reason)
+			return
+		}
+		// The named reason is part of the contract. "Refused" and "refused
+		// for the stated reason" are different guarantees, and the whole
+		// reason this kit exists is an implementation that refused the
+		// right token with the wrong error.
+		if fixture.Err != nil && !errors.Is(err, fixture.Err) {
+			t.Errorf("work context conformance: fixture %q (%s) must be refused with %v, got %v\n  it is: %s",
+				fixture.Name, fixture.Form, fixture.Err, err, fixture.Reason)
+			return
+		}
+		// Several fixtures share a sentinel, so where the sentinel is an
+		// umbrella the fixture also names the refusal it must be. The
+		// tampered payload is the case that matters: it exists to be the
+		// one SIGNATURE failure, and asserting only ErrInvalid would let
+		// it pass for any unrelated invalidity.
+		if fixture.Message != "" && !strings.Contains(err.Error(), fixture.Message) {
+			t.Errorf("work context conformance: fixture %q (%s) must be refused with a message containing %q, got %v\n  it is: %s",
+				fixture.Name, fixture.Form, fixture.Message, err, fixture.Reason)
+		}
+	default:
+		t.Errorf("work context conformance: fixture %q declares outcome %q, which is neither accepted nor rejected",
+			fixture.Name, fixture.Outcome)
+	}
+}
+
+// RunAuthenticator drives every fixture against a VERIFY-ONLY entrypoint —
+// core's Authenticator, or a consumer's wrapper around it — and requires it to
+// reach the full verifier's outcome for every fixture except the ones the kit
+// marks as needing the issuer's own records, which it must REFUSE with
+// workcontext.ErrNeedsIssuer.
+//
+// # What this mode is for
+//
+// Shipping a second entrypoint invites a second strength: a consumer reaches
+// for the weaker one where the stronger was needed, nothing fails, and every
+// rule downstream now rests on a question nobody asked. A kit that simply
+// passed a verify-only verifier unchanged would have been certifying exactly
+// that.
+//
+// So this mode is stricter than Run, not more lenient. For every fixture that
+// does not need the issuer's records it requires the SAME outcome and the SAME
+// named reason, so a verify-only entrypoint cannot be weaker anywhere. And for
+// the fixtures that do, it requires a refusal naming ErrNeedsIssuer — which is
+// the one assertion a downgraded authenticator fails, because a verifier that
+// accepted an approval it never checked ACCEPTS that fixture.
+//
+// A consumer whose entrypoint is a full verifier must not call this: it would
+// fail on the issuer-backed fixtures, correctly, since it accepts them.
+func RunAuthenticator(t TestingT, settings Settings, authenticate Verify) {
+	t.Helper()
+	if authenticate == nil {
+		t.Fatalf("work context conformance: no verification entrypoint")
+		return
+	}
+	fixtures, err := workcontext.Fixtures(settings.Now())
+	if err != nil {
+		t.Fatalf("work context conformance: the kit itself did not build: %v", err)
+		return
+	}
+	if len(fixtures) == 0 {
+		t.Fatalf("work context conformance: the kit is empty")
+		return
+	}
+	ctx := context.Background()
+	var matched, deferred int
+	for _, fixture := range fixtures {
+		err := authenticate(ctx, fixture.Token)
+		if fixture.NeedsIssuer {
+			deferred++
+			// The decisive assertion. Accepting here is what a downgraded
+			// authenticator does, and refusing for any other reason would
+			// mean the capability was rejected by accident rather than
+			// deferred to the party that can answer.
+			if !errors.Is(err, workcontext.ErrNeedsIssuer) {
+				t.Errorf("work context conformance: fixture %q (%s) needs the issuer's own records, so a verify-only "+
+					"entrypoint must refuse it with ErrNeedsIssuer, got %v\n  it is: %s",
+					fixture.Name, fixture.Form, err, fixture.Reason)
+			}
+			continue
+		}
+		matched++
+		checkFixture(t, ctx, fixture, authenticate, err)
+	}
+	// A kit run that exercised no issuer-backed fixture proved nothing about
+	// the downgrade, and one that exercised only those proved nothing about
+	// the rest.
+	if deferred == 0 {
+		t.Fatalf("work context conformance: no fixture needs the issuer's own records, so this mode certifies nothing")
+	}
+	if matched == 0 {
+		t.Fatalf("work context conformance: every fixture needs the issuer's own records, so nothing was held to the full verifier's outcome")
 	}
 	if err := checkForms(fixtures); err != nil {
 		t.Fatalf("work context conformance: %v", err)
