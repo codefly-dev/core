@@ -142,13 +142,17 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   every archived capability and every receipt embedding one, so the
   requirement belongs where the identity is derived. Core owns the
   `approval_required` signal; the approvals engine is product-level.
-  **It has exactly one implementation — this one.** Nothing else signs,
-  verifies or re-encodes a capability; a consumer proves it uses this path by
-  running `workcontext/conformance.Run` against its own entrypoint, and a
-  foreign encoding is refused *before* the signature with `ErrNotACoreToken`,
-  never as a bad signature. A second implementation already cost a day of
-  key-rotation debugging. See [`docs/work-context.md`](docs/work-context.md)
-  and [`workcontext/README.md`](workcontext/README.md).
+  **It has exactly one implementation and one strength — this one.** Nothing
+  else signs, verifies or re-encodes a capability; two entrypoints share the
+  one check path, and the verify-only one refuses what it cannot answer rather
+  than skipping it. Needing a weaker check is the owner's question, never a
+  local accommodation. A consumer proves it uses this path with
+  `workcontext/conformance.Run`, or `RunAuthenticator` for the verify-only
+  entrypoint; a foreign encoding is refused *before* the signature with
+  `ErrNotACoreToken`, never as a bad signature. A second implementation already
+  cost a day of key-rotation debugging. See
+  [`docs/work-context.md`](docs/work-context.md) and
+  [`workcontext/README.md`](workcontext/README.md).
 - **Readiness is a gRPC health check, never a TCP connect.** An open port does
   not mean a ready service. Endpoints declare `health.readiness`; consumers go
   through `resources.PlanReadiness` and the `readiness` package. See
