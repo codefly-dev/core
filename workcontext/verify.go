@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
-	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/proto"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -81,29 +78,9 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if v.Revisions == nil || v.Replay == nil || v.Grants == nil || v.Seals == nil {
 		return nil, fmt.Errorf("work context: verifier is missing a revision source, replay store, grant source or seal source")
 	}
-	payload, signature, found := strings.Cut(encoded, ".")
-	if !found {
-		return nil, fmt.Errorf("%w: token is not <payload>.<signature>", ErrInvalid)
-	}
-	claims, err := base64.RawURLEncoding.DecodeString(payload)
+	wc, claims, sig, err := decodeClaims(encoded)
 	if err != nil {
-		return nil, fmt.Errorf("%w: payload is not base64url: %v", ErrInvalid, err)
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(signature)
-	if err != nil {
-		return nil, fmt.Errorf("%w: signature is not base64url: %v", ErrInvalid, err)
-	}
-	// Before anything is unmarshalled and well before the signature is
-	// checked: is this even this encoding? See ErrNotACoreToken.
-	if err := CheckEncoding(claims); err != nil {
 		return nil, err
-	}
-	wc := &basev0.WorkContextV1{}
-	if err := proto.Unmarshal(claims, wc); err != nil {
-		return nil, fmt.Errorf("%w: payload is not a WorkContextV1: %v", ErrInvalid, err)
-	}
-	if err := protovalidate.Validate(wc); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	if wc.GetIssuer() != v.Issuer {
 		return nil, fmt.Errorf("%w: issued by %q, not %q", ErrInvalid, wc.GetIssuer(), v.Issuer)
@@ -138,6 +115,9 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 		return nil, fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))
 	}
 	if err := checkStructure(wc); err != nil {
+		return nil, err
+	}
+	if err := checkSealedStructure(wc); err != nil {
 		return nil, err
 	}
 

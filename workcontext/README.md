@@ -126,4 +126,25 @@ not take. `RunAuthenticator` is stricter than `Run`, not laxer: identical
 outcomes everywhere except the fixtures marked `NeedsIssuer`, which must be
 refused — the one assertion a downgraded authenticator fails.
 
+Two more entry points exist, and neither is a third strength:
+
+- **`workcontext.Inspect(token) error`** — is this token *structurally* a sealed
+  capability? Shape, encoding, schema, attenuation, grant shape, a seal naming
+  an installation, an epoch on every actor hop. **Error only, no claims**, and
+  that is the safety argument: returning claims would let a caller act on an
+  unverified token, and with nothing to read the only possible use is the one
+  it is for — a sender refusing early rather than having the receiver refuse
+  late. It checks no signature and no issuer state; a test asserts a forgery
+  passes it. It exists because consumers were answering this question by hand
+  and reaching different sentinels than core's fixtures declare.
+- **`(*Verifier).Recheck(ctx, *Verified) error`** — re-read live state under a
+  long-running call, **without consuming the nonce**. It takes a `*Verified`,
+  so it cannot be a first verification: you must already hold one. It re-checks
+  the window, the revision, the seal, every hop's epoch, the binding and the
+  grant record, and never the signature or the replay store. `Verify` consumes
+  a single-use capability, so a stream guard that re-verified before each
+  emission killed the stream on its first check; liveness and consumption are
+  different operations and only one belongs in a loop. How often to call it is
+  the caller's explicit choice, not core's.
+
 See `docs/work-context.md`, "Two entrypoints, one implementation, one strength".

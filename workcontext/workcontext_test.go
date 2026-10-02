@@ -349,3 +349,16 @@ func TestVerify_RefusesWithoutAnyOneOfItsSources(t *testing.T) {
 		})
 	}
 }
+
+// resignWithAnotherKey re-signs a token's claims with a key the verifier does
+// not hold, keeping the payload byte-identical.
+func (h *harness) resignWithAnotherKey(t *testing.T, token string) string {
+	t.Helper()
+	payload, _, found := strings.Cut(token, ".")
+	require.True(t, found)
+	claims, err := base64.RawURLEncoding.DecodeString(payload)
+	require.NoError(t, err)
+	_, other, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	return payload + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(other, claims))
+}
