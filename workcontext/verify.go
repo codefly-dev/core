@@ -1,6 +1,7 @@
 package workcontext
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -92,6 +93,11 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if err != nil {
 		return nil, fmt.Errorf("%w: signature is not base64url: %v", ErrInvalid, err)
 	}
+	// Before anything is unmarshalled and well before the signature is
+	// checked: is this even this encoding? See ErrNotACoreToken.
+	if err := refuseForeignEncoding(claims); err != nil {
+		return nil, err
+	}
 	wc := &basev0.WorkContextV1{}
 	if err := proto.Unmarshal(claims, wc); err != nil {
 		return nil, fmt.Errorf("%w: payload is not a WorkContextV1: %v", ErrInvalid, err)
@@ -161,6 +167,40 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	}
 
 	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded)}, nil
+}
+
+// refuseForeignEncoding reports a payload that is not this capability's
+// encoding, so a token in another format is refused as such rather than as a
+// bad signature.
+//
+// A JSON payload is detectable with certainty, which is what makes this a
+// check rather than a guess. The first byte of a proto3 encoding is a field
+// tag: field number in the high bits, wire type in the low three. "{" is 0x7b,
+// which is field 15 with wire type 3 — the start-group wire type, which proto3
+// does not emit and which Unmarshal refuses. "[" is 0x5b, field 11 wire type 3,
+// the same. So neither byte can begin a WorkContextV1, and a payload beginning
+// with either is some other format rather than a damaged one of ours.
+//
+// Leading whitespace is skipped before the test because a JSON encoder may emit
+// it, and a payload that is whitespace followed by "{" is no more a core token
+// than one that starts with it.
+func refuseForeignEncoding(claims []byte) error {
+	// An empty payload is NOT this error. "Not a core token" means "this is
+	// another format", and an empty payload is not another format — it is a
+	// malformed token of no format at all, which the schema check below refuses
+	// as invalid. Widening this error to cover it would make it mean "something
+	// was wrong early", which is exactly the vagueness it exists to remove.
+	trimmed := bytes.TrimLeft(claims, " \t\r\n")
+	if len(trimmed) == 0 {
+		return nil
+	}
+	switch trimmed[0] {
+	case '{':
+		return fmt.Errorf("%w: the payload is a JSON object; this capability is a deterministic protobuf encoding", ErrNotACoreToken)
+	case '[':
+		return fmt.Errorf("%w: the payload is a JSON array; this capability is a deterministic protobuf encoding", ErrNotACoreToken)
+	}
+	return nil
 }
 
 // checkGrant holds the capability's grant hop against the issuer's own record

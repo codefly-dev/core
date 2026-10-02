@@ -2,6 +2,8 @@ package workcontext_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -370,4 +372,120 @@ func TestMemorySealSource_KeepsTwoInstallationsApart(t *testing.T) {
 
 	_, err = source.Seal(context.Background(), "someone-else", "inst-a")
 	require.ErrorIs(t, err, workcontext.ErrNoSeal)
+}
+
+// A token in another encoding is refused as a foreign format BEFORE its
+// signature is checked, and with its own error.
+//
+// This is the regression that made the one-implementation rule necessary. A
+// second implementation signed a hand-written JSON payload; both forms are
+// "<payload>.<signature>" with Ed25519, so a token from one reached the other,
+// failed SIGNATURE verification, and reported "signature does not verify under
+// key X" — which reads like key rotation, and is what everyone investigated
+// while the actual problem was two encodings.
+func TestVerify_RefusesAForeignEncodingBeforeTheSignature(t *testing.T) {
+	h := newHarness(t)
+
+	// Signed with the harness key, so the signature is genuine. A verifier
+	// that checked the signature first would get past it and then produce some
+	// other error; one that checks it last would report a signature failure for
+	// a token that was never in this format. Neither is what happens.
+	payload := []byte(`{"typ":"codefly.work-context/v1","issuer":"` + issuer + `","audience":"` + audience + `"}`)
+	genuine := base64.RawURLEncoding.EncodeToString(payload) + "." +
+		base64.RawURLEncoding.EncodeToString(ed25519.Sign(h.authority.Key, payload))
+
+	_, err := h.verify(audience, genuine)
+	require.ErrorIs(t, err, workcontext.ErrNotACoreToken)
+	require.NotErrorIs(t, err, workcontext.ErrInvalid,
+		"a foreign encoding is its own diagnosis, not a member of the invalid-capability family")
+	require.NotContains(t, err.Error(), "signature")
+
+	// The ordering is the whole point: the same JSON payload with a signature
+	// that does NOT verify still reports the encoding, because the encoding is
+	// checked first. If this ever reports a signature failure, the regression
+	// is back.
+	broken := base64.RawURLEncoding.EncodeToString(payload) + "." +
+		base64.RawURLEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+	_, err = h.verify(audience, broken)
+	require.ErrorIs(t, err, workcontext.ErrNotACoreToken)
+	require.NotContains(t, err.Error(), "signature")
+
+	// A JSON array payload is the same answer.
+	array := []byte(`[{"typ":"codefly.work-context/v1"}]`)
+	_, err = h.verify(audience, base64.RawURLEncoding.EncodeToString(array)+"."+
+		base64.RawURLEncoding.EncodeToString(ed25519.Sign(h.authority.Key, array)))
+	require.ErrorIs(t, err, workcontext.ErrNotACoreToken)
+
+	// Leading whitespace does not launder it.
+	spaced := append([]byte("  \n"), payload...)
+	_, err = h.verify(audience, base64.RawURLEncoding.EncodeToString(spaced)+"."+
+		base64.RawURLEncoding.EncodeToString(ed25519.Sign(h.authority.Key, spaced)))
+	require.ErrorIs(t, err, workcontext.ErrNotACoreToken)
+}
+
+// An empty payload is NOT a foreign encoding. "Not a core token" means "this is
+// another format"; widening it to cover a malformed token of no format would
+// make it mean "something was wrong early", which is the vagueness it exists to
+// remove.
+func TestVerify_AnEmptyPayloadIsInvalidRatherThanForeign(t *testing.T) {
+	h := newHarness(t)
+	_, err := h.verify(audience, ".")
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.NotErrorIs(t, err, workcontext.ErrNotACoreToken)
+}
+
+// The kit core ships must pass core's own verifier; if it does not, the kit is
+// wrong rather than the consumer. The conformance package drives this properly;
+// this is the one assertion that belongs beside the minter.
+func TestFixtures_CoverEveryFormAndBothOutcomes(t *testing.T) {
+	fixtures, err := workcontext.Fixtures(time.Now())
+	require.NoError(t, err)
+	require.NotEmpty(t, fixtures)
+
+	forms := map[workcontext.Form]int{}
+	outcomes := map[workcontext.Outcome]int{}
+	for _, fixture := range fixtures {
+		require.NotEmptyf(t, fixture.Name, "every fixture is named")
+		require.NotEmptyf(t, fixture.Reason, "%s says which rule decides it", fixture.Name)
+		forms[fixture.Form]++
+		outcomes[fixture.Outcome]++
+		if fixture.Outcome == workcontext.OutcomeRejected {
+			require.NotNilf(t, fixture.Err, "%s must name the sentinel its refusal matches", fixture.Name)
+		} else {
+			require.Nilf(t, fixture.Err, "%s is accepted, so it names no error", fixture.Name)
+		}
+	}
+	for _, form := range []workcontext.Form{
+		workcontext.FormSession, workcontext.FormOperation, workcontext.FormDelegated,
+		workcontext.FormDelegatedOperation, workcontext.FormGrant, workcontext.FormForeign,
+	} {
+		require.NotZerof(t, forms[form], "the kit covers no %q token", form)
+	}
+	require.NotZero(t, outcomes[workcontext.OutcomeAccepted])
+	require.NotZero(t, outcomes[workcontext.OutcomeRejected])
+
+	// Two calls mint two sets of nonces, so two consumers running the kit
+	// cannot consume each other's single-use capability.
+	again, err := workcontext.Fixtures(time.Now())
+	require.NoError(t, err)
+	require.Len(t, again, len(fixtures))
+	for index := range fixtures {
+		require.Equal(t, fixtures[index].Name, again[index].Name)
+		if fixtures[index].Form == workcontext.FormForeign {
+			continue
+		}
+		require.NotEqualf(t, fixtures[index].Token, again[index].Token,
+			"%s must be minted fresh", fixtures[index].Name)
+	}
+}
+
+// The fixture private key is public by construction, and that has to be
+// obvious rather than discovered.
+func TestFixtureKeyPairIsDeterministicAndDocumentedAsPublic(t *testing.T) {
+	public, private := workcontext.FixtureKeyPair()
+	againPublic, againPrivate := workcontext.FixtureKeyPair()
+	require.Equal(t, public, againPublic)
+	require.Equal(t, private, againPrivate)
+	require.Equal(t, public, private.Public())
+	require.Equal(t, map[string]ed25519.PublicKey{workcontext.FixtureKeyID: public}, workcontext.FixtureKeys())
 }

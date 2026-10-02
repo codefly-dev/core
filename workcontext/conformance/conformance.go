@@ -1,0 +1,236 @@
+// Package conformance proves that a consumer verifies Work Contexts through
+// core's implementation, by driving core's own fixtures against the consumer's
+// verification entrypoint.
+//
+// # Why this package exists
+//
+// A wire contract has exactly one implementation, in the repository that owns
+// the type. The Work Context is a core proto, so core's workcontext package is
+// the only mint and the only verify, and nothing else may sign, verify or
+// re-encode one.
+//
+// That rule cannot be enforced in core, because core cannot see who
+// re-implements it. It is enforced here instead, in the consumer's own test
+// suite: a consumer that calls Run with its verification entrypoint and passes
+// is using core's path, and a consumer that has quietly grown a second
+// implementation cannot pass. The decisive case is the foreign-encoding
+// fixture, which must be refused BEFORE its signature is checked and with
+// workcontext.ErrNotACoreToken — a second implementation refuses that token
+// too, but as a signature failure, which is the misdiagnosis that made this
+// rule necessary in the first place.
+//
+// # How a consumer uses it
+//
+//	func TestWorkContextConformance(t *testing.T) {
+//	    verifier := conformance.Verifier()          // core's, configured for the kit
+//	    conformance.Run(t, func(ctx context.Context, token string) error {
+//	        _, err := myPackage.VerifyWorkContext(ctx, token)   // the consumer's own entrypoint
+//	        return err
+//	    })
+//	    _ = verifier
+//	}
+//
+// The consumer's entrypoint must be configured with the kit's issuer,
+// audience, key, revision source, replay store, seal source and grant source.
+// Settings returns exactly those, and Verifier assembles core's Verifier from
+// them for a consumer whose entrypoint simply is core's.
+//
+// The replay store matters: one of the fixtures is single-use, and Run presents
+// it twice to check that the second presentation is refused. So the entrypoint
+// must hold one replay store across the whole Run, which is what a real
+// verifier does anyway.
+package conformance
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/codefly-dev/core/workcontext"
+)
+
+// Verify is a consumer's verification entrypoint: it takes a presented token
+// and returns the error verification produced, or nil.
+//
+// It deliberately returns only an error. What a consumer does with the verified
+// claims is the consumer's business; what this package checks is that it
+// reaches the same accept/refuse decision, with the same named reason, as
+// core's verifier does.
+type Verify func(ctx context.Context, token string) error
+
+// TestingT is the part of *testing.T this package uses. It is an interface so
+// that importing this package does not pull the testing flag set into a
+// consumer's binary.
+type TestingT interface {
+	Helper()
+	Errorf(format string, args ...any)
+	Fatalf(format string, args ...any)
+}
+
+// Settings is everything a verification entrypoint must be configured with
+// before Run means anything. A consumer that configures its verifier from
+// anything else is testing its own configuration rather than the contract.
+type Settings struct {
+	// Issuer is the authority the verifier must pin.
+	Issuer string
+	// Audience is the service the verifier answers for.
+	Audience string
+	// Keys are the public keys by key id.
+	Keys map[string][]byte
+	// Revisions is the issuer's authorization revision source.
+	Revisions workcontext.RevisionSource
+	// Replay is a replay store. One instance must serve the whole Run.
+	Replay workcontext.ReplayStore
+	// Seals is the live sealed state every accepted fixture is sealed to.
+	Seals workcontext.SealSource
+	// Grants resolves the approval the grant fixture carries.
+	Grants workcontext.GrantSource
+	// Now is the clock the fixtures were minted against. A verifier checking
+	// the windows against a different clock will refuse sound fixtures, so a
+	// consumer that pins a clock must pin this one.
+	Now func() time.Time
+}
+
+// New returns the settings for one conformance run, pinned to the given clock.
+// Pass time.Now() unless the consumer's verifier is itself pinned.
+func New(now time.Time) Settings {
+	keys := map[string][]byte{}
+	for id, key := range workcontext.FixtureKeys() {
+		keys[id] = key
+	}
+	return Settings{
+		Issuer:    workcontext.FixtureIssuer,
+		Audience:  workcontext.FixtureAudience,
+		Keys:      keys,
+		Revisions: workcontext.FixtureRevisions(),
+		Replay:    workcontext.NewMemoryReplayStore(),
+		Seals:     workcontext.FixtureSeals(),
+		Grants:    workcontext.FixtureGrants(now),
+		Now:       func() time.Time { return now },
+	}
+}
+
+// Verifier assembles core's Verifier from the kit's settings. A consumer whose
+// verification entrypoint is core's — which, under the one-implementation rule,
+// is every consumer — passes this verifier's Verify to Run.
+func (s Settings) Verifier() *workcontext.Verifier {
+	keys := workcontext.FixtureKeys()
+	return &workcontext.Verifier{
+		Issuer:    s.Issuer,
+		Audience:  s.Audience,
+		Keys:      keys,
+		Revisions: s.Revisions,
+		Replay:    s.Replay,
+		Grants:    s.Grants,
+		Seals:     s.Seals,
+		Now:       s.Now,
+	}
+}
+
+// Verifier is New(time.Now()).Verifier() — the common case.
+func Verifier() *workcontext.Verifier { return New(time.Now()).Verifier() }
+
+// Run drives every fixture against verify and reports, per fixture, any
+// outcome that differs from the contract. It uses a clock of its own and mints
+// the fixtures fresh, so two consumers running it cannot interfere.
+//
+// A consumer calling Run must have configured its entrypoint from the same
+// Settings; use RunWith when the consumer needs the settings in hand first.
+func Run(t TestingT, verify Verify) {
+	t.Helper()
+	RunWith(t, New(time.Now()), verify)
+}
+
+// RunWith drives every fixture against verify using settings the caller
+// already holds — for a consumer that had to build its verifier before it
+// could hand over an entrypoint.
+func RunWith(t TestingT, settings Settings, verify Verify) {
+	t.Helper()
+	if verify == nil {
+		t.Fatalf("work context conformance: no verification entrypoint")
+		return
+	}
+	fixtures, err := workcontext.Fixtures(settings.Now())
+	if err != nil {
+		t.Fatalf("work context conformance: the kit itself did not build: %v", err)
+		return
+	}
+	if len(fixtures) == 0 {
+		t.Fatalf("work context conformance: the kit is empty")
+		return
+	}
+	ctx := context.Background()
+	var accepted, rejected int
+	for _, fixture := range fixtures {
+		err := verify(ctx, fixture.Token)
+		switch fixture.Outcome {
+		case workcontext.OutcomeAccepted:
+			accepted++
+			if err != nil {
+				t.Errorf("work context conformance: fixture %q (%s) must verify and did not: %v\n  it is: %s",
+					fixture.Name, fixture.Form, err, fixture.Reason)
+				continue
+			}
+			if fixture.SingleUse {
+				// A single-use capability is consumed by verifying it, so
+				// presenting it again must be refused. A verifier without a
+				// durable replay store passes everything above and fails here,
+				// which is the point: single-use is a property of the verifier,
+				// not of the token.
+				if second := verify(ctx, fixture.Token); !errors.Is(second, workcontext.ErrReplayed) {
+					t.Errorf("work context conformance: fixture %q is single-use; a second presentation must be refused with ErrReplayed, got %v",
+						fixture.Name, second)
+				}
+			}
+		case workcontext.OutcomeRejected:
+			rejected++
+			if err == nil {
+				t.Errorf("work context conformance: fixture %q (%s) must be refused and was accepted\n  it is: %s",
+					fixture.Name, fixture.Form, fixture.Reason)
+				continue
+			}
+			// The named reason is part of the contract. "Refused" and "refused
+			// for the stated reason" are different guarantees, and the whole
+			// reason this kit exists is an implementation that refused the
+			// right token with the wrong error.
+			if fixture.Err != nil && !errors.Is(err, fixture.Err) {
+				t.Errorf("work context conformance: fixture %q (%s) must be refused with %v, got %v\n  it is: %s",
+					fixture.Name, fixture.Form, fixture.Err, err, fixture.Reason)
+			}
+		default:
+			t.Errorf("work context conformance: fixture %q declares outcome %q, which is neither accepted nor rejected",
+				fixture.Name, fixture.Outcome)
+		}
+	}
+	// A kit that drove no accepted fixture, or no refused one, would pass for a
+	// verifier that answered the same way to everything.
+	if accepted == 0 || rejected == 0 {
+		t.Fatalf("work context conformance: the kit must drive both outcomes, got %d accepted and %d refused", accepted, rejected)
+	}
+	if err := checkForms(fixtures); err != nil {
+		t.Fatalf("work context conformance: %v", err)
+	}
+}
+
+// checkForms fails when the kit stops covering a token form, so adding a form
+// to the minter without adding a fixture for it cannot pass unnoticed.
+func checkForms(fixtures []workcontext.Fixture) error {
+	covered := map[workcontext.Form]bool{}
+	for _, fixture := range fixtures {
+		covered[fixture.Form] = true
+	}
+	for _, form := range []workcontext.Form{
+		workcontext.FormSession,
+		workcontext.FormOperation,
+		workcontext.FormDelegated,
+		workcontext.FormDelegatedOperation,
+		workcontext.FormGrant,
+		workcontext.FormForeign,
+	} {
+		if !covered[form] {
+			return fmt.Errorf("the kit covers no %q token", form)
+		}
+	}
+	return nil
+}

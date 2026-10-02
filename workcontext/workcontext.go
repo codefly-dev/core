@@ -54,6 +54,25 @@ const DefaultSkew = 30 * time.Second
 // capability itself — signature, window, audience, attenuation, grant shape.
 var ErrInvalid = errors.New("work context: invalid")
 
+// ErrNotACoreToken is returned for a token whose payload is not this
+// encoding at all — most usefully, one carrying a JSON payload.
+//
+// It exists because of a specific failure that cost real time. A second
+// implementation of this capability once signed a hand-written JSON payload
+// instead of the deterministic proto encoding. Both forms are
+// "<base64url payload>.<base64url signature>" with an Ed25519 signature, so a
+// token from one looked structurally fine to the other and then failed
+// SIGNATURE verification — and "signature does not verify under key X" reads
+// like a key-rotation or trust-root problem, which is what everyone went and
+// investigated.
+//
+// So a foreign encoding is refused BEFORE the signature is checked, and with
+// its own error. The verifier never reports a signature failure for a token
+// that was never in this format: the two diagnoses are different and must not
+// be reachable from the same message. A caller seeing this knows the sender is
+// speaking another format, not that a key is wrong.
+var ErrNotACoreToken = errors.New("work context: not a core token")
+
 // ErrReplayed is returned when a single-use capability is presented a second
 // time. Distinct from ErrInvalid: the capability is otherwise sound, and a
 // caller that sees this has hit the resume contract rather than a forgery.

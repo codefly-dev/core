@@ -202,24 +202,102 @@ the verifier instead, so a token without the sealed fields does not verify, and
 `Authority.seal` refuses to sign an unsealed capability so a mint path that
 forgot cannot ship one.
 
-### Two implementations, one contract
+### One implementation, and the gate that keeps it that way
 
-Core's `workcontext` signs the deterministic **binary protobuf** encoding of
-`WorkContextV1`. `codefly-dev/sdk-go/workcontext` signs a hand-written
-snake_case **JSON** payload, and that is the implementation the product host
-uses. The two are wire-incompatible by construction: a token from either looks
-structurally right to the other and then fails signature verification, with a
-message that reads like a key-rotation problem.
+**A wire contract has exactly one implementation, in the repository that owns
+the type.** The Work Context is a core proto, so core's `workcontext` — the
+deterministic proto marshal, Ed25519 over those bytes — is the only mint and
+the only verify. Nothing else may sign, verify or re-encode one.
 
-So adding these fields here is **necessary and not sufficient**. The SDK
-enumerates its payload fields by hand, and a field added in core but not added
-there is silently dropped at mint and silently absent at verify. `sdk-go#47`
-carries them across, using the proto field names above verbatim as its JSON
-keys so the two encodings name the same things. Because the SDK decodes with
-`DisallowUnknownFields`, the cutover is ordered: verifiers upgrade before
-minters, or every call fails closed during the window.
+That rule is written here because it was broken here. A second implementation
+in another repository signed a hand-written snake_case JSON payload. Both forms
+are `<base64url payload>.<base64url signature>` with an Ed25519 signature, so a
+token from either looked structurally fine to the other and then failed
+**signature** verification — and `signature does not verify under key X` reads
+like a key-rotation or trust-root problem, which is what was investigated while
+the actual problem was two encodings.
 
-Core's `Verifier` is issuer-shaped — it requires a revision source, a replay
-store, a grant source and a seal source, which a product module verifying an
-incoming capability does not have. It is not a drop-in for the SDK's
-consumer-shaped verifier, whatever the duplication costs.
+Three things in this package exist because of that, and none of them is a
+comment:
+
+**1. A foreign encoding is refused before the signature, with its own error.**
+`ErrNotACoreToken`, never `ErrInvalid` and never a signature failure. The check
+is certain rather than heuristic: the first byte of a proto3 encoding is a field
+tag, and `{` (0x7b) is field 15 with wire type 3 — the start-group type proto3
+does not emit and `Unmarshal` refuses. `[` (0x5b) is field 11, the same. So
+neither byte can begin a `WorkContextV1`, and a payload beginning with either is
+another format rather than a damaged one of ours. An *empty* payload is
+deliberately **not** this error: "not a core token" means "this is another
+format", and widening it to cover a malformed token of no format would make it
+mean "something was wrong early".
+
+**2. `workcontext.Fixtures(now)` is the conformance kit, as code.** For every
+token form this package mints — session, operation, delegated, delegated
+operation, grant — and for every way one is refused, it returns the signed token
+and the outcome a conforming verifier must reach, including the sentinel a
+refusal must match. The negatives cover a stale installation revision, a
+revision *ahead* of the issuer's, a superseded principal epoch, a replaced build
+incarnation, an installation the principal does not hold, a binding at a
+revision the issuer does not hold, a missing seal, a seal naming no
+installation, a tampered payload, another audience, an unknown key, four
+malformed shapes — and the look-alike.
+
+Tokens are minted fresh on each call rather than committed as bytes: a
+capability carries a validity window, so committed bytes would expire and the
+kit would rot into a test that fails for the wrong reason once a year. What is
+fixed is everything a verifier is configured with — the keypair, the issuer, the
+audience, the identities, every sealed value. **The fixture private key is
+public by construction**, derived from a seed written in the source; it signs
+conformance tokens and nothing else.
+
+Two fixtures are worth knowing by name. `tampered-payload` is a sound capability
+with one byte changed and the signature left alone — that is what a signature
+failure is *for*, and it is the one fixture that must report one.
+`foreign-encoding` is a genuinely signed JSON-payload token, and its signature
+is real precisely so that a verifier checking the signature first would still
+refuse it — and would refuse it with the wrong error. The two together are what
+make the distinction load-bearing rather than cosmetic.
+
+**3. `workcontext/conformance.Run(t, verify)` is run by the consumer, not by
+core.** A consumer passes its own verification entrypoint; the helper drives
+every fixture and fails the consumer's build if any outcome differs.
+
+```go
+func TestWorkContextConformance(t *testing.T) {
+    verifier := conformance.Verifier()      // core's, configured for the kit
+    conformance.Run(t, func(ctx context.Context, token string) error {
+        _, err := myPackage.VerifyWorkContext(ctx, token)
+        return err
+    })
+    _ = verifier
+}
+```
+
+`conformance.New(now)` returns the `Settings` an entrypoint must be configured
+with — issuer, audience, keys, revision source, replay store, seal source, grant
+source, clock — and `Settings.Verifier()` assembles core's `Verifier` from them,
+which under the one-implementation rule is what every consumer's entrypoint
+resolves to. `Run` also presents the single-use fixture twice, so a verifier
+without a working replay store passes everything else and fails there: single-use
+is a property of the verifier, not of the token.
+
+**The gate lives in the consumer because core cannot see who re-implements it.**
+A consumer that runs core's fixtures against its own entrypoint proves it uses
+core's path. A consumer that has quietly grown a second implementation cannot
+pass the look-alike fixture, because refusing a foreign encoding before the
+signature check with a distinct error is the one behaviour a re-implementation
+never thinks to copy — it is the behaviour that exists *because* the
+re-implementation happened.
+
+The consumers' half of this is theirs to land: `codefly-dev/sdk-go` deletes its
+mint, verify and JSON payload outright and keeps client plumbing only, with a CI
+gate that fails on a second implementation; the product host switches its call
+sites to this package and runs the conformance helper in its own suites. The
+cutover is cold — every token changes format at once, and an old token is
+refused with `ErrNotACoreToken` rather than accepted.
+
+Core's `Verifier` is issuer-shaped: it requires a revision source, a replay
+store, a grant source and a seal source, all four load-bearing. A consumer that
+verifies incoming capabilities needs all four too, which is a real cost of there
+being one implementation and is the correct cost — the alternative is a second
+verifier that answers a weaker question.
