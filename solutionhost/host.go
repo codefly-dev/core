@@ -197,23 +197,12 @@ func (host Host) Admit(documents ...*SolutionHostBinding) ([]Admission, error) {
 
 	admissions := make([]Admission, len(documents))
 	declared := make(map[string]int, len(documents))
-	// One delivery speaks for one ownership domain. A set carrying two is a
-	// delivery that straddles them, and "within D the delivered set is exactly
-	// desired" has no single D to be true of — so the whole set is withheld
-	// rather than applied under whichever domain happened to be read first.
-	// This is a property of the set, so it refuses every document in it,
-	// including the ones that are individually sound.
-	straddle := straddledDomain(documents)
 	for index, document := range documents {
 		if err := document.Validate(); err != nil {
 			admissions[index].Err = err
 			continue
 		}
 		admissions[index].Binding = document.Binding
-		if straddle != nil {
-			admissions[index].Err = straddle
-			continue
-		}
 		if host.Coordinate != "" && document.Host.Coordinate != host.Coordinate {
 			admissions[index].Err = fmt.Errorf("%w: binding %q targets %q, this host is %q", ErrWrongHost, document.Binding, document.Host.Coordinate, host.Coordinate)
 			continue
@@ -330,12 +319,29 @@ func (host Host) refuseOneAliasCollision(documents []*SolutionHostBinding, admis
 	return false
 }
 
-// straddledDomain reports the refusal for a set that carries more than one
-// ownership domain, or nil when every document that names one agrees. Documents
-// that do not validate are skipped: an unreadable domain is that document's own
-// refusal, and letting it decide the set's would turn one malformed document
-// into a withheld delivery.
-func straddledDomain(documents []*SolutionHostBinding) error {
+// OneDelivery reports whether a set of documents is ONE delivery: every
+// document in it speaks for the same ownership domain. It answers
+// ErrWrongDomain when the set straddles two, naming them.
+//
+// It is a separate call and deliberately NOT part of Host.Admit, because
+// "delivered set" and "the documents a host can see" are not the same set and
+// the difference decides the answer:
+//
+//   - A renderer writing one delivery calls this on the set it is about to
+//     write. A set that straddles two domains cannot satisfy "within D the
+//     delivered set is exactly desired" for any single D, so removal within it
+//     is not expressible and the delivery is refused where it was authored.
+//   - A host does NOT call it on its mount. A host's mount is the union of
+//     however many deliveries reached it, so it legitimately carries one domain
+//     per delivery; refusing that would refuse the normal case the moment a
+//     second module delivered to the same host. A host computes absence per
+//     domain instead — group the mounted set by OwnershipDomain, and within each
+//     group the delivered set is the desired set.
+//
+// Documents that do not validate are skipped: an unreadable domain is that
+// document's own refusal, and letting it decide the set's would turn one
+// malformed document into a withheld delivery.
+func OneDelivery(documents ...*SolutionHostBinding) error {
 	domains := make([]string, 0, 1)
 	for _, document := range documents {
 		if document == nil || document.Validate() != nil {
@@ -350,6 +356,24 @@ func straddledDomain(documents []*SolutionHostBinding) error {
 	}
 	slices.Sort(domains)
 	return fmt.Errorf("%w: this set declares domains %v; one delivery speaks for one domain", ErrWrongDomain, domains)
+}
+
+// ByDomain groups a set by ownership domain, which is how a host turns a mount
+// holding several deliveries into one answerable question per delivery: within
+// a domain, the documents present are the desired set, and a binding of that
+// domain which is absent at a higher generation has been removed.
+//
+// Documents that do not validate are left out, because a document whose domain
+// cannot be read cannot be attributed to a delivery at all.
+func ByDomain(documents ...*SolutionHostBinding) map[string][]*SolutionHostBinding {
+	grouped := map[string][]*SolutionHostBinding{}
+	for _, document := range documents {
+		if document == nil || document.Validate() != nil {
+			continue
+		}
+		grouped[document.OwnershipDomain] = append(grouped[document.OwnershipDomain], document)
+	}
+	return grouped
 }
 
 func routeClaims(binding string, aliases []string) []composition.Claim {

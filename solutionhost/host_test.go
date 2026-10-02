@@ -261,3 +261,111 @@ func TestAppliedFromRecordsWhatTheHostMustPersist(t *testing.T) {
 	_, err = solutionhost.AppliedFrom(document)
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 }
+
+// A set is one delivery when every document in it speaks for one ownership
+// domain, and that is a separate question from what a host may admit.
+//
+// A renderer writing one delivery asks it: a set straddling two domains cannot
+// satisfy "within D the delivered set is exactly desired" for any single D, so
+// removal within it is not expressible.
+func TestOneDeliverySpeaksForOneDomain(t *testing.T) {
+	first := parse(t, "valid")
+	second := parse(t, "module-presence")
+	require.NoError(t, solutionhost.OneDelivery(first, second), "both speak for the fixture domain")
+	require.NoError(t, solutionhost.OneDelivery(), "an empty set straddles nothing")
+	require.NoError(t, solutionhost.OneDelivery(first))
+
+	second.OwnershipDomain = "pim"
+	err := solutionhost.OneDelivery(first, second)
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
+	require.Contains(t, err.Error(), "pim")
+	require.Contains(t, err.Error(), solutionhost.FixtureDomain)
+
+	// A document that does not validate is its own refusal and never decides
+	// the set's: otherwise one malformed document would withhold a delivery.
+	malformed := parse(t, "valid")
+	malformed.OwnershipDomain = "not a domain"
+	require.NoError(t, solutionhost.OneDelivery(first, malformed))
+}
+
+// A host's mount is the union of however many deliveries reached it, so it
+// legitimately carries one domain per delivery. Admit must not refuse that —
+// which is the whole reason OneDelivery is a separate call — and ByDomain is
+// how a host turns the union back into one answerable question per delivery.
+func TestAHostAdmitsAMountHoldingSeveralDeliveries(t *testing.T) {
+	fromCRM := parse(t, "valid")
+	fromPIM := parse(t, "module-presence")
+	fromPIM.OwnershipDomain = "pim"
+	fromPIM.Routes = nil
+
+	host := solutionhost.Host{
+		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{solutionhost.FixtureDomain, "pim"},
+		Applied:    fixtureHost(t).Applied,
+	}
+	admissions, err := host.Admit(fromCRM, fromPIM)
+	require.NoError(t, err, "two deliveries into one mount is the normal case, not a straddle")
+	require.Equal(t, solutionhost.DecisionCurrent, admissions[0].Decision)
+	require.Equal(t, solutionhost.DecisionApply, admissions[1].Decision)
+
+	grouped := solutionhost.ByDomain(fromCRM, fromPIM)
+	require.Len(t, grouped, 2)
+	require.Equal(t, []*solutionhost.SolutionHostBinding{fromCRM}, grouped[solutionhost.FixtureDomain])
+	require.Equal(t, []*solutionhost.SolutionHostBinding{fromPIM}, grouped["pim"])
+
+	// A domain the host does not accept is refused per document, which is the
+	// rule that bounds a binding's first generation.
+	narrow := solutionhost.Host{
+		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{solutionhost.FixtureDomain},
+		Applied:    fixtureHost(t).Applied,
+	}
+	_, err = admitOne(t, narrow, fromPIM)
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
+	require.Contains(t, err.Error(), "does not accept")
+}
+
+// A named host must say which domains it accepts. An unstated list would accept
+// every domain, which is the hole the field exists to close — so it is an error
+// rather than a permissive default. A renderer leaves both empty.
+func TestANamedHostMustDeclareTheDomainsItAccepts(t *testing.T) {
+	_, err := solutionhost.Host{Coordinate: solutionhost.FixtureCoordinate}.Admit(parse(t, "valid"))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "ownership domains it accepts")
+
+	_, err = solutionhost.Host{
+		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{"not a domain"},
+	}.Admit(parse(t, "valid"))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+
+	// The renderer's view, unaffected: no coordinate, no domains, and every
+	// check that does not need host state still runs.
+	_, err = solutionhost.Host{}.Admit(parse(t, "valid"))
+	require.NoError(t, err)
+}
+
+// A binding keeps the domain it was applied under, and a tombstone is the case
+// that matters: otherwise any delivery the host accepts could withdraw any
+// binding by declaring a higher generation under its own domain.
+func TestABindingKeepsTheDomainItWasAppliedUnder(t *testing.T) {
+	host := solutionhost.Host{
+		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{solutionhost.FixtureDomain, "pim"},
+		Applied:    fixtureHost(t).Applied,
+	}
+
+	// The host accepts "pim", so this is refused on ownership and not on
+	// acceptance — which is what makes the two rules distinct.
+	foreign := parse(t, "tombstone-foreign-domain")
+	require.Equal(t, "pim", foreign.OwnershipDomain)
+	require.Greater(t, foreign.Generation, host.Applied[0].Generation)
+
+	_, err := admitOne(t, host, foreign)
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
+	require.Contains(t, err.Error(), "was applied under domain")
+
+	// The same withdrawal from the delivery that owns the binding applies.
+	_, err = admitOne(t, host, parse(t, "tombstone"))
+	require.NoError(t, err)
+}

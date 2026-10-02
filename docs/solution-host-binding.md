@@ -174,17 +174,40 @@ not the enforcement — three things are:
    wrote and own it from then on. It is the host's to declare because core cannot
    know which delivery is entitled to a name it has never seen. A renderer
    pre-checking a set leaves both fields empty and is unaffected.
-2. **One delivery speaks for one domain.** A set carrying two refuses *every*
-   document in it, including the individually sound ones: "within D the delivered
-   set is exactly desired" has no single D to be true of.
-3. **The applied record's domain says who may change the binding.** A document
+2. **The applied record's domain says who may change the binding.** A document
    arriving under another domain is refused whatever its generation —
    **tombstones included**, which is the case that matters. Otherwise any
    delivery the host accepts at all could withdraw any binding by declaring a
    higher generation under its own domain.
 
-All three answer `ErrWrongDomain`. And the domain is inside the signed canonical
-encoding, so a carrier that relays a document cannot widen it.
+Both answer `ErrWrongDomain`, both are **per document**, and the domain is
+inside the signed canonical encoding, so a carrier that relays a document
+cannot widen it.
+
+### "One delivery speaks for one domain" is not a rule `Admit` can enforce
+
+A set that straddles two domains cannot satisfy "within D the delivered set is
+exactly desired" for any single D, so removal within it is not expressible. That
+is a real rule — and it is a property of **one delivery**, which is not the same
+set as "the documents a host can see". The difference decides the answer:
+
+- A **renderer** writing one delivery calls `solutionhost.OneDelivery(docs...)`
+  on the set it is about to write, and a straddle is refused where it was
+  authored.
+- A **host** does not call it on its mount. A mount is the union of however many
+  deliveries reached it, so it legitimately carries one domain per delivery.
+  Refusing that inside `Admit` would refuse the normal case the moment a second
+  module delivered to the same host. A host uses
+  `solutionhost.ByDomain(docs...)` instead: within each group the documents
+  present are the desired set, and a binding of that domain absent at a higher
+  generation has been removed.
+
+This is deliberately a separate call rather than part of `Admit`, because
+putting it in `Admit` makes core decide that a host's mount is one delivery —
+which is exactly the question the renderer and the host have not yet settled
+between them (one ConfigMap per solution namespace, or one tree in the host's).
+Core enforces what is true either way and hands the caller the grouping for
+what is not.
 
 ## The authority document
 
@@ -356,7 +379,8 @@ payload that survives a round trip through it.
 | An applied generation is immutable | `Host.Admit`, `ErrRewrittenGeneration` |
 | Route aliases are unique within a host, compared per coordinate | `Host.Admit` → `composition.ErrCollision` |
 | A document delivered to the wrong coordinate is refused | `Host.Admit`, `ErrWrongHost` |
-| A host accepts only the domains it declares; one delivery is one domain; a binding keeps the domain it was applied under | `Host.Admit`, `ErrWrongDomain` |
+| A host accepts only the domains it declares, and a binding keeps the domain it was applied under | `Host.Admit`, `ErrWrongDomain` |
+| One delivery speaks for one ownership domain | `OneDelivery`, `ErrWrongDomain` — a renderer's check, never a host's |
 | Removal is a generation, never an absence | `Validate`; an empty set is "nothing declared" |
 | Authority bindings are inside the caller's envelope, by exact inclusion | `ValidateAgainst`, `ErrOutsideEnvelope` |
 | Neither half of a tuple activates alone | `Activate`, `ErrNotActivated` |
@@ -400,9 +424,8 @@ admissions, err := host.Admit(documents...)
 `Admit` returns one `Admission` per document in the order given, plus an error
 that is non-nil whenever any document was refused. A caller that checks only the
 error applies nothing; a caller that reads the `Admission`s applies what is sound
-and reports what is not. Validity is per document, so one malformed binding does
-not freeze the other nine — with one exception: a set that straddles two
-ownership domains refuses all of them, because that is a property of the set.
+and reports what is not. Every refusal is per document, so one malformed binding
+does not freeze the other nine.
 
 `Applied` names no coordinate of its own, so `Coordinate` is required whenever it
 is non-empty, and every record must carry the `Domain` it was applied under — a
