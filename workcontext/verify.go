@@ -95,7 +95,7 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	}
 	// Before anything is unmarshalled and well before the signature is
 	// checked: is this even this encoding? See ErrNotACoreToken.
-	if err := refuseForeignEncoding(claims); err != nil {
+	if err := CheckEncoding(claims); err != nil {
 		return nil, err
 	}
 	wc := &basev0.WorkContextV1{}
@@ -169,9 +169,23 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded)}, nil
 }
 
-// refuseForeignEncoding reports a payload that is not this capability's
-// encoding, so a token in another format is refused as such rather than as a
-// bad signature.
+// CheckEncoding reports whether a payload is in another format entirely,
+// returning ErrNotACoreToken when it is and nil when it is not.
+//
+// It takes the base64url-DECODED payload bytes — the claims, not the token.
+// Verify calls it before unmarshalling and well before the signature check,
+// and it is exported so that every other place in the fleet that decodes a
+// payload can name the same condition with the same error. That matters more
+// than it looks: a second decoder that answered "payload is not a
+// WorkContextV1" for a foreign encoding would give an operator two different
+// messages for one condition, which is the diagnostic fragmentation this whole
+// error exists to end — in miniature.
+//
+// A nil return means ONLY that the payload is not visibly in another format.
+// It does not mean the payload is a valid capability, and it does not mean
+// anything was authenticated: nothing here checks a signature, and a caller
+// that treats nil as permission has skipped verification entirely. Verify is
+// the only thing that turns a token into claims.
 //
 // A JSON payload is detectable with certainty, which is what makes this a
 // check rather than a guess. The first byte of a proto3 encoding is a field
@@ -184,7 +198,7 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 // Leading whitespace is skipped before the test because a JSON encoder may emit
 // it, and a payload that is whitespace followed by "{" is no more a core token
 // than one that starts with it.
-func refuseForeignEncoding(claims []byte) error {
+func CheckEncoding(claims []byte) error {
 	// An empty payload is NOT this error. "Not a core token" means "this is
 	// another format", and an empty payload is not another format — it is a
 	// malformed token of no format at all, which the schema check below refuses

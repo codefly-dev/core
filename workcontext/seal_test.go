@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 
@@ -488,4 +489,73 @@ func TestFixtureKeyPairIsDeterministicAndDocumentedAsPublic(t *testing.T) {
 	require.Equal(t, private, againPrivate)
 	require.Equal(t, public, private.Public())
 	require.Equal(t, map[string]ed25519.PublicKey{workcontext.FixtureKeyID: public}, workcontext.FixtureKeys())
+}
+
+// CheckEncoding is exported so every other decoder in the fleet can name the
+// same condition with the same error. A second decoder answering "payload is
+// not a WorkContextV1" for a foreign encoding would give an operator two
+// messages for one condition — the fragmentation ErrNotACoreToken exists to
+// end, in miniature.
+func TestCheckEncodingNamesAForeignEncodingForAnyDecoder(t *testing.T) {
+	for name, payload := range map[string][]byte{
+		"a JSON object":            []byte(`{"typ":"codefly.work-context/v1"}`),
+		"a JSON array":             []byte(`[{"typ":"x"}]`),
+		"whitespace then JSON":     []byte("  \n\t{\"typ\":\"x\"}"),
+		"a JSON object with a BOM": append([]byte{}, append([]byte(" "), []byte(`{"a":1}`)...)...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := workcontext.CheckEncoding(payload)
+			require.ErrorIs(t, err, workcontext.ErrNotACoreToken)
+			require.NotErrorIs(t, err, workcontext.ErrInvalid)
+			require.NotContains(t, err.Error(), "signature")
+		})
+	}
+
+	// And it reports the same error Verify does for the same bytes, so the two
+	// cannot drift into two messages.
+	h := newHarness(t)
+	payload := []byte(`{"typ":"codefly.work-context/v1","issuer":"` + issuer + `"}`)
+	direct := workcontext.CheckEncoding(payload)
+	require.Error(t, direct)
+
+	token := base64.RawURLEncoding.EncodeToString(payload) + "." +
+		base64.RawURLEncoding.EncodeToString(ed25519.Sign(h.authority.Key, payload))
+	_, viaVerify := h.verify(audience, token)
+	require.Equal(t, direct.Error(), viaVerify.Error())
+}
+
+// A nil return means only "not visibly another format". It is not a valid
+// capability and nothing was authenticated — a caller treating nil as
+// permission has skipped verification entirely, so the contract is stated here
+// as well as in the doc comment.
+func TestCheckEncodingAcceptsAnythingThatIsNotVisiblyForeign(t *testing.T) {
+	for name, payload := range map[string][]byte{
+		"empty":              {},
+		"a real capability":  mustMarshal(t, newHarness(t)),
+		"arbitrary bytes":    {0x08, 0x01, 0x12, 0x03, 'a', 'b', 'c'},
+		"a bare quoted word": []byte(`"json string"`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, workcontext.CheckEncoding(payload))
+		})
+	}
+
+	// The last one is the point: a JSON string is not an object or an array, so
+	// this check does not claim it. It is refused later, as invalid, by the
+	// schema — which is the right division, because "another format" and
+	// "malformed" are different diagnoses.
+	h := newHarness(t)
+	_, err := h.verify(audience, base64.RawURLEncoding.EncodeToString([]byte(`"json string"`))+".AA")
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.NotErrorIs(t, err, workcontext.ErrNotACoreToken)
+}
+
+func mustMarshal(t *testing.T, h *harness) []byte {
+	t.Helper()
+	_, verified := h.ownerSession(audience)
+	payload, _, found := strings.Cut(verified.Encoded(), ".")
+	require.True(t, found)
+	claims, err := base64.RawURLEncoding.DecodeString(payload)
+	require.NoError(t, err)
+	return claims
 }

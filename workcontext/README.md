@@ -28,6 +28,16 @@ heuristic: `{` is 0x7b, which as a proto3 field tag is field 15 with the
 start-group wire type that proto3 does not emit and `Unmarshal` refuses; `[` is
 0x5b, the same. Neither byte can begin a `WorkContextV1`.
 
+The discrimination is exported as `CheckEncoding(payload []byte) error`, taking
+the base64url-**decoded** claims. It is exported so that every other place in
+the fleet that decodes a payload names the same condition with the same error:
+a second decoder answering "payload is not a WorkContextV1" for a foreign
+encoding would hand an operator two messages for one condition, which is this
+whole error's fragmentation in miniature. A **nil return means only that the
+payload is not visibly in another format** — not that it is valid, and not that
+anything was authenticated. `Verify` is still the only thing that turns a token
+into claims.
+
 **`Fixtures(now)` is the conformance kit, as code.** Every token form this
 package mints and every way one is refused, with the signed token and the
 outcome — including the sentinel a refusal must match. Minted fresh per call,

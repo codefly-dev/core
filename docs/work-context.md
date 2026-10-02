@@ -231,6 +231,12 @@ deliberately **not** this error: "not a core token" means "this is another
 format", and widening it to cover a malformed token of no format would make it
 mean "something was wrong early".
 
+The discrimination is exported as `CheckEncoding(payload []byte) error` — the
+base64url-decoded claims, not the token — so that every decoder in the fleet
+names the same condition with the same error rather than each inventing a
+weaker message for it. A nil return means only "not visibly another format": it
+asserts nothing about validity and authenticates nothing.
+
 **2. `workcontext.Fixtures(now)` is the conformance kit, as code.** For every
 token form this package mints — session, operation, delegated, delegated
 operation, grant — and for every way one is refused, it returns the signed token
