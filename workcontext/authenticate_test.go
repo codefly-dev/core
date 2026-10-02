@@ -165,7 +165,7 @@ func TestAuthenticate_RefusesACapabilitySealedToASupersededInstallationRevision(
 	require.NotNil(t, authenticated)
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch: 2, InstallationID: installation,
+		InstallationID:       installation,
 		InstallationRevision: 4, BuildIncarnation: 11,
 	}))
 	// The SAME authenticator, reused across the revocation, so one that cached

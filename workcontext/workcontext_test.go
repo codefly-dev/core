@@ -57,11 +57,11 @@ func newHarness(t *testing.T) *harness {
 	h.replay.Now = func() time.Time { return h.clock }
 	h.seals = workcontext.NewMemorySealSource()
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch:       2,
 		InstallationID:       installation,
 		InstallationRevision: 3,
 		BuildIncarnation:     11,
 	}))
+	require.NoError(t, h.seals.PutEpoch(ownerID, 2))
 	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
 		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
 		Revision: 4, Incarnation: 1,

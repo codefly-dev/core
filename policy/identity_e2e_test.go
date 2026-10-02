@@ -86,11 +86,13 @@ func newIdentityHarness(t *testing.T) *identityHarness {
 	// whoever the owner is.
 	for _, principal := range []string{ownerPrincipalID, agentPrincipalID} {
 		require.NoError(t, h.seals.Put(principal, workcontext.Seal{
-			PrincipalEpoch:       1,
 			InstallationID:       installation,
 			InstallationRevision: 1,
 			BuildIncarnation:     1,
 		}))
+		// The epoch has one writer, which is PutEpoch, for owners and actors
+		// alike. Put deliberately no longer sets it.
+		require.NoError(t, h.seals.PutEpoch(principal, 1))
 	}
 	h.authority = &workcontext.Authority{
 		Issuer:    issuerURL,

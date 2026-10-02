@@ -83,7 +83,6 @@ func TestVerify_RefusesACapabilitySealedToASupersededInstallationRevision(t *tes
 	require.NoError(t, err, "sound before the revocation")
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch:       2,
 		InstallationID:       installation,
 		InstallationRevision: 4,
 		BuildIncarnation:     11,
@@ -128,7 +127,6 @@ func TestVerify_RefusesASealAheadOfTheIssuer(t *testing.T) {
 	token, _ := h.ownerSession(audience)
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch:       2,
 		InstallationID:       installation,
 		InstallationRevision: 2,
 		BuildIncarnation:     11,
@@ -140,27 +138,75 @@ func TestVerify_RefusesASealAheadOfTheIssuer(t *testing.T) {
 }
 
 // Each sealed field is its own revocation lever, and each is compared.
+//
+// Each lever is moved THROUGH ITS OWN WRITER, which is the correction a second
+// reviewer required: the epoch cases used to move state with Put, and Put
+// then updated the seal and the epoch together — so the test could not see
+// that PutEpoch alone left the owner's sessions verifying. The epoch has one
+// writer now and this moves it with that one.
 func TestVerify_RefusesEverySealedFieldIndependently(t *testing.T) {
-	for name, moved := range map[string]workcontext.Seal{
-		"principal epoch": {
-			PrincipalEpoch: 3, InstallationID: installation,
-			InstallationRevision: 3, BuildIncarnation: 11,
+	for name, move := range map[string]func(*harness){
+		"principal epoch": func(h *harness) {
+			require.NoError(h.t, h.seals.PutEpoch(ownerID, 3))
 		},
-		"build incarnation": {
-			PrincipalEpoch: 2, InstallationID: installation,
-			InstallationRevision: 3, BuildIncarnation: 12,
+		"installation revision": func(h *harness) {
+			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
+				InstallationID: installation, InstallationRevision: 4, BuildIncarnation: 11,
+			}))
+		},
+		"build incarnation": func(h *harness) {
+			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
+				InstallationID: installation, InstallationRevision: 3, BuildIncarnation: 12,
+			}))
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			token, _ := h.ownerSession(audience)
-			require.NoError(t, h.seals.Put(ownerID, moved))
+			move(h)
 
 			_, err := h.verify(audience, token)
 			require.ErrorIs(t, err, workcontext.ErrRevoked)
-			require.ErrorContains(t, err, "sealed to "+name)
 		})
 	}
+}
+
+// Revoking the OWNER refuses the owner's own sessions.
+//
+// This is the defect the two-source epoch produced, measured before the fix:
+// PutEpoch(owner, n+1) raised the epoch map and left every stored seal
+// untouched, and the verifier read the stale copy out of the seal, so the
+// owner's sessions kept verifying. One source, one answer.
+func TestVerify_RefusesTheOwnersOwnSessionWhenTheOwnerIsRevoked(t *testing.T) {
+	h := newHarness(t)
+	token, _ := h.ownerSession(audience)
+	require.NotNil(t, h.mustVerify(audience, token))
+
+	require.NoError(t, h.seals.PutEpoch(ownerID, 3))
+
+	_, err := h.verify(audience, token)
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "the task owner")
+}
+
+// An epoch only advances. Lowering one would un-revoke every capability the
+// principal acts in, which is how the two-source defect actually bit: Put for
+// a second installation overwrote the epoch with that seal's value.
+func TestMemorySealSource_RefusesToLowerAnEpoch(t *testing.T) {
+	seals := workcontext.NewMemorySealSource()
+	require.NoError(t, seals.PutEpoch(agentID, 5))
+
+	err := seals.PutEpoch(agentID, 2)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "un-revoke")
+
+	// And recording an unrelated installation does not touch it.
+	require.NoError(t, seals.Put(agentID, workcontext.Seal{
+		InstallationID: "inst-elsewhere", InstallationRevision: 1, BuildIncarnation: 1,
+	}))
+	epoch, err := seals.PrincipalEpoch(context.Background(), agentID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), epoch, "Put must not be a second writer of the epoch")
 }
 
 // A principal that no longer holds the installation refuses, with a message
@@ -261,7 +307,7 @@ func TestVerify_RefusesABindingTheIssuerDoesNotHold(t *testing.T) {
 
 	h.seals = workcontext.NewMemorySealSource()
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch: 2, InstallationID: installation,
+		InstallationID:       installation,
 		InstallationRevision: 3, BuildIncarnation: 11,
 	}))
 
@@ -283,31 +329,34 @@ func TestVerify_RefusesABindingTheIssuerDoesNotHold(t *testing.T) {
 // would have been defeated by deriving once.
 //
 // The reasoning that produced the bug is worth recording, because it is
-// plausible. The authorization REVISION is re-read at every mint, correctly:
-// it is monotonic and forward-only, so re-reading avoids minting a child born
-// superseded. The SEAL is compared for equality and a change to it is a
-// REVOCATION — so for the seal, re-reading is laundering. The two fields look
-// alike and want opposite treatment.
+// plausible and because the first version of this comment got the lesson
+// wrong. It claimed an asymmetry — the authorization revision is monotonic so
+// re-reading it is correct, the seal is compared for equality so re-reading it
+// is laundering. A second reviewer showed that was false: both are revocation
+// levers, re-reading EITHER launders it, and the revision was still being
+// laundered at the mint while this comment explained why that was fine. See
+// carryForwardRevision.
 func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
-	for name, moved := range map[string]workcontext.Seal{
-		"installation revision": {
-			PrincipalEpoch: 2, InstallationID: installation,
-			InstallationRevision: 9, BuildIncarnation: 11,
+	for name, move := range map[string]func(*harness){
+		"installation revision": func(h *harness) {
+			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
+				InstallationID: installation, InstallationRevision: 9, BuildIncarnation: 11,
+			}))
 		},
-		"principal epoch": {
-			PrincipalEpoch: 3, InstallationID: installation,
-			InstallationRevision: 3, BuildIncarnation: 11,
+		"principal epoch": func(h *harness) {
+			require.NoError(h.t, h.seals.PutEpoch(ownerID, 3))
 		},
-		"build incarnation": {
-			PrincipalEpoch: 2, InstallationID: installation,
-			InstallationRevision: 3, BuildIncarnation: 12,
+		"build incarnation": func(h *harness) {
+			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
+				InstallationID: installation, InstallationRevision: 3, BuildIncarnation: 12,
+			}))
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			_, owner := h.ownerSession(audience)
 
-			require.NoError(t, h.seals.Put(ownerID, moved))
+			move(h)
 
 			_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 				PrincipalID:   agentID,
@@ -357,7 +406,7 @@ func TestGrant_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 	grant := h.approvedGrant("g-1")
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch: 2, InstallationID: installation,
+		InstallationID:       installation,
 		InstallationRevision: 3, BuildIncarnation: 12,
 	}))
 
@@ -466,7 +515,7 @@ type answersElsewhere struct{}
 
 func (answersElsewhere) Seal(context.Context, string, string) (workcontext.Seal, error) {
 	return workcontext.Seal{
-		PrincipalEpoch: 2, InstallationID: "inst-somewhere-else",
+		InstallationID:       "inst-somewhere-else",
 		InstallationRevision: 3, BuildIncarnation: 11,
 	}, nil
 }
@@ -483,7 +532,7 @@ func TestMemorySealSource_RefusesAZeroSeal(t *testing.T) {
 	source := workcontext.NewMemorySealSource()
 	require.ErrorIs(t, source.Put(ownerID, workcontext.Seal{InstallationID: installation}), workcontext.ErrInvalid)
 	require.ErrorIs(t, source.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch: 1, InstallationRevision: 1, BuildIncarnation: 1,
+		InstallationRevision: 1, BuildIncarnation: 1,
 	}), workcontext.ErrInvalid)
 	require.ErrorIs(t, source.PutBinding(workcontext.OperationBinding{ID: bindingID}), workcontext.ErrInvalid)
 }
@@ -494,10 +543,10 @@ func TestMemorySealSource_RefusesAZeroSeal(t *testing.T) {
 func TestMemorySealSource_KeepsTwoInstallationsApart(t *testing.T) {
 	source := workcontext.NewMemorySealSource()
 	require.NoError(t, source.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch: 1, InstallationID: "inst-a", InstallationRevision: 1, BuildIncarnation: 1,
+		InstallationID: "inst-a", InstallationRevision: 1, BuildIncarnation: 1,
 	}))
 	require.NoError(t, source.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch: 1, InstallationID: "inst-b", InstallationRevision: 8, BuildIncarnation: 1,
+		InstallationID: "inst-b", InstallationRevision: 8, BuildIncarnation: 1,
 	}))
 
 	a, err := source.Seal(context.Background(), ownerID, "inst-a")

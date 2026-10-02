@@ -175,10 +175,7 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 	if replay == "" {
 		replay = ReplayIdempotent
 	}
-	// The issuer's revision now, not the parent's. A bump between the
-	// parent's verification and this mint would otherwise produce a child
-	// that every verifier rejects as superseded.
-	revision, err := a.revision(ctx, parent.Context().GetTenantId())
+	revision, err := a.carryForwardRevision(ctx, parent)
 	if err != nil {
 		return "", nil, err
 	}
@@ -310,8 +307,13 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 		setOptional(&hop.AgentId, parent.Context().GetOwnerAgentId())
 	}
 
-	// The grant's own revision, not the issuer's current one: bumping the
-	// revision past the decision is what revokes an unspent grant.
+	// The parent is held against the issuer's current revision first. The
+	// grant's own revision is what the capability carries — bumping past the
+	// decision is what revokes an unspent grant — but a REVOKED parent may
+	// not produce one, or a bump would be escapable by getting an approval.
+	if _, err := a.carryForwardRevision(ctx, parent); err != nil {
+		return "", nil, err
+	}
 	wc, err := a.derive(parent, grant.Audience, ReplaySingleUse, expires, grant.AuthorizationRevision)
 	if err != nil {
 		return "", nil, err

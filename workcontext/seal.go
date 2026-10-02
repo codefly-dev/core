@@ -30,12 +30,21 @@ var ErrUnsealed = errors.New("work context: carries no seal")
 // — it would mean a capability sealed to an installation state that has not
 // happened — so the shapes that could produce it are a rolled-back
 // installation and a forged seal, and neither is a thing to accept.
+// There is deliberately no PrincipalEpoch field. An epoch belongs to a
+// PRINCIPAL, not to a principal's use of one installation, and carrying it
+// here made it answerable from two places at once. That cost two real
+// defects, both measured before this was collapsed:
+//
+//   - PutEpoch on the owner raised epochs[owner] and left every stored seal
+//     untouched, so revoking the owner did not refuse the owner's own
+//     sessions — the verifier read the stale copy out of the seal.
+//   - Put for a second installation overwrote epochs[principal] with that
+//     seal's epoch, lowering it. A principal revoked by PutEpoch was
+//     UN-revoked by recording an unrelated installation.
+//
+// The epoch is now answered only by SealSource.PrincipalEpoch, for the owner
+// and for every actor hop alike, through one code path.
 type Seal struct {
-	// PrincipalEpoch is the principal's current epoch. Advancing it
-	// invalidates every capability minted for that principal at once,
-	// without waiting for any of them to expire.
-	PrincipalEpoch uint64
-
 	// InstallationID is the installation the authority is held through.
 	InstallationID string
 
@@ -111,17 +120,23 @@ type SealSource interface {
 	// The installation is named by the caller because identity is the caller's
 	// to supply; the counters are the issuer's to answer, which is why a minter
 	// reads them here instead of accepting them as input.
+	//
+	// It does NOT answer the principal's epoch: that is PrincipalEpoch's, for
+	// every principal including the owner, so there is exactly one source for
+	// it. See the Seal type.
 	Seal(ctx context.Context, principalID, installationID string) (Seal, error)
 
 	// PrincipalEpoch answers the live epoch of one principal, independent of
-	// any installation.
+	// any installation. It is THE source for every epoch comparison — the
+	// task owner's and every actor hop's.
 	//
-	// It is separate from Seal because an ACTOR's authority is narrowed
-	// independently of the owner's: a delegated operation context may have a
-	// person as its owner and a service principal as its actor, and narrowing
-	// that service principal has to reach every capability it acts in. The
-	// seal's epoch is the owner's and cannot answer for the actor. It returns
-	// ErrNoSeal when the principal is not known.
+	// It is independent of Seal because an epoch belongs to a principal
+	// rather than to a principal's use of one installation, and because an
+	// ACTOR's authority is narrowed independently of the owner's: a delegated
+	// operation context may have a person as its owner and a service
+	// principal as its actor, and narrowing that service principal has to
+	// reach every capability it acts in. It returns ErrNoSeal when the
+	// principal is not known.
 	PrincipalEpoch(ctx context.Context, principalID string) (uint64, error)
 
 	// OperationBinding resolves one binding by its opaque ID, exactly. It
@@ -189,13 +204,16 @@ func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) erro
 		sealed uint64
 		live   uint64
 	}{
-		{"principal epoch", sealed.GetPrincipalEpoch(), live.PrincipalEpoch},
 		{"installation revision", sealed.GetInstallationRevision(), live.InstallationRevision},
 		{"build incarnation", sealed.GetBuildIncarnation(), live.BuildIncarnation},
 	} {
 		if field.sealed != field.live {
 			return fmt.Errorf("%w: sealed to %s %d, the issuer holds %d", ErrRevoked, field.label, field.sealed, field.live)
 		}
+	}
+	// The OWNER's epoch, from the one source, exactly as every hop's is read.
+	if err := v.checkEpoch(ctx, "the task owner", owner, sealed.GetPrincipalEpoch()); err != nil {
+		return err
 	}
 	if err := v.checkActorEpochs(ctx, wc); err != nil {
 		return err
@@ -225,17 +243,28 @@ func (v *Verifier) checkActorEpochs(ctx context.Context, wc *basev0.WorkContextV
 		if hop.PrincipalEpoch == nil {
 			return fmt.Errorf("%w: actor hop %d (%s) carries no epoch, so it cannot be revoked", ErrUnsealed, index, hop.GetPrincipalId())
 		}
-		current, err := v.Seals.PrincipalEpoch(ctx, hop.GetPrincipalId())
-		if err != nil {
-			if errors.Is(err, ErrNoSeal) {
-				return fmt.Errorf("%w: actor hop %d names principal %q, which the issuer does not hold", ErrRevoked, index, hop.GetPrincipalId())
-			}
-			return fmt.Errorf("work context: epoch for principal %q: %w", hop.GetPrincipalId(), err)
+		label := fmt.Sprintf("actor hop %d", index)
+		if err := v.checkEpoch(ctx, label, hop.GetPrincipalId(), hop.GetPrincipalEpoch()); err != nil {
+			return err
 		}
-		if hop.GetPrincipalEpoch() != current {
-			return fmt.Errorf("%w: actor hop %d (%s) is sealed to epoch %d, the issuer holds %d",
-				ErrRevoked, index, hop.GetPrincipalId(), hop.GetPrincipalEpoch(), current)
+	}
+	return nil
+}
+
+// checkEpoch holds one sealed epoch against that principal's live epoch, from
+// the single source. The owner and every hop go through it, so the owner
+// cannot be compared against a different answer than an actor is.
+func (v *Verifier) checkEpoch(ctx context.Context, label, principalID string, sealed uint64) error {
+	current, err := v.Seals.PrincipalEpoch(ctx, principalID)
+	if err != nil {
+		if errors.Is(err, ErrNoSeal) {
+			return fmt.Errorf("%w: %s names principal %q, which the issuer does not hold", ErrRevoked, label, principalID)
 		}
+		return fmt.Errorf("work context: epoch for principal %q: %w", principalID, err)
+	}
+	if sealed != current {
+		return fmt.Errorf("%w: %s (%s) is sealed to epoch %d, the issuer holds %d",
+			ErrRevoked, label, principalID, sealed, current)
 	}
 	return nil
 }
@@ -319,8 +348,13 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 	if live.InstallationID != installationID {
 		return nil, nil, fmt.Errorf("work context: seal source answered for installation %q, not %q", live.InstallationID, installationID)
 	}
+	// The epoch comes from the one source, never from the seal record.
+	epoch, err := a.epochFor(ctx, principalID)
+	if err != nil {
+		return nil, nil, err
+	}
 	seal := &basev0.WorkSealV1{
-		PrincipalEpoch:       live.PrincipalEpoch,
+		PrincipalEpoch:       epoch,
 		InstallationId:       live.InstallationID,
 		InstallationRevision: live.InstallationRevision,
 		BuildIncarnation:     live.BuildIncarnation,
@@ -404,12 +438,21 @@ func (a *Authority) carryForwardSeal(ctx context.Context, wc *basev0.WorkContext
 		}
 		return fmt.Errorf("work context: seal for principal %q installation %q: %w", owner, inherited.GetInstallationId(), err)
 	}
+	// The owner's epoch, from the one source. A parent whose owner has been
+	// revoked derives nothing, same as every other moved field.
+	currentEpoch, err := a.Seals.PrincipalEpoch(ctx, owner)
+	if err != nil {
+		if errors.Is(err, ErrNoSeal) {
+			return fmt.Errorf("%w: the parent's owner %q is not a principal the issuer holds", ErrRevoked, owner)
+		}
+		return fmt.Errorf("work context: epoch for principal %q: %w", owner, err)
+	}
 	for _, field := range []struct {
 		label     string
 		inherited uint64
 		live      uint64
 	}{
-		{"principal epoch", inherited.GetPrincipalEpoch(), live.PrincipalEpoch},
+		{"principal epoch", inherited.GetPrincipalEpoch(), currentEpoch},
 		{"installation revision", inherited.GetInstallationRevision(), live.InstallationRevision},
 		{"build incarnation", inherited.GetBuildIncarnation(), live.BuildIncarnation},
 	} {
@@ -468,15 +511,24 @@ func sealKey(principalID, installationID string) string {
 	return principalID + "\x00" + installationID
 }
 
-// PutEpoch records one principal's live epoch, independent of any
-// installation. Put also records the owner's epoch as a side effect of
-// recording its seal; this is for principals that are only ever actors.
+// PutEpoch records one principal's live epoch. It is the ONLY writer of an
+// epoch in this source, for owners and actors alike — see Put.
+//
+// It refuses to LOWER an epoch. An epoch only ever advances, and advancing it
+// is a revocation, so accepting a lower value would be un-revoking a
+// principal — which is how the defect this replaced actually bit. A source
+// that genuinely must rewind one is reconstructing state rather than
+// recording it, and should be built afresh.
 func (s *MemorySealSource) PutEpoch(principalID string, epoch uint64) error {
 	if principalID == "" || epoch == 0 {
 		return fmt.Errorf("%w: a principal's epoch starts at 1", ErrInvalid)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if held, exists := s.epochs[principalID]; exists && epoch < held {
+		return fmt.Errorf("%w: principal %q is at epoch %d and an epoch only advances; lowering it to %d would un-revoke every capability it acts in",
+			ErrInvalid, principalID, held, epoch)
+	}
 	s.epochs[principalID] = epoch
 	return nil
 }
@@ -495,21 +547,26 @@ func (s *MemorySealSource) PrincipalEpoch(_ context.Context, principalID string)
 // Put records the live seal for one principal's use of one installation. The
 // seal's own InstallationID must be the one it is recorded under, so a source
 // cannot be loaded with a seal that answers for a different installation than
-// it was asked about. It also records that principal's epoch, so an owner is
-// answerable as an actor without a second call.
+// it was asked about.
+//
+// It does NOT touch the principal's epoch. An earlier version did, "so an
+// owner is answerable as an actor without a second call", and that convenience
+// was a revocation bug: recording a seal for a second installation overwrote
+// the epoch with that seal's value, so a principal revoked by PutEpoch was
+// UN-revoked by recording an unrelated installation. The epoch has one writer
+// now, PutEpoch, and one reader, PrincipalEpoch.
 func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 	if principalID == "" || seal.InstallationID == "" {
 		return fmt.Errorf("%w: a seal is held for one principal's use of one installation", ErrInvalid)
 	}
-	if seal.PrincipalEpoch == 0 || seal.InstallationRevision == 0 || seal.BuildIncarnation == 0 {
+	if seal.InstallationRevision == 0 || seal.BuildIncarnation == 0 {
 		// Zero is not a revision, and a capability sealed to one would compare
 		// equal to a source that simply had nothing recorded.
-		return fmt.Errorf("%w: a seal's epoch, revision and incarnation all start at 1", ErrInvalid)
+		return fmt.Errorf("%w: a seal's revision and incarnation both start at 1", ErrInvalid)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.seals[sealKey(principalID, seal.InstallationID)] = seal
-	s.epochs[principalID] = seal.PrincipalEpoch
 	return nil
 }
 
@@ -554,4 +611,50 @@ func (s *MemorySealSource) OperationBinding(_ context.Context, bindingID string)
 		return OperationBinding{}, fmt.Errorf("%w: %q", ErrNoBinding, bindingID)
 	}
 	return binding, nil
+}
+
+// carryForwardRevision holds the PARENT's authorization revision against the
+// issuer's current one and refuses the derivation when the parent is
+// superseded. It returns the current revision for the child to carry.
+//
+// This is the tenant-wide lever, and it was laundered the same way the seal
+// was. The original comment here read "the issuer's revision now, not the
+// parent's: a bump between the parent's verification and this mint would
+// otherwise produce a child that every verifier rejects as superseded" — which
+// is true, and is the wrong conclusion. A parent that every verifier rejects
+// as superseded is a REVOKED credential, and the answer to "deriving from it
+// would produce something dead" is to refuse the derivation, not to stamp the
+// child with a number that makes it live again:
+//
+//  1. verify a session at revision 7;
+//  2. the issuer bumps to 8, and Verify itself calls that ErrRevoked;
+//  3. call Child with the held *Verified — and before this fix the child
+//     carried revision 8 and verified.
+//
+// So the tenant-wide revocation lever was escapable by deriving once, exactly
+// as the seal's was.
+//
+// The PR that fixed the seal argued an asymmetry: the revision is monotonic
+// and wants re-reading, the seal is compared for equality and wants holding.
+// That argument is wrong and a second reviewer was right to reject it. Both
+// are revocation levers. Monotonicity says only that the comparison is < rather
+// than !=; it says nothing about whether a derivation may cross a bump, and
+// re-reading EITHER lever at the mint launders it. The seal looked different
+// only because its mismatch was already being surfaced as ErrRevoked.
+//
+// What re-reading legitimately buys is still kept: once the parent is known
+// current, the child carries the current revision rather than the parent's, so
+// a concurrent bump between this check and the next verification is the
+// ordinary race it always was and not a stale stamp.
+func (a *Authority) carryForwardRevision(ctx context.Context, parent *Verified) (uint64, error) {
+	inherited := parent.Context().GetAuthorizationRevision()
+	current, err := a.revision(ctx, parent.Context().GetTenantId())
+	if err != nil {
+		return 0, err
+	}
+	if inherited < current {
+		return 0, fmt.Errorf("%w: the parent was minted at authorization revision %d and the issuer is at %d, so it can derive nothing; mint afresh",
+			ErrRevoked, inherited, current)
+	}
+	return current, nil
 }
