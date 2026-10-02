@@ -125,6 +125,16 @@ func TestAuthenticate_RefusesAGrantCapabilityRatherThanSkippingTheApproval(t *te
 	require.Nil(t, authenticated)
 	require.ErrorIs(t, err, workcontext.ErrNeedsIssuer)
 	require.ErrorContains(t, err, "must be presented to the party that holds those records")
+
+	// And the deferred capability is NOT consumed. This is what makes
+	// ErrNeedsIssuer a routing fact rather than a refusal: the caller presents
+	// the same capability to the party that holds the grant records, and it
+	// must still be spendable there. A grant capability is single-use, so
+	// burning its nonce on the way to deferring it would turn "ask someone
+	// else" into "this capability is gone" — and the failure would land on the
+	// issuer as a replay, pointing at the wrong party entirely.
+	require.NotNil(t, h.mustVerify(mergeTool, second),
+		"deferring a capability must not spend it; replay consumption happens after every other check for exactly this reason")
 }
 
 // An ordinary session authenticates, and the claims come back readable.
