@@ -114,7 +114,10 @@ message WorkContextV1 {
   optional WorkOperationBindingV1 operation_binding = 27;
 }
 
-// WorkSealV1 binds a capability to one installation and one execution. Every
+// WorkSealV1 binds a capability to one installation and one execution. Its
+// principal_epoch is the TASK OWNER'S; an actor hop carries its own in
+// WorkActorV1.principal_epoch, because an actor's authority is narrowed
+// independently of the owner's. Every
 // field is a value the issuer holds live and the verifier compares exactly, so
 // a capability minted before an installation was revised, a principal's
 // authority was reset, or a build was replaced stops verifying at that moment
@@ -133,9 +136,25 @@ message WorkSealV1 {
   // installation changes with its revision, so a capability sealed to an
   // earlier one asks for authority under terms that no longer apply.
   uint64 installation_revision = 3 [(buf.validate.field).uint64.gte = 1];
-  // build_incarnation is the incarnation of the build this capability was
-  // minted on. It distinguishes two runs of one approved build, so a
-  // capability cannot be carried from a replaced incarnation into a new one.
+  // build_incarnation identifies one approved EXECUTION, so a capability
+  // cannot be carried from a replaced execution into a new one.
+  //
+  // The host bumps it on each applied presence generation that changes what
+  // runs. Two readings of it are wrong in opposite directions and both are
+  // worth naming, because a reasonable implementer reaches for each:
+  //
+  //   - Per POD is too narrow: every restart would revoke every sibling's
+  //     credential.
+  //   - Per IMAGE DIGEST alone is too wide: two executions of identical bytes
+  //     with different command, configuration or mounted content are then
+  //     indistinguishable, and a pod from a superseded generation remints into
+  //     the new one.
+  //
+  // A verifier compares it for EQUALITY and never resolves it from the
+  // workload's own attributes. Resolving by (service account, image digest) is
+  // exactly what lets an old pod in, which is why SealSource answers only "the
+  // current incarnation for this principal" and offers no lookup by anything
+  // the workload itself presents.
   uint64 build_incarnation = 4 [(buf.validate.field).uint64.gte = 1];
 }
 
@@ -190,6 +209,22 @@ message WorkActorV1 {
   // the one the task runs in. An org-bridge agent acts in an organization the
   // owner does not belong to, and authorization is scoped to the actor's own.
   optional string organization_id = 6 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // principal_epoch is THIS actor's epoch, distinct from the owner's epoch in
+  // the seal. Advancing it invalidates every capability in which this
+  // principal is an actor, without touching the owner's.
+  //
+  // It exists because the seal's epoch is the task owner's, and an actor's
+  // authority can be narrowed independently of the owner's: a delegated
+  // operation context may have a person as its owner and a service principal
+  // as its actor, and narrowing that service principal must reach the
+  // capabilities it acts in. Without this field the only lever for a
+  // compromised actor is the tenant's authorization_revision, which cuts off
+  // every capability of the tenant.
+  //
+  // Optional on the wire and enforced where the capability is verified, for
+  // the reason seal gives: a schema rule would invalidate every archived
+  // capability. A verifier refuses a hop that carries no epoch.
+  optional uint64 principal_epoch = 7 [(buf.validate.field).uint64.gte = 1];
 }
 
 // WorkGrantHopV1 records the approval that justifies a capability holding

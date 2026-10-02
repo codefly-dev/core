@@ -6,11 +6,11 @@
 # from no generation. Carrying any of those would be a withdrawal that still
 # says what it grants, and a host would have to decide which half meant it.
 schema: codefly/solution-authority/v1
-authority: crm-eu-west-1-01-authority
+authority: alpha-region-a-01-authority
 generation: 5
 host:
-  coordinate: obin/prod/eu-west-1
-  component: saas-host
-ownership_domain: crm
+  coordinate: example/prod/region-a
+  component: solution-host
+ownership_domain: alpha
 envelope_revision: 7
 removed: true

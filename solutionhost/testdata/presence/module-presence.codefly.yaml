@@ -7,42 +7,42 @@
 # run it — and no route, because it fronts no surface of its own.
 schema: codefly/solution-host-binding/v2
 kind: module
-binding: accounts-eu-west-1-01
+binding: gamma-region-a-01
 generation: 1
-ownership_domain: crm
+ownership_domain: alpha
 envelope_revision: 7
 host:
-  coordinate: obin/prod/eu-west-1
-  component: saas-host
+  coordinate: example/prod/region-a
+  component: solution-host
 release:
-  publisher: obin
-  name: accounts
+  publisher: example
+  name: gamma
   version: 0.9.2
   digest: sha256:a263c12f0b4b1bcfa8fe7e2e773258baf7f895e7ed145ea35e0527b4b6f6c2f5
 artifacts:
   - surface: backend
     name: api
-    release: obin/accounts@0.9.2
+    release: example/gamma@0.9.2
     digest: sha256:c54cc12b82d872de37003b50ad3b195f385bf053d8bae43b5f94ddd2efc22c70
 workloads:
-  - name: accounts-api
+  - name: gamma-api
     artifact: api
     container: api
     image:
-      repository: ghcr.io/obin/accounts-api
+      repository: registry.example/gamma-api
       digest: sha256:f4dcb6a2832679a2d0b75dc9eb496a2180607a2cdea472440d699bef7571b253
     identity:
-      audience: https://prod.eu-west-1.obin.example/solutions
-      subject: system:serviceaccount:accounts-eu-west-1-01:accounts-api
-      spiffe_id: spiffe://prod.eu-west-1.obin.example/ns/accounts-eu-west-1-01/sa/accounts-api
+      audience: https://prod.region-a.example/solutions
+      subject: system:serviceaccount:gamma-region-a-01:gamma-api
+      spiffe_id: spiffe://prod.region-a.example/ns/gamma-region-a-01/sa/gamma-api
     non_authenticating: []
 modules:
-  - module: accounts
-    package: obin/accounts
+  - module: gamma
+    package: example/gamma
     version: 0.9.2
 endpoints:
   - name: api
-    service: accounts
-    module: accounts
+    service: gamma
+    module: gamma
     api: grpc
     visibility: internal

@@ -142,7 +142,7 @@ func TestABindingMovingItsOwnAliasDoesNotCollideWithItself(t *testing.T) {
 
 	next := parse(t, "valid")
 	next.Generation = 5
-	next.Routes = []solutionhost.Route{{Alias: "crm/v2", Surface: solutionhost.SurfaceFrontend}}
+	next.Routes = []solutionhost.Route{{Alias: "alpha/v2", Surface: solutionhost.SurfaceFrontend}}
 
 	decision, err := admitOne(t, host, next)
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
 	require.Contains(t, err.Error(), first.Binding)
 	require.Contains(t, err.Error(), second.Binding)
 
-	second.Routes[0].Alias = "crm2"
+	second.Routes[0].Alias = "alpha2"
 	admissions, err := solutionhost.Host{}.Admit(first, second)
 	require.NoError(t, err)
 	require.Equal(t, []solutionhost.Admission{
@@ -188,11 +188,11 @@ func TestOneSetDeclaresOneGenerationPerBinding(t *testing.T) {
 
 func TestADocumentForAnotherHostIsRefused(t *testing.T) {
 	document := parse(t, "valid")
-	document.Host.Coordinate = "obin/prod/us-east-1"
+	document.Host.Coordinate = "example/prod/region-b"
 
 	_, err := admitOne(t, fixtureHost(t), document)
 	require.ErrorIs(t, err, solutionhost.ErrWrongHost)
-	require.Contains(t, err.Error(), "us-east-1")
+	require.Contains(t, err.Error(), "region-b")
 }
 
 func TestAHostReservesRouteNamespaces(t *testing.T) {
@@ -218,7 +218,7 @@ func TestInvalidAppliedStateIsRejectedRatherThanTrusted(t *testing.T) {
 	require.NoError(t, err)
 	domain := solutionhost.FixtureDomain
 	sound := solutionhost.Applied{
-		Binding: document.Binding, Generation: 4, Digest: digest, Domain: domain, Routes: []string{"crm"},
+		Binding: document.Binding, Generation: 4, Digest: digest, Domain: domain, Routes: []string{"alpha"},
 	}
 
 	for name, applied := range map[string][]solutionhost.Applied{
@@ -235,7 +235,7 @@ func TestInvalidAppliedStateIsRejectedRatherThanTrusted(t *testing.T) {
 			Routes: []string{"other"}, Removed: true,
 		}},
 		"two bindings holding one alias": {sound, {
-			Binding: "other-01", Generation: 1, Digest: digest, Domain: domain, Routes: []string{"crm"},
+			Binding: "other-01", Generation: 1, Digest: digest, Domain: domain, Routes: []string{"alpha"},
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -254,7 +254,7 @@ func TestAppliedFromRecordsWhatTheHostMustPersist(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.Applied{
 		Binding: document.Binding, Generation: 4, Digest: digest,
-		Domain: solutionhost.FixtureDomain, Routes: []string{"crm"},
+		Domain: solutionhost.FixtureDomain, Routes: []string{"alpha"},
 	}, applied)
 
 	document.Generation = 0
@@ -275,10 +275,10 @@ func TestOneDeliverySpeaksForOneDomain(t *testing.T) {
 	require.NoError(t, solutionhost.OneDelivery(), "an empty set straddles nothing")
 	require.NoError(t, solutionhost.OneDelivery(first))
 
-	second.OwnershipDomain = "pim"
+	second.OwnershipDomain = "beta"
 	err := solutionhost.OneDelivery(first, second)
 	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
-	require.Contains(t, err.Error(), "pim")
+	require.Contains(t, err.Error(), "beta")
 	require.Contains(t, err.Error(), solutionhost.FixtureDomain)
 
 	// A document that does not validate is its own refusal and never decides
@@ -289,29 +289,23 @@ func TestOneDeliverySpeaksForOneDomain(t *testing.T) {
 }
 
 // A host's mount is the union of however many deliveries reached it, so it
-// legitimately carries one domain per delivery. Admit must not refuse that —
-// which is the whole reason OneDelivery is a separate call — and ByDomain is
-// how a host turns the union back into one answerable question per delivery.
+// legitimately carries one domain per delivery. Admit must not refuse that,
+// which is the whole reason OneDelivery is a separate call.
 func TestAHostAdmitsAMountHoldingSeveralDeliveries(t *testing.T) {
 	fromCRM := parse(t, "valid")
 	fromPIM := parse(t, "module-presence")
-	fromPIM.OwnershipDomain = "pim"
+	fromPIM.OwnershipDomain = "beta"
 	fromPIM.Routes = nil
 
 	host := solutionhost.Host{
 		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain, "pim"},
+		Domains:    []string{solutionhost.FixtureDomain, "beta"},
 		Applied:    fixtureHost(t).Applied,
 	}
 	admissions, err := host.Admit(fromCRM, fromPIM)
 	require.NoError(t, err, "two deliveries into one mount is the normal case, not a straddle")
 	require.Equal(t, solutionhost.DecisionCurrent, admissions[0].Decision)
 	require.Equal(t, solutionhost.DecisionApply, admissions[1].Decision)
-
-	grouped := solutionhost.ByDomain(fromCRM, fromPIM)
-	require.Len(t, grouped, 2)
-	require.Equal(t, []*solutionhost.SolutionHostBinding{fromCRM}, grouped[solutionhost.FixtureDomain])
-	require.Equal(t, []*solutionhost.SolutionHostBinding{fromPIM}, grouped["pim"])
 
 	// A domain the host does not accept is refused per document, which is the
 	// rule that bounds a binding's first generation.
@@ -351,14 +345,14 @@ func TestANamedHostMustDeclareTheDomainsItAccepts(t *testing.T) {
 func TestABindingKeepsTheDomainItWasAppliedUnder(t *testing.T) {
 	host := solutionhost.Host{
 		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain, "pim"},
+		Domains:    []string{solutionhost.FixtureDomain, "beta"},
 		Applied:    fixtureHost(t).Applied,
 	}
 
-	// The host accepts "pim", so this is refused on ownership and not on
+	// The host accepts "beta", so this is refused on ownership and not on
 	// acceptance — which is what makes the two rules distinct.
 	foreign := parse(t, "tombstone-foreign-domain")
-	require.Equal(t, "pim", foreign.OwnershipDomain)
+	require.Equal(t, "beta", foreign.OwnershipDomain)
 	require.Greater(t, foreign.Generation, host.Applied[0].Generation)
 
 	_, err := admitOne(t, host, foreign)

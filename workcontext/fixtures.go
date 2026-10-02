@@ -75,6 +75,9 @@ const (
 	FixtureInstallationRevision = 3
 	// FixtureBuildIncarnation is the live build incarnation.
 	FixtureBuildIncarnation = 11
+	// FixtureActorEpoch is FixtureActor's live epoch, distinct from the
+	// owner's so a fixture that advances one does not move the other.
+	FixtureActorEpoch = 5
 
 	// FixtureBindingID is the operation binding the operation fixtures seal.
 	FixtureBindingID = "binding-conformance"
@@ -82,10 +85,17 @@ const (
 	FixtureBindingRevision = 4
 	// FixtureBindingIncarnation is that binding's live incarnation.
 	FixtureBindingIncarnation = 1
-	// FixtureOtherBindingID is a binding the issuer holds and no fixture is
-	// sealed to, so "sealed to the wrong binding" is distinguishable from
-	// "sealed to a binding that does not exist".
+	// FixtureActorBindingID is the binding granted to FixtureActor, which the
+	// delegated-operation fixture exercises.
+	FixtureActorBindingID = "binding-conformance-actor"
+	// FixtureOtherBindingID is a binding the issuer holds and grants to
+	// another principal, so "sealed to a binding the caller does not hold" is
+	// distinguishable from "sealed to a binding that does not exist".
 	FixtureOtherBindingID = "binding-conformance-other"
+	// FixtureForeignInstallationBindingID is granted within another
+	// installation, so the installation half of the association is testable
+	// separately from the principal half.
+	FixtureForeignInstallationBindingID = "binding-conformance-foreign-installation"
 
 	// FixtureAuthorizationRevision is the issuer's live authorization revision.
 	FixtureAuthorizationRevision = 7
@@ -157,6 +167,14 @@ type Fixture struct {
 	// Reason says which rule decides the outcome.
 	Reason string
 
+	// Message is a substring the refusal's message must contain, for the
+	// fixtures whose sentinel is shared with others. ErrInvalid is the
+	// umbrella for several unrelated refusals, so a fixture that exists to be
+	// one of them — the tampered payload, which must be a SIGNATURE failure —
+	// would otherwise pass for any of the rest. Empty means the sentinel is
+	// the whole contract.
+	Message string
+
 	// SingleUse marks a capability a conforming verifier must consume: a
 	// second presentation is refused with ErrReplayed.
 	SingleUse bool
@@ -195,9 +213,37 @@ func FixtureSeals() *MemorySealSource {
 	}); err != nil {
 		panic(err)
 	}
+	if err := source.PutEpoch(FixtureActor, FixtureActorEpoch); err != nil {
+		panic(err)
+	}
+	if err := source.PutEpoch(FixtureApprover, 1); err != nil {
+		panic(err)
+	}
 	for _, binding := range []OperationBinding{
-		{ID: FixtureBindingID, Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation},
-		{ID: FixtureOtherBindingID, Revision: 1, Incarnation: 1},
+		// Granted to the OWNER, for the session fixtures.
+		{
+			ID: FixtureBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+			Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
+		},
+		// Granted to the ACTOR, for the delegated-operation fixture: a
+		// delegated hop exercises a binding granted to the hop's principal,
+		// not to the owner.
+		{
+			ID: FixtureActorBindingID, PrincipalID: FixtureActor, InstallationID: FixtureInstallation,
+			Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
+		},
+		// A binding that EXISTS and is granted to someone else, so "sealed to
+		// a binding the caller does not hold" is distinguishable from "sealed
+		// to a binding that does not exist".
+		{
+			ID: FixtureOtherBindingID, PrincipalID: "principal-stranger", InstallationID: FixtureInstallation,
+			Revision: 1, Incarnation: 1,
+		},
+		// And one in another installation, for the same reason one axis over.
+		{
+			ID: FixtureForeignInstallationBindingID, PrincipalID: FixturePrincipal, InstallationID: "installation-conformance-other",
+			Revision: 1, Incarnation: 1,
+		},
 	} {
 		if err := source.PutBinding(binding); err != nil {
 			panic(err)
@@ -305,7 +351,7 @@ func Fixtures(now time.Time) ([]Fixture, error) {
 	if err != nil {
 		return nil, err
 	}
-	delegatedOperation, _, err := fixtureDelegated(ctx, authority, verifiedSession, FixtureBindingID)
+	delegatedOperation, _, err := fixtureDelegated(ctx, authority, verifiedSession, FixtureActorBindingID)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +526,10 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			return nil, err
 		}
 		for _, binding := range []OperationBinding{
-			{ID: FixtureBindingID, Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation},
+			{
+				ID: FixtureBindingID, PrincipalID: FixturePrincipal, InstallationID: moved.seal.InstallationID,
+				Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
+			},
 		} {
 			if err := divergent.PutBinding(binding); err != nil {
 				return nil, err
@@ -507,8 +556,12 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}); err != nil {
 		return nil, err
 	}
+	// Granted to the owner here so the mint succeeds; the LIVE source grants
+	// the same ID to another principal at another revision, so the refusal is
+	// the revision rather than the entitlement.
 	if err := divergent.PutBinding(OperationBinding{
-		ID: FixtureOtherBindingID, Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
+		ID: FixtureOtherBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+		Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
 	}); err != nil {
 		return nil, err
 	}
@@ -573,7 +626,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "tampered-payload", Form: FormSession, Token: tampered,
-		Outcome: OutcomeRejected, Err: ErrInvalid,
+		Outcome: OutcomeRejected, Err: ErrInvalid, Message: "signature does not verify",
 		Reason: "a sound capability with one byte of its payload changed and the signature left alone; this is what a " +
 			"signature failure is FOR, and the one fixture that must report one",
 	})
@@ -588,7 +641,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "another-audience", Form: FormDelegated, Token: otherAudienceToken,
-		Outcome: OutcomeRejected, Err: ErrInvalid,
+		Outcome: OutcomeRejected, Err: ErrInvalid, Message: "presented to",
 		Reason: "minted for another audience; a capability is not a credential outside the one it names",
 	})
 
@@ -599,9 +652,108 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "unknown-key", Form: FormSession, Token: foreignKeyToken,
-		Outcome: OutcomeRejected, Err: ErrInvalid,
-		Reason: "a genuine signature by a key the verifier does not hold",
+		Outcome: OutcomeRejected, Err: ErrInvalid, Message: "no verification key",
+		Reason: "a capability naming a key id the verifier does not hold, signed by that key; the refusal is the " +
+			"key LOOKUP and not a signature mismatch, which tampered-payload already covers",
 	})
+
+	// A delegated capability whose ACTOR's epoch has moved. The owner's seal
+	// is current, so this is refused only because the actor is checked
+	// separately — which is the whole point of the actor epoch: revoking a
+	// delegated principal must reach the capabilities it acts in without
+	// cutting off the owner or the tenant.
+	staleActor := NewMemorySealSource()
+	if err := staleActor.Put(FixturePrincipal, Seal{
+		PrincipalEpoch: FixturePrincipalEpoch, InstallationID: FixtureInstallation,
+		InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
+	}); err != nil {
+		return nil, err
+	}
+	if err := staleActor.PutEpoch(FixtureActor, FixtureActorEpoch-1); err != nil {
+		return nil, err
+	}
+	staleActorAuthority := fixtureAuthority(now, staleActor)
+	_, staleParent, err := fixtureSession(ctx, staleActorAuthority, "")
+	if err != nil {
+		return nil, err
+	}
+	staleActorToken, _, err := fixtureDelegated(ctx, staleActorAuthority, staleParent, "")
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "stale-actor-epoch", Form: FormDelegated, Token: staleActorToken,
+		Outcome: OutcomeRejected, Err: ErrRevoked,
+		Reason: "the delegated actor's epoch has moved while the owner's seal is current; without a per-actor epoch " +
+			"the only lever for a compromised actor is the tenant's authorization revision, which cuts off every " +
+			"capability of the tenant",
+	})
+
+	// A delegated capability whose hop carries NO epoch. The schema cannot
+	// require it without invalidating every archived capability, so the
+	// verifier is what makes it required — a hop with no epoch is a principal
+	// that cannot be revoked.
+	noEpoch := proto.Clone(delegated.Context()).(*basev0.WorkContextV1)
+	noEpoch.ActorChain[len(noEpoch.ActorChain)-1].PrincipalEpoch = nil
+	noEpochToken, err := resign(noEpoch)
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "actor-without-epoch", Form: FormDelegated, Token: noEpochToken,
+		Outcome: OutcomeRejected, Err: ErrUnsealed,
+		Reason: "a genuinely signed delegated capability whose actor hop carries no epoch, so that principal could " +
+			"never be revoked",
+	})
+
+	// Sealed to a binding that EXISTS, at the right revision, in the right
+	// installation — and is granted to someone else. An opaque ID is not
+	// authorization, and a verifier that resolved the ID and compared only its
+	// counters would accept this.
+	for _, foreign := range []struct {
+		name    string
+		binding string
+		rule    string
+	}{
+		{
+			name: "binding-of-another-principal", binding: FixtureOtherBindingID,
+			rule: "sealed to a binding granted to a different principal; it exists and its counters match, so only the " +
+				"grant association refuses it",
+		},
+		{
+			name: "binding-in-another-installation", binding: FixtureForeignInstallationBindingID,
+			rule: "sealed to a binding granted within a different installation; the installation half of the " +
+				"association is what refuses it",
+		},
+	} {
+		// Minted against a source that grants it here, so the mint succeeds
+		// and the LIVE source is what refuses it.
+		permissive := NewMemorySealSource()
+		if err := permissive.Put(FixturePrincipal, Seal{
+			PrincipalEpoch: FixturePrincipalEpoch, InstallationID: FixtureInstallation,
+			InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
+		}); err != nil {
+			return nil, err
+		}
+		live, err := FixtureSeals().OperationBinding(ctx, foreign.binding)
+		if err != nil {
+			return nil, err
+		}
+		if err := permissive.PutBinding(OperationBinding{
+			ID: foreign.binding, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+			Revision: live.Revision, Incarnation: live.Incarnation,
+		}); err != nil {
+			return nil, err
+		}
+		token, _, err := fixtureSessionOn(ctx, fixtureAuthority(now, permissive), FixtureInstallation, foreign.binding)
+		if err != nil {
+			return nil, err
+		}
+		fixtures = append(fixtures, Fixture{
+			Name: foreign.name, Form: FormOperation, Token: token,
+			Outcome: OutcomeRejected, Err: ErrRevoked, Reason: foreign.rule,
+		})
+	}
 
 	// Not the "<payload>.<signature>" shape at all.
 	for name, token := range map[string]string{
@@ -637,12 +789,20 @@ func fixtureTamper(token string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(altered) + "." + signature, nil
 }
 
-// fixtureForeignKey signs sound claims with a key the fixture verifier does not
-// hold, so the refusal is the key and not the shape.
+// fixtureForeignKey signs claims that NAME A KEY ID THE VERIFIER DOES NOT
+// HOLD, with the key of that name, so the refusal is the key LOOKUP and not a
+// signature mismatch.
+//
+// The distinction is the fixture's whole value. Keeping the known key id and
+// signing with a different private key would exercise signature verification
+// — which tampered-payload already covers — and would leave the unknown-key
+// path untested.
 func fixtureForeignKey(wc *basev0.WorkContextV1) (string, error) {
 	material := sha256.Sum256([]byte(fixtureSeed + ": a key no verifier holds"))
 	private := ed25519.NewKeyFromSeed(material[:])
-	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(wc)
+	claims := proto.Clone(wc).(*basev0.WorkContextV1)
+	claims.KeyId = "conformance-unheld"
+	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(claims)
 	if err != nil {
 		return "", err
 	}

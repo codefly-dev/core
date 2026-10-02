@@ -7,21 +7,21 @@
 # is on its own. It is what makes "approved for one exact build" a property of
 # the running system rather than of a field.
 schema: codefly/solution-authority/v1
-authority: crm-eu-west-1-01-authority
+authority: alpha-region-a-01-authority
 generation: 4
 host:
-  coordinate: obin/prod/eu-west-1
-  component: saas-host
-ownership_domain: crm
+  coordinate: example/prod/region-a
+  component: solution-host
+ownership_domain: alpha
 envelope_revision: 7
 approved_build: sha256:4d74ea6aba3e66053c0ad32dfe5dc033d7556197f39f6db4f72270b1f63d8218
 effective_from: 4
 principals:
-  - principal: principal:crm-operator
+  - principal: principal:operator
     bindings:
-      - id: binding:crm:reconcile
+      - id: binding:alpha:reconcile
         revision: 3
-        audience: https://prod.eu-west-1.obin.example/operations
+        audience: https://prod.region-a.example/operations
         scope: reconcile
         queue: reconcile.default
-        namespace: crm-eu-west-1-01
+        namespace: alpha-region-a-01

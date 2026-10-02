@@ -60,6 +60,20 @@ type OperationBinding struct {
 	// resolves an alias cannot silently answer for a different binding.
 	ID string
 
+	// PrincipalID is the principal this binding is GRANTED TO, and
+	// InstallationID the installation it is granted within. Both are required.
+	//
+	// They are the difference between a binding existing and a binding being
+	// held. An ID alone is not authorization: without the association, a
+	// capability sealed to one principal's installation could name a binding
+	// granted to a different principal in a different installation, and a
+	// verifier that looked the ID up and compared only its counters would
+	// accept it. So the verifier requires that the resolved binding is granted
+	// to the principal exercising the capability, within the installation the
+	// capability is sealed to.
+	PrincipalID    string
+	InstallationID string
+
 	// Revision is the binding's current revision.
 	Revision uint64
 
@@ -99,9 +113,32 @@ type SealSource interface {
 	// reads them here instead of accepting them as input.
 	Seal(ctx context.Context, principalID, installationID string) (Seal, error)
 
+	// PrincipalEpoch answers the live epoch of one principal, independent of
+	// any installation.
+	//
+	// It is separate from Seal because an ACTOR's authority is narrowed
+	// independently of the owner's: a delegated operation context may have a
+	// person as its owner and a service principal as its actor, and narrowing
+	// that service principal has to reach every capability it acts in. The
+	// seal's epoch is the owner's and cannot answer for the actor. It returns
+	// ErrNoSeal when the principal is not known.
+	PrincipalEpoch(ctx context.Context, principalID string) (uint64, error)
+
 	// OperationBinding resolves one binding by its opaque ID, exactly. It
 	// returns ErrNoBinding when there is none.
 	OperationBinding(ctx context.Context, bindingID string) (OperationBinding, error)
+}
+
+// exercisingPrincipal is the principal whose authority a capability spends:
+// the last actor hop, or the owner when the owner acts directly. It is the
+// principal an operation binding must be granted to, because it is the one
+// making the call.
+func exercisingPrincipal(wc *basev0.WorkContextV1) string {
+	chain := wc.GetActorChain()
+	if len(chain) == 0 {
+		return wc.GetOwnerPrincipalId()
+	}
+	return chain[len(chain)-1].GetPrincipalId()
 }
 
 // sealOf reads the capability's seal, refusing a capability that carries none.
@@ -129,17 +166,17 @@ func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) erro
 	if err != nil {
 		return err
 	}
-	// The principal the seal is held for is the task's owner, not the current
-	// actor: the installation is the owner's, and a delegation hop does not
-	// move it. Reading the actor here would look up an installation the actor
-	// may hold under a different revision and compare the wrong two numbers.
-	principal := wc.GetOwnerPrincipalId()
-	live, err := v.Seals.Seal(ctx, principal, sealed.GetInstallationId())
+	// The principal the seal is held for is the task's OWNER: the installation
+	// is the owner's, and a delegation hop narrows authority within it rather
+	// than moving it. Each actor's own epoch is checked separately below,
+	// because an actor is narrowed independently of the owner.
+	owner := wc.GetOwnerPrincipalId()
+	live, err := v.Seals.Seal(ctx, owner, sealed.GetInstallationId())
 	if err != nil {
 		if errors.Is(err, ErrNoSeal) {
-			return fmt.Errorf("%w: sealed to installation %q, which principal %q does not hold", ErrRevoked, sealed.GetInstallationId(), principal)
+			return fmt.Errorf("%w: sealed to installation %q, which principal %q does not hold", ErrRevoked, sealed.GetInstallationId(), owner)
 		}
-		return fmt.Errorf("work context: seal for principal %q installation %q: %w", principal, sealed.GetInstallationId(), err)
+		return fmt.Errorf("work context: seal for principal %q installation %q: %w", owner, sealed.GetInstallationId(), err)
 	}
 	// A source that answered for a different installation than the one asked
 	// about would make every comparison below meaningless, so it is checked
@@ -160,6 +197,59 @@ func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) erro
 			return fmt.Errorf("%w: sealed to %s %d, the issuer holds %d", ErrRevoked, field.label, field.sealed, field.live)
 		}
 	}
+	if err := v.checkActorEpochs(ctx, wc); err != nil {
+		return err
+	}
+	return v.checkOperationBinding(ctx, wc, sealed)
+}
+
+// checkActorEpochs holds every actor hop's sealed epoch against that
+// principal's live epoch.
+//
+// Without this, revoking a delegated actor does nothing to the capabilities it
+// acts in: the seal's epoch is the OWNER's, so advancing the actor's epoch
+// leaves a capability whose owner is unchanged fully valid until it expires.
+// The only lever left would be the tenant's authorization revision, which cuts
+// off every capability of the tenant rather than the one compromised
+// principal.
+//
+// Every hop is checked, and the check does not branch on the principal's kind.
+// A rule that applied only to some kinds of principal would be an
+// authorization decision made from a kind field, and it would leave whichever
+// kinds it skipped unrevocable.
+func (v *Verifier) checkActorEpochs(ctx context.Context, wc *basev0.WorkContextV1) error {
+	for index, hop := range wc.GetActorChain() {
+		// A hop carrying no epoch is not revocable, so it is refused. The
+		// schema cannot require the field without invalidating every archived
+		// capability, which is why the requirement lives here.
+		if hop.PrincipalEpoch == nil {
+			return fmt.Errorf("%w: actor hop %d (%s) carries no epoch, so it cannot be revoked", ErrUnsealed, index, hop.GetPrincipalId())
+		}
+		current, err := v.Seals.PrincipalEpoch(ctx, hop.GetPrincipalId())
+		if err != nil {
+			if errors.Is(err, ErrNoSeal) {
+				return fmt.Errorf("%w: actor hop %d names principal %q, which the issuer does not hold", ErrRevoked, index, hop.GetPrincipalId())
+			}
+			return fmt.Errorf("work context: epoch for principal %q: %w", hop.GetPrincipalId(), err)
+		}
+		if hop.GetPrincipalEpoch() != current {
+			return fmt.Errorf("%w: actor hop %d (%s) is sealed to epoch %d, the issuer holds %d",
+				ErrRevoked, index, hop.GetPrincipalId(), hop.GetPrincipalEpoch(), current)
+		}
+	}
+	return nil
+}
+
+// checkOperationBinding resolves the sealed binding by exact ID and requires
+// that it is GRANTED TO the principal exercising the capability, within the
+// installation the capability is sealed to.
+//
+// The association is the point. Resolving the ID and comparing only its
+// counters would accept a capability sealed to one principal's installation
+// that names a binding granted to another principal in another installation:
+// the ID exists, the counters match, and nothing has asked whether the caller
+// holds it. An opaque ID is not authorization.
+func (v *Verifier) checkOperationBinding(ctx context.Context, wc *basev0.WorkContextV1, sealed *basev0.WorkSealV1) error {
 	binding := wc.GetOperationBinding()
 	if binding == nil {
 		return nil
@@ -179,6 +269,14 @@ func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) erro
 	}
 	if resolved.Revoked {
 		return fmt.Errorf("%w: binding %q is revoked", ErrRevoked, binding.GetBindingId())
+	}
+	if resolved.InstallationID != sealed.GetInstallationId() {
+		return fmt.Errorf("%w: binding %q is granted within installation %q and this capability is sealed to %q",
+			ErrRevoked, binding.GetBindingId(), resolved.InstallationID, sealed.GetInstallationId())
+	}
+	if exercising := exercisingPrincipal(wc); resolved.PrincipalID != exercising {
+		return fmt.Errorf("%w: binding %q is granted to principal %q and this capability is exercised by %q",
+			ErrRevoked, binding.GetBindingId(), resolved.PrincipalID, exercising)
 	}
 	for _, field := range []struct {
 		label  string
@@ -202,7 +300,12 @@ func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) erro
 // sealed to a state the issuer is not actually in: a minter that took the
 // numbers as input would hand out capabilities nothing verifies, and the
 // failure would surface in another process as an authentication error.
-func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bindingID string) (*basev0.WorkSealV1, *basev0.WorkOperationBindingV1, error) {
+//
+// exercising is the principal that will spend the binding — the hop being
+// added, or the owner when the owner acts directly. The binding must be
+// granted to it, within this installation, or the mint is refused: minting a
+// capability the verifier will reject is a failure best raised here.
+func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bindingID, exercising string) (*basev0.WorkSealV1, *basev0.WorkOperationBindingV1, error) {
 	if a.Seals == nil {
 		return nil, nil, fmt.Errorf("work context: authority has no seal source")
 	}
@@ -235,11 +338,106 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 	if resolved.Revoked {
 		return nil, nil, fmt.Errorf("%w: binding %q is revoked", ErrInvalid, bindingID)
 	}
+	// The same association the verifier requires, enforced at the mint. Any
+	// live binding ID would otherwise be mintable into any capability, and the
+	// refusal would land on the caller of the operation rather than on the
+	// mint that had no business issuing it.
+	if resolved.InstallationID != installationID {
+		return nil, nil, fmt.Errorf("%w: binding %q is granted within installation %q, not %q",
+			ErrInvalid, bindingID, resolved.InstallationID, installationID)
+	}
+	if resolved.PrincipalID != exercising {
+		return nil, nil, fmt.Errorf("%w: binding %q is granted to principal %q, which is not %q",
+			ErrInvalid, bindingID, resolved.PrincipalID, exercising)
+	}
 	return seal, &basev0.WorkOperationBindingV1{
 		BindingId:   resolved.ID,
 		Revision:    resolved.Revision,
 		Incarnation: resolved.Incarnation,
 	}, nil
+}
+
+// epochFor reads one principal's live epoch, for the hop being added.
+func (a *Authority) epochFor(ctx context.Context, principalID string) (uint64, error) {
+	if a.Seals == nil {
+		return 0, fmt.Errorf("work context: authority has no seal source")
+	}
+	epoch, err := a.Seals.PrincipalEpoch(ctx, principalID)
+	if err != nil {
+		return 0, fmt.Errorf("work context: epoch for principal %q: %w", principalID, err)
+	}
+	if epoch == 0 {
+		return 0, fmt.Errorf("work context: principal %q has epoch 0, which names nothing", principalID)
+	}
+	return epoch, nil
+}
+
+// carryForwardSeal holds a derived capability's INHERITED seal against the
+// issuer's live state and refuses the derivation when any of it has moved. The
+// inherited values are kept; nothing is overwritten.
+//
+// This is the opposite of what the authorization revision does, and the
+// difference is the whole point. A revision is monotonic and forward-only, so
+// re-reading it avoids minting a child born superseded. A SEAL is compared for
+// equality and a change to it is a REVOCATION — so a parent whose sealed state
+// has moved is a dead credential, and anything derived from it must be refused
+// rather than silently stamped with the current numbers.
+//
+// Overwriting was the bug: verify a parent at installation revision 3, advance
+// the installation to 4, and a derived child kept the parent's authority while
+// carrying revision 4 and verifying. The revocation this package introduces
+// would then have been defeated by derivation.
+func (a *Authority) carryForwardSeal(ctx context.Context, wc *basev0.WorkContextV1) error {
+	inherited, err := sealOf(wc)
+	if err != nil {
+		return err
+	}
+	if a.Seals == nil {
+		return fmt.Errorf("work context: authority has no seal source")
+	}
+	owner := wc.GetOwnerPrincipalId()
+	live, err := a.Seals.Seal(ctx, owner, inherited.GetInstallationId())
+	if err != nil {
+		if errors.Is(err, ErrNoSeal) {
+			return fmt.Errorf("%w: the parent is sealed to installation %q, which principal %q no longer holds",
+				ErrRevoked, inherited.GetInstallationId(), owner)
+		}
+		return fmt.Errorf("work context: seal for principal %q installation %q: %w", owner, inherited.GetInstallationId(), err)
+	}
+	for _, field := range []struct {
+		label     string
+		inherited uint64
+		live      uint64
+	}{
+		{"principal epoch", inherited.GetPrincipalEpoch(), live.PrincipalEpoch},
+		{"installation revision", inherited.GetInstallationRevision(), live.InstallationRevision},
+		{"build incarnation", inherited.GetBuildIncarnation(), live.BuildIncarnation},
+	} {
+		if field.inherited != field.live {
+			return fmt.Errorf("%w: the parent is sealed to %s %d and the issuer holds %d, so it can derive nothing; mint afresh",
+				ErrRevoked, field.label, field.inherited, field.live)
+		}
+	}
+	// The binding the parent already carries is held to the same standard. A
+	// hop that names a NEW binding replaces it, and that replacement is
+	// resolved and entitlement-checked by sealFor rather than carried.
+	if carried := wc.GetOperationBinding(); carried != nil {
+		resolved, err := a.Seals.OperationBinding(ctx, carried.GetBindingId())
+		if err != nil {
+			if errors.Is(err, ErrNoBinding) {
+				return fmt.Errorf("%w: the parent is sealed to binding %q, which the issuer does not hold", ErrRevoked, carried.GetBindingId())
+			}
+			return fmt.Errorf("work context: operation binding %q: %w", carried.GetBindingId(), err)
+		}
+		if resolved.Revoked {
+			return fmt.Errorf("%w: the parent's binding %q is revoked", ErrRevoked, carried.GetBindingId())
+		}
+		if resolved.Revision != carried.GetRevision() || resolved.Incarnation != carried.GetIncarnation() {
+			return fmt.Errorf("%w: the parent is sealed to binding %q revision %d incarnation %d and the issuer holds %d/%d",
+				ErrRevoked, carried.GetBindingId(), carried.GetRevision(), carried.GetIncarnation(), resolved.Revision, resolved.Incarnation)
+		}
+	}
+	return nil
 }
 
 // MemorySealSource is an in-process SealSource. It is the real implementation
@@ -253,22 +451,52 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 type MemorySealSource struct {
 	mu       sync.RWMutex
 	seals    map[string]Seal
+	epochs   map[string]uint64
 	bindings map[string]OperationBinding
 }
 
 // NewMemorySealSource returns an empty source.
 func NewMemorySealSource() *MemorySealSource {
-	return &MemorySealSource{seals: map[string]Seal{}, bindings: map[string]OperationBinding{}}
+	return &MemorySealSource{
+		seals:    map[string]Seal{},
+		epochs:   map[string]uint64{},
+		bindings: map[string]OperationBinding{},
+	}
 }
 
 func sealKey(principalID, installationID string) string {
 	return principalID + "\x00" + installationID
 }
 
+// PutEpoch records one principal's live epoch, independent of any
+// installation. Put also records the owner's epoch as a side effect of
+// recording its seal; this is for principals that are only ever actors.
+func (s *MemorySealSource) PutEpoch(principalID string, epoch uint64) error {
+	if principalID == "" || epoch == 0 {
+		return fmt.Errorf("%w: a principal's epoch starts at 1", ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.epochs[principalID] = epoch
+	return nil
+}
+
+// PrincipalEpoch implements SealSource.
+func (s *MemorySealSource) PrincipalEpoch(_ context.Context, principalID string) (uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	epoch, held := s.epochs[principalID]
+	if !held {
+		return 0, fmt.Errorf("%w: principal %q", ErrNoSeal, principalID)
+	}
+	return epoch, nil
+}
+
 // Put records the live seal for one principal's use of one installation. The
 // seal's own InstallationID must be the one it is recorded under, so a source
 // cannot be loaded with a seal that answers for a different installation than
-// it was asked about.
+// it was asked about. It also records that principal's epoch, so an owner is
+// answerable as an actor without a second call.
 func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 	if principalID == "" || seal.InstallationID == "" {
 		return fmt.Errorf("%w: a seal is held for one principal's use of one installation", ErrInvalid)
@@ -281,6 +509,7 @@ func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.seals[sealKey(principalID, seal.InstallationID)] = seal
+	s.epochs[principalID] = seal.PrincipalEpoch
 	return nil
 }
 
@@ -288,6 +517,12 @@ func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 func (s *MemorySealSource) PutBinding(binding OperationBinding) error {
 	if binding.ID == "" {
 		return fmt.Errorf("%w: a binding needs an ID", ErrInvalid)
+	}
+	// The association is required, because a binding without one is a binding
+	// nothing can be entitled to — and the verifier would refuse it anyway.
+	if binding.PrincipalID == "" || binding.InstallationID == "" {
+		return fmt.Errorf("%w: binding %q must name the principal it is granted to and the installation it is granted within",
+			ErrInvalid, binding.ID)
 	}
 	if binding.Revision == 0 || binding.Incarnation == 0 {
 		return fmt.Errorf("%w: a binding's revision and incarnation both start at 1", ErrInvalid)

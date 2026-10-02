@@ -283,9 +283,15 @@ func TestSignedFixturesReachTheirOutcome(t *testing.T) {
 // Held by test because it is the property the whole division of labour rests
 // on: a library that could attest one of these documents would put that
 // authority in every binary that imports core, and signing is CI's over a
-// workload identity. Checked against the package's exported DECLARATIONS
-// rather than its text, so the prose above — which has to discuss keys and
-// trust roots to explain why they are absent — cannot fail it.
+// workload identity. Checked against the package's exported DECLARATIONS —
+// functions, methods, types and values — rather than its text, so the prose
+// above, which has to discuss keys and trust roots to explain why they are
+// absent, cannot fail it.
+//
+// What this guard is and is not: it is a guard against REINTRODUCTION. It
+// would also pass against the commit before this one, where these surfaces
+// were already absent, so it is not evidence that this PR deleted anything —
+// the diff is that evidence. Its job is to make the next addition fail.
 func TestThePackageDeclaresNoSigningOrTrustSurface(t *testing.T) {
 	// Substrings that are unambiguous: no legitimate name in this package
 	// contains one. A bare "sign" would be useless here — ErrUnsigned, Signed
@@ -313,7 +319,11 @@ func TestThePackageDeclaresNoSigningOrTrustSurface(t *testing.T) {
 		for _, declaration := range file.Decls {
 			switch typed := declaration.(type) {
 			case *ast.FuncDecl:
-				if typed.Recv == nil && typed.Name.IsExported() {
+				// Methods as well as functions. A scan that collected only
+				// top-level functions would pass an exported method named
+				// Sign on an exported type, which is the same surface by
+				// another route.
+				if typed.Name.IsExported() {
 					exported = append(exported, typed.Name.Name)
 				}
 			case *ast.GenDecl:
@@ -362,5 +372,23 @@ func TestThePackageDeclaresNoSigningOrTrustSurface(t *testing.T) {
 	for _, gone := range []string{"Anchor", "Signature", "VerifyPresence", "VerifyAuthority"} {
 		require.NotContainsf(t, exported, gone, "%s was deleted with the key-based model", gone)
 		require.Containsf(t, refused, gone, "%s must stay in the refused set", gone)
+	}
+}
+
+// validCarrier is a well-formed carrier, for the trailing-input cases.
+func validCarrier() []byte {
+	data, err := solutionhost.FixtureDocument(solutionhost.DocumentTypeSigned, "presence")
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+// Trailing WHITESPACE is not trailing input: a JSON encoder may emit a newline
+// and refusing that would refuse well-formed delivery.
+func TestTrailingWhitespaceIsAccepted(t *testing.T) {
+	for _, suffix := range []string{"\n", "  ", "\r\n", "\t\n "} {
+		_, err := solutionhost.ParseSigned(append(validCarrier(), []byte(suffix)...))
+		require.NoErrorf(t, err, "suffix %q", suffix)
 	}
 }

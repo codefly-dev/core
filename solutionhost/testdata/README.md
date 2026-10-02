@@ -42,9 +42,9 @@ the required outcome. A consumer's loop should treat a parse failure on a
 
 ## The fixture state
 
-- `FixtureCoordinate` is `obin/prod/eu-west-1`; every fixture targets it, so a
+- `FixtureCoordinate` is `example/prod/region-a`; every fixture targets it, so a
   consumer never has to guess which host a document is written against.
-- `FixtureDomain` is `crm`. Every fixture speaks for it **except**
+- `FixtureDomain` is `alpha`. Every fixture speaks for it **except**
   `tombstone-foreign-domain`, which is the point of that fixture.
 - `FixtureHost()` is the `valid` presence fixture, applied — the relational
   rules need it. An older generation is only old against an applied one, a

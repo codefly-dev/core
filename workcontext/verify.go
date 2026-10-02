@@ -204,7 +204,13 @@ func CheckEncoding(claims []byte) error {
 	// malformed token of no format at all, which the schema check below refuses
 	// as invalid. Widening this error to cover it would make it mean "something
 	// was wrong early", which is exactly the vagueness it exists to remove.
-	trimmed := bytes.TrimLeft(claims, " \t\r\n")
+	// A UTF-8 BOM first: an encoder that emits one before JSON produces a
+	// payload that is no more a core token than one starting with "{", and
+	// 0xEF is not a tag proto3 emits either. Trimming it is what lets the
+	// discrimination NAME the format rather than leaving it to be refused
+	// later as merely invalid.
+	trimmed := bytes.TrimPrefix(claims, []byte{0xEF, 0xBB, 0xBF})
+	trimmed = bytes.TrimLeft(trimmed, " \t\r\n")
 	if len(trimmed) == 0 {
 		return nil
 	}

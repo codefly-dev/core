@@ -334,9 +334,18 @@ func (host Host) refuseOneAliasCollision(documents []*SolutionHostBinding, admis
 //   - A host does NOT call it on its mount. A host's mount is the union of
 //     however many deliveries reached it, so it legitimately carries one domain
 //     per delivery; refusing that would refuse the normal case the moment a
-//     second module delivered to the same host. A host computes absence per
-//     domain instead — group the mounted set by OwnershipDomain, and within each
-//     group the delivered set is the desired set.
+//     second module delivered to the same host.
+//
+// A host does NOT infer removal from absence either, in a domain or anywhere
+// else. Removal is a tombstone generation, full stop. Absence-as-removal was
+// briefly documented here and was wrong twice over: a set assembled from a
+// mount silently omits every document that failed to parse, so one malformed
+// document beside a sound one would read as a withdrawal of the sound one; and
+// nothing in a delivered set establishes that it is COMPLETE, so "absent at a
+// higher generation" has no higher generation to be absent at. The tombstone
+// exists precisely so that an unreadable mount, a half-synced tree or a
+// delivery that simply does not cover a binding can never be read as "withdraw
+// it".
 //
 // Documents that do not validate are skipped: an unreadable domain is that
 // document's own refusal, and letting it decide the set's would turn one
@@ -356,24 +365,6 @@ func OneDelivery(documents ...*SolutionHostBinding) error {
 	}
 	slices.Sort(domains)
 	return fmt.Errorf("%w: this set declares domains %v; one delivery speaks for one domain", ErrWrongDomain, domains)
-}
-
-// ByDomain groups a set by ownership domain, which is how a host turns a mount
-// holding several deliveries into one answerable question per delivery: within
-// a domain, the documents present are the desired set, and a binding of that
-// domain which is absent at a higher generation has been removed.
-//
-// Documents that do not validate are left out, because a document whose domain
-// cannot be read cannot be attributed to a delivery at all.
-func ByDomain(documents ...*SolutionHostBinding) map[string][]*SolutionHostBinding {
-	grouped := map[string][]*SolutionHostBinding{}
-	for _, document := range documents {
-		if document == nil || document.Validate() != nil {
-			continue
-		}
-		grouped[document.OwnershipDomain] = append(grouped[document.OwnershipDomain], document)
-	}
-	return grouped
 }
 
 func routeClaims(binding string, aliases []string) []composition.Claim {

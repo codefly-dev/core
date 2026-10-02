@@ -168,3 +168,74 @@ func verifyWith(ctx context.Context, verifier *workcontext.Verifier, token strin
 	_, err := verifier.Verify(ctx, token)
 	return err
 }
+
+// A historical clock must work. The kit pins the verifier's clock, and the
+// replay store has to read the same one: on wall time it would judge the
+// grant's retention deadline already past, so the single-use fixture's second
+// presentation would succeed and the kit would fail a conforming consumer for
+// its own reason rather than the consumer's.
+func TestTheKitWorksAtAHistoricalInstant(t *testing.T) {
+	settings := conformance.New(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+	verifier := settings.Verifier()
+	conformance.RunWith(t, settings, func(ctx context.Context, token string) error {
+		_, err := verifier.Verify(ctx, token)
+		return err
+	})
+}
+
+// And a long way in the past, so the margin is not an accident of being near
+// now.
+func TestTheKitWorksAtADistantInstant(t *testing.T) {
+	settings := conformance.New(time.Date(2020, 6, 1, 0, 0, 0, 0, time.UTC))
+	verifier := settings.Verifier()
+	conformance.RunWith(t, settings, func(ctx context.Context, token string) error {
+		_, err := verifier.Verify(ctx, token)
+		return err
+	})
+}
+
+// The Message half of the contract is checked, not decoration. The tampered
+// payload exists to be the ONE signature failure in the kit, and ErrInvalid is
+// the umbrella for several unrelated refusals — so a verifier that refused it
+// for the wrong reason must fail.
+func TestTheKitFailsAVerifierThatRefusesTheTamperedPayloadForTheWrongReason(t *testing.T) {
+	settings := conformance.New(time.Now())
+	verifier := settings.Verifier()
+
+	reported := &recorder{}
+	conformance.RunWith(reported, settings, func(ctx context.Context, token string) error {
+		err := verifyWith(ctx, verifier, token)
+		if err != nil && strings.Contains(err.Error(), "signature does not verify") {
+			// Same sentinel, different reason: exactly the substitution the
+			// Message field exists to catch.
+			return fmt.Errorf("%w: audience mismatch", workcontext.ErrInvalid)
+		}
+		return err
+	})
+
+	require.Empty(t, reported.fatal)
+	require.Len(t, reported.errors, 1)
+	require.Contains(t, reported.errors[0], "tampered-payload")
+	require.Contains(t, reported.errors[0], "signature does not verify")
+}
+
+// Every fixture that names a Message is reached by core's own verifier with
+// that message, so the kit cannot ship a Message no implementation produces.
+func TestEveryFixtureMessageIsProducedByCoresVerifier(t *testing.T) {
+	settings := conformance.New(time.Now())
+	verifier := settings.Verifier()
+	fixtures, err := workcontext.Fixtures(settings.Now())
+	require.NoError(t, err)
+
+	var named int
+	for _, fixture := range fixtures {
+		if fixture.Message == "" {
+			continue
+		}
+		named++
+		_, err := verifier.Verify(context.Background(), fixture.Token)
+		require.Errorf(t, err, "%s", fixture.Name)
+		require.Containsf(t, err.Error(), fixture.Message, "%s", fixture.Name)
+	}
+	require.NotZero(t, named, "the kit must name at least one refusal message")
+}

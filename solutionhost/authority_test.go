@@ -18,7 +18,7 @@ func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 	document := validAuthority(t)
 
 	require.Equal(t, solutionhost.SchemaAuthorityV1, document.Schema)
-	require.Equal(t, "crm-eu-west-1-01-authority", document.Authority)
+	require.Equal(t, "alpha-region-a-01-authority", document.Authority)
 	require.Equal(t, uint64(2), document.Generation)
 	require.Equal(t, solutionhost.FixtureCoordinate, document.Host.Coordinate)
 	require.Equal(t, solutionhost.FixtureDomain, document.OwnershipDomain)
@@ -30,13 +30,13 @@ func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 	// Lookup is exact and by ID. There is deliberately no variant that searches
 	// for a binding matching a set of scopes — that search is the thing the
 	// sealed-ID credential contract exists to remove.
-	binding, principal, held := document.Binding("binding:crm:reconcile")
+	binding, principal, held := document.Binding("binding:alpha:reconcile")
 	require.True(t, held)
-	require.Equal(t, "principal:crm-operator", principal)
+	require.Equal(t, "principal:operator", principal)
 	require.Equal(t, uint64(3), binding.Revision)
 	require.Equal(t, "reconcile", binding.Scope)
 
-	_, _, held = document.Binding("binding:crm:administer")
+	_, _, held = document.Binding("binding:alpha:administer")
 	require.False(t, held)
 }
 
@@ -94,13 +94,13 @@ func TestAuthorityForAnotherBuildDoesNotActivate(t *testing.T) {
 func TestActivationRefusesEveryMismatch(t *testing.T) {
 	for name, mutate := range map[string]func(*solutionhost.AuthorityDocument, *solutionhost.SolutionHostBinding){
 		"another host coordinate": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
-			a.Host.Coordinate = "obin/prod/us-east-1"
+			a.Host.Coordinate = "example/prod/region-b"
 		},
 		"another host component": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
 			a.Host.Component = "other-host"
 		},
 		"another ownership domain": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
-			a.OwnershipDomain = "pim"
+			a.OwnershipDomain = "beta"
 		},
 		"another envelope revision": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
 			a.EnvelopeRevision = solutionhost.FixtureEnvelopeRevision + 1
@@ -164,7 +164,7 @@ func TestBindingsOutsideTheEnvelopeAreRefused(t *testing.T) {
 
 	err = outside.ValidateAgainst(solutionhost.FixtureEnvelope())
 	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
-	require.Contains(t, err.Error(), "binding:crm:administer")
+	require.Contains(t, err.Error(), "binding:alpha:administer")
 
 	// Every field is part of the identity of a binding, so changing any one of
 	// them puts the document outside a ceiling that holds the original.
@@ -173,8 +173,8 @@ func TestBindingsOutsideTheEnvelopeAreRefused(t *testing.T) {
 		"another audience":  func(b *solutionhost.AuthorityBinding) { b.Audience = "https://elsewhere.example/operations" },
 		"another scope":     func(b *solutionhost.AuthorityBinding) { b.Scope = "administer" },
 		"another queue":     func(b *solutionhost.AuthorityBinding) { b.Queue = "reconcile.priority" },
-		"another namespace": func(b *solutionhost.AuthorityBinding) { b.Namespace = "pim-eu-west-1-01" },
-		"another id":        func(b *solutionhost.AuthorityBinding) { b.ID = "binding:crm:reconcile-2" },
+		"another namespace": func(b *solutionhost.AuthorityBinding) { b.Namespace = "beta-region-a-01" },
+		"another id":        func(b *solutionhost.AuthorityBinding) { b.ID = "binding:alpha:reconcile-2" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			document := validAuthority(t)
@@ -220,7 +220,7 @@ func TestAuthorityValidationRejectsEachWayItCanLie(t *testing.T) {
 	for name, mutate := range map[string]func(*solutionhost.AuthorityDocument){
 		"no authority ID": func(d *solutionhost.AuthorityDocument) { d.Authority = "" },
 		"authority ID with a space": func(d *solutionhost.AuthorityDocument) {
-			d.Authority = "crm authority"
+			d.Authority = "alpha authority"
 		},
 		"generation zero":        func(d *solutionhost.AuthorityDocument) { d.Generation = 0 },
 		"no coordinate":          func(d *solutionhost.AuthorityDocument) { d.Host.Coordinate = "" },
@@ -252,7 +252,7 @@ func TestAuthorityValidationRejectsEachWayItCanLie(t *testing.T) {
 			d.Principals[0].Bindings[0].Queue = "reconcile\ndefault"
 		},
 		"binding with a multi-line namespace": func(d *solutionhost.AuthorityDocument) {
-			d.Principals[0].Bindings[0].Namespace = "crm\tother"
+			d.Principals[0].Bindings[0].Namespace = "alpha\tother"
 		},
 		"multi-line binding audience": func(d *solutionhost.AuthorityDocument) {
 			d.Principals[0].Bindings[0].Audience = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END"
@@ -333,7 +333,7 @@ func TestAuthorityCanonicalEncodingIgnoresDeclarationOrder(t *testing.T) {
 // Pinned for the same reason the presence digests are: this encoding is what a
 // signature covers, so moving it invalidates every signed authority document
 // ever delivered.
-const authorityFixtureDigest = "sha256:8a7c51d1211bb6731ffea8015caab4254e903fecac058dd21307e4b9f942bd0f"
+const authorityFixtureDigest = "sha256:ec4503ebdf65542f4d86e5c030cc341a9d4a92a9e58081e03a8145003bc8136c"
 
 // A module that owns no queue is a real case, so Queue and Namespace are
 // optional. Absence means this binding grants NO authority on that dimension —
@@ -344,14 +344,14 @@ const authorityFixtureDigest = "sha256:8a7c51d1211bb6731ffea8015caab4254e903feca
 // optional rests on absence and presence not being interchangeable.
 func TestAnAbsentQueueGrantsNothingRatherThanEverything(t *testing.T) {
 	bare := solutionhost.AuthorityBinding{
-		ID: "binding:crm:queueless", Revision: 1,
-		Audience: "https://prod.eu-west-1.obin.example/operations",
+		ID: "binding:alpha:queueless", Revision: 1,
+		Audience: "https://prod.region-a.example/operations",
 		Scope:    "record:read",
 	}
 
 	document := validAuthority(t)
 	document.Principals = []solutionhost.PrincipalAuthority{{
-		Principal: "principal:crm-operator",
+		Principal: "principal:operator",
 		Bindings:  []solutionhost.AuthorityBinding{bare},
 	}}
 	require.NoError(t, document.Validate(), "a binding with no queue and no namespace is a valid binding")
@@ -374,7 +374,7 @@ func TestAnAbsentQueueGrantsNothingRatherThanEverything(t *testing.T) {
 
 	claiming := validAuthority(t)
 	claiming.Principals = []solutionhost.PrincipalAuthority{{
-		Principal: "principal:crm-operator",
+		Principal: "principal:operator",
 		Bindings:  []solutionhost.AuthorityBinding{withQueue},
 	}}
 	narrow := solutionhost.FixtureEnvelope()
@@ -389,12 +389,12 @@ func TestAnAbsentQueueGrantsNothingRatherThanEverything(t *testing.T) {
 func TestTheRenderersDerivedBindingShapeIsAdmitted(t *testing.T) {
 	document := validAuthority(t)
 	document.Principals = []solutionhost.PrincipalAuthority{{
-		Principal: "principal:robin",
+		Principal: "principal:consumer",
 		Bindings: []solutionhost.AuthorityBinding{{
-			ID:       "principal:robin:annotations-binding:redact",
+			ID:       "principal:consumer:records-binding:redact",
 			Revision: 1,
-			Audience: "https://prod.eu-west-1.obin.example/operations",
-			Scope:    "annotation:read,annotation:write,record:read",
+			Audience: "https://prod.region-a.example/operations",
+			Scope:    "record:read,record:write,summary:read",
 		}},
 	}}
 	require.NoError(t, document.Validate())
@@ -403,8 +403,8 @@ func TestTheRenderersDerivedBindingShapeIsAdmitted(t *testing.T) {
 	envelope.Bindings = document.Principals[0].Bindings
 	require.NoError(t, document.ValidateAgainst(envelope))
 
-	binding, principal, held := document.Binding("principal:robin:annotations-binding:redact")
+	binding, principal, held := document.Binding("principal:consumer:records-binding:redact")
 	require.True(t, held)
-	require.Equal(t, "principal:robin", principal)
+	require.Equal(t, "principal:consumer", principal)
 	require.Equal(t, uint64(1), binding.Revision)
 }

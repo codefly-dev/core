@@ -57,49 +57,65 @@ malformed. It is not malformed; it is older than the reader.
 
 Two consequences of the schema step, both deliberate:
 
-- Every stored `Applied.Digest` is stale. The document changed, so a host
-  treats stored digests as stale rather than as evidence of a rewrite.
 - `SchemaV1` is gone as a constant. Pinning it was the contract; so is its
   removal.
+- **There is no in-place migration for `Applied`, and core provides no
+  mechanism for one.** An earlier draft of this document claimed a host could
+  "treat stored digests as stale"; that was wrong, and the review that caught it
+  was right. A v1-era record fails the new required-`Domain` check, and
+  supplying a domain does not rescue it: the stored digest was computed over v1
+  canonical bytes, so `decide` sees the same generation with different bytes and
+  returns `ErrRewrittenGeneration` — an error that accuses delivery of
+  tampering.
+
+  The cutover is therefore cold on the host's side too: a host **discards its
+  applied records** and re-admits the delivered set. That is safe here, and only
+  here, for a specific reason — every v2 document is new, and a v1 document is
+  refused outright by `ErrSchema`, so there is no older generation left that
+  discarding could let back in. What discarding does lose is core's record of
+  which generation was applied and which bindings were tombstoned; a host that
+  keeps registry history of its own (late-heartbeat refusal, withdrawal records)
+  keeps that separately and must not discard it. Core's `Applied` is a
+  reconciliation input, not the host's audit log.
 
 ## The presence document
 
 ```yaml
 schema: codefly/solution-host-binding/v2
 kind: solution                     # or module — declared, never inferred
-binding: crm-eu-west-1-01          # stable ID of one deployment instance
+binding: alpha-region-a-01          # stable ID of one deployment instance
 generation: 4                      # strictly monotonic per binding ID
-ownership_domain: crm              # the slice of the host's binding space this delivery speaks for
+ownership_domain: alpha              # the slice of the host's binding space this delivery speaks for
 envelope_revision: 7               # the ceiling it was validated against
 host:
-  coordinate: obin/prod/eu-west-1
-  component: saas-host
+  coordinate: example/prod/region-a
+  component: solution-host
 release:
-  publisher: obin
-  name: crm
+  publisher: example
+  name: alpha
   version: 1.4.0
   digest: sha256:…                 # REQUIRED
 routes:
-  - {alias: crm, surface: frontend}
+  - {alias: alpha, surface: frontend}
 artifacts:                         # every rendered artifact, digest required
-  - {surface: frontend, name: web, release: obin/crm@1.4.0, digest: "sha256:…"}
-  - {surface: backend,  name: api, release: obin/crm@1.4.0, digest: "sha256:…"}
+  - {surface: frontend, name: web, release: example/alpha@1.4.0, digest: "sha256:…"}
+  - {surface: backend,  name: api, release: example/alpha@1.4.0, digest: "sha256:…"}
 workloads:                         # what the host runs, and what must be true of it
-  - name: crm-api
+  - name: alpha-api
     artifact: api                  # the artifact that renders it, by NAME
     container: api                 # the ONE container that authenticates
     image:
-      repository: ghcr.io/obin/crm-api   # no tag, no digest
+      repository: registry.example/alpha-api   # no tag, no digest
       digest: sha256:…             # the OCI image MANIFEST digest: the approved build
     identity:
-      audience: https://prod.eu-west-1.obin.example/solutions
-      subject: system:serviceaccount:crm-eu-west-1-01:crm-api
-      spiffe_id: spiffe://prod.eu-west-1.obin.example/ns/crm-eu-west-1-01/sa/crm-api
+      audience: https://prod.region-a.example/solutions
+      subject: system:serviceaccount:alpha-region-a-01:alpha-api
+      spiffe_id: spiffe://prod.region-a.example/ns/alpha-region-a-01/sa/alpha-api
     non_authenticating: [envoy, migrate]   # must never be accepted as the authenticator
 modules:
-  - {module: crm, package: obin/crm-core, version: 1.4.0}
+  - {module: alpha, package: example/alpha-core, version: 1.4.0}
 endpoints:                         # named, never addressed
-  - {name: api, service: crm, module: crm, api: grpc, visibility: internal}
+  - {name: api, service: alpha, module: alpha, api: grpc, visibility: internal}
 ```
 
 A tombstone is the same document with `removed: true`, a higher generation, and
@@ -213,22 +229,22 @@ what is not.
 
 ```yaml
 schema: codefly/solution-authority/v1
-authority: crm-eu-west-1-01-authority
+authority: alpha-region-a-01-authority
 generation: 2                      # monotonic per authority ID
-host: {coordinate: obin/prod/eu-west-1, component: saas-host}
-ownership_domain: crm
+host: {coordinate: example/prod/region-a, component: solution-host}
+ownership_domain: alpha
 envelope_revision: 7
 approved_build: sha256:…           # one exact OCI image manifest
 effective_from: 4                  # the presence generation it is effective from
 principals:
-  - principal: principal:crm-operator
+  - principal: principal:operator
     bindings:
-      - id: binding:crm:reconcile  # opaque to core
+      - id: binding:alpha:reconcile  # opaque to core
         revision: 3
-        audience: https://prod.eu-west-1.obin.example/operations
+        audience: https://prod.region-a.example/operations
         scope: reconcile
         queue: reconcile.default    # OPTIONAL
-        namespace: crm-eu-west-1-01 # OPTIONAL
+        namespace: alpha-region-a-01 # OPTIONAL
 ```
 
 `AuthorityBinding.ID` is **opaque to core**: core compares IDs and never
@@ -304,6 +320,29 @@ Two shapes that look like conveniences and are not:
 `Activate` does not check the envelope: that needs a ceiling neither document
 may carry. A caller verifies both signatures, runs `ValidateAgainst`, then
 activates.
+
+### What a matched tuple does not establish
+
+`Activate` answers one question — are these two documents talking about the same
+build on the same host in the same domain — and it is worth being exact about
+what that leaves open, because the fields look like they settle more than they
+do:
+
+- It checks build **membership**: that the build is one the presence document
+  declares. It does not identify a particular authenticated workload or pod, and
+  nothing here binds a credential to one. A host that wants that binds the
+  authenticated pod's identity to the live workload and compares the designated
+  container's resolved image digest itself.
+- `effective_from` is compared against a presence **generation**, with no
+  reference to a particular binding beyond the one in hand.
+- **Same-image workloads and sidecar credential presentation are unresolved.**
+  Naming one authenticating container says which container *should* present the
+  credential; it does not prove which one did, and two workloads running the
+  same approved build are not distinguished by anything in these documents. The
+  `build_incarnation` sealed into a credential is what separates two executions,
+  and it is the host that must bump it per applied generation — never resolve it
+  from the workload's own attributes, which is what would let a pod from a
+  superseded generation mint into the current one.
 
 ## The signature envelope
 

@@ -45,6 +45,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/codefly-dev/core/workcontext"
@@ -99,15 +100,23 @@ func New(now time.Time) Settings {
 	for id, key := range workcontext.FixtureKeys() {
 		keys[id] = key
 	}
+	clock := func() time.Time { return now }
+	// The replay store reads the SAME clock as the verifier. A store on wall
+	// time would, at a historical test clock, judge the grant's retention
+	// deadline already past — so the second presentation of a single-use
+	// capability would succeed and the kit would fail a conforming consumer
+	// for the kit's own reason.
+	replay := workcontext.NewMemoryReplayStore()
+	replay.Now = clock
 	return Settings{
 		Issuer:    workcontext.FixtureIssuer,
 		Audience:  workcontext.FixtureAudience,
 		Keys:      keys,
 		Revisions: workcontext.FixtureRevisions(),
-		Replay:    workcontext.NewMemoryReplayStore(),
+		Replay:    replay,
 		Seals:     workcontext.FixtureSeals(),
 		Grants:    workcontext.FixtureGrants(now),
-		Now:       func() time.Time { return now },
+		Now:       clock,
 	}
 }
 
@@ -197,6 +206,16 @@ func RunWith(t TestingT, settings Settings, verify Verify) {
 			if fixture.Err != nil && !errors.Is(err, fixture.Err) {
 				t.Errorf("work context conformance: fixture %q (%s) must be refused with %v, got %v\n  it is: %s",
 					fixture.Name, fixture.Form, fixture.Err, err, fixture.Reason)
+				continue
+			}
+			// Several fixtures share a sentinel, so where the sentinel is an
+			// umbrella the fixture also names the refusal it must be. The
+			// tampered payload is the case that matters: it exists to be the
+			// one SIGNATURE failure, and asserting only ErrInvalid would let
+			// it pass for any unrelated invalidity.
+			if fixture.Message != "" && !strings.Contains(err.Error(), fixture.Message) {
+				t.Errorf("work context conformance: fixture %q (%s) must be refused with a message containing %q, got %v\n  it is: %s",
+					fixture.Name, fixture.Form, fixture.Message, err, fixture.Reason)
 			}
 		default:
 			t.Errorf("work context conformance: fixture %q declares outcome %q, which is neither accepted nor rejected",

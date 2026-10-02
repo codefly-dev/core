@@ -10,16 +10,16 @@
 # is not.
 schema: codefly/solution-host-binding/v2
 kind: solution
-binding: crm-eu-west-1-01
+binding: alpha-region-a-01
 generation: 5
-ownership_domain: crm
+ownership_domain: alpha
 envelope_revision: 7
 host:
-  coordinate: obin/prod/eu-west-1
-  component: saas-host
+  coordinate: example/prod/region-a
+  component: solution-host
 release:
-  publisher: obin
-  name: crm
+  publisher: example
+  name: alpha
   version: 1.4.0
   digest: sha256:5b1cbf059fa244a163e6f443417e5259db2392b95ae25a9d3aa03496c180eaef
 removed: true

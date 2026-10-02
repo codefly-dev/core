@@ -69,9 +69,18 @@ func TestStart_RefusesWithoutAnInstallation(t *testing.T) {
 
 // The acceptance case from the issue: a credential sealed to installation
 // revision 3 fails verification when the verifier is handed revision 4.
+//
+// ONE verifier is reused across the revocation, deliberately. Building a fresh
+// verifier per attempt would not catch a verifier that cached live state after
+// its first successful verification — which is the shape a real deployment
+// reaches for, and the shape in which revocation silently stops working.
 func TestVerify_RefusesACapabilitySealedToASupersededInstallationRevision(t *testing.T) {
 	h := newHarness(t)
 	token, _ := h.ownerSession(audience)
+
+	verifier := h.verifier(audience)
+	_, err := verifier.Verify(context.Background(), token)
+	require.NoError(t, err, "sound before the revocation")
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
 		PrincipalEpoch:       2,
@@ -80,9 +89,35 @@ func TestVerify_RefusesACapabilitySealedToASupersededInstallationRevision(t *tes
 		BuildIncarnation:     11,
 	}))
 
-	_, err := h.verify(audience, token)
+	_, err = verifier.Verify(context.Background(), token)
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 	require.ErrorContains(t, err, "sealed to installation revision 3, the issuer holds 4")
+}
+
+// The same, for an actor's epoch: one verifier, sound, then revoked.
+func TestVerify_RefusesADelegatedCapabilityAfterItsActorIsRevoked(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+	token, _ := h.agentSession(owner, audience)
+
+	verifier := h.verifier(audience)
+	_, err := verifier.Verify(context.Background(), token)
+	require.NoError(t, err, "sound before the revocation")
+
+	// The OWNER's seal is untouched; only the actor is cut off. Without a
+	// per-actor epoch the only lever would be the tenant's authorization
+	// revision, which cuts off every capability of the tenant.
+	require.NoError(t, h.seals.PutEpoch(agentID, 2))
+
+	_, err = verifier.Verify(context.Background(), token)
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "actor hop")
+
+	// And the owner's own session still verifies, which is the point of the
+	// epoch being per principal rather than per tenant.
+	ownerToken, _ := h.ownerSession(audience)
+	_, err = h.verifier(audience).Verify(context.Background(), ownerToken)
+	require.NoError(t, err)
 }
 
 // Exact equality, not "at least". There is no legitimate way to hold a
@@ -178,8 +213,14 @@ func TestSeal_RefusesToSignAnUnsealedCapability(t *testing.T) {
 // of its counters are compared.
 func TestVerify_RefusesASupersededOperationBinding(t *testing.T) {
 	for name, moved := range map[string]workcontext.OperationBinding{
-		"revision":    {ID: bindingID, Revision: 5, Incarnation: 1},
-		"incarnation": {ID: bindingID, Revision: 4, Incarnation: 2},
+		"revision": {
+			ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+			Revision: 5, Incarnation: 1,
+		},
+		"incarnation": {
+			ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+			Revision: 4, Incarnation: 2,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
@@ -203,7 +244,8 @@ func TestVerify_RefusesARevokedOperationBinding(t *testing.T) {
 	token, _ := h.operationSession(audience)
 
 	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
-		ID: bindingID, Revision: 4, Incarnation: 1, Revoked: true,
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 4, Incarnation: 1, Revoked: true,
 	}))
 
 	_, err := h.verify(audience, token)
@@ -228,19 +270,111 @@ func TestVerify_RefusesABindingTheIssuerDoesNotHold(t *testing.T) {
 	require.ErrorContains(t, err, "which the issuer does not hold")
 }
 
-// A delegation hop narrows authority within one installation and never moves
-// it, and the child carries the issuer's live numbers rather than the parent's
-// sealed ones — the same reason the authorization revision is re-read.
-func TestChild_ResealsAgainstTheIssuerAndKeepsTheInstallation(t *testing.T) {
+// DERIVATION MUST NOT DEFEAT REVOCATION. A parent whose sealed state has moved
+// is a revoked credential, so it can derive nothing — and in particular a
+// derived child must not be stamped with the issuer's current counters while
+// keeping the parent's authority.
+//
+// This was a real bug in an earlier revision of this package, found by
+// adversarial review. `reseal` read live values and overwrote the inherited
+// seal, so: verify a parent at installation revision 3, advance the
+// installation to 4, call Child — and the child kept the parent's scopes,
+// carried revision 4, and verified. Every revocation this package introduces
+// would have been defeated by deriving once.
+//
+// The reasoning that produced the bug is worth recording, because it is
+// plausible. The authorization REVISION is re-read at every mint, correctly:
+// it is monotonic and forward-only, so re-reading avoids minting a child born
+// superseded. The SEAL is compared for equality and a change to it is a
+// REVOCATION — so for the seal, re-reading is laundering. The two fields look
+// alike and want opposite treatment.
+func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
+	for name, moved := range map[string]workcontext.Seal{
+		"installation revision": {
+			PrincipalEpoch: 2, InstallationID: installation,
+			InstallationRevision: 9, BuildIncarnation: 11,
+		},
+		"principal epoch": {
+			PrincipalEpoch: 3, InstallationID: installation,
+			InstallationRevision: 3, BuildIncarnation: 11,
+		},
+		"build incarnation": {
+			PrincipalEpoch: 2, InstallationID: installation,
+			InstallationRevision: 3, BuildIncarnation: 12,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			_, owner := h.ownerSession(audience)
+
+			require.NoError(t, h.seals.Put(ownerID, moved))
+
+			_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+				PrincipalID:   agentID,
+				PrincipalKind: "agent",
+				AgentID:       "codefly.dev/mind:1.2.0",
+				DelegationID:  "d-1",
+				GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+				Audience:      audience,
+				TTL:           time.Minute,
+			})
+			require.ErrorIs(t, err, workcontext.ErrRevoked)
+			require.ErrorContains(t, err, "can derive nothing")
+		})
+	}
+}
+
+// A parent whose installation the principal no longer holds at all derives
+// nothing either, and says so rather than reporting a comparison.
+func TestChild_RefusesToDeriveFromAParentWhoseInstallationIsGone(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
+	h.seals = workcontext.NewMemorySealSource()
+	require.NoError(t, h.seals.PutEpoch(agentID, 1))
+	h.authority.Seals = h.seals
+
+	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		PrincipalID:   agentID,
+		PrincipalKind: "agent",
+		AgentID:       "codefly.dev/mind:1.2.0",
+		DelegationID:  "d-1",
+		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		Audience:      audience,
+		TTL:           time.Minute,
+	})
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "no longer holds")
+}
+
+// A grant capability is held to the same standard, and for the sharper reason:
+// a grant is minted for one approved call, so deriving one from a revoked
+// parent would spend an approval on a credential that was already dead.
+func TestGrant_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+	_, agent := h.agentSession(owner, audience)
+	grant := h.approvedGrant("g-1")
+
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch:       2,
-		InstallationID:       installation,
-		InstallationRevision: 9,
-		BuildIncarnation:     11,
+		PrincipalEpoch: 2, InstallationID: installation,
+		InstallationRevision: 3, BuildIncarnation: 12,
 	}))
+
+	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
+		Grant: grant, TTL: time.Minute,
+	})
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "can derive nothing")
+}
+
+// When nothing has moved, derivation carries the parent's sealed values
+// through UNCHANGED. The child is sealed to what the parent was sealed to,
+// which is what makes the refusal above the only way a seal ever changes
+// across a derivation.
+func TestChild_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
 
 	_, child, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentID,
@@ -253,11 +387,14 @@ func TestChild_ResealsAgainstTheIssuerAndKeepsTheInstallation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, installation, child.GetSeal().GetInstallationId())
-	require.Equal(t, uint64(9), child.GetSeal().GetInstallationRevision(),
-		"the child carries the issuer's revision now, not the one the parent was sealed with")
-	require.Equal(t, uint64(3), owner.Context().GetSeal().GetInstallationRevision(),
-		"and the parent's verified claims are untouched")
+	require.Equal(t, owner.Context().GetSeal().GetInstallationId(), child.GetSeal().GetInstallationId())
+	require.Equal(t, owner.Context().GetSeal().GetInstallationRevision(), child.GetSeal().GetInstallationRevision())
+	require.Equal(t, owner.Context().GetSeal().GetPrincipalEpoch(), child.GetSeal().GetPrincipalEpoch())
+	require.Equal(t, owner.Context().GetSeal().GetBuildIncarnation(), child.GetSeal().GetBuildIncarnation())
+
+	// The hop carries its OWN epoch, read live — new authority for a new
+	// principal, so current by construction, unlike the inherited seal.
+	require.Equal(t, uint64(1), child.GetActorChain()[0].GetPrincipalEpoch())
 }
 
 // A hop may replace the binding it exercises, and the replacement's counters
@@ -265,8 +402,10 @@ func TestChild_ResealsAgainstTheIssuerAndKeepsTheInstallation(t *testing.T) {
 func TestChild_ResolvesTheBindingItNames(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
+	// Granted to the HOP's principal, because the hop is what exercises it.
 	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
-		ID: "binding:crm:read", Revision: 1, Incarnation: 7,
+		ID: "binding:crm:read", PrincipalID: agentID, InstallationID: installation,
+		Revision: 1, Incarnation: 7,
 	}))
 
 	_, child, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
@@ -287,28 +426,24 @@ func TestChild_ResolvesTheBindingItNames(t *testing.T) {
 	require.Equal(t, uint64(7), binding.GetIncarnation())
 }
 
-// A grant capability is resealed too. One that carried the parent's sealed
-// numbers would be born dead whenever the installation moved between the
-// parent's verification and the mint, and the failure would surface inside the
-// approved call rather than at the mint that caused it.
-func TestGrant_ResealsAgainstTheIssuer(t *testing.T) {
+// A grant capability carries the parent's seal forward unchanged, like any
+// other derivation, and its hop carries the elevated principal's own epoch.
+func TestGrant_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 	_, agent := h.agentSession(owner, audience)
 	grant := h.approvedGrant("g-1")
 
-	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		PrincipalEpoch:       2,
-		InstallationID:       installation,
-		InstallationRevision: 3,
-		BuildIncarnation:     12,
-	}))
-
 	_, elevated, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
 		Grant: grant, TTL: time.Minute,
 	})
 	require.NoError(t, err)
-	require.Equal(t, uint64(12), elevated.GetSeal().GetBuildIncarnation())
+	require.Equal(t, agent.Context().GetSeal().GetBuildIncarnation(), elevated.GetSeal().GetBuildIncarnation())
+	require.Equal(t, agent.Context().GetSeal().GetInstallationRevision(), elevated.GetSeal().GetInstallationRevision())
+
+	chain := elevated.GetActorChain()
+	require.NotEmpty(t, chain)
+	require.NotNil(t, chain[len(chain)-1].PrincipalEpoch, "the elevated hop carries its own epoch")
 }
 
 // The source is asked about one installation and one binding, and an answer
@@ -335,6 +470,8 @@ func (answersElsewhere) Seal(context.Context, string, string) (workcontext.Seal,
 		InstallationRevision: 3, BuildIncarnation: 11,
 	}, nil
 }
+
+func (answersElsewhere) PrincipalEpoch(context.Context, string) (uint64, error) { return 2, nil }
 
 func (answersElsewhere) OperationBinding(context.Context, string) (workcontext.OperationBinding, error) {
 	return workcontext.OperationBinding{}, workcontext.ErrNoBinding
@@ -498,10 +635,11 @@ func TestFixtureKeyPairIsDeterministicAndDocumentedAsPublic(t *testing.T) {
 // end, in miniature.
 func TestCheckEncodingNamesAForeignEncodingForAnyDecoder(t *testing.T) {
 	for name, payload := range map[string][]byte{
-		"a JSON object":            []byte(`{"typ":"codefly.work-context/v1"}`),
-		"a JSON array":             []byte(`[{"typ":"x"}]`),
-		"whitespace then JSON":     []byte("  \n\t{\"typ\":\"x\"}"),
-		"a JSON object with a BOM": append([]byte{}, append([]byte(" "), []byte(`{"a":1}`)...)...),
+		"a JSON object":                             []byte(`{"typ":"codefly.work-context/v1"}`),
+		"a JSON array":                              []byte(`[{"typ":"x"}]`),
+		"whitespace then JSON":                      []byte("  \n\t{\"typ\":\"x\"}"),
+		"a JSON object behind a UTF-8 BOM":          append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"a":1}`)...),
+		"a JSON object behind a BOM and whitespace": append([]byte{0xEF, 0xBB, 0xBF}, []byte("  \n{\"a\":1}")...),
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := workcontext.CheckEncoding(payload)

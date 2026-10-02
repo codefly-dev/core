@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 )
 
 // SchemaSignedV1 is the only signature-carrier schema this package reads.
@@ -92,8 +93,16 @@ func ParseSigned(data []byte) (*Signed, error) {
 	if err := decoder.Decode(&signed); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnsigned, err)
 	}
-	if decoder.More() {
-		return nil, fmt.Errorf("%w: the carrier holds more than one document", ErrUnsigned)
+	// Decoder.More() is an array/object iteration check, not an end-of-input
+	// check: a carrier followed by a stray "]" or "}" passes it even though
+	// the whole input is not valid JSON. Requiring a second decode to return
+	// io.EOF is what actually establishes that nothing follows.
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, fmt.Errorf("%w: the carrier holds more than one document", ErrUnsigned)
+		}
+		return nil, fmt.Errorf("%w: trailing input after the carrier: %v", ErrUnsigned, err)
 	}
 	if signed.Schema != SchemaSignedV1 {
 		return nil, fmt.Errorf("%w: schema %q (this Core reads %q)", ErrSchema, signed.Schema, SchemaSignedV1)

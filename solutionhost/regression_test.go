@@ -26,8 +26,8 @@ import (
 // of a rewrite. That is the migration, and it is the only reason these may
 // move.
 const (
-	validFixtureDigest     = "sha256:a5dfaf75e58d86461040f7030195c8a641d540d7f41a704916186a5e264441ee"
-	tombstoneFixtureDigest = "sha256:32cb762712fb144498cf0ba5028da3414f42230c9131af6a2104d2ed93064193"
+	validFixtureDigest     = "sha256:7a61119691f9a9e7cb7af9b1bcb0996a4583aafcf0f75c75bd0a16606f538b09"
+	tombstoneFixtureDigest = "sha256:08ddceb70944c4bd18c9771843891a4d3af7a828f2d328b89777f61b6d352354"
 )
 
 func TestCanonicalEncodingIsPinnedAgainstTheShippedFixtures(t *testing.T) {
@@ -49,7 +49,7 @@ func TestCanonicalEncodingSortsKeysAtEveryDepth(t *testing.T) {
 	canonical, err := parse(t, "valid").CanonicalBytes()
 	require.NoError(t, err)
 	require.Contains(t, string(canonical), `{"artifacts":[{"digest":`)
-	require.Contains(t, string(canonical), `"host":{"component":"saas-host","coordinate":`)
+	require.Contains(t, string(canonical), `"host":{"component":"solution-host","coordinate":`)
 	// A number survives as its literal rather than as a rounded float.
 	require.Contains(t, string(canonical), `"generation":4`)
 }
@@ -75,13 +75,13 @@ func TestALargeGenerationKeepsItsExactValue(t *testing.T) {
 }
 
 // A release publisher and name are one segment each. Identity() joins them with
-// "/" and "@", so a "/" inside either would let publisher "obin" + name
-// "crm/web" and publisher "obin/crm" + name "web" render the same identity —
+// "/" and "@", so a "/" inside either would let publisher "example" + name
+// "alpha/web" and publisher "example/alpha" + name "web" render the same identity —
 // and every artifact references its release by exactly that string.
 func TestReleaseIdentityCannotBeAmbiguous(t *testing.T) {
 	for name, release := range map[string]solutionhost.Release{
-		"slash in publisher": {Publisher: "obin/crm", Name: "web", Version: "1.0.0"},
-		"slash in name":      {Publisher: "obin", Name: "crm/web", Version: "1.0.0"},
+		"slash in publisher": {Publisher: "example/alpha", Name: "web", Version: "1.0.0"},
+		"slash in name":      {Publisher: "example", Name: "alpha/web", Version: "1.0.0"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			document := parse(t, "valid")
@@ -97,8 +97,8 @@ func TestReleaseIdentityCannotBeAmbiguous(t *testing.T) {
 
 	// The two pairs that used to collide now cannot both exist.
 	require.NotEqual(t,
-		solutionhost.Release{Publisher: "obin", Name: "crm", Version: "1.0.0"}.Identity(),
-		solutionhost.Release{Publisher: "obin", Name: "crm-web", Version: "1.0.0"}.Identity())
+		solutionhost.Release{Publisher: "example", Name: "alpha", Version: "1.0.0"}.Identity(),
+		solutionhost.Release{Publisher: "example", Name: "alpha-web", Version: "1.0.0"}.Identity())
 }
 
 // Route aliases are unique within ONE host. A product delivery repo covers
@@ -108,8 +108,8 @@ func TestReleaseIdentityCannotBeAmbiguous(t *testing.T) {
 func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 	eu := parse(t, "valid")
 	us := parse(t, "valid")
-	us.Binding = "crm-us-east-1-01"
-	us.Host.Coordinate = "obin/prod/us-east-1"
+	us.Binding = "alpha-region-b-01"
+	us.Host.Coordinate = "example/prod/region-b"
 	require.Equal(t, eu.Aliases(), us.Aliases())
 
 	admissions, err := solutionhost.Host{}.Admit(eu, us)
@@ -154,7 +154,7 @@ func TestANewlyReservedNamespaceDoesNotBlockUnrelatedBindings(t *testing.T) {
 	}
 
 	fresh := parse(t, "valid")
-	fresh.Binding = "crm-02"
+	fresh.Binding = "alpha-02"
 	fresh.Routes = []solutionhost.Route{{Alias: "brand-new", Surface: solutionhost.SurfaceFrontend}}
 	decision, err := admitOne(t, host, fresh)
 	require.NoError(t, err)
@@ -196,9 +196,9 @@ func TestOneMalformedDocumentDoesNotRefuseTheRest(t *testing.T) {
 // generation — never releases its applied alias either.
 func TestARedeclarationRefusedForItsGenerationKeepsItsAppliedAlias(t *testing.T) {
 	host := fixtureHost(t)
-	require.Equal(t, []string{"crm"}, host.Applied[0].Routes)
+	require.Equal(t, []string{"alpha"}, host.Applied[0].Routes)
 
-	// crm-eu-west-1-01 looks like it is releasing "crm"… but the document is an
+	// alpha-region-a-01 looks like it is releasing "alpha"… but the document is an
 	// older generation and will be refused, so the applied one still holds it.
 	stale := parse(t, "stale-generation")
 	stale.Routes = nil
@@ -219,16 +219,16 @@ func TestARedeclarationRefusedForItsGenerationKeepsItsAppliedAlias(t *testing.T)
 // against one snapshot.
 //
 // aaa-01 passes every per-document check, so the first snapshot treats its
-// applied generation as replaced and "crm" as released — which lets bbb-01
+// applied generation as replaced and "alpha" as released — which lets bbb-01
 // take it. Only when aaa-01 is then refused for claiming "zzz" does it become
-// true that aaa-01 still holds "crm", and bbb-01 must be refused too. A
+// true that aaa-01 still holds "alpha", and bbb-01 must be refused too. A
 // single-pass implementation admits bbb-01 here and collides at apply time.
 func TestTheAliasPassRerunsAfterARefusalFreesNothing(t *testing.T) {
 	incumbent := parse(t, "valid")
 	incumbent.Binding = "aaa-01"
 	incumbentApplied, err := solutionhost.AppliedFrom(incumbent)
 	require.NoError(t, err)
-	require.Equal(t, []string{"crm"}, incumbentApplied.Routes)
+	require.Equal(t, []string{"alpha"}, incumbentApplied.Routes)
 
 	neighbour := parse(t, "valid")
 	neighbour.Binding = "zzz-01"
@@ -238,7 +238,7 @@ func TestTheAliasPassRerunsAfterARefusalFreesNothing(t *testing.T) {
 
 	host := appliedHost(incumbentApplied, neighbourApplied)
 
-	// aaa-01 moves off "crm" and onto an alias zzz-01 already holds.
+	// aaa-01 moves off "alpha" and onto an alias zzz-01 already holds.
 	moving := parse(t, "valid")
 	moving.Binding = "aaa-01"
 	moving.Generation = incumbent.Generation + 1
@@ -254,5 +254,5 @@ func TestTheAliasPassRerunsAfterARefusalFreesNothing(t *testing.T) {
 	require.Len(t, admissions, 2)
 	require.ErrorIs(t, admissions[0].Err, composition.ErrCollision)
 	require.ErrorIs(t, admissions[1].Err, composition.ErrCollision,
-		"aaa-01 was refused, so it never released \"crm\" and bbb-01 cannot have it")
+		"aaa-01 was refused, so it never released \"alpha\" and bbb-01 cannot have it")
 }

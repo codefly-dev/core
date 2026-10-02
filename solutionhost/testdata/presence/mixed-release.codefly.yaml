@@ -1,42 +1,42 @@
 # REJECTED, ErrMixedRelease. The backend artifact was rendered from
-# obin/pim@1.9.0 while the generation declares obin/pim@2.0.0. A partial
+# example/beta@1.9.0 while the generation declares example/beta@2.0.0. A partial
 # rollout must never be declarable as one generation, and this is refused by
 # validation alone — no host state is needed to see it.
 schema: codefly/solution-host-binding/v2
 kind: solution
-binding: pim-eu-west-1-01
+binding: beta-region-a-01
 generation: 1
-ownership_domain: crm
+ownership_domain: alpha
 envelope_revision: 7
 host:
-  coordinate: obin/prod/eu-west-1
-  component: saas-host
+  coordinate: example/prod/region-a
+  component: solution-host
 release:
-  publisher: obin
-  name: pim
+  publisher: example
+  name: beta
   version: 2.0.0
   digest: sha256:9b19280ebc8ee93884190fcf6eab5baf2f116a010f254baeadc84b5ab4c6165d
 routes:
-  - alias: pim
+  - alias: beta
     surface: frontend
 artifacts:
   - surface: frontend
     name: web
-    release: obin/pim@2.0.0
+    release: example/beta@2.0.0
     digest: sha256:534f494f8ab3f9a2b32c69c0991237e94f43b567869ecbc7e6da2dc0fc16feba
   - surface: backend
     name: api
-    release: obin/pim@1.9.0
+    release: example/beta@1.9.0
     digest: sha256:277fd8aba1f0d05864afc8f04e3b4704fd52adde3ec74d10838b3f9f10f397dd
 workloads:
-  - name: pim-api
+  - name: beta-api
     artifact: api
     container: api
     image:
-      repository: ghcr.io/obin/pim-api
+      repository: registry.example/beta-api
       digest: sha256:23f7dd7e08c39ae6b59c2c62fd550b6cfd785c26d6a366bd87b8322e29738bf2
     identity:
-      audience: https://prod.eu-west-1.obin.example/solutions
-      subject: system:serviceaccount:pim-eu-west-1-01:pim-api
-      spiffe_id: spiffe://prod.eu-west-1.obin.example/ns/pim-eu-west-1-01/sa/pim-api
+      audience: https://prod.region-a.example/solutions
+      subject: system:serviceaccount:beta-region-a-01:beta-api
+      spiffe_id: spiffe://prod.region-a.example/ns/beta-region-a-01/sa/beta-api
     non_authenticating: []

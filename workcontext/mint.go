@@ -95,7 +95,7 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 	if err != nil {
 		return "", nil, err
 	}
-	seal, binding, err := a.sealFor(ctx, in.OwnerPrincipalID, in.InstallationID, in.OperationBindingID)
+	seal, binding, err := a.sealFor(ctx, in.OwnerPrincipalID, in.InstallationID, in.OperationBindingID, in.OwnerPrincipalID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -195,36 +195,53 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 		return "", nil, err
 	}
 	wc.ActorChain = append(wc.ActorChain, hop)
-	// Reseal against the issuer's live state rather than carrying the parent's
-	// sealed numbers forward. The parent verified moments ago, but a bump
-	// between that verification and this mint would otherwise produce a child
-	// every verifier refuses — the same reason the revision is re-read above.
-	if err := a.reseal(ctx, wc, in.OperationBindingID); err != nil {
+	if err := a.deriveSeal(ctx, wc, in.OperationBindingID, in.PrincipalID); err != nil {
 		return "", nil, err
 	}
 	return a.seal(wc)
 }
 
-// reseal replaces the seal a derived capability inherited from its parent with
-// the issuer's live values, and resolves the operation binding the hop names —
-// or the parent's, when it names none.
+// deriveSeal prepares a derived capability's seal: it holds the INHERITED seal
+// against live state and refuses the derivation if any of it has moved, stamps
+// the new hop's own epoch, and resolves a replacement operation binding when
+// the hop names one.
 //
-// The installation is the parent's: a delegation hop narrows authority within
-// one installation and never moves it to another, so taking an installation
-// from the hop would be a way to widen across installations.
-func (a *Authority) reseal(ctx context.Context, wc *basev0.WorkContextV1, bindingID string) error {
+// Nothing is overwritten with current counters. See carryForwardSeal for why
+// that is the whole security content of this function rather than a detail: a
+// parent whose sealed state has moved is a revoked credential, and a
+// derivation that restamped it would let revocation be defeated by deriving.
+//
+// The installation is always the parent's: a delegation hop narrows authority
+// within one installation and never moves it, so taking an installation from
+// the hop would be a way to widen across installations.
+func (a *Authority) deriveSeal(ctx context.Context, wc *basev0.WorkContextV1, bindingID, exercising string) error {
+	if err := a.carryForwardSeal(ctx, wc); err != nil {
+		return err
+	}
+	// The hop's own epoch, read live. A hop is new authority for a new
+	// principal, so its epoch is current by construction — unlike the seal,
+	// which is inherited and must not move.
+	epoch, err := a.epochFor(ctx, exercising)
+	if err != nil {
+		return err
+	}
+	hop := wc.ActorChain[len(wc.ActorChain)-1]
+	hop.PrincipalEpoch = &epoch
+
+	if bindingID == "" {
+		// Keep the parent's binding, which carryForwardSeal has already held
+		// against live state. Re-resolving it would be the restamping this
+		// function exists not to do.
+		return nil
+	}
 	inherited, err := sealOf(wc)
 	if err != nil {
 		return err
 	}
-	if bindingID == "" {
-		bindingID = wc.GetOperationBinding().GetBindingId()
-	}
-	seal, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID)
+	_, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID, exercising)
 	if err != nil {
 		return err
 	}
-	wc.Seal = seal
 	wc.OperationBinding = binding
 	return nil
 }
@@ -307,7 +324,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 		Subject:       grant.Subject,
 		RequestDigest: grant.RequestDigest,
 	}
-	if err := a.reseal(ctx, wc, ""); err != nil {
+	if err := a.deriveSeal(ctx, wc, "", hop.GetPrincipalId()); err != nil {
 		return "", nil, err
 	}
 	return a.seal(wc)
@@ -401,6 +418,14 @@ func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV
 	// away, at verification, in a process that cannot fix them.
 	if _, err := sealOf(wc); err != nil {
 		return "", nil, err
+	}
+	// Every hop must carry its own epoch, for the same reason: a hop without
+	// one is a principal that cannot be revoked, and the schema cannot
+	// require the field without invalidating every archived capability.
+	for index, hop := range wc.GetActorChain() {
+		if hop.PrincipalEpoch == nil {
+			return "", nil, fmt.Errorf("%w: actor hop %d (%s) carries no epoch", ErrUnsealed, index, hop.GetPrincipalId())
+		}
 	}
 	if err := checkStructure(wc); err != nil {
 		return "", nil, err

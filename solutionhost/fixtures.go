@@ -92,19 +92,19 @@ type Fixture struct {
 
 // FixtureBindingID is the binding the accepted presence fixtures declare for a
 // solution, and the one FixtureHost has already applied.
-const FixtureBindingID = "crm-eu-west-1-01"
+const FixtureBindingID = "alpha-region-a-01"
 
 // FixtureModuleBindingID is the binding the accepted module presence fixture
 // declares. FixtureHost has nothing applied for it, which is what makes it a
 // first generation.
-const FixtureModuleBindingID = "accounts-eu-west-1-01"
+const FixtureModuleBindingID = "gamma-region-a-01"
 
 // FixtureCoordinate is the host coordinate every fixture targets.
-const FixtureCoordinate = "obin/prod/eu-west-1"
+const FixtureCoordinate = "example/prod/region-a"
 
 // FixtureDomain is the ownership domain every fixture speaks for except
 // tombstone-foreign-domain, which is the point of that fixture.
-const FixtureDomain = "crm"
+const FixtureDomain = "alpha"
 
 // FixtureEnvelopeRevision is the envelope revision every fixture was validated
 // against. Both halves of an activation tuple carry it and both must agree.
@@ -147,19 +147,19 @@ func FixtureEnvelope() Envelope {
 		Revision: FixtureEnvelopeRevision,
 		Bindings: []AuthorityBinding{
 			{
-				ID: "binding:crm:reconcile", Revision: 3,
-				Audience: "https://prod.eu-west-1.obin.example/operations",
-				Scope:    "reconcile", Queue: "reconcile.default", Namespace: "crm-eu-west-1-01",
+				ID: "binding:alpha:reconcile", Revision: 3,
+				Audience: "https://prod.region-a.example/operations",
+				Scope:    "reconcile", Queue: "reconcile.default", Namespace: "alpha-region-a-01",
 			},
 			{
-				ID: "binding:crm:read", Revision: 1,
-				Audience: "https://prod.eu-west-1.obin.example/operations",
-				Scope:    "read", Queue: "read.default", Namespace: "crm-eu-west-1-01",
+				ID: "binding:alpha:read", Revision: 1,
+				Audience: "https://prod.region-a.example/operations",
+				Scope:    "read", Queue: "read.default", Namespace: "alpha-region-a-01",
 			},
 			{
-				ID: "binding:crm:report", Revision: 2,
-				Audience: "https://prod.eu-west-1.obin.example/operations",
-				Scope:    "report", Queue: "report.batch", Namespace: "crm-eu-west-1-01",
+				ID: "binding:alpha:report", Revision: 2,
+				Audience: "https://prod.region-a.example/operations",
+				Scope:    "report", Queue: "report.batch", Namespace: "alpha-region-a-01",
 			},
 		},
 		ApprovedBuilds: []ImageDigest{

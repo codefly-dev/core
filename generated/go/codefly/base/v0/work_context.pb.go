@@ -353,7 +353,10 @@ func (x *WorkContextV1) GetOperationBinding() *WorkOperationBindingV1 {
 	return nil
 }
 
-// WorkSealV1 binds a capability to one installation and one execution. Every
+// WorkSealV1 binds a capability to one installation and one execution. Its
+// principal_epoch is the TASK OWNER'S; an actor hop carries its own in
+// WorkActorV1.principal_epoch, because an actor's authority is narrowed
+// independently of the owner's. Every
 // field is a value the issuer holds live and the verifier compares exactly, so
 // a capability minted before an installation was revised, a principal's
 // authority was reset, or a build was replaced stops verifying at that moment
@@ -373,9 +376,25 @@ type WorkSealV1 struct {
 	// installation changes with its revision, so a capability sealed to an
 	// earlier one asks for authority under terms that no longer apply.
 	InstallationRevision uint64 `protobuf:"varint,3,opt,name=installation_revision,json=installationRevision,proto3" json:"installation_revision,omitempty"`
-	// build_incarnation is the incarnation of the build this capability was
-	// minted on. It distinguishes two runs of one approved build, so a
-	// capability cannot be carried from a replaced incarnation into a new one.
+	// build_incarnation identifies one approved EXECUTION, so a capability
+	// cannot be carried from a replaced execution into a new one.
+	//
+	// The host bumps it on each applied presence generation that changes what
+	// runs. Two readings of it are wrong in opposite directions and both are
+	// worth naming, because a reasonable implementer reaches for each:
+	//
+	//   - Per POD is too narrow: every restart would revoke every sibling's
+	//     credential.
+	//   - Per IMAGE DIGEST alone is too wide: two executions of identical bytes
+	//     with different command, configuration or mounted content are then
+	//     indistinguishable, and a pod from a superseded generation remints into
+	//     the new one.
+	//
+	// A verifier compares it for EQUALITY and never resolves it from the
+	// workload's own attributes. Resolving by (service account, image digest) is
+	// exactly what lets an old pod in, which is why SealSource answers only "the
+	// current incarnation for this principal" and offers no lookup by anything
+	// the workload itself presents.
 	BuildIncarnation uint64 `protobuf:"varint,4,opt,name=build_incarnation,json=buildIncarnation,proto3" json:"build_incarnation,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -599,6 +618,22 @@ type WorkActorV1 struct {
 	// the one the task runs in. An org-bridge agent acts in an organization the
 	// owner does not belong to, and authorization is scoped to the actor's own.
 	OrganizationId *string `protobuf:"bytes,6,opt,name=organization_id,json=organizationId,proto3,oneof" json:"organization_id,omitempty"`
+	// principal_epoch is THIS actor's epoch, distinct from the owner's epoch in
+	// the seal. Advancing it invalidates every capability in which this
+	// principal is an actor, without touching the owner's.
+	//
+	// It exists because the seal's epoch is the task owner's, and an actor's
+	// authority can be narrowed independently of the owner's: a delegated
+	// operation context may have a person as its owner and a service principal
+	// as its actor, and narrowing that service principal must reach the
+	// capabilities it acts in. Without this field the only lever for a
+	// compromised actor is the tenant's authorization_revision, which cuts off
+	// every capability of the tenant.
+	//
+	// Optional on the wire and enforced where the capability is verified, for
+	// the reason seal gives: a schema rule would invalidate every archived
+	// capability. A verifier refuses a hop that carries no epoch.
+	PrincipalEpoch *uint64 `protobuf:"varint,7,opt,name=principal_epoch,json=principalEpoch,proto3,oneof" json:"principal_epoch,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -673,6 +708,13 @@ func (x *WorkActorV1) GetOrganizationId() string {
 		return *x.OrganizationId
 	}
 	return ""
+}
+
+func (x *WorkActorV1) GetPrincipalEpoch() uint64 {
+	if x != nil && x.PrincipalEpoch != nil {
+		return *x.PrincipalEpoch
+	}
+	return 0
 }
 
 // WorkGrantHopV1 records the approval that justifies a capability holding
@@ -990,7 +1032,7 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\rresource_kind\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\fresourceKind\x12\x18\n" +
 	"\aactions\x18\x02 \x03(\tR\aactions\x12!\n" +
-	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xec\x02\n" +
+	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xb7\x03\n" +
 	"\vWorkActorV1\x12-\n" +
 	"\fprincipal_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\vprincipalId\x121\n" +
@@ -1002,9 +1044,11 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\bagent_id\x18\x05 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x00R\aagentId\x88\x01\x01\x128\n" +
 	"\x0forganization_id\x18\x06 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\x0eorganizationId\x88\x01\x01B\v\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\x0eorganizationId\x88\x01\x01\x125\n" +
+	"\x0fprincipal_epoch\x18\a \x01(\x04B\a\xbaH\x042\x02(\x01H\x02R\x0eprincipalEpoch\x88\x01\x01B\v\n" +
 	"\t_agent_idB\x12\n" +
-	"\x10_organization_id\"\xa6\x02\n" +
+	"\x10_organization_idB\x12\n" +
+	"\x10_principal_epoch\"\xa6\x02\n" +
 	"\x0eWorkGrantHopV1\x12%\n" +
 	"\bgrant_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\agrantId\x12I\n" +

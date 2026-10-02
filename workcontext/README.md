@@ -39,8 +39,11 @@ anything was authenticated. `Verify` is still the only thing that turns a token
 into claims.
 
 **`Fixtures(now)` is the conformance kit, as code.** Every token form this
-package mints and every way one is refused, with the signed token and the
-outcome — including the sentinel a refusal must match. Minted fresh per call,
+package mints and every way one is refused, with the signed token, the outcome,
+the sentinel a refusal must match, and — where that sentinel is an umbrella — a
+substring the message must contain. Count the kit with `len(Fixtures(now))`
+rather than trusting a number written in prose; a number in a comment is a
+number that goes stale, and this one did. Minted fresh per call,
 because a capability carries a validity window and committed bytes would expire.
 The fixture private key is derived from a seed in the source and is therefore
 **public**; it signs conformance tokens and nothing else.
@@ -61,8 +64,17 @@ func TestWorkContextConformance(t *testing.T) {
 ```
 
 **The gate is in the consumer because core cannot see who re-implements it.** A
-consumer that runs these fixtures against its own entrypoint proves it uses this
-package's path. A consumer that has grown a second implementation cannot pass
+consumer that runs these fixtures against its own entrypoint demonstrates that
+it BEHAVES like this package's verifier.
+
+Be precise about what that is and is not: these fixtures check accept/refuse
+decisions and the named reason for each refusal, so an equivalent second
+implementation could in principle pass them. Behavioural conformance is not
+proof of implementation identity. The identity proof is the consumer's own
+import gate — an alias of this package's `Verifier`, pinned by a compile-time
+assertion, plus a CI check that no second signing or verifying implementation
+exists in the module — and that lives in the consumer, not here. The two
+together are the gate; the fixtures alone are the cheaper half. A consumer that has grown a second implementation cannot pass
 the `foreign-encoding` fixture, because refusing a foreign encoding *before* the
 signature check with a distinct error is the one behaviour a re-implementation
 never thinks to copy — it is the behaviour that exists because the

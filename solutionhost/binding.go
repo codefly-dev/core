@@ -348,11 +348,19 @@ type Workload struct {
 	Identity WorkloadIdentity `yaml:"identity" json:"identity"`
 
 	// NonAuthenticating are the init and sidecar containers that must never be
-	// accepted as the authenticating container. Named explicitly, and empty is
-	// a declaration rather than an absence: a host that cannot tell "there are
-	// none" from "nobody said" has to choose between refusing every workload
-	// and trusting any container that asks.
-	NonAuthenticating []string `yaml:"non_authenticating" json:"non_authenticating"`
+	// accepted as the authenticating container. Empty is a DECLARATION that
+	// there are none; absent is refused.
+	//
+	// It is a pointer for exactly that reason. A plain slice cannot tell "there
+	// are none" from "nobody said" — both decode to nil — so the field's own
+	// promise was unenforceable, and a renderer could sign a workload that had
+	// declared nothing. A host that cannot distinguish the two has to choose
+	// between refusing every workload and trusting any container that asks,
+	// which is the choice this field exists to remove.
+	//
+	// So: `non_authenticating: []` is valid and means none; omitting the key,
+	// or writing `null`, is ErrInvalid.
+	NonAuthenticating *[]string `yaml:"non_authenticating" json:"non_authenticating"`
 }
 
 // Image is the approved build of one container: the repository it comes from
@@ -588,7 +596,7 @@ func (release Release) validate() error {
 
 func (document *SolutionHostBinding) validateArtifacts() error {
 	identity := document.Release.Identity()
-	seen := make(map[string]struct{}, len(document.Artifacts))
+	seen := make(map[string]Surface, len(document.Artifacts))
 	for _, artifact := range document.Artifacts {
 		if !slices.Contains(surfaces, artifact.Surface) {
 			return fmt.Errorf("%w: artifact surface %q is not one of %v", ErrInvalid, artifact.Surface, surfaces)
@@ -604,11 +612,22 @@ func (document *SolutionHostBinding) validateArtifacts() error {
 		if artifact.Release != identity {
 			return fmt.Errorf("%w: %s artifact %q was rendered from %q, not %q", ErrMixedRelease, artifact.Surface, artifact.Name, artifact.Release, identity)
 		}
-		key := string(artifact.Surface) + "\x00" + artifact.Name
-		if _, exists := seen[key]; exists {
-			return fmt.Errorf("%w: duplicate %s artifact %q", ErrInvalid, artifact.Surface, artifact.Name)
+		// Names are unique across the WHOLE document, not per surface.
+		//
+		// Per surface was ambiguous in a way that broke the canonical
+		// round-trip: a workload names the artifact that renders it by name
+		// alone, so artifacts "frontend/api" and "backend/api" gave the
+		// resolution one key and two answers. Which answer depended on
+		// iteration order — the document validated as delivered, and its own
+		// canonical bytes (which sort backend before frontend) then failed to
+		// reparse. A document whose canonical encoding does not round-trip
+		// cannot be signed and verified, which is the property every other
+		// rule here rests on.
+		if previous, exists := seen[artifact.Name]; exists {
+			return fmt.Errorf("%w: artifact %q is declared twice (as %s and %s); artifact names are unique across the document, because a workload references one by name",
+				ErrInvalid, artifact.Name, previous, artifact.Surface)
 		}
-		seen[key] = struct{}{}
+		seen[artifact.Name] = artifact.Surface
 	}
 	return nil
 }
@@ -668,8 +687,13 @@ func (document *SolutionHostBinding) validateWorkloads() error {
 		if !namePattern.MatchString(workload.Container) {
 			return fmt.Errorf("%w: workload %q authenticating container %q is invalid", ErrInvalid, workload.Name, workload.Container)
 		}
-		containers := make(map[string]struct{}, len(workload.NonAuthenticating))
-		for _, container := range workload.NonAuthenticating {
+		if workload.NonAuthenticating == nil {
+			return fmt.Errorf("%w: workload %q must declare non_authenticating explicitly, as a list that may be empty; "+
+				"an absent list and \"there are none\" must not look the same to a host", ErrInvalid, workload.Name)
+		}
+		excluded := *workload.NonAuthenticating
+		containers := make(map[string]struct{}, len(excluded))
+		for _, container := range excluded {
 			if !namePattern.MatchString(container) {
 				return fmt.Errorf("%w: workload %q non-authenticating container %q is invalid", ErrInvalid, workload.Name, container)
 			}
@@ -892,7 +916,16 @@ func (document *SolutionHostBinding) CanonicalBytes() ([]byte, error) {
 		// digest: a renderer emitting it from a Go map would otherwise produce a
 		// different digest per process and the host would read a rewritten
 		// generation.
-		workload.NonAuthenticating = slices.Sorted(slices.Values(workload.NonAuthenticating))
+		//
+		// An EMPTY list stays an empty list and does not collapse to null.
+		// Collapsing it would make the canonical bytes say "nobody declared
+		// this", which Validate refuses — so the document's own canonical
+		// encoding would not round-trip.
+		sorted := slices.Sorted(slices.Values(*workload.NonAuthenticating))
+		if sorted == nil {
+			sorted = []string{}
+		}
+		workload.NonAuthenticating = &sorted
 		normalized.Workloads = append(normalized.Workloads, workload)
 	}
 	sort.Slice(normalized.Workloads, func(i, j int) bool { return normalized.Workloads[i].Name < normalized.Workloads[j].Name })

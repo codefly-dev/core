@@ -239,9 +239,16 @@ asserts nothing about validity and authenticates nothing.
 
 **2. `workcontext.Fixtures(now)` is the conformance kit, as code.** For every
 token form this package mints — session, operation, delegated, delegated
-operation, grant — and for every way one is refused, it returns the signed token
-and the outcome a conforming verifier must reach, including the sentinel a
-refusal must match. The negatives cover a stale installation revision, a
+operation, grant — and for every way one is refused, it returns the signed
+token, the outcome a conforming verifier must reach, the sentinel a refusal must
+match, and, where that sentinel is an umbrella, a substring the message must
+contain. `ErrInvalid` covers several unrelated refusals, so the fixture that
+exists to be the one *signature* failure names it; without that it would pass
+for any invalidity.
+
+Count the kit with `len(Fixtures(now))`. A count written in prose goes stale,
+and this one did — the PR body said 18 while the builder produced 21, caught by
+a consumer measuring it. The negatives cover a stale installation revision, a
 revision *ahead* of the issuer's, a superseded principal epoch, a replaced build
 incarnation, an installation the principal does not hold, a binding at a
 revision the issuer does not hold, a missing seal, a seal naming no
@@ -288,8 +295,14 @@ without a working replay store passes everything else and fails there: single-us
 is a property of the verifier, not of the token.
 
 **The gate lives in the consumer because core cannot see who re-implements it.**
-A consumer that runs core's fixtures against its own entrypoint proves it uses
-core's path. A consumer that has quietly grown a second implementation cannot
+A consumer that runs core's fixtures against its own entrypoint demonstrates
+that it BEHAVES like core's verifier — which is not the same as proving it IS
+core's. These fixtures check accept/refuse decisions and each refusal's named
+reason, so an equivalent second implementation could pass them. Implementation
+identity is proved by the consumer's import gate (an alias of core's `Verifier`
+pinned by a compile-time assertion, plus a CI check that the module contains no
+second signing or verifying implementation), which lives in the consumer. The
+fixtures are the cheaper half of the gate, not the whole of it. A consumer that has quietly grown a second implementation cannot
 pass the look-alike fixture, because refusing a foreign encoding before the
 signature check with a distinct error is the one behaviour a re-implementation
 never thinks to copy — it is the behaviour that exists *because* the

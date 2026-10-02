@@ -63,8 +63,14 @@ func newHarness(t *testing.T) *harness {
 		BuildIncarnation:     11,
 	}))
 	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
-		ID: bindingID, Revision: 4, Incarnation: 1,
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 4, Incarnation: 1,
 	}))
+	// Every principal that appears as an actor needs a live epoch, because a
+	// hop without one cannot be revoked and is refused.
+	for _, principal := range []string{agentID, "a-sub", approver} {
+		require.NoError(t, h.seals.PutEpoch(principal, 1))
+	}
 	h.authority = &workcontext.Authority{
 		Issuer:    issuer,
 		KeyID:     keyID,

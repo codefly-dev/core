@@ -40,11 +40,11 @@ func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	require.Equal(t, solutionhost.FixtureDomain, document.OwnershipDomain)
 	require.Equal(t, uint64(solutionhost.FixtureEnvelopeRevision), document.EnvelopeRevision)
 	require.Equal(t, solutionhost.FixtureCoordinate, document.Host.Coordinate)
-	require.Equal(t, "saas-host", document.Host.Component)
-	require.Equal(t, "obin/crm@1.4.0", document.Release.Identity())
+	require.Equal(t, "solution-host", document.Host.Component)
+	require.Equal(t, "example/alpha@1.4.0", document.Release.Identity())
 	require.NotEmpty(t, document.Release.Digest)
 	require.False(t, document.Removed)
-	require.Equal(t, []string{"crm"}, document.Aliases())
+	require.Equal(t, []string{"alpha"}, document.Aliases())
 	require.Len(t, document.Modules, 2)
 	require.Len(t, document.Endpoints, 2)
 
@@ -62,13 +62,14 @@ func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	// anything: one authenticating container, an exact build, an identity.
 	require.Len(t, document.Workloads, 1)
 	workload := document.Workloads[0]
-	require.Equal(t, "crm-api", workload.Name)
+	require.Equal(t, "alpha-api", workload.Name)
 	require.Equal(t, "api", workload.Artifact)
 	require.Equal(t, "api", workload.Container)
-	require.Equal(t, "ghcr.io/obin/crm-api", workload.Image.Repository)
+	require.Equal(t, "registry.example/alpha-api", workload.Image.Repository)
 	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, string(workload.Image.Digest))
-	require.Equal(t, []string{"envoy", "migrate"}, workload.NonAuthenticating)
-	require.Equal(t, "spiffe://prod.eu-west-1.obin.example/ns/crm-eu-west-1-01/sa/crm-api", workload.Identity.SPIFFEID)
+	require.NotNil(t, workload.NonAuthenticating, "the exclusion list is declared, not inferred")
+	require.Equal(t, []string{"envoy", "migrate"}, *workload.NonAuthenticating)
+	require.Equal(t, "spiffe://prod.region-a.example/ns/alpha-region-a-01/sa/alpha-api", workload.Identity.SPIFFEID)
 	require.Equal(t, []solutionhost.ImageDigest{workload.Image.Digest}, document.Builds())
 }
 
@@ -192,7 +193,8 @@ func TestWorkloadMustNameABackendArtifactItDeclares(t *testing.T) {
 // pick one.
 func TestTheAuthenticatingContainerCannotAlsoBeExcluded(t *testing.T) {
 	document := valid(t)
-	document.Workloads[0].NonAuthenticating = append(document.Workloads[0].NonAuthenticating, document.Workloads[0].Container)
+	withContainer := append(*document.Workloads[0].NonAuthenticating, document.Workloads[0].Container)
+	document.Workloads[0].NonAuthenticating = &withContainer
 	err := document.Validate()
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "must never authenticate")
@@ -202,8 +204,8 @@ func TestTheAuthenticatingContainerCannotAlsoBeExcluded(t *testing.T) {
 // answers about what it runs, and the mutable one usually wins.
 func TestImageRepositoryCarriesNeitherTagNorDigest(t *testing.T) {
 	for _, repository := range []string{
-		"ghcr.io/obin/crm-api:1.4.0",
-		"ghcr.io/obin/crm-api@sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f",
+		"registry.example/alpha-api:1.4.0",
+		"registry.example/alpha-api@sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f",
 	} {
 		document := valid(t)
 		document.Workloads[0].Image.Repository = repository
@@ -217,17 +219,17 @@ func TestImageRepositoryCarriesNeitherTagNorDigest(t *testing.T) {
 func TestSPIFFEIDIsValidatedAsAnSVIDName(t *testing.T) {
 	for name, id := range map[string]string{
 		"absent":              "",
-		"wrong scheme":        "https://prod.obin.example/ns/crm/sa/api",
-		"no scheme":           "prod.obin.example/ns/crm/sa/api",
-		"trust domain only":   "spiffe://prod.obin.example",
-		"trailing slash only": "spiffe://prod.obin.example/",
-		"uppercase domain":    "spiffe://Prod.Obin.Example/ns/crm/sa/api",
-		"with a port":         "spiffe://prod.obin.example:8443/ns/crm/sa/api",
-		"with a query":        "spiffe://prod.obin.example/ns/crm/sa/api?x=1",
-		"with a fragment":     "spiffe://prod.obin.example/ns/crm/sa/api#x",
-		"with user info":      "spiffe://user@prod.obin.example/ns/crm/sa/api",
-		"relative segment":    "spiffe://prod.obin.example/ns/../sa/api",
-		"empty segment":       "spiffe://prod.obin.example/ns//sa/api",
+		"wrong scheme":        "https://prod.example.example/ns/alpha/sa/api",
+		"no scheme":           "prod.example.example/ns/alpha/sa/api",
+		"trust domain only":   "spiffe://prod.example.example",
+		"trailing slash only": "spiffe://prod.example.example/",
+		"uppercase domain":    "spiffe://Prod.Region-A.Example/ns/alpha/sa/api",
+		"with a port":         "spiffe://prod.example.example:8443/ns/alpha/sa/api",
+		"with a query":        "spiffe://prod.example.example/ns/alpha/sa/api?x=1",
+		"with a fragment":     "spiffe://prod.example.example/ns/alpha/sa/api#x",
+		"with user info":      "spiffe://user@prod.example.example/ns/alpha/sa/api",
+		"relative segment":    "spiffe://prod.example.example/ns/../sa/api",
+		"empty segment":       "spiffe://prod.example.example/ns//sa/api",
 	} {
 		t.Run(name, func(t *testing.T) {
 			document := valid(t)
@@ -248,7 +250,7 @@ func TestMissingIdentityFixtureIsRefused(t *testing.T) {
 func TestMixedReleaseGenerationIsInvalidOnItsOwn(t *testing.T) {
 	_, err := solutionhost.Parse(presence(t, "mixed-release"))
 	require.ErrorIs(t, err, solutionhost.ErrMixedRelease)
-	require.Contains(t, err.Error(), "obin/pim@1.9.0")
+	require.Contains(t, err.Error(), "example/beta@1.9.0")
 }
 
 func TestTombstoneIsAGenerationThatDeclaresNothingPresent(t *testing.T) {
@@ -260,10 +262,10 @@ func TestTombstoneIsAGenerationThatDeclaresNothingPresent(t *testing.T) {
 	require.Empty(t, document.Workloads)
 	require.Equal(t, uint64(5), document.Generation)
 	// It still names what it removes, and the domain it was applied under.
-	require.Equal(t, "obin/crm@1.4.0", document.Release.Identity())
+	require.Equal(t, "example/alpha@1.4.0", document.Release.Identity())
 	require.Equal(t, solutionhost.FixtureDomain, document.OwnershipDomain)
 
-	document.Routes = []solutionhost.Route{{Alias: "crm", Surface: solutionhost.SurfaceFrontend}}
+	document.Routes = []solutionhost.Route{{Alias: "alpha", Surface: solutionhost.SurfaceFrontend}}
 	require.ErrorIs(t, document.Validate(), solutionhost.ErrInvalid)
 
 	document = mustParse(t, presence(t, "tombstone"))
@@ -311,7 +313,7 @@ func TestSecondYAMLDocumentIsRejected(t *testing.T) {
 func TestValidationRejectsEachWayTheDocumentCanLie(t *testing.T) {
 	for name, mutate := range map[string]func(*solutionhost.SolutionHostBinding){
 		"no binding ID":           func(d *solutionhost.SolutionHostBinding) { d.Binding = "" },
-		"binding ID with a space": func(d *solutionhost.SolutionHostBinding) { d.Binding = "crm 01" },
+		"binding ID with a space": func(d *solutionhost.SolutionHostBinding) { d.Binding = "alpha 01" },
 		"reserved binding ID":     func(d *solutionhost.SolutionHostBinding) { d.Binding = "base" },
 		"generation zero":         func(d *solutionhost.SolutionHostBinding) { d.Generation = 0 },
 		"no ownership domain":     func(d *solutionhost.SolutionHostBinding) { d.OwnershipDomain = "" },
@@ -348,7 +350,10 @@ func TestValidationRejectsEachWayTheDocumentCanLie(t *testing.T) {
 		},
 		"no authenticating container": func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Container = "" },
 		"duplicate excluded container": func(d *solutionhost.SolutionHostBinding) {
-			d.Workloads[0].NonAuthenticating = []string{"envoy", "envoy"}
+			d.Workloads[0].NonAuthenticating = &[]string{"envoy", "envoy"}
+		},
+		"undeclared exclusion list": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].NonAuthenticating = nil
 		},
 		"no image repository":  func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Image.Repository = "" },
 		"no workload audience": func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Identity.Audience = "" },
@@ -383,7 +388,7 @@ func TestCanonicalDigestIgnoresDeclarationOrder(t *testing.T) {
 	// digest. A renderer emitting it from a Go map would otherwise produce a
 	// different digest per process, and the host would read every pass as a
 	// rewritten generation.
-	shuffled.Workloads[0].NonAuthenticating = []string{"migrate", "envoy"}
+	shuffled.Workloads[0].NonAuthenticating = &[]string{"migrate", "envoy"}
 	shuffledDigest, err := shuffled.Digest()
 	require.NoError(t, err)
 	require.Equal(t, digest, shuffledDigest)
@@ -431,4 +436,101 @@ func TestMarshalledTombstoneOmitsWhatItWithdraws(t *testing.T) {
 		require.NotContains(t, raw, key)
 	}
 	require.Equal(t, true, raw["removed"])
+}
+
+// Artifact names are unique across the whole document, not per surface, and
+// this is the test for a round-trip bug rather than a style preference.
+//
+// A workload names the artifact that renders it by name alone. With per-surface
+// uniqueness, "frontend/api" and "backend/api" gave that resolution one key and
+// two answers, and which answer won depended on iteration order: the document
+// validated as delivered, and its OWN canonical bytes — which sort backend
+// before frontend — then failed to reparse. A document whose canonical encoding
+// does not round-trip cannot be signed and verified, which is the property
+// every other rule in this package rests on.
+func TestArtifactNamesAreUniqueAcrossTheDocumentSoTheRoundTripHolds(t *testing.T) {
+	document := valid(t)
+	// The collision the old rule allowed: two artifacts named "api".
+	document.Artifacts = append(document.Artifacts, solutionhost.Artifact{
+		Surface: solutionhost.SurfaceFrontend,
+		Name:    "api",
+		Release: document.Release.Identity(),
+		Digest:  "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+	})
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "declared twice")
+	require.Contains(t, err.Error(), "unique across the document")
+
+	// And the same collision in the other input order is refused identically,
+	// which is the point: the answer must not depend on order.
+	reordered := valid(t)
+	reordered.Artifacts = append([]solutionhost.Artifact{{
+		Surface: solutionhost.SurfaceFrontend,
+		Name:    "api",
+		Release: reordered.Release.Identity(),
+		Digest:  "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+	}}, reordered.Artifacts...)
+	require.ErrorIs(t, reordered.Validate(), solutionhost.ErrInvalid)
+}
+
+// Every shipped document's canonical bytes reparse, and reparse to the same
+// digest. This is the invariant the signature scheme rests on, so it is held
+// for the whole kit rather than for one example.
+func TestEveryDocumentsCanonicalBytesReparse(t *testing.T) {
+	for _, shipped := range solutionhost.FixturesOf(solutionhost.DocumentTypePresence) {
+		t.Run(shipped.Name, func(t *testing.T) {
+			document, err := solutionhost.Parse(shipped.Document)
+			if err != nil {
+				return // a fixture its own rules refuse has no canonical form
+			}
+			canonical, err := document.CanonicalBytes()
+			require.NoError(t, err)
+
+			reparsed, err := solutionhost.Parse(canonical)
+			require.NoError(t, err, "the canonical bytes must reparse")
+
+			again, err := reparsed.CanonicalBytes()
+			require.NoError(t, err)
+			require.Equal(t, canonical, again, "canonicalization must be idempotent")
+		})
+	}
+}
+
+// The exclusion list is declared, never inferred. A plain slice could not tell
+// "there are none" from "nobody said" — both decode to nil — so the field's own
+// promise was unenforceable and a renderer could sign a workload that had
+// declared nothing.
+func TestTheExclusionListMustBeDeclaredExplicitly(t *testing.T) {
+	// Omitted entirely.
+	omitted := strings.Replace(string(presence(t, "valid")),
+		"    non_authenticating:\n      - envoy\n      - migrate\n", "", 1)
+	require.NotEqual(t, string(presence(t, "valid")), omitted, "the fixture must have had the key")
+	_, err := solutionhost.Parse([]byte(omitted))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "explicitly")
+
+	// Written as null.
+	nulled := strings.Replace(string(presence(t, "valid")),
+		"    non_authenticating:\n      - envoy\n      - migrate\n", "    non_authenticating: null\n", 1)
+	_, err = solutionhost.Parse([]byte(nulled))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+
+	// Written as an empty list: valid, and means there are none.
+	empty := strings.Replace(string(presence(t, "valid")),
+		"    non_authenticating:\n      - envoy\n      - migrate\n", "    non_authenticating: []\n", 1)
+	document, err := solutionhost.Parse([]byte(empty))
+	require.NoError(t, err)
+	require.NotNil(t, document.Workloads[0].NonAuthenticating)
+	require.Empty(t, *document.Workloads[0].NonAuthenticating)
+
+	// And an empty list survives canonicalization as an empty list rather than
+	// collapsing to null — otherwise the canonical bytes would say "nobody
+	// declared this", which Validate refuses, and the document's own canonical
+	// encoding would not round-trip.
+	canonical, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	require.Contains(t, string(canonical), `"non_authenticating":[]`)
+	_, err = solutionhost.Parse(canonical)
+	require.NoError(t, err)
 }
