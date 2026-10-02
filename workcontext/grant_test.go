@@ -16,7 +16,7 @@ const (
 	mergeTool     = "codefly.dev/github-bot:0.1.0#merge_pr"
 	subject       = "pr:codefly/core#658"
 	requestDigest = "sha256:9f1c0b"
-	approver      = "u-valerie"
+	approver      = "principal-approver"
 )
 
 // approvedGrant is the record the approvals engine writes when V approves the

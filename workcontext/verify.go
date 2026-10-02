@@ -132,7 +132,7 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	// a capability sealed to a superseded installation is not a credential, and
 	// burning its nonce on the way to refusing it would turn a re-mintable
 	// refusal into a permanent one.
-	if err := v.checkSeal(ctx, wc); err != nil {
+	if err := checkSealAgainst(ctx, v.Seals, wc); err != nil {
 		return nil, err
 	}
 	if hop := wc.GetGrantHop(); hop != nil {

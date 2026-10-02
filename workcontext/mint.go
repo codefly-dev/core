@@ -34,6 +34,10 @@ type Authority struct {
 	// the minter reads the revision rather than inheriting it.
 	Revisions RevisionSource
 
+	// MaxTTL is the longest window this authority will mint. Zero means
+	// DefaultMaxTTL; see that constant for why there is a ceiling at all.
+	MaxTTL time.Duration
+
 	// Seals answers the live installation, principal-epoch, build and
 	// operation-binding state every capability is sealed to. The minter reads
 	// them for the same reason it reads the revision: a seal taken as input is
@@ -85,8 +89,8 @@ type StartInput struct {
 // authority and no actor hop: the owner acting directly is not dressed up as
 // a delegation to itself.
 func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.WorkContextV1, error) {
-	if in.TTL <= 0 {
-		return "", nil, fmt.Errorf("%w: start needs a positive TTL", ErrInvalid)
+	if err := a.checkTTL("start", in.TTL); err != nil {
+		return "", nil, err
 	}
 	if in.OwnerPrincipalKind == "" {
 		return "", nil, fmt.Errorf("%w: start needs the owner's principal kind", ErrInvalid)
@@ -168,8 +172,8 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 	if !ScopesAttenuate(in.GrantedScopes, parent.EffectiveScopes()) {
 		return "", nil, fmt.Errorf("%w: child hop %q widens authority beyond its parent", ErrInvalid, in.PrincipalID)
 	}
-	if in.TTL <= 0 {
-		return "", nil, fmt.Errorf("%w: child hop %q needs a positive TTL", ErrInvalid, in.PrincipalID)
+	if err := a.checkTTL(fmt.Sprintf("child hop %q", in.PrincipalID), in.TTL); err != nil {
+		return "", nil, err
 	}
 	replay := in.ReplayPolicy
 	if replay == "" {
@@ -192,7 +196,7 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 		return "", nil, err
 	}
 	wc.ActorChain = append(wc.ActorChain, hop)
-	if err := a.deriveSeal(ctx, wc, in.OperationBindingID, in.PrincipalID); err != nil {
+	if err := a.deriveSeal(ctx, parent, wc, in.OperationBindingID, in.PrincipalID); err != nil {
 		return "", nil, err
 	}
 	return a.seal(wc)
@@ -211,8 +215,8 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 // The installation is always the parent's: a delegation hop narrows authority
 // within one installation and never moves it, so taking an installation from
 // the hop would be a way to widen across installations.
-func (a *Authority) deriveSeal(ctx context.Context, wc *basev0.WorkContextV1, bindingID, exercising string) error {
-	if err := a.carryForwardSeal(ctx, wc); err != nil {
+func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0.WorkContextV1, bindingID, exercising string) error {
+	if err := a.carryForwardSeal(ctx, parent.Context()); err != nil {
 		return err
 	}
 	// The hop's own epoch, read live. A hop is new authority for a new
@@ -326,7 +330,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 		Subject:       grant.Subject,
 		RequestDigest: grant.RequestDigest,
 	}
-	if err := a.deriveSeal(ctx, wc, "", hop.GetPrincipalId()); err != nil {
+	if err := a.deriveSeal(ctx, parent, wc, "", hop.GetPrincipalId()); err != nil {
 		return "", nil, err
 	}
 	return a.seal(wc)
@@ -446,4 +450,38 @@ func setOptional(field **string, value string) {
 		return
 	}
 	*field = &value
+}
+
+// maxTTL is the ceiling this authority mints within.
+func (a *Authority) maxTTL() time.Duration {
+	if a.MaxTTL <= 0 {
+		return DefaultMaxTTL
+	}
+	return a.MaxTTL
+}
+
+// checkTTL bounds a requested window at both ends.
+//
+// The upper bound was missing: the minter checked only that the TTL was
+// positive, so a misconfigured host could mint a credential valid for a month
+// and every verifier would accept it for a month. Revocation reaches such a
+// capability, but every revocation lever is something somebody has to pull,
+// and a credential's own expiry is the one bound that needs nobody. A
+// consumer found this and was adding a ceiling on its own side, which is the
+// wrong side: a client-side cap bounds the clients that implement it.
+//
+// Grant has no call here on purpose. A grant capability's window is already
+// bounded by the approval's own NotAfter and by the parent session, both of
+// which are shorter than this ceiling in every case that matters, and
+// clamping it again would let this default silently shorten an approval
+// somebody made a decision about.
+func (a *Authority) checkTTL(what string, ttl time.Duration) error {
+	if ttl <= 0 {
+		return fmt.Errorf("%w: %s needs a positive TTL", ErrInvalid, what)
+	}
+	if ceiling := a.maxTTL(); ttl > ceiling {
+		return fmt.Errorf("%w: %s asks for a %s window and this authority mints at most %s; raise Authority.MaxTTL deliberately if that is wanted",
+			ErrInvalid, what, ttl, ceiling)
+	}
+	return nil
 }

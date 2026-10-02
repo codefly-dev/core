@@ -368,7 +368,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 				TTL:           time.Minute,
 			})
 			require.ErrorIs(t, err, workcontext.ErrRevoked)
-			require.ErrorContains(t, err, "can derive nothing")
+			require.ErrorContains(t, err, "cannot derive, so mint afresh")
 		})
 	}
 }
@@ -393,7 +393,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseInstallationIsGone(t *testing.T) {
 		TTL:           time.Minute,
 	})
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "no longer holds")
+	require.ErrorContains(t, err, "does not hold")
 }
 
 // A grant capability is held to the same standard, and for the sharper reason:
@@ -414,7 +414,7 @@ func TestGrant_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 		Grant: grant, TTL: time.Minute,
 	})
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "can derive nothing")
+	require.ErrorContains(t, err, "cannot derive, so mint afresh")
 }
 
 // When nothing has moved, derivation carries the parent's sealed values

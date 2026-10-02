@@ -96,6 +96,14 @@ const (
 	// installation, so the installation half of the association is testable
 	// separately from the principal half.
 	FixtureForeignInstallationBindingID = "binding-conformance-foreign-installation"
+	// FixtureRevokedBindingID is a binding the issuer has WITHDRAWN. It is a
+	// binding of its own rather than a flag on another, so a capability can be
+	// minted sealed to it while it was still live.
+	FixtureRevokedBindingID = "binding-conformance-revoked"
+	// FixtureReincarnatedBindingID was withdrawn and re-created, so the issuer
+	// holds it at a higher incarnation than a capability sealed to the old one
+	// carries, at the SAME revision.
+	FixtureReincarnatedBindingID = "binding-conformance-reincarnated"
 
 	// FixtureAuthorizationRevision is the issuer's live authorization revision.
 	FixtureAuthorizationRevision = 7
@@ -262,6 +270,19 @@ func FixtureSeals() *MemorySealSource {
 		{
 			ID: FixtureForeignInstallationBindingID, PrincipalID: FixturePrincipal, InstallationID: "installation-conformance-other",
 			Revision: 1, Incarnation: 1,
+		},
+		// Withdrawn. Its counters MATCH what a capability sealed to it
+		// carries, so only the withdrawal refuses it.
+		{
+			ID: FixtureRevokedBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+			Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation, Revoked: true,
+		},
+		// Withdrawn and re-created: SAME revision, higher incarnation. The
+		// incarnation is what separates the new binding from the old one, and
+		// a verifier comparing only the revision accepts the stale capability.
+		{
+			ID: FixtureReincarnatedBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+			Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation + 1,
 		},
 	} {
 		if err := source.PutBinding(binding); err != nil {
@@ -792,6 +813,152 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		fixtures = append(fixtures, Fixture{
 			Name: foreign.name, Form: FormOperation, Token: token,
 			Outcome: OutcomeRejected, Err: ErrRevoked, Reason: foreign.rule,
+		})
+	}
+
+	// Zeroes and a half-filled binding. A consumer was constructing these
+	// itself by re-signing a minted capability with the fixture key — which
+	// means every consumer that wants them writes an ed25519.Sign of its own,
+	// and a kit that leaves a refusal out invites exactly that. They are
+	// ErrInvalid because the SCHEMA refuses them: zero is not an epoch, a
+	// revision or an incarnation, and a binding id with no revision is half a
+	// binding.
+	for _, malformed := range []struct {
+		name  string
+		rule  string
+		apply func(*basev0.WorkContextV1)
+	}{
+		{
+			name:  "zero-principal-epoch",
+			rule:  "a seal carrying epoch 0, which names no epoch and would compare equal to a source holding nothing",
+			apply: func(wc *basev0.WorkContextV1) { wc.Seal.PrincipalEpoch = 0 },
+		},
+		{
+			name:  "zero-installation-revision",
+			rule:  "a seal carrying installation revision 0",
+			apply: func(wc *basev0.WorkContextV1) { wc.Seal.InstallationRevision = 0 },
+		},
+		{
+			name:  "zero-build-incarnation",
+			rule:  "a seal carrying build incarnation 0",
+			apply: func(wc *basev0.WorkContextV1) { wc.Seal.BuildIncarnation = 0 },
+		},
+		{
+			name: "partial-operation-binding",
+			rule: "an operation binding naming an id with no revision and no incarnation; half a binding is not a binding",
+			apply: func(wc *basev0.WorkContextV1) {
+				wc.OperationBinding = &basev0.WorkOperationBindingV1{BindingId: FixtureBindingID}
+			},
+		},
+	} {
+		altered := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+		altered.Seal = proto.Clone(session.Context().GetSeal()).(*basev0.WorkSealV1)
+		malformed.apply(altered)
+		token, err := resign(altered)
+		if err != nil {
+			return nil, err
+		}
+		fixtures = append(fixtures, Fixture{
+			Name: malformed.name, Form: FormSession, Token: token,
+			Outcome: OutcomeRejected, Err: ErrInvalid, Reason: malformed.rule,
+		})
+	}
+
+	// The window, the issuer and the revision. A verifier that skipped expiry
+	// entirely passed this kit, which made its claim to cover "every way one
+	// is refused" false.
+	expired := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	expired.NotBeforeUnix = now.Add(-2 * time.Hour).Unix()
+	expired.ExpiresAtUnix = now.Add(-time.Hour).Unix()
+	expiredToken, err := resign(expired)
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "expired", Form: FormSession, Token: expiredToken,
+		Outcome: OutcomeRejected, Err: ErrInvalid, Message: "expired at",
+		Reason: "a sound capability whose window has closed; a verifier that never checks expiry passes every other fixture",
+	})
+
+	notYet := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	notYet.NotBeforeUnix = now.Add(time.Hour).Unix()
+	notYet.ExpiresAtUnix = now.Add(2 * time.Hour).Unix()
+	notYetToken, err := resign(notYet)
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "not-yet-valid", Form: FormSession, Token: notYetToken,
+		Outcome: OutcomeRejected, Err: ErrInvalid, Message: "not valid before",
+		Reason: "a capability whose window has not opened; not_before is a bound, not decoration",
+	})
+
+	otherIssuer := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	otherIssuer.Issuer = "https://authority.elsewhere.test"
+	otherIssuerToken, err := resign(otherIssuer)
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "another-issuer", Form: FormSession, Token: otherIssuerToken,
+		Outcome: OutcomeRejected, Err: ErrInvalid, Message: "issued by",
+		Reason: "signed by a key the verifier holds and naming another issuer; the key is not the trust decision",
+	})
+
+	superseded := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	superseded.AuthorizationRevision = FixtureAuthorizationRevision - 1
+	supersededToken, err := resign(superseded)
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "superseded-authorization-revision", Form: FormSession, Token: supersededToken,
+		Outcome: OutcomeRejected, Err: ErrRevoked,
+		Reason: "minted at a revision the issuer has moved past; the coarse revocation lever, which nothing else in the kit exercised",
+	})
+
+	// A revoked binding and a re-created one. Each is minted while the binding
+	// was still live — against a source that grants it soundly — so the LIVE
+	// source is what refuses it. Minting against the live state instead would
+	// fail at the mint and isolate nothing.
+	for _, moved := range []struct {
+		name string
+		id   string
+		rule string
+	}{
+		{
+			name: "revoked-operation-binding", id: FixtureRevokedBindingID,
+			rule: "sealed to a binding the issuer has withdrawn; its counters still MATCH, so only the withdrawal refuses it",
+		},
+		{
+			name: "wrong-binding-incarnation", id: FixtureReincarnatedBindingID,
+			rule: "sealed to a binding that was withdrawn and re-created at the same revision; the incarnation is what " +
+				"separates the new binding from the old one, and a verifier comparing only the revision accepts this",
+		},
+	} {
+		permissive := NewMemorySealSource()
+		if err := permissive.Put(FixturePrincipal, Seal{
+			InstallationID:       FixtureInstallation,
+			InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
+		}); err != nil {
+			return nil, err
+		}
+		if err := permissive.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
+			return nil, err
+		}
+		if err := permissive.PutBinding(OperationBinding{
+			ID: moved.id, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+			Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
+		}); err != nil {
+			return nil, err
+		}
+		token, _, err := fixtureSessionOn(ctx, fixtureAuthority(now, permissive), FixtureInstallation, moved.id)
+		if err != nil {
+			return nil, err
+		}
+		fixtures = append(fixtures, Fixture{
+			Name: moved.name, Form: FormOperation, Token: token,
+			Outcome: OutcomeRejected, Err: ErrRevoked, Reason: moved.rule,
 		})
 	}
 

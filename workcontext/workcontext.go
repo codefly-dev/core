@@ -50,6 +50,31 @@ const (
 // window when it is not given one.
 const DefaultSkew = 30 * time.Second
 
+// MaxTokenSize bounds a presented token before anything is decoded.
+//
+// It is declared here because a consumer had invented its own bound when core
+// declared none — which is one more rule kept in sync by hand, and the shape
+// that produced the two-encodings failure. A capability is claims, not a
+// payload: the largest thing in one is the actor chain, and 32 KiB is far more
+// than any real chain needs while still refusing a decode bomb outright.
+const MaxTokenSize = 32 << 10
+
+// DefaultMaxTTL is the longest window Authority will mint when none is set.
+//
+// A ceiling exists because the minter had none: Start checked only that the
+// TTL was positive, so a misconfigured host could mint a capability valid for
+// a month and every verifier in the fleet would accept it for a month. The
+// revocation levers reach it, but they are levers somebody has to pull, and a
+// credential's own expiry is the one bound that needs nobody.
+//
+// One hour is long enough for a session that does real work and short enough
+// that a misconfiguration is bounded by lunch rather than by a quarter. It is
+// a default rather than a constant so a host with a longer legitimate need
+// states it in its own configuration, where a reviewer sees it — the same
+// reasoning that made the authorization revision a source rather than a
+// number.
+const DefaultMaxTTL = time.Hour
+
 // ErrInvalid is the umbrella for every rejection that is a property of the
 // capability itself — signature, window, audience, attenuation, grant shape.
 var ErrInvalid = errors.New("work context: invalid")

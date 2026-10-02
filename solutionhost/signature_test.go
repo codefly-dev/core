@@ -174,9 +174,19 @@ func TestParseSignedRefusesWhatIsNotACarrier(t *testing.T) {
 		"an empty object": []byte(`{}`),
 		"no document": []byte(`{"schema":"codefly/solution-host-signed/v1","bundle":` +
 			solutionhost.FixtureBundle + `}`),
-		"two carriers":    []byte(`{"schema":"codefly/solution-host-signed/v1","document":{"a":1},"bundle":{"b":2}} {"schema":"x"}`),
-		"a bare document": []byte(`{"schema":"codefly/solution-host-binding/v2"}`),
-		"another schema":  []byte(`{"schema":"codefly/solution-host-signed/v2","document":{"a":1},"bundle":{"b":2}}`),
+		"two carriers": []byte(`{"schema":"codefly/solution-host-signed/v1","document":{"a":1},"bundle":{"b":2}} {"schema":"x"}`),
+		// The three cases that a Decoder.More() check does NOT catch, which is
+		// why they are here. More() is an array/object ITERATION check: it
+		// answers false at a closing delimiter, so a sound carrier followed by
+		// "]" or "}" satisfied it while the overall input was invalid JSON.
+		// The suite stayed green when a reviewer restored More() by mutation,
+		// because every existing case was a following VALUE, which More()
+		// does catch. Requiring io.EOF is what refuses all of them.
+		"a trailing array close":  []byte(`{"schema":"codefly/solution-host-signed/v1","document":{"a":1},"bundle":{"b":2}}]`),
+		"a trailing object close": []byte(`{"schema":"codefly/solution-host-signed/v1","document":{"a":1},"bundle":{"b":2}}}`),
+		"trailing garbage":        []byte(`{"schema":"codefly/solution-host-signed/v1","document":{"a":1},"bundle":{"b":2}} not json`),
+		"a bare document":         []byte(`{"schema":"codefly/solution-host-binding/v2"}`),
+		"another schema":          []byte(`{"schema":"codefly/solution-host-signed/v2","document":{"a":1},"bundle":{"b":2}}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := solutionhost.ParseSigned(data)

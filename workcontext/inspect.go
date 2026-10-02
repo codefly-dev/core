@@ -71,9 +71,65 @@ func checkSealedStructure(wc *basev0.WorkContextV1) error {
 	return nil
 }
 
+// Inspected is a token that is structurally a sealed capability of this
+// package. **Nothing about it has been authenticated.**
+//
+// It is a distinct type from Verified and Authenticated for the same reason
+// those are distinct from each other: the type carries which question was
+// answered. Verified means the issuer's state agreed. Authenticated means the
+// caller's supplied state agreed. Inspected means only that the bytes are
+// shaped like a sealed capability — no signature was checked and no state was
+// consulted, so a forgery produces one exactly as readily as a real
+// capability does, and a test asserts that.
+//
+// What it is therefore FOR: reading a credential you already obtained some
+// other way — your own, handed to you by your issuer over an authenticated
+// channel — so you can see its expiry and its seal without re-deriving them
+// by hand. Reading your own credential is not an authorization decision.
+//
+// What it cannot do: become authority. policy.PrincipalFromWorkContext takes a
+// *Verified, and Authority.Child and Authority.Grant take one too, so an
+// Inspected capability cannot become a Principal or be exchanged for a derived
+// capability. There is no conversion in either direction and a test guards
+// against one being added.
+type Inspected struct {
+	context *basev0.WorkContextV1
+}
+
+// Context is the claims as they were carried. They are DATA, not findings: no
+// signature stands behind them.
+func (i *Inspected) Context() *basev0.WorkContextV1 { return i.context }
+
+// ExpiresAt is when the capability's window closes — the field a holder reads
+// to know when to mint afresh.
+func (i *Inspected) ExpiresAt() time.Time { return time.Unix(i.context.GetExpiresAtUnix(), 0) }
+
+// NotBefore is when the window opens.
+func (i *Inspected) NotBefore() time.Time { return time.Unix(i.context.GetNotBeforeUnix(), 0) }
+
+// Seal is the seal the capability carries, which a holder reads to know which
+// installation and execution it is bound to.
+func (i *Inspected) Seal() *basev0.WorkSealV1 { return i.context.GetSeal() }
+
 // Inspect reports whether a token is STRUCTURALLY a sealed capability of this
-// package, and nothing else. It returns an error only — deliberately, and the
-// reason is the whole of its safety.
+// package, and returns its claims as an Inspected when it is.
+//
+// # It returns the claims, and that was a correction
+//
+// The first version of this returned an error only, reasoning that returning
+// claims would make it a third STRENGTH — a caller reads them, acts on them,
+// and has authorized on an unverified token with no diff anywhere to show it.
+// The sdk-go consumer pointed out what that argument missed: a holder reading
+// its OWN credential needs the expiry and the seal, so with no claims returned
+// it keeps its hand-written parser, and the second implementation this call
+// exists to delete survives. Half the duplication removed is the half that
+// matters least.
+//
+// The safety now rests where it does everywhere else in this package: on the
+// TYPE, not on withholding data. Inspected is not Verified, cannot become it,
+// and cannot become a Principal. The claims themselves were never secret —
+// anyone holding the token can base64-decode it — so withholding them bought
+// discipline from the honest caller and nothing from the careless one.
 //
 // # What it checks
 //
@@ -91,12 +147,6 @@ func checkSealedStructure(wc *basev0.WorkContextV1) error {
 // shaped like a sealed capability. It authenticates nothing, and a caller that
 // treats nil as permission has skipped verification entirely.**
 //
-// It returns NO CLAIMS, and that is the design rather than an omission.
-// Returning them would make this a third strength: a caller would read the
-// claims, act on them, and have authorized on an unverified token — with no
-// diff anywhere to show it. With nothing to read, the only thing a caller can
-// do with the answer is the thing it was asked for: refuse early.
-//
 // # What it is for
 //
 // A SENDER about to attach a capability to a request, asking "is this thing
@@ -106,15 +156,24 @@ func checkSealedStructure(wc *basev0.WorkContextV1) error {
 // Authenticator for one with caller-supplied state — and it exists here
 // because consumers were answering it by hand and reaching different
 // sentinels than core's fixtures declare.
-func Inspect(encoded string) error {
+func Inspect(encoded string) (*Inspected, error) {
+	if size := len(encoded); size > MaxTokenSize {
+		// Bounded before anything is decoded. A consumer had invented its own
+		// 32KiB bound because core declared none, which is one more rule kept
+		// in sync by hand; the bound belongs here.
+		return nil, fmt.Errorf("%w: token is %d bytes, over the %d-byte maximum", ErrInvalid, size, MaxTokenSize)
+	}
 	wc, _, _, err := decodeClaims(encoded)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := checkStructure(wc); err != nil {
-		return err
+		return nil, err
 	}
-	return checkSealedStructure(wc)
+	if err := checkSealedStructure(wc); err != nil {
+		return nil, err
+	}
+	return &Inspected{context: wc}, nil
 }
 
 // Recheck holds an ALREADY-VERIFIED capability against the issuer's live state
@@ -165,7 +224,7 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	if wc.GetAuthorizationRevision() < current {
 		return fmt.Errorf("%w: minted at revision %d, issuer is at %d", ErrRevoked, wc.GetAuthorizationRevision(), current)
 	}
-	if err := v.checkSeal(ctx, wc); err != nil {
+	if err := checkSealAgainst(ctx, v.Seals, wc); err != nil {
 		return err
 	}
 	if hop := wc.GetGrantHop(); hop != nil {

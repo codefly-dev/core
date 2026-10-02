@@ -360,3 +360,46 @@ func TestPublicKeysCarriesTheSameMaterialAsKeys(t *testing.T) {
 	public, _ := workcontext.FixtureKeyPair()
 	require.Equal(t, []byte(public), []byte(converted[workcontext.FixtureKeyID]))
 }
+
+// A verifier that never checks expiry, or not-before, or the issuer, or the
+// authorization revision, must FAIL the kit.
+//
+// Each of these passed the kit before the fixtures for them existed, which
+// made the kit's claim to cover "every way one is refused" false. A
+// conformance kit that a broken verifier passes is the failure it exists to
+// prevent, so each omission is asserted to be caught.
+func TestTheKitFailsAVerifierThatSkipsACheck(t *testing.T) {
+	for name, skip := range map[string]func(error) error{
+		"expiry":                func(err error) error { return nilIfContains(err, "expired at") },
+		"not-before":            func(err error) error { return nilIfContains(err, "not valid before") },
+		"the issuer":            func(err error) error { return nilIfContains(err, "issued by") },
+		"the revision":          func(err error) error { return nilIfContains(err, "issuer is at") },
+		"a revoked binding":     func(err error) error { return nilIfContains(err, "is revoked") },
+		"a binding incarnation": func(err error) error { return nilIfContains(err, "incarnation") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			settings := conformance.New(time.Now())
+			verifier := settings.Verifier()
+			reported := &recorder{}
+			conformance.RunWith(reported, settings, func(ctx context.Context, token string) error {
+				return skip(verifyWith(ctx, verifier, token))
+			})
+			require.Empty(t, reported.fatal)
+			require.NotEmpty(t, reported.errors,
+				"a verifier that does not check %s must fail the kit", name)
+			for _, reportedError := range reported.errors {
+				require.Contains(t, reportedError, "must be refused and was accepted")
+			}
+		})
+	}
+}
+
+// nilIfContains stands in for a verifier that never performs one check: it
+// swallows exactly the refusal that check produces and reports everything
+// else faithfully.
+func nilIfContains(err error, message string) error {
+	if err != nil && strings.Contains(err.Error(), message) {
+		return nil
+	}
+	return err
+}

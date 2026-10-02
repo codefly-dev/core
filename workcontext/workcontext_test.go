@@ -20,7 +20,7 @@ const (
 	issuer       = "https://authority.codefly.test"
 	keyID        = "k-1"
 	tenant       = "t-acme"
-	ownerID      = "u-antoine"
+	ownerID      = "principal-owner"
 	agentID      = "a-mind"
 	taskID       = "task-42"
 	audience     = "codefly.dev/github-bot:0.1.0"
@@ -201,6 +201,10 @@ func TestChild_NarrowsAuthorityAndKeepsTaskIdentity(t *testing.T) {
 
 func TestChild_NeverExtendsExpiry(t *testing.T) {
 	h := newHarness(t)
+	// This test is about the PARENT clamp, not the minter's ceiling, so the
+	// ceiling is raised out of the way deliberately: the parent's expiry must
+	// win even when the requested window is one the authority would mint.
+	h.authority.MaxTTL = 24 * time.Hour
 	_, owner := h.ownerSession(audience)
 
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{

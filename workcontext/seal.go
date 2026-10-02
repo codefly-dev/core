@@ -176,7 +176,7 @@ func sealOf(wc *basev0.WorkContextV1) (*basev0.WorkSealV1, error) {
 // it was sealed to has moved, which is the same situation a superseded
 // authorization revision describes, and a caller distinguishing "re-mint" from
 // "reject this caller" needs them to read alike.
-func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) error {
+func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1) error {
 	sealed, err := sealOf(wc)
 	if err != nil {
 		return err
@@ -186,7 +186,7 @@ func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) erro
 	// than moving it. Each actor's own epoch is checked separately below,
 	// because an actor is narrowed independently of the owner.
 	owner := wc.GetOwnerPrincipalId()
-	live, err := v.Seals.Seal(ctx, owner, sealed.GetInstallationId())
+	live, err := seals.Seal(ctx, owner, sealed.GetInstallationId())
 	if err != nil {
 		if errors.Is(err, ErrNoSeal) {
 			return fmt.Errorf("%w: sealed to installation %q, which principal %q does not hold", ErrRevoked, sealed.GetInstallationId(), owner)
@@ -212,13 +212,13 @@ func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) erro
 		}
 	}
 	// The OWNER's epoch, from the one source, exactly as every hop's is read.
-	if err := v.checkEpoch(ctx, "the task owner", owner, sealed.GetPrincipalEpoch()); err != nil {
+	if err := checkEpochAgainst(ctx, seals, "the task owner", owner, sealed.GetPrincipalEpoch()); err != nil {
 		return err
 	}
-	if err := v.checkActorEpochs(ctx, wc); err != nil {
+	if err := checkActorEpochsAgainst(ctx, seals, wc); err != nil {
 		return err
 	}
-	return v.checkOperationBinding(ctx, wc, sealed)
+	return checkOperationBindingAgainst(ctx, seals, wc, sealed)
 }
 
 // checkActorEpochs holds every actor hop's sealed epoch against that
@@ -235,7 +235,7 @@ func (v *Verifier) checkSeal(ctx context.Context, wc *basev0.WorkContextV1) erro
 // A rule that applied only to some kinds of principal would be an
 // authorization decision made from a kind field, and it would leave whichever
 // kinds it skipped unrevocable.
-func (v *Verifier) checkActorEpochs(ctx context.Context, wc *basev0.WorkContextV1) error {
+func checkActorEpochsAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1) error {
 	for index, hop := range wc.GetActorChain() {
 		// A hop carrying no epoch is not revocable, so it is refused. The
 		// schema cannot require the field without invalidating every archived
@@ -244,7 +244,7 @@ func (v *Verifier) checkActorEpochs(ctx context.Context, wc *basev0.WorkContextV
 			return fmt.Errorf("%w: actor hop %d (%s) carries no epoch, so it cannot be revoked", ErrUnsealed, index, hop.GetPrincipalId())
 		}
 		label := fmt.Sprintf("actor hop %d", index)
-		if err := v.checkEpoch(ctx, label, hop.GetPrincipalId(), hop.GetPrincipalEpoch()); err != nil {
+		if err := checkEpochAgainst(ctx, seals, label, hop.GetPrincipalId(), hop.GetPrincipalEpoch()); err != nil {
 			return err
 		}
 	}
@@ -254,8 +254,8 @@ func (v *Verifier) checkActorEpochs(ctx context.Context, wc *basev0.WorkContextV
 // checkEpoch holds one sealed epoch against that principal's live epoch, from
 // the single source. The owner and every hop go through it, so the owner
 // cannot be compared against a different answer than an actor is.
-func (v *Verifier) checkEpoch(ctx context.Context, label, principalID string, sealed uint64) error {
-	current, err := v.Seals.PrincipalEpoch(ctx, principalID)
+func checkEpochAgainst(ctx context.Context, seals SealSource, label, principalID string, sealed uint64) error {
+	current, err := seals.PrincipalEpoch(ctx, principalID)
 	if err != nil {
 		if errors.Is(err, ErrNoSeal) {
 			return fmt.Errorf("%w: %s names principal %q, which the issuer does not hold", ErrRevoked, label, principalID)
@@ -278,7 +278,7 @@ func (v *Verifier) checkEpoch(ctx context.Context, label, principalID string, se
 // that names a binding granted to another principal in another installation:
 // the ID exists, the counters match, and nothing has asked whether the caller
 // holds it. An opaque ID is not authorization.
-func (v *Verifier) checkOperationBinding(ctx context.Context, wc *basev0.WorkContextV1, sealed *basev0.WorkSealV1) error {
+func checkOperationBindingAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1, sealed *basev0.WorkSealV1) error {
 	binding := wc.GetOperationBinding()
 	if binding == nil {
 		return nil
@@ -286,7 +286,7 @@ func (v *Verifier) checkOperationBinding(ctx context.Context, wc *basev0.WorkCon
 	// Exact lookup by the sealed ID. Nothing here chooses a binding; the ID
 	// chose it when the capability was minted, and this either finds that one
 	// binding or refuses.
-	resolved, err := v.Seals.OperationBinding(ctx, binding.GetBindingId())
+	resolved, err := seals.OperationBinding(ctx, binding.GetBindingId())
 	if err != nil {
 		if errors.Is(err, ErrNoBinding) {
 			return fmt.Errorf("%w: sealed to binding %q, which the issuer does not hold", ErrRevoked, binding.GetBindingId())
@@ -421,64 +421,31 @@ func (a *Authority) epochFor(ctx context.Context, principalID string) (uint64, e
 // the installation to 4, and a derived child kept the parent's authority while
 // carrying revision 4 and verifying. The revocation this package introduces
 // would then have been defeated by derivation.
-func (a *Authority) carryForwardSeal(ctx context.Context, wc *basev0.WorkContextV1) error {
-	inherited, err := sealOf(wc)
-	if err != nil {
-		return err
-	}
+func (a *Authority) carryForwardSeal(ctx context.Context, parent *basev0.WorkContextV1) error {
 	if a.Seals == nil {
 		return fmt.Errorf("work context: authority has no seal source")
 	}
-	owner := wc.GetOwnerPrincipalId()
-	live, err := a.Seals.Seal(ctx, owner, inherited.GetInstallationId())
-	if err != nil {
-		if errors.Is(err, ErrNoSeal) {
-			return fmt.Errorf("%w: the parent is sealed to installation %q, which principal %q no longer holds",
-				ErrRevoked, inherited.GetInstallationId(), owner)
-		}
-		return fmt.Errorf("work context: seal for principal %q installation %q: %w", owner, inherited.GetInstallationId(), err)
-	}
-	// The owner's epoch, from the one source. A parent whose owner has been
-	// revoked derives nothing, same as every other moved field.
-	currentEpoch, err := a.Seals.PrincipalEpoch(ctx, owner)
-	if err != nil {
-		if errors.Is(err, ErrNoSeal) {
-			return fmt.Errorf("%w: the parent's owner %q is not a principal the issuer holds", ErrRevoked, owner)
-		}
-		return fmt.Errorf("work context: epoch for principal %q: %w", owner, err)
-	}
-	for _, field := range []struct {
-		label     string
-		inherited uint64
-		live      uint64
-	}{
-		{"principal epoch", inherited.GetPrincipalEpoch(), currentEpoch},
-		{"installation revision", inherited.GetInstallationRevision(), live.InstallationRevision},
-		{"build incarnation", inherited.GetBuildIncarnation(), live.BuildIncarnation},
-	} {
-		if field.inherited != field.live {
-			return fmt.Errorf("%w: the parent is sealed to %s %d and the issuer holds %d, so it can derive nothing; mint afresh",
-				ErrRevoked, field.label, field.inherited, field.live)
-		}
-	}
-	// The binding the parent already carries is held to the same standard. A
-	// hop that names a NEW binding replaces it, and that replacement is
-	// resolved and entitlement-checked by sealFor rather than carried.
-	if carried := wc.GetOperationBinding(); carried != nil {
-		resolved, err := a.Seals.OperationBinding(ctx, carried.GetBindingId())
-		if err != nil {
-			if errors.Is(err, ErrNoBinding) {
-				return fmt.Errorf("%w: the parent is sealed to binding %q, which the issuer does not hold", ErrRevoked, carried.GetBindingId())
-			}
-			return fmt.Errorf("work context: operation binding %q: %w", carried.GetBindingId(), err)
-		}
-		if resolved.Revoked {
-			return fmt.Errorf("%w: the parent's binding %q is revoked", ErrRevoked, carried.GetBindingId())
-		}
-		if resolved.Revision != carried.GetRevision() || resolved.Incarnation != carried.GetIncarnation() {
-			return fmt.Errorf("%w: the parent is sealed to binding %q revision %d incarnation %d and the issuer holds %d/%d",
-				ErrRevoked, carried.GetBindingId(), carried.GetRevision(), carried.GetIncarnation(), resolved.Revision, resolved.Incarnation)
-		}
+	// THE SAME CHECK THE VERIFIER MAKES, not a subset of it. This used to be a
+	// second implementation that compared the inherited installation, epoch and
+	// build, and the carried binding's revision and incarnation — and left out
+	// the binding's ENTITLEMENT and the inherited hops' epochs. A reviewer
+	// reproduced the consequence by execution: reassign the parent's binding
+	// to another principal and Verify(parent) refuses it with ErrRevoked,
+	// while Child(parent, replacementBinding) minted a credential that
+	// verified. The parent regained authority by replacing the binding that
+	// had been taken from it.
+	//
+	// The lesson is the one this whole PR is about, one level down: two
+	// implementations of a check, kept in step by hand, and the shorter one
+	// decides. So there is one now. A derivation asks exactly "would this
+	// parent verify right now", and anything that would refuse the parent
+	// refuses the derivation.
+	// Checked on the PARENT's claims, not on the half-built child: the child
+	// has its new hop appended but not yet stamped with an epoch, so running
+	// this over it would refuse every derivation for the child's own missing
+	// epoch and hide whatever is actually wrong with the parent.
+	if err := checkSealAgainst(ctx, a.Seals, parent); err != nil {
+		return fmt.Errorf("%w; the parent cannot derive, so mint afresh", err)
 	}
 	return nil
 }
