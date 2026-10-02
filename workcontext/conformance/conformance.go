@@ -59,6 +59,7 @@ package conformance
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"strings"
@@ -94,6 +95,12 @@ type Settings struct {
 	// Audience is the service the verifier answers for.
 	Audience string
 	// Keys are the public keys by key id.
+	//
+	// The value type is []byte rather than ed25519.PublicKey so that holding
+	// Settings does not oblige a consumer to import crypto/ed25519. That has
+	// one consequence worth naming here, because a consumer hit it: a
+	// Verifier's Keys field is map[string]ed25519.PublicKey, so this field
+	// cannot be assigned to it directly. Use PublicKeys().
 	Keys map[string][]byte
 	// Revisions is the issuer's authorization revision source.
 	Revisions workcontext.RevisionSource
@@ -136,15 +143,38 @@ func New(now time.Time) Settings {
 	}
 }
 
+// PublicKeys is Keys in the type a Verifier and an Authenticator take.
+//
+// It exists because the obvious thing a consumer does with Settings is build
+// its own exported verifier FIELD BY FIELD — which is the only way the kit
+// says anything about that consumer, since passing Settings.Verifier() to Run
+// drives core's verifier and proves nothing about the caller. The one field
+// that could not be assigned across was the keys, so every consumer doing the
+// right thing had to write this conversion itself. That is a gap in this kit,
+// not a chore for each consumer.
+//
+// Verifier and Authenticator below go through it too, so the conversion is
+// exercised by every test in this package rather than sitting on a path only
+// consumers take.
+func (s Settings) PublicKeys() map[string]ed25519.PublicKey {
+	keys := make(map[string]ed25519.PublicKey, len(s.Keys))
+	for id, key := range s.Keys {
+		keys[id] = ed25519.PublicKey(key)
+	}
+	return keys
+}
+
 // Verifier assembles core's Verifier from the kit's settings. A consumer whose
 // verification entrypoint is core's — which, under the one-implementation rule,
 // is every consumer — passes this verifier's Verify to Run.
+//
+// A consumer proving something about ITS OWN exported type builds that type
+// field by field from these settings instead; see PublicKeys.
 func (s Settings) Verifier() *workcontext.Verifier {
-	keys := workcontext.FixtureKeys()
 	return &workcontext.Verifier{
 		Issuer:    s.Issuer,
 		Audience:  s.Audience,
-		Keys:      keys,
+		Keys:      s.PublicKeys(),
 		Revisions: s.Revisions,
 		Replay:    s.Replay,
 		Grants:    s.Grants,
@@ -169,7 +199,7 @@ func (s Settings) Authenticator() *workcontext.Authenticator {
 	return &workcontext.Authenticator{
 		Issuer:                s.Issuer,
 		Audience:              s.Audience,
-		Keys:                  workcontext.FixtureKeys(),
+		Keys:                  s.PublicKeys(),
 		Seals:                 s.Seals,
 		AuthorizationRevision: workcontext.FixtureAuthorizationRevision,
 		Replay:                s.Replay,

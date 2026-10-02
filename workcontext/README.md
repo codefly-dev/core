@@ -94,6 +94,16 @@ with: issuer, audience, keys, revision source, replay store, seal source, grant
 source, clock. `Settings.Verifier()` assembles core's `Verifier` from them,
 which under the one rule is what every consumer's entrypoint resolves to.
 
+**Passing `Settings.Verifier()` to `Run` drives core's verifier and says
+nothing about yours.** To prove something about your own exported type, build
+it field by field from the settings and run the kit against that — the alias is
+what makes behaviour and identity coincide, and the kit cannot see the alias.
+`Settings.PublicKeys()` is the keys in the type `Verifier.Keys` takes
+(`Settings.Keys` is `[]byte`-valued so holding settings does not force a
+`crypto/ed25519` import, and it will not assign across). Use `settings.Replay`
+as handed to you: one store for the whole run, because the kit presents the
+single-use fixture twice.
+
 `Run` presents the single-use fixture twice, so a verifier without a working
 replay store passes everything else and fails there. Single-use is a property of
 the verifier, not of the token.

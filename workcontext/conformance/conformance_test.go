@@ -314,3 +314,49 @@ func authenticateWith(ctx context.Context, authenticator *workcontext.Authentica
 	_, err := authenticator.Authenticate(ctx, token)
 	return err
 }
+
+// sdkVerifier stands in for a consumer re-exporting core's Verifier as a true
+// alias — which, under the one-implementation rule, is what every consumer's
+// type resolves to.
+type sdkVerifier = workcontext.Verifier
+
+// The way a consumer proves something about ITS OWN exported type: build that
+// type field by field from the kit's settings and run the kit against it.
+//
+// This test exists because a consumer's reviewer was right to object that
+// passing Settings.Verifier() to RunWith drives CORE's verifier and says
+// nothing about the caller. The field-by-field build is the answer, and the
+// keys were the one field that would not assign across — so it is pinned here,
+// from outside, in the shape a consumer actually writes.
+func TestAConsumerCanBuildItsOwnExportedVerifierFromTheSettings(t *testing.T) {
+	settings := conformance.New(time.Now())
+	mine := &sdkVerifier{
+		Issuer:    settings.Issuer,
+		Audience:  settings.Audience,
+		Keys:      settings.PublicKeys(),
+		Revisions: settings.Revisions,
+		Replay:    settings.Replay,
+		Grants:    settings.Grants,
+		Seals:     settings.Seals,
+		Now:       settings.Now,
+	}
+	conformance.RunWith(t, settings, func(ctx context.Context, token string) error {
+		_, err := mine.Verify(ctx, token)
+		return err
+	})
+}
+
+// PublicKeys must carry the same key material Keys holds, or a consumer
+// building from it would get a verifier that refuses every fixture for a
+// signature reason and would go looking at key rotation — the exact
+// misdiagnosis this package exists because of.
+func TestPublicKeysCarriesTheSameMaterialAsKeys(t *testing.T) {
+	settings := conformance.New(time.Now())
+	converted := settings.PublicKeys()
+	require.Len(t, converted, len(settings.Keys))
+	for id, raw := range settings.Keys {
+		require.Equal(t, []byte(raw), []byte(converted[id]), "key %q", id)
+	}
+	public, _ := workcontext.FixtureKeyPair()
+	require.Equal(t, []byte(public), []byte(converted[workcontext.FixtureKeyID]))
+}
