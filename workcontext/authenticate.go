@@ -81,27 +81,25 @@ func (a *Authenticated) EffectiveScopes() []*basev0.WorkScopeV1 { return a.verif
 // the SAME outcome and the SAME named reason as the full verifier reaches,
 // fixture for fixture.
 //
-// Two of a Verifier's four sources are not fields here, and in both cases the
-// omission is a refusal or a stated value rather than a check that stops
-// happening:
+// EXACTLY ONE of a Verifier's four sources is not a field here, and its
+// absence is a refusal rather than a check that stops happening:
 //
 //   - Grants is gone. A capability carrying a grant hop is refused with
 //     ErrNeedsIssuer. It is not accepted-without-checking, which is what a
 //     weaker entrypoint would have done and what the kit now catches.
-//   - Revisions is replaced by AuthorizationRevision, one number the caller
-//     states. This is the one axis where the caller's own freshness is the
-//     limit, and it is written as a field so that limit is visible at the
-//     call site instead of hiding inside a source. See the field's own
-//     comment: a caller that pins a constant has turned the tenant-wide lever
-//     off, and should say so where a reviewer reads it.
 //
-// Seals is still required, and that is deliberate. Sealed state is not the
-// issuer's bookkeeping — it is the live binding of the presented capability to
-// one installation, one epoch, one build and one operation binding, and it is
-// what makes every revocation in this model reach a capability already in
-// flight. A caller that holds none cannot authenticate at full strength, and
-// core does not offer it a way to appear to: there is no mode in which the
-// seal comparison is skipped, by any entrypoint.
+// Seals and Revisions are still required, and that is deliberate. Sealed state
+// is not the issuer's bookkeeping — it is the live binding of the presented
+// capability to one installation, one epoch, one build and one operation
+// binding, and it is what makes every revocation in this model reach a
+// capability already in flight. A caller that holds neither cannot
+// authenticate at full strength, and core does not offer it a way to appear
+// to: there is no mode in which the seal comparison is skipped, or in which
+// the authorization revision is assumed, by any entrypoint.
+//
+// So this type is a Verifier minus one source, and that is the whole of the
+// difference. An earlier draft also replaced Revisions with a stated number;
+// see that field for why a consumer was right to refuse it.
 type Authenticator struct {
 	// Issuer is the authority this authenticator trusts.
 	Issuer string
@@ -117,19 +115,28 @@ type Authenticator struct {
 	// Required: see the type comment for why there is no seal-less mode.
 	Seals SealSource
 
-	// AuthorizationRevision is the issuer's authorization revision as this
-	// caller holds it. Required and non-zero.
+	// Revisions answers the issuer's current authorization revision, which is
+	// how the coarse revocation lever reaches a capability already in flight.
+	// Required, and the same interface a Verifier takes.
 	//
-	// It is a value rather than a source because a party that does not mint
-	// generally cannot read the issuer's revision live, and the honest shape
-	// for that is a number the caller states rather than an interface it
-	// satisfies with a constant. The consequence, stated plainly: a revision
-	// bump reaches this authenticator only when this value moves. A caller
-	// that writes a literal here has turned the tenant-wide revocation lever
-	// off for its own path, which may be correct — the capability was
-	// verified at full strength by the party that minted it — but it is a
-	// posture choice and belongs where a reviewer sees it.
-	AuthorizationRevision uint64
+	// An earlier version of this type had a plain uint64 here instead, on the
+	// argument that a party which does not mint cannot read the issuer's
+	// revision live, so a stated number put that limit where a reviewer sees
+	// it. That was wrong, and module-saas-starter#953 found it with the
+	// evidence: RevisionSource is per TENANT by its own signature, so one
+	// stated number against a multi-tenant issuer either refuses every tenant
+	// not at that number, or — the dangerous one — goes on accepting
+	// capabilities minted against a SUPERSEDED revision for every tenant
+	// except the one it happens to name. The field read as if revocation were
+	// enforced while enforcing it for at most one tenant, which is precisely
+	// the class of defect this package exists to remove.
+	//
+	// A single-tenant caller supplies FixedRevision, which is three visible
+	// characters more and says in its own documentation that it answers one
+	// number for every tenant. That is a better place for the posture to be
+	// legible than a bare field, and it keeps one definition of "the issuer's
+	// current authorization revision" rather than two shapes that disagree.
+	Revisions RevisionSource
 
 	// Replay consumes single-use capabilities. Required: single-use is a
 	// property of the verifier, not of the token, and more than one process
@@ -177,14 +184,14 @@ func (a *Authenticator) verifier() (*Verifier, error) {
 		return nil, fmt.Errorf("work context: authenticator is missing a seal source; there is no mode in which the seal comparison is skipped")
 	case a.Replay == nil:
 		return nil, fmt.Errorf("work context: authenticator is missing a replay store; single-use is a property of the verifier")
-	case a.AuthorizationRevision == 0:
-		return nil, fmt.Errorf("work context: authenticator states no authorization revision; a revision starts at 1 and zero would compare equal to a caller that simply set nothing")
+	case a.Revisions == nil:
+		return nil, fmt.Errorf("work context: authenticator is missing a revision source; the authorization revision is per tenant, so there is no single number to default to")
 	}
 	return &Verifier{
 		Issuer:    a.Issuer,
 		Audience:  a.Audience,
 		Keys:      a.Keys,
-		Revisions: FixedRevision(a.AuthorizationRevision),
+		Revisions: a.Revisions,
 		Replay:    a.Replay,
 		Grants:    issuerOnlyGrants{},
 		Seals:     a.Seals,

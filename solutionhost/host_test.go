@@ -212,6 +212,16 @@ func TestAHostReservesRouteNamespaces(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Unusable applied state is refused, and refused as the HOST's problem.
+//
+// Both halves are asserted. module-saas-starter#953 hit the second: a host
+// that had not yet persisted Applied.Domain got "solution host document is
+// invalid", which blames a delivered document for state only the host can
+// repair — and because applied state is read once for the whole set, one bad
+// record withholds every binding on every pass while the error points at
+// delivery. So each case pins ErrAppliedUnusable and pins that it is NOT
+// ErrInvalid; an assertion of only "some error" would have passed throughout
+// the whole time the accusation was wrong.
 func TestInvalidAppliedStateIsRejectedRatherThanTrusted(t *testing.T) {
 	document := parse(t, "valid")
 	digest, err := document.Digest()
@@ -234,15 +244,22 @@ func TestInvalidAppliedStateIsRejectedRatherThanTrusted(t *testing.T) {
 			Binding: "other-01", Generation: 1, Digest: digest, Domain: domain,
 			Routes: []string{"other"}, Removed: true,
 		}},
-		"two bindings holding one alias": {sound, {
-			Binding: "other-01", Generation: 1, Digest: digest, Domain: domain, Routes: []string{"alpha"},
-		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := appliedHost(applied...).Admit(document)
-			require.Error(t, err)
+			require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
+			require.NotErrorIs(t, err, solutionhost.ErrInvalid,
+				"no delivery can repair the host's own stored state, so this must not read as a delivery problem")
 		})
 	}
+
+	// Two applied records holding one alias is a COLLISION, not an unusable
+	// record: each record is well formed and the conflict is between them, so
+	// it reads the same as every other composition collision.
+	_, err = appliedHost(sound, solutionhost.Applied{
+		Binding: "other-01", Generation: 1, Digest: digest, Domain: domain, Routes: []string{"alpha"},
+	}).Admit(document)
+	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
 func TestAppliedFromRecordsWhatTheHostMustPersist(t *testing.T) {

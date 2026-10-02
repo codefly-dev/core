@@ -345,13 +345,19 @@ strength does not exist:
   synthesised grant that matched whatever the capability claimed would make the
   hop self-authorizing, and would be reached by a verifier that looked entirely
   correct.
-- **The one axis that depends on the caller's freshness is a field, not a
-  source.** `AuthorizationRevision` is a number the caller states. A revision
-  bump reaches this entrypoint only when that value moves, so a caller writing
-  a literal there has turned the tenant-wide lever off for its own path — which
-  may be right, since the capability was verified at full strength by the party
-  that minted it, but it is a posture choice and it belongs where a reviewer
-  reads it rather than hidden inside a source that answers one number forever.
+- **It is a `Verifier` minus exactly one source.** An earlier draft also
+  replaced `Revisions` with a stated `uint64`, arguing that a party which does
+  not mint cannot read the issuer's revision live, so a number put that limit
+  where a reviewer sees it. **That was wrong, and a consumer refused it with
+  the evidence.** `RevisionSource` is per *tenant* by its own signature, so one
+  number against a multi-tenant issuer either refuses every tenant not at it,
+  or — the dangerous one — goes on accepting capabilities minted at a
+  *superseded* revision for every tenant except the one it names. The field
+  read as if revocation were enforced while enforcing it for at most one
+  tenant, which is the class of defect this package exists to remove. A
+  single-tenant caller supplies `FixedRevision`, whose own documentation says
+  it answers one number for every tenant — a better place for the posture to be
+  legible than a bare field.
 - **`Seals` is still required, and there is no seal-less mode in any
   entrypoint.** Sealed state is not the issuer's bookkeeping: it is the live
   binding of the presented capability to one installation, one epoch, one build

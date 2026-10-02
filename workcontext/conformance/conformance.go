@@ -193,17 +193,17 @@ func Verifier() *workcontext.Verifier { return New(time.Now()).Verifier() }
 // the wrong one would either fail a conforming authenticator or pass a
 // downgraded one.
 //
-// The authorization revision is stated rather than sourced, which is the
-// shape of the entrypoint — see workcontext.Authenticator.AuthorizationRevision.
+// It takes the same revision source the full verifier does: the authorization
+// revision is per tenant, so there is no single number to state.
 func (s Settings) Authenticator() *workcontext.Authenticator {
 	return &workcontext.Authenticator{
-		Issuer:                s.Issuer,
-		Audience:              s.Audience,
-		Keys:                  s.PublicKeys(),
-		Seals:                 s.Seals,
-		AuthorizationRevision: workcontext.FixtureAuthorizationRevision,
-		Replay:                s.Replay,
-		Now:                   s.Now,
+		Issuer:    s.Issuer,
+		Audience:  s.Audience,
+		Keys:      s.PublicKeys(),
+		Seals:     s.Seals,
+		Revisions: s.Revisions,
+		Replay:    s.Replay,
+		Now:       s.Now,
 	}
 }
 

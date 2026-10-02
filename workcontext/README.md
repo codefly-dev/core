@@ -116,10 +116,11 @@ For a party that verifies **without minting** — the host's gateway — there i
 that certifies it. It is a second entrypoint and deliberately not a second
 strength: `Authenticate` assembles a `Verifier` and calls `Verify`, so there is
 one check path; a capability carrying a grant hop is **refused** with
-`ErrNeedsIssuer` rather than accepted unchecked; `Seals` is still required,
-because no entrypoint skips the seal comparison; the authorization revision is
-a number the caller states, so the one axis that depends on the caller's own
-freshness is visible at the call site; and the result is `*Authenticated`, which
+`ErrNeedsIssuer` rather than accepted unchecked; `Seals` and `Revisions` are
+still required, because no entrypoint skips the seal comparison or assumes the
+authorization revision — it is per tenant, and an earlier draft's stated number
+silently stopped enforcing revocation for every tenant but one; and the result
+is `*Authenticated`, which
 `policy.PrincipalFromWorkContext`, `Authority.Child` and `Authority.Grant` will
 not take. `RunAuthenticator` is stricter than `Run`, not laxer: identical
 outcomes everywhere except the fixtures marked `NeedsIssuer`, which must be

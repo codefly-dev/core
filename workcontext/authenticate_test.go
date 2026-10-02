@@ -3,6 +3,7 @@ package workcontext_test
 import (
 	"context"
 	"crypto/ed25519"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -21,13 +22,13 @@ import (
 // revision stated rather than sourced.
 func (h *harness) authenticator(aud string) *workcontext.Authenticator {
 	return &workcontext.Authenticator{
-		Issuer:                issuer,
-		Audience:              aud,
-		Keys:                  map[string]ed25519.PublicKey{keyID: h.public},
-		Seals:                 h.seals,
-		AuthorizationRevision: h.revision,
-		Replay:                h.replay,
-		Now:                   func() time.Time { return h.clock },
+		Issuer:    issuer,
+		Audience:  aud,
+		Keys:      map[string]ed25519.PublicKey{keyID: h.public},
+		Seals:     h.seals,
+		Revisions: h,
+		Replay:    h.replay,
+		Now:       func() time.Time { return h.clock },
 	}
 }
 
@@ -70,13 +71,13 @@ func TestAuthenticateAndVerifyAgreeOnEveryFixtureIncludingTheMessage(t *testing.
 		Now:       clock,
 	}
 	authenticator := &workcontext.Authenticator{
-		Issuer:                workcontext.FixtureIssuer,
-		Audience:              workcontext.FixtureAudience,
-		Keys:                  keys,
-		Seals:                 seals,
-		AuthorizationRevision: workcontext.FixtureAuthorizationRevision,
-		Replay:                authenticatorReplay,
-		Now:                   clock,
+		Issuer:    workcontext.FixtureIssuer,
+		Audience:  workcontext.FixtureAudience,
+		Keys:      keys,
+		Seals:     seals,
+		Revisions: workcontext.FixtureRevisions(),
+		Replay:    authenticatorReplay,
+		Now:       clock,
 	}
 
 	ctx := context.Background()
@@ -226,7 +227,7 @@ func TestAuthenticate_RefusesWithoutAnyOneOfItsInputs(t *testing.T) {
 		"no keys":            func(a *workcontext.Authenticator) { a.Keys = nil },
 		"no seal source":     func(a *workcontext.Authenticator) { a.Seals = nil },
 		"no replay store":    func(a *workcontext.Authenticator) { a.Replay = nil },
-		"no stated revision": func(a *workcontext.Authenticator) { a.AuthorizationRevision = 0 },
+		"no revision source": func(a *workcontext.Authenticator) { a.Revisions = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			authenticator := h.authenticator(audience)
@@ -238,18 +239,64 @@ func TestAuthenticate_RefusesWithoutAnyOneOfItsInputs(t *testing.T) {
 	}
 }
 
-// A stated revision the capability is behind is a refusal, exactly as a
-// sourced one would be. The lever still works — what the field makes visible
-// is that it only moves when the caller moves it.
-func TestAuthenticate_RefusesACapabilityBehindTheStatedRevision(t *testing.T) {
+// The coarse revocation lever reaches this entrypoint, through the same
+// per-tenant source the full verifier reads.
+func TestAuthenticate_RefusesACapabilityBehindTheIssuersRevision(t *testing.T) {
+	h := newHarness(t)
+	token, _ := h.ownerSession(audience)
+	authenticator := h.authenticator(audience)
+
+	_, err := authenticator.Authenticate(context.Background(), token)
+	require.NoError(t, err)
+
+	h.revision++
+	// The SAME authenticator, so one that read the revision once at
+	// construction would be caught.
+	_, err = authenticator.Authenticate(context.Background(), token)
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "issuer is at 8")
+}
+
+// The revision is per TENANT, by RevisionSource's own signature, and a
+// verify-only entrypoint must honour that rather than compare every tenant
+// against one number.
+//
+// This is module-saas-starter#953's finding. An earlier draft took a stated
+// uint64 here, which against a multi-tenant issuer went on accepting
+// capabilities minted at a SUPERSEDED revision for every tenant except the one
+// it named — a check that reads as enforced and fires for at most one tenant.
+// The test is written with two tenants at different revisions precisely
+// because a single-tenant test passes either shape.
+func TestAuthenticate_HonoursThePerTenantRevision(t *testing.T) {
 	h := newHarness(t)
 	token, _ := h.ownerSession(audience)
 
+	byTenant := perTenantRevisions{tenant: 7, "t-other": 99}
 	authenticator := h.authenticator(audience)
-	authenticator.AuthorizationRevision = h.revision + 1
+	authenticator.Revisions = byTenant
 	_, err := authenticator.Authenticate(context.Background(), token)
+	require.NoError(t, err, "this capability's tenant is at 7 and so is the issuer")
+
+	// Move only the OTHER tenant. A shape that compared every tenant against
+	// one number would now refuse this capability.
+	byTenant["t-other"] = 100
+	_, err = authenticator.Authenticate(context.Background(), token)
+	require.NoError(t, err, "another tenant's revision moving must not refuse this tenant's capability")
+
+	// Move this capability's tenant. Now it is superseded.
+	byTenant[tenant] = 8
+	_, err = authenticator.Authenticate(context.Background(), token)
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "issuer is at 8")
+}
+
+type perTenantRevisions map[string]uint64
+
+func (r perTenantRevisions) AuthorizationRevision(_ context.Context, tenantID string) (uint64, error) {
+	revision, known := r[tenantID]
+	if !known {
+		return 0, fmt.Errorf("no revision for tenant %q", tenantID)
+	}
+	return revision, nil
 }
 
 // An Authenticated capability cannot become a Verified one, and nothing in the

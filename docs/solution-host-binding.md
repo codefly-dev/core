@@ -68,6 +68,15 @@ Two consequences of the schema step, both deliberate:
   returns `ErrRewrittenGeneration` — an error that accuses delivery of
   tampering.
 
+  The required-`Domain` failure itself now answers `ErrAppliedUnusable` rather
+  than `ErrInvalid`, because the two accuse different parties and the wrong
+  accusation sends the reader to the wrong repository. A host that has not yet
+  persisted the column gets an error naming its own stored state, which is the
+  only thing that can repair it: applied state is read once for the whole set,
+  so one unusable record withholds **every** binding on every pass,
+  indefinitely and without crashing. `AppliedFrom` fills the field, so a host
+  that builds the record with it rather than by hand cannot reach this.
+
   The cutover is therefore cold on the host's side too: a host **discards its
   applied records** and re-admits the delivered set. That is safe here, and only
   here, for a specific reason — every v2 document is new, and a v1 document is
@@ -455,6 +464,7 @@ payload that survives a round trip through it.
 | A SPIFFE ID is an SVID name, not a generic name | `Validate`, `ErrInvalid` |
 | Generations are strictly monotonic per binding ID | `Host.Admit`, `ErrStaleGeneration` |
 | An applied generation is immutable | `Host.Admit`, `ErrRewrittenGeneration` |
+| The host's own applied record must be usable, and saying so is not an accusation of delivery | `Host.Admit`, `ErrAppliedUnusable` |
 | Route aliases are unique within a host, compared per coordinate | `Host.Admit` → `composition.ErrCollision` |
 | A document delivered to the wrong coordinate is refused | `Host.Admit`, `ErrWrongHost` |
 | A host accepts only the domains it declares, and a binding keeps the domain it was applied under | `Host.Admit`, `ErrWrongDomain` |

@@ -42,6 +42,26 @@ var (
 	// module-scoped delivery could tombstone every binding on the host by
 	// claiming their domain.
 	ErrWrongDomain = errors.New("solution host binding reaches outside its ownership domain")
+
+	// ErrAppliedUnusable is returned when the host's OWN durable record of an
+	// applied generation cannot be held a document against. It is distinct
+	// from ErrInvalid because they accuse different parties, and the wrong
+	// accusation sends the reader to the wrong repository.
+	//
+	// module-saas-starter#953 paid for this distinction. A host that had not
+	// yet persisted Applied.Domain got "solution host document is invalid:
+	// applied binding "X" requires the ownership domain it was applied
+	// under" — which blames a delivered document, names a binding that is
+	// usually not the one being debugged, and never crashes. Applied state is
+	// read once for the whole set, so a single unusable record withholds
+	// EVERY binding on every pass, indefinitely, while the error points at
+	// delivery.
+	//
+	// The remedy is the host's and only the host's: fix what it stored, or
+	// discard its applied records and re-admit the delivered set. No delivery
+	// can resolve it, which is exactly why it must not read as a delivery
+	// problem.
+	ErrAppliedUnusable = errors.New("solution host applied record is unusable; the host's own stored state must be repaired")
 )
 
 // Decision is what a host should do with a document it has just read.
@@ -180,7 +200,7 @@ func (host Host) Admit(documents ...*SolutionHostBinding) ([]Admission, error) {
 	// a caller mixing applied state into a coordinate-less check would have its
 	// aliases silently compared against documents for other hosts.
 	if len(host.Applied) != 0 && host.Coordinate == "" {
-		return nil, fmt.Errorf("%w: applied state belongs to a named host, so Host.Coordinate is required", ErrInvalid)
+		return nil, fmt.Errorf("%w: applied state belongs to a named host, so Host.Coordinate is required", ErrAppliedUnusable)
 	}
 	// A named host that accepts no stated domain would accept every one, which
 	// is the hole Domains exists to close — so an unset list is an error rather
@@ -403,25 +423,27 @@ func (host Host) appliedByBinding() (map[string]Applied, error) {
 	aliases := make(map[string]string, len(host.Applied))
 	for _, record := range host.Applied {
 		if !bindingPattern.MatchString(record.Binding) || record.Binding == reservedOwner {
-			return nil, fmt.Errorf("%w: applied binding ID %q is invalid", ErrInvalid, record.Binding)
+			return nil, fmt.Errorf("%w: applied binding ID %q is invalid", ErrAppliedUnusable, record.Binding)
 		}
 		if record.Generation == 0 || !digestPattern.MatchString(record.Digest) {
-			return nil, fmt.Errorf("%w: applied binding %q requires a generation and the digest it was applied as", ErrInvalid, record.Binding)
+			return nil, fmt.Errorf("%w: applied binding %q requires a generation and the digest it was applied as; build it with AppliedFrom rather than by hand",
+				ErrAppliedUnusable, record.Binding)
 		}
 		// A record with no domain is a record no document can be held against:
 		// the domain check below would pass for any domain a delivery chose.
 		if !namePattern.MatchString(record.Domain) {
-			return nil, fmt.Errorf("%w: applied binding %q requires the ownership domain it was applied under, got %q", ErrInvalid, record.Binding, record.Domain)
+			return nil, fmt.Errorf("%w: applied binding %q requires the ownership domain it was applied under, got %q; a host upgrading to presence v2 persists this column, and AppliedFrom fills it",
+				ErrAppliedUnusable, record.Binding, record.Domain)
 		}
 		if _, exists := byBinding[record.Binding]; exists {
-			return nil, fmt.Errorf("%w: applied binding %q is recorded twice", ErrInvalid, record.Binding)
+			return nil, fmt.Errorf("%w: applied binding %q is recorded twice", ErrAppliedUnusable, record.Binding)
 		}
 		if record.Removed && len(record.Routes) != 0 {
-			return nil, fmt.Errorf("%w: applied binding %q is a tombstone and holds no route", ErrInvalid, record.Binding)
+			return nil, fmt.Errorf("%w: applied binding %q is a tombstone and holds no route", ErrAppliedUnusable, record.Binding)
 		}
 		for _, alias := range record.Routes {
 			if !namePattern.MatchString(alias) {
-				return nil, fmt.Errorf("%w: applied binding %q holds invalid route alias %q", ErrInvalid, record.Binding, alias)
+				return nil, fmt.Errorf("%w: applied binding %q holds invalid route alias %q", ErrAppliedUnusable, record.Binding, alias)
 			}
 			if owner, exists := aliases[alias]; exists {
 				return nil, fmt.Errorf("%w: applied route alias %q is held by both %q and %q", composition.ErrCollision, alias, owner, record.Binding)

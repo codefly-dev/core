@@ -132,7 +132,9 @@ func TestAppliedStateRequiresANamedHost(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = solutionhost.Host{Applied: []solutionhost.Applied{applied}}.Admit(parse(t, "valid"))
-	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
+	require.NotErrorIs(t, err, solutionhost.ErrInvalid,
+		"this is the host's own state, not a delivered document; accusing delivery sends the reader to the wrong repository")
 	require.Contains(t, err.Error(), "Host.Coordinate is required")
 }
 
