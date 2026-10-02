@@ -281,7 +281,7 @@ func TestNoDeclarationTurnsAnAuthenticatedCapabilityIntoAVerifiedOne(t *testing.
 			return found
 		}
 		for _, field := range fields.List {
-			found = append(found, strings.TrimSpace(types(field.Type)))
+			found = append(found, strings.TrimSpace(typeName(field.Type)))
 		}
 		return found
 	}
@@ -311,18 +311,18 @@ func TestNoDeclarationTurnsAnAuthenticatedCapabilityIntoAVerifiedOne(t *testing.
 	}
 }
 
-// types renders a type expression as source-like text, enough to recognise
+// typeName renders a type expression as source-like text, enough to recognise
 // *Authenticated and *Verified.
-func types(expression ast.Expr) string {
+func typeName(expression ast.Expr) string {
 	switch typed := expression.(type) {
 	case *ast.StarExpr:
-		return "*" + types(typed.X)
+		return "*" + typeName(typed.X)
 	case *ast.Ident:
 		return typed.Name
 	case *ast.SelectorExpr:
-		return types(typed.X) + "." + typed.Sel.Name
+		return typeName(typed.X) + "." + typed.Sel.Name
 	case *ast.ArrayType:
-		return "[]" + types(typed.Elt)
+		return "[]" + typeName(typed.Elt)
 	default:
 		return ""
 	}
