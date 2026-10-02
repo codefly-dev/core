@@ -1,0 +1,27 @@
+# REJECTED, composition.ErrCollision. A second binding claims the route alias
+# crm-eu-west-1-01 already holds. A second instance gets its own binding ID and
+# inherits nothing, the alias included; the host refuses the collision before
+# applying the generation, and a renderer running the same check refuses it
+# where it was authored.
+schema: codefly/solution-host-binding/v2
+kind: solution
+binding: crm-eu-west-1-02
+generation: 1
+ownership_domain: crm
+envelope_revision: 7
+host:
+  coordinate: obin/prod/eu-west-1
+  component: saas-host
+release:
+  publisher: obin
+  name: crm
+  version: 1.4.0
+  digest: sha256:5b1cbf059fa244a163e6f443417e5259db2392b95ae25a9d3aa03496c180eaef
+routes:
+  - alias: crm
+    surface: frontend
+artifacts:
+  - surface: frontend
+    name: web
+    release: obin/crm@1.4.0
+    digest: sha256:36d7d0fa135071f01a55a4e8332fac469f71b876af9d15fcc1d6dbf1ab0cad34

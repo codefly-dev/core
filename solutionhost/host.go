@@ -31,6 +31,17 @@ var (
 	// ErrWrongHost means the document targets a coordinate this host does not
 	// reconcile.
 	ErrWrongHost = errors.New("solution host binding names a different host")
+
+	// ErrWrongDomain means a delivery reached outside its ownership domain: a
+	// set that straddles two domains, or a document that would change or remove
+	// a binding an earlier generation applied under a different one.
+	//
+	// This is what makes the ownership domain an authority rather than a label.
+	// Without it, "the delivered set within domain D is exactly desired" is a
+	// rule any delivery could satisfy for any D it chose to write, so a
+	// module-scoped delivery could tombstone every binding on the host by
+	// claiming their domain.
+	ErrWrongDomain = errors.New("solution host binding reaches outside its ownership domain")
 )
 
 // Decision is what a host should do with a document it has just read.
@@ -59,6 +70,11 @@ type Applied struct {
 	// Digest is that generation's SolutionHostBinding.Digest, so a rewritten
 	// generation is detectable rather than silently reapplied.
 	Digest string
+	// Domain is the ownership domain the applied generation declared. A later
+	// generation for this binding must declare the same one: the domain is what
+	// says who may change this record, so a delivery that arrives under
+	// another domain is refused rather than allowed to take the binding over.
+	Domain string
 	// Routes are the aliases that generation holds. They stay held until a
 	// later generation releases them or a tombstone withdraws them.
 	Routes []string
@@ -78,6 +94,7 @@ func AppliedFrom(document *SolutionHostBinding) (Applied, error) {
 		Binding:    document.Binding,
 		Generation: document.Generation,
 		Digest:     digest,
+		Domain:     document.OwnershipDomain,
 		Routes:     document.Aliases(),
 		Removed:    document.Removed,
 	}, nil
@@ -100,6 +117,19 @@ type Host struct {
 	// Reserved are route namespaces no binding may claim — "codefly" reserves
 	// "codefly", "codefly/admin" and "codefly.admin".
 	Reserved []string
+
+	// Domains are the ownership domains this host accepts delivery from.
+	// Required whenever Coordinate is set, and not consulted when it is not —
+	// a renderer pre-checking a set it is about to write has no host to accept
+	// on behalf of.
+	//
+	// It exists because the applied record cannot bound a binding's FIRST
+	// generation: there is nothing to compare a domain against yet, so without
+	// this any delivery could claim any unseen binding ID under any domain it
+	// chose to write and own it from then on. The host declaring which domains
+	// it accepts is what closes that, and it is the host's to declare because
+	// core cannot know which delivery is entitled to a name it has never seen.
+	Domains []string
 
 	// Applied is the host's durable record, at most one entry per binding ID.
 	Applied []Applied
@@ -152,17 +182,57 @@ func (host Host) Admit(documents ...*SolutionHostBinding) ([]Admission, error) {
 	if len(host.Applied) != 0 && host.Coordinate == "" {
 		return nil, fmt.Errorf("%w: applied state belongs to a named host, so Host.Coordinate is required", ErrInvalid)
 	}
+	// A named host that accepts no stated domain would accept every one, which
+	// is the hole Domains exists to close — so an unset list is an error rather
+	// than a permissive default. A renderer leaves both empty and is unaffected.
+	if host.Coordinate != "" && len(host.Domains) == 0 {
+		return nil, fmt.Errorf("%w: host %q must declare the ownership domains it accepts; an unstated list would accept every domain",
+			ErrInvalid, host.Coordinate)
+	}
+	for _, domain := range host.Domains {
+		if !namePattern.MatchString(domain) {
+			return nil, fmt.Errorf("%w: host %q accepts invalid ownership domain %q", ErrInvalid, host.Coordinate, domain)
+		}
+	}
 
 	admissions := make([]Admission, len(documents))
 	declared := make(map[string]int, len(documents))
+	// One delivery speaks for one ownership domain. A set carrying two is a
+	// delivery that straddles them, and "within D the delivered set is exactly
+	// desired" has no single D to be true of — so the whole set is withheld
+	// rather than applied under whichever domain happened to be read first.
+	// This is a property of the set, so it refuses every document in it,
+	// including the ones that are individually sound.
+	straddle := straddledDomain(documents)
 	for index, document := range documents {
 		if err := document.Validate(); err != nil {
 			admissions[index].Err = err
 			continue
 		}
 		admissions[index].Binding = document.Binding
+		if straddle != nil {
+			admissions[index].Err = straddle
+			continue
+		}
 		if host.Coordinate != "" && document.Host.Coordinate != host.Coordinate {
 			admissions[index].Err = fmt.Errorf("%w: binding %q targets %q, this host is %q", ErrWrongHost, document.Binding, document.Host.Coordinate, host.Coordinate)
+			continue
+		}
+		// What the host accepts at all, which is the only thing that bounds a
+		// binding's first generation.
+		if host.Coordinate != "" && !slices.Contains(host.Domains, document.OwnershipDomain) {
+			admissions[index].Err = fmt.Errorf("%w: binding %q is delivered under domain %q, which host %q does not accept",
+				ErrWrongDomain, document.Binding, document.OwnershipDomain, host.Coordinate)
+			continue
+		}
+		// The applied record's domain is what says who may change this binding.
+		// A document arriving under another domain is refused whatever its
+		// generation — including a tombstone, which is the case that matters:
+		// otherwise any delivery the host accepts at all could withdraw any
+		// binding by declaring a higher generation under its own domain.
+		if record, exists := applied[document.Binding]; exists && record.Domain != document.OwnershipDomain {
+			admissions[index].Err = fmt.Errorf("%w: binding %q was applied under domain %q and this document declares %q",
+				ErrWrongDomain, document.Binding, record.Domain, document.OwnershipDomain)
 			continue
 		}
 		// One desired set declares one generation per binding: two would make
@@ -260,6 +330,28 @@ func (host Host) refuseOneAliasCollision(documents []*SolutionHostBinding, admis
 	return false
 }
 
+// straddledDomain reports the refusal for a set that carries more than one
+// ownership domain, or nil when every document that names one agrees. Documents
+// that do not validate are skipped: an unreadable domain is that document's own
+// refusal, and letting it decide the set's would turn one malformed document
+// into a withheld delivery.
+func straddledDomain(documents []*SolutionHostBinding) error {
+	domains := make([]string, 0, 1)
+	for _, document := range documents {
+		if document == nil || document.Validate() != nil {
+			continue
+		}
+		if !slices.Contains(domains, document.OwnershipDomain) {
+			domains = append(domains, document.OwnershipDomain)
+		}
+	}
+	if len(domains) < 2 {
+		return nil
+	}
+	slices.Sort(domains)
+	return fmt.Errorf("%w: this set declares domains %v; one delivery speaks for one domain", ErrWrongDomain, domains)
+}
+
 func routeClaims(binding string, aliases []string) []composition.Claim {
 	// Route-alias uniqueness within a host, and the host's reserved
 	// namespaces, are exactly composition's collision vocabulary, so the same
@@ -300,6 +392,11 @@ func (host Host) appliedByBinding() (map[string]Applied, error) {
 		}
 		if record.Generation == 0 || !digestPattern.MatchString(record.Digest) {
 			return nil, fmt.Errorf("%w: applied binding %q requires a generation and the digest it was applied as", ErrInvalid, record.Binding)
+		}
+		// A record with no domain is a record no document can be held against:
+		// the domain check below would pass for any domain a delivery chose.
+		if !namePattern.MatchString(record.Domain) {
+			return nil, fmt.Errorf("%w: applied binding %q requires the ownership domain it was applied under, got %q", ErrInvalid, record.Binding, record.Domain)
 		}
 		if _, exists := byBinding[record.Binding]; exists {
 			return nil, fmt.Errorf("%w: applied binding %q is recorded twice", ErrInvalid, record.Binding)

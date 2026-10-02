@@ -50,7 +50,7 @@ func TestGrant_RefusesAParentThatIsOnlyAliveOnSkew(t *testing.T) {
 	onSkew, err := h.verify(audience, agent.Encoded())
 	require.NoError(t, err)
 
-	_, _, err = h.authority.Grant(onSkew, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	_, _, err = h.authority.Grant(context.Background(), onSkew, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.Contains(t, err.Error(), "can open no further session")
 }
@@ -91,7 +91,8 @@ func TestStart_DoesNotCaptureTheCallersScopes(t *testing.T) {
 	scopes := []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})}
 
 	_, wc, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		TenantID: tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
+		InstallationID: installation,
+		TenantID:       tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
 		OrganizationID: organization, TaskID: taskID, Audience: audience,
 		AuthorityScopes: scopes, TTL: time.Hour,
 	})
@@ -169,7 +170,8 @@ func TestMemoryReplayStore_RefusesWithinRetentionAndForgetsAfter(t *testing.T) {
 func TestStart_RefusesAnOwnerWithNoPrincipalKind(t *testing.T) {
 	h := newHarness(t)
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		TenantID: tenant, OwnerPrincipalID: ownerID, TaskID: taskID,
+		InstallationID: installation,
+		TenantID:       tenant, OwnerPrincipalID: ownerID, TaskID: taskID,
 		Audience: audience, TTL: time.Hour,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)

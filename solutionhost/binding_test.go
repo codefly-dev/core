@@ -11,14 +11,21 @@ import (
 
 func valid(t *testing.T) *solutionhost.SolutionHostBinding {
 	t.Helper()
-	document, err := solutionhost.Parse(fixture(t, "valid"))
+	document, err := solutionhost.Parse(presence(t, "valid"))
 	require.NoError(t, err)
 	return document
 }
 
-func fixture(t *testing.T, name string) []byte {
+func presence(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := solutionhost.FixtureDocument(name)
+	data, err := solutionhost.FixtureDocument(solutionhost.DocumentTypePresence, name)
+	require.NoError(t, err)
+	return data
+}
+
+func authority(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := solutionhost.FixtureDocument(solutionhost.DocumentTypeAuthority, name)
 	require.NoError(t, err)
 	return data
 }
@@ -26,98 +33,292 @@ func fixture(t *testing.T, name string) []byte {
 func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	document := valid(t)
 
-	require.Equal(t, solutionhost.SchemaV1, document.Schema)
+	require.Equal(t, solutionhost.SchemaPresenceV2, document.Schema)
+	require.Equal(t, solutionhost.KindSolution, document.Kind)
 	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
 	require.Equal(t, uint64(4), document.Generation)
+	require.Equal(t, solutionhost.FixtureDomain, document.OwnershipDomain)
+	require.Equal(t, uint64(solutionhost.FixtureEnvelopeRevision), document.EnvelopeRevision)
 	require.Equal(t, solutionhost.FixtureCoordinate, document.Host.Coordinate)
 	require.Equal(t, "saas-host", document.Host.Component)
 	require.Equal(t, "obin/crm@1.4.0", document.Release.Identity())
+	require.NotEmpty(t, document.Release.Digest)
 	require.False(t, document.Removed)
 	require.Equal(t, []string{"crm"}, document.Aliases())
 	require.Len(t, document.Modules, 2)
 	require.Len(t, document.Endpoints, 2)
-	require.NotEmpty(t, document.Workload.Audience)
-	require.NotEmpty(t, document.Workload.Subject)
 
-	// Every rendered surface is pinned: this is the v1 requirement.
-	surfaces := map[solutionhost.Surface]string{}
+	// Every rendered artifact is pinned.
+	surfaces := map[solutionhost.Surface]solutionhost.RenderedDigest{}
 	for _, artifact := range document.Artifacts {
 		surfaces[artifact.Surface] = artifact.Digest
 	}
 	require.Len(t, surfaces, 3)
 	for _, surface := range []solutionhost.Surface{solutionhost.SurfaceFrontend, solutionhost.SurfaceBackend, solutionhost.SurfaceClient} {
-		require.Regexp(t, `^sha256:[0-9a-f]{64}$`, surfaces[surface], "surface %s", surface)
+		require.Regexp(t, `^sha256:[0-9a-f]{64}$`, string(surfaces[surface]), "surface %s", surface)
+	}
+
+	// The workload names what the host must find true of it before issuing
+	// anything: one authenticating container, an exact build, an identity.
+	require.Len(t, document.Workloads, 1)
+	workload := document.Workloads[0]
+	require.Equal(t, "crm-api", workload.Name)
+	require.Equal(t, "api", workload.Artifact)
+	require.Equal(t, "api", workload.Container)
+	require.Equal(t, "ghcr.io/obin/crm-api", workload.Image.Repository)
+	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, string(workload.Image.Digest))
+	require.Equal(t, []string{"envoy", "migrate"}, workload.NonAuthenticating)
+	require.Equal(t, "spiffe://prod.eu-west-1.obin.example/ns/crm-eu-west-1-01/sa/crm-api", workload.Identity.SPIFFEID)
+	require.Equal(t, []solutionhost.ImageDigest{workload.Image.Digest}, document.Builds())
+}
+
+// Presence covers both kinds, and the kind is declared rather than inferred:
+// a host that guessed would be deciding what may install a thing from the
+// shape of the thing, and the two kinds differ in exactly that.
+func TestPresenceCoversModulesAsWellAsSolutions(t *testing.T) {
+	document, err := solutionhost.Parse(presence(t, "module-presence"))
+	require.NoError(t, err)
+	require.Equal(t, solutionhost.KindModule, document.Kind)
+	require.Equal(t, solutionhost.FixtureModuleBindingID, document.Binding)
+	require.Len(t, document.Workloads, 1)
+	require.Empty(t, document.Routes, "a module fronts no surface of its own here")
+
+	for _, kind := range []solutionhost.Kind{"", "service", "Module", "solutions"} {
+		document.Kind = kind
+		err := document.Validate()
+		require.ErrorIsf(t, err, solutionhost.ErrInvalid, "kind %q", kind)
+		require.Contains(t, err.Error(), "kind")
 	}
 }
 
-// The design point this type exists to protect: a render is pinned today, a
-// signature is not, so v1 requires one digest and leaves the other optional.
-func TestReleaseDigestIsOptionalInV1AndArtifactDigestsAreNot(t *testing.T) {
+func TestWrongKindFixtureIsRefused(t *testing.T) {
+	_, err := solutionhost.Parse(presence(t, "wrong-kind"))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "kind")
+}
+
+// The release digest is required now. A generation without one can be matched
+// to no authority document, because the approved release is what a host holds
+// it against.
+func TestEveryDigestIsRequired(t *testing.T) {
 	document := valid(t)
-	require.NotEmpty(t, document.Release.Digest, "the fixture carries one, to show the field is read")
-
 	document.Release.Digest = ""
-	require.NoError(t, document.Validate(), "declared presence must ship before signed releases exist")
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "release digest")
 
+	document = valid(t)
 	document.Release.Digest = "not-a-digest"
 	require.ErrorIs(t, document.Validate(), solutionhost.ErrInvalid)
 
 	document = valid(t)
 	document.Artifacts[1].Digest = ""
-	err := document.Validate()
+	err = document.Validate()
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "rendered digest")
+
+	document = valid(t)
+	document.Workloads[0].Image.Digest = ""
+	err = document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "image manifest digest")
+}
+
+// The three digests describe three different objects, and nothing in the model
+// compares one to another. Equality between two of different kinds would need
+// a SHA-256 collision, so it is evidence of a confusion rather than a
+// coincidence — and left to run, the symptom is a credential refusal on a
+// healthy pod with no stated cause.
+func TestOneDigestForTwoObjectsIsRefused(t *testing.T) {
+	_, err := solutionhost.Parse(presence(t, "digest-confusion"))
+	require.ErrorIs(t, err, solutionhost.ErrDigestConfusion)
+
+	document := valid(t)
+	document.Workloads[0].Image.Digest = solutionhost.ImageDigest(document.Release.Digest)
+	require.ErrorIs(t, document.Validate(), solutionhost.ErrDigestConfusion)
+
+	// Two artifacts legitimately rendering identical bytes are the SAME kind of
+	// digest, so that is not confusion and must still validate.
+	document = valid(t)
+	document.Artifacts[2].Digest = document.Artifacts[0].Digest
+	require.NoError(t, document.Validate())
+}
+
+// Workloads if and only if there is something to run. The biconditional is
+// deliberate: one direction stops a generation that renders a backend from
+// leaving the host with no build and no identity to hold a container to, and
+// the other stops a workload being declared for bytes this generation never
+// rendered.
+func TestWorkloadsAreDeclaredExactlyWhenSomethingRunsThem(t *testing.T) {
+	document := valid(t)
+	document.Workloads = nil
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "declares the workloads that run it")
+
+	// A frontend-only generation runs nothing, so it declares no workload —
+	// and declaring one is refused rather than ignored.
+	frontendOnly := valid(t)
+	frontendOnly.Artifacts = frontendOnly.Artifacts[:1]
+	frontendOnly.Routes = frontendOnly.Routes[:1]
+	frontendOnly.Workloads = nil
+	require.NoError(t, frontendOnly.Validate())
+
+	frontendOnly.Workloads = valid(t).Workloads
+	err = frontendOnly.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+}
+
+// A workload names the artifact that renders it, by NAME. That is the verified
+// relationship between the rendered bytes and the image, and it is
+// deliberately not one digest compared against another.
+func TestWorkloadMustNameABackendArtifactItDeclares(t *testing.T) {
+	document := valid(t)
+	document.Workloads[0].Artifact = "nowhere"
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "does not declare")
+
+	document = valid(t)
+	document.Workloads[0].Artifact = "web"
+	err = document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "rendered by a backend artifact")
+}
+
+// One container authenticates, and the containers that must never authenticate
+// are named explicitly. A document asserting both of one container says
+// nothing a host can act on, and the safe reading is not obvious enough to
+// pick one.
+func TestTheAuthenticatingContainerCannotAlsoBeExcluded(t *testing.T) {
+	document := valid(t)
+	document.Workloads[0].NonAuthenticating = append(document.Workloads[0].NonAuthenticating, document.Workloads[0].Container)
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "must never authenticate")
+}
+
+// A repository carrying its own tag or digest would give one container two
+// answers about what it runs, and the mutable one usually wins.
+func TestImageRepositoryCarriesNeitherTagNorDigest(t *testing.T) {
+	for _, repository := range []string{
+		"ghcr.io/obin/crm-api:1.4.0",
+		"ghcr.io/obin/crm-api@sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f",
+	} {
+		document := valid(t)
+		document.Workloads[0].Image.Repository = repository
+		require.Errorf(t, document.Validate(), "repository %q", repository)
+	}
+}
+
+// A SPIFFE ID is validated as a SPIFFE ID and not as a name: a subject that
+// happens to parse as a URL is not an SVID, and a host that accepted one would
+// verify a connection against something no workload can present.
+func TestSPIFFEIDIsValidatedAsAnSVIDName(t *testing.T) {
+	for name, id := range map[string]string{
+		"absent":              "",
+		"wrong scheme":        "https://prod.obin.example/ns/crm/sa/api",
+		"no scheme":           "prod.obin.example/ns/crm/sa/api",
+		"trust domain only":   "spiffe://prod.obin.example",
+		"trailing slash only": "spiffe://prod.obin.example/",
+		"uppercase domain":    "spiffe://Prod.Obin.Example/ns/crm/sa/api",
+		"with a port":         "spiffe://prod.obin.example:8443/ns/crm/sa/api",
+		"with a query":        "spiffe://prod.obin.example/ns/crm/sa/api?x=1",
+		"with a fragment":     "spiffe://prod.obin.example/ns/crm/sa/api#x",
+		"with user info":      "spiffe://user@prod.obin.example/ns/crm/sa/api",
+		"relative segment":    "spiffe://prod.obin.example/ns/../sa/api",
+		"empty segment":       "spiffe://prod.obin.example/ns//sa/api",
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := valid(t)
+			document.Workloads[0].Identity.SPIFFEID = id
+			err := document.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.Contains(t, err.Error(), "SPIFFE")
+		})
+	}
+}
+
+func TestMissingIdentityFixtureIsRefused(t *testing.T) {
+	_, err := solutionhost.Parse(presence(t, "missing-identity"))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "SPIFFE")
 }
 
 func TestMixedReleaseGenerationIsInvalidOnItsOwn(t *testing.T) {
-	_, err := solutionhost.Parse(fixture(t, "mixed-release"))
+	_, err := solutionhost.Parse(presence(t, "mixed-release"))
 	require.ErrorIs(t, err, solutionhost.ErrMixedRelease)
 	require.Contains(t, err.Error(), "obin/pim@1.9.0")
 }
 
 func TestTombstoneIsAGenerationThatDeclaresNothingPresent(t *testing.T) {
-	document, err := solutionhost.Parse(fixture(t, "tombstone"))
+	document, err := solutionhost.Parse(presence(t, "tombstone"))
 	require.NoError(t, err)
 	require.True(t, document.Removed)
 	require.Empty(t, document.Routes)
 	require.Empty(t, document.Artifacts)
+	require.Empty(t, document.Workloads)
 	require.Equal(t, uint64(5), document.Generation)
-	// It still names what it removes.
+	// It still names what it removes, and the domain it was applied under.
 	require.Equal(t, "obin/crm@1.4.0", document.Release.Identity())
+	require.Equal(t, solutionhost.FixtureDomain, document.OwnershipDomain)
 
 	document.Routes = []solutionhost.Route{{Alias: "crm", Surface: solutionhost.SurfaceFrontend}}
 	require.ErrorIs(t, document.Validate(), solutionhost.ErrInvalid)
+
+	document = mustParse(t, presence(t, "tombstone"))
+	document.Workloads = valid(t).Workloads
+	err = document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "no workloads")
 }
 
-func TestUnknownSchemaIsVersionSkewNotAMalformedDocument(t *testing.T) {
-	document := valid(t)
-	document.Schema = "codefly/solution-host-binding/v2"
-	err := document.Validate()
+func mustParse(t *testing.T, data []byte) *solutionhost.SolutionHostBinding {
+	t.Helper()
+	document, err := solutionhost.Parse(data)
+	require.NoError(t, err)
+	return document
+}
+
+// There is no v1 reader. The refusal is a version skew and not an invalid
+// document, because the two call for different responses: a v1 document is not
+// malformed, it is older than the reader, and the fix is a re-render.
+func TestV1IsRefusedAsVersionSkew(t *testing.T) {
+	_, err := solutionhost.Parse(presence(t, "superseded-schema"))
 	require.ErrorIs(t, err, solutionhost.ErrSchema)
 	require.NotErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV2)
 
-	document.Schema = ""
-	require.ErrorIs(t, document.Validate(), solutionhost.ErrSchema)
+	document := valid(t)
+	for _, schema := range []string{"", "codefly/solution-host-binding/v1", "codefly/solution-host-binding/v3", solutionhost.SchemaAuthorityV1} {
+		document.Schema = schema
+		require.ErrorIsf(t, document.Validate(), solutionhost.ErrSchema, "schema %q", schema)
+	}
 }
 
 func TestUnknownFieldIsRejectedSoANewFieldIsAVersionStep(t *testing.T) {
-	_, err := solutionhost.Parse(append(fixture(t, "valid"), []byte("\nsignature: whatever\n")...))
+	_, err := solutionhost.Parse(append(presence(t, "valid"), []byte("\npublic_key: whatever\n")...))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "signature")
+	require.Contains(t, err.Error(), "public_key")
 }
 
 func TestSecondYAMLDocumentIsRejected(t *testing.T) {
-	data := append(fixture(t, "valid"), []byte("\n---\nschema: codefly/solution-host-binding/v1\n")...)
+	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV2+"\n")...)
 	_, err := solutionhost.Parse(data)
 	require.ErrorContains(t, err, "multiple YAML documents")
 }
 
 func TestValidationRejectsEachWayTheDocumentCanLie(t *testing.T) {
 	for name, mutate := range map[string]func(*solutionhost.SolutionHostBinding){
-		"no binding ID":            func(d *solutionhost.SolutionHostBinding) { d.Binding = "" },
-		"binding ID with a space":  func(d *solutionhost.SolutionHostBinding) { d.Binding = "crm 01" },
-		"reserved binding ID":      func(d *solutionhost.SolutionHostBinding) { d.Binding = "base" },
-		"generation zero":          func(d *solutionhost.SolutionHostBinding) { d.Generation = 0 },
+		"no binding ID":           func(d *solutionhost.SolutionHostBinding) { d.Binding = "" },
+		"binding ID with a space": func(d *solutionhost.SolutionHostBinding) { d.Binding = "crm 01" },
+		"reserved binding ID":     func(d *solutionhost.SolutionHostBinding) { d.Binding = "base" },
+		"generation zero":         func(d *solutionhost.SolutionHostBinding) { d.Generation = 0 },
+		"no ownership domain":     func(d *solutionhost.SolutionHostBinding) { d.OwnershipDomain = "" },
+		"ownership domain with a space": func(d *solutionhost.SolutionHostBinding) {
+			d.OwnershipDomain = "two words"
+		},
+		"envelope revision zero":   func(d *solutionhost.SolutionHostBinding) { d.EnvelopeRevision = 0 },
 		"no coordinate":            func(d *solutionhost.SolutionHostBinding) { d.Host.Coordinate = "" },
 		"no component":             func(d *solutionhost.SolutionHostBinding) { d.Host.Component = "" },
 		"no publisher":             func(d *solutionhost.SolutionHostBinding) { d.Release.Publisher = "" },
@@ -141,9 +342,18 @@ func TestValidationRejectsEachWayTheDocumentCanLie(t *testing.T) {
 			d.Endpoints = append(d.Endpoints, d.Endpoints[0])
 		},
 		"endpoint without an api": func(d *solutionhost.SolutionHostBinding) { d.Endpoints[0].API = "" },
-		"no workload audience":    func(d *solutionhost.SolutionHostBinding) { d.Workload.Audience = "" },
+		"no workload name":        func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Name = "" },
+		"duplicate workload": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads = append(d.Workloads, d.Workloads[0])
+		},
+		"no authenticating container": func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Container = "" },
+		"duplicate excluded container": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].NonAuthenticating = []string{"envoy", "envoy"}
+		},
+		"no image repository":  func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Image.Repository = "" },
+		"no workload audience": func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Identity.Audience = "" },
 		"multi-line workload subject": func(d *solutionhost.SolutionHostBinding) {
-			d.Workload.Subject = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----"
+			d.Workloads[0].Identity.Subject = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -169,6 +379,11 @@ func TestCanonicalDigestIgnoresDeclarationOrder(t *testing.T) {
 	shuffled.Artifacts = []solutionhost.Artifact{document.Artifacts[2], document.Artifacts[0], document.Artifacts[1]}
 	shuffled.Modules = []solutionhost.ModulePin{document.Modules[1], document.Modules[0]}
 	shuffled.Endpoints = []solutionhost.Endpoint{document.Endpoints[1], document.Endpoints[0]}
+	// The exclusion list is a set, so its delivered order must not reach the
+	// digest. A renderer emitting it from a Go map would otherwise produce a
+	// different digest per process, and the host would read every pass as a
+	// rewritten generation.
+	shuffled.Workloads[0].NonAuthenticating = []string{"migrate", "envoy"}
 	shuffledDigest, err := shuffled.Digest()
 	require.NoError(t, err)
 	require.Equal(t, digest, shuffledDigest)
@@ -176,7 +391,8 @@ func TestCanonicalDigestIgnoresDeclarationOrder(t *testing.T) {
 	// Content, not order, moves the digest: this is what separates a re-read of
 	// an applied generation from a rewrite of it.
 	changed := valid(t)
-	changed.Artifacts[0].Digest = strings.Replace(changed.Artifacts[0].Digest, "sha256:3", "sha256:4", 1)
+	changed.Artifacts[0].Digest = solutionhost.RenderedDigest(
+		strings.Replace(string(changed.Artifacts[0].Digest), "sha256:a", "sha256:b", 1))
 	changedDigest, err := changed.Digest()
 	require.NoError(t, err)
 	require.NotEqual(t, digest, changedDigest)
@@ -205,14 +421,13 @@ func TestMarshalRoundTripsAndRefusesAnInvalidDocument(t *testing.T) {
 // A tombstone must not grow an empty routes/artifacts key on the way out: a
 // consumer reading the rendered YAML should see absence, not an empty list.
 func TestMarshalledTombstoneOmitsWhatItWithdraws(t *testing.T) {
-	document, err := solutionhost.Parse(fixture(t, "tombstone"))
-	require.NoError(t, err)
+	document := mustParse(t, presence(t, "tombstone"))
 	data, err := solutionhost.Marshal(document)
 	require.NoError(t, err)
 
 	var raw map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &raw))
-	for _, key := range []string{"routes", "artifacts", "modules", "endpoints"} {
+	for _, key := range []string{"routes", "artifacts", "workloads", "modules", "endpoints"} {
 		require.NotContains(t, raw, key)
 	}
 	require.Equal(t, true, raw["removed"])

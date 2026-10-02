@@ -1,0 +1,30 @@
+# REJECTED, ErrSchema. A v1 presence document, delivered unchanged.
+#
+# It is shipped so that both consumers can pin the refusal rather than discover
+# it. There is no v1 reader: a document that omits the build a workload must be
+# running, the identity it must present, and the domain a delivery speaks for
+# is one a host can verify nothing against, and keeping a reader for it would
+# leave the weaker shape permanently available to anything that can write a
+# delivery document.
+#
+# ErrSchema and not ErrInvalid, because the two call for different responses:
+# this document is not malformed, it is older than the reader, and the fix is
+# a re-render rather than an edit.
+schema: codefly/solution-host-binding/v1
+binding: crm-eu-west-1-01
+generation: 4
+host:
+  coordinate: obin/prod/eu-west-1
+  component: saas-host
+release:
+  publisher: obin
+  name: crm
+  version: 1.4.0
+artifacts:
+  - surface: frontend
+    name: web
+    release: obin/crm@1.4.0
+    digest: sha256:aa9c1fe334d87d4d05b25d3025bd6c06b3598d3fc7120bdf4532d94ffd5c5d25
+workload:
+  audience: https://prod.eu-west-1.obin.example/solutions
+  subject: system:serviceaccount:crm-eu-west-1-01:crm-api

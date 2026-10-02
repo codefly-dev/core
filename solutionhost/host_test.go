@@ -33,17 +33,27 @@ func admitOne(t *testing.T, host solutionhost.Host, document *solutionhost.Solut
 
 func parse(t *testing.T, name string) *solutionhost.SolutionHostBinding {
 	t.Helper()
-	document, err := solutionhost.Parse(fixture(t, name))
-	require.NoError(t, err)
-	return document
+	return mustParse(t, presence(t, name))
+}
+
+// appliedHost is a host that has applied one record, carrying the domain and
+// coordinate the fixtures target. Host.Domains is required whenever a
+// coordinate is set, so every host-side test states what it accepts rather
+// than relying on a permissive default.
+func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
+	return solutionhost.Host{
+		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{solutionhost.FixtureDomain},
+		Applied:    applied,
+	}
 }
 
 // The whole conformance kit, driven the way codefly-dev/cli and the host in
 // codefly-dev/module-saas-starter are expected to drive it.
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
-	fixtures := solutionhost.Fixtures()
-	require.Len(t, fixtures, 5)
+	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
+	require.Len(t, fixtures, 11)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -69,16 +79,27 @@ func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 	host := fixtureHost(t)
 	for name, target := range map[string]error{
-		"stale-generation":      solutionhost.ErrStaleGeneration,
-		"duplicate-route-alias": composition.ErrCollision,
+		"stale-generation":         solutionhost.ErrStaleGeneration,
+		"duplicate-route-alias":    composition.ErrCollision,
+		"tombstone-foreign-domain": solutionhost.ErrWrongDomain,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := admitOne(t, host, parse(t, name))
 			require.ErrorIs(t, err, target)
 		})
 	}
-	_, err := solutionhost.Parse(fixture(t, "mixed-release"))
-	require.ErrorIs(t, err, solutionhost.ErrMixedRelease)
+	for name, target := range map[string]error{
+		"mixed-release":     solutionhost.ErrMixedRelease,
+		"wrong-kind":        solutionhost.ErrInvalid,
+		"missing-identity":  solutionhost.ErrInvalid,
+		"digest-confusion":  solutionhost.ErrDigestConfusion,
+		"superseded-schema": solutionhost.ErrSchema,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := solutionhost.Parse(presence(t, name))
+			require.ErrorIs(t, err, target)
+		})
+	}
 }
 
 func TestARereadOfTheAppliedGenerationIsCurrentAndARewriteIsAnError(t *testing.T) {
@@ -89,7 +110,7 @@ func TestARereadOfTheAppliedGenerationIsCurrentAndARewriteIsAnError(t *testing.T
 	require.Equal(t, solutionhost.DecisionCurrent, decision)
 
 	rewritten := parse(t, "valid")
-	rewritten.Artifacts[0].Digest = "sha256:" + strings.Repeat("0", 64)
+	rewritten.Artifacts[0].Digest = solutionhost.RenderedDigest("sha256:" + strings.Repeat("0", 64))
 	_, err = admitOne(t, host, rewritten)
 	require.ErrorIs(t, err, solutionhost.ErrRewrittenGeneration)
 }
@@ -109,7 +130,7 @@ func TestATombstoneReleasesItsAliasForANewInstance(t *testing.T) {
 
 	// Once the tombstone is the applied generation, the alias is free — but the
 	// binding ID is not: its generation history survives removal.
-	removed := solutionhost.Host{Coordinate: solutionhost.FixtureCoordinate, Applied: []solutionhost.Applied{applied}}
+	removed := appliedHost(applied)
 	_, err = admitOne(t, removed, parse(t, "duplicate-route-alias"))
 	require.NoError(t, err)
 	_, err = admitOne(t, removed, parse(t, "valid"))
@@ -175,7 +196,11 @@ func TestADocumentForAnotherHostIsRefused(t *testing.T) {
 }
 
 func TestAHostReservesRouteNamespaces(t *testing.T) {
-	host := solutionhost.Host{Coordinate: solutionhost.FixtureCoordinate, Reserved: []string{"codefly"}}
+	host := solutionhost.Host{
+		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{solutionhost.FixtureDomain},
+		Reserved:   []string{"codefly"},
+	}
 
 	document := parse(t, "valid")
 	document.Routes = []solutionhost.Route{{Alias: "codefly/admin", Surface: solutionhost.SurfaceFrontend}}
@@ -191,22 +216,30 @@ func TestInvalidAppliedStateIsRejectedRatherThanTrusted(t *testing.T) {
 	document := parse(t, "valid")
 	digest, err := document.Digest()
 	require.NoError(t, err)
-	sound := solutionhost.Applied{Binding: document.Binding, Generation: 4, Digest: digest, Routes: []string{"crm"}}
+	domain := solutionhost.FixtureDomain
+	sound := solutionhost.Applied{
+		Binding: document.Binding, Generation: 4, Digest: digest, Domain: domain, Routes: []string{"crm"},
+	}
 
 	for name, applied := range map[string][]solutionhost.Applied{
-		"no binding ID":   {{Generation: 1, Digest: digest}},
-		"generation zero": {{Binding: "other-01", Generation: 0, Digest: digest}},
-		"no digest":       {{Binding: "other-01", Generation: 1}},
-		"recorded twice":  {sound, sound},
+		"no binding ID":   {{Generation: 1, Digest: digest, Domain: domain}},
+		"generation zero": {{Binding: "other-01", Generation: 0, Digest: digest, Domain: domain}},
+		"no digest":       {{Binding: "other-01", Generation: 1, Domain: domain}},
+		// A record with no domain is a record no document can be held
+		// against: the ownership check would pass for any domain a delivery
+		// chose to write.
+		"no ownership domain": {{Binding: "other-01", Generation: 1, Digest: digest}},
+		"recorded twice":      {sound, sound},
 		"tombstone holding a route": {{
-			Binding: "other-01", Generation: 1, Digest: digest, Routes: []string{"other"}, Removed: true,
+			Binding: "other-01", Generation: 1, Digest: digest, Domain: domain,
+			Routes: []string{"other"}, Removed: true,
 		}},
 		"two bindings holding one alias": {sound, {
-			Binding: "other-01", Generation: 1, Digest: digest, Routes: []string{"crm"},
+			Binding: "other-01", Generation: 1, Digest: digest, Domain: domain, Routes: []string{"crm"},
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := solutionhost.Host{Coordinate: solutionhost.FixtureCoordinate, Applied: applied}.Admit(document)
+			_, err := appliedHost(applied...).Admit(document)
 			require.Error(t, err)
 		})
 	}
@@ -220,7 +253,8 @@ func TestAppliedFromRecordsWhatTheHostMustPersist(t *testing.T) {
 	digest, err := document.Digest()
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.Applied{
-		Binding: document.Binding, Generation: 4, Digest: digest, Routes: []string{"crm"},
+		Binding: document.Binding, Generation: 4, Digest: digest,
+		Domain: solutionhost.FixtureDomain, Routes: []string{"crm"},
 	}, applied)
 
 	document.Generation = 0

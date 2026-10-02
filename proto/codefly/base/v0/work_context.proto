@@ -92,6 +92,68 @@ message WorkContextV1 {
   // Present only on a single-use child capability minted for one approved
   // call; absent on every ordinary session.
   optional WorkGrantHopV1 grant_hop = 24;
+  // seal binds this capability to one installation and one execution: the
+  // principal's epoch, the installation and revision it was minted for, and
+  // the build incarnation it was minted on. A verifier compares every field
+  // against the live value and refuses on any mismatch, which is what stops a
+  // capability outliving the installation or the build it was issued against.
+  //
+  // Optional on the wire, and enforced where the capability is verified. A
+  // schema rule would invalidate every archived capability and every receipt
+  // embedding one, so the requirement belongs in the verifier: a capability
+  // carrying no seal does not verify. See core's workcontext package.
+  optional WorkSealV1 seal = 26;
+  // operation_binding is the unit of authority this capability exercises,
+  // sealed by its id, revision and incarnation. Present on an operation
+  // context and absent on a session that exercises none.
+  //
+  // The id is what a verifier looks the binding up by, exactly. Nothing
+  // searches the bindings for one that contains the capability's scopes: a
+  // search is a predicate someone wrote, and a predicate one case too
+  // generous grants authority nobody reviewed.
+  optional WorkOperationBindingV1 operation_binding = 27;
+}
+
+// WorkSealV1 binds a capability to one installation and one execution. Every
+// field is a value the issuer holds live and the verifier compares exactly, so
+// a capability minted before an installation was revised, a principal's
+// authority was reset, or a build was replaced stops verifying at that moment
+// rather than at its own expiry.
+message WorkSealV1 {
+  // principal_epoch is the principal's current epoch. Advancing it
+  // invalidates every capability minted for that principal, which is how a
+  // compromised principal is cut off without waiting for expiry.
+  uint64 principal_epoch = 1 [(buf.validate.field).uint64.gte = 1];
+  // installation_id identifies one organization's installation of one module.
+  // Authority is held through an installation, so a capability that names none
+  // is bound to nothing.
+  string installation_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // installation_revision is the installation's revision at mint time. A
+  // verifier holding a different revision refuses: the scope of an
+  // installation changes with its revision, so a capability sealed to an
+  // earlier one asks for authority under terms that no longer apply.
+  uint64 installation_revision = 3 [(buf.validate.field).uint64.gte = 1];
+  // build_incarnation is the incarnation of the build this capability was
+  // minted on. It distinguishes two runs of one approved build, so a
+  // capability cannot be carried from a replaced incarnation into a new one.
+  uint64 build_incarnation = 4 [(buf.validate.field).uint64.gte = 1];
+}
+
+// WorkOperationBindingV1 is the unit of authority an operation context
+// exercises, sealed so that a verifier resolves exactly one binding and
+// compares it rather than deciding which binding the capability's scopes fit.
+message WorkOperationBindingV1 {
+  // binding_id is the host's opaque identifier for the binding. The verifier
+  // looks it up exactly; it is never derived from the binding's contents,
+  // because a derived id is one a caller can compute for a binding it was
+  // never granted.
+  string binding_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // revision is the binding's revision at mint time. A verifier holding a
+  // different revision refuses.
+  uint64 revision = 2 [(buf.validate.field).uint64.gte = 1];
+  // incarnation is the binding's incarnation at mint time, which changes when
+  // the binding is re-established rather than merely revised.
+  uint64 incarnation = 3 [(buf.validate.field).uint64.gte = 1];
 }
 
 // WorkScopeV1 is a structured, product-neutral capability scope. Empty

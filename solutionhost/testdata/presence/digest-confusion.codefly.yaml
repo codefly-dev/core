@@ -1,0 +1,45 @@
+# REJECTED, ErrDigestConfusion. The workload's image digest is the same string
+# as the rendered digest of the artifact that renders it.
+#
+# This is the mix-up the three digest types exist to prevent, caught here in
+# the data because a renderer assembling YAML by hand is outside the reach of
+# the compiler. Rendered bytes and an OCI image manifest do not hash alike by
+# accident — equality would need a SHA-256 collision — so one value in both
+# places is evidence that one object was written where the other belongs.
+#
+# Nothing in this package compares the two digests to decide anything; this
+# rule refuses a document in which they are indistinguishable, which is a
+# different thing and the reason the refusal is readable at all. Left to run,
+# the symptom would be a credential refusal on a healthy pod with no stated
+# cause.
+schema: codefly/solution-host-binding/v2
+kind: module
+binding: accounts-eu-west-1-03
+generation: 1
+ownership_domain: crm
+envelope_revision: 7
+host:
+  coordinate: obin/prod/eu-west-1
+  component: saas-host
+release:
+  publisher: obin
+  name: accounts
+  version: 0.9.2
+  digest: sha256:a263c12f0b4b1bcfa8fe7e2e773258baf7f895e7ed145ea35e0527b4b6f6c2f5
+artifacts:
+  - surface: backend
+    name: api
+    release: obin/accounts@0.9.2
+    digest: sha256:c54cc12b82d872de37003b50ad3b195f385bf053d8bae43b5f94ddd2efc22c70
+workloads:
+  - name: accounts-api
+    artifact: api
+    container: api
+    image:
+      repository: ghcr.io/obin/accounts-api
+      digest: sha256:c54cc12b82d872de37003b50ad3b195f385bf053d8bae43b5f94ddd2efc22c70
+    identity:
+      audience: https://prod.eu-west-1.obin.example/solutions
+      subject: system:serviceaccount:accounts-eu-west-1-03:accounts-api
+      spiffe_id: spiffe://prod.eu-west-1.obin.example/ns/accounts-eu-west-1-03/sa/accounts-api
+    non_authenticating: []

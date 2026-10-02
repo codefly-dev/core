@@ -19,11 +19,15 @@ import (
 // delivery of tampering. Before these constants existed, reordering two struct
 // fields moved the "valid" digest and the whole suite stayed green.
 //
-// Changing either constant is therefore a deliberate act with a migration
-// behind it, never a side effect of an edit.
+// Changing any constant is therefore a deliberate act with a migration behind
+// it, never a side effect of an edit. The presence values moved once, with the
+// v1 → v2 schema step: the document itself changed, so every stored digest is
+// stale by construction and a host treats it as stale rather than as evidence
+// of a rewrite. That is the migration, and it is the only reason these may
+// move.
 const (
-	validFixtureDigest     = "sha256:01691985abe49c65797b7d428df6936b64554575318808860c995bce106feb14"
-	tombstoneFixtureDigest = "sha256:a1c101ba873c235004c25dc18a09e9fffa694b7d5ef7e0773ac86e24b5b26a7d"
+	validFixtureDigest     = "sha256:a5dfaf75e58d86461040f7030195c8a641d540d7f41a704916186a5e264441ee"
+	tombstoneFixtureDigest = "sha256:32cb762712fb144498cf0ba5028da3414f42230c9131af6a2104d2ed93064193"
 )
 
 func TestCanonicalEncodingIsPinnedAgainstTheShippedFixtures(t *testing.T) {
@@ -144,6 +148,7 @@ func TestANewlyReservedNamespaceDoesNotBlockUnrelatedBindings(t *testing.T) {
 
 	host := solutionhost.Host{
 		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{solutionhost.FixtureDomain},
 		Reserved:   []string{"codefly"},
 		Applied:    []solutionhost.Applied{applied},
 	}
@@ -231,10 +236,7 @@ func TestTheAliasPassRerunsAfterARefusalFreesNothing(t *testing.T) {
 	neighbourApplied, err := solutionhost.AppliedFrom(neighbour)
 	require.NoError(t, err)
 
-	host := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Applied:    []solutionhost.Applied{incumbentApplied, neighbourApplied},
-	}
+	host := appliedHost(incumbentApplied, neighbourApplied)
 
 	// aaa-01 moves off "crm" and onto an alias zzz-01 already holds.
 	moving := parse(t, "valid")

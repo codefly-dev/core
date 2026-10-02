@@ -25,6 +25,8 @@ const (
 	taskID       = "task-42"
 	audience     = "codefly.dev/github-bot:0.1.0"
 	organization = "org-platform"
+	installation = "inst-acme-crm"
+	bindingID    = "binding:crm:reconcile"
 )
 
 // harness holds the real signer and verifier every test in this package runs
@@ -37,6 +39,7 @@ type harness struct {
 	revision  uint64
 	grants    map[string]*workcontext.Grant
 	replay    *workcontext.MemoryReplayStore
+	seals     *workcontext.MemorySealSource
 }
 
 func newHarness(t *testing.T) *harness {
@@ -52,11 +55,22 @@ func newHarness(t *testing.T) *harness {
 	}
 	h.replay = workcontext.NewMemoryReplayStore()
 	h.replay.Now = func() time.Time { return h.clock }
+	h.seals = workcontext.NewMemorySealSource()
+	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
+		PrincipalEpoch:       2,
+		InstallationID:       installation,
+		InstallationRevision: 3,
+		BuildIncarnation:     11,
+	}))
+	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, Revision: 4, Incarnation: 1,
+	}))
 	h.authority = &workcontext.Authority{
 		Issuer:    issuer,
 		KeyID:     keyID,
 		Key:       private,
 		Revisions: h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}
 	return h
@@ -72,6 +86,7 @@ func (h *harness) verifier(aud string) *workcontext.Verifier {
 		Revisions: h,
 		Replay:    h.replay,
 		Grants:    h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}
 }
@@ -110,6 +125,7 @@ func scope(kind string, actions []string, ids []string) *basev0.WorkScopeV1 {
 func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		InstallationID:     installation,
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,
 		OwnerPrincipalKind: "human",
@@ -303,12 +319,27 @@ func TestVerify_RejectsASupersededAuthorizationRevision(t *testing.T) {
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 }
 
-func TestVerify_RefusesWithoutAReplayStoreOrGrantSource(t *testing.T) {
-	h := newHarness(t)
-	token, _ := h.ownerSession(audience)
+// Every source a Verifier holds is load-bearing, so a missing one is refused
+// rather than read as "that check is off". The seal source is in the list for
+// the same reason as the rest: a verifier without one could not tell a
+// capability sealed to a superseded installation from a current one, and
+// skipping the strongest check in the model would be the easiest thing to do
+// by accident.
+func TestVerify_RefusesWithoutAnyOneOfItsSources(t *testing.T) {
+	for name, remove := range map[string]func(*workcontext.Verifier){
+		"revisions": func(v *workcontext.Verifier) { v.Revisions = nil },
+		"replay":    func(v *workcontext.Verifier) { v.Replay = nil },
+		"grants":    func(v *workcontext.Verifier) { v.Grants = nil },
+		"seals":     func(v *workcontext.Verifier) { v.Seals = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			token, _ := h.ownerSession(audience)
 
-	verifier := h.verifier(audience)
-	verifier.Replay = nil
-	_, err := verifier.Verify(context.Background(), token)
-	require.ErrorContains(t, err, "missing a revision source, replay store or grant source")
+			verifier := h.verifier(audience)
+			remove(verifier)
+			_, err := verifier.Verify(context.Background(), token)
+			require.ErrorContains(t, err, "missing a revision source, replay store, grant source or seal source")
+		})
+	}
 }

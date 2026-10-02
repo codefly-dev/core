@@ -34,6 +34,13 @@ type Authority struct {
 	// the minter reads the revision rather than inheriting it.
 	Revisions RevisionSource
 
+	// Seals answers the live installation, principal-epoch, build and
+	// operation-binding state every capability is sealed to. The minter reads
+	// them for the same reason it reads the revision: a seal taken as input is
+	// a seal the caller could invent, and the capability would fail in another
+	// process as an authentication error rather than here as a refusal.
+	Seals SealSource
+
 	// Now is the clock, for tests. nil means time.Now.
 	Now func() time.Time
 }
@@ -60,6 +67,18 @@ type StartInput struct {
 	OrganizationID     string                // the organization the task runs in
 	ReplayPolicy       string                // "" defaults to idempotent
 	TTL                time.Duration         // required; must be positive
+
+	// InstallationID is the installation this capability is sealed to.
+	// Required: authority is held through an installation, so a capability
+	// naming none is bound to nothing. The revision, the principal's epoch and
+	// the build incarnation are read from the Authority's seal source, not
+	// taken from here.
+	InstallationID string
+
+	// OperationBindingID is the unit of authority this capability exercises,
+	// when it exercises one. Empty for a session that does not. Its revision
+	// and incarnation are read from the seal source.
+	OperationBindingID string
 }
 
 // Start mints the first capability of a task, carrying the owner's delegated
@@ -73,6 +92,10 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 		return "", nil, fmt.Errorf("%w: start needs the owner's principal kind", ErrInvalid)
 	}
 	revision, err := a.revision(ctx, in.TenantID)
+	if err != nil {
+		return "", nil, err
+	}
+	seal, binding, err := a.sealFor(ctx, in.OwnerPrincipalID, in.InstallationID, in.OperationBindingID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -99,6 +122,8 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 		SessionId:             uuid.NewString(),
 		AuthorityScopes:       cloneScopes(in.AuthorityScopes),
 		AttributionTeamIds:    slices.Clone(in.AttributionTeamIDs),
+		Seal:                  seal,
+		OperationBinding:      binding,
 	}
 	setOptional(&wc.OwnerPrincipalKind, in.OwnerPrincipalKind)
 	setOptional(&wc.OwnerAgentId, in.OwnerAgentID)
@@ -119,6 +144,11 @@ type ChildInput struct {
 	Audience       string                // required; the service allowed to consume this capability
 	ReplayPolicy   string                // "" defaults to idempotent
 	TTL            time.Duration         // required; clamped to the parent's expiry
+
+	// OperationBindingID is the unit of authority this hop exercises, when it
+	// exercises one. Empty carries the parent's; naming one replaces it, and
+	// the replacement's revision and incarnation are read live.
+	OperationBindingID string
 }
 
 // Child exchanges a verified parent capability for a delegated one. The hop's
@@ -165,7 +195,38 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 		return "", nil, err
 	}
 	wc.ActorChain = append(wc.ActorChain, hop)
+	// Reseal against the issuer's live state rather than carrying the parent's
+	// sealed numbers forward. The parent verified moments ago, but a bump
+	// between that verification and this mint would otherwise produce a child
+	// every verifier refuses — the same reason the revision is re-read above.
+	if err := a.reseal(ctx, wc, in.OperationBindingID); err != nil {
+		return "", nil, err
+	}
 	return a.seal(wc)
+}
+
+// reseal replaces the seal a derived capability inherited from its parent with
+// the issuer's live values, and resolves the operation binding the hop names —
+// or the parent's, when it names none.
+//
+// The installation is the parent's: a delegation hop narrows authority within
+// one installation and never moves it to another, so taking an installation
+// from the hop would be a way to widen across installations.
+func (a *Authority) reseal(ctx context.Context, wc *basev0.WorkContextV1, bindingID string) error {
+	inherited, err := sealOf(wc)
+	if err != nil {
+		return err
+	}
+	if bindingID == "" {
+		bindingID = wc.GetOperationBinding().GetBindingId()
+	}
+	seal, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID)
+	if err != nil {
+		return err
+	}
+	wc.Seal = seal
+	wc.OperationBinding = binding
+	return nil
 }
 
 // GrantInput describes the capability an approval justifies.
@@ -187,7 +248,13 @@ type GrantInput struct {
 // This is the one hop whose scope need not be contained in the hop before it.
 // It does not touch the parent: the caller still holds its session capability
 // and returns to it with the authority it always had.
-func (a *Authority) Grant(parent *Verified, in GrantInput) (string, *basev0.WorkContextV1, error) {
+//
+// It takes a context because it reseals against the issuer's live state, like
+// every other mint. A grant capability carrying the parent's sealed numbers
+// would be born dead whenever the installation moved between the parent's
+// verification and this mint, and the failure would surface in the approved
+// call rather than here.
+func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) (string, *basev0.WorkContextV1, error) {
 	if parent == nil {
 		return "", nil, fmt.Errorf("%w: grant needs a verified parent", ErrInvalid)
 	}
@@ -239,6 +306,9 @@ func (a *Authority) Grant(parent *Verified, in GrantInput) (string, *basev0.Work
 		GrantedScope:  cloneScopes([]*basev0.WorkScopeV1{grant.Scope})[0],
 		Subject:       grant.Subject,
 		RequestDigest: grant.RequestDigest,
+	}
+	if err := a.reseal(ctx, wc, ""); err != nil {
+		return "", nil, err
 	}
 	return a.seal(wc)
 }
@@ -324,6 +394,13 @@ func cloneApprovers(approvers []Approver) []*basev0.WorkApproverV1 {
 func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV1, error) {
 	if err := protovalidate.Validate(wc); err != nil {
 		return "", nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	// The schema cannot require the seal without invalidating every archived
+	// capability, so the minter refuses to hand out an unsealed one. Without
+	// this, a mint path that forgot to seal would produce tokens that fail far
+	// away, at verification, in a process that cannot fix them.
+	if _, err := sealOf(wc); err != nil {
+		return "", nil, err
 	}
 	if err := checkStructure(wc); err != nil {
 		return "", nil, err

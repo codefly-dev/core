@@ -50,6 +50,7 @@ const (
 	callDigest          = "sha256:9f1c0b"
 	catalogDigest       = "sha256:catalog"
 	approvalRequestID   = "ar-77"
+	installation        = "inst-acme-platform"
 )
 
 type identityHarness struct {
@@ -60,6 +61,7 @@ type identityHarness struct {
 	revision  uint64
 	grants    map[string]*workcontext.Grant
 	replay    *workcontext.MemoryReplayStore
+	seals     *workcontext.MemorySealSource
 }
 
 func newIdentityHarness(t *testing.T) *identityHarness {
@@ -78,11 +80,24 @@ func newIdentityHarness(t *testing.T) *identityHarness {
 	}
 	h.replay = workcontext.NewMemoryReplayStore()
 	h.replay.Now = func() time.Time { return h.clock }
+	h.seals = workcontext.NewMemorySealSource()
+	// Both principals that own a task in this package's tests hold the same
+	// installation: an agent can own a task outright, and the seal is held for
+	// whoever the owner is.
+	for _, principal := range []string{ownerPrincipalID, agentPrincipalID} {
+		require.NoError(t, h.seals.Put(principal, workcontext.Seal{
+			PrincipalEpoch:       1,
+			InstallationID:       installation,
+			InstallationRevision: 1,
+			BuildIncarnation:     1,
+		}))
+	}
 	h.authority = &workcontext.Authority{
 		Issuer:    issuerURL,
 		KeyID:     signingKeyID,
 		Key:       private,
 		Revisions: h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}
 	return h
@@ -109,6 +124,7 @@ func (h *identityHarness) verify(audience, token string) *workcontext.Verified {
 		Revisions: h,
 		Replay:    h.replay,
 		Grants:    h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}).Verify(context.Background(), token)
 	require.NoError(h.t, err)
@@ -134,6 +150,7 @@ func workScope(kind, action, resourceID string) *basev0.WorkScopeV1 {
 func (h *identityHarness) ownerSession() *workcontext.Verified {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		InstallationID:     installation,
 		TenantID:           tenantID,
 		OwnerPrincipalID:   ownerPrincipalID,
 		OwnerPrincipalKind: policy.KindHuman,
@@ -183,7 +200,7 @@ func (h *identityHarness) approve(id string) *workcontext.Grant {
 
 func (h *identityHarness) grantCapability(agent *workcontext.Verified, grant *workcontext.Grant) *workcontext.Verified {
 	h.t.Helper()
-	token, _, err := h.authority.Grant(agent, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	token, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
 	require.NoError(h.t, err)
 	return h.verify(toolboxID, token)
 }
@@ -299,6 +316,7 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 		Revisions: h,
 		Replay:    h.replay,
 		Grants:    h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}).Verify(ctx, elevated.Encoded())
 	require.ErrorIs(t, err, workcontext.ErrReplayed)
@@ -348,6 +366,7 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 		Revisions: h,
 		Replay:    workcontext.NewMemoryReplayStore(),
 		Grants:    h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}).Verify(ctx, second.Encoded())
 	require.ErrorIs(t, err, workcontext.ErrRevoked)

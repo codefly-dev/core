@@ -109,9 +109,29 @@ type WorkContextV1 struct {
 	// holds exactly granted_scope, which the preceding hop need not contain.
 	// Present only on a single-use child capability minted for one approved
 	// call; absent on every ordinary session.
-	GrantHop      *WorkGrantHopV1 `protobuf:"bytes,24,opt,name=grant_hop,json=grantHop,proto3,oneof" json:"grant_hop,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	GrantHop *WorkGrantHopV1 `protobuf:"bytes,24,opt,name=grant_hop,json=grantHop,proto3,oneof" json:"grant_hop,omitempty"`
+	// seal binds this capability to one installation and one execution: the
+	// principal's epoch, the installation and revision it was minted for, and
+	// the build incarnation it was minted on. A verifier compares every field
+	// against the live value and refuses on any mismatch, which is what stops a
+	// capability outliving the installation or the build it was issued against.
+	//
+	// Optional on the wire, and enforced where the capability is verified. A
+	// schema rule would invalidate every archived capability and every receipt
+	// embedding one, so the requirement belongs in the verifier: a capability
+	// carrying no seal does not verify. See core's workcontext package.
+	Seal *WorkSealV1 `protobuf:"bytes,26,opt,name=seal,proto3,oneof" json:"seal,omitempty"`
+	// operation_binding is the unit of authority this capability exercises,
+	// sealed by its id, revision and incarnation. Present on an operation
+	// context and absent on a session that exercises none.
+	//
+	// The id is what a verifier looks the binding up by, exactly. Nothing
+	// searches the bindings for one that contains the capability's scopes: a
+	// search is a predicate someone wrote, and a predicate one case too
+	// generous grants authority nobody reviewed.
+	OperationBinding *WorkOperationBindingV1 `protobuf:"bytes,27,opt,name=operation_binding,json=operationBinding,proto3,oneof" json:"operation_binding,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *WorkContextV1) Reset() {
@@ -319,6 +339,177 @@ func (x *WorkContextV1) GetGrantHop() *WorkGrantHopV1 {
 	return nil
 }
 
+func (x *WorkContextV1) GetSeal() *WorkSealV1 {
+	if x != nil {
+		return x.Seal
+	}
+	return nil
+}
+
+func (x *WorkContextV1) GetOperationBinding() *WorkOperationBindingV1 {
+	if x != nil {
+		return x.OperationBinding
+	}
+	return nil
+}
+
+// WorkSealV1 binds a capability to one installation and one execution. Every
+// field is a value the issuer holds live and the verifier compares exactly, so
+// a capability minted before an installation was revised, a principal's
+// authority was reset, or a build was replaced stops verifying at that moment
+// rather than at its own expiry.
+type WorkSealV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// principal_epoch is the principal's current epoch. Advancing it
+	// invalidates every capability minted for that principal, which is how a
+	// compromised principal is cut off without waiting for expiry.
+	PrincipalEpoch uint64 `protobuf:"varint,1,opt,name=principal_epoch,json=principalEpoch,proto3" json:"principal_epoch,omitempty"`
+	// installation_id identifies one organization's installation of one module.
+	// Authority is held through an installation, so a capability that names none
+	// is bound to nothing.
+	InstallationId string `protobuf:"bytes,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	// installation_revision is the installation's revision at mint time. A
+	// verifier holding a different revision refuses: the scope of an
+	// installation changes with its revision, so a capability sealed to an
+	// earlier one asks for authority under terms that no longer apply.
+	InstallationRevision uint64 `protobuf:"varint,3,opt,name=installation_revision,json=installationRevision,proto3" json:"installation_revision,omitempty"`
+	// build_incarnation is the incarnation of the build this capability was
+	// minted on. It distinguishes two runs of one approved build, so a
+	// capability cannot be carried from a replaced incarnation into a new one.
+	BuildIncarnation uint64 `protobuf:"varint,4,opt,name=build_incarnation,json=buildIncarnation,proto3" json:"build_incarnation,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *WorkSealV1) Reset() {
+	*x = WorkSealV1{}
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkSealV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkSealV1) ProtoMessage() {}
+
+func (x *WorkSealV1) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkSealV1.ProtoReflect.Descriptor instead.
+func (*WorkSealV1) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *WorkSealV1) GetPrincipalEpoch() uint64 {
+	if x != nil {
+		return x.PrincipalEpoch
+	}
+	return 0
+}
+
+func (x *WorkSealV1) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *WorkSealV1) GetInstallationRevision() uint64 {
+	if x != nil {
+		return x.InstallationRevision
+	}
+	return 0
+}
+
+func (x *WorkSealV1) GetBuildIncarnation() uint64 {
+	if x != nil {
+		return x.BuildIncarnation
+	}
+	return 0
+}
+
+// WorkOperationBindingV1 is the unit of authority an operation context
+// exercises, sealed so that a verifier resolves exactly one binding and
+// compares it rather than deciding which binding the capability's scopes fit.
+type WorkOperationBindingV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// binding_id is the host's opaque identifier for the binding. The verifier
+	// looks it up exactly; it is never derived from the binding's contents,
+	// because a derived id is one a caller can compute for a binding it was
+	// never granted.
+	BindingId string `protobuf:"bytes,1,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
+	// revision is the binding's revision at mint time. A verifier holding a
+	// different revision refuses.
+	Revision uint64 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	// incarnation is the binding's incarnation at mint time, which changes when
+	// the binding is re-established rather than merely revised.
+	Incarnation   uint64 `protobuf:"varint,3,opt,name=incarnation,proto3" json:"incarnation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkOperationBindingV1) Reset() {
+	*x = WorkOperationBindingV1{}
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkOperationBindingV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkOperationBindingV1) ProtoMessage() {}
+
+func (x *WorkOperationBindingV1) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkOperationBindingV1.ProtoReflect.Descriptor instead.
+func (*WorkOperationBindingV1) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *WorkOperationBindingV1) GetBindingId() string {
+	if x != nil {
+		return x.BindingId
+	}
+	return ""
+}
+
+func (x *WorkOperationBindingV1) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *WorkOperationBindingV1) GetIncarnation() uint64 {
+	if x != nil {
+		return x.Incarnation
+	}
+	return 0
+}
+
 // WorkScopeV1 is a structured, product-neutral capability scope. Empty
 // resource_ids means every resource of resource_kind; a child may narrow that
 // wildcard to explicit IDs but may never widen an explicit parent set.
@@ -337,7 +528,7 @@ type WorkScopeV1 struct {
 
 func (x *WorkScopeV1) Reset() {
 	*x = WorkScopeV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[1]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -349,7 +540,7 @@ func (x *WorkScopeV1) String() string {
 func (*WorkScopeV1) ProtoMessage() {}
 
 func (x *WorkScopeV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[1]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -362,7 +553,7 @@ func (x *WorkScopeV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkScopeV1.ProtoReflect.Descriptor instead.
 func (*WorkScopeV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{1}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *WorkScopeV1) GetResourceKind() string {
@@ -414,7 +605,7 @@ type WorkActorV1 struct {
 
 func (x *WorkActorV1) Reset() {
 	*x = WorkActorV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -426,7 +617,7 @@ func (x *WorkActorV1) String() string {
 func (*WorkActorV1) ProtoMessage() {}
 
 func (x *WorkActorV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -439,7 +630,7 @@ func (x *WorkActorV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkActorV1.ProtoReflect.Descriptor instead.
 func (*WorkActorV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{2}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WorkActorV1) GetPrincipalId() string {
@@ -510,7 +701,7 @@ type WorkGrantHopV1 struct {
 
 func (x *WorkGrantHopV1) Reset() {
 	*x = WorkGrantHopV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -522,7 +713,7 @@ func (x *WorkGrantHopV1) String() string {
 func (*WorkGrantHopV1) ProtoMessage() {}
 
 func (x *WorkGrantHopV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -535,7 +726,7 @@ func (x *WorkGrantHopV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkGrantHopV1.ProtoReflect.Descriptor instead.
 func (*WorkGrantHopV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{3}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *WorkGrantHopV1) GetGrantId() string {
@@ -588,7 +779,7 @@ type WorkApproverV1 struct {
 
 func (x *WorkApproverV1) Reset() {
 	*x = WorkApproverV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -600,7 +791,7 @@ func (x *WorkApproverV1) String() string {
 func (*WorkApproverV1) ProtoMessage() {}
 
 func (x *WorkApproverV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -613,7 +804,7 @@ func (x *WorkApproverV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkApproverV1.ProtoReflect.Descriptor instead.
 func (*WorkApproverV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{4}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *WorkApproverV1) GetPrincipalId() string {
@@ -654,7 +845,7 @@ type ApprovalRequiredV1 struct {
 
 func (x *ApprovalRequiredV1) Reset() {
 	*x = ApprovalRequiredV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -666,7 +857,7 @@ func (x *ApprovalRequiredV1) String() string {
 func (*ApprovalRequiredV1) ProtoMessage() {}
 
 func (x *ApprovalRequiredV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -679,7 +870,7 @@ func (x *ApprovalRequiredV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalRequiredV1.ProtoReflect.Descriptor instead.
 func (*ApprovalRequiredV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{5}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ApprovalRequiredV1) GetRequestId() string {
@@ -721,8 +912,7 @@ var File_codefly_base_v0_work_context_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\n" +
-	"\"codefly/base/v0/work_context.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xfa\n" +
-	"\n" +
+	"\"codefly/base/v0/work_context.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xaa\f\n" +
 	"\rWorkContextV1\x120\n" +
 	"\x03typ\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\n" +
 	"\x17codefly.work-context/v1R\x03typ\x12,\n" +
@@ -770,7 +960,9 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x04R\fownerAgentId\x88\x01\x01\x128\n" +
 	"\x0forganization_id\x18\x19 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x05R\x0eorganizationId\x88\x01\x01\x12A\n" +
-	"\tgrant_hop\x18\x18 \x01(\v2\x1f.codefly.base.v0.WorkGrantHopV1H\x06R\bgrantHop\x88\x01\x01B\x14\n" +
+	"\tgrant_hop\x18\x18 \x01(\v2\x1f.codefly.base.v0.WorkGrantHopV1H\x06R\bgrantHop\x88\x01\x01\x124\n" +
+	"\x04seal\x18\x1a \x01(\v2\x1b.codefly.base.v0.WorkSealV1H\aR\x04seal\x88\x01\x01\x12Y\n" +
+	"\x11operation_binding\x18\x1b \x01(\v2'.codefly.base.v0.WorkOperationBindingV1H\bR\x10operationBinding\x88\x01\x01B\x14\n" +
 	"\x12_parent_session_idB\x0f\n" +
 	"\r_workspace_idB\r\n" +
 	"\v_project_idB\x17\n" +
@@ -778,7 +970,22 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\x0f_owner_agent_idB\x12\n" +
 	"\x10_organization_idB\f\n" +
 	"\n" +
-	"_grant_hop\"{\n" +
+	"_grant_hopB\a\n" +
+	"\x05_sealB\x14\n" +
+	"\x12_operation_binding\"\xe7\x01\n" +
+	"\n" +
+	"WorkSealV1\x120\n" +
+	"\x0fprincipal_epoch\x18\x01 \x01(\x04B\a\xbaH\x042\x02(\x01R\x0eprincipalEpoch\x123\n" +
+	"\x0finstallation_id\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\x0einstallationId\x12<\n" +
+	"\x15installation_revision\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\x14installationRevision\x124\n" +
+	"\x11build_incarnation\x18\x04 \x01(\x04B\a\xbaH\x042\x02(\x01R\x10buildIncarnation\"\x93\x01\n" +
+	"\x16WorkOperationBindingV1\x12)\n" +
+	"\n" +
+	"binding_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\tbindingId\x12#\n" +
+	"\brevision\x18\x02 \x01(\x04B\a\xbaH\x042\x02(\x01R\brevision\x12)\n" +
+	"\vincarnation\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\vincarnation\"{\n" +
 	"\vWorkScopeV1\x12/\n" +
 	"\rresource_kind\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\fresourceKind\x12\x18\n" +
@@ -838,28 +1045,32 @@ func file_codefly_base_v0_work_context_proto_rawDescGZIP() []byte {
 	return file_codefly_base_v0_work_context_proto_rawDescData
 }
 
-var file_codefly_base_v0_work_context_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_codefly_base_v0_work_context_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_codefly_base_v0_work_context_proto_goTypes = []any{
-	(*WorkContextV1)(nil),      // 0: codefly.base.v0.WorkContextV1
-	(*WorkScopeV1)(nil),        // 1: codefly.base.v0.WorkScopeV1
-	(*WorkActorV1)(nil),        // 2: codefly.base.v0.WorkActorV1
-	(*WorkGrantHopV1)(nil),     // 3: codefly.base.v0.WorkGrantHopV1
-	(*WorkApproverV1)(nil),     // 4: codefly.base.v0.WorkApproverV1
-	(*ApprovalRequiredV1)(nil), // 5: codefly.base.v0.ApprovalRequiredV1
+	(*WorkContextV1)(nil),          // 0: codefly.base.v0.WorkContextV1
+	(*WorkSealV1)(nil),             // 1: codefly.base.v0.WorkSealV1
+	(*WorkOperationBindingV1)(nil), // 2: codefly.base.v0.WorkOperationBindingV1
+	(*WorkScopeV1)(nil),            // 3: codefly.base.v0.WorkScopeV1
+	(*WorkActorV1)(nil),            // 4: codefly.base.v0.WorkActorV1
+	(*WorkGrantHopV1)(nil),         // 5: codefly.base.v0.WorkGrantHopV1
+	(*WorkApproverV1)(nil),         // 6: codefly.base.v0.WorkApproverV1
+	(*ApprovalRequiredV1)(nil),     // 7: codefly.base.v0.ApprovalRequiredV1
 }
 var file_codefly_base_v0_work_context_proto_depIdxs = []int32{
-	1, // 0: codefly.base.v0.WorkContextV1.authority_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	2, // 1: codefly.base.v0.WorkContextV1.actor_chain:type_name -> codefly.base.v0.WorkActorV1
-	3, // 2: codefly.base.v0.WorkContextV1.grant_hop:type_name -> codefly.base.v0.WorkGrantHopV1
-	1, // 3: codefly.base.v0.WorkActorV1.granted_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	4, // 4: codefly.base.v0.WorkGrantHopV1.approvers:type_name -> codefly.base.v0.WorkApproverV1
-	1, // 5: codefly.base.v0.WorkGrantHopV1.granted_scope:type_name -> codefly.base.v0.WorkScopeV1
-	1, // 6: codefly.base.v0.ApprovalRequiredV1.requested_scope:type_name -> codefly.base.v0.WorkScopeV1
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	3, // 0: codefly.base.v0.WorkContextV1.authority_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	4, // 1: codefly.base.v0.WorkContextV1.actor_chain:type_name -> codefly.base.v0.WorkActorV1
+	5, // 2: codefly.base.v0.WorkContextV1.grant_hop:type_name -> codefly.base.v0.WorkGrantHopV1
+	1, // 3: codefly.base.v0.WorkContextV1.seal:type_name -> codefly.base.v0.WorkSealV1
+	2, // 4: codefly.base.v0.WorkContextV1.operation_binding:type_name -> codefly.base.v0.WorkOperationBindingV1
+	3, // 5: codefly.base.v0.WorkActorV1.granted_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	6, // 6: codefly.base.v0.WorkGrantHopV1.approvers:type_name -> codefly.base.v0.WorkApproverV1
+	3, // 7: codefly.base.v0.WorkGrantHopV1.granted_scope:type_name -> codefly.base.v0.WorkScopeV1
+	3, // 8: codefly.base.v0.ApprovalRequiredV1.requested_scope:type_name -> codefly.base.v0.WorkScopeV1
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_work_context_proto_init() }
@@ -868,14 +1079,14 @@ func file_codefly_base_v0_work_context_proto_init() {
 		return
 	}
 	file_codefly_base_v0_work_context_proto_msgTypes[0].OneofWrappers = []any{}
-	file_codefly_base_v0_work_context_proto_msgTypes[2].OneofWrappers = []any{}
+	file_codefly_base_v0_work_context_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_work_context_proto_rawDesc), len(file_codefly_base_v0_work_context_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

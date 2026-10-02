@@ -2,6 +2,7 @@ package solutionhost_test
 
 import (
 	"io/fs"
+	"path"
 	"strings"
 	"testing"
 
@@ -9,50 +10,108 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// anchorFile is the one shipped file that is not a document: it is the trust
+// anchor the signed fixtures verify against, read through FixtureAnchor.
+const anchorFile = "signed/anchor.json"
+
 // A fixture that is shipped but not described, or described but not shipped, is
 // worse than a missing one: a consumer testing against it would be testing
 // against something this repository does not claim.
 func TestEveryShippedFileIsADescribedFixture(t *testing.T) {
-	entries, err := fs.ReadDir(solutionhost.FixtureFS(), ".")
-	require.NoError(t, err)
+	onDisk := map[string]struct{}{}
+	require.NoError(t, fs.WalkDir(solutionhost.FixtureFS(), ".", func(file string, entry fs.DirEntry, err error) error {
+		require.NoError(t, err)
+		if entry.IsDir() || file == anchorFile {
+			return nil
+		}
+		documentType := solutionhost.DocumentType(path.Dir(file))
+		name := path.Base(file)
+		for _, extension := range []string{".codefly.yaml", ".json"} {
+			if trimmed, found := strings.CutSuffix(name, extension); found {
+				name = trimmed
+				break
+			}
+		}
+		require.NotContainsf(t, name, ".", "%s has an extension this test does not know", file)
+		onDisk[string(documentType)+"/"+name] = struct{}{}
+		return nil
+	}))
 
-	onDisk := make(map[string]struct{}, len(entries))
-	for _, entry := range entries {
-		require.False(t, entry.IsDir())
-		name, found := strings.CutSuffix(entry.Name(), ".codefly.yaml")
-		require.Truef(t, found, "%s is not a binding document", entry.Name())
-		onDisk[name] = struct{}{}
-	}
-
-	described := make(map[string]struct{}, len(solutionhost.Fixtures()))
+	described := map[string]struct{}{}
 	for _, shipped := range solutionhost.Fixtures() {
-		require.NotEmpty(t, shipped.Document)
-		described[shipped.Name] = struct{}{}
-		if shipped.Outcome == solutionhost.OutcomeAccepted {
+		require.NotEmptyf(t, shipped.Document, "%s/%s", shipped.Type, shipped.Name)
+		require.NotEmptyf(t, shipped.Reason, "%s/%s", shipped.Type, shipped.Name)
+		described[string(shipped.Type)+"/"+shipped.Name] = struct{}{}
+		// Only a presence fixture reaches Host.Admit, so only a presence
+		// fixture has a decision to declare. An authority or signed fixture
+		// carrying one would be describing an outcome nothing produces.
+		if shipped.Outcome == solutionhost.OutcomeAccepted && shipped.Type == solutionhost.DocumentTypePresence {
 			require.NotEmptyf(t, shipped.Decision, "%s must say which decision it expects", shipped.Name)
 		} else {
-			require.Emptyf(t, shipped.Decision, "%s is rejected, so no decision is reached", shipped.Name)
+			require.Emptyf(t, shipped.Decision, "%s/%s reaches no admission decision", shipped.Type, shipped.Name)
 		}
 	}
 	require.Equal(t, onDisk, described)
 }
 
-func TestFixtureDocumentNamesAMissingFixture(t *testing.T) {
-	_, err := solutionhost.FixtureDocument("no-such-fixture")
-	require.ErrorContains(t, err, "no-such-fixture")
+// Each type's fixtures are reachable on their own, because each is driven
+// against a different piece of fixture state.
+func TestFixturesOfSplitsByType(t *testing.T) {
+	var total int
+	for _, documentType := range []solutionhost.DocumentType{
+		solutionhost.DocumentTypePresence,
+		solutionhost.DocumentTypeAuthority,
+		solutionhost.DocumentTypeSigned,
+	} {
+		of := solutionhost.FixturesOf(documentType)
+		require.NotEmpty(t, of)
+		for _, shipped := range of {
+			require.Equal(t, documentType, shipped.Type)
+		}
+		total += len(of)
+	}
+	require.Len(t, solutionhost.Fixtures(), total, "every fixture belongs to exactly one type")
 }
 
-// Every fixture targets the one coordinate FixtureHost reconciles, so a
-// consumer never has to guess which host state a fixture is written against.
+func TestFixtureDocumentNamesAMissingFixture(t *testing.T) {
+	_, err := solutionhost.FixtureDocument(solutionhost.DocumentTypePresence, "no-such-fixture")
+	require.ErrorContains(t, err, "no-such-fixture")
+
+	_, err = solutionhost.FixtureDocument("invented", "valid")
+	require.ErrorContains(t, err, "invented")
+}
+
+// Every document fixture targets the one coordinate FixtureHost reconciles, so
+// a consumer never has to guess which host state a fixture is written against.
+// The signed ones carry it inside their payload, which is the same assertion
+// one encoding down.
 func TestEveryFixtureTargetsTheFixtureHost(t *testing.T) {
 	for _, shipped := range solutionhost.Fixtures() {
-		require.Containsf(t, string(shipped.Document), solutionhost.FixtureCoordinate, "%s", shipped.Name)
+		require.Containsf(t, string(shipped.Document), solutionhost.FixtureCoordinate, "%s/%s", shipped.Type, shipped.Name)
 	}
 
 	host, err := solutionhost.FixtureHost()
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.FixtureCoordinate, host.Coordinate)
+	require.Equal(t, []string{solutionhost.FixtureDomain}, host.Domains)
 	require.Len(t, host.Applied, 1)
 	require.Equal(t, solutionhost.FixtureBindingID, host.Applied[0].Binding)
 	require.Equal(t, uint64(4), host.Applied[0].Generation)
+	require.Equal(t, solutionhost.FixtureDomain, host.Applied[0].Domain)
+}
+
+// The envelope is assembled rather than read from a file. A fixture envelope on
+// disk, next to the documents it bounds, would be a ceiling delivered alongside
+// the thing it is supposed to bound — which is the one shape an envelope must
+// never have.
+func TestFixtureEnvelopeIsNotShippedAsADocument(t *testing.T) {
+	envelope := solutionhost.FixtureEnvelope()
+	require.Equal(t, uint64(solutionhost.FixtureEnvelopeRevision), envelope.Revision)
+	require.Len(t, envelope.Bindings, 3)
+	require.Len(t, envelope.ApprovedBuilds, 2)
+
+	for _, shipped := range solutionhost.Fixtures() {
+		require.NotContainsf(t, string(shipped.Document), "approved_builds",
+			"%s/%s carries an envelope", shipped.Type, shipped.Name)
+	}
 }

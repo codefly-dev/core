@@ -1,0 +1,25 @@
+# REJECTED, ErrWrongDomain. The same withdrawal as the tombstone fixture, at a
+# higher generation, from a delivery that speaks for a different ownership
+# domain than the one this binding was applied under.
+#
+# This is the case the domain exists for. Without the check, "within domain D
+# the delivered set is exactly desired" is a rule any delivery satisfies for
+# any D it chooses to write — so a module-scoped delivery could withdraw every
+# binding on the host by declaring a higher generation under their domain. The
+# generation here is higher than the applied one, so monotonicity admits it;
+# ownership is what refuses it.
+schema: codefly/solution-host-binding/v2
+kind: solution
+binding: crm-eu-west-1-01
+generation: 6
+ownership_domain: pim
+envelope_revision: 7
+host:
+  coordinate: obin/prod/eu-west-1
+  component: saas-host
+release:
+  publisher: obin
+  name: crm
+  version: 1.4.0
+  digest: sha256:5b1cbf059fa244a163e6f443417e5259db2392b95ae25a9d3aa03496c180eaef
+removed: true

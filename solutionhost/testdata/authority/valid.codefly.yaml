@@ -1,0 +1,44 @@
+# ACCEPTED. A complete authority document: what two principals hold on one
+# host, within the ceiling FixtureEnvelope describes, effective for one exact
+# build and from one presence generation onwards.
+#
+# It grants nothing on its own. Activate pairs it with the "valid" presence
+# fixture and the build both name; either document alone activates nothing,
+# which is the whole point of there being two.
+#
+# The approved build is the image digest the presence fixture's workload
+# declares. That is the tie: authority is held for the build that was reviewed,
+# so shipping a new build does not carry the old build's authority forward.
+schema: codefly/solution-authority/v1
+authority: crm-eu-west-1-01-authority
+generation: 2
+host:
+  coordinate: obin/prod/eu-west-1
+  component: saas-host
+ownership_domain: crm
+envelope_revision: 7
+approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+effective_from: 4
+principals:
+  - principal: principal:crm-operator
+    bindings:
+      - id: binding:crm:reconcile
+        revision: 3
+        audience: https://prod.eu-west-1.obin.example/operations
+        scope: reconcile
+        queue: reconcile.default
+        namespace: crm-eu-west-1-01
+      - id: binding:crm:read
+        revision: 1
+        audience: https://prod.eu-west-1.obin.example/operations
+        scope: read
+        queue: read.default
+        namespace: crm-eu-west-1-01
+  - principal: principal:crm-reporter
+    bindings:
+      - id: binding:crm:report
+        revision: 2
+        audience: https://prod.eu-west-1.obin.example/operations
+        scope: report
+        queue: report.batch
+        namespace: crm-eu-west-1-01

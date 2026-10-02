@@ -43,6 +43,14 @@ type Verifier struct {
 	// Grants resolves the approval a grant capability claims.
 	Grants GrantSource
 
+	// Seals answers the live installation, principal-epoch, build and
+	// operation-binding state a capability's seal is compared against.
+	// Required, like the others: a verifier without one could not tell a
+	// capability sealed to a superseded installation from a current one, and
+	// treating its absence as "sealing off" would make the strongest check in
+	// the model the easiest one to omit.
+	Seals SealSource
+
 	// Now is the clock, for tests. nil means time.Now.
 	Now func() time.Time
 
@@ -69,8 +77,8 @@ func (v *Verifier) skew() time.Duration {
 // Replay consumption happens last, so a capability rejected for any other
 // reason is not burned by the attempt.
 func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error) {
-	if v.Revisions == nil || v.Replay == nil || v.Grants == nil {
-		return nil, fmt.Errorf("work context: verifier is missing a revision source, replay store or grant source")
+	if v.Revisions == nil || v.Replay == nil || v.Grants == nil || v.Seals == nil {
+		return nil, fmt.Errorf("work context: verifier is missing a revision source, replay store, grant source or seal source")
 	}
 	payload, signature, found := strings.Cut(encoded, ".")
 	if !found {
@@ -133,6 +141,13 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	}
 	if wc.GetAuthorizationRevision() < current {
 		return nil, fmt.Errorf("%w: minted at revision %d, issuer is at %d", ErrRevoked, wc.GetAuthorizationRevision(), current)
+	}
+	// The seal is checked before the grant hop and before replay consumption:
+	// a capability sealed to a superseded installation is not a credential, and
+	// burning its nonce on the way to refusing it would turn a re-mintable
+	// refusal into a permanent one.
+	if err := v.checkSeal(ctx, wc); err != nil {
+		return nil, err
 	}
 	if hop := wc.GetGrantHop(); hop != nil {
 		if err := v.checkGrant(ctx, wc, hop, now); err != nil {

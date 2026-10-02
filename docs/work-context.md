@@ -130,3 +130,96 @@ schema rule added here would retroactively invalidate every receipt ever
 attested. The requirement lives where the identity is built:
 `PrincipalFromWorkContext` refuses a capability it cannot derive a kind or an
 organization from, naming what is missing. Minting always fills them.
+
+## The seal: one installation, one execution
+
+A capability's scopes say what it may do. The **seal** says which installation
+and which running build it was minted for, so that authority cannot outlive
+either one. `WorkSealV1` is on every capability and carries four values the
+issuer holds live:
+
+| field | what moving it invalidates |
+| --- | --- |
+| `principal_epoch` | every capability minted for that principal, at once |
+| `installation_id` | — it is identity, not a counter |
+| `installation_revision` | every capability minted against the installation's previous terms |
+| `build_incarnation` | every capability minted on a replaced run of the build |
+
+`WorkOperationBindingV1` is on a capability that exercises one unit of
+authority, and carries `binding_id`, `revision` and `incarnation`. The
+`incarnation` is separate from the `revision` because a binding that was
+withdrawn and re-created is not the same binding re-revised: a capability
+sealed to the old one must not verify against the new.
+
+`Verifier.Seals` (a `SealSource`) answers the live values, and it is **required**
+like the revision source, the replay store and the grant source. A verifier
+missing one refuses every capability rather than reading its absence as "sealing
+off", because that would make the strongest check in the model the easiest one
+to omit.
+
+### Exact equality, and exact lookup
+
+Every sealed number is compared for **exact equality**, not `>=` as
+`authorization_revision` is. A capability carrying a revision *higher* than the
+issuer's live one is refused too: there is no legitimate way to hold one — it
+would mean a capability sealed to a state that has not happened — so the shapes
+that produce it are a rolled-back installation and a forged seal, and neither
+is a thing to accept.
+
+The operation binding is resolved by **exact lookup on the sealed id**.
+`SealSource` has no method that lists bindings or finds one matching a set of
+scopes, so "search the bindings for one that contains these scopes" is not
+expressible through the interface at all. That search is a predicate somebody
+writes, and a predicate one case too generous grants authority nobody reviewed
+— it fails in the direction of granting rather than refusing, which is the
+wrong direction for the one check that stands between a token and an operation.
+
+A mismatch is `ErrRevoked`, not `ErrInvalid`: the capability is not malformed
+and was not forged, it was sound when minted and the state it was sealed to has
+moved. A caller distinguishing "re-mint" from "reject this caller" needs those
+to read alike. A capability carrying no seal at all is `ErrUnsealed`.
+
+### Minting reads the seal; it never accepts one
+
+`Authority.Seals` is required, and `StartInput` names only the
+`InstallationID` (identity, which is the caller's to supply) and optionally an
+`OperationBindingID`. Every counter is read from the source. A minter that
+accepted the numbers would hand out capabilities nothing verifies, and the
+failure would surface in another process as an authentication error rather than
+at the mint that caused it.
+
+`Child` and `Grant` **reseal** against the issuer's live state rather than
+carrying the parent's sealed numbers forward — the same reason both re-read the
+authorization revision. The installation is always the parent's: a delegation
+hop narrows authority within one installation and never moves it, so taking an
+installation from the hop would be a way to widen across installations.
+`Grant` takes a `context.Context` for this reason.
+
+The seal fields are optional **on the wire**, for the reason the previous
+section gives: a `buf.validate` rule would retroactively invalidate every
+archived capability and every receipt embedding one. The requirement lives in
+the verifier instead, so a token without the sealed fields does not verify, and
+`Authority.seal` refuses to sign an unsealed capability so a mint path that
+forgot cannot ship one.
+
+### Two implementations, one contract
+
+Core's `workcontext` signs the deterministic **binary protobuf** encoding of
+`WorkContextV1`. `codefly-dev/sdk-go/workcontext` signs a hand-written
+snake_case **JSON** payload, and that is the implementation the product host
+uses. The two are wire-incompatible by construction: a token from either looks
+structurally right to the other and then fails signature verification, with a
+message that reads like a key-rotation problem.
+
+So adding these fields here is **necessary and not sufficient**. The SDK
+enumerates its payload fields by hand, and a field added in core but not added
+there is silently dropped at mint and silently absent at verify. `sdk-go#47`
+carries them across, using the proto field names above verbatim as its JSON
+keys so the two encodings name the same things. Because the SDK decodes with
+`DisallowUnknownFields`, the cutover is ordered: verifiers upgrade before
+minters, or every call fails closed during the window.
+
+Core's `Verifier` is issuer-shaped — it requires a revision source, a replay
+store, a grant source and a seal source, which a product module verifying an
+incoming capability does not have. It is not a drop-in for the SDK's
+consumer-shaped verifier, whatever the duplication costs.

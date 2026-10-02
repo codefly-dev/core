@@ -1,0 +1,336 @@
+package solutionhost_test
+
+import (
+	"testing"
+
+	"github.com/codefly-dev/core/solutionhost"
+	"github.com/stretchr/testify/require"
+)
+
+func validAuthority(t *testing.T) *solutionhost.AuthorityDocument {
+	t.Helper()
+	document, err := solutionhost.ParseAuthority(authority(t, "valid"))
+	require.NoError(t, err)
+	return document
+}
+
+func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
+	document := validAuthority(t)
+
+	require.Equal(t, solutionhost.SchemaAuthorityV1, document.Schema)
+	require.Equal(t, "crm-eu-west-1-01-authority", document.Authority)
+	require.Equal(t, uint64(2), document.Generation)
+	require.Equal(t, solutionhost.FixtureCoordinate, document.Host.Coordinate)
+	require.Equal(t, solutionhost.FixtureDomain, document.OwnershipDomain)
+	require.Equal(t, uint64(solutionhost.FixtureEnvelopeRevision), document.EnvelopeRevision)
+	require.Equal(t, uint64(4), document.EffectiveFrom)
+	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, string(document.ApprovedBuild))
+	require.Len(t, document.Principals, 2)
+
+	// Lookup is exact and by ID. There is deliberately no variant that searches
+	// for a binding matching a set of scopes — that search is the thing the
+	// sealed-ID credential contract exists to remove.
+	binding, principal, held := document.Binding("binding:crm:reconcile")
+	require.True(t, held)
+	require.Equal(t, "principal:crm-operator", principal)
+	require.Equal(t, uint64(3), binding.Revision)
+	require.Equal(t, "reconcile", binding.Scope)
+
+	_, _, held = document.Binding("binding:crm:administer")
+	require.False(t, held)
+}
+
+// An authority document grants nothing on its own, and neither does a presence
+// document. Activation is a matched tuple, which is what makes "approved for
+// one exact build" a property of the running system rather than of a field.
+func TestActivationNeedsBothHalvesAndTheBuild(t *testing.T) {
+	presenceDocument := valid(t)
+	authorityDocument := validAuthority(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	activation, err := solutionhost.Activate(authorityDocument, presenceDocument, build)
+	require.NoError(t, err)
+	require.Equal(t, solutionhost.Activation{
+		Authority:        authorityDocument.Authority,
+		Binding:          presenceDocument.Binding,
+		Build:            build,
+		Generation:       presenceDocument.Generation,
+		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
+		Domain:           solutionhost.FixtureDomain,
+	}, activation)
+
+	_, err = solutionhost.Activate(nil, presenceDocument, build)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "presence alone grants nothing")
+
+	_, err = solutionhost.Activate(authorityDocument, nil, build)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "authority alone grants nothing")
+}
+
+// The acceptance case: an authority document for build B is refused against a
+// presence entry naming build A.
+func TestAuthorityForAnotherBuildDoesNotActivate(t *testing.T) {
+	presenceDocument := valid(t)
+	otherBuild, err := solutionhost.ParseAuthority(authority(t, "other-build"))
+	require.NoError(t, err)
+
+	// The document is sound, and it is inside the envelope: that build is one
+	// the envelope approved. What it is not is the build that is present.
+	require.NoError(t, otherBuild.ValidateAgainst(solutionhost.FixtureEnvelope()))
+
+	_, err = solutionhost.Activate(otherBuild, presenceDocument, otherBuild.ApprovedBuild)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "and not "+string(otherBuild.ApprovedBuild))
+
+	// And asking about the build that IS present does not rescue it either: the
+	// authority approves a different one.
+	_, err = solutionhost.Activate(otherBuild, presenceDocument, presenceDocument.Workloads[0].Image.Digest)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "is approved for build")
+}
+
+// Every way the two halves can fail to line up, each refused.
+func TestActivationRefusesEveryMismatch(t *testing.T) {
+	for name, mutate := range map[string]func(*solutionhost.AuthorityDocument, *solutionhost.SolutionHostBinding){
+		"another host coordinate": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
+			a.Host.Coordinate = "obin/prod/us-east-1"
+		},
+		"another host component": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
+			a.Host.Component = "other-host"
+		},
+		"another ownership domain": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
+			a.OwnershipDomain = "pim"
+		},
+		"another envelope revision": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
+			a.EnvelopeRevision = solutionhost.FixtureEnvelopeRevision + 1
+		},
+		"effective from a later generation": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
+			a.EffectiveFrom = 99
+		},
+		"withdrawn presence": func(_ *solutionhost.AuthorityDocument, p *solutionhost.SolutionHostBinding) {
+			p.Removed = true
+			p.Routes, p.Artifacts, p.Workloads, p.Modules, p.Endpoints = nil, nil, nil, nil, nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			authorityDocument, presenceDocument := validAuthority(t), valid(t)
+			build := presenceDocument.Workloads[0].Image.Digest
+			mutate(authorityDocument, presenceDocument)
+
+			_, err := solutionhost.Activate(authorityDocument, presenceDocument, build)
+			require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+		})
+	}
+}
+
+// A withdrawn authority activates nothing, and withdrawal is a generation
+// rather than an absence — so an unreadable mount can never be read as
+// "withdraw every authority".
+func TestWithdrawnAuthorityActivatesNothing(t *testing.T) {
+	tombstone, err := solutionhost.ParseAuthority(authority(t, "tombstone"))
+	require.NoError(t, err)
+	require.True(t, tombstone.Removed)
+	require.Empty(t, tombstone.Principals)
+	require.Empty(t, tombstone.ApprovedBuild)
+	require.Zero(t, tombstone.EffectiveFrom)
+
+	presenceDocument := valid(t)
+	_, err = solutionhost.Activate(tombstone, presenceDocument, presenceDocument.Workloads[0].Image.Digest)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "withdrawn")
+
+	// A withdrawal that still named what it grants would be a half-removal a
+	// host would have to pick a side on.
+	tombstone.ApprovedBuild = presenceDocument.Workloads[0].Image.Digest
+	require.ErrorIs(t, tombstone.Validate(), solutionhost.ErrInvalid)
+}
+
+// The build is passed in rather than read out of either document. Reading it
+// out of the document that approves it would make the question answer itself.
+func TestActivationRefusesABuildThatIsNotADigest(t *testing.T) {
+	for _, build := range []solutionhost.ImageDigest{"", "latest", "sha256:short"} {
+		_, err := solutionhost.Activate(validAuthority(t), valid(t), build)
+		require.ErrorIsf(t, err, solutionhost.ErrNotActivated, "build %q", build)
+	}
+}
+
+// Containment is exact element inclusion, not subsumption. The fixture grants
+// a plausible widening of a binding the envelope DOES hold, which is exactly
+// how a subsumption rule would let it through.
+func TestBindingsOutsideTheEnvelopeAreRefused(t *testing.T) {
+	outside, err := solutionhost.ParseAuthority(authority(t, "outside-envelope"))
+	require.NoError(t, err)
+
+	err = outside.ValidateAgainst(solutionhost.FixtureEnvelope())
+	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
+	require.Contains(t, err.Error(), "binding:crm:administer")
+
+	// Every field is part of the identity of a binding, so changing any one of
+	// them puts the document outside a ceiling that holds the original.
+	for name, mutate := range map[string]func(*solutionhost.AuthorityBinding){
+		"another revision":  func(b *solutionhost.AuthorityBinding) { b.Revision = 99 },
+		"another audience":  func(b *solutionhost.AuthorityBinding) { b.Audience = "https://elsewhere.example/operations" },
+		"another scope":     func(b *solutionhost.AuthorityBinding) { b.Scope = "administer" },
+		"another queue":     func(b *solutionhost.AuthorityBinding) { b.Queue = "reconcile.priority" },
+		"another namespace": func(b *solutionhost.AuthorityBinding) { b.Namespace = "pim-eu-west-1-01" },
+		"another id":        func(b *solutionhost.AuthorityBinding) { b.ID = "binding:crm:reconcile-2" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := validAuthority(t)
+			mutate(&document.Principals[0].Bindings[0])
+			require.ErrorIs(t, document.ValidateAgainst(solutionhost.FixtureEnvelope()), solutionhost.ErrOutsideEnvelope)
+		})
+	}
+}
+
+// A build the envelope has not approved is outside it, whatever the presence
+// document runs.
+func TestAnUnapprovedBuildIsOutsideTheEnvelope(t *testing.T) {
+	document := validAuthority(t)
+	document.ApprovedBuild = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
+	err := document.ValidateAgainst(solutionhost.FixtureEnvelope())
+	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
+	require.Contains(t, err.Error(), "has not approved")
+}
+
+// Both halves carry the envelope revision and both must agree with the
+// envelope in hand, so authority validated against a wider ceiling cannot
+// activate presence validated against a narrower one.
+func TestTheEnvelopeRevisionMustAgree(t *testing.T) {
+	document := validAuthority(t)
+	document.EnvelopeRevision = solutionhost.FixtureEnvelopeRevision + 1
+	require.ErrorIs(t, document.ValidateAgainst(solutionhost.FixtureEnvelope()), solutionhost.ErrOutsideEnvelope)
+
+	// An envelope with no revision bounds nothing: it cannot be told apart
+	// from one nobody filled in.
+	require.ErrorIs(t, validAuthority(t).ValidateAgainst(solutionhost.Envelope{}), solutionhost.ErrInvalid)
+}
+
+// A withdrawal claims nothing, so it is inside every envelope of its revision.
+func TestAWithdrawalIsInsideEveryEnvelopeOfItsRevision(t *testing.T) {
+	tombstone, err := solutionhost.ParseAuthority(authority(t, "tombstone"))
+	require.NoError(t, err)
+	require.NoError(t, tombstone.ValidateAgainst(solutionhost.FixtureEnvelope()))
+	require.NoError(t, tombstone.ValidateAgainst(solutionhost.Envelope{Revision: solutionhost.FixtureEnvelopeRevision}))
+}
+
+func TestAuthorityValidationRejectsEachWayItCanLie(t *testing.T) {
+	for name, mutate := range map[string]func(*solutionhost.AuthorityDocument){
+		"no authority ID": func(d *solutionhost.AuthorityDocument) { d.Authority = "" },
+		"authority ID with a space": func(d *solutionhost.AuthorityDocument) {
+			d.Authority = "crm authority"
+		},
+		"generation zero":        func(d *solutionhost.AuthorityDocument) { d.Generation = 0 },
+		"no coordinate":          func(d *solutionhost.AuthorityDocument) { d.Host.Coordinate = "" },
+		"no component":           func(d *solutionhost.AuthorityDocument) { d.Host.Component = "" },
+		"no ownership domain":    func(d *solutionhost.AuthorityDocument) { d.OwnershipDomain = "" },
+		"envelope revision zero": func(d *solutionhost.AuthorityDocument) { d.EnvelopeRevision = 0 },
+		"no approved build":      func(d *solutionhost.AuthorityDocument) { d.ApprovedBuild = "" },
+		"approved build is a tag": func(d *solutionhost.AuthorityDocument) {
+			d.ApprovedBuild = "1.4.0"
+		},
+		"effective from zero": func(d *solutionhost.AuthorityDocument) { d.EffectiveFrom = 0 },
+		"no principals":       func(d *solutionhost.AuthorityDocument) { d.Principals = nil },
+		"principal declared twice": func(d *solutionhost.AuthorityDocument) {
+			d.Principals = append(d.Principals, d.Principals[0])
+		},
+		"principal holding no binding": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings = nil
+		},
+		"no binding ID": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings[0].ID = ""
+		},
+		"binding revision zero": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings[0].Revision = 0
+		},
+		"binding with no scope": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings[0].Scope = ""
+		},
+		"binding with no queue": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings[0].Queue = ""
+		},
+		"binding with no namespace": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings[0].Namespace = ""
+		},
+		"multi-line binding audience": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings[0].Audience = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END"
+		},
+		// One ID identifies one unit of authority. Two would make the exact
+		// lookup the credential contract rests on ambiguous in the one place
+		// that must never guess.
+		"one binding ID for two principals": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[1].Bindings[0].ID = d.Principals[0].Bindings[0].ID
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := validAuthority(t)
+			mutate(document)
+			require.Error(t, document.Validate())
+		})
+	}
+}
+
+func TestNilAuthorityDocumentValidates(t *testing.T) {
+	var document *solutionhost.AuthorityDocument
+	require.ErrorIs(t, document.Validate(), solutionhost.ErrInvalid)
+	_, _, held := document.Binding("anything")
+	require.False(t, held)
+}
+
+// An authority document must never carry its own ceiling, and strict decoding
+// is what holds that: a document that tried would be refused for the unknown
+// field rather than quietly having it ignored.
+func TestAuthorityDocumentCannotCarryItsOwnEnvelope(t *testing.T) {
+	_, err := solutionhost.ParseAuthority(append(authority(t, "valid"),
+		[]byte("\napproved_builds:\n  - sha256:1111111111111111111111111111111111111111111111111111111111111111\n")...))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "approved_builds")
+}
+
+func TestAuthorityMarshalRoundTripsAndRefusesAnInvalidDocument(t *testing.T) {
+	document := validAuthority(t)
+	data, err := solutionhost.MarshalAuthority(document)
+	require.NoError(t, err)
+
+	reparsed, err := solutionhost.ParseAuthority(data)
+	require.NoError(t, err)
+	require.Equal(t, document, reparsed)
+
+	document.Generation = 0
+	_, err = solutionhost.MarshalAuthority(document)
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+}
+
+// The authority document's canonical encoding has the same discipline as the
+// presence document's, and for the same reason: it is the payload a signature
+// covers, so it must not move when a struct field is reordered for
+// readability.
+func TestAuthorityCanonicalEncodingIgnoresDeclarationOrder(t *testing.T) {
+	document := validAuthority(t)
+	digest, err := document.Digest()
+	require.NoError(t, err)
+	require.Equal(t, authorityFixtureDigest, digest,
+		"the canonical encoding moved; every signature over an authority document is now invalid")
+
+	shuffled := validAuthority(t)
+	shuffled.Principals = []solutionhost.PrincipalAuthority{document.Principals[1], document.Principals[0]}
+	shuffled.Principals[1].Bindings = []solutionhost.AuthorityBinding{
+		document.Principals[0].Bindings[1], document.Principals[0].Bindings[0],
+	}
+	shuffledDigest, err := shuffled.Digest()
+	require.NoError(t, err)
+	require.Equal(t, digest, shuffledDigest)
+
+	changed := validAuthority(t)
+	changed.Principals[0].Bindings[0].Revision = 4
+	changedDigest, err := changed.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, digest, changedDigest)
+}
+
+// Pinned for the same reason the presence digests are: this encoding is what a
+// signature covers, so moving it invalidates every signed authority document
+// ever delivered.
+const authorityFixtureDigest = "sha256:8a7c51d1211bb6731ffea8015caab4254e903fecac058dd21307e4b9f942bd0f"

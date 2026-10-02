@@ -66,6 +66,9 @@ func TestEveryFieldIsTaggedForBothEncodings(t *testing.T) {
 // v1 is the only schema this Core reads, and the constant is the contract three
 // repositories pin to. Changing it is a version step, never an edit.
 func TestSchemaConstantIsTheVersionedName(t *testing.T) {
-	require.Equal(t, "codefly/solution-host-binding/v1", solutionhost.SchemaV1)
+	require.Equal(t, "codefly/solution-host-binding/v2", solutionhost.SchemaPresenceV2)
+	require.Equal(t, "codefly/solution-authority/v1", solutionhost.SchemaAuthorityV1)
+	require.Equal(t, "codefly/solution-host-signed/v1", solutionhost.SchemaSignedV1)
 	require.Equal(t, "solution-host-binding.codefly.yaml", solutionhost.FileName)
+	require.Equal(t, "solution-authority.codefly.yaml", solutionhost.AuthorityFileName)
 }
