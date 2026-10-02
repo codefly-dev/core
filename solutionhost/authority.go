@@ -122,11 +122,17 @@ type PrincipalAuthority struct {
 // AuthorityBinding is one unit of authority: an operation audience, a scope, a
 // queue and a namespace, under an ID the host minted.
 //
-// The ID is the identity and it is opaque. It is not derived from the four
-// fields, and core never derives it: a derived ID is one a caller can compute
-// for a binding it was never granted, and the credential contract is an exact
-// lookup by the sealed ID precisely so that nothing has to decide whether one
-// binding "contains" another. See docs/solution-host-binding.md.
+// The ID is the identity and it is opaque TO CORE: core compares IDs and never
+// derives, parses or subsets one, so an exact lookup can never quietly become a
+// search. That is the property the credential contract rests on — nothing has
+// to decide whether one binding "contains" another.
+//
+// Whether delivery derives the ID deterministically from the contract it
+// renders is delivery's business, and deterministic is better than random
+// because it is stable across renders. Predictability costs nothing here: an ID
+// is neither a secret nor a capability, authority comes from the signed
+// document that lists it, and an ID a caller invents simply is not in the
+// document or the host's store. See docs/solution-host-binding.md.
 type AuthorityBinding struct {
 	// ID is the host's opaque identifier for this binding. It is what a
 	// credential seals and what a verifier looks up.
@@ -142,11 +148,25 @@ type AuthorityBinding struct {
 	// Scope is what it grants within that audience.
 	Scope string `yaml:"scope" json:"scope"`
 
-	// Queue is the queue the operation runs on.
-	Queue string `yaml:"queue" json:"queue"`
+	// Queue is the queue the operation runs on. OPTIONAL.
+	//
+	// Absence means this binding grants NO queue-scoped authority. It never
+	// means every queue. A module that owns no queue is a real case, and the
+	// alternative — requiring the field — leaves every such module with no
+	// derivable authority document at all.
+	//
+	// What makes absence safe is that envelope containment is exact element
+	// inclusion: an absent queue in a document matches only an absent queue in
+	// the envelope. So a document cannot claim a queue it was not granted, and
+	// absence cannot widen into a wildcard — it can only match absence. A host
+	// reading absence as "any queue" is the failure this field would otherwise
+	// invite, and ValidateAgainst is what forecloses it.
+	Queue string `yaml:"queue,omitempty" json:"queue,omitempty"`
 
-	// Namespace is the namespace it runs in.
-	Namespace string `yaml:"namespace" json:"namespace"`
+	// Namespace is the namespace it runs in. OPTIONAL, on the same terms as
+	// Queue: absence grants no namespace-scoped authority and never every
+	// namespace.
+	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 }
 
 // Envelope is the ceiling an authority document is validated against: the
@@ -293,21 +313,40 @@ func (binding AuthorityBinding) validate(principal string) error {
 	if binding.Revision == 0 {
 		return fmt.Errorf("%w: principal %q binding %q revision starts at 1", ErrInvalid, principal, binding.ID)
 	}
+	// The audience and the scope are what the binding grants against and what
+	// it grants; neither can be absent without the binding granting something
+	// unstated.
 	for _, part := range []struct{ label, value string }{
 		{"audience", binding.Audience},
 		{"scope", binding.Scope},
+	} {
+		if part.value == "" || !singleLine(part.value) {
+			return fmt.Errorf("%w: principal %q binding %q %s must be a single-line value, got %q",
+				ErrInvalid, principal, binding.ID, part.label, part.value)
+		}
+	}
+	// The queue and the namespace are optional, and shape-checked only when
+	// present. Absence is a declaration — no authority on that dimension — so
+	// it needs no validation; a present value that is multi-line or carries
+	// control characters is a value nothing can compare reliably.
+	for _, part := range []struct{ label, value string }{
 		{"queue", binding.Queue},
 		{"namespace", binding.Namespace},
 	} {
-		// Single-line, whitespace-free, printable, and present. Every one of
-		// the four is part of what the binding grants, so an empty one is a
-		// grant with a hole in it rather than a narrower grant.
-		if part.value == "" || strings.ContainsFunc(part.value, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		if part.value != "" && !singleLine(part.value) {
 			return fmt.Errorf("%w: principal %q binding %q %s must be a single-line value, got %q",
 				ErrInvalid, principal, binding.ID, part.label, part.value)
 		}
 	}
 	return nil
+}
+
+// singleLine reports a printable, whitespace-free, single-line value. That is
+// the shape of a name; it is not the shape of a PEM block, a wrapped token or a
+// pasted credential, so the check also holds the "names identities, never
+// credentials" invariant against the obvious accident.
+func singleLine(value string) bool {
+	return !strings.ContainsFunc(value, func(r rune) bool { return r <= ' ' || r == 0x7f })
 }
 
 // ValidateAgainst holds a validated authority document against the ceiling the

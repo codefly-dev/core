@@ -248,11 +248,11 @@ func TestAuthorityValidationRejectsEachWayItCanLie(t *testing.T) {
 		"binding with no scope": func(d *solutionhost.AuthorityDocument) {
 			d.Principals[0].Bindings[0].Scope = ""
 		},
-		"binding with no queue": func(d *solutionhost.AuthorityDocument) {
-			d.Principals[0].Bindings[0].Queue = ""
+		"binding with a multi-line queue": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings[0].Queue = "reconcile\ndefault"
 		},
-		"binding with no namespace": func(d *solutionhost.AuthorityDocument) {
-			d.Principals[0].Bindings[0].Namespace = ""
+		"binding with a multi-line namespace": func(d *solutionhost.AuthorityDocument) {
+			d.Principals[0].Bindings[0].Namespace = "crm\tother"
 		},
 		"multi-line binding audience": func(d *solutionhost.AuthorityDocument) {
 			d.Principals[0].Bindings[0].Audience = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END"
@@ -334,3 +334,77 @@ func TestAuthorityCanonicalEncodingIgnoresDeclarationOrder(t *testing.T) {
 // signature covers, so moving it invalidates every signed authority document
 // ever delivered.
 const authorityFixtureDigest = "sha256:8a7c51d1211bb6731ffea8015caab4254e903fecac058dd21307e4b9f942bd0f"
+
+// A module that owns no queue is a real case, so Queue and Namespace are
+// optional. Absence means this binding grants NO authority on that dimension —
+// never every queue — and what makes that safe is exact element inclusion: an
+// absent queue matches only an absent queue in the envelope.
+//
+// Both directions are pinned here, because the whole safety of making the field
+// optional rests on absence and presence not being interchangeable.
+func TestAnAbsentQueueGrantsNothingRatherThanEverything(t *testing.T) {
+	bare := solutionhost.AuthorityBinding{
+		ID: "binding:crm:queueless", Revision: 1,
+		Audience: "https://prod.eu-west-1.obin.example/operations",
+		Scope:    "record:read",
+	}
+
+	document := validAuthority(t)
+	document.Principals = []solutionhost.PrincipalAuthority{{
+		Principal: "principal:crm-operator",
+		Bindings:  []solutionhost.AuthorityBinding{bare},
+	}}
+	require.NoError(t, document.Validate(), "a binding with no queue and no namespace is a valid binding")
+
+	envelope := solutionhost.FixtureEnvelope()
+	envelope.Bindings = []solutionhost.AuthorityBinding{bare}
+	require.NoError(t, document.ValidateAgainst(envelope),
+		"an absent queue matches an absent queue")
+
+	// An envelope entry that HAS a queue does not grant the queueless binding,
+	// and the queueless entry does not grant one that names a queue. Neither
+	// direction is interchangeable, which is what stops absence being read as
+	// a wildcard by whichever side reads it first.
+	withQueue := bare
+	withQueue.Queue = "reconcile.default"
+
+	widened := solutionhost.FixtureEnvelope()
+	widened.Bindings = []solutionhost.AuthorityBinding{withQueue}
+	require.ErrorIs(t, document.ValidateAgainst(widened), solutionhost.ErrOutsideEnvelope)
+
+	claiming := validAuthority(t)
+	claiming.Principals = []solutionhost.PrincipalAuthority{{
+		Principal: "principal:crm-operator",
+		Bindings:  []solutionhost.AuthorityBinding{withQueue},
+	}}
+	narrow := solutionhost.FixtureEnvelope()
+	narrow.Bindings = []solutionhost.AuthorityBinding{bare}
+	require.ErrorIs(t, claiming.ValidateAgainst(narrow), solutionhost.ErrOutsideEnvelope)
+}
+
+// The ID shape the renderer derives — <principal>:<binding>:<operation>, with
+// a comma-joined sorted scope — is admitted as given. Core compares IDs and
+// never parses one, so a derived ID is delivery's business and stable across
+// renders is better than random.
+func TestTheRenderersDerivedBindingShapeIsAdmitted(t *testing.T) {
+	document := validAuthority(t)
+	document.Principals = []solutionhost.PrincipalAuthority{{
+		Principal: "principal:robin",
+		Bindings: []solutionhost.AuthorityBinding{{
+			ID:       "principal:robin:annotations-binding:redact",
+			Revision: 1,
+			Audience: "https://prod.eu-west-1.obin.example/operations",
+			Scope:    "annotation:read,annotation:write,record:read",
+		}},
+	}}
+	require.NoError(t, document.Validate())
+
+	envelope := solutionhost.FixtureEnvelope()
+	envelope.Bindings = document.Principals[0].Bindings
+	require.NoError(t, document.ValidateAgainst(envelope))
+
+	binding, principal, held := document.Binding("principal:robin:annotations-binding:redact")
+	require.True(t, held)
+	require.Equal(t, "principal:robin", principal)
+	require.Equal(t, uint64(1), binding.Revision)
+}

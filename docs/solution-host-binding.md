@@ -223,21 +223,34 @@ effective_from: 4                  # the presence generation it is effective fro
 principals:
   - principal: principal:crm-operator
     bindings:
-      - id: binding:crm:reconcile  # opaque, host-minted
+      - id: binding:crm:reconcile  # opaque to core
         revision: 3
         audience: https://prod.eu-west-1.obin.example/operations
         scope: reconcile
-        queue: reconcile.default
-        namespace: crm-eu-west-1-01
+        queue: reconcile.default    # OPTIONAL
+        namespace: crm-eu-west-1-01 # OPTIONAL
 ```
 
-`AuthorityBinding.ID` is **opaque and host-minted**, never derived from the four
-fields: a derived ID is one a caller can compute for a binding it was never
-granted, and the credential contract is an exact lookup by the sealed ID
-precisely so nothing has to decide whether one binding "contains" another. IDs
-are unique across the whole document, not per principal — one ID naming two
-units of authority would make that lookup ambiguous in the one place that must
-never guess.
+`AuthorityBinding.ID` is **opaque to core**: core compares IDs and never
+derives, parses or subsets one, so an exact lookup can never quietly become a
+search. That is the property the credential contract rests on. Whether delivery
+derives the ID from the contract it renders is delivery's business, and
+deterministic is better than random because it is stable across renders —
+predictability costs nothing, since an ID is neither a secret nor a capability
+and authority comes from the signed document that lists it. IDs are unique
+across the whole document, not per principal: one ID naming two units of
+authority would make that lookup ambiguous in the one place that must never
+guess.
+
+**`Queue` and `Namespace` are optional.** A module that owns no queue is a real
+case, and requiring the field would leave every such module with no derivable
+authority document at all. Absence means the binding grants **no** authority on
+that dimension — never *every* queue. What makes that safe is the containment
+rule below: an absent queue matches only an absent queue in the envelope, so
+absence cannot widen into a wildcard, and a document naming a queue is not
+granted by an envelope entry without one. Both directions are pinned by test,
+because the safety of the optional field rests entirely on absence and presence
+not being interchangeable.
 
 Withdrawal is a generation here too, and a withdrawn generation names no
 principal, approves no build and is effective from nothing. Carrying any of
@@ -294,72 +307,86 @@ activates.
 
 ## The signature envelope
 
+Signing is **keyless**. A release is attested by CI over its workload's OIDC
+identity: the signature is by an ephemeral key a certificate authority binds to
+that identity, and **verification is an identity allowlist** — the signing
+repository, workflow path, ref pattern and OIDC issuer — checked against a trust
+root the verifier holds, never against a key the document names. Rotation
+reduces to trust-root updates, and a disconnected perimeter verifies offline
+from the bundle against a mirrored trust root.
+
+**None of that is core's.** A trust root and an identity policy are deployment
+configuration, and the component that owns them is the component that verifies.
+So the carrier carries the bundle and core does not look inside it:
+
 ```go
-anchor := solutionhost.Anchor{Keys: trusted, Revoked: revoked}  // the CALLER's
-document, err := solutionhost.VerifyPresence(signed, anchor)
+type Signed struct {
+    Schema   string          `json:"schema"`   // codefly/solution-host-signed/v1
+    Document json.RawMessage `json:"document"` // the canonical bytes, verbatim
+    Bundle   json.RawMessage `json:"bundle"`   // the signature bundle, OPAQUE to core
+}
 ```
 
-`Signed` is `{schema, document, signature}`, where `document` is the canonical
-bytes **verbatim** — re-encoding them from a parsed form would produce bytes the
-signature does not cover, and the only honest answer then is that nothing
-verifies.
+The division of labour, in order:
 
-**A document never nominates its own key.** `Signature` is
-`{algorithm, key_id, value}` and has no field for a URL, a certificate, a chain
-or key material; decoding is strict, so a carrier that adds one is refused when
-it is parsed; and `key_id` must match an identifier pattern, so a key id that is
-a URL is refused with a message saying *that* rather than "unknown key", which
-would send an operator looking for a key to add. A verifier's trust in a key id
-comes from a bootstrap independent of everything that can write a delivery
-document.
+1. The caller verifies `Bundle` over `Document` with a Sigstore verifier, its
+   own trust root and its own identity allowlist.
+2. The caller hands the verified bytes to `PresenceFromVerified(payload)` or
+   `AuthorityFromVerified(payload)`, which own the document half.
 
-Six more properties, each with a fixture behind it:
+```go
+signed, err := solutionhost.ParseSigned(data)        // shape only
+// ... caller verifies signed.Bundle over signed.Document, elsewhere ...
+document, err := solutionhost.PresenceFromVerified(signed.Document)
+```
 
-- **The document type is bound by the signature**, because the `schema` string
-  is inside the signed bytes. There is no type field on the carrier: an outer
-  one would be an unsigned claim about a signed payload. A genuinely signed
-  presence document is refused where an authority document was asked for.
-- **Revocation is checked before the key lookup and before the signature.** A
-  revoked key cannot be rehabilitated by a signature that verifies — and the
-  `revoked-key` fixture's signature does verify, arithmetically. Rotation is two
-  `Keys` entries for as long as both are in use, then one; revocation is a key id
-  in `Revoked`, which holds even while the key is still in `Keys`, so revoking is
-  one edit rather than an edit that only works if the key is also deleted
-  everywhere it was copied to.
-- **An empty anchor is its own error.** `ErrNoAnchor`, not `ErrSignature`: a
-  failed signature is a document to refuse and a missing anchor is a verifier to
-  fix, and verifying against an empty one would refuse every sound document and
-  read as an attack.
-- **A malformed trusted key refuses rather than panics.** `ed25519.Verify`
-  panics on a key that is not `PublicKeySize` bytes, and the key is chosen by the
-  untrusted document's key id — so one bad anchor entry would turn every document
-  naming it into a crash of the verifying process, on demand for anyone who
-  learns that key id.
-- **Signature malleability is closed.** After the signature verifies, the
-  payload is re-canonicalized and must be byte-equal. A signer and a host that
-  disagree about which bytes represent the document disagree about what was
-  approved, and the host's stored digest would not match the signed payload. The
-  `non-canonical` fixture is a genuine signature over `json.Marshal` of the
-  struct — declaration-order keys, which is what a signer that reached for
-  `encoding/json` instead of `CanonicalBytes` produces.
-- **A verified document comes back in canonical order**, not delivery order.
-  That is the only honest result: the verified value is the signed payload
-  decoded, and returning the delivery order would mean returning something other
-  than what the signature covers. It is the same record, which `Digest` states
-  exactly.
+**The names are the contract.** `FromVerified` says the caller has already
+verified; core verifies no signature, holds no trust root and interprets no
+bundle, so a successful return is **not** evidence that anything was signed.
 
-**Core ships no signer.** `SignedPayload` / `SignedPayloadFor` return the exact
-bytes to sign so that "what was signed" has one answer; `Carrier(payload,
-signature)` assembles the delivered form from bytes and a signature, never a
-key. A signer here would put the authority to grant authority in every binary
-that imports core. Signing belongs to the reviewed delivery pipeline.
+**The bundle's certificate is evidence, never authority.** It is checked against
+the caller's identity allowlist. That is exactly why core refuses to interpret
+the bundle at all: a library that parsed a certificate out of a delivery
+document would be one short step from trusting what it found there, which is the
+"a document never nominates its own key" rule in its keyless form.
+
+What core does own, and all three parts matter:
+
+- **Strict decoding**, so a carrier that ships a `public_key`, a `certificate`
+  or a URL beside its bundle is refused when parsed rather than quietly
+  tolerated. `bundle` is the one opaque field, and that boundary is drawn on
+  purpose rather than by omission.
+- **The document type**, which is the `schema` string *inside* the signed bytes
+  and therefore attested rather than asserted by the carrier. A verified
+  authority payload is refused where a presence document was asked for
+  (`ErrSchema`). There is no type field on the carrier: an outer one would be an
+  unsigned claim about a signed payload.
+- **The canonical round-trip** (`ErrNotCanonical`). A payload that is not the
+  canonical encoding of the document it decodes to is refused even when the
+  attestation over it is genuine, because a signer and a host that disagree about
+  which bytes represent the document disagree about what was approved — and the
+  digest the host stores would not match the bytes that were attested.
+
+A carrier with **no bundle** is refused: it is a document, not a signed one, and
+letting it through would make "signed" a shape rather than a claim. The bundle
+must be a JSON **object**, because a base64 string of a bundle also decodes as
+valid JSON here and two accepted shapes is two code paths in every consumer.
+
+**Core ships no signer and no trust store.** `SignedPayload` /
+`SignedPayloadFor` return the exact bytes to attest, so "what was signed" has
+one answer on both sides; `Carrier(payload, bundle)` assembles the delivered
+form from bytes and a bundle, and refuses a payload no consumer could
+round-trip — so a render that produced non-canonical bytes fails at the render
+rather than at the host. A test holds the package's exported declarations
+against a list of signing and trust surfaces, so `Sign`, `Signature`, `Anchor`
+or a key type cannot reappear.
 
 ### The carrier is JSON, under a `.codefly.yaml` name
 
 `SignedFileName` is `solution-host-binding.signed.codefly.yaml` and its content
 is JSON. A YAML emitter folds a long scalar across lines, which changes the
-signed bytes and turns every delivered signature into a failure nobody can read.
-JSON has no folding, and a JSON object is valid YAML, so the carrier still
+attested bytes and turns every delivered signature into a failure nobody can
+read. JSON has no folding, and a JSON object is valid YAML, so the carrier still
 travels through a pipeline that classifies delivery documents by extension.
 `MarshalSigned` also compacts the payload, so the canonical encoding is the only
 payload that survives a round trip through it.
@@ -384,8 +411,10 @@ payload that survives a round trip through it.
 | Removal is a generation, never an absence | `Validate`; an empty set is "nothing declared" |
 | Authority bindings are inside the caller's envelope, by exact inclusion | `ValidateAgainst`, `ErrOutsideEnvelope` |
 | Neither half of a tuple activates alone | `Activate`, `ErrNotActivated` |
-| A document never nominates the key it is checked with | strict decoding in `ParseSigned`; the `key_id` pattern |
-| A signature covers the canonical encoding and the document type | `VerifyPresence` / `VerifyAuthority`, `ErrSignature` / `ErrSchema` |
+| A document never hands a verifier the material it is checked with | strict decoding in `ParseSigned`; the bundle is the one opaque field |
+| A signed document carries a bundle, as an object | `ParseSigned`, `ErrUnsigned` |
+| An attested payload is the canonical encoding of its document, and its type is attested | `PresenceFromVerified` / `AuthorityFromVerified`, `ErrNotCanonical` / `ErrSchema` |
+| Core declares no signer, key type or trust store | held by test over the package's exported declarations |
 | Neither document names a credential | there is no field to put one in, held by a schema guard test |
 | An unknown field is an error, so adding one is a version step | strict decoding in `Parse`, `ParseAuthority`, `ParseSigned` |
 
@@ -408,8 +437,10 @@ admissions, err := solutionhost.Host{}.Admit(documents...)
 The set may span every host the product delivers to. Route aliases are unique
 within **one** host, so they are compared per `host.coordinate`.
 
-A **host** verifies provenance and its expected target first — `VerifyPresence`
-under its own anchor — then admits against what it has durably applied:
+A **host** establishes provenance first — it verifies the bundle over the
+payload with its own trust root and identity allowlist, then reads the document
+with `PresenceFromVerified` — and only then admits against what it has durably
+applied:
 
 ```go
 host := solutionhost.Host{

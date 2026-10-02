@@ -1,9 +1,7 @@
 package solutionhost
 
 import (
-	"crypto/ed25519"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -18,11 +16,16 @@ import (
 // against. Embedding them makes them reachable from another module, which a
 // testdata directory alone is not.
 //
-// The three document directories, and not testdata itself: the README beside
+// The two document directories, and not testdata itself: the README beside
 // them documents the kit and is not part of it, so embedding the directory
 // wholesale would ship prose a consumer walking FixtureFS has to know to skip.
 //
-//go:embed testdata/presence testdata/authority testdata/signed
+// The signed carriers are NOT here. Every one of them is a mechanical
+// transform of a document in these directories, so storing them would mean a
+// change to a document silently leaving its carrier describing the old one.
+// They are built on demand instead; see signedFixtures.
+//
+//go:embed testdata/presence testdata/authority
 var fixtures embed.FS
 
 // DocumentType is which of the three shipped shapes a fixture is: a presence
@@ -35,7 +38,7 @@ const (
 	// DocumentTypeAuthority is an AuthorityDocument, read with ParseAuthority.
 	DocumentTypeAuthority DocumentType = "authority"
 	// DocumentTypeSigned is a signature carrier, read with ParseSigned and then
-	// VerifyPresence or VerifyAuthority.
+	// PresenceFromVerified or AuthorityFromVerified, once its bundle is verified.
 	DocumentTypeSigned DocumentType = "signed"
 )
 
@@ -59,7 +62,8 @@ const (
 //
 // Fixtures are driven ONE AT A TIME against the fixture state for their type:
 // a presence fixture against FixtureHost, an authority fixture against
-// FixtureEnvelope, a signed fixture against FixtureAnchor. Several of them are
+// FixtureEnvelope, a signed fixture read after its bundle is verified
+// elsewhere. Several of them are
 // deliberately contradictory — a tombstone and a tombstone from the wrong
 // ownership domain are the same withdrawal of the same binding — so admitting
 // the whole set in one call is not what any of them means.
@@ -170,45 +174,27 @@ func FixtureEnvelope() Envelope {
 	}
 }
 
-// FixtureAnchor is the trust anchor the signed fixtures are verified against:
-// two public keys, one of them revoked.
+// FixtureBundle is the placeholder that stands in for a Sigstore bundle in the
+// signed fixtures.
 //
-// Only public keys are shipped. There is no fixture signing key in this module
-// and no signer in this package — the signatures were produced once, out of
-// band, by scripts/gen_solutionhost_fixtures.go, and only the bytes are
-// committed. A library that could sign one of these documents would put that
-// authority in every binary that imports core.
-func FixtureAnchor() (Anchor, error) {
-	raw, err := fixtures.ReadFile("testdata/signed/anchor.json")
-	if err != nil {
-		return Anchor{}, fmt.Errorf("solution host fixture anchor: %w", err)
-	}
-	var carried struct {
-		Keys    map[string]string `json:"keys"`
-		Revoked []string          `json:"revoked"`
-	}
-	if err := json.Unmarshal(raw, &carried); err != nil {
-		return Anchor{}, fmt.Errorf("solution host fixture anchor: %w", err)
-	}
-	anchor := Anchor{Keys: make(map[string]ed25519.PublicKey, len(carried.Keys)), Revoked: carried.Revoked}
-	for id, encoded := range carried.Keys {
-		key, err := base64.StdEncoding.DecodeString(encoded)
-		if err != nil {
-			return Anchor{}, fmt.Errorf("solution host fixture anchor key %q: %w", id, err)
-		}
-		anchor.Keys[id] = key
-	}
-	return anchor, nil
-}
-
-// FixtureKeyID is the active key the accepted signed fixtures are signed with.
-const FixtureKeyID = "fixture-2026-10"
-
-// FixtureRevokedKeyID is a key the anchor still holds and no longer trusts. It
-// is in FixtureAnchor.Keys as well as its Revoked list, because that is the
-// case worth pinning: revoking a key has to hold even when the key is still
-// present and still verifies arithmetically.
-const FixtureRevokedKeyID = "fixture-2026-09"
+// It is a placeholder on purpose, and the purpose is worth stating. Core does
+// not verify a bundle: signing is keyless, verification is an identity
+// allowlist checked against a trust root the verifier holds, and neither
+// belongs in a library every binary imports. So a real bundle in these
+// fixtures would be a large opaque blob that nothing here reads, would expire
+// as its certificate and transparency-log entry aged, and would invite a
+// reader to believe core checks it.
+//
+// What the fixtures CAN pin is the boundary: that a carrier without a bundle is
+// refused, that the payload must be the canonical encoding of the document it
+// decodes to, that the schema binds the document type, and that a carrier
+// nominating a key is refused when parsed. Those are core's half, and they are
+// what these fixtures drive.
+//
+// A consumer testing real verification does that against sigstore-go and its
+// own identity policy, with a bundle its own pipeline produced. That is not
+// something core can ship for it.
+const FixtureBundle = `{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","_comment":"placeholder; core verifies no bundle"}`
 
 // Fixtures returns every shipped conformance fixture, ordered by type and then
 // by name.
@@ -280,32 +266,37 @@ func Fixtures() []Fixture {
 		},
 		{
 			Name: "presence", Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
-			Reason: "the valid presence document, signed by the anchor's active key",
+			Reason: "the valid presence document as its canonical bytes, carried with a bundle; PresenceFromVerified accepts it",
 		},
 		{
 			Name: "authority", Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
-			Reason: "the valid authority document, signed by the anchor's active key",
+			Reason: "the valid authority document as its canonical bytes, carried with a bundle",
 		},
 		{
 			Name: "nominates-key", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
-			Reason: "the carrier ships a public key beside its signature; strict decoding refuses it, so a document can never nominate the key it is checked with",
+			Reason: "the carrier ships a public key beside its bundle; strict decoding refuses it, so a delivery document " +
+				"can never hand a verifier the material it is checked with",
 		},
 		{
-			Name: "key-id-is-a-url", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
-			Reason: "the key id is somewhere to fetch a key rather than an identifier for one the verifier already trusts",
+			Name: "no-bundle", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
+			Reason: "a carrier with no signature bundle is a document, not a signed one; letting it through would make " +
+				"\"signed\" a shape rather than a claim",
 		},
 		{
-			Name: "untrusted-key", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
-			Reason: "a genuine signature by a key FixtureAnchor does not hold; a document verifies under the caller's anchor and nothing else",
+			Name: "bundle-not-an-object", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
+			Reason: "the bundle is a base64 string rather than the object a bundle is; one wire form, because two " +
+				"accepted shapes is two code paths in every consumer",
 		},
 		{
-			Name: "revoked-key", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
-			Reason: "a genuine signature by a key the anchor still holds and has revoked; revocation is checked before the key is looked up",
+			Name: "cross-type", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
+			Reason: "an authority payload presented where a presence document was asked for; the schema is inside the " +
+				"signed bytes, so the document type is attested rather than asserted by the carrier",
 		},
 		{
 			Name: "non-canonical", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
-			Reason: "a genuine signature over bytes that are not the canonical encoding of the document they decode to; " +
-				"a signer and a host that disagree about which bytes are the document disagree about what was approved",
+			Reason: "bytes that are not the canonical encoding of the document they decode to; refused even when the " +
+				"attestation over them is genuine, because a signer and a host that disagree about which bytes are " +
+				"the document disagree about what was approved",
 		},
 	}
 	for index := range all {
@@ -342,15 +333,80 @@ func fixtureFile(documentType DocumentType, name string) (string, error) {
 	if !slices.Contains(documentTypes, documentType) {
 		return "", fmt.Errorf("solution host fixture: %q is not one of %v", documentType, documentTypes)
 	}
-	extension := ".codefly.yaml"
-	if documentType == DocumentTypeSigned {
-		extension = ".json"
+	return path.Join("testdata", string(documentType), name+".codefly.yaml"), nil
+}
+
+// signedCarrier assembles one signed-fixture carrier from a payload and a
+// bundle, without going through Carrier — several of these are carriers the
+// library refuses to build, which is exactly what makes them worth shipping.
+func signedCarrier(payload, bundle string, extra string) []byte {
+	carrier := `{"schema":"` + SchemaSignedV1 + `","document":` + payload
+	if bundle != "" {
+		carrier += `,"bundle":` + bundle
 	}
-	return path.Join("testdata", string(documentType), name+extension), nil
+	if extra != "" {
+		carrier += "," + extra
+	}
+	return []byte(carrier + "}")
+}
+
+// signedFixtures are built from the presence and authority documents rather
+// than committed as bytes, because every one of them is a mechanical transform
+// of those documents and committing them would mean a change to a document
+// silently leaving its carrier describing the old one.
+func signedFixtures(name string) ([]byte, error) {
+	presence, err := Parse(mustFixture(DocumentTypePresence, "valid"))
+	if err != nil {
+		return nil, err
+	}
+	presencePayload, err := SignedPayload(presence)
+	if err != nil {
+		return nil, err
+	}
+	authority, err := ParseAuthority(mustFixture(DocumentTypeAuthority, "valid"))
+	if err != nil {
+		return nil, err
+	}
+	authorityPayload, err := SignedPayloadFor(authority)
+	if err != nil {
+		return nil, err
+	}
+	switch name {
+	case "presence":
+		return signedCarrier(string(presencePayload), FixtureBundle, ""), nil
+	case "authority":
+		return signedCarrier(string(authorityPayload), FixtureBundle, ""), nil
+	case "cross-type":
+		// An authority payload, carried where a presence document is asked
+		// for. The carrier itself is sound; the schema inside the signed bytes
+		// is what refuses it.
+		return signedCarrier(string(authorityPayload), FixtureBundle, ""), nil
+	case "nominates-key":
+		return signedCarrier(string(presencePayload), FixtureBundle,
+			`"public_key":"MCowBQYDK2VwAyEA"`), nil
+	case "no-bundle":
+		return signedCarrier(string(presencePayload), "", ""), nil
+	case "bundle-not-an-object":
+		return signedCarrier(string(presencePayload), `"eyJtZWRpYVR5cGUiOiJ4In0="`, ""), nil
+	case "non-canonical":
+		// Declaration-order keys: what a signer that reached for encoding/json
+		// instead of CanonicalBytes produces. It parses to the same document
+		// and is not its canonical encoding.
+		declarationOrder, err := json.Marshal(presence)
+		if err != nil {
+			return nil, err
+		}
+		return signedCarrier(string(declarationOrder), FixtureBundle, ""), nil
+	}
+	return nil, fmt.Errorf("solution host signed fixture %q: no such fixture", name)
 }
 
 // FixtureDocument returns one fixture's raw bytes by type and name.
 func FixtureDocument(documentType DocumentType, name string) ([]byte, error) {
+	// A signed carrier is derived from the documents it carries, not stored.
+	if documentType == DocumentTypeSigned {
+		return signedFixtures(name)
+	}
 	file, err := fixtureFile(documentType, name)
 	if err != nil {
 		return nil, err
@@ -362,10 +418,14 @@ func FixtureDocument(documentType DocumentType, name string) ([]byte, error) {
 	return data, nil
 }
 
-// FixtureFS returns the fixtures as a filesystem rooted at testdata, for a
-// consumer that would rather walk them than name them. Documents live under
-// presence/, authority/ and signed/; signed/anchor.json is the trust anchor
-// rather than a document, which is why FixtureAnchor exists to read it.
+// FixtureFS returns the document fixtures as a filesystem rooted at testdata,
+// for a consumer that would rather walk them than name them. Documents live
+// under presence/ and authority/.
+//
+// The signed carriers are NOT here. Each is a mechanical transform of one of
+// these documents, so storing it would mean a change to a document silently
+// leaving its carrier describing the old one; FixtureDocument builds them on
+// demand instead.
 func FixtureFS() fs.FS {
 	sub, err := fs.Sub(fixtures, "testdata")
 	if err != nil {

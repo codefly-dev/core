@@ -95,7 +95,7 @@ const (
 	// The schema string is also what binds a signature to a document TYPE:
 	// it is part of the canonical encoding that is signed, so a presence
 	// document cannot be presented as an authority document under a signature
-	// that verifies. See VerifyPresence.
+	// that verifies. See PresenceFromVerified.
 	SchemaPresenceV2 = "codefly/solution-host-binding/v2"
 )
 
@@ -863,7 +863,7 @@ func (document *SolutionHostBinding) validateDigestKinds() error {
 // CanonicalBytes returns a deterministic JSON encoding of a validated document:
 // object keys in name order at every depth, collections in a defined order, and
 // every number kept as its exact literal. It is both the input to Digest and
-// the payload a signature covers — see VerifyPresence.
+// the payload a signature covers — see PresenceFromVerified.
 //
 // Sorting by key name is what keeps the encoding independent of this struct's
 // Go declaration order. Without it the digest below is a function of how the

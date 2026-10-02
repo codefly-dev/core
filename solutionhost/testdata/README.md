@@ -27,7 +27,7 @@ Each type is checked against its own piece of fixture state:
 | --- | --- | --- |
 | `presence` | `solutionhost.FixtureHost()` | `Parse`, then `Host.Admit` |
 | `authority` | `solutionhost.FixtureEnvelope()` | `ParseAuthority`, then `ValidateAgainst`, then `Activate` against the `valid` presence fixture |
-| `signed` | `solutionhost.FixtureAnchor()` | `ParseSigned`, then `VerifyPresence` or `VerifyAuthority` |
+| `signed` | the caller's own trust root and identity allowlist, which core has none of | `ParseSigned`, then — once the bundle is verified elsewhere — `PresenceFromVerified` or `AuthorityFromVerified` |
 
 **One at a time.** Several fixtures are deliberately contradictory — `tombstone`
 and `tombstone-foreign-domain` are the same withdrawal of the same binding, from
@@ -59,10 +59,12 @@ the required outcome. A consumer's loop should treat a parse failure on a
   presence fixture runs — so `authority/other-build`'s refusal is "the presence
   document does not name this build" and never "the envelope did not approve
   it".
-- `FixtureAnchor()` holds two **public** keys, `fixture-2026-10` (active) and
-  `fixture-2026-09` (revoked), read from `signed/anchor.json`. The revoked key
-  is deliberately still in `Keys` as well as in `Revoked`: revoking has to hold
-  even while the key is present and still verifies arithmetically.
+- There is no fixture anchor and no fixture signing key for these documents.
+  Signing is keyless and core verifies no bundle, so there is nothing for core
+  to hold. `FixtureBundle` is a placeholder object that stands where a Sigstore
+  bundle goes — a real one would be a large blob nothing here reads, would expire
+  as its certificate and log entry aged, and would invite a reader to believe
+  core checks it.
 
 ## Presence fixtures
 
@@ -93,41 +95,36 @@ the required outcome. A consumer's loop should treat a parse failure on a
 
 These are **JSON**, not YAML, for the reason
 [`docs/solution-host-binding.md`](../../docs/solution-host-binding.md) gives: the
-signature covers the payload verbatim and a YAML emitter folds long scalars.
+attested payload must survive byte-for-byte and a YAML emitter folds long
+scalars.
+
+They are **derived, not stored**. Every one is a mechanical transform of the
+`presence/valid` or `authority/valid` document, so committing them would mean a
+change to a document silently leaving its carrier describing the old one.
+`FixtureDocument(DocumentTypeSigned, name)` builds them on demand.
+
+Drive them by parsing the carrier, then — standing in for the bundle
+verification a consumer does with its own trust root — handing the payload to
+`PresenceFromVerified` or `AuthorityFromVerified`.
 
 | fixture | outcome | the rule it pins |
 | --- | --- | --- |
-| `presence` | accepted | the `valid` presence document, signed by the active key |
-| `authority` | accepted | the `valid` authority document, signed by the active key |
-| `nominates-key` | rejected | the carrier ships a public key beside its signature; strict decoding refuses it, so a document can never nominate the key it is checked with |
-| `key-id-is-a-url` | rejected | the key id says *where to fetch* a key rather than identifying one already trusted |
-| `untrusted-key` | rejected | a genuine signature by a key the anchor does not hold |
-| `revoked-key` | rejected | a genuine signature by a key the anchor holds and has revoked — revocation is checked before the key lookup |
-| `non-canonical` | rejected | a genuine signature over bytes that are not the canonical encoding of the document they decode to |
+| `presence` | accepted | the canonical presence payload, carried with a bundle |
+| `authority` | accepted | the canonical authority payload, carried with a bundle |
+| `cross-type` | rejected | an authority payload where a presence document was asked for; the type is attested, inside the signed bytes, not asserted by the carrier |
+| `nominates-key` | rejected | the carrier ships a public key beside its bundle; strict decoding refuses it, so a delivery document can never hand a verifier the material it is checked with |
+| `no-bundle` | rejected | a carrier with no bundle is a document, not a signed one |
+| `bundle-not-an-object` | rejected | the bundle is a base64 string rather than the object a bundle is; one wire form, because two accepted shapes is two code paths in every consumer |
+| `non-canonical` | rejected | bytes that are not the canonical encoding of the document they decode to, refused even when the attestation over them is genuine |
 
 `non-canonical` is `json.Marshal` of the struct: keys in Go declaration order,
 collections in delivery order. That is exactly what a signer that reached for
 `encoding/json` instead of `CanonicalBytes` produces, and it parses to the same
 document — which is what makes the round-trip check worth having.
 
-## Regenerating the signed fixtures
+## Nothing to regenerate
 
-The signatures cover the canonical bytes of the `valid` presence and authority
-documents, so **editing either one invalidates its signature** and
-`TestSignedFixturesReachTheirOutcome` fails until you rerun:
-
-```sh
-go run scripts/gen_solutionhost_fixtures.go
-```
-
-That program carries the fixture signing keys and is excluded from every build
-by a `//go:build ignore` tag. This package ships the public keys and the
-already-signed bytes and **no signer at all** — a library that could sign an
-authority document would put the authority to grant authority in every binary
-that imports core. Signing belongs to the reviewed delivery pipeline, and that
-program is the fixtures' stand-in for it.
-
-The keys are derived from fixed seeds written in that file so the fixtures
-regenerate byte-for-byte, which makes a change show up as a diff rather than as
-churn. **Every private key it derives is therefore public** — in this
-repository, in its git history. Nothing outside these fixtures may trust them.
+There is no generator and no committed signature. The signed carriers are
+derived from the documents, and core produces no attestation at all — signing is
+CI's over a workload identity, and a library that could attest a document that
+grants authority would put that authority in every binary that imports core.

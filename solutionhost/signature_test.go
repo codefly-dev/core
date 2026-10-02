@@ -1,9 +1,11 @@
 package solutionhost_test
 
 import (
-	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"strings"
 	"testing"
 
@@ -11,59 +13,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func fixtureAnchor(t *testing.T) solutionhost.Anchor {
-	t.Helper()
-	anchor, err := solutionhost.FixtureAnchor()
-	require.NoError(t, err)
-	return anchor
-}
-
-func signedFixture(t *testing.T, name string) *solutionhost.Signed {
+func signedFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := solutionhost.FixtureDocument(solutionhost.DocumentTypeSigned, name)
 	require.NoError(t, err)
-	signed, err := solutionhost.ParseSigned(data)
+	return data
+}
+
+func parseSigned(t *testing.T, name string) *solutionhost.Signed {
+	t.Helper()
+	signed, err := solutionhost.ParseSigned(signedFixture(t, name))
 	require.NoError(t, err)
 	return signed
 }
 
-// The anchor ships public keys only. There is no fixture signing key in this
-// module and no signer in this package: the signatures were produced once, out
-// of band, and only the bytes are committed.
-func TestFixtureAnchorHoldsPublicKeysAndARevocation(t *testing.T) {
-	anchor := fixtureAnchor(t)
-	require.Len(t, anchor.Keys, 2)
-	require.Equal(t, []string{solutionhost.FixtureRevokedKeyID}, anchor.Revoked)
-	for id, key := range anchor.Keys {
-		require.Lenf(t, key, ed25519.PublicKeySize, "key %q", id)
-	}
-	// The revoked key is still held. That is the case worth pinning: revoking
-	// has to hold even while the key is present and still verifies.
-	require.Contains(t, anchor.Keys, solutionhost.FixtureRevokedKeyID)
-}
-
-// A signed document verifies under the caller's anchor and yields the document.
-//
-// What comes back is the document as it was SIGNED, which means its
-// collections are in canonical order rather than the order delivery wrote
-// them. That is deliberate and it is the only honest answer: the verified
-// value is the signed payload decoded, and returning the delivery order would
-// mean returning something other than what the signature covers. The documents
-// are the same record either way, which the digest states exactly.
-func TestSignedPresenceAndAuthorityVerifyUnderTheCallersAnchor(t *testing.T) {
-	anchor := fixtureAnchor(t)
-
-	presenceDocument, err := solutionhost.VerifyPresence(signedFixture(t, "presence"), anchor)
+// A verified payload becomes a document. The name of the function is the
+// contract: core verifies no signature, holds no trust root and interprets no
+// bundle, so reaching here proves nothing about provenance.
+func TestAVerifiedPayloadBecomesItsDocument(t *testing.T) {
+	signed := parseSigned(t, "presence")
+	document, err := solutionhost.PresenceFromVerified(signed.Document)
 	require.NoError(t, err)
-	require.Equal(t, solutionhost.FixtureBindingID, presenceDocument.Binding)
-	require.Equal(t, validFixtureDigest, mustDigest(t, presenceDocument),
-		"the verified document is the same record the delivered one is")
+	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
+	require.Equal(t, validFixtureDigest, mustDigest(t, document))
 
-	// Canonical order, not delivery order — artifacts sorted by surface then
-	// name, which is what the signature covers.
-	require.Equal(t, solutionhost.SurfaceBackend, presenceDocument.Artifacts[0].Surface)
-
-	authorityDocument, err := solutionhost.VerifyAuthority(signedFixture(t, "authority"), anchor)
+	authoritySigned := parseSigned(t, "authority")
+	authorityDocument, err := solutionhost.AuthorityFromVerified(authoritySigned.Document)
 	require.NoError(t, err)
 	digest, err := authorityDocument.Digest()
 	require.NoError(t, err)
@@ -77,61 +52,63 @@ func mustDigest(t *testing.T, document *solutionhost.SolutionHostBinding) string
 	return digest
 }
 
-// The document type is bound by the signature, because the schema string is
-// inside the signed bytes. A genuinely signed document of one type is refused
-// where the other was asked for.
-func TestASignedDocumentCannotBePresentedAsTheOtherType(t *testing.T) {
-	anchor := fixtureAnchor(t)
+// The document type is inside the signed bytes, so it is attested rather than
+// asserted by the carrier. A verified authority payload is refused where a
+// presence document was asked for, and the other way round.
+func TestAVerifiedPayloadCannotBeReadAsTheOtherType(t *testing.T) {
+	presence := parseSigned(t, "presence")
+	authority := parseSigned(t, "authority")
 
-	_, err := solutionhost.VerifyAuthority(signedFixture(t, "presence"), anchor)
+	_, err := solutionhost.AuthorityFromVerified(presence.Document)
 	require.ErrorIs(t, err, solutionhost.ErrSchema)
 
-	_, err = solutionhost.VerifyPresence(signedFixture(t, "authority"), anchor)
+	_, err = solutionhost.PresenceFromVerified(authority.Document)
+	require.ErrorIs(t, err, solutionhost.ErrSchema)
+
+	// The cross-type fixture is the same thing a consumer would hit: a sound
+	// carrier whose payload is the other document.
+	crossType := parseSigned(t, "cross-type")
+	_, err = solutionhost.PresenceFromVerified(crossType.Document)
 	require.ErrorIs(t, err, solutionhost.ErrSchema)
 }
 
-// A document never nominates the key it is checked with. Strict decoding
-// refuses a carrier that ships one, so this never reaches a signature check at
-// all — which is the point: there is nothing for a resolver to follow.
-func TestACarrierCannotShipItsOwnKey(t *testing.T) {
-	data, err := solutionhost.FixtureDocument(solutionhost.DocumentTypeSigned, "nominates-key")
+// Payload bytes that are not the canonical encoding of the document they decode
+// to are refused even when the attestation over them is genuine: a signer and a
+// host that disagree about which bytes represent the document disagree about
+// what was approved, and the digest the host stores would not match the bytes
+// that were attested.
+func TestNonCanonicalPayloadBytesAreRefused(t *testing.T) {
+	signed := parseSigned(t, "non-canonical")
+
+	// It parses, and it is the same document — which is what makes the check
+	// worth having rather than redundant with parsing.
+	parsed, err := solutionhost.Parse(signed.Document)
 	require.NoError(t, err)
+	require.Equal(t, validFixtureDigest, mustDigest(t, parsed))
+
+	_, err = solutionhost.PresenceFromVerified(signed.Document)
+	require.ErrorIs(t, err, solutionhost.ErrNotCanonical)
+}
+
+// The carrier refuses an unknown field, so a delivery document can never hand
+// a verifier the material it is checked with. Under keyless signing the bundle
+// carries a certificate, and that certificate is EVIDENCE checked against the
+// caller's identity allowlist — never authority the document supplies. This is
+// the check that keeps the two from blurring.
+func TestACarrierCannotShipKeyMaterial(t *testing.T) {
+	data := signedFixture(t, "nominates-key")
 	require.Contains(t, string(data), "public_key", "the fixture is the accident this refuses")
 
-	_, err = solutionhost.ParseSigned(data)
+	_, err := solutionhost.ParseSigned(data)
 	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
 	require.Contains(t, err.Error(), "public_key")
 
-	// Dropping the nominated key is the whole of what is wrong: the rest of
-	// the carrier is sound and verifies. So the refusal is the field and not
-	// some other defect that happens to coincide with it.
-	var carried map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(data, &carried))
-	var signature map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(carried["signature"], &signature))
-	delete(signature, "public_key")
-	carried["signature"], err = json.Marshal(signature)
-	require.NoError(t, err)
-	withoutKey, err := json.Marshal(carried)
-	require.NoError(t, err)
-
-	signed, err := solutionhost.ParseSigned(withoutKey)
-	require.NoError(t, err)
-	document, err := solutionhost.VerifyPresence(signed, fixtureAnchor(t))
-	require.NoError(t, err)
-	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
-
-	// Every shape of the same attempt, refused at the parse.
-	for _, field := range []string{"certificate", "certificate_chain", "key", "jwk", "x5c", "key_url"} {
+	for _, field := range []string{"certificate", "certificate_chain", "key", "jwk", "x5c", "key_url", "signature", "algorithm", "key_id"} {
 		carrier := map[string]any{
 			"schema":   solutionhost.SchemaSignedV1,
 			"document": json.RawMessage(`{"schema":"x"}`),
-			"signature": map[string]any{
-				"algorithm": solutionhost.AlgorithmEd25519,
-				"key_id":    solutionhost.FixtureKeyID,
-				"value":     base64.StdEncoding.EncodeToString([]byte("not-a-signature")),
-				field:       "whatever",
-			},
+			"bundle":   json.RawMessage(solutionhost.FixtureBundle),
+			field:      "whatever",
 		}
 		encoded, err := json.Marshal(carrier)
 		require.NoError(t, err)
@@ -140,160 +117,66 @@ func TestACarrierCannotShipItsOwnKey(t *testing.T) {
 	}
 }
 
-// A key id identifies a key the verifier already holds; it is never somewhere
-// to fetch one. The refusal says that rather than "unknown key", which would
-// send an operator looking for a key to add.
-func TestAKeyIDThatSaysWhereToFetchAKeyIsRefused(t *testing.T) {
-	signed := signedFixture(t, "key-id-is-a-url")
-	_, err := solutionhost.VerifyPresence(signed, fixtureAnchor(t))
-	require.ErrorIs(t, err, solutionhost.ErrSignature)
-	require.Contains(t, err.Error(), "never where to find one")
+// A carrier with no bundle is a document, not a signed one. Letting it through
+// would make "signed" a shape rather than a claim.
+func TestACarrierWithoutABundleIsNotSigned(t *testing.T) {
+	_, err := solutionhost.ParseSigned(signedFixture(t, "no-bundle"))
+	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+	require.Contains(t, err.Error(), "no signature bundle")
 
-	// The key id is the whole of what is wrong: the payload is genuinely
-	// signed by the anchor's active key, so naming that key makes the same
-	// bytes verify. Without this the fixture would pass whether or not its
-	// signature was real, and would be pinning nothing.
-	signed.Signature.KeyID = solutionhost.FixtureKeyID
-	document, err := solutionhost.VerifyPresence(signed, fixtureAnchor(t))
-	require.NoError(t, err)
-	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
-
-	for _, keyID := range []string{
-		"https://keys.example/pub", "../../etc/keys", "key id with spaces",
-		"-----BEGIN PUBLIC KEY-----", "",
-	} {
-		signed := signedFixture(t, "presence")
-		signed.Signature.KeyID = keyID
-		_, err := solutionhost.VerifyPresence(signed, fixtureAnchor(t))
-		require.ErrorIsf(t, err, solutionhost.ErrSignature, "key id %q", keyID)
-	}
-}
-
-// A document verifies under the caller's anchor and nothing else. The fixture
-// carries a genuine signature by a key the anchor does not hold.
-func TestAGenuineSignatureByAnUntrustedKeyIsRefused(t *testing.T) {
-	_, err := solutionhost.VerifyPresence(signedFixture(t, "untrusted-key"), fixtureAnchor(t))
-	require.ErrorIs(t, err, solutionhost.ErrSignature)
-	require.Contains(t, err.Error(), "no trusted key")
-}
-
-// Revocation is checked before the key is looked up and before the signature
-// is computed, so a revoked key cannot be rehabilitated by a signature that
-// verifies — and the fixture's signature does verify, arithmetically.
-func TestARevokedKeyIsRefusedEvenThoughItsSignatureVerifies(t *testing.T) {
-	anchor := fixtureAnchor(t)
-	_, err := solutionhost.VerifyPresence(signedFixture(t, "revoked-key"), anchor)
-	require.ErrorIs(t, err, solutionhost.ErrSignature)
-	require.Contains(t, err.Error(), "is revoked")
-
-	// Lifting the revocation is the only thing that changes the answer, which
-	// is what makes the revocation the decision and not the key's presence.
-	lifted := solutionhost.Anchor{Keys: anchor.Keys}
-	document, err := solutionhost.VerifyPresence(signedFixture(t, "revoked-key"), lifted)
-	require.NoError(t, err)
-	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
-}
-
-// Rotation is two entries in Keys for as long as both are in use, then one.
-func TestRotationIsExpressibleAsTwoTrustedKeys(t *testing.T) {
-	anchor := fixtureAnchor(t)
-
-	// Only the active key, nothing revoked: the active document verifies.
-	only := solutionhost.Anchor{Keys: map[string]ed25519.PublicKey{
-		solutionhost.FixtureKeyID: anchor.Keys[solutionhost.FixtureKeyID],
-	}}
-	_, err := solutionhost.VerifyPresence(signedFixture(t, "presence"), only)
-	require.NoError(t, err)
-
-	// The outgoing key alone no longer verifies what the new one signed, which
-	// is why both are held during the overlap.
-	outgoing := solutionhost.Anchor{Keys: map[string]ed25519.PublicKey{
-		solutionhost.FixtureRevokedKeyID: anchor.Keys[solutionhost.FixtureRevokedKeyID],
-	}}
-	_, err = solutionhost.VerifyPresence(signedFixture(t, "presence"), outgoing)
-	require.ErrorIs(t, err, solutionhost.ErrSignature)
-}
-
-// Signature malleability, closed: a genuine signature over bytes that are not
-// the canonical encoding of the document they decode to is refused. A signer
-// and a host that disagree about which bytes represent the document disagree
-// about what was approved — and the host's stored digest would not match the
-// signed payload.
-func TestNonCanonicalSignedBytesAreRefused(t *testing.T) {
-	data, err := solutionhost.FixtureDocument(solutionhost.DocumentTypeSigned, "non-canonical")
-	require.NoError(t, err)
-	signed, err := solutionhost.ParseSigned(data)
-	require.NoError(t, err)
-
-	// The payload is genuinely signed and it genuinely parses: it is the same
-	// document, indented.
-	parsed, err := solutionhost.Parse(signed.Document)
-	require.NoError(t, err)
-	require.Equal(t, validFixtureDigest, mustDigest(t, parsed))
-
-	_, err = solutionhost.VerifyPresence(signed, fixtureAnchor(t))
-	require.ErrorIs(t, err, solutionhost.ErrSignature)
-	require.Contains(t, err.Error(), "not the canonical encoding")
-}
-
-// A missing anchor is a verifier to fix, not a document to refuse. Verifying
-// against an empty one would refuse every sound document and read as an attack.
-func TestAnEmptyAnchorIsItsOwnError(t *testing.T) {
-	for _, anchor := range []solutionhost.Anchor{{}, {Keys: map[string]ed25519.PublicKey{}}} {
-		_, err := solutionhost.VerifyPresence(signedFixture(t, "presence"), anchor)
-		require.ErrorIs(t, err, solutionhost.ErrNoAnchor)
-		require.NotErrorIs(t, err, solutionhost.ErrSignature)
-	}
-}
-
-// A key of the wrong length verifies nothing, and refusing is the only sound
-// answer: ed25519.Verify panics on one, and the key is chosen by the untrusted
-// document's key id — so one malformed anchor entry would turn every document
-// naming it into a crash of the verifying process, on demand for anyone who
-// learns that key id.
-func TestAMalformedTrustedKeyRefusesRatherThanPanics(t *testing.T) {
-	anchor := solutionhost.Anchor{Keys: map[string]ed25519.PublicKey{
-		solutionhost.FixtureKeyID: []byte("too short"),
-	}}
-	_, err := solutionhost.VerifyPresence(signedFixture(t, "presence"), anchor)
-	require.ErrorIs(t, err, solutionhost.ErrSignature)
-	require.Contains(t, err.Error(), "is 9 bytes")
-}
-
-func TestVerificationRefusesEachMalformedCarrier(t *testing.T) {
-	anchor := fixtureAnchor(t)
-	for name, mutate := range map[string]func(*solutionhost.Signed){
-		"another algorithm": func(s *solutionhost.Signed) { s.Signature.Algorithm = "rsa-pss-sha256" },
-		"no algorithm":      func(s *solutionhost.Signed) { s.Signature.Algorithm = "" },
-		"signature not base64": func(s *solutionhost.Signed) {
-			s.Signature.Value = "not base64 !!"
-		},
-		"wrong signature": func(s *solutionhost.Signed) {
-			s.Signature.Value = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
-		},
-		"a flipped byte in the payload": func(s *solutionhost.Signed) {
-			s.Document = []byte(strings.Replace(string(s.Document), `"generation":4`, `"generation":5`, 1))
-		},
+	for name, bundle := range map[string]string{
+		"null":          `null`,
+		"empty object?": ``,
 	} {
 		t.Run(name, func(t *testing.T) {
-			signed := signedFixture(t, "presence")
-			mutate(signed)
-			_, err := solutionhost.VerifyPresence(signed, anchor)
-			require.ErrorIs(t, err, solutionhost.ErrSignature)
+			carrier := `{"schema":"` + solutionhost.SchemaSignedV1 + `","document":{"schema":"x"}`
+			if bundle != "" {
+				carrier += `,"bundle":` + bundle
+			}
+			_, err := solutionhost.ParseSigned([]byte(carrier + "}"))
+			require.ErrorIs(t, err, solutionhost.ErrUnsigned)
 		})
 	}
+}
 
-	_, err := solutionhost.VerifyPresence(nil, anchor)
+// One wire form for the bundle. A base64 string of a bundle also decodes as
+// valid JSON here, and two accepted shapes is two code paths in every consumer.
+func TestTheBundleMustBeAnObject(t *testing.T) {
+	_, err := solutionhost.ParseSigned(signedFixture(t, "bundle-not-an-object"))
 	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+	require.Contains(t, err.Error(), "JSON object")
+}
+
+// Core does not interpret the bundle, and that boundary is the point: a library
+// that parsed a certificate out of a delivery document would be one step from
+// trusting what it found there. So an arbitrary object passes, because core has
+// nothing to say about it.
+func TestCoreDoesNotInterpretTheBundle(t *testing.T) {
+	presence := parseSigned(t, "presence")
+	for _, bundle := range []string{
+		`{}`,
+		`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}`,
+		`{"anything":{"nested":[1,2,3]}}`,
+	} {
+		carrier, err := solutionhost.Carrier(presence.Document, json.RawMessage(bundle))
+		require.NoErrorf(t, err, "bundle %s", bundle)
+		encoded, err := solutionhost.MarshalSigned(carrier)
+		require.NoError(t, err)
+		reparsed, err := solutionhost.ParseSigned(encoded)
+		require.NoError(t, err)
+		require.JSONEq(t, bundle, string(reparsed.Bundle))
+	}
 }
 
 func TestParseSignedRefusesWhatIsNotACarrier(t *testing.T) {
 	for name, data := range map[string][]byte{
 		"not JSON at all": []byte("schema: codefly/solution-host-signed/v1\n"),
 		"an empty object": []byte(`{}`),
-		"no document":     []byte(`{"schema":"codefly/solution-host-signed/v1","signature":{"algorithm":"ed25519","key_id":"k","value":"AA=="}}`),
-		"two carriers":    []byte(`{"schema":"codefly/solution-host-signed/v1","document":{"a":1},"signature":{"algorithm":"ed25519","key_id":"k","value":"AA=="}} {"schema":"x"}`),
+		"no document": []byte(`{"schema":"codefly/solution-host-signed/v1","bundle":` +
+			solutionhost.FixtureBundle + `}`),
+		"two carriers":    []byte(`{"schema":"codefly/solution-host-signed/v1","document":{"a":1},"bundle":{"b":2}} {"schema":"x"}`),
 		"a bare document": []byte(`{"schema":"codefly/solution-host-binding/v2"}`),
+		"another schema":  []byte(`{"schema":"codefly/solution-host-signed/v2","document":{"a":1},"bundle":{"b":2}}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := solutionhost.ParseSigned(data)
@@ -302,11 +185,11 @@ func TestParseSignedRefusesWhatIsNotACarrier(t *testing.T) {
 	}
 }
 
-// Core ships no signer: SignedPayload says what to sign, Carrier assembles the
-// delivered form from bytes and a signature, and neither takes a key. A
-// library that could sign one of these documents would put the authority to
-// grant authority in every binary that imports core.
-func TestCoreSaysWhatToSignAndAssemblesTheCarrierButNeverSigns(t *testing.T) {
+// Core says what to sign and assembles the carrier from bytes and a bundle, and
+// produces neither a signature nor a bundle. Signing is CI's, over a workload
+// identity; the authority to attest a document that grants authority is not
+// something a library hands to every binary that imports it.
+func TestCoreSaysWhatToSignAndAssemblesTheCarrierButNeverAttests(t *testing.T) {
 	document := valid(t)
 	payload, err := solutionhost.SignedPayload(document)
 	require.NoError(t, err)
@@ -318,10 +201,7 @@ func TestCoreSaysWhatToSignAndAssemblesTheCarrierButNeverSigns(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, payload, authorityPayload)
 
-	// Carrier takes a signature, never a key, and refuses one it would not
-	// verify the shape of.
-	signed := signedFixture(t, "presence")
-	assembled, err := solutionhost.Carrier(payload, signed.Signature)
+	assembled, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.SchemaSignedV1, assembled.Schema)
 
@@ -329,58 +209,158 @@ func TestCoreSaysWhatToSignAndAssemblesTheCarrierButNeverSigns(t *testing.T) {
 	require.NoError(t, err)
 	reparsed, err := solutionhost.ParseSigned(encoded)
 	require.NoError(t, err)
-	verified, err := solutionhost.VerifyPresence(reparsed, fixtureAnchor(t))
+	verified, err := solutionhost.PresenceFromVerified(reparsed.Document)
 	require.NoError(t, err)
 	require.Equal(t, mustDigest(t, document), mustDigest(t, verified))
 
-	for name, signature := range map[string]solutionhost.Signature{
-		"another algorithm": {Algorithm: "rsa", KeyID: solutionhost.FixtureKeyID, Value: "AA=="},
-		"a key id that is a URL": {
-			Algorithm: solutionhost.AlgorithmEd25519, KeyID: "https://keys.example/pub", Value: "AA==",
-		},
-		"no signature value": {Algorithm: solutionhost.AlgorithmEd25519, KeyID: solutionhost.FixtureKeyID},
-		"a value that is not base64": {
-			Algorithm: solutionhost.AlgorithmEd25519, KeyID: solutionhost.FixtureKeyID, Value: "!!",
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := solutionhost.Carrier(payload, signature)
-			require.Error(t, err)
-		})
-	}
+	// An authority payload carries the same way.
+	authorityCarrier, err := solutionhost.Carrier(authorityPayload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+	_, err = solutionhost.AuthorityFromVerified(authorityCarrier.Document)
+	require.NoError(t, err)
+}
 
-	_, err = solutionhost.Carrier(nil, signed.Signature)
+// Carrier refuses a payload no consumer could round-trip, so the render that
+// produced it fails rather than the host that received it.
+func TestCarrierRefusesWhatCannotBeRoundTripped(t *testing.T) {
+	bundle := json.RawMessage(solutionhost.FixtureBundle)
+
+	_, err := solutionhost.Carrier(nil, bundle)
+	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+
+	_, err = solutionhost.Carrier([]byte(`{"schema":"codefly/solution-host-binding/v2"}`), bundle)
+	require.Error(t, err)
+
+	// Declaration-order bytes of a real document: they parse, and they are not
+	// canonical, so they are refused here rather than at the host.
+	nonCanonical, err := json.Marshal(valid(t))
+	require.NoError(t, err)
+	_, err = solutionhost.Carrier(nonCanonical, bundle)
+	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+
+	payload, err := solutionhost.SignedPayload(valid(t))
+	require.NoError(t, err)
+	_, err = solutionhost.Carrier(payload, nil)
+	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+	_, err = solutionhost.Carrier(payload, json.RawMessage(`"not an object"`))
 	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
 }
 
-// The whole signed kit, driven the way a consumer drives it.
+// The whole signed kit, driven the way a consumer drives it: verify the bundle
+// elsewhere, then hand the payload to core.
 func TestSignedFixturesReachTheirOutcome(t *testing.T) {
-	anchor := fixtureAnchor(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypeSigned)
 	require.Len(t, fixtures, 7)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
+			require.NotEmpty(t, shipped.Reason)
 			signed, err := solutionhost.ParseSigned(shipped.Document)
 			if err != nil {
 				require.Equal(t, solutionhost.OutcomeRejected, shipped.Outcome,
-					"a carrier that does not parse never reaches a verification")
+					"a carrier that does not parse never reaches a document")
 				return
 			}
-			// The caller says which type it expects; the signature binds it.
-			verify := func() error {
+			read := func() error {
 				if shipped.Name == "authority" {
-					_, err := solutionhost.VerifyAuthority(signed, anchor)
+					_, err := solutionhost.AuthorityFromVerified(signed.Document)
 					return err
 				}
-				_, err := solutionhost.VerifyPresence(signed, anchor)
+				_, err := solutionhost.PresenceFromVerified(signed.Document)
 				return err
 			}
 			if shipped.Outcome == solutionhost.OutcomeRejected {
-				require.Error(t, verify())
+				require.Error(t, read())
 				return
 			}
-			require.NoError(t, verify())
+			require.NoError(t, read())
 		})
+	}
+}
+
+// The package declares no signer, no key type and no trust store.
+//
+// Held by test because it is the property the whole division of labour rests
+// on: a library that could attest one of these documents would put that
+// authority in every binary that imports core, and signing is CI's over a
+// workload identity. Checked against the package's exported DECLARATIONS
+// rather than its text, so the prose above — which has to discuss keys and
+// trust roots to explain why they are absent — cannot fail it.
+func TestThePackageDeclaresNoSigningOrTrustSurface(t *testing.T) {
+	// Substrings that are unambiguous: no legitimate name in this package
+	// contains one. A bare "sign" would be useless here — ErrUnsigned, Signed
+	// and SignedPayload are all correct names — so the names that would denote
+	// a signer are listed exactly instead, below.
+	forbidden := []string{
+		"signer", "signingkey", "signwith", "anchor", "trustroot", "truststore",
+		"privatekey", "keypair", "publickey", "certificate", "attest", "jwks",
+	}
+	// Exact names that would mean core had grown the thing it must not have.
+	refused := map[string]struct{}{
+		"Sign": {}, "Signature": {}, "Anchor": {}, "Verifier": {}, "Key": {}, "Keys": {},
+		"VerifyPresence": {}, "VerifyAuthority": {},
+	}
+
+	set := token.NewFileSet()
+	packages, err := parser.ParseDir(set, ".", func(file os.FileInfo) bool {
+		return !strings.HasSuffix(file.Name(), "_test.go")
+	}, 0)
+	require.NoError(t, err)
+	require.Contains(t, packages, "solutionhost")
+
+	var exported []string
+	for _, file := range packages["solutionhost"].Files {
+		for _, declaration := range file.Decls {
+			switch typed := declaration.(type) {
+			case *ast.FuncDecl:
+				if typed.Recv == nil && typed.Name.IsExported() {
+					exported = append(exported, typed.Name.Name)
+				}
+			case *ast.GenDecl:
+				for _, spec := range typed.Specs {
+					switch named := spec.(type) {
+					case *ast.TypeSpec:
+						if named.Name.IsExported() {
+							exported = append(exported, named.Name.Name)
+						}
+					case *ast.ValueSpec:
+						for _, name := range named.Names {
+							if name.IsExported() {
+								exported = append(exported, name.Name)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	require.NotEmpty(t, exported)
+
+	// SignedPayload and SignedPayloadFor say what to sign; they do not sign.
+	// SignedFileName and SchemaSignedV1 name the carrier. Those are the only
+	// exported names allowed to contain "sign".
+	allowed := map[string]struct{}{
+		"SignedPayload": {}, "SignedPayloadFor": {}, "SignedFileName": {},
+		"SchemaSignedV1": {}, "Signed": {}, "DocumentTypeSigned": {},
+	}
+	for _, name := range exported {
+		require.NotContainsf(t, refused, name,
+			"%s is a signing or trust surface; signing is CI's over a workload identity, and core holds no trust material", name)
+		if _, fine := allowed[name]; fine {
+			continue
+		}
+		lowered := strings.ToLower(name)
+		for _, word := range forbidden {
+			require.NotContainsf(t, lowered, word,
+				"%s is a signing or trust surface; signing is CI's over a workload identity, and core holds no trust material", name)
+		}
+	}
+
+	// And the guard guards: the names that WOULD be refused are the ones the
+	// deleted ed25519 model had, so a test that passed vacuously would be a
+	// test that stopped watching.
+	for _, gone := range []string{"Anchor", "Signature", "VerifyPresence", "VerifyAuthority"} {
+		require.NotContainsf(t, exported, gone, "%s was deleted with the key-based model", gone)
+		require.Containsf(t, refused, gone, "%s must stay in the refused set", gone)
 	}
 }

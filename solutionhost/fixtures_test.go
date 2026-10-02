@@ -10,35 +10,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// anchorFile is the one shipped file that is not a document: it is the trust
-// anchor the signed fixtures verify against, read through FixtureAnchor.
-const anchorFile = "signed/anchor.json"
-
 // A fixture that is shipped but not described, or described but not shipped, is
 // worse than a missing one: a consumer testing against it would be testing
 // against something this repository does not claim.
+//
+// Only the document types with files on disk are walked. A signed carrier is a
+// mechanical transform of a document in one of those directories, so it is
+// built on demand rather than stored — storing it would mean a change to a
+// document silently leaving its carrier describing the old one.
 func TestEveryShippedFileIsADescribedFixture(t *testing.T) {
 	onDisk := map[string]struct{}{}
 	require.NoError(t, fs.WalkDir(solutionhost.FixtureFS(), ".", func(file string, entry fs.DirEntry, err error) error {
 		require.NoError(t, err)
-		if entry.IsDir() || file == anchorFile {
+		if entry.IsDir() {
 			return nil
 		}
 		documentType := solutionhost.DocumentType(path.Dir(file))
-		name := path.Base(file)
-		for _, extension := range []string{".codefly.yaml", ".json"} {
-			if trimmed, found := strings.CutSuffix(name, extension); found {
-				name = trimmed
-				break
-			}
-		}
-		require.NotContainsf(t, name, ".", "%s has an extension this test does not know", file)
+		name, found := strings.CutSuffix(path.Base(file), ".codefly.yaml")
+		require.Truef(t, found, "%s is not a document", file)
 		onDisk[string(documentType)+"/"+name] = struct{}{}
 		return nil
 	}))
 
 	described := map[string]struct{}{}
 	for _, shipped := range solutionhost.Fixtures() {
+		if shipped.Type == solutionhost.DocumentTypeSigned {
+			// Derived, not stored: covered by TestSignedFixturesReachTheirOutcome.
+			require.NotEmptyf(t, shipped.Document, "%s/%s", shipped.Type, shipped.Name)
+			require.NotEmptyf(t, shipped.Reason, "%s/%s", shipped.Type, shipped.Name)
+			continue
+		}
 		require.NotEmptyf(t, shipped.Document, "%s/%s", shipped.Type, shipped.Name)
 		require.NotEmptyf(t, shipped.Reason, "%s/%s", shipped.Type, shipped.Name)
 		described[string(shipped.Type)+"/"+shipped.Name] = struct{}{}
