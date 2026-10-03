@@ -47,7 +47,12 @@ import (
 //     found by human review, not here.
 //   - Any exported METHOD or FIELD name satisfies `pkg.X`, so `pkg.Anything`
 //     resolves if some unrelated type has a field of that name. It catches a
-//     deleted API, not a wrong one.
+//     deleted API, not a wrong one. This one is now PARTLY closed, one file
+//     down: TestDocumentedCallsHaveTheRightArity checks that a documented
+//     `pkg.Function(...)` has the arity the function takes, because this guard
+//     passed `solutionhost.Activate(authority, presence, build)` for as long
+//     as Activate existed under any signature. Argument types and order are
+//     still unchecked.
 //   - It says nothing about whether the prose around the name is true.
 //
 // So this guard's whole value is one narrow thing: a document cannot go on
@@ -173,4 +178,223 @@ func sortedKeys(from map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// signatureOf is what the arity guard knows about one documented function:
+// how many parameters it takes, whether the last is variadic, and whether the
+// name resolves to more than one declaration — in which case it is skipped
+// rather than guessed at.
+type signatureOf struct {
+	params    int
+	variadic  bool
+	ambiguous bool
+}
+
+// documentedCall is a `pkg.Function(...)` found in a fenced Go block.
+type documentedCall struct {
+	pkg      string
+	function string
+	args     int
+}
+
+// A documented CALL must have the arity the function actually takes.
+//
+// This closes the second of the three blind spots named above, and it is named
+// there because it let a false statement through: after Activate changed to
+// take a single ActivationRequest, docs/solution-host-binding.md went on
+// showing `solutionhost.Activate(authority, presence, build)` through a green
+// suite. The guard above resolves that name happily, because Activate still
+// exists — it catches a DELETED api, not a wrong one. A reader copying the
+// line gets code that does not compile; a reader reading it carefully
+// concludes the three-argument shape is current, which for an authorization
+// call means concluding the signer policy and the envelope are not arguments
+// at all.
+//
+// It is deliberately narrow, because a Markdown block is not a Go file and a
+// guard that tried to typecheck one would be wrong more often than the docs
+// are:
+//
+//   - Only top-level FUNCTIONS of the known packages are checked. Methods are
+//     skipped: `pkg.Value.Method(...)` cannot be resolved to one declaration
+//     without type information.
+//   - A name declared more than once with differing arity is skipped.
+//   - Variadic functions are checked as a MINIMUM, never an exact count.
+//   - Commas are counted at depth zero, so a composite literal or a nested
+//     call spanning lines counts as the one argument it is.
+//   - Only fenced go blocks are read. Prose naming a call in backticks is not
+//     a line a reader copies.
+//
+// What it still does not check is whether the arguments are the right types or
+// in the right order. That remains a thing only reading the diff catches.
+func TestDocumentedCallsHaveTheRightArity(t *testing.T) {
+	root := repoRoot(t)
+
+	packages := map[string]string{
+		"solutionhost": "solutionhost",
+		"workcontext":  "workcontext",
+		"conformance":  filepath.Join("workcontext", "conformance"),
+		"readiness":    "readiness",
+		"network":      "network",
+	}
+	signatures := map[string]map[string]signatureOf{}
+	for name, directory := range packages {
+		signatures[name] = functionSignatures(t, filepath.Join(root, directory))
+	}
+
+	documents := []string{
+		filepath.Join("docs", "solution-host-binding.md"),
+		filepath.Join("docs", "work-context.md"),
+		filepath.Join("docs", "readiness.md"),
+		filepath.Join("workcontext", "README.md"),
+		filepath.Join("solutionhost", "testdata", "README.md"),
+	}
+
+	checked := 0
+	for _, document := range documents {
+		body, err := os.ReadFile(filepath.Join(root, document))
+		require.NoError(t, err, "reading %s", document)
+
+		for _, block := range goCodeBlocks(string(body)) {
+			for _, call := range callsIn(block, signatures) {
+				known := signatures[call.pkg][call.function]
+				if known.ambiguous {
+					continue
+				}
+				checked++
+				if known.variadic {
+					require.GreaterOrEqual(t, call.args, known.params-1,
+						"%s documents %s.%s with %d arguments; it takes at least %d",
+						document, call.pkg, call.function, call.args, known.params-1)
+					continue
+				}
+				require.Equal(t, known.params, call.args,
+					"%s documents %s.%s with %d arguments; it takes %d",
+					document, call.pkg, call.function, call.args, known.params)
+			}
+		}
+	}
+	// A guard that silently matched nothing would pass forever.
+	require.Positive(t, checked, "no documented calls resolved, so this guard checked nothing")
+}
+
+// functionSignatures maps each exported top-level function to its arity,
+// marking a name declared more than once with differing arity as ambiguous
+// rather than guessing which one a document meant.
+func functionSignatures(t *testing.T, directory string) map[string]signatureOf {
+	t.Helper()
+	set := token.NewFileSet()
+	parsed, err := parser.ParseDir(set, directory, func(file os.FileInfo) bool {
+		return !strings.HasSuffix(file.Name(), "_test.go")
+	}, 0)
+	require.NoError(t, err, "parsing %s", directory)
+
+	found := map[string]signatureOf{}
+	for _, pkg := range parsed {
+		for _, file := range pkg.Files {
+			for _, declaration := range file.Decls {
+				function, isFunction := declaration.(*ast.FuncDecl)
+				if !isFunction || function.Recv != nil || !function.Name.IsExported() {
+					continue
+				}
+				count, variadic := 0, false
+				if function.Type.Params != nil {
+					for _, field := range function.Type.Params.List {
+						names := len(field.Names)
+						if names == 0 {
+							names = 1
+						}
+						count += names
+						if _, isEllipsis := field.Type.(*ast.Ellipsis); isEllipsis {
+							variadic = true
+						}
+					}
+				}
+				if existing, seen := found[function.Name.Name]; seen && existing.params != count {
+					found[function.Name.Name] = signatureOf{ambiguous: true}
+					continue
+				}
+				found[function.Name.Name] = signatureOf{params: count, variadic: variadic}
+			}
+		}
+	}
+	return found
+}
+
+// goCodeBlocks returns the contents of each fenced go block.
+func goCodeBlocks(body string) []string {
+	var blocks []string
+	lines := strings.Split(body, "\n")
+	for index := 0; index < len(lines); index++ {
+		fence := strings.TrimSpace(lines[index])
+		if fence != "```go" {
+			continue
+		}
+		var block []string
+		for index++; index < len(lines) && strings.TrimSpace(lines[index]) != "```"; index++ {
+			block = append(block, lines[index])
+		}
+		blocks = append(blocks, strings.Join(block, "\n"))
+	}
+	return blocks
+}
+
+var documentedCallPattern = regexp.MustCompile(`\b([a-z][a-zA-Z0-9]*)\.([A-Z][A-Za-z0-9]*)\(`)
+
+// callsIn finds each resolvable pkg.Function( call in a block and counts its
+// top-level arguments. Depth-zero counting is what makes a composite-literal
+// argument count as one.
+func callsIn(block string, signatures map[string]map[string]signatureOf) []documentedCall {
+	var calls []documentedCall
+	for _, match := range documentedCallPattern.FindAllStringSubmatchIndex(block, -1) {
+		pkg := block[match[2]:match[3]]
+		function := block[match[4]:match[5]]
+		known, isKnown := signatures[pkg]
+		if !isKnown {
+			continue
+		}
+		if _, declared := known[function]; !declared {
+			continue
+		}
+		// A method call on a value of the same name — pkg.Thing.Method( — is
+		// not this function being called.
+		if openParen := match[1]; openParen > 0 && block[match[0]] == '.' {
+			continue
+		}
+		args, closed := countArguments(block[match[1]:])
+		if !closed {
+			continue
+		}
+		calls = append(calls, documentedCall{pkg: pkg, function: function, args: args})
+	}
+	return calls
+}
+
+// countArguments counts commas at depth zero after an opening paren, and
+// reports whether the call was closed within the block. An unclosed call is
+// skipped rather than counted: an elided example is not a wrong one.
+func countArguments(after string) (int, bool) {
+	depth, args, seen := 1, 1, false
+	for _, character := range after {
+		switch character {
+		case '(', '{', '[':
+			depth++
+		case ')', '}', ']':
+			depth--
+			if depth == 0 {
+				if !seen {
+					return 0, true
+				}
+				return args, true
+			}
+		case ',':
+			if depth == 1 {
+				args++
+			}
+		default:
+			if depth == 1 && character != ' ' && character != '\n' && character != '\t' {
+				seen = true
+			}
+		}
+	}
+	return 0, false
 }

@@ -160,11 +160,18 @@ func unknownFieldIn(message protoreflect.Message) string {
 // channel — so you can see its expiry and its seal without re-deriving them
 // by hand. Reading your own credential is not an authorization decision.
 //
-// What it cannot do: become authority. policy.PrincipalFromWorkContext takes a
-// *Verified, and Authority.Child and Authority.Grant take one too, so an
-// Inspected capability cannot become a Principal or be exchanged for a derived
-// capability. There is no conversion in either direction and a test guards
-// against one being added.
+// What it cannot do: become authority. Every function that derives identity
+// or mints takes a checked capability — policy.PrincipalFromWorkContext a
+// *Verified, policy.PrincipalFromAuthenticatedWorkContext an *Authenticated,
+// Authority.Child and Authority.Grant a *Verified — so an Inspected
+// capability can become neither a Principal nor a derived capability.
+//
+// There is no function turning an Inspected into either, and
+// TestNoDeclarationTurnsAnInspectedCapabilityIntoAVerifiedOne guards that
+// direction by AST. It guards ONE direction, and this said "either direction"
+// while the test checked one: a function handing back an Inspected in place of
+// something stronger removes standing rather than granting it, so it needs no
+// guard. The claim did.
 type Inspected struct {
 	context *basev0.WorkContextV1
 }
