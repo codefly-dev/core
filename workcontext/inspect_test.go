@@ -254,15 +254,30 @@ func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 		TTL: 30 * 24 * time.Hour,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
-	require.ErrorContains(t, err, "mints at most")
+	require.ErrorContains(t, err, "no authority mints beyond")
 
-	// A host with a longer legitimate need states it, where a reviewer sees it.
-	h.authority.MaxTTL = 48 * time.Hour
+	// And the ABSOLUTE bound is not raisable: MaxTTL above it is clamped, not
+	// honoured. A consumer measured that MaxTTL took any positive value and
+	// Verify bounded no lifetime, so between a host setting thirty days and a
+	// process holding the credential there was nothing — and declined my
+	// advice to drop its own ceiling, correctly.
+	h.authority.MaxTTL = 30 * 24 * time.Hour
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
 		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
-		TTL: 24 * time.Hour,
+		TTL: 48 * time.Hour,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "no authority mints beyond")
+
+	// A host with a longer legitimate need states it, within the bound.
+	h.authority.MaxTTL = 12 * time.Hour
+	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
+		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
+		TTL: 8 * time.Hour,
 	})
 	require.NoError(t, err)
 }
@@ -278,5 +293,5 @@ func TestChild_RefusesATTLBeyondTheCeiling(t *testing.T) {
 		Audience:      audience, TTL: 30 * 24 * time.Hour,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
-	require.ErrorContains(t, err, "mints at most")
+	require.ErrorContains(t, err, "no authority mints beyond")
 }

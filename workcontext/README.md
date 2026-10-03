@@ -159,7 +159,17 @@ A verifier now refuses that key unless `TrustTheConformanceFixtureKey` says
 otherwise. `conformance.Settings` carries the flag so the field-by-field recipe
 above stays complete; copy it into a conformance verifier and **nowhere else**.
 Its name is that long so copying it into a production verifier is visible in
-review.
+review. `RunWith` detects the case where it was missed and names the field,
+because a consumer read this very warning and still omitted the bool.
+
+**Why the field-by-field build is worth the friction**, stated because that
+consumer made the argument better than the original text did: building the
+verifier by hand is what MADE the new flag a failing test. `Settings.Verifier()`
+would have inherited it silently and the consumer would have learned nothing
+about a new field in the contract. That is the second time the field-by-field
+recipe has paid for itself — the first was `Seal.ImageDigest`, which cost that
+consumer no code at all because its credential returns core's `WorkSealV1`
+rather than a hand-filled struct.
 
 What this does **not** fix: the key is still linked into any binary importing
 this package. Only moving the kit into a package that production cannot import

@@ -426,3 +426,35 @@ func TestTheKitFailsAVerifierThatAcceptsAForeignMintedToken(t *testing.T) {
 	require.Contains(t, reported.errors[0], "unknown-field")
 	require.Contains(t, reported.errors[0], "must be refused and was accepted")
 }
+
+// The kit diagnoses the one mistake its own recipe invites.
+//
+// A consumer read an explicit warning about TrustTheConformanceFixtureKey,
+// built its verifier field by field from Settings — which is the construction
+// the kit asks for, and the only one that says anything about the consumer —
+// omitted the bool, and watched every fixture fail with an error about a key.
+// The kit can see both the settings it was handed and the error every fixture
+// came back with, so it is the only thing positioned to say what happened.
+func TestTheKitNamesTheMissingFixtureKeyFlag(t *testing.T) {
+	settings := conformance.New(time.Now())
+	// Exactly what a consumer copying the recipe and missing one bool builds.
+	forgot := &workcontext.Verifier{
+		Issuer:    settings.Issuer,
+		Audience:  settings.Audience,
+		Keys:      settings.PublicKeys(),
+		Revisions: settings.Revisions,
+		Replay:    settings.Replay,
+		Grants:    settings.Grants,
+		Seals:     settings.Seals,
+		Now:       settings.Now,
+	}
+
+	reported := &recorder{}
+	conformance.RunWith(reported, settings, func(ctx context.Context, token string) error {
+		_, err := forgot.Verify(ctx, token)
+		return err
+	})
+
+	require.NotEmpty(t, reported.fatal)
+	require.Contains(t, reported.fatal[len(reported.fatal)-1], "TrustTheConformanceFixtureKey")
+}

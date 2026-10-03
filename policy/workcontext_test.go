@@ -120,3 +120,48 @@ func TestPrincipalFromWorkContext_RefusesNothing(t *testing.T) {
 	_, err := policy.PrincipalFromWorkContext(nil)
 	require.ErrorIs(t, err, policy.ErrPrincipalInvalid)
 }
+
+// Both identity entrypoints share ONE derivation, and the Principal records
+// which question was answered.
+//
+// The verify-only entrypoint had no way to derive an identity at all, which
+// forced a gateway needing one to re-implement the delegation-chain
+// derivation — the grant link, the quorum-as-one-hop rule, the actor
+// override. That is a second implementation of something subtle, and it is the
+// failure this model exists to prevent.
+//
+// Adding the entrypoint without EstablishedBy would have erased the
+// distinction *Authenticated exists to carry, exactly at the policy boundary
+// where it matters most. So the test asserts both halves: the chains are
+// identical, and the establishment differs.
+func TestBothIdentityEntrypointsShareOneDerivationAndRecordWhichAnswered(t *testing.T) {
+	h := newIdentityHarness(t)
+	agent := h.agentSession(h.ownerSession())
+	token := agent.Encoded()
+
+	verified, err := policy.PrincipalFromWorkContext(agent)
+	require.NoError(t, err)
+	require.Equal(t, policy.EstablishedByVerification, verified.EstablishedBy)
+
+	authenticated, err := h.authenticator(toolboxID).Authenticate(context.Background(), token)
+	require.NoError(t, err)
+	fromAuthenticated, err := policy.PrincipalFromAuthenticatedWorkContext(authenticated)
+	require.NoError(t, err)
+	require.Equal(t, policy.EstablishedByAuthentication, fromAuthenticated.EstablishedBy)
+
+	// Everything the derivation produces is identical — same id, kind, org,
+	// agent, and the same delegation chain. One implementation.
+	require.Equal(t, verified.ID, fromAuthenticated.ID)
+	require.Equal(t, verified.Kind, fromAuthenticated.Kind)
+	require.Equal(t, verified.OrgID, fromAuthenticated.OrgID)
+	require.Equal(t, verified.AgentID, fromAuthenticated.AgentID)
+	require.Equal(t, verified.DelegationChain, fromAuthenticated.DelegationChain)
+
+	// And the one thing that differs is the one thing that should.
+	require.NotEqual(t, verified.EstablishedBy, fromAuthenticated.EstablishedBy)
+
+	require.Error(t, func() error {
+		_, err := policy.PrincipalFromAuthenticatedWorkContext(nil)
+		return err
+	}())
+}

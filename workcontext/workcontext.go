@@ -28,6 +28,8 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
@@ -76,6 +78,24 @@ const MaxTokenSize = 32 << 10
 // number.
 const DefaultMaxTTL = time.Hour
 
+// MaxTTLCeiling is the longest window ANY authority will mint, whatever its
+// MaxTTL says.
+//
+// DefaultMaxTTL alone was a default and not a bound: MaxTTL honoured any
+// positive value, so a host could set thirty days and nothing refused the
+// result — not the minter, which took the number as given, and not the
+// verifier, which bounds no lifetime at all. A consumer measured exactly that
+// and declined my advice to drop its own client-side ceiling, which was the
+// right call: between a host that raises MaxTTL and a process holding the
+// credential, there was nothing.
+//
+// Twenty-four hours because it has to be longer than any legitimate session
+// and short enough that a misconfiguration is bounded by a day. A deployment
+// that genuinely needs longer is not configuring a credential any more; it
+// wants a different mechanism, and should have to say so in a PR against this
+// constant rather than in a field.
+const MaxTTLCeiling = 24 * time.Hour
+
 // ErrInvalid is the umbrella for every rejection that is a property of the
 // capability itself — signature, window, audience, attenuation, grant shape.
 var ErrInvalid = errors.New("work context: invalid")
@@ -123,8 +143,32 @@ type Verified struct {
 	sha256  string
 }
 
-// Context is the verified claims snapshot.
-func (v *Verified) Context() *basev0.WorkContextV1 { return v.context }
+// Context is the verified claims, as a DEEP COPY.
+//
+// It used to hand out the internal pointer, which made verification real and
+// the verified claims mutable. Measured:
+//
+//	seals.PutEpoch(owner, 3)              // revoke the owner
+//	verifier.Verify(ctx, token)           // ErrRevoked, correctly
+//	held.Context().Seal.PrincipalEpoch = 3 // edit the claims in place
+//	verifier.Recheck(ctx, held)           // nil
+//	authority.Child(ctx, held, ...)       // derives a VERIFYING child
+//
+// Every live check in this package reads the claims back out of the Verified
+// it was handed, so a caller able to edit them could move the capability onto
+// any state the issuer currently holds. The signature over the ENCODED token
+// was never in question; what the checks compared against was.
+//
+// A copy per call is the cost. It is the right one: the alternative is every
+// reader remembering not to write, which is the kind of rule that holds until
+// somebody normalises a field.
+func (v *Verified) Context() *basev0.WorkContextV1 {
+	return proto.Clone(v.context).(*basev0.WorkContextV1)
+}
+
+// claims is the internal, un-copied view, for this package's own checks. It
+// never leaves the package.
+func (v *Verified) claims() *basev0.WorkContextV1 { return v.context }
 
 // Encoded is the token exactly as presented.
 func (v *Verified) Encoded() string { return v.encoded }
@@ -140,8 +184,18 @@ func Fingerprint(encoded string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-// Actor is the current actor's hop, or nil when the owner acts directly.
+// Actor is the current actor's hop as a DEEP COPY, or nil when the owner acts
+// directly. See Context for why it copies.
 func (v *Verified) Actor() *basev0.WorkActorV1 {
+	actor := v.actor()
+	if actor == nil {
+		return nil
+	}
+	return proto.Clone(actor).(*basev0.WorkActorV1)
+}
+
+// actor is the internal, un-copied view.
+func (v *Verified) actor() *basev0.WorkActorV1 {
 	chain := v.context.GetActorChain()
 	if len(chain) == 0 {
 		return nil
@@ -149,13 +203,14 @@ func (v *Verified) Actor() *basev0.WorkActorV1 {
 	return chain[len(chain)-1]
 }
 
-// EffectiveScopes are the scopes the current actor holds: the last hop's, or
-// the owner's delegated authority when no hop has narrowed it.
+// EffectiveScopes are the scopes the current actor holds, as DEEP COPIES: the
+// last hop's, or the owner's delegated authority when no hop has narrowed it.
 func (v *Verified) EffectiveScopes() []*basev0.WorkScopeV1 {
-	if actor := v.Actor(); actor != nil {
-		return actor.GetGrantedScopes()
+	scopes := v.context.GetAuthorityScopes()
+	if actor := v.actor(); actor != nil {
+		scopes = actor.GetGrantedScopes()
 	}
-	return v.context.GetAuthorityScopes()
+	return cloneScopes(scopes)
 }
 
 // RequireBinding asserts that this capability exercises one named operation

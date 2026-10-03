@@ -173,7 +173,7 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 	if parent == nil {
 		return "", nil, fmt.Errorf("%w: child needs a verified parent", ErrInvalid)
 	}
-	if parent.Context().GetGrantHop() != nil {
+	if parent.claims().GetGrantHop() != nil {
 		return "", nil, fmt.Errorf("%w: a grant capability authorizes one call and delegates nothing", ErrInvalid)
 	}
 	if len(in.GrantedScopes) == 0 {
@@ -226,7 +226,7 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 // within one installation and never moves it, so taking an installation from
 // the hop would be a way to widen across installations.
 func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0.WorkContextV1, bindingID, exercising string) error {
-	if err := a.carryForwardSeal(ctx, parent.Context()); err != nil {
+	if err := a.carryForwardSeal(ctx, parent.claims()); err != nil {
 		return err
 	}
 	// The hop's own epoch, read live. A hop is new authority for a new
@@ -288,7 +288,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 	if parent == nil {
 		return "", nil, fmt.Errorf("%w: grant needs a verified parent", ErrInvalid)
 	}
-	if parent.Context().GetGrantHop() != nil {
+	if parent.claims().GetGrantHop() != nil {
 		return "", nil, fmt.Errorf("%w: a grant capability cannot carry a second grant", ErrInvalid)
 	}
 	grant := in.Grant
@@ -309,8 +309,8 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 
 	actor := parent.Actor()
 	hop := &basev0.WorkActorV1{
-		PrincipalId:   parent.Context().GetOwnerPrincipalId(),
-		PrincipalKind: parent.Context().GetOwnerPrincipalKind(),
+		PrincipalId:   parent.claims().GetOwnerPrincipalId(),
+		PrincipalKind: parent.claims().GetOwnerPrincipalKind(),
 		DelegationId:  grant.ID,
 		GrantedScopes: cloneScopes([]*basev0.WorkScopeV1{grant.Scope}),
 	}
@@ -320,7 +320,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 		hop.AgentId = actor.AgentId
 		hop.OrganizationId = actor.OrganizationId
 	} else {
-		setOptional(&hop.AgentId, parent.Context().GetOwnerAgentId())
+		setOptional(&hop.AgentId, parent.claims().GetOwnerAgentId())
 	}
 
 	// The parent is held against the issuer's current revision first. The
@@ -358,7 +358,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 // the rewritten authority.
 func (a *Authority) derive(parent *Verified, audience, replay string, expires time.Time, revision uint64) (*basev0.WorkContextV1, error) {
 	now := a.now()
-	parentExpiry := time.Unix(parent.Context().GetExpiresAtUnix(), 0)
+	parentExpiry := time.Unix(parent.claims().GetExpiresAtUnix(), 0)
 	if parentExpiry.Before(expires) {
 		expires = parentExpiry
 	}
@@ -458,6 +458,10 @@ func (a *Authority) maxTTL() time.Duration {
 	if a.MaxTTL <= 0 {
 		return DefaultMaxTTL
 	}
+	// Clamped, so a MaxTTL above the absolute bound is not silently honoured.
+	if a.MaxTTL > MaxTTLCeiling {
+		return MaxTTLCeiling
+	}
 	return a.MaxTTL
 }
 
@@ -480,9 +484,15 @@ func (a *Authority) checkTTL(what string, ttl time.Duration) error {
 	if ttl <= 0 {
 		return fmt.Errorf("%w: %s needs a positive TTL", ErrInvalid, what)
 	}
+	if ttl > MaxTTLCeiling {
+		// The absolute bound, which no configuration raises. Without it
+		// MaxTTL was a default rather than a limit.
+		return fmt.Errorf("%w: %s asks for a %s window and no authority mints beyond %s, whatever Authority.MaxTTL says",
+			ErrInvalid, what, ttl, MaxTTLCeiling)
+	}
 	if ceiling := a.maxTTL(); ttl > ceiling {
-		return fmt.Errorf("%w: %s asks for a %s window and this authority mints at most %s; raise Authority.MaxTTL deliberately if that is wanted",
-			ErrInvalid, what, ttl, ceiling)
+		return fmt.Errorf("%w: %s asks for a %s window and this authority mints at most %s; raise Authority.MaxTTL up to %s if that is wanted",
+			ErrInvalid, what, ttl, ceiling, MaxTTLCeiling)
 	}
 	return nil
 }

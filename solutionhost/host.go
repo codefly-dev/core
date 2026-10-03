@@ -234,7 +234,13 @@ func (host Host) Admit(delivered ...*Delivered) ([]Admission, error) {
 		if one == nil {
 			return nil, fmt.Errorf("%w: delivered document %d is nil", ErrInvalid, index)
 		}
-		documents[index], signers[index] = one.presence, one.signer
+		// Re-derived from the ATTESTED bytes, not taken from anything a caller
+		// has held. See Delivered.
+		document, err := one.Document()
+		if err != nil {
+			return nil, err
+		}
+		documents[index], signers[index] = document, one.signer
 	}
 	return host.admit(documents, signers)
 }

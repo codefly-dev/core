@@ -608,3 +608,54 @@ func TestAdmitRenderedCannotBeHandedHostState(t *testing.T) {
 	_, err = solutionhost.AdmitRendered(elsewhere)
 	require.NoError(t, err, "a renderer pre-checking a set has no host to answer coordinate questions for")
 }
+
+// A verified document cannot be mutated after the fact: Document() re-derives
+// from the ATTESTED bytes and returns a fresh value, and Admit reads those
+// bytes rather than anything a caller has held.
+//
+// Measured before this: `delivered.Document().Generation += 7` then
+// `host.Admit(delivered)` admitted generation 11 while the attestation
+// covered 4 — the verification real and the admitted content mutable. A caller
+// did not have to be malicious; anything normalising a field for its own
+// bookkeeping would do it.
+func TestAVerifiedDocumentCannotBeMutatedAfterTheAttestation(t *testing.T) {
+	delivered := deliver(t, parse(t, "valid"))
+
+	first, err := delivered.Document()
+	require.NoError(t, err)
+	attested := first.Generation
+	first.Generation = attested + 7
+	first.OwnershipDomain = "beta"
+
+	// A second read is unaffected by the first caller's mutation.
+	second, err := delivered.Document()
+	require.NoError(t, err)
+	require.Equal(t, attested, second.Generation)
+	require.Equal(t, solutionhost.FixtureDomain, second.OwnershipDomain)
+
+	// And Admit consumes the attested content, not the mutated value: the
+	// mutated domain would have been refused by the signer policy, and the
+	// mutated generation would have read as a later one.
+	admissions, err := appliedHost().Admit(delivered)
+	require.NoError(t, err)
+	require.Equal(t, solutionhost.DecisionApply, admissions[0].Decision)
+	require.Equal(t, second.Binding, admissions[0].Binding)
+}
+
+// An outside-constructed Delivered carries no attested bytes, so it yields no
+// document — a refusal rather than the nil-pointer panic Activate used to take.
+func TestAnOutsideConstructedDeliveredYieldsNothing(t *testing.T) {
+	_, err := (&solutionhost.Delivered{}).Document()
+	require.Error(t, err)
+	_, err = (&solutionhost.DeliveredAuthority{}).Document()
+	require.Error(t, err)
+
+	_, err = solutionhost.Activate(solutionhost.ActivationRequest{
+		Authority: &solutionhost.DeliveredAuthority{},
+		Presence:  deliver(t, parse(t, "valid")),
+		Build:     parse(t, "valid").Workloads[0].Image.Digest,
+		Envelope:  solutionhost.FixtureEnvelope(),
+	})
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "does not re-derive")
+}

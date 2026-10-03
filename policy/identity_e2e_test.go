@@ -374,3 +374,17 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 	}).Verify(ctx, second.Encoded())
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 }
+
+// authenticator is the verify-only entrypoint over the same live state this
+// harness's verifier uses.
+func (h *identityHarness) authenticator(audience string) *workcontext.Authenticator {
+	return &workcontext.Authenticator{
+		Issuer:    issuerURL,
+		Audience:  audience,
+		Keys:      map[string]ed25519.PublicKey{signingKeyID: h.public},
+		Revisions: h,
+		Replay:    workcontext.NewMemoryReplayStore(),
+		Seals:     h.seals,
+		Now:       func() time.Time { return h.clock },
+	}
+}

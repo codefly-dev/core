@@ -976,3 +976,55 @@ func TestVerify_RefusesTheConformanceFixtureKeyUnlessToldOtherwise(t *testing.T)
 	_, err = production.Verify(context.Background(), sound)
 	require.NoError(t, err)
 }
+
+// A held *Verified cannot be edited into validity. Its claims are copies.
+//
+// Reproduced before the fix, by a reviewer and then by me:
+//
+//	seals.PutEpoch(owner, 3)               // revoke the owner
+//	verifier.Verify(ctx, token)            // ErrRevoked, correctly
+//	held.Context().Seal.PrincipalEpoch = 3 // edit the claims in place
+//	verifier.Recheck(ctx, held)            // nil
+//	authority.Child(ctx, held, ...)        // derived a VERIFYING child
+//
+// Every live check reads the claims back out of the Verified it was handed, so
+// a caller able to edit them could move the capability onto whatever state the
+// issuer currently holds. The signature over the encoded token was never in
+// question; what the checks compared against was. This is the same defect
+// solutionhost.Delivered had one package over, and I fixed that one first
+// without looking here.
+func TestAHeldVerifiedCannotBeEditedIntoValidity(t *testing.T) {
+	h := newHarness(t)
+	token, owner := h.ownerSession(audience)
+	verifier := h.verifier(audience)
+
+	require.NoError(t, h.seals.PutEpoch(ownerID, 3))
+	_, err := verifier.Verify(context.Background(), token)
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+
+	// Edit the held claims to match the issuer's new state.
+	owner.Context().Seal.PrincipalEpoch = 3
+	owner.Context().AuthorizationRevision = 999
+
+	require.ErrorIs(t, verifier.Recheck(context.Background(), owner), workcontext.ErrRevoked)
+	_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
+		DelegationID:  "d-immutable",
+		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		Audience:      audience, TTL: time.Minute,
+	})
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+
+	// And each accessor hands back a fresh value, so one caller's edit is
+	// invisible to the next.
+	require.Equal(t, uint64(2), owner.Context().GetSeal().GetPrincipalEpoch())
+	first := owner.EffectiveScopes()
+	if len(first) > 0 {
+		first[0].ResourceKind = "mutated"
+		require.NotEqual(t, "mutated", owner.EffectiveScopes()[0].GetResourceKind())
+	}
+	if actor := owner.Actor(); actor != nil {
+		actor.PrincipalId = "mutated"
+		require.NotEqual(t, "mutated", owner.Actor().GetPrincipalId())
+	}
+}

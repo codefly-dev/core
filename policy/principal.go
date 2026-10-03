@@ -83,6 +83,11 @@ type Principal struct {
 	// by PrincipalFromWorkContext out of the verified actor chain
 	// and grant hop, never assembled by hand.
 	DelegationChain []DelegationLink
+
+	// EstablishedBy records which question the identity check answered. See
+	// Establishment: a policy that must not act on the weaker answer compares
+	// it, and an audit record states it.
+	EstablishedBy Establishment
 }
 
 // DelegationLink is one node in a chain of authority lending. Carries
@@ -291,3 +296,30 @@ func PrincipalFrom(ctx context.Context) *Principal {
 	p, _ := ctx.Value(principalCtxKey{}).(*Principal)
 	return p
 }
+
+// Establishment records HOW a Principal's identity was established, so the
+// strength of the answer travels with it.
+//
+// It exists because workcontext deliberately uses distinct types —
+// *Verified for an identity checked against the issuer's own records,
+// *Authenticated for one checked against caller-supplied live state with any
+// approval hop refused rather than held against a grant record — and a
+// derivation that collapsed both into one Principal would have thrown that
+// distinction away at the policy boundary, which is the one place it matters
+// most.
+//
+// A policy that must not act on the weaker answer compares this. An audit
+// record states it rather than implying it.
+type Establishment string
+
+const (
+	// EstablishedByVerification: the issuer's own revision, grant records,
+	// seals and replay store agreed. The strong answer.
+	EstablishedByVerification Establishment = "verified"
+
+	// EstablishedByAuthentication: signature, window, audience, attenuation
+	// and the seal agreed against state the CALLER supplied, and a capability
+	// carrying an approval hop was refused rather than checked. Sound, and
+	// answering a narrower question.
+	EstablishedByAuthentication Establishment = "authenticated"
+)

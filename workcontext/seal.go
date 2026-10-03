@@ -721,12 +721,12 @@ func (a *Authority) carryForwardRevision(ctx context.Context, parent *Verified) 
 	// Everything else in a derivation is held against OUR state — our
 	// revision, our seals, our bindings — so without this the only thing the
 	// parent contributed was authority nobody here granted.
-	if issued := parent.Context().GetIssuer(); issued != a.Issuer {
+	if issued := parent.claims().GetIssuer(); issued != a.Issuer {
 		return 0, fmt.Errorf("%w: the parent was issued by %q and this authority is %q; a capability derives only from its own issuer",
 			ErrInvalid, issued, a.Issuer)
 	}
-	inherited := parent.Context().GetAuthorizationRevision()
-	current, err := a.revision(ctx, parent.Context().GetTenantId())
+	inherited := parent.claims().GetAuthorizationRevision()
+	current, err := a.revision(ctx, parent.claims().GetTenantId())
 	if err != nil {
 		return 0, err
 	}

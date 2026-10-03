@@ -641,7 +641,17 @@ func Activate(request ActivationRequest) (Activation, error) {
 	if request.Presence == nil {
 		return Activation{}, fmt.Errorf("%w: no presence document; authority alone grants nothing", ErrNotActivated)
 	}
-	authority, presence := request.Authority.authority, request.Presence.presence
+	// Both re-derived from the ATTESTED bytes. An outside-constructed
+	// &DeliveredAuthority{} used to reach a nil pointer here and PANIC; it now
+	// gets a refusal, because an empty payload yields no document.
+	authority, err := request.Authority.Document()
+	if err != nil {
+		return Activation{}, fmt.Errorf("%w: the authority half does not re-derive from its attested bytes: %v", ErrNotActivated, err)
+	}
+	presence, err := request.Presence.Document()
+	if err != nil {
+		return Activation{}, fmt.Errorf("%w: the presence half does not re-derive from its attested bytes: %v", ErrNotActivated, err)
+	}
 	// Both halves must have been attested by a signer this host lets speak
 	// for the domain they claim — the same policy Admit applies, because
 	// activation is the other place a self-asserted domain would be taken at

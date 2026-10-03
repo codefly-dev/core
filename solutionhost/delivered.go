@@ -1,6 +1,7 @@
 package solutionhost
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,28 +37,57 @@ type BundleVerifier interface {
 // VerifyDelivered, so a document that reached Admit has been through a
 // BundleVerifier. That is the same property *workcontext.Verified has, held
 // the same way: the compiler, rather than a convention about names.
+// It stores the ATTESTED PAYLOAD rather than a parsed document, and every
+// reader re-derives from those bytes. The first version held a
+// *SolutionHostBinding and handed that pointer out, which made the
+// verification real and what was admitted afterwards MUTABLE. Measured, not
+// hypothetical:
+//
+//	delivered.Document().Generation += 7
+//	host.Admit(delivered)   // consumed generation 11; the attestation covered 4
+//
+// A caller did not have to be malicious — anything holding the document for
+// its own bookkeeping and normalising a field would do it, and nothing
+// anywhere would say so.
 type Delivered struct {
-	presence *SolutionHostBinding
-	signer   string
+	payload []byte
+	signer  string
 }
 
-// Document is the presence document. Safe to read: the carrier it came in was
-// verified.
-func (d *Delivered) Document() *SolutionHostBinding { return d.presence }
+// Document re-derives the presence document from the attested bytes and
+// returns a FRESH value each call, so a caller mutating what it gets back
+// changes nothing Admit will consume.
+//
+// It returns an error rather than nil-on-failure because a reader that
+// silently returned nothing would be the same class of defect one level down.
+// In practice it cannot fail: VerifyDelivered parsed these bytes already.
+func (d *Delivered) Document() (*SolutionHostBinding, error) {
+	return PresenceFromVerified(d.payload)
+}
+
+// Payload is the attested bytes, copied. The digest a host stores is over
+// these, never over anything a caller has held since.
+func (d *Delivered) Payload() []byte { return bytes.Clone(d.payload) }
 
 // DeliveredBy is the identity the caller's attestation check named. It is not
 // a signing surface: core holds no key and attests nothing, and this is a
 // string the CALLER handed it.
 func (d *Delivered) DeliveredBy() string { return d.signer }
 
-// DeliveredAuthority is an authority document whose carrier was verified.
+// DeliveredAuthority is an authority document whose carrier was verified. It
+// stores the attested payload for the reason Delivered does.
 type DeliveredAuthority struct {
-	authority *AuthorityDocument
-	signer    string
+	payload []byte
+	signer  string
 }
 
-// Document is the authority document.
-func (d *DeliveredAuthority) Document() *AuthorityDocument { return d.authority }
+// Document re-derives the authority document from the attested bytes.
+func (d *DeliveredAuthority) Document() (*AuthorityDocument, error) {
+	return AuthorityFromVerified(d.payload)
+}
+
+// Payload is the attested bytes, copied.
+func (d *DeliveredAuthority) Payload() []byte { return bytes.Clone(d.payload) }
 
 // DeliveredBy is the identity the caller's attestation check named.
 func (d *DeliveredAuthority) DeliveredBy() string { return d.signer }
@@ -75,11 +105,13 @@ func VerifyDelivered(ctx context.Context, carrier *Signed, verifier BundleVerifi
 	if err != nil {
 		return nil, err
 	}
-	presence, err := PresenceFromVerified(payload)
-	if err != nil {
+	// Parsed here so a carrier that yields no document is refused at the
+	// boundary rather than at every reader, and DISCARDED: what is stored is
+	// the attested bytes.
+	if _, err := PresenceFromVerified(payload); err != nil {
 		return nil, err
 	}
-	return &Delivered{presence: presence, signer: signer}, nil
+	return &Delivered{payload: bytes.Clone(payload), signer: signer}, nil
 }
 
 // VerifyDeliveredAuthority is VerifyDelivered for an authority document.
@@ -88,16 +120,21 @@ func VerifyDeliveredAuthority(ctx context.Context, carrier *Signed, verifier Bun
 	if err != nil {
 		return nil, err
 	}
-	authority, err := AuthorityFromVerified(payload)
-	if err != nil {
+	if _, err := AuthorityFromVerified(payload); err != nil {
 		return nil, err
 	}
-	return &DeliveredAuthority{authority: authority, signer: signer}, nil
+	return &DeliveredAuthority{payload: bytes.Clone(payload), signer: signer}, nil
 }
 
 func verifyCarrier(ctx context.Context, carrier *Signed, verifier BundleVerifier) (string, []byte, error) {
 	if carrier == nil {
 		return "", nil, fmt.Errorf("%w: no carrier", ErrUnsigned)
+	}
+	// The carrier's own invariants. VerifyDelivered used to skip them: a
+	// hand-built Signed went straight to the bundle verifier, so the schema
+	// and the bundle's shape were enforced only on the ParseSigned path.
+	if err := carrier.validate(); err != nil {
+		return "", nil, err
 	}
 	if verifier == nil {
 		return "", nil, fmt.Errorf("%w: no bundle verifier; core verifies no attestation and will not treat its absence as one holding", ErrUnsigned)

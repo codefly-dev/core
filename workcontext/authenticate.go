@@ -67,6 +67,40 @@ func (a *Authenticated) Actor() *basev0.WorkActorV1 { return a.verified.Actor() 
 // EffectiveScopes are the scopes the current actor holds.
 func (a *Authenticated) EffectiveScopes() []*basev0.WorkScopeV1 { return a.verified.EffectiveScopes() }
 
+// RequireBinding is (*Verified).RequireBinding, for the verify-only answer.
+//
+// It is here because leaving it off forced the thing this package exists to
+// prevent: a verify-only gateway that needs "this call is gated by binding X"
+// and cannot ask had to write the check itself, which is a second
+// implementation of a rule core owns. Giving the weaker ANSWER the same
+// READERS costs nothing — the type still cannot become a Verified or be
+// exchanged for a derived capability, which is what the distinction is for.
+func (a *Authenticated) RequireBinding(id string) error { return a.verified.RequireBinding(id) }
+
+// OperationBindingID is the binding this capability exercises, or "".
+func (a *Authenticated) OperationBindingID() string { return a.verified.OperationBindingID() }
+
+// SHA256 and Encoded are already above; Recheck is on Authenticator, because
+// re-reading live state needs the sources.
+
+// Recheck holds an already-authenticated capability against live state again,
+// without consuming anything — (*Verifier).Recheck for this entrypoint.
+//
+// Same reason as RequireBinding: a verify-only gateway running a long call
+// needs to re-check liveness, and with no way to ask it writes its own loop
+// over the sources. It takes an *Authenticated, so it cannot be anyone's first
+// check either.
+func (a *Authenticator) Recheck(ctx context.Context, authenticated *Authenticated) error {
+	if authenticated == nil {
+		return fmt.Errorf("%w: recheck needs an authenticated capability", ErrInvalid)
+	}
+	verifier, err := a.verifier()
+	if err != nil {
+		return err
+	}
+	return verifier.Recheck(ctx, authenticated.verified)
+}
+
 // Authenticator is the verify-only entrypoint: it authenticates an incoming
 // capability for a party that holds the issuer's live sealed state but does
 // not mint and does not keep the approvals engine's records — the host's

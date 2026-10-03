@@ -115,9 +115,14 @@ type Settings struct {
 	// consumer that pins a clock must pin this one.
 	Now func() time.Time
 
-	// TrustTheConformanceFixtureKey is always true, and a consumer building
-	// its own verifier field by field MUST copy it, or every fixture is
-	// refused for carrying the kit's key.
+	// TrustTheConformanceFixtureKey is always true. **COPY THIS INTO YOUR
+	// VERIFIER OR EVERY FIXTURE IS REFUSED** for carrying the kit's key.
+	//
+	// A consumer read that warning, built its verifier field by field from
+	// these settings, omitted this one bool, and spent ten minutes on 35
+	// failures about a key. RunWith now detects the case and says so by name,
+	// because a bool that must be true is the easiest kind of field to miss
+	// when copying a struct literal.
 	//
 	// It is here, rather than left for the consumer to discover, because the
 	// first version of this was not: a verifier refuses the fixture key
@@ -270,14 +275,37 @@ func RunWith(t TestingT, settings Settings, verify Verify) {
 		return
 	}
 	ctx := context.Background()
-	var accepted, rejected int
+	var accepted, rejected, fixtureKeyRefusals int
 	for _, fixture := range fixtures {
 		if fixture.Outcome == workcontext.OutcomeAccepted {
 			accepted++
 		} else {
 			rejected++
 		}
-		checkFixture(t, ctx, fixture, verify, verify(ctx, fixture.Token))
+		err := verify(ctx, fixture.Token)
+		// Counted only over the fixtures a conforming verifier ACCEPTS. The
+		// shape and foreign-encoding fixtures are refused before a key is
+		// ever looked up, so they say nothing either way.
+		if fixture.Outcome == workcontext.OutcomeAccepted && err != nil &&
+			strings.Contains(err.Error(), "conformance fixture key") {
+			fixtureKeyRefusals++
+		}
+		checkFixture(t, ctx, fixture, verify, err)
+	}
+	// One diagnosis the kit can make for itself, because it can see both the
+	// settings it was handed and the error every fixture came back with.
+	//
+	// A consumer read an explicit warning about TrustTheConformanceFixtureKey,
+	// built its verifier field by field from these settings, omitted the bool,
+	// and watched all 35 fixtures fail with the fixture-key refusal. It cost
+	// ten minutes that this line costs nothing: a bool that must be true is
+	// the easiest kind of field to miss when copying a struct literal, and the
+	// kit is the only thing positioned to notice.
+	if accepted > 0 && fixtureKeyRefusals == accepted {
+		t.Fatalf("work context conformance: every fixture that should VERIFY was refused for carrying the conformance fixture key. " +
+			"Did you copy TrustTheConformanceFixtureKey from the settings into your verifier? " +
+			"A verifier refuses that key unless told otherwise, because its private half is derivable from core's source.")
+		return
 	}
 	// A kit that drove no accepted fixture, or no refused one, would pass for a
 	// verifier that answered the same way to everything.

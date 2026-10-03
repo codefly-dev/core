@@ -138,6 +138,15 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if !now.Add(-skew).Before(expires) {
 		return nil, fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))
 	}
+	// The LIFETIME, not just the window's end. A verifier that only asked
+	// "has this expired" accepted a thirty-day credential for thirty days,
+	// and nothing upstream bounded it either: MaxTTL took whatever a host
+	// configured. So the bound is checked on both sides of the wire, by the
+	// party that mints and the party that accepts.
+	if lifetime := expires.Sub(time.Unix(wc.GetNotBeforeUnix(), 0)); lifetime > MaxTTLCeiling {
+		return nil, fmt.Errorf("%w: the capability's lifetime is %s and no capability is accepted beyond %s",
+			ErrInvalid, lifetime, MaxTTLCeiling)
+	}
 	if err := checkStructure(wc); err != nil {
 		return nil, err
 	}

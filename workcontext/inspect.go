@@ -257,7 +257,7 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	if v.Revisions == nil || v.Grants == nil || v.Seals == nil {
 		return fmt.Errorf("work context: verifier is missing a revision source, grant source or seal source")
 	}
-	wc := verified.Context()
+	wc := verified.claims()
 	now := v.now()
 	skew := v.skew()
 	// The window first: a stream must not outlive the capability carrying it.
