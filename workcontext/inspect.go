@@ -27,6 +27,12 @@ import (
 // implementations of "is this a core token" is the same failure as two
 // implementations of the capability, one layer down.
 func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error) {
+	// The bound belongs in the ONE decode path, not in one entrypoint. It was
+	// enforced only in Inspect, so a caller that reached Verify directly — the
+	// strong path, and the one a receiver actually uses — had no bound at all.
+	if size := len(encoded); size > MaxTokenSize {
+		return nil, nil, nil, fmt.Errorf("%w: token is %d bytes, over the %d-byte maximum", ErrInvalid, size, MaxTokenSize)
+	}
 	payload, signature, found := strings.Cut(encoded, ".")
 	if !found {
 		return nil, nil, nil, fmt.Errorf("%w: token is not <payload>.<signature>", ErrInvalid)
@@ -208,12 +214,6 @@ func (i *Inspected) Seal() *basev0.WorkSealV1 { return i.context.GetSeal() }
 // because consumers were answering it by hand and reaching different
 // sentinels than core's fixtures declare.
 func Inspect(encoded string) (*Inspected, error) {
-	if size := len(encoded); size > MaxTokenSize {
-		// Bounded before anything is decoded. A consumer had invented its own
-		// 32KiB bound because core declared none, which is one more rule kept
-		// in sync by hand; the bound belongs here.
-		return nil, fmt.Errorf("%w: token is %d bytes, over the %d-byte maximum", ErrInvalid, size, MaxTokenSize)
-	}
 	wc, _, _, err := decodeClaims(encoded)
 	if err != nil {
 		return nil, err

@@ -589,11 +589,38 @@ func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.seals[sealKey(principalID, seal.InstallationID)] = seal
+	// Monotone, for the reason PutEpoch and PutBinding are: a sealed value is
+	// compared for EQUALITY, so moving one back re-admits every capability
+	// sealed to the earlier value.
+	key := sealKey(principalID, seal.InstallationID)
+	if held, exists := s.seals[key]; exists {
+		for _, field := range []struct {
+			label  string
+			held   uint64
+			wanted uint64
+		}{
+			{"installation revision", held.InstallationRevision, seal.InstallationRevision},
+			{"build incarnation", held.BuildIncarnation, seal.BuildIncarnation},
+		} {
+			if field.wanted < field.held {
+				return fmt.Errorf("%w: principal %q installation %q is at %s %d and it only advances; lowering it to %d would re-admit every capability sealed to the earlier one",
+					ErrInvalid, principalID, seal.InstallationID, field.label, field.held, field.wanted)
+			}
+		}
+	}
+	s.seals[key] = seal
 	return nil
 }
 
 // PutBinding records the live state of one operation binding.
+//
+// Revision and incarnation only ADVANCE, and Revoked is TERMINAL, for the same
+// reason PutEpoch refuses to lower an epoch: both are compared for equality
+// against a capability's sealed values, so moving one BACK re-admits every
+// capability sealed to the earlier value, and clearing Revoked resurrects
+// every capability the withdrawal refused. A source that genuinely must rewind
+// is reconstructing state rather than recording it, and should be built
+// afresh.
 func (s *MemorySealSource) PutBinding(binding OperationBinding) error {
 	if binding.ID == "" {
 		return fmt.Errorf("%w: a binding needs an ID", ErrInvalid)
@@ -609,6 +636,20 @@ func (s *MemorySealSource) PutBinding(binding OperationBinding) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if held, exists := s.bindings[binding.ID]; exists {
+		if held.Revoked && !binding.Revoked {
+			return fmt.Errorf("%w: binding %q is revoked and a withdrawal is terminal; clearing it would resurrect every capability sealed to it",
+				ErrInvalid, binding.ID)
+		}
+		if binding.Revision < held.Revision {
+			return fmt.Errorf("%w: binding %q is at revision %d and a revision only advances; lowering it to %d would re-admit every capability sealed to the earlier one",
+				ErrInvalid, binding.ID, held.Revision, binding.Revision)
+		}
+		if binding.Incarnation < held.Incarnation {
+			return fmt.Errorf("%w: binding %q is at incarnation %d and an incarnation only advances; lowering it to %d would re-admit a capability from a replaced binding",
+				ErrInvalid, binding.ID, held.Incarnation, binding.Incarnation)
+		}
+	}
 	s.bindings[binding.ID] = binding
 	return nil
 }
@@ -670,6 +711,20 @@ func (s *MemorySealSource) OperationBinding(_ context.Context, bindingID string)
 // a concurrent bump between this check and the next verification is the
 // ordinary race it always was and not a stale stamp.
 func (a *Authority) carryForwardRevision(ctx context.Context, parent *Verified) (uint64, error) {
+	// THIS authority's own capability, or nothing. A *Verified only proves
+	// that SOME verifier accepted the token, and a verifier is pinned to one
+	// issuer — so a capability another issuer minted and its own verifier
+	// accepted was a usable parent here. Measured before this check existed:
+	// our authority derived a child from a foreign issuer's parent, and the
+	// child was sealed, signed and verifiable as ours.
+	//
+	// Everything else in a derivation is held against OUR state — our
+	// revision, our seals, our bindings — so without this the only thing the
+	// parent contributed was authority nobody here granted.
+	if issued := parent.Context().GetIssuer(); issued != a.Issuer {
+		return 0, fmt.Errorf("%w: the parent was issued by %q and this authority is %q; a capability derives only from its own issuer",
+			ErrInvalid, issued, a.Issuer)
+	}
 	inherited := parent.Context().GetAuthorizationRevision()
 	current, err := a.revision(ctx, parent.Context().GetTenantId())
 	if err != nil {

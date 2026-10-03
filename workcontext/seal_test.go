@@ -128,15 +128,95 @@ func TestVerify_RefusesASealAheadOfTheIssuer(t *testing.T) {
 	h := newHarness(t)
 	token, _ := h.ownerSession(audience)
 
-	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
+	// A source that NEVER HELD revision 3, rather than one rolled back to 2.
+	// Put is monotone now — lowering a sealed value would re-admit every
+	// capability sealed to the earlier one — so "the issuer is behind this
+	// capability" has to be built, not reached by rewinding. Which is the
+	// right friction: rewinding was itself the bug in the other direction.
+	behind := workcontext.NewMemorySealSource()
+	require.NoError(t, behind.Put(ownerID, workcontext.Seal{
 		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
 		InstallationRevision: 2,
 		BuildIncarnation:     11,
 	}))
+	require.NoError(t, behind.PutEpoch(ownerID, 2))
+	h.seals = behind
 
 	_, err := h.verify(audience, token)
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 	require.ErrorContains(t, err, "sealed to installation revision 3, the issuer holds 2")
+}
+
+// A sealed value only ADVANCES in the source, and a withdrawal is terminal.
+//
+// Each sealed field is compared for EQUALITY, so moving one back re-admits
+// every capability sealed to the earlier value, and clearing Revoked
+// resurrects every capability the withdrawal refused. Both were writable
+// before: the source would take any value a caller handed it.
+func TestMemorySealSource_WritersAreMonotoneAndWithdrawalIsTerminal(t *testing.T) {
+	seals := workcontext.NewMemorySealSource()
+	require.NoError(t, seals.Put(ownerID, workcontext.Seal{
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
+		InstallationRevision: 4, BuildIncarnation: 11,
+	}))
+
+	err := seals.Put(ownerID, workcontext.Seal{
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
+		InstallationRevision: 3, BuildIncarnation: 11,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "re-admit every capability")
+
+	err = seals.Put(ownerID, workcontext.Seal{
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
+		InstallationRevision: 4, BuildIncarnation: 10,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+
+	require.NoError(t, seals.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 4, Incarnation: 2, Revoked: true,
+	}))
+	err = seals.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 4, Incarnation: 2,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "a withdrawal is terminal")
+}
+
+// A capability derives only from ITS OWN issuer.
+//
+// A *Verified proves only that SOME verifier accepted the token, and a
+// verifier is pinned to one issuer — so a capability another issuer minted,
+// accepted by that issuer's own verifier, was a usable parent here. Measured
+// before the check existed: our authority derived a child from a foreign
+// issuer's parent, and the child was sealed, signed and verifiable as ours.
+func TestChild_RefusesAParentFromAnotherIssuer(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+
+	foreign := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	foreign.Issuer = "https://authority.elsewhere.test"
+	token := h.resign(foreign)
+
+	other := &workcontext.Verifier{
+		Issuer: "https://authority.elsewhere.test", Audience: audience,
+		Keys:      map[string]ed25519.PublicKey{keyID: h.public},
+		Revisions: h, Replay: workcontext.NewMemoryReplayStore(),
+		Grants: h, Seals: h.seals, Now: func() time.Time { return h.clock },
+	}
+	verified, err := other.Verify(context.Background(), token)
+	require.NoError(t, err, "the other issuer's own verifier accepts its own capability")
+
+	_, _, err = h.authority.Child(context.Background(), verified, workcontext.ChildInput{
+		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
+		DelegationID:  "d-foreign",
+		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		Audience:      audience, TTL: time.Minute,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "derives only from its own issuer")
 }
 
 // Each sealed field is its own revocation lever, and each is compared.
