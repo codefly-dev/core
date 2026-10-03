@@ -104,9 +104,6 @@ func ParseSigned(data []byte) (*Signed, error) {
 		}
 		return nil, fmt.Errorf("%w: trailing input after the carrier: %v", ErrUnsigned, err)
 	}
-	if signed.Schema != SchemaSignedV1 {
-		return nil, fmt.Errorf("%w: schema %q (this Core reads %q)", ErrSchema, signed.Schema, SchemaSignedV1)
-	}
 	if err := signed.validate(); err != nil {
 		return nil, err
 	}
@@ -114,6 +111,17 @@ func ParseSigned(data []byte) (*Signed, error) {
 }
 
 func (signed *Signed) validate() error {
+	// THE CARRIER'S OWN SCHEMA, checked here and not only in ParseSigned.
+	//
+	// It was checked in ParseSigned alone, so the rule held for a carrier that
+	// arrived as bytes and not for one a caller constructed: VerifyDelivered
+	// calls validate() and nothing else, so a hand-built Signed claiming any
+	// schema, or none, went straight to the BundleVerifier. That is the same
+	// shape as a bound enforced in one entrypoint rather than on the one
+	// shared path, which this repository has now had to fix three times.
+	if signed.Schema != SchemaSignedV1 {
+		return fmt.Errorf("%w: schema %q (this Core reads %q)", ErrSchema, signed.Schema, SchemaSignedV1)
+	}
 	if len(bytes.TrimSpace(signed.Document)) == 0 {
 		return fmt.Errorf("%w: the carrier holds no document", ErrUnsigned)
 	}

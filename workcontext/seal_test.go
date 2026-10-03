@@ -242,37 +242,51 @@ func TestChild_RefusesAParentFromAnotherIssuer(t *testing.T) {
 // that PutEpoch alone left the owner's sessions verifying. The epoch has one
 // writer now and this moves it with that one.
 func TestVerify_RefusesEverySealedFieldIndependently(t *testing.T) {
-	for name, move := range map[string]func(*harness){
-		"principal epoch": func(h *harness) {
+	// Each case carries the phrase its OWN check produces. Asserting only
+	// ErrRevoked let a mutant through: with the approved build moved, deleting
+	// the digest comparison still refused on the incarnation, so the case
+	// passed while the check it existed for was gone.
+	for name, move := range map[string]struct {
+		apply   func(*harness)
+		because string
+	}{
+		"principal epoch": {because: "is sealed to epoch", apply: func(h *harness) {
 			require.NoError(h.t, h.seals.PutEpoch(ownerID, 3))
-		},
-		"installation revision": func(h *harness) {
+		}},
+		"installation revision": {because: "installation revision", apply: func(h *harness) {
 			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
 				InstallationID: installation, InstallationRevision: 4,
 			}))
-		},
-		"build incarnation": func(h *harness) {
-			// The incarnation moves through PutApprovedBuild now: the execution
-			// is held per PRINCIPAL rather than on the installation seal, which
-			// is what lets a delegated hop attest its own.
+		}},
+		// The incarnation moves through PutApprovedBuild now: the execution is
+		// held per PRINCIPAL rather than on the installation seal, which is
+		// what lets a delegated hop attest its own.
+		"build incarnation": {because: "this execution has been replaced", apply: func(h *harness) {
 			require.NoError(h.t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 12))
-		},
+		}},
 		// The APPROVED BUILD. This case was missing, and a reviewer found it
 		// by mutation: deleting the verifier's image-digest comparison left
 		// the whole suite AND the conformance kit green. I added the check for
 		// B3 and never added the lever that moves it, so the newest sealed
 		// field was the only one nothing held the verifier to.
-		"approved build": func(h *harness) {
-			require.NoError(h.t, h.seals.PutApprovedBuild(ownerID, "sha256:"+strings.Repeat("c", 64), 11))
-		},
+		// A conforming source cannot hold a NEW digest at the SAME incarnation
+		// — that is the swap-back C8 closed — so the incarnation advances with
+		// it. The digest is compared BEFORE the incarnation, so the expected
+		// phrase names the build: that is what makes deleting the digest
+		// comparison fail here instead of passing on the incarnation check.
+		"approved build": {because: "the issuer approves", apply: func(h *harness) {
+			require.NoError(h.t, h.seals.PutApprovedBuild(ownerID, "sha256:"+strings.Repeat("c", 64), 12))
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			token, _ := h.ownerSession(audience)
-			move(h)
+			move.apply(h)
 
 			_, err := h.verify(audience, token)
 			require.ErrorIs(t, err, workcontext.ErrRevoked)
+			require.ErrorContains(t, err, move.because,
+				"this case must refuse for ITS OWN reason, not for whichever check happens to fire first")
 		})
 	}
 }
@@ -1245,4 +1259,128 @@ func TestAHumanSessionBearsNoExecution(t *testing.T) {
 	_, err = h.verify(audience, h.resign(forged))
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 	require.ErrorContains(t, err, "bears no execution")
+}
+
+// TestTheSealSourcesWritersRefuseEveryRewind covers the writers whose guards
+// had no committed test — W4 and W5 in a round-four review, which found them
+// deletable with the whole suite green.
+//
+// A guard no test holds is indistinguishable from one that was never written,
+// and these are the writers that make "compared for equality" safe: every
+// sealed number is compared exactly, so a source that moves one BACK re-admits
+// every capability sealed to the earlier value.
+func TestTheSealSourcesWritersRefuseEveryRewind(t *testing.T) {
+	source := workcontext.NewMemorySealSource()
+	require.NoError(t, source.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 4, Incarnation: 2,
+	}))
+
+	// W4: the binding's revision only advances.
+	err := source.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 3, Incarnation: 2,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "re-admit")
+
+	// W5: and so does its incarnation, separately — a binding withdrawn and
+	// re-created is not the same binding re-revised.
+	err = source.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 4, Incarnation: 1,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "re-admit")
+
+	// Revocation is TERMINAL: clearing it would resurrect every capability
+	// the withdrawal refused.
+	require.NoError(t, source.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 4, Incarnation: 2, Revoked: true,
+	}))
+	err = source.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 5, Incarnation: 2,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+
+	// C8: a digest change at a FIXED incarnation is a rewind in disguise.
+	// Approve B at 5, approve A again at 5, and every capability sealed to A
+	// at 5 that the move to B revoked verifies again. This guard was added
+	// with a comment arguing the digest "may change freely"; the comment was
+	// wrong and the counterexample is two writes.
+	require.NoError(t, source.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 5))
+	err = source.PutApprovedBuild(ownerID, "sha256:"+strings.Repeat("b", 64), 5)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "a new build is a new run")
+	// With the incarnation advancing, approving a different build is fine.
+	require.NoError(t, source.PutApprovedBuild(ownerID, "sha256:"+strings.Repeat("b", 64), 6))
+	// And swapping back now needs another advance, so A at 6 is refused.
+	require.ErrorIs(t, source.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 6), workcontext.ErrInvalid)
+}
+
+// TestAHeldActorCannotBeEditedIntoWiderAuthority is W7, which had no committed
+// test: Verified.Actor() handed out the live message, so an edited Actor()
+// widened a child minted from that parent.
+//
+// Context() and EffectiveScopes() were deep-copied for exactly this reason in
+// an earlier round and Actor() was missed — the same defect, one accessor over,
+// which is the pattern that keeps recurring here.
+func TestAHeldActorCannotBeEditedIntoWiderAuthority(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+	_, agent := h.agentSession(owner, audience)
+
+	actor := agent.Actor()
+	require.NotNil(t, actor)
+	actor.PrincipalId = "someone-else"
+	actor.GrantedScopes = []*basev0.WorkScopeV1{scope("repo", []string{"read", "write", "admin"}, nil)}
+
+	require.Equal(t, agentID, agent.Actor().GetPrincipalId(),
+		"a held Actor() is a copy; editing it changes nothing the verifier or the minter will read")
+	require.Equal(t, []string{"read"}, agent.Actor().GetGrantedScopes()[0].GetActions())
+
+	// And the edit cannot widen a derivation either.
+	_, claims, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
+		Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		PrincipalID: "a-sub", PrincipalKind: "agent", AgentID: "fixture.test/sub:1.0.0",
+		DelegationID: "d-2", Audience: audience, TTL: 10 * time.Minute,
+		// Exactly what the parent holds: the point is the aliasing, so the
+		// derivation must not fail attenuation for an unrelated reason.
+		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+	})
+	require.NoError(t, err)
+	for _, hop := range claims.GetActorChain() {
+		require.NotEqual(t, "someone-else", hop.GetPrincipalId())
+		for _, granted := range hop.GetGrantedScopes() {
+			require.NotContains(t, granted.GetActions(), "admin")
+		}
+	}
+}
+
+// TestTheMintRefusesACapabilityTooLargeToPresent is C9: Authority.seal had no
+// size bound, so a sound request minted a token every reader refuses.
+//
+// MaxTokenSize lived only in decodeClaims — on the way IN. A review minted an
+// 85,903-byte capability that both Verify and Inspect rejected, which leaves a
+// holder with a credential nothing accepts and no way to learn why, failing in
+// whichever process first presents it rather than at the mint. Same rule as
+// "a minter must not emit what its own verifier rejects", applied to the one
+// bound that was only checked on the way in.
+func TestTheMintRefusesACapabilityTooLargeToPresent(t *testing.T) {
+	h := newHarness(t)
+	var scopes []*basev0.WorkScopeV1
+	for index := 0; index < 400; index++ {
+		scopes = append(scopes, scope("repo", []string{"read"},
+			[]string{strings.Repeat("r", 100) + string(rune('a'+index%26))}))
+	}
+	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
+		OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
+		Audience: audience, AuthorityScopes: scopes, TTL: time.Minute,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "too many scopes, hops or identifiers")
 }

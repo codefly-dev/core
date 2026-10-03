@@ -413,7 +413,7 @@ behaves.
 
 This paragraph previously argued that a renderer **cannot obtain** the
 `*Delivered` halves, their fields being unexported. That is **false** and
-module-saas-starter#953 refuted it in nine lines: `BundleVerifier` is an
+A host consumer refuted it in nine lines: `BundleVerifier` is an
 interface the *caller* supplies, so a permissive implementation returning any
 identity produces a `*Delivered` with nothing behind it — as `DeliveredBy`'s
 own comment says, the signer "is a string the caller handed it". The correction

@@ -556,6 +556,22 @@ func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV
 	}
 	signature := ed25519.Sign(a.Key, payload)
 	encoded := base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(signature)
+	// The SIZE, bounded by the minter and not only by the reader.
+	//
+	// MaxTokenSize was enforced in decodeClaims, so every reader refused an
+	// oversized token and the minter happily produced one: a review minted an
+	// 85,903-byte capability from a sound request, which Verify and Inspect
+	// both refused. The holder then has a credential nothing accepts and no
+	// way to know why, and the failure surfaces in whichever process first
+	// presents it rather than at the mint that had no business issuing it.
+	//
+	// This is the same rule as "a minter must not emit what its own verifier
+	// rejects" that the binding check already follows, applied to the one
+	// bound that was only ever checked on the way in.
+	if size := len(encoded); size > MaxTokenSize {
+		return "", nil, fmt.Errorf("%w: this capability encodes to %d bytes and no capability over %d is accepted; it carries too many scopes, hops or identifiers to be presented",
+			ErrInvalid, size, MaxTokenSize)
+	}
 	return encoded, wc, nil
 }
 

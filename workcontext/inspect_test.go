@@ -1,7 +1,10 @@
 package workcontext_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -42,7 +45,7 @@ func TestInspectAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		"missing-seal":              workcontext.ErrInvalid,
 		"seal-without-installation": workcontext.ErrInvalid,
 		"actor-without-epoch":       workcontext.ErrInvalid,
-		// The four the sdk-go consumer asked for, all refused by the SCHEMA.
+		// The four a client consumer asked for, all refused by the SCHEMA.
 		// Inspect runs protovalidate, so it reaches core's answer — which is
 		// the whole point: a hand parser reached a different one.
 		"zero-principal-epoch":       workcontext.ErrInvalid,
@@ -334,11 +337,117 @@ func TestTheLifetimeBoundIsOneBoundOnEveryEntrypoint(t *testing.T) {
 	require.Contains(t, err.Error(), "beyond 24h0m0s")
 
 	// Exactly at the ceiling is accepted: the bound is a maximum, and a
-	// consumer pinning MaxCredentialLifetime to MaxTTLCeiling — which sdk-go
+	// consumer pinning its own credential lifetime to MaxTTLCeiling — which a
 	// now does, reading core's constant rather than carrying a number of its
 	// own — must not find its own ceiling refused by one second of slack.
 	claims.ExpiresAtUnix = time.Unix(claims.GetNotBeforeUnix(), 0).Add(workcontext.MaxTTLCeiling).Unix()
 	inspected, err := workcontext.Inspect(h.resign(claims))
 	require.NoError(t, err)
 	require.Equal(t, workcontext.MaxTTLCeiling, inspected.ExpiresAt().Sub(inspected.NotBefore()))
+}
+
+// TestTheDecodePathHoldsItsOwnBoundsOnEveryEntrypoint covers W10 and W14,
+// whose guards had no committed test — a review found both deletable with the
+// suite green, which is the same as not having written them.
+//
+// W10: MaxTokenSize was once enforced in Inspect alone, so Verify — the strong
+// path, the one a receiver actually uses — had no bound at all. It lives in
+// decodeClaims, and all three entrypoints inherit it.
+//
+// W14: the payload must BE its own canonical encoding. Without it a second
+// minter emitting a different-but-valid encoding of the same claims passes
+// verification and the whole conformance kit, because the signature covers
+// whatever bytes were presented. No fixture carries a non-canonical payload,
+// so nothing held this.
+func TestTheDecodePathHoldsItsOwnBoundsOnEveryEntrypoint(t *testing.T) {
+	h := newHarness(t)
+	_, verified := h.ownerSession(audience)
+
+	oversized := strings.Repeat("A", workcontext.MaxTokenSize+1)
+	for name, check := range map[string]func(string) error{
+		"Inspect": func(token string) error {
+			_, err := workcontext.Inspect(token)
+			return err
+		},
+		"Verify": func(token string) error {
+			_, err := h.verify(audience, token)
+			return err
+		},
+		"Authenticate": func(token string) error {
+			_, err := h.authenticator(audience).Authenticate(context.Background(), token)
+			return err
+		},
+	} {
+		t.Run("size/"+name, func(t *testing.T) {
+			err := check(oversized)
+			require.ErrorIs(t, err, workcontext.ErrInvalid)
+			require.ErrorContains(t, err, "over the")
+		})
+	}
+
+	// A NON-CANONICAL encoding of sound claims, signed with the real key: the
+	// claims are identical, the signature is valid over the bytes presented,
+	// and only byte-equality against a deterministic re-marshal catches it.
+	// Protobuf lets the same message be encoded with fields in another order.
+	claims := verified.Context()
+	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(claims)
+	require.NoError(t, err)
+	shuffled, err := proto.MarshalOptions{Deterministic: false}.Marshal(claims)
+	require.NoError(t, err)
+	if bytes.Equal(canonical, shuffled) {
+		// The runtime happened to emit the canonical order; build a
+		// non-canonical encoding by hand so the assertion is not vacuous.
+		shuffled = append(append([]byte{}, canonical...), 0)
+	}
+	token := base64.RawURLEncoding.EncodeToString(shuffled) + "." +
+		base64.RawURLEncoding.EncodeToString(ed25519.Sign(h.authority.Key, shuffled))
+	_, err = workcontext.Inspect(token)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	_, err = h.verify(audience, token)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+}
+
+// TestRecheckRefusesACapabilityThatIsNotThisVerifiersToAnswer covers the gap a
+// round-four review reproduced, plus A1 — Authenticator.Recheck's forwarding,
+// whose guard had no test.
+//
+// Recheck's safety argument was that its argument cannot be obtained except by
+// verifying, so it can never be a first verification. True, and incomplete: a
+// *Verified obtained from one verifier was accepted by another, which never
+// checked the capability was addressed to it. A gateway for one audience could
+// report live a capability minted by another issuer for somebody else.
+//
+// Verify checks issuer and audience first; Recheck skipped them because they
+// cannot CHANGE under a long-running call. That was the wrong test — the
+// question is not what can change, but what this verifier may answer about.
+func TestRecheckRefusesACapabilityThatIsNotThisVerifiersToAnswer(t *testing.T) {
+	h := newHarness(t)
+	_, verified := h.ownerSession(audience)
+
+	require.NoError(t, h.verifier(audience).Recheck(context.Background(), verified))
+
+	foreignIssuer := h.verifier(audience)
+	foreignIssuer.Issuer = "https://someone-else.test"
+	err := foreignIssuer.Recheck(context.Background(), verified)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "this verifier answers for")
+
+	foreignAudience := h.verifier(audience)
+	foreignAudience.Audience = "another-audience"
+	err = foreignAudience.Recheck(context.Background(), verified)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "addressed to")
+
+	// A1: the Authenticator forwards to the same check rather than answering
+	// nil, and inherits the refusal with it.
+	token, _ := h.ownerSession(audience)
+	authenticator := h.authenticator(audience)
+	authenticated, err := authenticator.Authenticate(context.Background(), token)
+	require.NoError(t, err)
+	require.NoError(t, authenticator.Recheck(context.Background(), authenticated))
+
+	foreign := h.authenticator(audience)
+	foreign.Audience = "another-audience"
+	require.ErrorIs(t, foreign.Recheck(context.Background(), authenticated), workcontext.ErrInvalid)
+	require.ErrorIs(t, foreign.Recheck(context.Background(), nil), workcontext.ErrInvalid)
 }

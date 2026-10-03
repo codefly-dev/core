@@ -231,6 +231,22 @@ type SealSource interface {
 	// superseded generation in: it would answer "approved" for whatever that
 	// pod presents. The issuer answers what IT approves, the caller attests
 	// what it is running, and a mismatch is a refusal.
+	//
+	// # THE MONOTONICITY CONTRACT, which is an implementer's to keep
+	//
+	// Core compares these values for EQUALITY and cannot detect a source that
+	// moves backwards, so the rule has to be stated rather than enforced here.
+	// A conforming source guarantees that, for one principal, the pair
+	// (digest, incarnation) only ADVANCES: the incarnation never decreases,
+	// and a change of digest comes with an increase in the incarnation.
+	//
+	// The second clause is the one that is easy to miss, and MemorySealSource
+	// missed it: approve B at incarnation 5, then approve A again at
+	// incarnation 5, and every capability sealed to A at 5 — which the move to
+	// B revoked — verifies again. A swap-back at a fixed counter is the rewind
+	// the rule exists to prevent, reached through the field the rule did not
+	// cover. A source that genuinely must rewind is reconstructing state
+	// rather than recording it, and belongs behind a fresh instance.
 	ApprovedBuild(ctx context.Context, principalID string) (digest string, incarnation uint64, err error)
 
 	// OperationBinding resolves one binding by its opaque ID, exactly. It
@@ -749,11 +765,17 @@ func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 // answers ErrNoApprovedBuild for it — which is the correct answer for a human
 // session rather than a gap to be filled in.
 //
-// Monotone in the incarnation, for the reason Put and PutEpoch are: the
-// incarnation is compared for EQUALITY, so moving it back re-admits every
-// capability sealed to the earlier run. The DIGEST may change freely, because
-// approving a different build is not a rewind — it is what approving a new
-// build is — and the incarnation advancing with it is what separates the runs.
+// Monotone in the incarnation, AND a digest change requires the incarnation to
+// advance. The second half was missing and the comment here argued it was
+// unnecessary — "the DIGEST may change freely, because approving a different
+// build is not a rewind". That is wrong, and the counterexample is two writes:
+// approve B at incarnation 5, then approve A again at incarnation 5, and every
+// capability sealed to A at 5 that the move to B had revoked is re-admitted.
+// A swap-back at a fixed counter is exactly the rewind the monotonicity rule
+// exists to prevent, reached through the field the rule did not cover.
+//
+// So the pair (digest, incarnation) advances together: the incarnation is what
+// separates two runs, and a run on a different build is a different run.
 func (s *MemorySealSource) PutApprovedBuild(principalID, digest string, incarnation uint64) error {
 	if principalID == "" {
 		return fmt.Errorf("%w: an approved build is held for one principal", ErrInvalid)
@@ -767,9 +789,15 @@ func (s *MemorySealSource) PutApprovedBuild(principalID, digest string, incarnat
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if held, exists := s.builds[principalID]; exists && incarnation < held.incarnation {
-		return fmt.Errorf("%w: principal %q is at incarnation %d and it only advances; lowering it to %d would re-admit every capability sealed to the earlier run",
-			ErrInvalid, principalID, held.incarnation, incarnation)
+	if held, exists := s.builds[principalID]; exists {
+		if incarnation < held.incarnation {
+			return fmt.Errorf("%w: principal %q is at incarnation %d and it only advances; lowering it to %d would re-admit every capability sealed to the earlier run",
+				ErrInvalid, principalID, held.incarnation, incarnation)
+		}
+		if held.digest != digest && incarnation == held.incarnation {
+			return fmt.Errorf("%w: principal %q is approved for a different build at incarnation %d; a new build is a new run, so advance the incarnation — reusing it lets a swap back to the earlier digest re-admit every capability sealed to it",
+				ErrInvalid, principalID, incarnation)
+		}
 	}
 	s.builds[principalID] = approvedBuild{digest: digest, incarnation: incarnation}
 	return nil

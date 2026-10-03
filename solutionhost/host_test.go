@@ -665,3 +665,109 @@ func TestAnOutsideConstructedDeliveredYieldsNothing(t *testing.T) {
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "does not re-derive")
 }
+
+// TestADeliveredIsImmutableThroughEveryAccessor covers S7, S8 and S9, whose
+// guards had no committed test — a round-four review found all three
+// deletable with the suite green, which is the same as never having written
+// them.
+//
+// The shape is one shape, and it has now appeared on four types in two
+// packages: a verified value that hands out a reference to its own state lets
+// a holder edit what verification already approved. Here it is the attested
+// payload — if VerifyDelivered stored the caller's slice, or Payload() handed
+// back the stored one, or DeliveredAuthority.Document() returned a shared
+// message, then the bytes a signature held over stop being the bytes a reader
+// gets.
+func TestADeliveredIsImmutableThroughEveryAccessor(t *testing.T) {
+	document := valid(t)
+	payload, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+
+	delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, testBundleVerifier{})
+	require.NoError(t, err)
+	original, err := delivered.Document()
+	require.NoError(t, err)
+
+	// S8: the caller's slice is cloned on the way IN. Scribbling over the
+	// bytes we passed must not reach what was attested.
+	for index := range payload {
+		payload[index] = 'X'
+	}
+	after, err := delivered.Document()
+	require.NoError(t, err)
+	require.Equal(t, original.Binding, after.Binding, "VerifyDelivered stored the caller's slice")
+	require.Equal(t, original.Generation, after.Generation)
+
+	// S9: Payload() hands out a clone on the way OUT.
+	held := delivered.Payload()
+	for index := range held {
+		held[index] = 'Y'
+	}
+	again, err := delivered.Document()
+	require.NoError(t, err)
+	require.Equal(t, original.Generation, again.Generation, "Payload() aliased the attested bytes")
+
+	// And the document is re-derived per read, so editing one changes nothing.
+	original.Generation += 7
+	fresh, err := delivered.Document()
+	require.NoError(t, err)
+	require.NotEqual(t, original.Generation, fresh.Generation)
+
+	// S7: the same three properties on the AUTHORITY half, which is where the
+	// aliasing was found rather than on the presence half.
+	authorityDocument := validAuthority(t)
+	authorityPayload, err := authorityDocument.CanonicalBytes()
+	require.NoError(t, err)
+	authorityCarrier, err := solutionhost.Carrier(authorityPayload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+	deliveredAuthority, err := solutionhost.VerifyDeliveredAuthority(context.Background(), authorityCarrier, testBundleVerifier{})
+	require.NoError(t, err)
+
+	firstRead, err := deliveredAuthority.Document()
+	require.NoError(t, err)
+	firstRead.Generation += 7
+	firstRead.ApprovedBuild = solutionhost.ImageDigest("sha256:" + strings.Repeat("f", 64))
+	secondRead, err := deliveredAuthority.Document()
+	require.NoError(t, err)
+	require.Equal(t, authorityDocument.Generation, secondRead.Generation,
+		"DeliveredAuthority.Document() returned a shared message")
+	require.Equal(t, authorityDocument.ApprovedBuild, secondRead.ApprovedBuild)
+
+	for index := range authorityPayload {
+		authorityPayload[index] = 'X'
+	}
+	thirdRead, err := deliveredAuthority.Document()
+	require.NoError(t, err)
+	require.Equal(t, authorityDocument.Generation, thirdRead.Generation)
+}
+
+// TestVerifyDeliveredValidatesTheCarrierItself is S10: verifyCarrier calls
+// carrier.validate(), and nothing held it.
+//
+// Without it a hand-built Signed goes straight to a BundleVerifier with
+// whatever shape it likes — which is how a consumer's fixtures would pass
+// locally and fail on a real carrier, since the published path through
+// MarshalSigned/ParseSigned enforces the same rules.
+func TestVerifyDeliveredValidatesTheCarrierItself(t *testing.T) {
+	document := valid(t)
+	payload, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	sound, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+
+	for name, break_ := range map[string]func(*solutionhost.Signed){
+		"no schema":    func(s *solutionhost.Signed) { s.Schema = "" },
+		"wrong schema": func(s *solutionhost.Signed) { s.Schema = "codefly/not-a-carrier/v1" },
+		"no document":  func(s *solutionhost.Signed) { s.Document = nil },
+		"no bundle":    func(s *solutionhost.Signed) { s.Bundle = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			broken := *sound
+			break_(&broken)
+			_, err := solutionhost.VerifyDelivered(context.Background(), &broken, testBundleVerifier{})
+			require.Error(t, err, "a malformed carrier reached the verifier")
+		})
+	}
+}

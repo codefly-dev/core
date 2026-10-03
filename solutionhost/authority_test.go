@@ -656,7 +656,7 @@ func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
 // A renderer can call ActivateRendered with what it actually holds: a revision
 // number, not an envelope.
 //
-// It took an Envelope when it shipped, which made it uncallable. cli#855
+// It took an Envelope when it shipped, which made it uncallable. A renderer
 // reported why, and the report is the test: a renderer holds no envelope by
 // design — the render derives an authority document from a module contract,
 // which is a REQUEST, and the platform checks it against the ceiling at
@@ -724,7 +724,7 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 //
 // The claim was that a renderer cannot obtain the *Delivered halves Activate
 // takes, Delivered's fields being unexported and VerifyDelivered its only
-// constructor. module-saas-starter#953 refuted it in nine lines, below:
+// constructor. A host consumer refuted it in nine lines, below:
 // BundleVerifier is an interface the CALLER supplies, so a permissive
 // implementation returning any identity produces a *Delivered with no
 // attestation behind it. DeliveredBy's own comment already said so — the
@@ -765,7 +765,7 @@ func TestADeliveredProvesOrderingAndNotIdentity(t *testing.T) {
 }
 
 // permissiveVerifier accepts anything and names whatever signer it is told to.
-// It is module-saas-starter#953's nine lines, kept as a test fixture because
+// It is that consumer's nine lines, kept as a test fixture because
 // the claim it refutes was in a comment, a doc, a commit message and a PR
 // comment.
 type permissiveVerifier struct{ as string }

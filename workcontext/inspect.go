@@ -281,6 +281,25 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 		return fmt.Errorf("work context: verifier is missing a revision source, grant source or seal source")
 	}
 	wc := verified.claims()
+	// THE CAPABILITY MUST BE THIS VERIFIER'S TO RE-CHECK.
+	//
+	// The safety argument for Recheck was that the argument cannot be obtained
+	// except by verifying, so it cannot be a first verification. True, and
+	// incomplete: a *Verified obtained from verifier X was accepted by
+	// verifier Y, which never checked that the capability was addressed to it
+	// at all. A gateway for one audience could re-check, and so report live,
+	// a capability minted by another issuer for somebody else.
+	//
+	// Verify checks these before anything else; Recheck skipped them because
+	// they do not CHANGE under a long-running call. That was the wrong test:
+	// the question is not what can change, it is what this verifier is
+	// entitled to answer about.
+	if v.Issuer != "" && wc.GetIssuer() != v.Issuer {
+		return fmt.Errorf("%w: issued by %q and this verifier answers for %q", ErrInvalid, wc.GetIssuer(), v.Issuer)
+	}
+	if v.Audience != "" && wc.GetAudience() != v.Audience {
+		return fmt.Errorf("%w: addressed to %q and this verifier answers for %q", ErrInvalid, wc.GetAudience(), v.Audience)
+	}
 	now := v.now()
 	skew := v.skew()
 	// The window first: a stream must not outlive the capability carrying it.

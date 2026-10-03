@@ -660,7 +660,7 @@ func Activate(request ActivationRequest) (Activation, error) {
 	// correction matters more than the original claim because the false
 	// version was load-bearing prose. It said a renderer CANNOT OBTAIN the
 	// *Delivered halves this function takes, since their fields are unexported
-	// and VerifyDelivered is the only constructor. module-saas-starter#953
+	// and VerifyDelivered is the only constructor. A host consumer
 	// refuted it in nine lines: BundleVerifier is an interface the CALLER
 	// supplies, so a permissive implementation returning any identity yields a
 	// *Delivered with no attestation behind it, and DeliveredBy's own comment
@@ -763,7 +763,7 @@ type RenderedActivationRequest struct {
 	//
 	// So the only Envelope a renderer could hand this call is one assembled
 	// from the document under check, which makes ValidateAgainst answer
-	// itself. This type took an Envelope when it shipped, and cli#855
+	// itself. This type took an Envelope when it shipped, and a renderer consumer
 	// reported there was therefore no honest call available: a zero Envelope
 	// is refused outright, and a derived one is the self-answering shape both
 	// Activate's own comment about the build and Envelope's own doc refuse.
@@ -862,7 +862,7 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 // THE CEILING CHECK IS NOT MISSING FROM HERE, IT MOVED. This function used to
 // call authority.ValidateAgainst and no longer does; it now takes an envelope
 // REVISION rather than an Envelope. Diffed on its own, that reads as the
-// ceiling check having been deleted, which is how module-saas-starter#953
+// ceiling check having been deleted, which is how a host consumer
 // first read it — correctly, from the evidence in front of it.
 //
 // ValidateAgainst now runs in Activate, immediately before this is called,

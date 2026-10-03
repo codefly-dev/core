@@ -410,10 +410,10 @@ signature check with a distinct error is the one behaviour a re-implementation
 never thinks to copy — it is the behaviour that exists *because* the
 re-implementation happened.
 
-The consumers' half of this is theirs to land: `codefly-dev/sdk-go` deletes its
-mint, verify and JSON payload outright and keeps client plumbing only, with a CI
-gate that fails on a second implementation; the product host switches its call
-sites to this package and runs the conformance helper in its own suites. The
+The consumers' half of this is theirs to land: a client SDK deletes its mint,
+verify and JSON payload outright and keeps client plumbing only, with a CI gate
+that fails on a second implementation; a host switches its call sites to this
+package and runs the conformance helper in its own suites. The
 cutover is cold — every token changes format at once, and an old token is
 refused with `ErrNotACoreToken` rather than accepted.
 

@@ -77,6 +77,12 @@ const (
 	FixtureBuildIncarnation = 11
 	// FixtureImageDigest is the approved build for the fixture installation.
 	FixtureImageDigest = "sha256:eca6c756839cbd532a6c7cb16fa75263600f3c710738ac267fb3988e03e146aa"
+
+	// FixtureOtherImageDigest is a well-formed digest the fixture issuer does
+	// NOT approve, so the kit can present a capability sealed to an unapproved
+	// build AT THE LIVE INCARNATION — the shape a verifier comparing only
+	// counters accepts.
+	FixtureOtherImageDigest = "sha256:1dc9f4d2af4bb3d4a8c5d1f2e0b7a6c3d8e5f2a9b6c3d0e7f4a1b8c5d2e9f6a3"
 	// FixtureActorEpoch is FixtureActor's live epoch, distinct from the
 	// owner's so a fixture that advances one does not move the other.
 	FixtureActorEpoch = 5
@@ -582,6 +588,18 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 				InstallationRevision: FixtureInstallationRevision},
 			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation - 1,
 			rule: "sealed to a replaced build incarnation", field: "build incarnation",
+		},
+		{
+			// THE APPROVED BUILD ITSELF, which the kit did not cover: a review
+			// deleted the verifier's digest comparison and the kit stayed green,
+			// because every fixture carried the approved digest and so none could
+			// tell the check from its absence. The incarnation MATCHES here on
+			// purpose, so a verifier comparing only counters accepts it.
+			name: "unapproved-build",
+			seal: Seal{InstallationID: FixtureInstallation,
+				InstallationRevision: FixtureInstallationRevision},
+			epoch: FixturePrincipalEpoch, digest: FixtureOtherImageDigest, incarnation: FixtureBuildIncarnation,
+			rule: "sealed to a build the issuer does not approve, at the live incarnation", field: "image digest",
 		},
 		{
 			name: "unknown-installation",

@@ -170,7 +170,7 @@ the indicative: `Execution.ImageDigest` stays required because dropping it
 would be a worse trade, and its comment now states plainly that no consumer can
 source it correctly yet.
 
-The pattern was named by a consumer (sdk-go#48) after the third instance, which
+The pattern was named by a client consumer after the third instance, which
 is itself the finding: three single bugs looked like three bugs, and only
 someone integrating against all of them saw one.
 
