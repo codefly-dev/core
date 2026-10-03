@@ -167,6 +167,23 @@ type Host struct {
 	// core cannot know which delivery is entitled to a name it has never seen.
 	Domains []string
 
+	// DomainsBySigner is the host's policy: which ownership domains each
+	// SIGNER IDENTITY may deliver under. Required whenever Coordinate is set.
+	//
+	// Domains alone was not enough, and the gap is the keyless form of the
+	// thing this whole design refuses at the key level. A document ASSERTS its
+	// own ownership domain, so any signer the host accepted at all could write
+	// any domain in Domains and take over bindings in it — "a document
+	// nominates its own authority", one layer up from the key. Core cannot
+	// establish who a signer is (that is the caller's trust root, through
+	// BundleVerifier) but it can refuse a document whose attested signer is
+	// not one this host lets speak for that domain.
+	//
+	// It is host CONFIGURATION core consumes, not a trust root core resolves:
+	// the caller supplies the verified identity, and this says what that
+	// identity is allowed to deliver.
+	DomainsBySigner map[string][]string
+
 	// Applied is the host's durable record, at most one entry per binding ID.
 	Applied []Applied
 }
@@ -206,7 +223,23 @@ type Admission struct {
 //
 // Admit decides admission only. It does not verify who signed the document or
 // how it arrived; a host still checks provenance and its expected target first.
-func (host Host) Admit(documents ...*SolutionHostBinding) ([]Admission, error) {
+// Admit takes DELIVERED documents — ones whose carrier a BundleVerifier
+// accepted — rather than parsed ones. See Delivered: "verified" used to be
+// part of a function name and nothing more, and a host that forgot to verify a
+// carrier had no way to find out.
+func (host Host) Admit(delivered ...*Delivered) ([]Admission, error) {
+	documents := make([]*SolutionHostBinding, len(delivered))
+	signers := make([]string, len(delivered))
+	for index, one := range delivered {
+		if one == nil {
+			return nil, fmt.Errorf("%w: delivered document %d is nil", ErrInvalid, index)
+		}
+		documents[index], signers[index] = one.presence, one.signer
+	}
+	return host.admit(documents, signers)
+}
+
+func (host Host) admit(documents []*SolutionHostBinding, signers []string) ([]Admission, error) {
 	applied, err := host.appliedByBinding()
 	if err != nil {
 		return nil, err
@@ -223,6 +256,13 @@ func (host Host) Admit(documents ...*SolutionHostBinding) ([]Admission, error) {
 	// than a permissive default. A renderer leaves both empty and is unaffected.
 	if host.Coordinate != "" && len(host.Domains) == 0 {
 		return nil, fmt.Errorf("%w: host %q must declare the ownership domains it accepts; an unstated list would accept every domain",
+			ErrInvalid, host.Coordinate)
+	}
+	// Same reasoning one axis over: an unstated signer policy would let every
+	// accepted signer speak for every accepted domain, which is the hole
+	// DomainsBySigner exists to close.
+	if host.Coordinate != "" && len(host.DomainsBySigner) == 0 {
+		return nil, fmt.Errorf("%w: host %q must declare which signer identities may deliver under which domains; an unstated policy would let any accepted signer claim any accepted domain",
 			ErrInvalid, host.Coordinate)
 	}
 	for _, domain := range host.Domains {
@@ -248,6 +288,14 @@ func (host Host) Admit(documents ...*SolutionHostBinding) ([]Admission, error) {
 		if host.Coordinate != "" && !slices.Contains(host.Domains, document.OwnershipDomain) {
 			admissions[index].Err = fmt.Errorf("%w: binding %q is delivered under domain %q, which host %q does not accept",
 				ErrWrongDomain, document.Binding, document.OwnershipDomain, host.Coordinate)
+			continue
+		}
+		// And WHO may speak for that domain. The document asserts its own
+		// domain, so without this any signer the host accepted at all could
+		// write any accepted domain and take over bindings in it.
+		if host.Coordinate != "" && !slices.Contains(host.DomainsBySigner[signers[index]], document.OwnershipDomain) {
+			admissions[index].Err = fmt.Errorf("%w: binding %q is delivered under domain %q by signer %q, which host %q does not let speak for it",
+				ErrWrongDomain, document.Binding, document.OwnershipDomain, signers[index], host.Coordinate)
 			continue
 		}
 		// The applied record's domain is what says who may change this binding.

@@ -130,7 +130,11 @@ func FixtureHost() (Host, error) {
 	return Host{
 		Coordinate: FixtureCoordinate,
 		Domains:    []string{FixtureDomain},
-		Applied:    []Applied{applied},
+		// And which signer may speak for it. A document asserts its own
+		// domain, so the host must say who is allowed to make that assertion;
+		// see Host.DomainsBySigner.
+		DomainsBySigner: map[string][]string{FixtureDeliveredBy: {FixtureDomain}},
+		Applied:         []Applied{applied},
 	}, nil
 }
 
@@ -173,6 +177,13 @@ func FixtureEnvelope() Envelope {
 		},
 	}
 }
+
+// FixtureDeliveredBy is the delivering identity a consumer's BundleVerifier is
+// expected to name for the shipped fixtures — a keyless certificate SAN in the shape
+// a workflow identity takes. Core verifies no attestation, so this is what the
+// fixture host's signer policy is written against rather than anything core
+// checks.
+const FixtureDeliveredBy = "https://signer.example/workflow@refs/heads/main"
 
 // FixtureBundle is the placeholder that stands in for a Sigstore bundle in the
 // signed fixtures.

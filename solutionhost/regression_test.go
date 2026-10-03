@@ -1,6 +1,7 @@
 package solutionhost_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/codefly-dev/core/composition"
@@ -112,7 +113,7 @@ func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 	us.Host.Coordinate = "example/prod/region-b"
 	require.Equal(t, eu.Aliases(), us.Aliases())
 
-	admissions, err := solutionhost.Host{}.Admit(eu, us)
+	admissions, err := solutionhost.Host{}.Admit(deliverAll(t, eu, us)...)
 	require.NoError(t, err)
 	require.Equal(t, []solutionhost.Admission{
 		{Binding: eu.Binding, Decision: solutionhost.DecisionApply},
@@ -121,7 +122,7 @@ func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 
 	// The same alias twice on ONE coordinate still collides.
 	us.Host.Coordinate = eu.Host.Coordinate
-	_, err = solutionhost.Host{}.Admit(eu, us)
+	_, err = solutionhost.Host{}.Admit(deliverAll(t, eu, us)...)
 	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
@@ -131,7 +132,7 @@ func TestAppliedStateRequiresANamedHost(t *testing.T) {
 	applied, err := solutionhost.AppliedFrom(parse(t, "valid"))
 	require.NoError(t, err)
 
-	_, err = solutionhost.Host{Applied: []solutionhost.Applied{applied}}.Admit(parse(t, "valid"))
+	_, err = solutionhost.Host{Applied: []solutionhost.Applied{applied}}.Admit(deliver(t, parse(t, "valid")))
 	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
 	require.NotErrorIs(t, err, solutionhost.ErrInvalid,
 		"this is the host's own state, not a delivered document; accusing delivery sends the reader to the wrong repository")
@@ -149,10 +150,11 @@ func TestANewlyReservedNamespaceDoesNotBlockUnrelatedBindings(t *testing.T) {
 	require.NoError(t, err)
 
 	host := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain},
-		Reserved:   []string{"codefly"},
-		Applied:    []solutionhost.Applied{applied},
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta", "not a domain"}},
+		Reserved:        []string{"codefly"},
+		Applied:         []solutionhost.Applied{applied},
 	}
 
 	fresh := parse(t, "valid")
@@ -169,9 +171,19 @@ func TestANewlyReservedNamespaceDoesNotBlockUnrelatedBindings(t *testing.T) {
 	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
-// Validity is a per-document property, so one malformed binding must not freeze
-// every other binding on the host. The returned error still fails a caller that
-// checks only it.
+// Validity is a per-document property, so one malformed binding must not
+// freeze every other binding on the host.
+//
+// WHERE that is enforced moved, and the property is the same. A malformed
+// document can no longer become Delivered at all: VerifyDelivered parses after
+// the attestation holds, so it is refused at the delivery boundary and never
+// reaches Admit. So the per-document guarantee is now "delivering one document
+// fails that document", which is strictly earlier and strictly narrower than
+// an admission error over a set.
+//
+// This is the invariant the withdrawn ByDomain guidance violated, from the
+// other side: one unreadable document must never decide anything about a
+// sound one.
 func TestOneMalformedDocumentDoesNotRefuseTheRest(t *testing.T) {
 	good := parse(t, "valid")
 	bad := parse(t, "valid")
@@ -179,19 +191,27 @@ func TestOneMalformedDocumentDoesNotRefuseTheRest(t *testing.T) {
 	bad.Routes = nil
 	bad.Generation = 0
 
-	admissions, err := solutionhost.Host{}.Admit(good, bad)
+	// The malformed one cannot be carried at all, let alone delivered or
+	// admitted — and the refusal names its actual defect.
+	//
+	// Marshalled directly rather than through CanonicalBytes, because
+	// CanonicalBytes validates too: an invalid document has no canonical
+	// encoding. So there are three layers between a malformed document and
+	// Admit now, and none of them is a set-wide decision.
+	payload, err := json.Marshal(bad)
+	require.NoError(t, err)
+	_, err = solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
 	require.Error(t, err)
-	require.ErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Len(t, admissions, 2)
+	require.Contains(t, err.Error(), "generation starts at 1")
 
+	// And the sound one still admits, with the malformed one simply absent
+	// from the set rather than poisoning it.
+	admissions, err := solutionhost.Host{}.Admit(deliver(t, good))
+	require.NoError(t, err)
+	require.Len(t, admissions, 1)
 	require.NoError(t, admissions[0].Err)
 	require.Equal(t, good.Binding, admissions[0].Binding)
 	require.Equal(t, solutionhost.DecisionApply, admissions[0].Decision)
-
-	require.ErrorIs(t, admissions[1].Err, solutionhost.ErrInvalid)
-	require.Empty(t, admissions[1].Decision)
-	// The document never validated, so it never named a binding.
-	require.Empty(t, admissions[1].Binding)
 }
 
 // A redeclaration refused before the alias pass — here for being an older
@@ -209,7 +229,7 @@ func TestARedeclarationRefusedForItsGenerationKeepsItsAppliedAlias(t *testing.T)
 
 	claimant := parse(t, "duplicate-route-alias")
 
-	admissions, err := host.Admit(stale, claimant)
+	admissions, err := host.Admit(deliverAll(t, stale, claimant)...)
 	require.Error(t, err)
 	require.Len(t, admissions, 2)
 	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrStaleGeneration)
@@ -251,7 +271,7 @@ func TestTheAliasPassRerunsAfterARefusalFreesNothing(t *testing.T) {
 	successor.Binding = "bbb-01"
 	successor.Generation = 1
 
-	admissions, err := host.Admit(moving, successor)
+	admissions, err := host.Admit(deliverAll(t, moving, successor)...)
 	require.Error(t, err)
 	require.Len(t, admissions, 2)
 	require.ErrorIs(t, admissions[0].Err, composition.ErrCollision)

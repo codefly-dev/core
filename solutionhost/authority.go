@@ -586,9 +586,11 @@ func decideAuthority(record AppliedAuthority, document *AuthorityDocument) (Deci
 // next one should not change every call site again — and because a caller
 // reading it can see that the envelope and the applied record are not optional.
 type ActivationRequest struct {
-	// Authority and Presence are the two halves. Neither activates alone.
-	Authority *AuthorityDocument
-	Presence  *SolutionHostBinding
+	// Authority and Presence are the two halves, each DELIVERED — a carrier a
+	// BundleVerifier accepted. Neither activates alone, and neither reaches
+	// here unverified: see Delivered.
+	Authority *DeliveredAuthority
+	Presence  *Delivered
 
 	// Build is the execution being asked about.
 	Build ImageDigest
@@ -598,6 +600,12 @@ type ActivationRequest struct {
 	// first: narrowing an envelope must reach activation, and an ordering
 	// requirement a caller can forget is not a rule.
 	Envelope Envelope
+
+	// DomainsBySigner is the host's signer policy, as Host carries it. When
+	// set, both halves' attested signers must be allowed to speak for the
+	// domain they claim. Empty means the caller is a renderer pre-checking a
+	// pair it is about to write, with no host policy to apply.
+	DomainsBySigner map[string][]string
 
 	// Applied is what the host recorded for this authority ID. The zero value
 	// means nothing has been applied yet, which is the first generation's
@@ -626,12 +634,32 @@ type ActivationRequest struct {
 // ceiling neither document may carry. A caller verifies both signatures, checks
 // the authority against its envelope, and then activates.
 func Activate(request ActivationRequest) (Activation, error) {
-	authority, presence, build := request.Authority, request.Presence, request.Build
-	if authority == nil {
+	build := request.Build
+	if request.Authority == nil {
 		return Activation{}, fmt.Errorf("%w: no authority document; presence alone grants nothing", ErrNotActivated)
 	}
-	if presence == nil {
+	if request.Presence == nil {
 		return Activation{}, fmt.Errorf("%w: no presence document; authority alone grants nothing", ErrNotActivated)
+	}
+	authority, presence := request.Authority.authority, request.Presence.presence
+	// Both halves must have been attested by a signer this host lets speak
+	// for the domain they claim — the same policy Admit applies, because
+	// activation is the other place a self-asserted domain would be taken at
+	// its word.
+	if policy := request.DomainsBySigner; len(policy) > 0 {
+		for _, half := range []struct {
+			what   string
+			signer string
+			domain string
+		}{
+			{"authority", request.Authority.signer, authority.OwnershipDomain},
+			{"presence", request.Presence.signer, presence.OwnershipDomain},
+		} {
+			if !slices.Contains(policy[half.signer], half.domain) {
+				return Activation{}, fmt.Errorf("%w: the %s half was signed by %q, which this host does not let speak for domain %q",
+					ErrNotActivated, half.what, half.signer, half.domain)
+			}
+		}
 	}
 	if err := authority.Validate(); err != nil {
 		return Activation{}, err

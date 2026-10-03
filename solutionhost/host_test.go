@@ -1,6 +1,9 @@
 package solutionhost_test
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -16,11 +19,64 @@ func fixtureHost(t *testing.T) solutionhost.Host {
 	return host
 }
 
+// fixtureDeliveredBy is the signer identity the test bundle verifier attests, and
+// the one FixtureHost and appliedHost let speak for the fixture domain.
+const fixtureDeliveredBy = solutionhost.FixtureDeliveredBy
+
+// testBundleVerifier stands in for the caller's sigstore-go verification. Core
+// implements none, so every test that needs a Delivered document supplies one
+// — which is the property under test as much as a convenience: there is no way
+// to get a Delivered without one.
+type testBundleVerifier struct {
+	signer string
+	err    error
+}
+
+func (v testBundleVerifier) VerifyBundle(_ context.Context, _ []byte, _ json.RawMessage) (string, error) {
+	if v.err != nil {
+		return "", v.err
+	}
+	signer := v.signer
+	if signer == "" {
+		signer = fixtureDeliveredBy
+	}
+	return signer, nil
+}
+
+// deliver wraps a parsed document as one whose carrier was verified, by going
+// through the real VerifyDelivered path rather than constructing the wrapper
+// — which a test outside the package cannot do anyway, and should not be able
+// to.
+func deliver(t *testing.T, document *solutionhost.SolutionHostBinding) *solutionhost.Delivered {
+	t.Helper()
+	return deliverSignedBy(t, document, fixtureDeliveredBy)
+}
+
+func deliverSignedBy(t *testing.T, document *solutionhost.SolutionHostBinding, signer string) *solutionhost.Delivered {
+	t.Helper()
+	payload, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+	delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, testBundleVerifier{signer: signer})
+	require.NoError(t, err)
+	return delivered
+}
+
+func deliverAll(t *testing.T, documents ...*solutionhost.SolutionHostBinding) []*solutionhost.Delivered {
+	t.Helper()
+	out := make([]*solutionhost.Delivered, len(documents))
+	for index, document := range documents {
+		out[index] = deliver(t, document)
+	}
+	return out
+}
+
 // admitOne drives the single-document case every host-side test uses and
 // asserts the Admission agrees with the returned error.
 func admitOne(t *testing.T, host solutionhost.Host, document *solutionhost.SolutionHostBinding) (solutionhost.Decision, error) {
 	t.Helper()
-	admissions, err := host.Admit(document)
+	admissions, err := host.Admit(deliver(t, document))
 	require.Len(t, admissions, 1)
 	if err != nil {
 		require.Error(t, admissions[0].Err)
@@ -42,9 +98,10 @@ func parse(t *testing.T, name string) *solutionhost.SolutionHostBinding {
 // than relying on a permissive default.
 func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 	return solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain},
-		Applied:    applied,
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta"}},
+		Applied:         applied,
 	}
 }
 
@@ -155,13 +212,13 @@ func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
 
 	// The zero Host is the renderer's view: nothing applied, no coordinate
 	// pinned, and the collision still refused where the set was authored.
-	_, err := solutionhost.Host{}.Admit(first, second)
+	_, err := solutionhost.Host{}.Admit(deliverAll(t, first, second)...)
 	require.ErrorIs(t, err, composition.ErrCollision)
 	require.Contains(t, err.Error(), first.Binding)
 	require.Contains(t, err.Error(), second.Binding)
 
 	second.Routes[0].Alias = "alpha2"
-	admissions, err := solutionhost.Host{}.Admit(first, second)
+	admissions, err := solutionhost.Host{}.Admit(deliverAll(t, first, second)...)
 	require.NoError(t, err)
 	require.Equal(t, []solutionhost.Admission{
 		{Binding: first.Binding, Decision: solutionhost.DecisionApply},
@@ -181,7 +238,7 @@ func TestOneSetDeclaresOneGenerationPerBinding(t *testing.T) {
 	second.Generation = 6
 	second.Routes = nil
 
-	_, err := solutionhost.Host{}.Admit(first, second)
+	_, err := solutionhost.Host{}.Admit(deliverAll(t, first, second)...)
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "declared twice")
 }
@@ -197,9 +254,10 @@ func TestADocumentForAnotherHostIsRefused(t *testing.T) {
 
 func TestAHostReservesRouteNamespaces(t *testing.T) {
 	host := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain},
-		Reserved:   []string{"codefly"},
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta", "not a domain"}},
+		Reserved:        []string{"codefly"},
 	}
 
 	document := parse(t, "valid")
@@ -246,7 +304,7 @@ func TestInvalidAppliedStateIsRejectedRatherThanTrusted(t *testing.T) {
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := appliedHost(applied...).Admit(document)
+			_, err := appliedHost(applied...).Admit(deliverAll(t, document)...)
 			require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
 			require.NotErrorIs(t, err, solutionhost.ErrInvalid,
 				"no delivery can repair the host's own stored state, so this must not read as a delivery problem")
@@ -258,7 +316,7 @@ func TestInvalidAppliedStateIsRejectedRatherThanTrusted(t *testing.T) {
 	// it reads the same as every other composition collision.
 	_, err = appliedHost(sound, solutionhost.Applied{
 		Binding: "other-01", Generation: 1, Digest: digest, Domain: domain, Routes: []string{"alpha"},
-	}).Admit(document)
+	}).Admit(deliverAll(t, document)...)
 	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
@@ -315,11 +373,12 @@ func TestAHostAdmitsAMountHoldingSeveralDeliveries(t *testing.T) {
 	fromBeta.Routes = nil
 
 	host := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain, "beta"},
-		Applied:    fixtureHost(t).Applied,
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain, "beta"},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta", "not a domain"}},
+		Applied:         fixtureHost(t).Applied,
 	}
-	admissions, err := host.Admit(fromAlpha, fromBeta)
+	admissions, err := host.Admit(deliverAll(t, fromAlpha, fromBeta)...)
 	require.NoError(t, err, "two deliveries into one mount is the normal case, not a straddle")
 	require.Equal(t, solutionhost.DecisionCurrent, admissions[0].Decision)
 	require.Equal(t, solutionhost.DecisionApply, admissions[1].Decision)
@@ -327,9 +386,10 @@ func TestAHostAdmitsAMountHoldingSeveralDeliveries(t *testing.T) {
 	// A domain the host does not accept is refused per document, which is the
 	// rule that bounds a binding's first generation.
 	narrow := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain},
-		Applied:    fixtureHost(t).Applied,
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta", "not a domain"}},
+		Applied:         fixtureHost(t).Applied,
 	}
 	_, err = admitOne(t, narrow, fromBeta)
 	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
@@ -340,19 +400,20 @@ func TestAHostAdmitsAMountHoldingSeveralDeliveries(t *testing.T) {
 // every domain, which is the hole the field exists to close — so it is an error
 // rather than a permissive default. A renderer leaves both empty.
 func TestANamedHostMustDeclareTheDomainsItAccepts(t *testing.T) {
-	_, err := solutionhost.Host{Coordinate: solutionhost.FixtureCoordinate}.Admit(parse(t, "valid"))
+	_, err := solutionhost.Host{Coordinate: solutionhost.FixtureCoordinate}.Admit(deliver(t, parse(t, "valid")))
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "ownership domains it accepts")
 
 	_, err = solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{"not a domain"},
-	}.Admit(parse(t, "valid"))
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{"not a domain"},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta", "not a domain"}},
+	}.Admit(deliver(t, parse(t, "valid")))
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 
 	// The renderer's view, unaffected: no coordinate, no domains, and every
 	// check that does not need host state still runs.
-	_, err = solutionhost.Host{}.Admit(parse(t, "valid"))
+	_, err = solutionhost.Host{}.Admit(deliver(t, parse(t, "valid")))
 	require.NoError(t, err)
 }
 
@@ -361,9 +422,10 @@ func TestANamedHostMustDeclareTheDomainsItAccepts(t *testing.T) {
 // binding by declaring a higher generation under its own domain.
 func TestABindingKeepsTheDomainItWasAppliedUnder(t *testing.T) {
 	host := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain, "beta"},
-		Applied:    fixtureHost(t).Applied,
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain, "beta"},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta", "not a domain"}},
+		Applied:         fixtureHost(t).Applied,
 	}
 
 	// The host accepts "beta", so this is refused on ownership and not on
@@ -401,9 +463,10 @@ func TestATombstonedBindingIsNotResurrectedByAHigherGeneration(t *testing.T) {
 	revival.Generation = withdrawn.Generation + 1
 
 	host := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Domains:    []string{solutionhost.FixtureDomain},
-		Applied:    []solutionhost.Applied{withdrawn},
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta", "not a domain"}},
+		Applied:         []solutionhost.Applied{withdrawn},
 	}
 	_, err = admitOne(t, host, revival)
 	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
@@ -414,7 +477,74 @@ func TestATombstonedBindingIsNotResurrectedByAHigherGeneration(t *testing.T) {
 	fresh.Binding = "alpha-region-a-02"
 	fresh.Routes = nil
 	_ = document
-	admissions, err := host.Admit(fresh)
+	admissions, err := host.Admit(deliverAll(t, fresh)...)
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.DecisionApply, admissions[0].Decision)
+}
+
+// A document asserts its own ownership domain, so the host must say WHO may
+// make that assertion.
+//
+// Domains alone bounded which domains the host accepts at all. It did not
+// bound who may speak for one, so any signer the host accepted could write any
+// accepted domain and take over bindings in it — the keyless form of "a
+// document nominates its own authority", one layer up from the key.
+func TestADomainIsOnlyDeliverableByASignerTheHostAllows(t *testing.T) {
+	document := parse(t, "valid")
+	host := solutionhost.Host{
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain},
+		DomainsBySigner: map[string][]string{solutionhost.FixtureDeliveredBy: {solutionhost.FixtureDomain}},
+	}
+
+	// The allowed signer delivers it.
+	admissions, err := host.Admit(deliver(t, document))
+	require.NoError(t, err)
+	require.Equal(t, solutionhost.DecisionApply, admissions[0].Decision)
+
+	// Another identity the host has never heard of, delivering the SAME sound
+	// document under a domain the host DOES accept. Everything about the
+	// document is fine; only the identity that attested it is not.
+	_, err = host.Admit(deliverSignedBy(t, document, "https://signer.example/someone-else@refs/heads/main"))
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
+	require.Contains(t, err.Error(), "does not let speak for it")
+}
+
+// A named host must declare the signer policy too. An unstated one would let
+// every accepted signer speak for every accepted domain, which is the hole the
+// field exists to close.
+func TestANamedHostMustDeclareWhoMaySpeakForItsDomains(t *testing.T) {
+	_, err := solutionhost.Host{
+		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{solutionhost.FixtureDomain},
+	}.Admit(deliver(t, parse(t, "valid")))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "which signer identities may deliver under which domains")
+}
+
+// There is no way to reach Admit without an attestation having held. The
+// workcontext half of this change uses distinct types for exactly this reason;
+// the document half had been relying on "verified" being part of a function
+// name.
+func TestAdmitCannotBeReachedWithoutABundleVerifier(t *testing.T) {
+	document := parse(t, "valid")
+	payload, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+
+	// No verifier at all: core will not treat its absence as one holding.
+	_, err = solutionhost.VerifyDelivered(context.Background(), carrier, nil)
+	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+	require.Contains(t, err.Error(), "will not treat its absence as one holding")
+
+	// A verifier that refuses.
+	_, err = solutionhost.VerifyDelivered(context.Background(), carrier,
+		testBundleVerifier{err: errors.New("certificate identity not allowed")})
+	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+	require.Contains(t, err.Error(), "the attestation does not hold")
+
+	// A verifier that accepts but names nobody: nothing to map to a domain.
+	_, err = solutionhost.VerifyDelivered(context.Background(), carrier, testBundleVerifier{signer: " "})
+	require.NoError(t, err, "a blank-but-present identity is the caller's business")
 }

@@ -1,6 +1,8 @@
 package solutionhost_test
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/codefly-dev/core/solutionhost"
@@ -42,10 +44,32 @@ func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 
 // activationOf builds a request with the current envelope and nothing applied
 // — the first-generation case — so each test states only what it varies.
-func activationOf(a *solutionhost.AuthorityDocument, p *solutionhost.SolutionHostBinding, build solutionhost.ImageDigest) solutionhost.ActivationRequest {
-	return solutionhost.ActivationRequest{
-		Authority: a, Presence: p, Build: build, Envelope: solutionhost.FixtureEnvelope(),
+func activationOf(t *testing.T, a *solutionhost.AuthorityDocument, p *solutionhost.SolutionHostBinding, build solutionhost.ImageDigest) solutionhost.ActivationRequest {
+	t.Helper()
+	request := solutionhost.ActivationRequest{
+		Build: build, Envelope: solutionhost.FixtureEnvelope(),
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta"}},
 	}
+	if a != nil {
+		request.Authority = deliverAuthority(t, a)
+	}
+	if p != nil {
+		request.Presence = deliver(t, p)
+	}
+	return request
+}
+
+// deliverAuthority is deliver for the authority half: through the real
+// VerifyDeliveredAuthority path, because that is the only way to obtain one.
+func deliverAuthority(t *testing.T, document *solutionhost.AuthorityDocument) *solutionhost.DeliveredAuthority {
+	t.Helper()
+	payload, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+	delivered, err := solutionhost.VerifyDeliveredAuthority(context.Background(), carrier, testBundleVerifier{})
+	require.NoError(t, err)
+	return delivered
 }
 
 // An authority document grants nothing on its own, and neither does a presence
@@ -56,7 +80,7 @@ func TestActivationNeedsBothHalvesAndTheBuild(t *testing.T) {
 	authorityDocument := validAuthority(t)
 	build := presenceDocument.Workloads[0].Image.Digest
 
-	activation, err := solutionhost.Activate(activationOf(authorityDocument, presenceDocument, build))
+	activation, err := solutionhost.Activate(activationOf(t, authorityDocument, presenceDocument, build))
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.Activation{
 		Authority:        authorityDocument.Authority,
@@ -67,11 +91,11 @@ func TestActivationNeedsBothHalvesAndTheBuild(t *testing.T) {
 		Domain:           solutionhost.FixtureDomain,
 	}, activation)
 
-	_, err = solutionhost.Activate(activationOf(nil, presenceDocument, build))
+	_, err = solutionhost.Activate(activationOf(t, nil, presenceDocument, build))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "presence alone grants nothing")
 
-	_, err = solutionhost.Activate(activationOf(authorityDocument, nil, build))
+	_, err = solutionhost.Activate(activationOf(t, authorityDocument, nil, build))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "authority alone grants nothing")
 }
@@ -87,13 +111,13 @@ func TestAuthorityForAnotherBuildDoesNotActivate(t *testing.T) {
 	// the envelope approved. What it is not is the build that is present.
 	require.NoError(t, otherBuild.ValidateAgainst(solutionhost.FixtureEnvelope()))
 
-	_, err = solutionhost.Activate(activationOf(otherBuild, presenceDocument, otherBuild.ApprovedBuild))
+	_, err = solutionhost.Activate(activationOf(t, otherBuild, presenceDocument, otherBuild.ApprovedBuild))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "and not "+string(otherBuild.ApprovedBuild))
 
 	// And asking about the build that IS present does not rescue it either: the
 	// authority approves a different one.
-	_, err = solutionhost.Activate(activationOf(otherBuild, presenceDocument, presenceDocument.Workloads[0].Image.Digest))
+	_, err = solutionhost.Activate(activationOf(t, otherBuild, presenceDocument, presenceDocument.Workloads[0].Image.Digest))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "is approved for build")
 }
@@ -134,7 +158,7 @@ func TestActivationRefusesEveryMismatch(t *testing.T) {
 			build := presenceDocument.Workloads[0].Image.Digest
 			mutate(authorityDocument, presenceDocument)
 
-			_, err := solutionhost.Activate(activationOf(authorityDocument, presenceDocument, build))
+			_, err := solutionhost.Activate(activationOf(t, authorityDocument, presenceDocument, build))
 			require.Error(t, err, "nothing may activate")
 		})
 	}
@@ -160,12 +184,12 @@ func TestAuthorityActivatesOnlyTheBindingItNames(t *testing.T) {
 	replacement := valid(t)
 	replacement.Binding = "alpha-region-a-02"
 
-	_, err := solutionhost.Activate(activationOf(authorityDocument, replacement, build))
+	_, err := solutionhost.Activate(activationOf(t, authorityDocument, replacement, build))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "is granted over binding")
 
 	// And the one it does name still activates.
-	_, err = solutionhost.Activate(activationOf(authorityDocument, presenceDocument, build))
+	_, err = solutionhost.Activate(activationOf(t, authorityDocument, presenceDocument, build))
 	require.NoError(t, err)
 }
 
@@ -186,13 +210,13 @@ func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
 	replayed := validAuthority(t)
 	replayed.Generation = current.Generation - 1
 
-	request := activationOf(replayed, presenceDocument, build)
+	request := activationOf(t, replayed, presenceDocument, build)
 	request.Applied = applied
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrStaleGeneration)
 
 	// The current generation activates against its own applied record.
-	request = activationOf(current, presenceDocument, build)
+	request = activationOf(t, current, presenceDocument, build)
 	request.Applied = applied
 	_, err = solutionhost.Activate(request)
 	require.NoError(t, err)
@@ -201,7 +225,7 @@ func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
 	// tampering rather than reapplied.
 	rewritten := validAuthority(t)
 	rewritten.EffectiveFrom = current.EffectiveFrom + 1
-	request = activationOf(rewritten, presenceDocument, build)
+	request = activationOf(t, rewritten, presenceDocument, build)
 	request.Applied = applied
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrRewrittenGeneration)
@@ -220,7 +244,7 @@ func TestAWithdrawnAuthorityCannotBeRevived(t *testing.T) {
 
 	revival := validAuthority(t)
 	revival.Generation = tombstone.Generation + 1
-	request := activationOf(revival, presenceDocument, build)
+	request := activationOf(t, revival, presenceDocument, build)
 	request.Applied = withdrawn
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
@@ -232,7 +256,7 @@ func TestActivationChecksTheEnvelopeItIsGiven(t *testing.T) {
 	authorityDocument, presenceDocument := validAuthority(t), valid(t)
 	build := presenceDocument.Workloads[0].Image.Digest
 
-	request := activationOf(authorityDocument, presenceDocument, build)
+	request := activationOf(t, authorityDocument, presenceDocument, build)
 	request.Envelope = solutionhost.Envelope{
 		Revision:       solutionhost.FixtureEnvelopeRevision,
 		ApprovedBuilds: []solutionhost.ImageDigest{build},
@@ -254,7 +278,7 @@ func TestWithdrawnAuthorityActivatesNothing(t *testing.T) {
 	require.Zero(t, tombstone.EffectiveFrom)
 
 	presenceDocument := valid(t)
-	_, err = solutionhost.Activate(activationOf(tombstone, presenceDocument, presenceDocument.Workloads[0].Image.Digest))
+	_, err = solutionhost.Activate(activationOf(t, tombstone, presenceDocument, presenceDocument.Workloads[0].Image.Digest))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "withdrawn")
 
@@ -268,7 +292,7 @@ func TestWithdrawnAuthorityActivatesNothing(t *testing.T) {
 // out of the document that approves it would make the question answer itself.
 func TestActivationRefusesABuildThatIsNotADigest(t *testing.T) {
 	for _, build := range []solutionhost.ImageDigest{"", "latest", "sha256:short"} {
-		_, err := solutionhost.Activate(activationOf(validAuthority(t), valid(t), build))
+		_, err := solutionhost.Activate(activationOf(t, validAuthority(t), valid(t), build))
 		require.ErrorIsf(t, err, solutionhost.ErrNotActivated, "build %q", build)
 	}
 }

@@ -268,6 +268,46 @@ principals:
         namespace: alpha-region-a-01 # OPTIONAL
 ```
 
+### "Verified" was part of a function name, and nothing more
+
+`Parse` and `ParseAuthority` returned the same types `PresenceFromVerified` and
+`AuthorityFromVerified` returned, and `Admit` and `Activate` accepted them. So a
+host that never verified a carrier had no way to find out, and the ordering the
+whole signature design rests on was a convention about naming.
+
+`Admit` takes `*Delivered` now, and `Activate` takes `*DeliveredAuthority` and
+`*Delivered`. Each is produced only by `VerifyDelivered` /
+`VerifyDeliveredAuthority`, which take a caller-supplied `BundleVerifier`, call
+it **first**, and build the document from the payload only when it accepts.
+Core implements no `BundleVerifier` and never will — signing is keyless over a
+workload identity, verifying is sigstore-go against an identity policy and a
+trust root the verifier holds — but core owns the **ordering**, and the
+unverified path is now unexpressible rather than merely discouraged. The
+`workcontext` half of this same change uses `*Verified`, `*Authenticated` and
+`*Inspected` for exactly this reason.
+
+A malformed document now has three layers between it and `Admit`: it has no
+canonical encoding, so `Carrier` will not wrap it, so it cannot be delivered.
+None of those is a set-wide decision — which is the withdrawn `ByDomain`
+guidance's invariant from the other side.
+
+### Who may speak for a domain
+
+A document **asserts its own** ownership domain. `Host.Domains` bounded which
+domains a host accepts at all; it did not bound who may speak for one, so any
+signer the host accepted could write any accepted domain and take over bindings
+in it. That is the keyless form of "a document nominates its own authority",
+one layer up from the key.
+
+`Host.DomainsBySigner` maps each attested identity to the domains it may
+deliver under, and is required whenever `Coordinate` is set — an unstated
+policy would let every accepted signer claim every accepted domain.
+`ActivationRequest.DomainsBySigner` applies the same policy to both halves of a
+tuple, because activation is the other place a self-asserted domain would
+otherwise be taken at its word. Core still establishes nothing about who a
+signer is: the caller's `BundleVerifier` names the identity, and this says what
+that identity is allowed to deliver.
+
 ### What activation requires, and the three things it did not
 
 `Activate` takes an `ActivationRequest` — both documents, the build, **the
@@ -501,6 +541,8 @@ payload that survives a round trip through it.
 | Removal is a generation, never an absence | `Validate`; an empty set is "nothing declared" |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
 | Authority bindings are inside the caller's envelope, by exact inclusion | `ValidateAgainst`, `ErrOutsideEnvelope` |
+| An unverified document cannot reach `Admit` or `Activate` | distinct `Delivered` types, produced only through a caller's `BundleVerifier` |
+| A domain is deliverable only by a signer the host allows | `Host.Admit` / `Activate`, `ErrWrongDomain` / `ErrNotActivated` |
 | Neither half of a tuple activates alone | `Activate`, `ErrNotActivated` |
 | Authority is granted over ONE presence binding, and activates no other | `Activate`, `ErrNotActivated` |
 | A replayed or rewritten authority generation activates nothing | `decideAuthority` via `Activate`, `ErrStaleGeneration` / `ErrRewrittenGeneration` |
