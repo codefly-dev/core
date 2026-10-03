@@ -858,6 +858,25 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 // activate is the shared tuple check both entrypoints run. Everything that
 // needs an attestation is done by the caller, and everything that does not is
 // here exactly once.
+//
+// THE CEILING CHECK IS NOT MISSING FROM HERE, IT MOVED. This function used to
+// call authority.ValidateAgainst and no longer does; it now takes an envelope
+// REVISION rather than an Envelope. Diffed on its own, that reads as the
+// ceiling check having been deleted, which is how module-saas-starter#953
+// first read it — correctly, from the evidence in front of it.
+//
+// ValidateAgainst now runs in Activate, immediately before this is called,
+// because only a HOST holds an envelope: an envelope a renderer could assemble
+// comes from the document under check and so answers itself. What both
+// entrypoints share is the weaker thing a renderer can honestly assert, that
+// both halves name the revision the caller named.
+//
+// The note is here rather than only in a commit message because a reader who
+// diffs a private helper sees a removal at exactly the place they are looking
+// and has no signature list to reassure them — a relocated check is the one
+// case where the diff and the semantics disagree, and it misleads in the
+// direction of reporting a regression that does not exist, or worse,
+// concluding the ceiling is unchecked and designing around it.
 func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelopeRevision uint64, applied AppliedAuthority) (Activation, error) {
 	if err := authority.Validate(); err != nil {
 		return Activation{}, err
