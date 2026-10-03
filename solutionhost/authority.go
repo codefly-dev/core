@@ -222,6 +222,23 @@ type Envelope struct {
 	ApprovedBuilds []ImageDigest
 }
 
+// AppliedStateReader is the host's applied state, read BY CORE under a binding
+// core derives from the attested bytes.
+//
+// Both methods answer (record, found, error) — three outcomes, not two, so
+// "the host holds nothing for this binding" is distinguishable from "the host
+// could not answer". The first is a first generation; the second must refuse,
+// and conflating them is the shape this package has now corrected six times.
+type AppliedStateReader interface {
+	// AuthorityRecord answers the authority record applied OVER this binding,
+	// whatever authority id last held it. Keyed on the binding, because
+	// authority is granted over one and a withdrawal is terminal for it.
+	AuthorityRecord(binding string) (AppliedAuthority, bool, error)
+
+	// PresenceRecord answers the presence record for this binding.
+	PresenceRecord(binding string) (Applied, bool, error)
+}
+
 // EnvelopeGrant is one (principal, binding) pair a platform administrator
 // allowed. Both halves are compared exactly: a binding is held BY someone, and
 // a ceiling that bounded only the binding bounded half the statement.
@@ -664,37 +681,29 @@ type ActivationRequest struct {
 	// mode here and is now a refusal.
 	DomainsBySigner map[string][]string
 
-	// Applied is what the host recorded for THIS PRESENCE BINDING — whatever
-	// authority ID last held it. It was keyed on the authority ID, and that
-	// was the hole: the same authority re-signed under a NEW ID had no record,
-	// so a withdrawn authority was reinstated by renaming it. Authority is
-	// granted over a binding, so the fold belongs on the binding.
-	Applied AppliedAuthority
-
-	// AppliedPresence is the host's presence record for the same binding.
-	// Activation runs the presence generation fold too, which it did not: a
-	// tombstoned binding at generation 5 refused Admit of generation 4 and
-	// ACTIVATED the same signed generation-4 presence, because Activate
-	// consulted no presence record at all.
-	AppliedPresence Applied
-
-	// FirstAuthorityRecord and FirstPresenceRecord say, EXPLICITLY and PER
-	// HALF, that this host holds no applied record of that kind for this
-	// binding.
+	// Records is the host's applied state, which CORE READS ITSELF.
 	//
-	// One marker for both halves was a hole: the guard refused only when BOTH
-	// records were empty, so supplying either let the other fold run on its
-	// zero value, which decideAuthority and decide both read as "apply".
+	// It replaces caller-supplied records plus a caller-asserted "there is
+	// none" marker, and the reason is that the marker was self-asserted and
+	// therefore bypassable WITHOUT LYING. AppliedAuthority was documented
+	// "for one authority ID" while the fold must be keyed by the binding, so
+	// a host keyed by authority id TRUTHFULLY found no record for a renamed
+	// authority, truthfully set the marker, and activated a renamed authority
+	// over a withdrawn binding. Two reviews called it reachable by a host
+	// that follows the type's own documentation, which is the worst kind of
+	// bypass: no mistake required.
 	//
-	// It exists because the zero value could not be told from a caller that
-	// forgot the records, and those two must not read alike — the same
-	// distinction ErrNoApprovedBuild draws for an execution, and the same one
-	// the signer policy's emptiness failed to draw. Activation with no records
-	// and no marker is refused rather than treated as a first generation,
-	// because "nothing applied" is the single most permissive input this call
-	// takes and it must be asserted rather than defaulted.
-	FirstAuthorityRecord bool
-	FirstPresenceRecord  bool
+	// Core now derives the binding from the ATTESTED presence bytes and asks
+	// for both records under it, so the key cannot be the caller's choice and
+	// "no record" cannot be the caller's assertion.
+	Records AppliedStateReader
+
+	// Domains are the ownership domains this host ACCEPTS, required for the
+	// same reason Admit requires them: activation checked who may speak for a
+	// domain and never whether the host accepts the domain at all, so an
+	// activation succeeded for a domain the host does not list while Admit
+	// refused the same documents.
+	Domains []string
 }
 
 // Activate reports whether an authority document and a presence document form a
@@ -841,7 +850,42 @@ func Activate(request ActivationRequest) (Activation, error) {
 				ErrWrongHost, half.what, half.host.Coordinate, request.Coordinate)
 		}
 	}
-	activation, err := activate(authority, presence, build, request.Envelope.Revision, request.Applied, request.AppliedPresence, request.FirstAuthorityRecord, request.FirstPresenceRecord)
+	// THE HOST MUST ACCEPT THE DOMAIN AT ALL, which admission has always
+	// checked and activation did not: a named host that activates a domain it
+	// does not list accepts every domain, which is the hole Domains exists to
+	// close one axis over from DomainsBySigner.
+	if len(request.Domains) == 0 {
+		return Activation{}, fmt.Errorf("%w: activation needs the domains this host accepts; an unstated list would accept every domain",
+			ErrNotActivated)
+	}
+	if !slices.Contains(request.Domains, presence.OwnershipDomain) {
+		return Activation{}, fmt.Errorf("%w: binding %q is delivered under domain %q, which this host does not accept",
+			ErrWrongDomain, presence.Binding, presence.OwnershipDomain)
+	}
+	// CORE READS THE APPLIED STATE, under the binding it derived from the
+	// attested bytes. The caller cannot choose the key and cannot assert that
+	// there is nothing under it.
+	if request.Records == nil {
+		return Activation{}, fmt.Errorf("%w: activation folds against the host's applied state, so it needs a reader for it",
+			ErrNotActivated)
+	}
+	appliedAuthority, authorityFound, err := request.Records.AuthorityRecord(presence.Binding)
+	if err != nil {
+		return Activation{}, fmt.Errorf("%w: reading the applied authority record for binding %q: %v",
+			ErrAppliedUnusable, presence.Binding, err)
+	}
+	appliedPresence, presenceFound, err := request.Records.PresenceRecord(presence.Binding)
+	if err != nil {
+		return Activation{}, fmt.Errorf("%w: reading the applied presence record for binding %q: %v",
+			ErrAppliedUnusable, presence.Binding, err)
+	}
+	if !authorityFound {
+		appliedAuthority = AppliedAuthority{}
+	}
+	if !presenceFound {
+		appliedPresence = Applied{}
+	}
+	activation, err := activate(authority, presence, build, request.Envelope.Revision, appliedAuthority, appliedPresence, !authorityFound, !presenceFound)
 	if err != nil {
 		return Activation{}, err
 	}

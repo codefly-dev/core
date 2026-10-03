@@ -932,8 +932,7 @@ func TestABlankDomainRecordDoesNotDisableContinuity(t *testing.T) {
 
 	// Activation.
 	request := activationOf(t, validAuthority(t), valid(t), valid(t).Workloads[0].Image.Digest)
-	request.FirstAuthorityRecord, request.FirstPresenceRecord = true, false
-	request.AppliedPresence = blank
+	request.Records = recordsHolding(blank)
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
 

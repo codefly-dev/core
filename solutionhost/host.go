@@ -186,6 +186,12 @@ type Host struct {
 
 	// Applied is the host's durable record, at most one entry per binding ID.
 	Applied []Applied
+
+	// AppliedAuthorities is the host's record of the authority applied over
+	// each binding. It is here, beside Applied, because Activate now reads
+	// both through Host.Records() rather than taking them from a caller that
+	// could key them however it liked.
+	AppliedAuthorities []AppliedAuthority
 }
 
 // Admission is what Admit concluded about one document: the decision a host
@@ -306,6 +312,51 @@ type RenderedSet struct {
 	// A zero record with no marker is refused rather than folded, for the
 	// reason ActivationRequest states it per half.
 	FirstRecord bool
+}
+
+// Records exposes this host's own applied state as an AppliedStateReader, so
+// Activate reads the same records Admit folds against rather than a second
+// copy the caller assembled.
+//
+// Both lookups are keyed on the BINDING. AppliedAuthority's own documentation
+// used to say "for one authority id", and a host that followed it keyed its
+// store that way and then truthfully reported no record for a renamed
+// authority — activating it over a withdrawn binding without lying. Keying
+// here is core's, not the caller's.
+func (host Host) Records() AppliedStateReader { return hostRecords{host: host} }
+
+type hostRecords struct{ host Host }
+
+func (r hostRecords) AuthorityRecord(binding string) (AppliedAuthority, bool, error) {
+	var found AppliedAuthority
+	seen := false
+	for _, record := range r.host.AppliedAuthorities {
+		if record.Binding != binding {
+			continue
+		}
+		if seen {
+			return AppliedAuthority{}, false, fmt.Errorf("%w: two applied authority records for binding %q; the host's own state is ambiguous",
+				ErrAppliedUnusable, binding)
+		}
+		found, seen = record, true
+	}
+	return found, seen, nil
+}
+
+func (r hostRecords) PresenceRecord(binding string) (Applied, bool, error) {
+	var found Applied
+	seen := false
+	for _, record := range r.host.Applied {
+		if record.Binding != binding {
+			continue
+		}
+		if seen {
+			return Applied{}, false, fmt.Errorf("%w: two applied presence records for binding %q; the host's own state is ambiguous",
+				ErrAppliedUnusable, binding)
+		}
+		found, seen = record, true
+	}
+	return found, seen, nil
 }
 
 // validateAppliedPresence is THE ONE validator for an applied presence record,

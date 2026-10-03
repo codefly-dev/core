@@ -3,6 +3,7 @@ package solutionhost_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/codefly-dev/core/solutionhost"
@@ -53,8 +54,11 @@ func activationOf(t *testing.T, a *solutionhost.AuthorityDocument, p *solutionho
 		// them.
 		Coordinate: fixtureHostCoordinate(t),
 		Build:      build, Envelope: solutionhost.FixtureEnvelope(),
-		DomainsBySigner:      map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta"}},
-		FirstAuthorityRecord: true, FirstPresenceRecord: true,
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta"}},
+		Domains:         []string{solutionhost.FixtureDomain, "beta"},
+		// A host holding NO records for this binding, as host state core
+		// READS rather than a marker the caller asserts.
+		Records: recordsHolding(),
 	}
 	if a != nil {
 		request.Authority = deliverAuthority(t, a)
@@ -220,15 +224,13 @@ func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
 	replayed.Generation = current.Generation - 1
 
 	request := activationOf(t, replayed, presenceDocument, build)
-	request.Applied = applied
-	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
+	request.Records = recordsHolding(applied)
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrStaleGeneration)
 
 	// The current generation activates against its own applied record.
 	request = activationOf(t, current, presenceDocument, build)
-	request.Applied = applied
-	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
+	request.Records = recordsHolding(applied)
 	_, err = solutionhost.Activate(request)
 	require.NoError(t, err)
 
@@ -237,8 +239,7 @@ func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
 	rewritten := validAuthority(t)
 	rewritten.EffectiveFrom = current.EffectiveFrom + 1
 	request = activationOf(t, rewritten, presenceDocument, build)
-	request.Applied = applied
-	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
+	request.Records = recordsHolding(applied)
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrRewrittenGeneration)
 }
@@ -257,8 +258,7 @@ func TestAWithdrawnAuthorityCannotBeRevived(t *testing.T) {
 	revival := validAuthority(t)
 	revival.Generation = tombstone.Generation + 1
 	request := activationOf(t, revival, presenceDocument, build)
-	request.Applied = withdrawn
-	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
+	request.Records = recordsHolding(withdrawn)
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
 }
@@ -862,8 +862,7 @@ func TestActivationRunsThePresenceFoldToo(t *testing.T) {
 	require.NoError(t, err)
 
 	request := activationOf(t, authorityDocument, presenceDocument, build)
-	request.FirstAuthorityRecord, request.FirstPresenceRecord = true, false
-	request.AppliedPresence = tombstone
+	request.Records = recordsHolding(tombstone)
 
 	_, err = solutionhost.Activate(request)
 	require.Error(t, err, "a tombstoned binding activated an older signed presence")
@@ -877,9 +876,7 @@ func TestActivationRunsThePresenceFoldToo(t *testing.T) {
 	later := valid(t)
 	later.Generation = 6
 	afterTombstone := activationOf(t, validAuthority(t), later, later.Workloads[0].Image.Digest)
-	afterTombstone.FirstAuthorityRecord = true
-	afterTombstone.FirstPresenceRecord = false
-	afterTombstone.AppliedPresence = tombstone
+	afterTombstone.Records = recordsHolding(tombstone)
 	_, err = solutionhost.Activate(afterTombstone)
 	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
 }
@@ -915,8 +912,7 @@ func TestAWithdrawnAuthorityCannotBeRenamedBackIntoLife(t *testing.T) {
 	require.Equal(t, withdrawnDocument.PresenceBinding, renamed.PresenceBinding)
 
 	request := activationOf(t, renamed, presenceDocument, build)
-	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
-	request.Applied = withdrawn
+	request.Records = recordsHolding(withdrawn)
 
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
@@ -924,69 +920,72 @@ func TestAWithdrawnAuthorityCannotBeRenamedBackIntoLife(t *testing.T) {
 	require.Contains(t, err.Error(), "new authority ID does not reinstate it")
 }
 
-// TestNothingAppliedMustBeStatedRatherThanDefaulted holds the marker.
+// TestCoreReadsTheAppliedStateItselfSoAbsenceCannotBeAsserted is R7-3, and it
+// replaces a test of the marker it removed.
 //
-// The zero value meant "first generation", which is also what a caller that
-// forgot the records passes — and "nothing applied" is the most permissive
-// input this call takes. The same conflation appeared three times in this
-// package's history: an empty signer policy meaning "a renderer", an empty
-// digest meaning "bears no execution", and this.
-func TestNothingAppliedMustBeStatedRatherThanDefaulted(t *testing.T) {
+// The caller used to supply both records AND assert "there is none" per half.
+// That was bypassable WITHOUT LYING: AppliedAuthority was documented "for one
+// authority ID" while the fold must key on the binding, so a host that
+// followed the documentation keyed its store by authority id, truthfully found
+// no record for a renamed authority, truthfully set the marker, and activated
+// a renamed authority over a WITHDRAWN binding. No mistake required, which is
+// what made it worth an API change rather than a stronger warning.
+//
+// Core derives the binding from the attested presence bytes and reads both
+// records under it. The caller chooses neither the key nor the answer.
+func TestCoreReadsTheAppliedStateItselfSoAbsenceCannotBeAsserted(t *testing.T) {
 	presenceDocument := valid(t)
-	authorityDocument := validAuthority(t)
 	build := presenceDocument.Workloads[0].Image.Digest
 
-	forgot := activationOf(t, authorityDocument, presenceDocument, build)
-	forgot.FirstAuthorityRecord, forgot.FirstPresenceRecord = false, false
-	_, err := solutionhost.Activate(forgot)
-	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
-	require.Contains(t, err.Error(), "declare that it holds none")
-
-	// THE MIXED FORM, which the single marker allowed and which four executed
-	// bypasses went through: supplying one record let the OTHER fold run on
-	// its zero value, and both decide paths read a zero record as "apply".
-	onlyAuthority := activationOf(t, authorityDocument, presenceDocument, build)
-	onlyAuthority.FirstAuthorityRecord, onlyAuthority.FirstPresenceRecord = false, false
-	applied, err := solutionhost.AppliedAuthorityFrom(authorityDocument)
+	// A withdrawal of the OLD authority id, recorded under the binding.
+	withdrawn := validAuthority(t)
+	withdrawn.Removed = true
+	withdrawn.Generation = 3
+	withdrawn.Principals = nil
+	withdrawn.ApprovedBuild = ""
+	withdrawn.EffectiveFrom = 0
+	record, err := solutionhost.AppliedAuthorityFrom(withdrawn)
 	require.NoError(t, err)
-	onlyAuthority.Applied = applied
-	_, err = solutionhost.Activate(onlyAuthority)
-	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
-	require.Contains(t, err.Error(), "no applied presence record was given")
 
-	onlyPresence := activationOf(t, authorityDocument, presenceDocument, build)
-	onlyPresence.FirstAuthorityRecord, onlyPresence.FirstPresenceRecord = false, false
-	appliedPresence, err := solutionhost.AppliedFrom(presenceDocument)
-	require.NoError(t, err)
-	onlyPresence.AppliedPresence = appliedPresence
-	_, err = solutionhost.Activate(onlyPresence)
-	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
-	require.Contains(t, err.Error(), "no applied authority record was given")
+	// The RENAMED authority, which a host keyed by authority id would find no
+	// record for — and which used to activate.
+	renamed := validAuthority(t)
+	renamed.Authority = withdrawn.Authority + "-v2"
+	renamed.Generation = 1
 
-	// A record for ANOTHER BINDING is not this binding's history.
-	foreign := activationOf(t, authorityDocument, presenceDocument, build)
-	foreign.FirstAuthorityRecord, foreign.FirstPresenceRecord = true, false
-	foreign.AppliedPresence = solutionhost.Applied{Binding: "some-other-binding", Generation: 1}
-	_, err = solutionhost.Activate(foreign)
+	request := activationOf(t, renamed, presenceDocument, build)
+	request.Records = recordsHolding(record)
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrTombstoned,
+		"core keys the lookup on the binding, so the withdrawal reaches the renamed authority")
+	require.Contains(t, err.Error(), "terminal for the binding")
+
+	// A reader is REQUIRED: there is no way to say "assume nothing".
+	noReader := activationOf(t, validAuthority(t), presenceDocument, build)
+	noReader.Records = nil
+	_, err = solutionhost.Activate(noReader)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "needs a reader")
+
+	// And a reader that CANNOT ANSWER refuses rather than reading as absent —
+	// three outcomes, not two.
+	_, err = solutionhost.Activate(func() solutionhost.ActivationRequest {
+		r := activationOf(t, validAuthority(t), presenceDocument, build)
+		r.Records = failingRecords{}
+		return r
+	}())
 	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
-	require.Contains(t, err.Error(), "is for binding")
+}
 
-	// And a record that is not well formed is refused rather than folded,
-	// which Host.appliedByBinding already did for the admission path.
-	garbage := activationOf(t, authorityDocument, presenceDocument, build)
-	garbage.FirstAuthorityRecord, garbage.FirstPresenceRecord = true, false
-	garbage.AppliedPresence = solutionhost.Applied{Binding: presenceDocument.Binding}
-	_, err = solutionhost.Activate(garbage)
-	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
-	require.Contains(t, err.Error(), "needs a generation, the digest")
+// failingRecords cannot answer, which must not read as "holds nothing".
+type failingRecords struct{}
 
-	// And a marker cannot be combined with a record of the same kind, which
-	// would be a caller asserting two different things.
-	contradictory := activationOf(t, authorityDocument, presenceDocument, build)
-	contradictory.Applied = applied
-	_, err = solutionhost.Activate(contradictory)
-	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
-	require.Contains(t, err.Error(), "declared to have no applied record")
+func (failingRecords) AuthorityRecord(string) (solutionhost.AppliedAuthority, bool, error) {
+	return solutionhost.AppliedAuthority{}, false, errors.New("store unavailable")
+}
+
+func (failingRecords) PresenceRecord(string) (solutionhost.Applied, bool, error) {
+	return solutionhost.Applied{}, false, errors.New("store unavailable")
 }
 
 // TestAnUnnamedHostAdmitsNothing is C4: Host{}.Admit returned DecisionApply
@@ -1121,4 +1120,116 @@ func carrierOf(t *testing.T, document *solutionhost.SolutionHostBinding) *soluti
 	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
 	require.NoError(t, err)
 	return carrier
+}
+
+// recordsHolding is an AppliedStateReader over whatever records a test hands
+// it, keyed by binding exactly as a host's own store is. Passing none means
+// the host holds none — which core now determines by LOOKING rather than by
+// believing a marker.
+func recordsHolding(records ...any) solutionhost.AppliedStateReader {
+	held := testRecords{}
+	for _, record := range records {
+		switch typed := record.(type) {
+		case solutionhost.AppliedAuthority:
+			held.authority = append(held.authority, typed)
+		case solutionhost.Applied:
+			held.presence = append(held.presence, typed)
+		}
+	}
+	return held
+}
+
+type testRecords struct {
+	authority []solutionhost.AppliedAuthority
+	presence  []solutionhost.Applied
+}
+
+func (r testRecords) AuthorityRecord(binding string) (solutionhost.AppliedAuthority, bool, error) {
+	for _, record := range r.authority {
+		if record.Binding == binding {
+			return record, true, nil
+		}
+	}
+	return solutionhost.AppliedAuthority{}, false, nil
+}
+
+func (r testRecords) PresenceRecord(binding string) (solutionhost.Applied, bool, error) {
+	for _, record := range r.presence {
+		if record.Binding == binding {
+			return record, true, nil
+		}
+	}
+	return solutionhost.Applied{}, false, nil
+}
+
+// TestActivationChecksTheDomainsTheHostAccepts is R7-4: activation checked WHO
+// may speak for a domain and never whether the host accepts that domain at
+// all, so an activation succeeded for a domain the host does not list while
+// Admit refused the same documents.
+//
+// It is the hole Domains closes, one axis over from DomainsBySigner, and
+// admission has always checked it.
+func TestActivationChecksTheDomainsTheHostAccepts(t *testing.T) {
+	presenceDocument := valid(t)
+	authorityDocument := validAuthority(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	// The host accepts some OTHER domain. The signer policy still allows this
+	// signer for this domain, so only the accepted-domains rule can refuse.
+	notAccepted := activationOf(t, authorityDocument, presenceDocument, build)
+	notAccepted.Domains = []string{"gamma"}
+	_, err := solutionhost.Activate(notAccepted)
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
+	require.Contains(t, err.Error(), "this host does not accept")
+
+	// Admit refuses the same documents, which is the comparison that makes
+	// this a missing check rather than a new rule.
+	host := fixtureHost(t)
+	host.Domains = []string{"gamma"}
+	_, err = host.Admit(deliver(t, presenceDocument))
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
+
+	// An unstated list is refused rather than read as "every domain".
+	unstated := activationOf(t, authorityDocument, presenceDocument, build)
+	unstated.Domains = nil
+	_, err = solutionhost.Activate(unstated)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "would accept every domain")
+}
+
+// Each reader method's failure is held separately, so neither error path can
+// be deleted while the other covers for it.
+func TestEitherAppliedReadFailingRefusesActivation(t *testing.T) {
+	presenceDocument := valid(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	for name, records := range map[string]solutionhost.AppliedStateReader{
+		"authority read fails": halfFailingRecords{authority: true},
+		"presence read fails":  halfFailingRecords{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := activationOf(t, validAuthority(t), presenceDocument, build)
+			request.Records = records
+			_, err := solutionhost.Activate(request)
+			require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable,
+				"a store that cannot answer must not read as a store holding nothing")
+		})
+	}
+}
+
+// halfFailingRecords fails exactly one of the two reads.
+type halfFailingRecords struct{ authority bool }
+
+func (r halfFailingRecords) AuthorityRecord(string) (solutionhost.AppliedAuthority, bool, error) {
+	if r.authority {
+		return solutionhost.AppliedAuthority{}, false, errors.New("authority store unavailable")
+	}
+	return solutionhost.AppliedAuthority{}, false, nil
+}
+
+func (r halfFailingRecords) PresenceRecord(string) (solutionhost.Applied, bool, error) {
+	if r.authority {
+		return solutionhost.Applied{}, false, nil
+	}
+	return solutionhost.Applied{}, false, errors.New("presence store unavailable")
 }
