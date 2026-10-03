@@ -380,3 +380,41 @@ func TestABindingKeepsTheDomainItWasAppliedUnder(t *testing.T) {
 	_, err = admitOne(t, host, parse(t, "tombstone"))
 	require.NoError(t, err)
 }
+
+// A tombstoned binding ID is TERMINAL. No later generation reapplies it.
+//
+// decide used to let any higher generation resurrect one, and nothing tested
+// it. The binding ID is the handle every other system holds — installations,
+// operation bindings, team grants — so reusing it after a withdrawal is
+// indistinguishable from continuity, which is the one thing a withdrawal is
+// supposed to make distinguishable. A replacement instance needs a new ID,
+// which is a rename at the renderer rather than a loss.
+func TestATombstonedBindingIsNotResurrectedByAHigherGeneration(t *testing.T) {
+	document := parse(t, "valid")
+	tombstone := parse(t, "tombstone")
+	withdrawn, err := solutionhost.AppliedFrom(tombstone)
+	require.NoError(t, err)
+	require.True(t, withdrawn.Removed)
+
+	revival := parse(t, "valid")
+	revival.Binding = withdrawn.Binding
+	revival.Generation = withdrawn.Generation + 1
+
+	host := solutionhost.Host{
+		Coordinate: solutionhost.FixtureCoordinate,
+		Domains:    []string{solutionhost.FixtureDomain},
+		Applied:    []solutionhost.Applied{withdrawn},
+	}
+	_, err = admitOne(t, host, revival)
+	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
+	require.Contains(t, err.Error(), "replacement needs a new ID")
+
+	// A genuinely new instance, with its own ID, is admitted.
+	fresh := parse(t, "valid")
+	fresh.Binding = "alpha-region-a-02"
+	fresh.Routes = nil
+	_ = document
+	admissions, err := host.Admit(fresh)
+	require.NoError(t, err)
+	require.Equal(t, solutionhost.DecisionApply, admissions[0].Decision)
+}

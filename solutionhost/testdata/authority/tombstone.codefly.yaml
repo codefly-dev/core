@@ -7,6 +7,7 @@
 # says what it grants, and a host would have to decide which half meant it.
 schema: codefly/solution-authority/v1
 authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
 generation: 5
 host:
   coordinate: example/prod/region-a

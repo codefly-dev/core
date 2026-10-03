@@ -11,6 +11,7 @@
 # so shipping a new build does not carry the old build's authority forward.
 schema: codefly/solution-authority/v1
 authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
 generation: 2
 host:
   coordinate: example/prod/region-a

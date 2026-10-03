@@ -65,10 +65,29 @@ type AuthorityDocument struct {
 	// Authority is the stable ID of this authority document.
 	Authority string `yaml:"authority" json:"authority"`
 
-	// Generation is strictly monotonic per authority ID and starts at 1, so a
-	// replayed older document is detectable the same way a replayed presence
-	// generation is.
+	// Generation is strictly monotonic per authority ID and starts at 1.
+	//
+	// Detecting a replay takes more than monotonicity, and an earlier version
+	// of this comment claimed the detection existed when nothing performed it:
+	// Activate never compared this field against anything, and keyless
+	// signatures do not expire, so a genuinely signed document at generation
+	// N-1 re-granted every binding generation N had withdrawn. The fold is
+	// AppliedAuthority and decideAuthority, and Activate requires the applied
+	// record — see ActivationRequest.
 	Generation uint64 `yaml:"generation" json:"generation"`
+
+	// PresenceBinding is the presence binding ID this authority is granted
+	// over, and it must be that document's own. The YAML key is `binding`; the
+	// Go field is not, because AuthorityDocument already has a Binding method
+	// that resolves one of its own AuthorityBindings by id.
+	//
+	// Without it, Activate matched on host, domain, envelope revision and
+	// build membership only — so an authority document activated ANY binding
+	// in the same host and domain running the same image, including a new
+	// instance that had taken a tombstoned binding's alias. Activation.Binding
+	// was simply copied from whichever presence document the caller passed in,
+	// which made the field look like a target while being an echo.
+	PresenceBinding string `yaml:"binding" json:"binding"`
 
 	// Host is the coordinate and component this document grants on. A document
 	// delivered to another host grants nothing there.
@@ -228,6 +247,10 @@ func (document *AuthorityDocument) Validate() error {
 	}
 	if document.Generation == 0 {
 		return fmt.Errorf("%w: generation starts at 1", ErrInvalid)
+	}
+	if !bindingPattern.MatchString(document.PresenceBinding) || document.PresenceBinding == reservedOwner {
+		return fmt.Errorf("%w: authority %q names binding %q, which is not a valid binding ID; authority is granted over one presence binding and never over a host and domain at large",
+			ErrInvalid, document.Authority, document.PresenceBinding)
 	}
 	if !namePattern.MatchString(document.Host.Coordinate) {
 		return fmt.Errorf("%w: host coordinate %q is invalid", ErrInvalid, document.Host.Coordinate)
@@ -464,6 +487,125 @@ type Activation struct {
 	Domain string
 }
 
+// AppliedAuthority is what a host durably recorded for one authority ID. It is
+// the host's own state, exactly as Applied is for presence, and for the same
+// reason: a generation is only replay-proof if something remembers the last one
+// applied.
+//
+// Authority had no such record. decide gave presence a stale-generation and a
+// rewritten-generation refusal and kept tombstones; authority got nothing
+// equivalent, so a signed document at an older generation was indistinguishable
+// from a current one.
+type AppliedAuthority struct {
+	// Authority is the authority ID this record is for.
+	Authority string
+	// Generation is the generation the host applied.
+	Generation uint64
+	// Digest is that generation's canonical digest, so a rewritten generation
+	// is detectable rather than silently reapplied.
+	Digest string
+	// Binding is the presence binding the applied generation was granted over.
+	// A later generation must name the same one: authority does not migrate
+	// between bindings.
+	Binding string
+	// Domain is the ownership domain it was applied under.
+	Domain string
+	// Removed records that the applied generation was a tombstone.
+	Removed bool
+}
+
+// AppliedAuthorityFrom builds the record a host persists after applying an
+// authority document.
+func AppliedAuthorityFrom(document *AuthorityDocument) (AppliedAuthority, error) {
+	digest, err := document.Digest()
+	if err != nil {
+		return AppliedAuthority{}, err
+	}
+	return AppliedAuthority{
+		Authority:  document.Authority,
+		Generation: document.Generation,
+		Digest:     digest,
+		Binding:    document.PresenceBinding,
+		Domain:     document.OwnershipDomain,
+		Removed:    document.Removed,
+	}, nil
+}
+
+// decideAuthority holds an authority document against what the host already
+// applied for that authority ID. It is the presence `decide` rule, applied to
+// the half that had none.
+func decideAuthority(record AppliedAuthority, document *AuthorityDocument) (Decision, error) {
+	if record.Authority == "" {
+		// Nothing applied for this ID yet.
+		return DecisionApply, nil
+	}
+	if record.Authority != document.Authority {
+		return "", fmt.Errorf("%w: applied record is for authority %q and this document is %q",
+			ErrAppliedUnusable, record.Authority, document.Authority)
+	}
+	if !digestPattern.MatchString(record.Digest) || record.Generation == 0 {
+		return "", fmt.Errorf("%w: applied authority %q requires a generation and the digest it was applied as; build it with AppliedAuthorityFrom rather than by hand",
+			ErrAppliedUnusable, record.Authority)
+	}
+	if !namePattern.MatchString(record.Domain) {
+		return "", fmt.Errorf("%w: applied authority %q requires the ownership domain it was applied under",
+			ErrAppliedUnusable, record.Authority)
+	}
+	if record.Removed {
+		return "", fmt.Errorf("%w: authority %q was withdrawn at generation %d; a withdrawn authority is terminal and a new grant needs a new authority ID",
+			ErrTombstoned, record.Authority, record.Generation)
+	}
+	if record.Domain != document.OwnershipDomain {
+		return "", fmt.Errorf("%w: authority %q was applied under domain %q and this document declares %q",
+			ErrWrongDomain, record.Authority, record.Domain, document.OwnershipDomain)
+	}
+	if record.Binding != document.PresenceBinding {
+		return "", fmt.Errorf("%w: authority %q was applied over binding %q and this document names %q; authority does not migrate between bindings",
+			ErrInvalid, record.Authority, record.Binding, document.PresenceBinding)
+	}
+	if document.Generation < record.Generation {
+		return "", fmt.Errorf("%w: authority %q is at generation %d and this document is generation %d",
+			ErrStaleGeneration, record.Authority, record.Generation, document.Generation)
+	}
+	if document.Generation > record.Generation {
+		return DecisionApply, nil
+	}
+	digest, err := document.Digest()
+	if err != nil {
+		return "", err
+	}
+	if digest != record.Digest {
+		return "", fmt.Errorf("%w: authority %q generation %d was applied as %s and now reads %s",
+			ErrRewrittenGeneration, record.Authority, document.Generation, record.Digest, digest)
+	}
+	return DecisionCurrent, nil
+}
+
+// ActivationRequest is everything activation needs. It is a struct rather than
+// five positional arguments because three of them were added by review and the
+// next one should not change every call site again — and because a caller
+// reading it can see that the envelope and the applied record are not optional.
+type ActivationRequest struct {
+	// Authority and Presence are the two halves. Neither activates alone.
+	Authority *AuthorityDocument
+	Presence  *SolutionHostBinding
+
+	// Build is the execution being asked about.
+	Build ImageDigest
+
+	// Envelope is the CURRENT ceiling. Activation checks the authority against
+	// it rather than trusting that the caller remembered ValidateAgainst
+	// first: narrowing an envelope must reach activation, and an ordering
+	// requirement a caller can forget is not a rule.
+	Envelope Envelope
+
+	// Applied is what the host recorded for this authority ID. The zero value
+	// means nothing has been applied yet, which is the first generation's
+	// case; anything else is folded, so a replayed older document and a
+	// rewritten generation are both refused.
+	Applied AppliedAuthority
+}
+
 // Activate reports whether an authority document and a presence document form a
 // matched tuple for one build, and refuses with ErrNotActivated otherwise.
 //
@@ -483,7 +625,8 @@ type Activation struct {
 // Activate does not check the envelope — that is ValidateAgainst, and it needs a
 // ceiling neither document may carry. A caller verifies both signatures, checks
 // the authority against its envelope, and then activates.
-func Activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest) (Activation, error) {
+func Activate(request ActivationRequest) (Activation, error) {
+	authority, presence, build := request.Authority, request.Presence, request.Build
 	if authority == nil {
 		return Activation{}, fmt.Errorf("%w: no authority document; presence alone grants nothing", ErrNotActivated)
 	}
@@ -498,6 +641,21 @@ func Activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 	}
 	if !digestPattern.MatchString(string(build)) {
 		return Activation{}, fmt.Errorf("%w: %q is not a SHA-256 OCI image manifest digest", ErrNotActivated, build)
+	}
+	// The ceiling, checked here rather than left to the caller's memory.
+	if err := authority.ValidateAgainst(request.Envelope); err != nil {
+		return Activation{}, err
+	}
+	// The generation fold. A signed document at an older generation, or a
+	// rewritten one, is refused — and a withdrawn authority is terminal.
+	if _, err := decideAuthority(request.Applied, authority); err != nil {
+		return Activation{}, err
+	}
+	// The TARGET. Without this an authority document activated any binding in
+	// the same host and domain running the same image.
+	if authority.PresenceBinding != presence.Binding {
+		return Activation{}, fmt.Errorf("%w: authority %q is granted over binding %q and this is binding %q",
+			ErrNotActivated, authority.Authority, authority.PresenceBinding, presence.Binding)
 	}
 	if authority.Removed {
 		return Activation{}, fmt.Errorf("%w: authority %q is withdrawn at generation %d", ErrNotActivated, authority.Authority, authority.Generation)

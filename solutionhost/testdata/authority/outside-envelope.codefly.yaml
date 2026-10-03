@@ -11,6 +11,7 @@
 # through.
 schema: codefly/solution-authority/v1
 authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
 generation: 3
 host:
   coordinate: example/prod/region-a

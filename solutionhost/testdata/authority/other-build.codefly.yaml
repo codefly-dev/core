@@ -8,6 +8,7 @@
 # the running system rather than of a field.
 schema: codefly/solution-authority/v1
 authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
 generation: 4
 host:
   coordinate: example/prod/region-a

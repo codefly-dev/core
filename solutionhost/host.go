@@ -62,6 +62,22 @@ var (
 	// can resolve it, which is exactly why it must not read as a delivery
 	// problem.
 	ErrAppliedUnusable = errors.New("solution host applied record is unusable; the host's own stored state must be repaired")
+
+	// ErrTombstoned is returned when a binding or an authority has been
+	// withdrawn and something tries to reapply it.
+	//
+	// A tombstone is TERMINAL. decide used to let any higher generation
+	// resurrect a tombstoned binding ID, and nothing tested it — so everything
+	// keyed on that ID (installations, operation bindings, team grants) would
+	// re-attach to a new instance that merely reused the name. The ID is the
+	// handle every other system holds, so reuse is indistinguishable from
+	// continuity, which is the one thing a withdrawal is supposed to make
+	// distinguishable.
+	//
+	// A replacement instance needs a NEW ID. That is a rename at the
+	// renderer, not a loss: a binding ID is derived from the instance, and a
+	// genuinely new instance has a genuinely new one.
+	ErrTombstoned = errors.New("solution host binding was withdrawn; a tombstone is terminal and a replacement needs a new ID")
 )
 
 // Decision is what a host should do with a document it has just read.
@@ -399,6 +415,13 @@ func routeClaims(binding string, aliases []string) []composition.Claim {
 }
 
 func decide(record Applied, document *SolutionHostBinding) (Decision, error) {
+	// A tombstoned binding is terminal: no later generation reapplies it. See
+	// ErrTombstoned for why reuse of the ID is the problem rather than the
+	// generation ordering.
+	if record.Removed && document.Generation > record.Generation {
+		return "", fmt.Errorf("%w: binding %q was withdrawn at generation %d and this document is generation %d",
+			ErrTombstoned, record.Binding, record.Generation, document.Generation)
+	}
 	if record.Binding == "" {
 		return DecisionApply, nil
 	}

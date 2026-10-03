@@ -40,6 +40,14 @@ func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 	require.False(t, held)
 }
 
+// activationOf builds a request with the current envelope and nothing applied
+// — the first-generation case — so each test states only what it varies.
+func activationOf(a *solutionhost.AuthorityDocument, p *solutionhost.SolutionHostBinding, build solutionhost.ImageDigest) solutionhost.ActivationRequest {
+	return solutionhost.ActivationRequest{
+		Authority: a, Presence: p, Build: build, Envelope: solutionhost.FixtureEnvelope(),
+	}
+}
+
 // An authority document grants nothing on its own, and neither does a presence
 // document. Activation is a matched tuple, which is what makes "approved for
 // one exact build" a property of the running system rather than of a field.
@@ -48,7 +56,7 @@ func TestActivationNeedsBothHalvesAndTheBuild(t *testing.T) {
 	authorityDocument := validAuthority(t)
 	build := presenceDocument.Workloads[0].Image.Digest
 
-	activation, err := solutionhost.Activate(authorityDocument, presenceDocument, build)
+	activation, err := solutionhost.Activate(activationOf(authorityDocument, presenceDocument, build))
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.Activation{
 		Authority:        authorityDocument.Authority,
@@ -59,11 +67,11 @@ func TestActivationNeedsBothHalvesAndTheBuild(t *testing.T) {
 		Domain:           solutionhost.FixtureDomain,
 	}, activation)
 
-	_, err = solutionhost.Activate(nil, presenceDocument, build)
+	_, err = solutionhost.Activate(activationOf(nil, presenceDocument, build))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "presence alone grants nothing")
 
-	_, err = solutionhost.Activate(authorityDocument, nil, build)
+	_, err = solutionhost.Activate(activationOf(authorityDocument, nil, build))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "authority alone grants nothing")
 }
@@ -79,18 +87,26 @@ func TestAuthorityForAnotherBuildDoesNotActivate(t *testing.T) {
 	// the envelope approved. What it is not is the build that is present.
 	require.NoError(t, otherBuild.ValidateAgainst(solutionhost.FixtureEnvelope()))
 
-	_, err = solutionhost.Activate(otherBuild, presenceDocument, otherBuild.ApprovedBuild)
+	_, err = solutionhost.Activate(activationOf(otherBuild, presenceDocument, otherBuild.ApprovedBuild))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "and not "+string(otherBuild.ApprovedBuild))
 
 	// And asking about the build that IS present does not rescue it either: the
 	// authority approves a different one.
-	_, err = solutionhost.Activate(otherBuild, presenceDocument, presenceDocument.Workloads[0].Image.Digest)
+	_, err = solutionhost.Activate(activationOf(otherBuild, presenceDocument, presenceDocument.Workloads[0].Image.Digest))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "is approved for build")
 }
 
 // Every way the two halves can fail to line up, each refused.
+//
+// Each case asserts only that activation REFUSES, not which sentinel, because
+// activation now checks the envelope first and some mismatches are caught
+// there: an authority naming another envelope revision is outside the ceiling
+// it claims, which ValidateAgainst answers before the two halves are compared.
+// Refusing for the earlier reason is correct — the point is that nothing
+// activates — and pinning a sentinel per case would pin the ORDER of the
+// checks, which is not the contract.
 func TestActivationRefusesEveryMismatch(t *testing.T) {
 	for name, mutate := range map[string]func(*solutionhost.AuthorityDocument, *solutionhost.SolutionHostBinding){
 		"another host coordinate": func(a *solutionhost.AuthorityDocument, _ *solutionhost.SolutionHostBinding) {
@@ -118,10 +134,112 @@ func TestActivationRefusesEveryMismatch(t *testing.T) {
 			build := presenceDocument.Workloads[0].Image.Digest
 			mutate(authorityDocument, presenceDocument)
 
-			_, err := solutionhost.Activate(authorityDocument, presenceDocument, build)
-			require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+			_, err := solutionhost.Activate(activationOf(authorityDocument, presenceDocument, build))
+			require.Error(t, err, "nothing may activate")
 		})
 	}
+}
+
+// An authority document is granted over ONE presence binding, and activates
+// no other.
+//
+// Before AuthorityDocument.PresenceBinding existed, Activate matched on host,
+// domain, envelope revision and build membership only — so an authority
+// document activated ANY binding in the same host and domain running the same
+// image, including a replacement instance that had taken a tombstoned
+// binding's alias. Activation.Binding was copied from whichever presence
+// document the caller passed in, so the result even reported the wrong target
+// as if it had been checked.
+func TestAuthorityActivatesOnlyTheBindingItNames(t *testing.T) {
+	authorityDocument, presenceDocument := validAuthority(t), valid(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+	require.Equal(t, presenceDocument.Binding, authorityDocument.PresenceBinding)
+
+	// A different instance: same host, same domain, same image, new binding ID
+	// — which is exactly what a replacement looks like.
+	replacement := valid(t)
+	replacement.Binding = "alpha-region-a-02"
+
+	_, err := solutionhost.Activate(activationOf(authorityDocument, replacement, build))
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "is granted over binding")
+
+	// And the one it does name still activates.
+	_, err = solutionhost.Activate(activationOf(authorityDocument, presenceDocument, build))
+	require.NoError(t, err)
+}
+
+// A signed authority document at an older generation activates nothing once a
+// later one has been applied.
+//
+// This was the gap the field comment claimed was closed: "a replayed older
+// document is detectable the same way a replayed presence generation is" —
+// and nothing detected it. Keyless signatures do not expire, so a genuinely
+// signed generation N-1 re-granted every binding generation N withdrew.
+func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
+	current, presenceDocument := validAuthority(t), valid(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+	applied, err := solutionhost.AppliedAuthorityFrom(current)
+	require.NoError(t, err)
+
+	// The same document, one generation back: sound, signed, and superseded.
+	replayed := validAuthority(t)
+	replayed.Generation = current.Generation - 1
+
+	request := activationOf(replayed, presenceDocument, build)
+	request.Applied = applied
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrStaleGeneration)
+
+	// The current generation activates against its own applied record.
+	request = activationOf(current, presenceDocument, build)
+	request.Applied = applied
+	_, err = solutionhost.Activate(request)
+	require.NoError(t, err)
+
+	// A rewritten generation — same number, different content — is refused as
+	// tampering rather than reapplied.
+	rewritten := validAuthority(t)
+	rewritten.EffectiveFrom = current.EffectiveFrom + 1
+	request = activationOf(rewritten, presenceDocument, build)
+	request.Applied = applied
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrRewrittenGeneration)
+}
+
+// A withdrawn authority is TERMINAL: no later generation revives it, because
+// everything keyed on the authority ID would re-attach.
+func TestAWithdrawnAuthorityCannotBeRevived(t *testing.T) {
+	presenceDocument := valid(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+	tombstone, err := solutionhost.ParseAuthority(authority(t, "tombstone"))
+	require.NoError(t, err)
+	withdrawn, err := solutionhost.AppliedAuthorityFrom(tombstone)
+	require.NoError(t, err)
+	require.True(t, withdrawn.Removed)
+
+	revival := validAuthority(t)
+	revival.Generation = tombstone.Generation + 1
+	request := activationOf(revival, presenceDocument, build)
+	request.Applied = withdrawn
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
+}
+
+// Narrowing the envelope reaches activation, rather than relying on the caller
+// having remembered ValidateAgainst first.
+func TestActivationChecksTheEnvelopeItIsGiven(t *testing.T) {
+	authorityDocument, presenceDocument := validAuthority(t), valid(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	request := activationOf(authorityDocument, presenceDocument, build)
+	request.Envelope = solutionhost.Envelope{
+		Revision:       solutionhost.FixtureEnvelopeRevision,
+		ApprovedBuilds: []solutionhost.ImageDigest{build},
+		// The ceiling now holds no bindings at all.
+	}
+	_, err := solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
 }
 
 // A withdrawn authority activates nothing, and withdrawal is a generation
@@ -136,7 +254,7 @@ func TestWithdrawnAuthorityActivatesNothing(t *testing.T) {
 	require.Zero(t, tombstone.EffectiveFrom)
 
 	presenceDocument := valid(t)
-	_, err = solutionhost.Activate(tombstone, presenceDocument, presenceDocument.Workloads[0].Image.Digest)
+	_, err = solutionhost.Activate(activationOf(tombstone, presenceDocument, presenceDocument.Workloads[0].Image.Digest))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "withdrawn")
 
@@ -150,7 +268,7 @@ func TestWithdrawnAuthorityActivatesNothing(t *testing.T) {
 // out of the document that approves it would make the question answer itself.
 func TestActivationRefusesABuildThatIsNotADigest(t *testing.T) {
 	for _, build := range []solutionhost.ImageDigest{"", "latest", "sha256:short"} {
-		_, err := solutionhost.Activate(validAuthority(t), valid(t), build)
+		_, err := solutionhost.Activate(activationOf(validAuthority(t), valid(t), build))
 		require.ErrorIsf(t, err, solutionhost.ErrNotActivated, "build %q", build)
 	}
 }
@@ -333,7 +451,7 @@ func TestAuthorityCanonicalEncodingIgnoresDeclarationOrder(t *testing.T) {
 // Pinned for the same reason the presence digests are: this encoding is what a
 // signature covers, so moving it invalidates every signed authority document
 // ever delivered.
-const authorityFixtureDigest = "sha256:ec4503ebdf65542f4d86e5c030cc341a9d4a92a9e58081e03a8145003bc8136c"
+const authorityFixtureDigest = "sha256:316846822e7a8b5703cd3ac87fe815d782bbf02e98355e7865bfda55c2f89b58"
 
 // A module that owns no queue is a real case, so Queue and Namespace are
 // optional. Absence means this binding grants NO authority on that dimension —

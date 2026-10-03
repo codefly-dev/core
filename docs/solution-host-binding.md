@@ -268,6 +268,35 @@ principals:
         namespace: alpha-region-a-01 # OPTIONAL
 ```
 
+### What activation requires, and the three things it did not
+
+`Activate` takes an `ActivationRequest` — both documents, the build, **the
+current envelope**, and **the applied authority record**. It is a struct
+because three of those were added by review, and because a caller reading it
+can see that the envelope and the record are not optional.
+
+Three gaps, each found by review and each real:
+
+- **The authority document named no target.** It matched on host, ownership
+  domain, envelope revision and build membership only, so an authority
+  document activated *any* binding in the same host and domain running the same
+  image — including a replacement instance that had taken a tombstoned
+  binding's alias. Worse, `Activation.Binding` was copied from whichever
+  presence document the caller passed in, so the result reported a target as
+  though it had been checked. `binding:` is now a required field on the
+  authority document and must equal the presence document's own.
+- **There was no generation fold.** The `generation` field's own comment said
+  "a replayed older document is detectable the same way a replayed presence
+  generation is" — and nothing detected it. Keyless signatures do not expire,
+  so a genuinely signed generation N-1 re-granted everything generation N had
+  withdrawn. `AppliedAuthority` and `AppliedAuthorityFrom` are the host's
+  record, and `decideAuthority` folds a document against it: stale, rewritten,
+  domain-moved, binding-moved and withdrawn are each refused.
+- **The envelope was the caller's to remember.** Narrowing a ceiling did not
+  reach activation, because `ValidateAgainst` was a separate call a caller was
+  expected to make first. An ordering requirement a caller can forget is not a
+  rule, so `Activate` checks the envelope it is given.
+
 `AuthorityBinding.ID` is **opaque to core**: core compares IDs and never
 derives, parses or subsets one, so an exact lookup can never quietly become a
 search. That is the property the credential contract rests on. Whether delivery
@@ -470,8 +499,13 @@ payload that survives a round trip through it.
 | A host accepts only the domains it declares, and a binding keeps the domain it was applied under | `Host.Admit`, `ErrWrongDomain` |
 | One delivery speaks for one ownership domain | `OneDelivery`, `ErrWrongDomain` — a renderer's check, never a host's |
 | Removal is a generation, never an absence | `Validate`; an empty set is "nothing declared" |
+| A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
 | Authority bindings are inside the caller's envelope, by exact inclusion | `ValidateAgainst`, `ErrOutsideEnvelope` |
 | Neither half of a tuple activates alone | `Activate`, `ErrNotActivated` |
+| Authority is granted over ONE presence binding, and activates no other | `Activate`, `ErrNotActivated` |
+| A replayed or rewritten authority generation activates nothing | `decideAuthority` via `Activate`, `ErrStaleGeneration` / `ErrRewrittenGeneration` |
+| Activation checks the ceiling it is given, rather than trusting the caller called `ValidateAgainst` | `Activate`, `ErrOutsideEnvelope` |
+| A tombstone is terminal, for a binding and for an authority alike | `decide` / `decideAuthority`, `ErrTombstoned` |
 | A document never hands a verifier the material it is checked with | strict decoding in `ParseSigned`; the bundle is the one opaque field |
 | A signed document carries a bundle, as an object | `ParseSigned`, `ErrUnsigned` |
 | An attested payload is the canonical encoding of its document, and its type is attested | `PresenceFromVerified` / `AuthorityFromVerified`, `ErrNotCanonical` / `ErrSchema` |
