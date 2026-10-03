@@ -163,8 +163,10 @@ organization from, naming what is missing. Minting always fills them.
 
 A capability's scopes say what it may do. The **seal** says which installation
 and which running build it was minted for, so that authority cannot outlive
-either one. `WorkSealV1` is on every capability and carries four values the
-issuer holds live:
+either one. `WorkSealV1` is on every capability and carries five fields, three
+always and two only when the exercising principal bears an execution. They are
+read from two sources — `SealSource.Seal` for the installation, and
+`SealSource.ApprovedBuild` for the execution, keyed per principal:
 
 | field | what moving it invalidates |
 | --- | --- |

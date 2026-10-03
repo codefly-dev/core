@@ -139,8 +139,8 @@ func FixtureHost() (Host, error) {
 }
 
 // FixtureEnvelope is the ceiling the authority fixtures are checked against:
-// the bindings a platform administrator wrote and the builds that have been
-// approved, at one revision.
+// who may hold which binding, as a platform administrator wrote it, and the
+// builds that have been approved, at one revision.
 //
 // It is returned by value and assembled here rather than read from a file,
 // because an envelope is the one thing a document must never carry: a fixture
@@ -149,21 +149,34 @@ func FixtureHost() (Host, error) {
 func FixtureEnvelope() Envelope {
 	return Envelope{
 		Revision: FixtureEnvelopeRevision,
-		Bindings: []AuthorityBinding{
+		// Each grant names WHO may hold the binding, matching the "valid"
+		// authority fixture: the operator holds reconcile and read, the
+		// reporter holds report. A ceiling that listed only the bindings let a
+		// document move reconcile to any principal and still pass.
+		Grants: []EnvelopeGrant{
 			{
-				ID: "binding:alpha:reconcile", Revision: 3,
-				Audience: "https://prod.region-a.example/operations",
-				Scope:    "reconcile", Queue: "reconcile.default", Namespace: "alpha-region-a-01",
+				Principal: "principal:operator",
+				Binding: AuthorityBinding{
+					ID: "binding:alpha:reconcile", Revision: 3,
+					Audience: "https://prod.region-a.example/operations",
+					Scope:    "reconcile", Queue: "reconcile.default", Namespace: "alpha-region-a-01",
+				},
 			},
 			{
-				ID: "binding:alpha:read", Revision: 1,
-				Audience: "https://prod.region-a.example/operations",
-				Scope:    "read", Queue: "read.default", Namespace: "alpha-region-a-01",
+				Principal: "principal:operator",
+				Binding: AuthorityBinding{
+					ID: "binding:alpha:read", Revision: 1,
+					Audience: "https://prod.region-a.example/operations",
+					Scope:    "read", Queue: "read.default", Namespace: "alpha-region-a-01",
+				},
 			},
 			{
-				ID: "binding:alpha:report", Revision: 2,
-				Audience: "https://prod.region-a.example/operations",
-				Scope:    "report", Queue: "report.batch", Namespace: "alpha-region-a-01",
+				Principal: "principal:reporter",
+				Binding: AuthorityBinding{
+					ID: "binding:alpha:report", Revision: 2,
+					Audience: "https://prod.region-a.example/operations",
+					Scope:    "report", Queue: "report.batch", Namespace: "alpha-region-a-01",
+				},
 			},
 		},
 		ApprovedBuilds: []ImageDigest{

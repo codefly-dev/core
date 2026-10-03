@@ -389,7 +389,8 @@ activation, err := solutionhost.Activate(solutionhost.ActivationRequest{
     Build:           build,
     Envelope:        envelope,           // the current ceiling, checked here
     DomainsBySigner: host.DomainsBySigner, // required
-    Applied:         appliedAuthority,
+    Applied:         appliedAuthority,   // the AUTHORITY record for this binding
+    AppliedPresence: appliedPresence,    // and the PRESENCE record for it
 })
 ```
 
@@ -397,11 +398,30 @@ A matched `(authority, presence, build)` tuple is the only shape in which
 authority is active. `Activate` requires: both halves re-derived from their
 attested bytes, both signers allowed by the host's policy to speak for the
 domain they claim, the authority inside `Envelope`, the generation fold against
-`Applied`, `authority.PresenceBinding == presence.Binding`, the same host
-coordinate *and* component, the same ownership domain, the same envelope
+**both** `Applied` and `AppliedPresence`,
+`authority.PresenceBinding == presence.Binding`, the same host coordinate *and*
+component, the same ownership domain, both halves naming the caller's envelope
 revision, neither document withdrawn, `authority.ApprovedBuild == build`,
 `build ∈ presence.Builds()`, and
 `presence.Generation >= authority.EffectiveFrom`.
+
+**Both folds, because a fold on one signed half is a fold on neither.** The
+presence record was not consulted at all: a binding tombstoned at generation 5
+refused `Admit` of generation 4 and *activated* the same signed generation-4
+document, because `Activate` held only the authority record. Whoever replays
+presents the half that is not checked.
+
+**The authority fold is keyed on the BINDING, not the authority ID**, and the
+withdrawal check runs before the ID comparison. Keyed on the ID, the same
+authority re-signed under a new ID had no applied record and the withdrawal did
+not reach it — a tombstone defeated by renaming. Authority is granted over a
+binding, so a withdrawal over that binding refuses every later authority ID.
+
+**`FirstActivation` states that the host holds no record**, and activation with
+no records and no marker is refused. The zero value could not be told from a
+caller that forgot the records, and "nothing applied" is the most permissive
+input this call takes — the same conflation as an empty signer policy meaning
+"a renderer", and an empty digest meaning "bears no execution".
 
 `DomainsBySigner` is **required**. It was consulted only when non-empty, with
 the field documented as "empty means a renderer", which made a security check
@@ -440,6 +460,7 @@ match, err := solutionhost.ActivateRendered(solutionhost.RenderedActivationReque
     Build:            build,
     EnvelopeRevision: revision, // a NUMBER, not an Envelope
     Applied:          solutionhost.AppliedAuthorityFrom(prior),
+    AppliedPresence:  solutionhost.AppliedFrom(priorPresence),
 })
 ```
 
@@ -621,7 +642,7 @@ payload that survives a round trip through it.
 | One delivery speaks for one ownership domain | `OneDelivery`, `ErrWrongDomain` — a renderer's check, never a host's |
 | Removal is a generation, never an absence | `Validate`; an empty set is "nothing declared" |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
-| Authority bindings are inside the caller's envelope, by exact inclusion | `ValidateAgainst`, `ErrOutsideEnvelope` |
+| Each (principal, binding) pair is inside the caller's envelope, by exact inclusion | `ValidateAgainst`, `ErrOutsideEnvelope` |
 | An unverified document cannot reach `Admit` or `Activate` | distinct `Delivered` types, produced only through a caller's `BundleVerifier` |
 | A domain is deliverable only by a signer the host allows | `Host.Admit` / `Activate`, `ErrWrongDomain` / `ErrNotActivated` |
 | Neither half of a tuple activates alone | `Activate`, `ErrNotActivated` |
@@ -678,13 +699,23 @@ rather than described: `VerifyDelivered` takes the carrier and the host's own
 
 ```go
 host := solutionhost.Host{
-    Coordinate: coordinate,
-    Domains:    accepted,   // required whenever Coordinate is set
-    Reserved:   reserved,
-    Applied:    applied,
+    Coordinate:      coordinate, // REQUIRED: Admit refuses an unnamed host
+    Domains:         accepted,   // required whenever Coordinate is set
+    DomainsBySigner: policy,     // required whenever Coordinate is set
+    Reserved:        reserved,
+    Applied:         applied,
 }
-admissions, err := host.Admit(documents...)
+admissions, err := host.Admit(delivered...)
 ```
+
+**`Coordinate` is required.** Every provenance check inside admission is
+guarded by "is this host named", so that the zero `Host` can reach the checks
+that need no host state for `AdmitRendered`'s sake — but `Host{}` is
+constructible by anyone, and `Host{}.Admit` returned `apply` for a document
+from an unlisted signer, under an unlisted domain, targeting a foreign
+coordinate, with an attestation present to make it look checked. A caller with
+no host state wants `AdmitRendered`, which takes no `Host` at all and so has
+nothing to forget.
 
 `Admit` returns one `Admission` per document in the order given, plus an error
 that is non-nil whenever any document was refused. A caller that checks only the

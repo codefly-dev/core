@@ -160,9 +160,15 @@ message WorkSealV1 {
   //
   // A verifier compares it for EQUALITY and never resolves it from the
   // workload's own attributes. Resolving by (service account, image digest) is
-  // exactly what lets an old pod in, which is why SealSource answers only "the
-  // current incarnation for this principal" and offers no lookup by anything
-  // the workload itself presents.
+  // exactly what lets an old pod in, which is why SealSource.ApprovedBuild
+  // answers "the build and incarnation this PRINCIPAL is approved for" and
+  // offers no lookup by anything the workload itself presents.
+  //
+  // That method once answered the incarnation alone, from the installation
+  // seal — so a derived capability's execution described the OWNER's workload
+  // however many delegation hops had been added, and a hop's principal does
+  // not hold the owner's installation at all. Minting was execution-bound only
+  // at the first session as a result.
   //
   // It is OPTIONAL, together with image_digest, and the two are set or unset
   // as a pair: see the message rule below. Absent means the principal

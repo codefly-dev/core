@@ -505,7 +505,7 @@ func TestAnAbsentQueueGrantsNothingRatherThanEverything(t *testing.T) {
 	require.NoError(t, document.Validate(), "a binding with no queue and no namespace is a valid binding")
 
 	envelope := solutionhost.FixtureEnvelope()
-	envelope.Bindings = []solutionhost.AuthorityBinding{bare}
+	envelope.Grants = []solutionhost.EnvelopeGrant{{Principal: "principal:operator", Binding: bare}}
 	require.NoError(t, document.ValidateAgainst(envelope),
 		"an absent queue matches an absent queue")
 
@@ -517,7 +517,7 @@ func TestAnAbsentQueueGrantsNothingRatherThanEverything(t *testing.T) {
 	withQueue.Queue = "reconcile.default"
 
 	widened := solutionhost.FixtureEnvelope()
-	widened.Bindings = []solutionhost.AuthorityBinding{withQueue}
+	widened.Grants = []solutionhost.EnvelopeGrant{{Principal: "principal:operator", Binding: withQueue}}
 	require.ErrorIs(t, document.ValidateAgainst(widened), solutionhost.ErrOutsideEnvelope)
 
 	claiming := validAuthority(t)
@@ -526,7 +526,7 @@ func TestAnAbsentQueueGrantsNothingRatherThanEverything(t *testing.T) {
 		Bindings:  []solutionhost.AuthorityBinding{withQueue},
 	}}
 	narrow := solutionhost.FixtureEnvelope()
-	narrow.Bindings = []solutionhost.AuthorityBinding{bare}
+	narrow.Grants = []solutionhost.EnvelopeGrant{{Principal: "principal:operator", Binding: bare}}
 	require.ErrorIs(t, claiming.ValidateAgainst(narrow), solutionhost.ErrOutsideEnvelope)
 }
 
@@ -548,7 +548,10 @@ func TestTheRenderersDerivedBindingShapeIsAdmitted(t *testing.T) {
 	require.NoError(t, document.Validate())
 
 	envelope := solutionhost.FixtureEnvelope()
-	envelope.Bindings = document.Principals[0].Bindings
+	envelope.Grants = []solutionhost.EnvelopeGrant{{
+		Principal: document.Principals[0].Principal,
+		Binding:   document.Principals[0].Bindings[0],
+	}}
 	require.NoError(t, document.ValidateAgainst(envelope))
 
 	binding, principal, held := document.Binding("principal:consumer:records-binding:redact")
@@ -949,4 +952,43 @@ func TestAnUnnamedHostAdmitsNothing(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, admissions, 1)
 	require.NoError(t, admissions[0].Err)
+}
+
+// TestABindingCannotBeMovedBetweenPrincipals is C12: the envelope bounded the
+// binding and not who may hold it.
+//
+// Envelope.Bindings was a bare []AuthorityBinding, so the ceiling said "this
+// binding may exist" and never "held by whom". A document that moved
+// binding:alpha:reconcile from the operator to any other principal passed
+// containment unchanged — and the binding is exactly what a credential seals
+// and a verifier looks up, so moving it is a grant of somebody else's
+// authority. A ceiling that bounds half the statement bounds nothing.
+func TestABindingCannotBeMovedBetweenPrincipals(t *testing.T) {
+	document := validAuthority(t)
+	envelope := solutionhost.FixtureEnvelope()
+	require.NoError(t, document.ValidateAgainst(envelope), "the fixture pair is inside its own ceiling")
+
+	moved := validAuthority(t)
+	require.Equal(t, "principal:operator", moved.Principals[0].Principal)
+	moved.Principals[0].Principal = "principal:attacker"
+
+	err := moved.ValidateAgainst(envelope)
+	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
+	require.Contains(t, err.Error(), "does not hold FOR THAT PRINCIPAL")
+	require.Contains(t, err.Error(), "principal:attacker")
+
+	// A clean MOVE between two principals the envelope does list, so this is a
+	// pairing rule rather than a denylist of one unfamiliar name: reconcile
+	// leaves the operator and arrives at the reporter, each ID still held
+	// once.
+	swapped := validAuthority(t)
+	reconcile := swapped.Principals[0].Bindings[0]
+	require.Equal(t, "binding:alpha:reconcile", reconcile.ID)
+	swapped.Principals[0].Bindings = swapped.Principals[0].Bindings[1:]
+	swapped.Principals[1].Bindings = append(swapped.Principals[1].Bindings, reconcile)
+	require.NoError(t, swapped.Validate(), "each ID is still held exactly once")
+
+	err = swapped.ValidateAgainst(envelope)
+	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
+	require.Contains(t, err.Error(), "principal:reporter")
 }

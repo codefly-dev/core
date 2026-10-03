@@ -188,9 +188,15 @@ type AuthorityBinding struct {
 	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 }
 
-// Envelope is the ceiling an authority document is validated against: the
-// bindings a platform administrator wrote, the builds that have been approved,
-// and the revision both halves of a tuple must agree on.
+// Envelope is the ceiling an authority document is validated against: WHO MAY
+// HOLD WHICH BINDING as a platform administrator wrote it, the builds that have
+// been approved, and the revision both halves of a tuple must name.
+//
+// "Who may hold which" rather than "which bindings exist" is the correction. It
+// listed bindings alone, so the ceiling bounded half the statement: a document
+// that moved a binding from one principal to another passed containment
+// unchanged, and a binding is exactly what a credential seals and a verifier
+// looks up — so moving it is a grant of somebody else's authority.
 //
 // It is supplied by the caller and never read out of a document. An envelope a
 // document carried would be a document declaring its own ceiling.
@@ -199,13 +205,32 @@ type Envelope struct {
 	// was validated against a different ceiling.
 	Revision uint64
 
-	// Bindings are the units of authority the ceiling allows, in full. A
-	// document's binding is inside the ceiling when this list holds it
-	// exactly — see ValidateAgainst.
-	Bindings []AuthorityBinding
+	// Grants are the units of authority the ceiling allows AND WHO MAY HOLD
+	// EACH ONE. A document's grant is inside the ceiling when this list holds
+	// the (principal, binding) pair exactly — see ValidateAgainst.
+	//
+	// It was a bare []AuthorityBinding, with the holder nowhere in the
+	// ceiling. So the envelope said "this binding may exist" and never "held
+	// by whom", and a document that moved binding:alpha:reconcile from the
+	// operator to any other principal passed containment unchanged. The
+	// binding is the unit a credential seals and a verifier looks up, so
+	// moving it between principals is a grant of someone else's authority —
+	// the exact thing a ceiling exists to bound.
+	Grants []EnvelopeGrant
 
 	// ApprovedBuilds are the builds this envelope has approved.
 	ApprovedBuilds []ImageDigest
+}
+
+// EnvelopeGrant is one (principal, binding) pair a platform administrator
+// allowed. Both halves are compared exactly: a binding is held BY someone, and
+// a ceiling that bounded only the binding bounded half the statement.
+type EnvelopeGrant struct {
+	// Principal is who may hold the binding.
+	Principal string `yaml:"principal" json:"principal"`
+
+	// Binding is the unit of authority, in full.
+	Binding AuthorityBinding `yaml:"binding" json:"binding"`
 }
 
 // ParseAuthority decodes and validates one authority document. Decoding is
@@ -406,8 +431,11 @@ func (document *AuthorityDocument) ValidateAgainst(envelope Envelope) error {
 	}
 	for _, principal := range document.Principals {
 		for _, binding := range principal.Bindings {
-			if !slices.Contains(envelope.Bindings, binding) {
-				return fmt.Errorf("%w: authority %q grants principal %q binding %q (revision %d, %s/%s on %s in %s), which envelope revision %d does not hold",
+			// The PAIR, not the binding alone. A binding moved to another
+			// principal is a grant of somebody else's authority, and the
+			// envelope is where that is bounded.
+			if !slices.Contains(envelope.Grants, EnvelopeGrant{Principal: principal.Principal, Binding: binding}) {
+				return fmt.Errorf("%w: authority %q grants principal %q binding %q (revision %d, %s/%s on %s in %s), which envelope revision %d does not hold FOR THAT PRINCIPAL",
 					ErrOutsideEnvelope, document.Authority, principal.Principal, binding.ID, binding.Revision,
 					binding.Audience, binding.Scope, binding.Queue, binding.Namespace, envelope.Revision)
 			}

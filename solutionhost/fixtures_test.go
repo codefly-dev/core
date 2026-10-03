@@ -108,7 +108,7 @@ func TestEveryFixtureTargetsTheFixtureHost(t *testing.T) {
 func TestFixtureEnvelopeIsNotShippedAsADocument(t *testing.T) {
 	envelope := solutionhost.FixtureEnvelope()
 	require.Equal(t, uint64(solutionhost.FixtureEnvelopeRevision), envelope.Revision)
-	require.Len(t, envelope.Bindings, 3)
+	require.Len(t, envelope.Grants, 3)
 	require.Len(t, envelope.ApprovedBuilds, 2)
 
 	for _, shipped := range solutionhost.Fixtures() {
