@@ -504,10 +504,26 @@ func (x *WorkSealV1) GetImageDigest() string {
 // compares it rather than deciding which binding the capability's scopes fit.
 type WorkOperationBindingV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// binding_id is the host's opaque identifier for the binding. The verifier
-	// looks it up exactly; it is never derived from the binding's contents,
-	// because a derived id is one a caller can compute for a binding it was
-	// never granted.
+	// binding_id is the host's identifier for the binding. The verifier looks it
+	// up EXACTLY: nothing searches the bindings for one that fits a capability's
+	// scopes, because a search is a predicate somebody wrote and a predicate one
+	// case too generous grants authority nobody reviewed.
+	//
+	// This comment used to say the id "is never derived from the binding's
+	// contents, because a derived id is one a caller can compute for a binding
+	// it was never granted". I refuted a review finding against that sentence by
+	// reading it in isolation and judging it correct. The reviewer was right and
+	// I was wrong: solutionhost/authority.go says the opposite in the package
+	// that owns the id — deriving it deterministically is delivery's business
+	// and better than random, and "predictability costs nothing here: an id is
+	// neither a secret nor a capability".
+	//
+	// Predictability costs nothing because ENTITLEMENT is what refuses a binding
+	// a caller does not hold, not obscurity: the verifier requires the resolved
+	// binding to be granted to the exercising principal within the installation
+	// the capability is sealed to. Guessing an id gets you a refusal. Resting
+	// the rule on unguessability was the retracted reasoning, and leaving it
+	// here contradicted the package it describes.
 	BindingId string `protobuf:"bytes,1,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
 	// revision is the binding's revision at mint time. A verifier holding a
 	// different revision refuses.

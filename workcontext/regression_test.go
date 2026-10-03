@@ -29,7 +29,7 @@ func TestChild_RefusesAParentThatIsOnlyAliveOnSkew(t *testing.T) {
 	_, _, err = h.authority.Child(context.Background(), onSkew, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
@@ -129,7 +129,7 @@ func TestChild_RefusesAParentWhoseRevisionIsSuperseded(t *testing.T) {
 	_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
@@ -162,7 +162,7 @@ func TestChild_CarriesTheIssuersCurrentRevisionWhenTheParentIsCurrent(t *testing
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
@@ -180,7 +180,7 @@ func TestChild_CarriesTheIssuersCurrentRevisionWhenTheParentIsCurrent(t *testing
 func TestVerify_RejectsAGrantHopThatKeepsTheIdAndChangesTheIdentity(t *testing.T) {
 	forgeries := map[string]func(*basev0.WorkActorV1){
 		"another kind":         func(hop *basev0.WorkActorV1) { hop.PrincipalKind = "human" },
-		"another agent":        func(hop *basev0.WorkActorV1) { hop.AgentId = proto.String("codefly.dev/other:9.9.9") },
+		"another agent":        func(hop *basev0.WorkActorV1) { hop.AgentId = proto.String("fixture.test/other:9.9.9") },
 		"another organization": func(hop *basev0.WorkActorV1) { hop.OrganizationId = proto.String("org-elsewhere") },
 	}
 	for name, forge := range forgeries {

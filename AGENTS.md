@@ -147,9 +147,11 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   else signs, verifies or re-encodes a capability; two entrypoints share the
   one check path, and the verify-only one refuses what it cannot answer rather
   than skipping it. Needing a weaker check is the owner's question, never a
-  local accommodation. A consumer proves it uses this path with
+  local accommodation. A consumer DEMONSTRATES BEHAVIOUR with
   `workcontext/conformance.Run`, or `RunAuthenticator` for the verify-only
-  entrypoint; a foreign encoding is refused *before* the signature with
+  entrypoint — the kit proves behaviour and not identity, and the identity
+  proof is the consumer's own import gate; a foreign encoding is refused
+  *before* the signature with
   `ErrNotACoreToken`, never as a bad signature. A second implementation already
   cost a day of key-rotation debugging. See
   [`docs/work-context.md`](docs/work-context.md) and

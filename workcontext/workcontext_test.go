@@ -152,7 +152,7 @@ func (h *harness) agentSession(parent *workcontext.Verified, aud string) (string
 	token, _, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
 		Audience:      aud,
@@ -211,7 +211,7 @@ func TestChild_NeverExtendsExpiry(t *testing.T) {
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,

@@ -115,7 +115,7 @@ func TestInspectRefusesAnUnsealedCapabilityBeforeItIsSent(t *testing.T) {
 	noEpoch := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
 	noEpoch.ActorChain = []*basev0.WorkActorV1{{
 		PrincipalId: agentID, PrincipalKind: "agent",
-		AgentId: proto.String("codefly.dev/mind:1.2.0"), DelegationId: "d-1",
+		AgentId: proto.String("fixture.test/agent:1.0.0"), DelegationId: "d-1",
 	}}
 	_, err = workcontext.Inspect(h.resign(noEpoch))
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
@@ -272,7 +272,7 @@ func TestChild_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "codefly.dev/mind:1.2.0",
+		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience, TTL: 30 * 24 * time.Hour,

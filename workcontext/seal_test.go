@@ -161,6 +161,17 @@ func TestVerify_RefusesEverySealedFieldIndependently(t *testing.T) {
 				ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation, InstallationRevision: 3, BuildIncarnation: 12,
 			}))
 		},
+		// The APPROVED BUILD. This case was missing, and a reviewer found it
+		// by mutation: deleting the verifier's image-digest comparison left
+		// the whole suite AND the conformance kit green. I added the check for
+		// B3 and never added the lever that moves it, so the newest sealed
+		// field was the only one nothing held the verifier to.
+		"approved build": func(h *harness) {
+			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
+				ImageDigest:    "sha256:" + strings.Repeat("c", 64),
+				InstallationID: installation, InstallationRevision: 3, BuildIncarnation: 11,
+			}))
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
@@ -364,7 +375,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 			_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 				PrincipalID:   agentID,
 				PrincipalKind: "agent",
-				AgentID:       "codefly.dev/mind:1.2.0",
+				AgentID:       "fixture.test/agent:1.0.0",
 				DelegationID:  "d-1",
 				GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 				Audience:      audience,
@@ -389,7 +400,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseInstallationIsGone(t *testing.T) {
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
@@ -431,7 +442,7 @@ func TestChild_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 	_, child, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
@@ -463,7 +474,7 @@ func TestChild_ResolvesTheBindingItNames(t *testing.T) {
 	_, child, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
 		PrincipalID:        agentID,
 		PrincipalKind:      "agent",
-		AgentID:            "codefly.dev/mind:1.2.0",
+		AgentID:            "fixture.test/agent:1.0.0",
 		DelegationID:       "d-1",
 		GrantedScopes:      []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:           audience,

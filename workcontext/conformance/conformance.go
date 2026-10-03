@@ -200,6 +200,22 @@ func (s Settings) Verifier() *workcontext.Verifier {
 }
 
 // Verifier is New(time.Now()).Verifier() — the common case.
+//
+// It returns a verifier that TRUSTS THE CONFORMANCE FIXTURE KEY, whose private
+// half is derivable from core's source by anyone. That is correct for a
+// conformance run and catastrophic anywhere else, and a reviewer was right
+// that leaving it exported made this function the "one mistaken call" core's
+// own README names as the danger — I closed the path for a verifier somebody
+// builds by hand and left the convenience that hands one out ready-made.
+//
+// It is kept because the kit needs it and deleting it would push every
+// consumer into assembling the same thing less carefully. What makes it safe
+// to keep is that it lives in a package whose name is at the call site: a
+// production file importing workcontext/conformance is visible in review in a
+// way a bool buried in a struct literal is not. If that is not enough, the
+// answer is moving the whole kit to a package production cannot import, which
+// is the open owner call in workcontext/README.md — not a weaker verifier
+// here.
 func Verifier() *workcontext.Verifier { return New(time.Now()).Verifier() }
 
 // Authenticator assembles core's verify-only entrypoint from the kit's

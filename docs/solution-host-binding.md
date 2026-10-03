@@ -17,7 +17,8 @@ two together:
 
 Core owns the types, their validation and their verification. It does not
 render one (`codefly-dev/cli`), reconcile one (the host in
-`codefly-dev/module-saas-starter`), **sign** one, or observe what actually runs.
+the host that reconciles these documents), **sign** one, or observe what
+actually runs.
 
 ## The two halves that never straddle
 
