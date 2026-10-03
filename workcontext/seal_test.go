@@ -1197,9 +1197,15 @@ func TestADerivationAttestsItsOwnExecution(t *testing.T) {
 	}
 	token, claims, err := h.authority.Child(context.Background(), owner, sound)
 	require.NoError(t, err)
-	require.Equal(t, uint64(12), claims.GetSeal().GetBuildIncarnation())
-	require.Equal(t, uint64(11), owner.Context().GetSeal().GetBuildIncarnation(),
-		"the parent is untouched; the hop's execution is the hop's")
+	// THE HOP carries the hop's execution; the SEAL still carries the owner's.
+	// One slot on the seal was the N1 regression: a derivation overwrote the
+	// owner's execution with the last hop's, so superseding the owner's build
+	// refused the owner's own capability and every child of it verified.
+	require.Len(t, claims.GetActorChain(), 1)
+	require.Equal(t, uint64(12), claims.GetActorChain()[0].GetBuildIncarnation(),
+		"the hop records its own run")
+	require.Equal(t, uint64(11), claims.GetSeal().GetBuildIncarnation(),
+		"and the owner's is untouched, so replacing it still revokes this child")
 	require.NotNil(t, h.mustVerify(audience, token))
 }
 
@@ -1221,8 +1227,13 @@ func TestAHumanSessionBearsNoExecution(t *testing.T) {
 		InstallationID: installation, InstallationRevision: 3,
 	}))
 	require.NoError(t, h.seals.PutEpoch(human, 1))
-	// Deliberately NO PutApprovedBuild: that is how "bears no execution" is
-	// recorded, rather than by a sentinel value nobody can tell from a gap.
+	// Bearing no execution is RECORDED, explicitly. This test used to record
+	// nothing and say that was how it is expressed — which made "the issuer
+	// has no record" and "this principal is a person" the same answer, so a
+	// service principal with a missing build record was minted a capability
+	// carrying no execution that every verifier accepted. An unknown
+	// principal is a refusal now; only this is "bears none".
+	require.NoError(t, h.seals.PutBearsNoExecution(human))
 
 	start := func(e workcontext.Execution) (string, error) {
 		token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
@@ -1383,4 +1394,101 @@ func TestTheMintRefusesACapabilityTooLargeToPresent(t *testing.T) {
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "too many scopes, hops or identifiers")
+}
+
+// TestSupersedingAnyLinksBuildRevokesTheWholeChain is N1, a regression my own
+// C1 fix introduced and the reason an execution lives on every link.
+//
+// WorkSealV1 had ONE execution slot, and a derivation wrote the hop's
+// execution into it. So the OWNER's execution stopped being recorded the
+// moment anything was derived: superseding the owner's build refused the
+// owner's own capability (ErrRevoked) while every child of it verified, and
+// those children went on minting grandchildren. At the commit before the C1
+// fix the same child WAS refused, so this is strictly a regression.
+//
+// Why it matters beyond tidiness: a host bumps build_incarnation per applied
+// generation, so supersession IS how a rollout revokes. A superseded pod could
+// pre-mint delegations that outlive its own replacement.
+//
+// The fix mirrors principal_epoch exactly — the owner's on the seal, each
+// hop's on its own WorkActorV1, every one of them checked in one loop.
+func TestSupersedingAnyLinksBuildRevokesTheWholeChain(t *testing.T) {
+	newChain := func(t *testing.T) (*harness, string, string) {
+		t.Helper()
+		h := newHarness(t)
+		_, owner := h.ownerSession(audience)
+		childToken, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+			Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+			PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
+			DelegationID: "d-1", Audience: audience, TTL: 30 * time.Minute,
+			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+		})
+		require.NoError(t, err)
+		child := h.mustVerify(audience, childToken)
+		grandToken, _, err := h.authority.Child(context.Background(), child, workcontext.ChildInput{
+			Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+			PrincipalID: "a-sub", PrincipalKind: "agent", AgentID: "fixture.test/sub:1.0.0",
+			DelegationID: "d-2", Audience: audience, TTL: 10 * time.Minute,
+			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+		})
+		require.NoError(t, err)
+		return h, childToken, grandToken
+	}
+
+	// Superseding the OWNER's build revokes the child and the grandchild.
+	h, childToken, grandToken := newChain(t)
+	require.NoError(t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 12))
+	for name, token := range map[string]string{"child": childToken, "grandchild": grandToken} {
+		_, err := h.verify(audience, token)
+		require.ErrorIsf(t, err, workcontext.ErrRevoked, "%s survived the owner's supersession", name)
+		require.Contains(t, err.Error(), "the task owner")
+	}
+
+	// Superseding an INTERMEDIATE delegator's build revokes the grandchild.
+	h, childToken, grandToken = newChain(t)
+	require.NoError(t, h.seals.PutApprovedBuild(agentID, workcontext.FixtureImageDigest, 12))
+	_, err := h.verify(audience, grandToken)
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.Contains(t, err.Error(), "actor hop 0")
+	_, err = h.verify(audience, childToken)
+	require.ErrorIs(t, err, workcontext.ErrRevoked, "the child IS that hop, so it goes too")
+
+	// Superseding the LAST hop's build revokes only what that hop exercises.
+	h, childToken, grandToken = newChain(t)
+	require.NoError(t, h.seals.PutApprovedBuild("a-sub", workcontext.FixtureImageDigest, 12))
+	_, err = h.verify(audience, grandToken)
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.NotNil(t, h.mustVerify(audience, childToken),
+		"a later hop's supersession does not reach back up the chain")
+}
+
+// TestAnUnknownPrincipalIsARefusalAndBearingNoneIsRecorded is N3: "nothing
+// recorded" was the most permissive answer the source gives.
+//
+// ApprovedBuild returned ErrNoApprovedBuild for ANY unknown principal, so a
+// service principal whose build record was simply missing got a capability
+// carrying no execution and every verifier accepted it — nothing can then
+// revoke it by replacing its build. The kit's own delegated fixtures had an
+// agent hop with an empty execution for exactly this reason.
+//
+// This is the FOURTH time this shape appeared here: an empty signer policy
+// meaning "a renderer", an empty digest meaning "bears no execution", a zero
+// applied record meaning "first generation", and this.
+func TestAnUnknownPrincipalIsARefusalAndBearingNoneIsRecorded(t *testing.T) {
+	source := workcontext.NewMemorySealSource()
+
+	_, _, err := source.ApprovedBuild(context.Background(), "nobody-recorded-me")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, workcontext.ErrNoApprovedBuild,
+		"an unknown principal is an issuer that cannot say, not a principal that bears none")
+	require.ErrorContains(t, err, "PutBearsNoExecution")
+
+	require.NoError(t, source.PutBearsNoExecution("person-ada"))
+	_, _, err = source.ApprovedBuild(context.Background(), "person-ada")
+	require.ErrorIs(t, err, workcontext.ErrNoApprovedBuild)
+
+	// A workload does not become a human: declaring it bears none would
+	// re-admit every capability that carries none.
+	require.NoError(t, source.PutApprovedBuild("svc", workcontext.FixtureImageDigest, 3))
+	require.ErrorIs(t, source.PutBearsNoExecution("svc"), workcontext.ErrInvalid)
 }

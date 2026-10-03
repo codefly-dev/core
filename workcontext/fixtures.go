@@ -258,6 +258,16 @@ func FixtureSeals() *MemorySealSource {
 	if err := source.PutEpoch(FixtureApprover, 1); err != nil {
 		panic(err)
 	}
+	// Every delegated principal in the kit is an AGENT, and an agent runs an
+	// approved build. They carried no execution record at all, which was
+	// readable as "bears no execution" only because an unknown principal used
+	// to answer that — so the kit's delegated fixtures demonstrated a hop with
+	// an empty execution and nothing objected.
+	for _, principal := range []string{FixtureActor, FixtureApprover} {
+		if err := source.PutApprovedBuild(principal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
+			panic(err)
+		}
+	}
 	for _, binding := range []OperationBinding{
 		// Granted to the OWNER, for the session fixtures.
 		{
@@ -407,7 +417,13 @@ func Fixtures(now time.Time) ([]Fixture, error) {
 	if err != nil {
 		return nil, err
 	}
-	grant, _, err := authority.Grant(ctx, verifiedDelegated, GrantInput{Grant: FixtureGrant(now), TTL: time.Minute})
+	// The grant's subject attests its own execution, on the same terms as a
+	// delegation hop: a grant hop is the one hop that may hold authority the
+	// previous hop did not, which makes attesting it more important, not less.
+	grant, _, err := authority.Grant(ctx, verifiedDelegated, GrantInput{
+		Execution: fixtureExecutionFor(ctx, authority, FixtureActor),
+		Grant:     FixtureGrant(now), TTL: time.Minute,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("work context fixtures: grant: %w", err)
 	}
@@ -498,6 +514,11 @@ func fixtureSessionOn(ctx context.Context, authority *Authority, installation, b
 
 func fixtureDelegated(ctx context.Context, authority *Authority, parent *Verified, binding string) (string, *Verified, error) {
 	token, _, err := authority.Child(ctx, parent, ChildInput{
+		// The hop attests the build it is running, which for an agent fixture
+		// is the one the fixture issuer approves for it. Read from the source
+		// being minted against, for the reason fixtureSessionOn reads it
+		// there: a divergent source is how a negative fixture is producible.
+		Execution:          fixtureExecutionFor(ctx, authority, FixtureActor),
 		PrincipalID:        FixtureActor,
 		PrincipalKind:      "agent",
 		AgentID:            FixtureAgentID,
@@ -775,6 +796,9 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		return nil, err
 	}
 	if err := staleActor.PutEpoch(FixtureActor, FixtureActorEpoch-1); err != nil {
+		return nil, err
+	}
+	if err := staleActor.PutApprovedBuild(FixtureActor, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 		return nil, err
 	}
 	staleActorAuthority := fixtureAuthority(now, staleActor)
@@ -1132,4 +1156,17 @@ func fixtureUnknownField(number int, value string) protoreflect.RawFields {
 func isFixtureKey(key ed25519.PublicKey) bool {
 	public, _ := FixtureKeyPair()
 	return subtle.ConstantTimeCompare(key, public) == 1
+}
+
+// fixtureExecutionFor is the execution a fixture hop attests: whatever the
+// source being minted AGAINST approves for that principal, or none when it
+// bears none. A negative fixture mints against a divergent source on purpose,
+// so attesting the live constants there would make the mint refuse instead of
+// producing the capability the fixture exists to present.
+func fixtureExecutionFor(ctx context.Context, authority *Authority, principalID string) Execution {
+	digest, incarnation, err := authority.Seals.ApprovedBuild(ctx, principalID)
+	if err != nil {
+		return Execution{}
+	}
+	return Execution{ImageDigest: digest, BuildIncarnation: incarnation}
 }

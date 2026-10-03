@@ -318,6 +318,36 @@ message WorkActorV1 {
   // nothing can revoke, and leaving that expressible on the wire made it a
   // shape a consumer could mint without noticing.
   uint64 principal_epoch = 7 [(buf.validate.field).uint64.gte = 1, (buf.validate.field).required = true];
+  // image_digest and build_incarnation are THIS HOP'S execution, on exactly
+  // the terms WorkSealV1 carries the owner's: optional, set as a pair, absent
+  // when the hop's principal bears no execution.
+  //
+  // They are here, per hop, for the same reason principal_epoch is. The seal
+  // held ONE execution slot and a derivation overwrote it with the last hop's,
+  // so superseding the OWNER's build refused the owner's own capability and
+  // every child of it still verified — and kept minting grandchildren. A
+  // delegation narrows authority within one execution chain; each link has its
+  // own running build, and a credential that records only the last one cannot
+  // be revoked by replacing any earlier one.
+  //
+  // Supersession is how a rollout revokes: a host bumps the incarnation per
+  // applied generation, so a superseded pod that pre-minted delegations would
+  // otherwise outlive its own replacement through them.
+  optional string image_digest = 8 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.max_len = 256,
+    (buf.validate.field).string.pattern = "^sha256:[a-f0-9]{64}$"
+  ];
+  // build_incarnation is the incarnation of this hop's run. See image_digest.
+  optional uint64 build_incarnation = 9 [(buf.validate.field).uint64.gte = 1];
+  // Both of this hop's execution fields are set, or neither is — the same
+  // pairing WorkSealV1 requires, for the same reason: one without the other
+  // names a run nothing can check.
+  option (buf.validate.message).cel = {
+    id: "work_actor.execution_is_whole"
+    message: "build_incarnation and image_digest are set together or not at all"
+    expression: "has(this.build_incarnation) == has(this.image_digest)"
+  };
 }
 
 // WorkGrantHopV1 records the approval that justifies a capability holding

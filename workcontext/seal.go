@@ -215,8 +215,16 @@ type SealSource interface {
 	// principal: the image-manifest digest of the build, and the incarnation
 	// of the run. It is keyed on the PRINCIPAL and on nothing else.
 	//
-	// It returns ErrNoApprovedBuild when the principal bears no execution,
-	// which is the answer for a human session and is not an error.
+	// It returns ErrNoApprovedBuild when the principal is KNOWN TO BEAR NO
+	// EXECUTION, which is the answer for a human session and is not an error.
+	//
+	// An UNKNOWN principal must be a refusal, not ErrNoApprovedBuild. The two
+	// must not read alike: "bears none" mints a capability carrying no
+	// execution that every verifier accepts, so answering it for a principal
+	// the issuer simply has no record of hands a service principal a
+	// credential nothing can revoke by replacing its build. Nothing recorded
+	// is the most permissive answer this method can give, so it has to be
+	// asserted rather than defaulted.
 	//
 	// Keyed per principal because that is what a delegation needs. The
 	// execution used to be read from the owner's installation seal, so a
@@ -316,7 +324,7 @@ func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkCont
 	// had been added. So a hop was never bound to what it was running, and a
 	// caller holding a parent capability derived children regardless of its
 	// own build. That is the blocker; this is the check that closes it.
-	if err := checkExecutionAgainst(ctx, seals, exercisingPrincipal(wc), sealed); err != nil {
+	if err := checkExecutionsAgainst(ctx, seals, wc, sealed); err != nil {
 		return err
 	}
 	// The OWNER's epoch, from the one source, exactly as every hop's is read.
@@ -441,30 +449,57 @@ func checkOperationBindingAgainst(ctx context.Context, seals SealSource, wc *bas
 // The correspondence is what makes the field's optionality honest rather than
 // a hedge: a capability carries an execution exactly when its exercising
 // principal bears one.
-func checkExecutionAgainst(ctx context.Context, seals SealSource, exercising string, sealed *basev0.WorkSealV1) error {
+// checkExecutionsAgainst holds EVERY link's execution against what the issuer
+// approves for that link's principal: the owner's from the seal, each hop's
+// from its own actor message, in one loop.
+//
+// One loop over all of them, exactly as checkActorEpochsAgainst does for
+// epochs, and for the same reason — which a regression proved the hard way.
+// The seal carried ONE execution slot and a derivation overwrote it with the
+// last hop's, so this function checked only the exercising principal.
+// Superseding the OWNER's build then refused the owner's own capability while
+// every child of it verified, and those children kept minting grandchildren. A
+// credential that records only the last link's run cannot be revoked by
+// replacing any earlier one.
+func checkExecutionsAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1, sealed *basev0.WorkSealV1) error {
+	if err := checkExecutionAgainst(ctx, seals, "the task owner", wc.GetOwnerPrincipalId(),
+		sealed.GetImageDigest(), sealed.GetBuildIncarnation()); err != nil {
+		return err
+	}
+	for index, hop := range wc.GetActorChain() {
+		label := fmt.Sprintf("actor hop %d", index)
+		if err := checkExecutionAgainst(ctx, seals, label, hop.GetPrincipalId(),
+			hop.GetImageDigest(), hop.GetBuildIncarnation()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkExecutionAgainst(ctx context.Context, seals SealSource, label, exercising, carriedDigest string, carriedIncarnation uint64) error {
 	digest, incarnation, err := seals.ApprovedBuild(ctx, exercising)
 	bearsNone := errors.Is(err, ErrNoApprovedBuild)
 	if err != nil && !bearsNone {
 		return fmt.Errorf("work context: approved build for principal %q: %w", exercising, err)
 	}
-	carried := sealed.GetImageDigest() != "" || sealed.GetBuildIncarnation() != 0
+	carried := carriedDigest != "" || carriedIncarnation != 0
 	switch {
 	case bearsNone && carried:
-		return fmt.Errorf("%w: sealed to build %s incarnation %d, and principal %q bears no execution the issuer approves",
-			ErrRevoked, sealed.GetImageDigest(), sealed.GetBuildIncarnation(), exercising)
+		return fmt.Errorf("%w: %s (%s) is sealed to build %s incarnation %d, and that principal bears no execution the issuer approves",
+			ErrRevoked, label, exercising, carriedDigest, carriedIncarnation)
 	case bearsNone:
 		return nil
 	case !carried:
-		return fmt.Errorf("%w: carries no execution, and principal %q exercises build %s incarnation %d",
-			ErrRevoked, exercising, digest, incarnation)
+		return fmt.Errorf("%w: %s (%s) carries no execution, and that principal exercises build %s incarnation %d",
+			ErrRevoked, label, exercising, digest, incarnation)
 	}
-	if sealed.GetImageDigest() != digest {
-		return fmt.Errorf("%w: sealed to build %s, the issuer approves %s for principal %q",
-			ErrRevoked, sealed.GetImageDigest(), digest, exercising)
+	if carriedDigest != digest {
+		return fmt.Errorf("%w: %s (%s) is sealed to build %s, the issuer approves %s",
+			ErrRevoked, label, exercising, carriedDigest, digest)
 	}
-	if sealed.GetBuildIncarnation() != incarnation {
-		return fmt.Errorf("%w: sealed to incarnation %d, the issuer holds %d for principal %q, so this execution has been replaced",
-			ErrRevoked, sealed.GetBuildIncarnation(), incarnation, exercising)
+	if carriedIncarnation != incarnation {
+		return fmt.Errorf("%w: %s (%s) is sealed to incarnation %d, the issuer holds %d, so this execution has been replaced",
+			ErrRevoked, label, exercising, carriedIncarnation, incarnation)
 	}
 	return nil
 }
@@ -803,13 +838,51 @@ func (s *MemorySealSource) PutApprovedBuild(principalID, digest string, incarnat
 	return nil
 }
 
-// ApprovedBuild answers the execution approved for one principal, or
-// ErrNoApprovedBuild when it bears none.
+// PutBearsNoExecution records, EXPLICITLY, that a principal bears no execution
+// — a human session, not a workload.
+//
+// It exists because an unknown principal used to answer ErrNoApprovedBuild,
+// which made "nothing recorded" the most permissive answer this source gives:
+// a service principal whose build record was simply missing was handed a
+// capability carrying no execution, and the verifier accepted it. That is the
+// fourth time this shape has appeared here — an empty signer policy meaning "a
+// renderer", an empty digest meaning "bears no execution", a zero applied
+// record meaning "first generation", and this.
+//
+// So an unknown principal is now a REFUSAL, and bearing no execution is a
+// recorded fact like any other.
+func (s *MemorySealSource) PutBearsNoExecution(principalID string) error {
+	if principalID == "" {
+		return fmt.Errorf("%w: a principal is named", ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if held, exists := s.builds[principalID]; exists && held.digest != "" {
+		return fmt.Errorf("%w: principal %q is approved for build %s at incarnation %d; a workload does not become a human, and declaring it bears no execution would re-admit every capability that carries none",
+			ErrInvalid, principalID, held.digest, held.incarnation)
+	}
+	s.builds[principalID] = approvedBuild{}
+	return nil
+}
+
+// ApprovedBuild answers the execution approved for one principal,
+// ErrNoApprovedBuild when it is recorded as bearing none, and a REFUSAL when
+// the principal is unknown.
+//
+// An unknown principal is not "bears no execution". It is an issuer that
+// cannot say, and the two must not read alike: the first would mint a
+// capability carrying no execution that every verifier accepts, which is how a
+// service principal with a missing record gets a credential nobody can revoke
+// by replacing its build.
 func (s *MemorySealSource) ApprovedBuild(_ context.Context, principalID string) (string, uint64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	held, exists := s.builds[principalID]
 	if !exists {
+		return "", 0, fmt.Errorf("work context: no execution record for principal %q; record an approved build, or PutBearsNoExecution to say it bears none",
+			principalID)
+	}
+	if held.digest == "" {
 		return "", 0, fmt.Errorf("%w: principal %q", ErrNoApprovedBuild, principalID)
 	}
 	return held.digest, held.incarnation, nil

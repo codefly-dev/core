@@ -330,20 +330,31 @@ func (a *Authority) sealExecutionFor(ctx context.Context, wc *basev0.WorkContext
 	if err != nil && !bearsNone {
 		return fmt.Errorf("work context: approved build for principal %q: %w", exercising, err)
 	}
-	seal := wc.GetSeal()
-	if seal == nil {
+	if wc.GetSeal() == nil {
 		return fmt.Errorf("%w: a derived capability inherits a seal, and this one carries none", ErrInvalid)
 	}
+	// THE HOP'S OWN EXECUTION GOES ON THE HOP, and the seal's — the OWNER's —
+	// is never touched.
+	//
+	// This used to write the hop's execution onto the seal, which has one
+	// slot. So a derivation overwrote the owner's execution with the last
+	// hop's, and superseding the owner's build refused the owner's own
+	// capability while every child of it verified and went on minting
+	// grandchildren. The seal records the owner; each hop records itself.
+	if len(wc.GetActorChain()) == 0 {
+		return fmt.Errorf("%w: a derived capability adds an actor hop, and this one has none", ErrInvalid)
+	}
+	hop := wc.ActorChain[len(wc.ActorChain)-1]
 	attestedAny := attested.ImageDigest != "" || attested.BuildIncarnation != 0
 	if bearsNone {
 		if attestedAny {
 			return fmt.Errorf("%w: principal %q bears no execution the issuer approves, so it cannot attest build %s incarnation %d",
 				ErrInvalid, exercising, attested.ImageDigest, attested.BuildIncarnation)
 		}
-		// A hop that bears no execution carries none, so the parent's is
-		// CLEARED rather than inherited. Leaving it would seal a human's
-		// capability to a workload's build.
-		seal.ImageDigest, seal.BuildIncarnation = nil, nil
+		// A hop bearing no execution carries none. Nothing is inherited from
+		// the parent here, which is the point: a human taking over a session
+		// is not running the workload's build.
+		hop.ImageDigest, hop.BuildIncarnation = nil, nil
 		return nil
 	}
 	if !attestedAny {
@@ -358,7 +369,7 @@ func (a *Authority) sealExecutionFor(ctx context.Context, wc *basev0.WorkContext
 		return fmt.Errorf("%w: the hop attests incarnation %d and the issuer holds %d for principal %q, so this execution has been replaced",
 			ErrRevoked, attested.BuildIncarnation, incarnation, exercising)
 	}
-	seal.ImageDigest, seal.BuildIncarnation = &digest, &incarnation
+	hop.ImageDigest, hop.BuildIncarnation = &digest, &incarnation
 	return nil
 }
 

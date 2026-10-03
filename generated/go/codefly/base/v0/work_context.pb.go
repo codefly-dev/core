@@ -400,9 +400,15 @@ type WorkSealV1 struct {
 	//
 	// A verifier compares it for EQUALITY and never resolves it from the
 	// workload's own attributes. Resolving by (service account, image digest) is
-	// exactly what lets an old pod in, which is why SealSource answers only "the
-	// current incarnation for this principal" and offers no lookup by anything
-	// the workload itself presents.
+	// exactly what lets an old pod in, which is why SealSource.ApprovedBuild
+	// answers "the build and incarnation this PRINCIPAL is approved for" and
+	// offers no lookup by anything the workload itself presents.
+	//
+	// That method once answered the incarnation alone, from the installation
+	// seal — so a derived capability's execution described the OWNER's workload
+	// however many delegation hops had been added, and a hop's principal does
+	// not hold the owner's installation at all. Minting was execution-bound only
+	// at the first session as a result.
 	//
 	// It is OPTIONAL, together with image_digest, and the two are set or unset
 	// as a pair: see the message rule below. Absent means the principal
@@ -715,8 +721,26 @@ type WorkActorV1 struct {
 	// nothing can revoke, and leaving that expressible on the wire made it a
 	// shape a consumer could mint without noticing.
 	PrincipalEpoch uint64 `protobuf:"varint,7,opt,name=principal_epoch,json=principalEpoch,proto3" json:"principal_epoch,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// image_digest and build_incarnation are THIS HOP'S execution, on exactly
+	// the terms WorkSealV1 carries the owner's: optional, set as a pair, absent
+	// when the hop's principal bears no execution.
+	//
+	// They are here, per hop, for the same reason principal_epoch is. The seal
+	// held ONE execution slot and a derivation overwrote it with the last hop's,
+	// so superseding the OWNER's build refused the owner's own capability and
+	// every child of it still verified — and kept minting grandchildren. A
+	// delegation narrows authority within one execution chain; each link has its
+	// own running build, and a credential that records only the last one cannot
+	// be revoked by replacing any earlier one.
+	//
+	// Supersession is how a rollout revokes: a host bumps the incarnation per
+	// applied generation, so a superseded pod that pre-minted delegations would
+	// otherwise outlive its own replacement through them.
+	ImageDigest *string `protobuf:"bytes,8,opt,name=image_digest,json=imageDigest,proto3,oneof" json:"image_digest,omitempty"`
+	// build_incarnation is the incarnation of this hop's run. See image_digest.
+	BuildIncarnation *uint64 `protobuf:"varint,9,opt,name=build_incarnation,json=buildIncarnation,proto3,oneof" json:"build_incarnation,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *WorkActorV1) Reset() {
@@ -794,6 +818,20 @@ func (x *WorkActorV1) GetOrganizationId() string {
 func (x *WorkActorV1) GetPrincipalEpoch() uint64 {
 	if x != nil {
 		return x.PrincipalEpoch
+	}
+	return 0
+}
+
+func (x *WorkActorV1) GetImageDigest() string {
+	if x != nil && x.ImageDigest != nil {
+		return *x.ImageDigest
+	}
+	return ""
+}
+
+func (x *WorkActorV1) GetBuildIncarnation() uint64 {
+	if x != nil && x.BuildIncarnation != nil {
+		return *x.BuildIncarnation
 	}
 	return 0
 }
@@ -1116,7 +1154,7 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\rresource_kind\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\fresourceKind\x12\x18\n" +
 	"\aactions\x18\x02 \x03(\tR\aactions\x12!\n" +
-	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xa1\x03\n" +
+	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xf1\x05\n" +
 	"\vWorkActorV1\x12-\n" +
 	"\fprincipal_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\vprincipalId\x121\n" +
@@ -1130,9 +1168,14 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\x0forganization_id\x18\x06 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\x0eorganizationId\x88\x01\x01\x123\n" +
 	"\x0fprincipal_epoch\x18\a \x01(\x04B\n" +
-	"\xbaH\a\xc8\x01\x012\x02(\x01R\x0eprincipalEpochB\v\n" +
+	"\xbaH\a\xc8\x01\x012\x02(\x01R\x0eprincipalEpoch\x12I\n" +
+	"\fimage_digest\x18\b \x01(\tB!\xbaH\x1er\x1c\x10\x01\x18\x80\x022\x15^sha256:[a-f0-9]{64}$H\x02R\vimageDigest\x88\x01\x01\x129\n" +
+	"\x11build_incarnation\x18\t \x01(\x04B\a\xbaH\x042\x02(\x01H\x03R\x10buildIncarnation\x88\x01\x01:\xa0\x01\xbaH\x9c\x01\x1a\x99\x01\n" +
+	"\x1dwork_actor.execution_is_whole\x12Abuild_incarnation and image_digest are set together or not at all\x1a5has(this.build_incarnation) == has(this.image_digest)B\v\n" +
 	"\t_agent_idB\x12\n" +
-	"\x10_organization_id\"\xa6\x02\n" +
+	"\x10_organization_idB\x0f\n" +
+	"\r_image_digestB\x14\n" +
+	"\x12_build_incarnation\"\xa6\x02\n" +
 	"\x0eWorkGrantHopV1\x12%\n" +
 	"\bgrant_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\agrantId\x12I\n" +
