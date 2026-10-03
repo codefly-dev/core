@@ -134,6 +134,46 @@ because each response is its own RPC envelope. Unsuccessful build, test, and
 lint outcomes must include a failure even when they also retain structured
 diagnostics, counts, or process output.
 
+## A required input needs an independent source
+
+This is a design rule, not a feature, and it is written down because it has
+been violated three times in one contract — each time by a careful change, each
+time found by a consumer rather than by a test.
+
+**The shape:** a check requires an input the caller must supply, and the only
+source the caller can actually reach is the thing being checked. The check then
+compares a value against itself. It passes for every caller, including the one
+it exists to refuse, and it type-checks, so nothing here can detect it.
+
+The three instances, so the shape is recognisable rather than abstract:
+
+| input | the independent source it needs | what the only reachable source was |
+| --- | --- | --- |
+| `workcontext.Execution.ImageDigest` | the orchestrator's record of what is RUNNING | the issuer's record of what is APPROVED — so approved is compared against approved, and the superseded pod the field exists to refuse passes |
+| the same field, in the conformance kit | a pod | `Seals.Seal`, read and attested straight back, because a fixture has no pod |
+| `solutionhost.RenderedActivationRequest.Envelope` | the platform's ceiling | the document under check — so `ValidateAgainst` tested a document's own approved build against a list built from that build |
+
+**The one place this was recognised first**, and therefore the mitigation:
+`Activate` takes the build as an explicit parameter rather than reading it out
+of the authority document, and says why — "reading the build out of the
+document that approves it would make the question answer itself"
+(`solutionhost/authority.go`). The same sentence applies to all three rows
+above. It was written before any of them.
+
+So the test for a new required input is not "is it checked". It is: **name the
+caller, and name where that caller gets this value from.** If the answer is
+"from the thing being validated", the input is wrong, or the entrypoint is
+wrong, or the check belongs to a different party — which is how the envelope
+ended up back with the host and the renderer ended up taking a revision
+number. If no caller can answer, say so in the doc rather than requiring it in
+the indicative: `Execution.ImageDigest` stays required because dropping it
+would be a worse trade, and its comment now states plainly that no consumer can
+source it correctly yet.
+
+The pattern was named by a consumer (sdk-go#48) after the third instance, which
+is itself the finding: three single bugs looked like three bugs, and only
+someone integrating against all of them saw one.
+
 ## Resource Hierarchy
 
 ```
@@ -213,12 +253,21 @@ Codefly solves this with **NetworkMapping**: each endpoint gets multiple **Netwo
 | `container` | `host.docker.internal` | Docker-to-host communication |
 | `public` | configurable | Production/public endpoints |
 
-Port allocation is **deterministic**: `SHA256(workspace + module + service + endpoint + api) → port`. The same service always gets the same port. This means pgAdmin configs, DataGrip connections, and browser bookmarks survive restarts.
+Port allocation is **deterministic**: `SHA256(workspace + module + service + endpoint + api [+ mode]) → port`. The same service always gets the same port. This means pgAdmin configs, DataGrip connections, and browser bookmarks survive restarts.
 
 ```go
-port := network.ToNamedPort(ctx, "myworkspace", "backend", "api", "grpc", "grpc")
+mode := network.PortModeFor(runtimeContext) // "" keeps the legacy hash
+port := network.ToNamedPort(ctx, "myworkspace", "backend", "api", "grpc", "grpc", mode)
 // Always returns the same port for these inputs
 ```
+
+`mode` is the seventh argument and this example omitted it — a call that does
+not compile, in a document that read as current. It is not cosmetic: the mode
+segment is appended to the hashed string only when non-empty, which is what
+keeps host-bound (native and nix) ports on the legacy value while shifting
+container-published ports onto a disjoint one. A reader copying the
+six-argument form concluded there is no such distinction. Take it from
+`network.PortModeFor(runtimeContext)` rather than writing the string.
 
 For tests and ephemeral environments, `RuntimeManager.WithTemporaryPorts()` uses random free ports instead.
 

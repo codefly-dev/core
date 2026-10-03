@@ -77,6 +77,7 @@ func TestDocumentsNameIdentifiersThatExist(t *testing.T) {
 	}
 
 	documents := []string{
+		filepath.Join("docs", "architecture.md"),
 		filepath.Join("docs", "solution-host-binding.md"),
 		filepath.Join("docs", "work-context.md"),
 		filepath.Join("docs", "readiness.md"),
@@ -242,6 +243,7 @@ func TestDocumentedCallsHaveTheRightArity(t *testing.T) {
 	}
 
 	documents := []string{
+		filepath.Join("docs", "architecture.md"),
 		filepath.Join("docs", "solution-host-binding.md"),
 		filepath.Join("docs", "work-context.md"),
 		filepath.Join("docs", "readiness.md"),

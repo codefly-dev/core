@@ -155,7 +155,10 @@ Two more entry points exist, and neither is a third strength:
 ## What the kit does NOT check
 
 The kit proves BEHAVIOUR, not identity and not host sourcing. Three gaps are
-worth naming rather than discovering:
+worth naming rather than discovering — and the first is one instance of a
+shape that has now appeared three times in this contract, tabulated in
+[`docs/architecture.md`](../docs/architecture.md) under "A required input needs
+an independent source":
 
 - **Where a host gets `Execution.ImageDigest`.** This is the big one. The field
   is the running build, and `Seal.ImageDigest` is the APPROVED build; a host

@@ -75,6 +75,11 @@ type Seal struct {
 // it owes — below — so the shortcut is a recorded debt rather than a
 // misunderstanding.
 //
+// This is one of three instances of one shape, named and tabulated in
+// docs/architecture.md under "A required input needs an independent source".
+// A consumer integrating against all three saw the pattern that none of the
+// three showed on its own.
+//
 // # The way to satisfy this field and defeat it at the same time
 //
 // A host that fills this from THE SAME RECORD IT SEALED has written a

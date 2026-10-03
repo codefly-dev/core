@@ -746,6 +746,11 @@ type RenderedActivationRequest struct {
 	// Activate's own comment about the build and Envelope's own doc refuse.
 	// An entrypoint whose only possible caller must lie to it is the same
 	// defect as a permissive branch for a caller who cannot exist.
+	//
+	// This was the third instance of one shape. It is named and tabulated in
+	// docs/architecture.md under "A required input needs an independent
+	// source", with the test it yields: name the caller, and name where that
+	// caller gets this value from.
 	EnvelopeRevision uint64
 
 	// Applied is what the renderer knows was applied for this authority ID.
