@@ -236,7 +236,43 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 // The installation is always the parent's: a delegation hop narrows authority
 // within one installation and never moves it, so taking an installation from
 // the hop would be a way to widen across installations.
+// requireTrustedParent re-verifies the parent's signature under THIS
+// authority's current key for its id.
+//
+// A *Verified proves somebody verified those bytes; it does not prove the
+// DERIVING issuer trusts the key they were verified under. So a parent
+// authenticated under a key this authority has rotated out — or never held —
+// was derived from happily, and the child was signed with this authority's own
+// key, laundering an untrusted parent into a trusted child. The same shape as
+// Recheck's: holding a *Verified is not the same question as "is this good
+// under what we trust now".
+func (a *Authority) requireTrustedParent(parent *Verified) error {
+	if len(a.Key) != ed25519.PrivateKeySize {
+		return fmt.Errorf("work context: authority has no signing key, so it can derive nothing")
+	}
+	claims := parent.claims()
+	if claims.GetKeyId() != a.KeyID {
+		return fmt.Errorf("%w: the parent was authenticated under key %q and this issuer signs with %q, so nothing may be derived from it",
+			ErrInvalid, claims.GetKeyId(), a.KeyID)
+	}
+	_, payload, signature, err := decodeClaims(parent.Encoded())
+	if err != nil {
+		return err
+	}
+	// Under THIS issuer's own key, as it holds it now. A rotated key refuses
+	// the derivation rather than producing a child signed with new material
+	// from a parent the new material never signed.
+	if !ed25519.Verify(a.Key.Public().(ed25519.PublicKey), payload, signature) {
+		return fmt.Errorf("%w: the parent's signature does not verify under key %q as this issuer holds it now",
+			ErrInvalid, a.KeyID)
+	}
+	return nil
+}
+
 func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0.WorkContextV1, bindingID, exercising string, attested Execution) error {
+	if err := a.requireTrustedParent(parent); err != nil {
+		return err
+	}
 	if err := a.carryForwardSeal(ctx, parent.claims()); err != nil {
 		return err
 	}

@@ -173,7 +173,7 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 		}
 	}
 
-	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded), key: key}, nil
+	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded)}, nil
 }
 
 // CheckEncoding reports whether a payload is in another format entirely,

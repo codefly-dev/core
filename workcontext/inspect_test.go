@@ -3,6 +3,7 @@ package workcontext_test
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"go/ast"
 	"go/parser"
@@ -500,4 +501,47 @@ func TestRecheckRefusesACapabilityThatIsNotThisVerifiersToAnswer(t *testing.T) {
 	foreign.Audience = "another-audience"
 	require.ErrorIs(t, foreign.Recheck(context.Background(), authenticated), workcontext.ErrInvalid)
 	require.ErrorIs(t, foreign.Recheck(context.Background(), nil), workcontext.ErrInvalid)
+}
+
+// TestRecheckReVerifiesUnderTheKeyTheVerifierHoldsNow covers the case the
+// previous test never did — a POPULATED map holding the WRONG key — and the
+// in-place rotation that defeated the comparison this replaced.
+//
+// Two weaker attempts preceded it. Requiring a non-empty map establishes
+// nothing. Recording the authenticating key on Verified and comparing it looks
+// right and is not: ed25519.PublicKey is a []byte, so the field held a
+// reference into the verifier's own map, and rotating a key in place moved the
+// "snapshot" with it — the comparison compared an array against itself.
+func TestRecheckReVerifiesUnderTheKeyTheVerifierHoldsNow(t *testing.T) {
+	h := newHarness(t)
+	_, verified := h.ownerSession(audience)
+
+	// IN-PLACE rotation: same kid, new material, same backing array.
+	inPlace := h.verifier(audience)
+	require.NoError(t, inPlace.Recheck(context.Background(), verified), "baseline")
+	other, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	copy(inPlace.Keys[keyID], other)
+	_, verifyErr := inPlace.Verify(context.Background(), verified.Encoded())
+	require.Error(t, verifyErr, "Verify refuses it")
+	err = inPlace.Recheck(context.Background(), verified)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "as this verifier holds it now")
+
+	// A POPULATED map with the right kid mapped to a DIFFERENT key, which the
+	// previous test never covered — it only emptied the map.
+	replaced := h.verifier(audience)
+	fresh, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	replaced.Keys = map[string]ed25519.PublicKey{keyID: fresh}
+	err = replaced.Recheck(context.Background(), verified)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "does not verify")
+
+	// And the kid rotated OUT entirely.
+	rotatedOut := h.verifier(audience)
+	rotatedOut.Keys = map[string]ed25519.PublicKey{"k-2": fresh}
+	err = rotatedOut.Recheck(context.Background(), verified)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "no longer holds the key")
 }

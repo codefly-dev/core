@@ -3,6 +3,7 @@ package workcontext
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
 	"strings"
@@ -311,33 +312,42 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	if wc.GetAudience() != v.Audience {
 		return fmt.Errorf("%w: addressed to %q and this verifier answers for %q", ErrInvalid, wc.GetAudience(), v.Audience)
 	}
-	// THE KEY POLICY, not merely "a key map exists".
+	// THE SIGNATURE, RE-VERIFIED under the verifier's CURRENT key — which is
+	// the check, not a comparison standing in for it.
 	//
-	// Requiring a non-empty map was my previous fix and it does not establish
-	// what matters: that this verifier holds, and still trusts, THE key that
-	// authenticated this capability. A rotated key id — the map populated
-	// with other keys and nothing under the capability's kid — rechecked
-	// successfully while Verify refused it with "no verification key".
+	// Two attempts preceded this and both were weaker than the thing they
+	// approximated. The first required a non-empty key map, which establishes
+	// nothing. The second recorded the authenticating key on Verified and
+	// compared it — but ed25519.PublicKey is a []byte, so what was recorded
+	// was a REFERENCE into the verifier's own map: rotating a key in place
+	// changed the "snapshot" too, and the comparison compared an array
+	// against itself. Executed: after `copy(v.Keys[kid], other)`, Verify
+	// refuses with "signature does not verify" and the comparison passed.
 	//
-	// Rotation is the case this exists for. Dropping a compromised key from
-	// the map is how a key is revoked, and a long-running call that kept
-	// re-checking against a verifier that no longer holds it would be exactly
-	// the revocation Recheck is supposed to notice.
+	// Re-verifying removes the approximation and the duplicate rule with it.
+	// Both reviews asked for this twice: one implementation of "is this
+	// signature good under what we trust now", shared with Verify through
+	// decodeClaims and ed25519.Verify, rather than a second rule in another
+	// function that can drift from it. A rotated-out kid, a kid rotated in
+	// place, and a capability signed by something else all reach the same
+	// refusal here as they do there.
+	_, claims, signature, err := decodeClaims(verified.Encoded())
+	if err != nil {
+		return err
+	}
 	key, known := v.Keys[wc.GetKeyId()]
 	if !known {
 		return fmt.Errorf("%w: no verification key %q; this verifier no longer holds the key that authenticated this capability",
 			ErrInvalid, wc.GetKeyId())
 	}
-	// And the SAME key, not merely the same id. A kid rotated in place to new
-	// material is a different key under a reused name, and comparing only the
-	// id would accept a capability the current key never signed.
-	if !bytes.Equal(key, verified.key) {
-		return fmt.Errorf("%w: verification key %q has been rotated since this capability was authenticated",
-			ErrInvalid, wc.GetKeyId())
-	}
 	if !v.TrustTheConformanceFixtureKey && isFixtureKey(key) {
 		return fmt.Errorf("%w: key %q is the conformance fixture key", ErrInvalid, wc.GetKeyId())
 	}
+	if !ed25519.Verify(key, claims, signature) {
+		return fmt.Errorf("%w: signature does not verify under key %q as this verifier holds it now",
+			ErrInvalid, wc.GetKeyId())
+	}
+
 	now := v.now()
 	skew := v.skew()
 	// The window, BOTH ENDS. Not-before was omitted: only expiry was checked,

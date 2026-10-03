@@ -22,7 +22,6 @@
 package workcontext
 
 import (
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -142,11 +141,12 @@ type Verified struct {
 	context *basev0.WorkContextV1
 	encoded string
 	sha256  string
-	// key is the public key that actually authenticated this capability, kept
-	// so Recheck can require that the verifier STILL HOLDS IT. Comparing the
-	// key id alone would accept a kid rotated in place to new material — a
-	// different key under a reused name.
-	key ed25519.PublicKey
+	// There is deliberately NO recorded key here. One was added so Recheck
+	// could compare it, and ed25519.PublicKey is a []byte — so the field held
+	// a REFERENCE into the verifier's key map and an in-place rotation moved
+	// the "snapshot" with it. Recheck re-verifies the signature under the
+	// verifier's current key instead, which is one implementation of that
+	// question rather than a second one that can drift.
 }
 
 // Context is the verified claims, as a DEEP COPY.

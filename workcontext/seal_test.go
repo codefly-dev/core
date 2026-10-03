@@ -3,6 +3,7 @@ package workcontext_test
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -1693,4 +1694,48 @@ func TestReplacingABindingKeepsTheHopsOwnExecution(t *testing.T) {
 	_, err = h.verify(audience, token)
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 	require.ErrorContains(t, err, "actor hop 0")
+}
+
+// TestADerivationRefusesAParentItsIssuerDidNotSign is round seven's second
+// finding: a *Verified proves somebody verified those bytes, not that the
+// DERIVING issuer trusts the key they were verified under.
+//
+// So a parent authenticated under a key this authority has rotated out, or
+// never held, was derived from — and the child was signed with this
+// authority's own key, laundering an untrusted parent into a trusted child.
+// The existing issuer check compared the issuer STRING while the key material
+// stayed trusted, which is why it did not catch this.
+func TestADerivationRefusesAParentItsIssuerDidNotSign(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+
+	child := workcontext.ChildInput{
+		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
+		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
+		DelegationID: "d-1", Audience: audience, TTL: 30 * time.Minute,
+		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+	}
+
+	// The issuer ROTATES its signing key. The parent is still a valid
+	// *Verified — it was verified under the old key — but this issuer can no
+	// longer vouch for it.
+	rotated := *h.authority
+	_, fresh, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	rotated.Key = fresh
+
+	_, _, err = rotated.Child(context.Background(), owner, child)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "as this issuer holds it now")
+
+	// A different KEY ID refuses before any signature check.
+	renamedKey := *h.authority
+	renamedKey.KeyID = "k-99"
+	_, _, err = renamedKey.Child(context.Background(), owner, child)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "this issuer signs with")
+
+	// And the sound case still mints, so this is a correction and not a block.
+	_, _, err = h.authority.Child(context.Background(), owner, child)
+	require.NoError(t, err)
 }
