@@ -45,6 +45,30 @@ type Seal struct {
 	// two runs of one approved build, so a capability cannot be carried from a
 	// replaced incarnation into a new one.
 	BuildIncarnation uint64
+
+	// ImageDigest is the APPROVED BUILD for this installation, as an OCI
+	// image-manifest digest. It is the issuer's answer about what is approved,
+	// never a workload's claim about itself.
+	ImageDigest string
+}
+
+// Execution is what a caller attests it is running, when it asks for a
+// capability. The host resolves it after authenticating the workload — from
+// the pod's own status, not from anything the process asserts over the wire —
+// and the mint refuses unless it matches the approved build the issuer holds.
+//
+// It is an INPUT because only the host can know it, and it is CHECKED because
+// an input nobody checks is a claim. Before this existed, the minter read the
+// current incarnation for a principal and stamped it, so a pod from a
+// superseded generation could mint itself a capability sealed to the current
+// execution — which is the exact threat the build_incarnation field was
+// introduced to prevent, left open by the mint.
+type Execution struct {
+	// ImageDigest is the image-manifest digest the caller is running.
+	ImageDigest string
+
+	// BuildIncarnation is the incarnation the caller believes it belongs to.
+	BuildIncarnation uint64
 }
 
 // OperationBinding is the live state of one unit of authority, resolved by its
@@ -194,6 +218,12 @@ func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkCont
 			return fmt.Errorf("%w: sealed to %s %d, the issuer holds %d", ErrRevoked, field.label, field.sealed, field.live)
 		}
 	}
+	// The approved build, compared exactly. A capability sealed to a build the
+	// issuer no longer approves is not a credential, however current its
+	// counters are.
+	if sealed.GetImageDigest() != live.ImageDigest {
+		return fmt.Errorf("%w: sealed to build %s, the issuer approves %s", ErrRevoked, sealed.GetImageDigest(), live.ImageDigest)
+	}
 	// The OWNER's epoch, from the one source, exactly as every hop's is read.
 	if err := checkEpochAgainst(ctx, seals, "the task owner", owner, sealed.GetPrincipalEpoch()); err != nil {
 		return err
@@ -314,7 +344,7 @@ func checkOperationBindingAgainst(ctx context.Context, seals SealSource, wc *bas
 // added, or the owner when the owner acts directly. The binding must be
 // granted to it, within this installation, or the mint is refused: minting a
 // capability the verifier will reject is a failure best raised here.
-func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bindingID, exercising string) (*basev0.WorkSealV1, *basev0.WorkOperationBindingV1, error) {
+func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bindingID, exercising string, attested Execution) (*basev0.WorkSealV1, *basev0.WorkOperationBindingV1, error) {
 	if a.Seals == nil {
 		return nil, nil, fmt.Errorf("work context: authority has no seal source")
 	}
@@ -328,6 +358,28 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 	if live.InstallationID != installationID {
 		return nil, nil, fmt.Errorf("work context: seal source answered for installation %q, not %q", live.InstallationID, installationID)
 	}
+	// The execution the caller attests must be the approved one, and the
+	// incarnation it believes it belongs to must be the live one. BOTH are
+	// checked rather than recorded: a mint that took the caller's word would
+	// hand a superseded pod a capability sealed to the current execution, and
+	// the refusal would surface later as an authentication failure in a
+	// process that cannot explain it.
+	if attested.ImageDigest == "" || attested.BuildIncarnation == 0 {
+		return nil, nil, fmt.Errorf("%w: a capability is sealed to one execution, so the caller must attest the image digest and incarnation it is running",
+			ErrInvalid)
+	}
+	if live.ImageDigest == "" {
+		return nil, nil, fmt.Errorf("work context: the seal source holds no approved build for principal %q installation %q, so no execution can be matched against it",
+			principalID, installationID)
+	}
+	if attested.ImageDigest != live.ImageDigest {
+		return nil, nil, fmt.Errorf("%w: the caller attests build %s and the approved build for installation %q is %s",
+			ErrRevoked, attested.ImageDigest, installationID, live.ImageDigest)
+	}
+	if attested.BuildIncarnation != live.BuildIncarnation {
+		return nil, nil, fmt.Errorf("%w: the caller attests incarnation %d and the issuer holds %d, so this execution has been replaced",
+			ErrRevoked, attested.BuildIncarnation, live.BuildIncarnation)
+	}
 	// The epoch comes from the one source, never from the seal record.
 	epoch, err := a.epochFor(ctx, principalID)
 	if err != nil {
@@ -338,6 +390,7 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 		InstallationId:       live.InstallationID,
 		InstallationRevision: live.InstallationRevision,
 		BuildIncarnation:     live.BuildIncarnation,
+		ImageDigest:          live.ImageDigest,
 	}
 	if bindingID == "" {
 		return seal, nil, nil
@@ -505,6 +558,9 @@ func (s *MemorySealSource) PrincipalEpoch(_ context.Context, principalID string)
 func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 	if principalID == "" || seal.InstallationID == "" {
 		return fmt.Errorf("%w: a seal is held for one principal's use of one installation", ErrInvalid)
+	}
+	if seal.ImageDigest == "" {
+		return fmt.Errorf("%w: a seal names the approved build for the installation; without one no execution can be matched against it", ErrInvalid)
 	}
 	if seal.InstallationRevision == 0 || seal.BuildIncarnation == 0 {
 		// Zero is not a revision, and a capability sealed to one would compare

@@ -86,7 +86,7 @@ func newIdentityHarness(t *testing.T) *identityHarness {
 	// whoever the owner is.
 	for _, principal := range []string{ownerPrincipalID, agentPrincipalID} {
 		require.NoError(t, h.seals.Put(principal, workcontext.Seal{
-			InstallationID:       installation,
+			ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
 			InstallationRevision: 1,
 			BuildIncarnation:     1,
 		}))
@@ -152,6 +152,7 @@ func workScope(kind, action, resourceID string) *basev0.WorkScopeV1 {
 func (h *identityHarness) ownerSession() *workcontext.Verified {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 1},
 		InstallationID:     installation,
 		TenantID:           tenantID,
 		OwnerPrincipalID:   ownerPrincipalID,

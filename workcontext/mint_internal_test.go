@@ -29,6 +29,7 @@ func TestSealRefusesToSignAnUnsealedCapability(t *testing.T) {
 			Seal: &basev0.WorkSealV1{
 				PrincipalEpoch: 1, InstallationId: "inst",
 				InstallationRevision: 1, BuildIncarnation: 1,
+				ImageDigest: FixtureImageDigest,
 			},
 		}
 	}

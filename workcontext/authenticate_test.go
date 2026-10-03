@@ -165,7 +165,7 @@ func TestAuthenticate_RefusesACapabilitySealedToASupersededInstallationRevision(
 	require.NotNil(t, authenticated)
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		InstallationID:       installation,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
 		InstallationRevision: 4, BuildIncarnation: 11,
 	}))
 	// The SAME authenticator, reused across the revocation, so one that cached
@@ -195,6 +195,7 @@ func TestAuthenticate_RefusesADelegatedCapabilityAfterItsActorIsRevoked(t *testi
 func TestAuthenticate_ConsumesASingleUseCapability(t *testing.T) {
 	h := newHarness(t)
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID:     installation,
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,

@@ -164,6 +164,28 @@ message WorkSealV1 {
   // current incarnation for this principal" and offers no lookup by anything
   // the workload itself presents.
   uint64 build_incarnation = 4 [(buf.validate.field).uint64.gte = 1];
+  // image_digest is the APPROVED BUILD the issuer held for this installation
+  // at mint time, as an OCI image-manifest digest. A verifier compares it for
+  // equality against the approved build it holds now.
+  //
+  // It exists because build_incarnation alone did not bind a credential to an
+  // execution. A minter read the CURRENT incarnation for a principal and
+  // stamped it, so any caller able to mint for that principal — including a
+  // pod from a superseded generation — received a capability sealed to the
+  // current execution. The incarnation says WHICH run; this says which BUILD,
+  // and the mint now refuses unless the execution the caller attests matches
+  // both. Without it the approved build digest never reached the credential at
+  // all, so nothing downstream could tell which build an authority was
+  // exercised by.
+  //
+  // It is the ISSUER's answer, never the workload's claim about itself: the
+  // caller attests what it is running, the issuer says what is approved, and a
+  // mismatch is a refusal rather than a value to record.
+  string image_digest = 5 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.max_len = 256,
+    (buf.validate.field).string.pattern = "^sha256:[a-f0-9]{64}$"
+  ];
 }
 
 // WorkOperationBindingV1 is the unit of authority an operation context

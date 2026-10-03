@@ -144,7 +144,7 @@ func TestRecheck_RefusesEveryLeverThatCanMove(t *testing.T) {
 		"the authorization revision": func(h *harness) { h.revision++ },
 		"the installation revision": func(h *harness) {
 			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
-				InstallationID: installation, InstallationRevision: 4, BuildIncarnation: 11,
+				ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation, InstallationRevision: 4, BuildIncarnation: 11,
 			}))
 		},
 		"the owner's epoch": func(h *harness) { require.NoError(h.t, h.seals.PutEpoch(ownerID, 3)) },
@@ -245,6 +245,7 @@ func TestNoDeclarationTurnsAnInspectedCapabilityIntoAVerifiedOne(t *testing.T) {
 func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
 		TTL: 30 * 24 * time.Hour,
@@ -255,6 +256,7 @@ func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	// A host with a longer legitimate need states it, where a reviewer sees it.
 	h.authority.MaxTTL = 48 * time.Hour
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
 		TTL: 24 * time.Hour,

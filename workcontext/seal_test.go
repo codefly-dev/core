@@ -20,6 +20,7 @@ import (
 func (h *harness) operationSession(aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID:     installation,
 		OperationBindingID: bindingID,
 		TenantID:           tenant,
@@ -56,6 +57,7 @@ func TestStart_SealsToTheIssuersLiveState(t *testing.T) {
 func TestStart_RefusesWithoutAnInstallation(t *testing.T) {
 	h := newHarness(t)
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,
 		OwnerPrincipalKind: "human",
@@ -83,7 +85,7 @@ func TestVerify_RefusesACapabilitySealedToASupersededInstallationRevision(t *tes
 	require.NoError(t, err, "sound before the revocation")
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		InstallationID:       installation,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
 		InstallationRevision: 4,
 		BuildIncarnation:     11,
 	}))
@@ -127,7 +129,7 @@ func TestVerify_RefusesASealAheadOfTheIssuer(t *testing.T) {
 	token, _ := h.ownerSession(audience)
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		InstallationID:       installation,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
 		InstallationRevision: 2,
 		BuildIncarnation:     11,
 	}))
@@ -151,12 +153,12 @@ func TestVerify_RefusesEverySealedFieldIndependently(t *testing.T) {
 		},
 		"installation revision": func(h *harness) {
 			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
-				InstallationID: installation, InstallationRevision: 4, BuildIncarnation: 11,
+				ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation, InstallationRevision: 4, BuildIncarnation: 11,
 			}))
 		},
 		"build incarnation": func(h *harness) {
 			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
-				InstallationID: installation, InstallationRevision: 3, BuildIncarnation: 12,
+				ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation, InstallationRevision: 3, BuildIncarnation: 12,
 			}))
 		},
 	} {
@@ -202,7 +204,7 @@ func TestMemorySealSource_RefusesToLowerAnEpoch(t *testing.T) {
 
 	// And recording an unrelated installation does not touch it.
 	require.NoError(t, seals.Put(agentID, workcontext.Seal{
-		InstallationID: "inst-elsewhere", InstallationRevision: 1, BuildIncarnation: 1,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: "inst-elsewhere", InstallationRevision: 1, BuildIncarnation: 1,
 	}))
 	epoch, err := seals.PrincipalEpoch(context.Background(), agentID)
 	require.NoError(t, err)
@@ -244,6 +246,7 @@ func TestSeal_RefusesToSignAnUnsealedCapability(t *testing.T) {
 	h.authority.Seals = nil
 
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID:     installation,
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,
@@ -307,7 +310,7 @@ func TestVerify_RefusesABindingTheIssuerDoesNotHold(t *testing.T) {
 
 	h.seals = workcontext.NewMemorySealSource()
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		InstallationID:       installation,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
 		InstallationRevision: 3, BuildIncarnation: 11,
 	}))
 
@@ -340,7 +343,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 	for name, move := range map[string]func(*harness){
 		"installation revision": func(h *harness) {
 			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
-				InstallationID: installation, InstallationRevision: 9, BuildIncarnation: 11,
+				ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation, InstallationRevision: 9, BuildIncarnation: 11,
 			}))
 		},
 		"principal epoch": func(h *harness) {
@@ -348,7 +351,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 		},
 		"build incarnation": func(h *harness) {
 			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
-				InstallationID: installation, InstallationRevision: 3, BuildIncarnation: 12,
+				ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation, InstallationRevision: 3, BuildIncarnation: 12,
 			}))
 		},
 	} {
@@ -406,7 +409,7 @@ func TestGrant_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 	grant := h.approvedGrant("g-1")
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		InstallationID:       installation,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
 		InstallationRevision: 3, BuildIncarnation: 12,
 	}))
 
@@ -515,7 +518,7 @@ type answersElsewhere struct{}
 
 func (answersElsewhere) Seal(context.Context, string, string) (workcontext.Seal, error) {
 	return workcontext.Seal{
-		InstallationID:       "inst-somewhere-else",
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: "inst-somewhere-else",
 		InstallationRevision: 3, BuildIncarnation: 11,
 	}, nil
 }
@@ -530,7 +533,7 @@ func (answersElsewhere) OperationBinding(context.Context, string) (workcontext.O
 // source that simply had nothing recorded.
 func TestMemorySealSource_RefusesAZeroSeal(t *testing.T) {
 	source := workcontext.NewMemorySealSource()
-	require.ErrorIs(t, source.Put(ownerID, workcontext.Seal{InstallationID: installation}), workcontext.ErrInvalid)
+	require.ErrorIs(t, source.Put(ownerID, workcontext.Seal{ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation}), workcontext.ErrInvalid)
 	require.ErrorIs(t, source.Put(ownerID, workcontext.Seal{
 		InstallationRevision: 1, BuildIncarnation: 1,
 	}), workcontext.ErrInvalid)
@@ -543,10 +546,10 @@ func TestMemorySealSource_RefusesAZeroSeal(t *testing.T) {
 func TestMemorySealSource_KeepsTwoInstallationsApart(t *testing.T) {
 	source := workcontext.NewMemorySealSource()
 	require.NoError(t, source.Put(ownerID, workcontext.Seal{
-		InstallationID: "inst-a", InstallationRevision: 1, BuildIncarnation: 1,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: "inst-a", InstallationRevision: 1, BuildIncarnation: 1,
 	}))
 	require.NoError(t, source.Put(ownerID, workcontext.Seal{
-		InstallationID: "inst-b", InstallationRevision: 8, BuildIncarnation: 1,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: "inst-b", InstallationRevision: 8, BuildIncarnation: 1,
 	}))
 
 	a, err := source.Seal(context.Background(), ownerID, "inst-a")
@@ -745,4 +748,48 @@ func mustMarshal(t *testing.T, h *harness) []byte {
 	claims, err := base64.RawURLEncoding.DecodeString(payload)
 	require.NoError(t, err)
 	return claims
+}
+
+// Minting is bound to ONE EXECUTION, which the caller attests and the issuer
+// checks.
+//
+// Before this, StartInput said nothing about which execution was asking:
+// sealFor read the CURRENT build incarnation for (principal, installation) and
+// stamped it, so any caller able to mint for that principal — including a pod
+// from a superseded generation — received a capability sealed to the current
+// execution. That is precisely the threat the build_incarnation field's own
+// comment names as the thing to prevent, left wide open at the mint. And the
+// credential carried no approved-build digest at all, so nothing downstream
+// could tell which build an authority had been exercised by.
+func TestStart_BindsTheMintToTheAttestedExecution(t *testing.T) {
+	h := newHarness(t)
+	start := func(e workcontext.Execution) error {
+		_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+			Execution: e, InstallationID: installation, TenantID: tenant,
+			OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human", TaskID: taskID,
+			Audience: audience, TTL: time.Minute,
+		})
+		return err
+	}
+	sound := workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}
+	require.NoError(t, start(sound), "the approved execution mints")
+
+	// A pod from a superseded generation: right build, stale incarnation.
+	err := start(workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 10})
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "this execution has been replaced")
+
+	// An unapproved build, right incarnation.
+	err = start(workcontext.Execution{ImageDigest: "sha256:" + strings.Repeat("b", 64), BuildIncarnation: 11})
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "the approved build for installation")
+
+	// Attesting nothing at all.
+	require.ErrorIs(t, start(workcontext.Execution{}), workcontext.ErrInvalid)
+
+	// And the credential CARRIES the approved build digest.
+	token, _ := h.ownerSession(audience)
+	inspected, err := workcontext.Inspect(token)
+	require.NoError(t, err)
+	require.Equal(t, workcontext.FixtureImageDigest, inspected.Seal().GetImageDigest())
 }

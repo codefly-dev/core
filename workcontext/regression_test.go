@@ -91,6 +91,7 @@ func TestStart_DoesNotCaptureTheCallersScopes(t *testing.T) {
 	scopes := []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})}
 
 	_, wc, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation,
 		TenantID:       tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
 		OrganizationID: organization, TaskID: taskID, Audience: audience,
@@ -217,6 +218,7 @@ func TestMemoryReplayStore_RefusesWithinRetentionAndForgetsAfter(t *testing.T) {
 func TestStart_RefusesAnOwnerWithNoPrincipalKind(t *testing.T) {
 	h := newHarness(t)
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation,
 		TenantID:       tenant, OwnerPrincipalID: ownerID, TaskID: taskID,
 		Audience: audience, TTL: time.Hour,

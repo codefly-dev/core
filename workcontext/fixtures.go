@@ -5,9 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -75,6 +73,8 @@ const (
 	FixtureInstallationRevision = 3
 	// FixtureBuildIncarnation is the live build incarnation.
 	FixtureBuildIncarnation = 11
+	// FixtureImageDigest is the approved build for the fixture installation.
+	FixtureImageDigest = "sha256:eca6c756839cbd532a6c7cb16fa75263600f3c710738ac267fb3988e03e146aa"
 	// FixtureActorEpoch is FixtureActor's live epoch, distinct from the
 	// owner's so a fixture that advances one does not move the other.
 	FixtureActorEpoch = 5
@@ -227,7 +227,7 @@ func FixtureRevisions() RevisionSource { return FixedRevision(FixtureAuthorizati
 func FixtureSeals() *MemorySealSource {
 	source := NewMemorySealSource()
 	if err := source.Put(FixturePrincipal, Seal{
-		InstallationID:       FixtureInstallation,
+		ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 		InstallationRevision: FixtureInstallationRevision,
 		BuildIncarnation:     FixtureBuildIncarnation,
 	}); err != nil {
@@ -451,7 +451,18 @@ func fixtureSession(ctx context.Context, authority *Authority, binding string) (
 // principal does not hold" is only producible by sealing to one the live
 // source has never heard of — which means minting against a source that has.
 func fixtureSessionOn(ctx context.Context, authority *Authority, installation, binding string) (string, *Verified, error) {
+	// The attested execution is whatever the source being minted AGAINST
+	// approves, not the live constants. A negative fixture mints against a
+	// divergent source on purpose — that is how "sealed to a replaced build
+	// incarnation" is producible at all — and attesting the live values there
+	// would make the mint refuse instead of producing the capability the
+	// fixture exists to be.
+	attested := Execution{ImageDigest: FixtureImageDigest, BuildIncarnation: FixtureBuildIncarnation}
+	if held, err := authority.Seals.Seal(ctx, FixturePrincipal, installation); err == nil {
+		attested = Execution{ImageDigest: held.ImageDigest, BuildIncarnation: held.BuildIncarnation}
+	}
 	token, _, err := authority.Start(ctx, StartInput{
+		Execution:          attested,
 		TenantID:           FixtureTenant,
 		OwnerPrincipalID:   FixturePrincipal,
 		OwnerPrincipalKind: "human",
@@ -535,14 +546,14 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}{
 		{
 			name: "stale-installation-revision",
-			seal: Seal{InstallationID: FixtureInstallation,
+			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 				InstallationRevision: FixtureInstallationRevision - 1, BuildIncarnation: FixtureBuildIncarnation},
 			epoch: FixturePrincipalEpoch,
 			rule:  "sealed to an installation revision the issuer has moved past", field: "installation revision",
 		},
 		{
 			name: "future-installation-revision",
-			seal: Seal{InstallationID: FixtureInstallation,
+			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 				InstallationRevision: FixtureInstallationRevision + 1, BuildIncarnation: FixtureBuildIncarnation},
 			epoch: FixturePrincipalEpoch,
 			rule:  "sealed to an installation revision ahead of the issuer's; comparison is exact equality, not \"at least\"",
@@ -550,21 +561,21 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		},
 		{
 			name: "stale-principal-epoch",
-			seal: Seal{InstallationID: FixtureInstallation,
+			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 				InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation},
 			epoch: FixturePrincipalEpoch - 1,
 			rule:  "sealed to a superseded principal epoch", field: "principal epoch",
 		},
 		{
 			name: "stale-build-incarnation",
-			seal: Seal{InstallationID: FixtureInstallation,
+			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 				InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation - 1},
 			epoch: FixturePrincipalEpoch,
 			rule:  "sealed to a replaced build incarnation", field: "build incarnation",
 		},
 		{
 			name: "unknown-installation",
-			seal: Seal{InstallationID: "installation-conformance-other",
+			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: "installation-conformance-other",
 				InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation},
 			epoch: FixturePrincipalEpoch,
 			rule:  "sealed to an installation the principal does not hold", field: "installation",
@@ -603,7 +614,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// fitting the capability's scopes would accept this.
 	divergent := NewMemorySealSource()
 	if err := divergent.Put(FixturePrincipal, Seal{
-		InstallationID:       FixtureInstallation,
+		ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 		InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
 	}); err != nil {
 		return nil, err
@@ -675,7 +686,8 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// and NOT re-signed. This is the fixture whose refusal must be a signature
 	// failure — which is what makes the foreign-encoding fixture's different
 	// error meaningful rather than cosmetic.
-	tampered, err := fixtureTamper(session.Encoded())
+	_, sessionSignature, _ := strings.Cut(session.Encoded(), ".")
+	tampered, err := fixtureTamper(session.Context(), sessionSignature)
 	if err != nil {
 		return nil, err
 	}
@@ -719,7 +731,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// cutting off the owner or the tenant.
 	staleActor := NewMemorySealSource()
 	if err := staleActor.Put(FixturePrincipal, Seal{
-		InstallationID:       FixtureInstallation,
+		ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 		InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
 	}); err != nil {
 		return nil, err
@@ -788,7 +800,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		// and the LIVE source is what refuses it.
 		permissive := NewMemorySealSource()
 		if err := permissive.Put(FixturePrincipal, Seal{
-			InstallationID:       FixtureInstallation,
+			ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 			InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
 		}); err != nil {
 			return nil, err
@@ -938,7 +950,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	} {
 		permissive := NewMemorySealSource()
 		if err := permissive.Put(FixturePrincipal, Seal{
-			InstallationID:       FixtureInstallation,
+			ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
 			InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
 		}); err != nil {
 			return nil, err
@@ -978,22 +990,31 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	return fixtures, nil
 }
 
-// fixtureTamper flips one byte of a token's payload and leaves the signature
-// alone.
-func fixtureTamper(token string) (string, error) {
-	payload, signature, found := strings.Cut(token, ".")
-	if !found {
-		return "", errors.New("work context fixtures: token has no signature")
-	}
-	claims, err := base64.RawURLEncoding.DecodeString(payload)
+// fixtureTamper changes one SEALED VALUE and keeps the original signature, so
+// the result is schema-valid and the only thing wrong with it is the
+// signature.
+//
+// It used to flip the payload's last byte, on the reasoning that the last
+// bytes are inside the sealed values. That broke the moment image_digest was
+// added as the seal's last field: the flipped byte landed inside a string with
+// a pattern rule, so protovalidate refused the token and the fixture whose
+// entire job is to be the one SIGNATURE failure started failing for a schema
+// reason instead. A fixture that can stop testing what it is named for when an
+// unrelated field is added is the wrong construction.
+//
+// Changing a field and re-marshalling, while keeping the old signature,
+// cannot drift that way: the claims are always valid and the signature is
+// always wrong.
+func fixtureTamper(wc *basev0.WorkContextV1, signature string) (string, error) {
+	altered := proto.Clone(wc).(*basev0.WorkContextV1)
+	// One sealed value, moved to another legitimate one: exactly what a
+	// tamperer would reach for, and still schema-valid.
+	altered.Seal.InstallationRevision = wc.GetSeal().GetInstallationRevision() + 1
+	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(altered)
 	if err != nil {
 		return "", err
 	}
-	altered := slices.Clone(claims)
-	// The last byte is inside the sealed values, which is the part a tamperer
-	// would actually reach for.
-	altered[len(altered)-1] ^= 0x01
-	return base64.RawURLEncoding.EncodeToString(altered) + "." + signature, nil
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + signature, nil
 }
 
 // fixtureForeignKey signs claims that NAME A KEY ID THE VERIFIER DOES NOT

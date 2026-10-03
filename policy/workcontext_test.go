@@ -33,6 +33,7 @@ func TestPrincipalFromWorkContext_OwnerActingDirectly(t *testing.T) {
 func TestPrincipalFromWorkContext_AgentOwnerCarriesItsManifestIdentity(t *testing.T) {
 	h := newIdentityHarness(t)
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 1},
 		InstallationID:     installation,
 		TenantID:           tenantID,
 		OwnerPrincipalID:   agentPrincipalID,

@@ -57,7 +57,7 @@ func newHarness(t *testing.T) *harness {
 	h.replay.Now = func() time.Time { return h.clock }
 	h.seals = workcontext.NewMemorySealSource()
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		InstallationID:       installation,
+		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
 		InstallationRevision: 3,
 		BuildIncarnation:     11,
 	}))
@@ -131,6 +131,7 @@ func scope(kind string, actions []string, ids []string) *basev0.WorkScopeV1 {
 func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID:     installation,
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,

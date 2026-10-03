@@ -43,10 +43,10 @@ func TestAttestVerifyAndDeterministicDigest(t *testing.T) {
 	if verified.GetPayloadSha256() == "" {
 		t.Fatal("verified receipt has no payload digest")
 	}
-	if got := verified.GetPayloadSha256(); got != "0593ffb8d984aa07423d8f611149a3c96bb7403008f387aa18f2e6957714b2b0" {
+	if got := verified.GetPayloadSha256(); got != "350da2b91d37c445768536587de8d772bcabecb2411265eaf7d7202cdf003b51" {
 		t.Fatalf("payload_sha256 golden = %s", got)
 	}
-	if got := hex.EncodeToString(attestation.GetSignature()); got != "12c063e4afd86dc12427d9ac21c596fe0d57241e2702dd9bdcb79406d13a34a5922955de91ea370c983ae34463233a0251fb8e666a0dab9a67a6c76a24ff2304" {
+	if got := hex.EncodeToString(attestation.GetSignature()); got != "29741b88a7e7a9b2b6fd94b31016381623ffa6b672b7abb8b7f68326e9c3a0faf17336e95d6b3cb86c4b8d831223fb178cc2b08fbbd28fb6e5c2452a8f5b0e03" {
 		t.Fatalf("signature golden = %s", got)
 	}
 
@@ -194,6 +194,7 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 			Seal: &basev0.WorkSealV1{
 				PrincipalEpoch: 2, InstallationId: "installation-1",
 				InstallationRevision: 3, BuildIncarnation: 11,
+				ImageDigest: "sha256:eca6c756839cbd532a6c7cb16fa75263600f3c710738ac267fb3988e03e146aa",
 			},
 			ActorChain: []*basev0.WorkActorV1{{
 				PrincipalId: "principal-claude", PrincipalKind: "agent", DelegationId: "delegation-1",

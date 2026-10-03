@@ -404,8 +404,26 @@ type WorkSealV1 struct {
 	// current incarnation for this principal" and offers no lookup by anything
 	// the workload itself presents.
 	BuildIncarnation uint64 `protobuf:"varint,4,opt,name=build_incarnation,json=buildIncarnation,proto3" json:"build_incarnation,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// image_digest is the APPROVED BUILD the issuer held for this installation
+	// at mint time, as an OCI image-manifest digest. A verifier compares it for
+	// equality against the approved build it holds now.
+	//
+	// It exists because build_incarnation alone did not bind a credential to an
+	// execution. A minter read the CURRENT incarnation for a principal and
+	// stamped it, so any caller able to mint for that principal — including a
+	// pod from a superseded generation — received a capability sealed to the
+	// current execution. The incarnation says WHICH run; this says which BUILD,
+	// and the mint now refuses unless the execution the caller attests matches
+	// both. Without it the approved build digest never reached the credential at
+	// all, so nothing downstream could tell which build an authority was
+	// exercised by.
+	//
+	// It is the ISSUER's answer, never the workload's claim about itself: the
+	// caller attests what it is running, the issuer says what is approved, and a
+	// mismatch is a refusal rather than a value to record.
+	ImageDigest   string `protobuf:"bytes,5,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WorkSealV1) Reset() {
@@ -464,6 +482,13 @@ func (x *WorkSealV1) GetBuildIncarnation() uint64 {
 		return x.BuildIncarnation
 	}
 	return 0
+}
+
+func (x *WorkSealV1) GetImageDigest() string {
+	if x != nil {
+		return x.ImageDigest
+	}
+	return ""
 }
 
 // WorkOperationBindingV1 is the unit of authority an operation context
@@ -1021,14 +1046,15 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\x10_organization_idB\f\n" +
 	"\n" +
 	"_grant_hopB\x14\n" +
-	"\x12_operation_binding\"\xe7\x01\n" +
+	"\x12_operation_binding\"\xad\x02\n" +
 	"\n" +
 	"WorkSealV1\x120\n" +
 	"\x0fprincipal_epoch\x18\x01 \x01(\x04B\a\xbaH\x042\x02(\x01R\x0eprincipalEpoch\x123\n" +
 	"\x0finstallation_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\x0einstallationId\x12<\n" +
 	"\x15installation_revision\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\x14installationRevision\x124\n" +
-	"\x11build_incarnation\x18\x04 \x01(\x04B\a\xbaH\x042\x02(\x01R\x10buildIncarnation\"\x93\x01\n" +
+	"\x11build_incarnation\x18\x04 \x01(\x04B\a\xbaH\x042\x02(\x01R\x10buildIncarnation\x12D\n" +
+	"\fimage_digest\x18\x05 \x01(\tB!\xbaH\x1er\x1c\x10\x01\x18\x80\x022\x15^sha256:[a-f0-9]{64}$R\vimageDigest\"\x93\x01\n" +
 	"\x16WorkOperationBindingV1\x12)\n" +
 	"\n" +
 	"binding_id\x18\x01 \x01(\tB\n" +

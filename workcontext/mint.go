@@ -83,6 +83,16 @@ type StartInput struct {
 	// when it exercises one. Empty for a session that does not. Its revision
 	// and incarnation are read from the seal source.
 	OperationBindingID string
+
+	// Execution is what the caller attests it is running: the image-manifest
+	// digest and the incarnation. REQUIRED, and checked against the approved
+	// build the issuer holds rather than recorded.
+	//
+	// It is an input because only the host can resolve it — from the
+	// authenticated workload's own status, never from something the process
+	// asserts over the wire — and it is checked because an unchecked input is
+	// a claim. See workcontext.Execution.
+	Execution Execution
 }
 
 // Start mints the first capability of a task, carrying the owner's delegated
@@ -99,7 +109,7 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 	if err != nil {
 		return "", nil, err
 	}
-	seal, binding, err := a.sealFor(ctx, in.OwnerPrincipalID, in.InstallationID, in.OperationBindingID, in.OwnerPrincipalID)
+	seal, binding, err := a.sealFor(ctx, in.OwnerPrincipalID, in.InstallationID, in.OperationBindingID, in.OwnerPrincipalID, in.Execution)
 	if err != nil {
 		return "", nil, err
 	}
@@ -236,7 +246,12 @@ func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0
 		return nil
 	}
 	inherited := sealOf(wc)
-	_, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID, exercising)
+	// The execution is the PARENT's, which carryForwardSeal has already held
+	// against the live approved build. A derivation does not re-attest: it is
+	// the same execution continuing, and letting a hop supply its own would be
+	// a way to move a capability onto another build.
+	_, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID, exercising,
+		Execution{ImageDigest: inherited.GetImageDigest(), BuildIncarnation: inherited.GetBuildIncarnation()})
 	if err != nil {
 		return err
 	}
