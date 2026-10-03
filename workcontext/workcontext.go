@@ -177,7 +177,7 @@ func (v *Verified) Context() *basev0.WorkContextV1 {
 	if v == nil || v.context == nil {
 		return nil
 	}
-	return proto.Clone(v.context).(*basev0.WorkContextV1)
+	return cloneClaims(v.context)
 }
 
 // claims is the internal, un-copied view, for this package's own checks. It
@@ -220,7 +220,11 @@ func (v *Verified) Actor() *basev0.WorkActorV1 {
 	if actor == nil {
 		return nil
 	}
-	return proto.Clone(actor).(*basev0.WorkActorV1)
+	cloned, ok := proto.Clone(actor).(*basev0.WorkActorV1)
+	if !ok {
+		return nil
+	}
+	return cloned
 }
 
 // actor is the internal, un-copied view.

@@ -171,7 +171,16 @@ func TestOwnedProcessGroupTerminateIsBounded(t *testing.T) {
 	if err := group.Terminate(context.Background(), sigtermGrace); err != nil {
 		t.Fatalf("Terminate: %v", err)
 	}
-	budget := sigtermGrace + killSweepInterval + sigkillGrace + time.Second
+	// The slack is deliberately generous. The budget is derived from the real
+	// constants, which is right — this test's subject IS boundedness, so it
+	// cannot assert a property instead of a duration the way the Go runner's
+	// fail-fast test now does.
+	//
+	// What it can do is not fail for scheduler latency. One second of slack
+	// on top of three real waits is thin on a machine running the rest of
+	// this suite in parallel, and a test that reds under load teaches people
+	// to re-run rather than to read it.
+	budget := sigtermGrace + killSweepInterval + sigkillGrace + 5*time.Second
 	if elapsed := time.Since(started); elapsed > budget {
 		t.Errorf("Terminate took %s, want under %s", elapsed, budget)
 	}

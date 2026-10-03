@@ -228,7 +228,11 @@ type Fixture struct {
 func FixtureKeyPair() (ed25519.PublicKey, ed25519.PrivateKey) {
 	material := sha256.Sum256([]byte(fixtureSeed))
 	private := ed25519.NewKeyFromSeed(material[:])
-	return private.Public().(ed25519.PublicKey), private
+	public, ok := private.Public().(ed25519.PublicKey)
+	if !ok {
+		panic("work context fixtures: ed25519 private key did not yield an ed25519 public key")
+	}
+	return public, private
 }
 
 // FixtureKeys is the key map a conforming verifier is configured with.
@@ -766,7 +770,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, payload)), nil
 	}
 
-	unsealed := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	unsealed := cloneClaims(session.Context())
 	unsealed.Seal = nil
 	unsealedToken, err := resign(unsealed)
 	if err != nil {
@@ -779,8 +783,8 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			"with archived receipts as the reason, and two reviews named that a compatibility hedge the rules forbid",
 	})
 
-	noInstallation := proto.Clone(session.Context()).(*basev0.WorkContextV1)
-	noInstallation.Seal = proto.Clone(session.Context().GetSeal()).(*basev0.WorkSealV1)
+	noInstallation := cloneClaims(session.Context())
+	noInstallation.Seal = cloneSeal(session.Context().GetSeal())
 	noInstallation.Seal.InstallationId = ""
 	noInstallationToken, err := resign(noInstallation)
 	if err != nil {
@@ -812,7 +816,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 
 	// Minted for another audience. A capability is not a credential anywhere
 	// but the audience it names.
-	otherAudience := proto.Clone(delegated.Context()).(*basev0.WorkContextV1)
+	otherAudience := cloneClaims(delegated.Context())
 	otherAudience.Audience = "codefly.test/elsewhere"
 	otherAudienceToken, err := resign(otherAudience)
 	if err != nil {
@@ -880,7 +884,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// require it without invalidating every archived capability, so the
 	// verifier is what makes it required — a hop with no epoch is a principal
 	// that cannot be revoked.
-	noEpoch := proto.Clone(delegated.Context()).(*basev0.WorkContextV1)
+	noEpoch := cloneClaims(delegated.Context())
 	noEpoch.ActorChain[len(noEpoch.ActorChain)-1].PrincipalEpoch = 0
 	noEpochToken, err := resign(noEpoch)
 	if err != nil {
@@ -997,8 +1001,8 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			},
 		},
 	} {
-		altered := proto.Clone(session.Context()).(*basev0.WorkContextV1)
-		altered.Seal = proto.Clone(session.Context().GetSeal()).(*basev0.WorkSealV1)
+		altered := cloneClaims(session.Context())
+		altered.Seal = cloneSeal(session.Context().GetSeal())
 		malformed.apply(altered)
 		token, err := resign(altered)
 		if err != nil {
@@ -1013,7 +1017,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// The window, the issuer and the revision. A verifier that skipped expiry
 	// entirely passed this kit, which made its claim to cover "every way one
 	// is refused" false.
-	expired := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	expired := cloneClaims(session.Context())
 	expired.NotBeforeUnix = now.Add(-2 * time.Hour).Unix()
 	expired.ExpiresAtUnix = now.Add(-time.Hour).Unix()
 	expiredToken, err := resign(expired)
@@ -1026,7 +1030,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		Reason: "a sound capability whose window has closed; a verifier that never checks expiry passes every other fixture",
 	})
 
-	notYet := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	notYet := cloneClaims(session.Context())
 	notYet.NotBeforeUnix = now.Add(time.Hour).Unix()
 	notYet.ExpiresAtUnix = now.Add(2 * time.Hour).Unix()
 	notYetToken, err := resign(notYet)
@@ -1039,7 +1043,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		Reason: "a capability whose window has not opened; not_before is a bound, not decoration",
 	})
 
-	otherIssuer := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	otherIssuer := cloneClaims(session.Context())
 	otherIssuer.Issuer = "https://authority.elsewhere.test"
 	otherIssuerToken, err := resign(otherIssuer)
 	if err != nil {
@@ -1051,7 +1055,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		Reason: "signed by a key the verifier holds and naming another issuer; the key is not the trust decision",
 	})
 
-	superseded := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	superseded := cloneClaims(session.Context())
 	superseded.AuthorizationRevision = FixtureAuthorizationRevision - 1
 	supersededToken, err := resign(superseded)
 	if err != nil {
@@ -1118,8 +1122,8 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// minter using the same field numbers, or adding one of its own, produced
 	// a token that verified and passed this whole kit, because the signature
 	// covers whatever bytes were presented.
-	foreignField := proto.Clone(session.Context()).(*basev0.WorkContextV1)
-	foreignField.Seal = proto.Clone(session.Context().GetSeal()).(*basev0.WorkSealV1)
+	foreignField := cloneClaims(session.Context())
+	foreignField.Seal = cloneSeal(session.Context().GetSeal())
 	foreignField.Seal.ProtoReflect().SetUnknown(fixtureUnknownField(4095, "a field this Core does not know"))
 	foreignFieldToken, err := resign(foreignField)
 	if err != nil {
@@ -1165,7 +1169,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 // cannot drift that way: the claims are always valid and the signature is
 // always wrong.
 func fixtureTamper(wc *basev0.WorkContextV1, signature string) (string, error) {
-	altered := proto.Clone(wc).(*basev0.WorkContextV1)
+	altered := cloneClaims(wc)
 	// One sealed value, moved to another legitimate one: exactly what a
 	// tamperer would reach for, and still schema-valid.
 	altered.Seal.InstallationRevision = wc.GetSeal().GetInstallationRevision() + 1
@@ -1187,7 +1191,7 @@ func fixtureTamper(wc *basev0.WorkContextV1, signature string) (string, error) {
 func fixtureForeignKey(wc *basev0.WorkContextV1) (string, error) {
 	material := sha256.Sum256([]byte(fixtureSeed + ": a key no verifier holds"))
 	private := ed25519.NewKeyFromSeed(material[:])
-	claims := proto.Clone(wc).(*basev0.WorkContextV1)
+	claims := cloneClaims(wc)
 	claims.KeyId = "conformance-unheld"
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(claims)
 	if err != nil {
@@ -1201,6 +1205,9 @@ func fixtureForeignKey(wc *basev0.WorkContextV1) (string, error) {
 // does not declare, for the fixture that must be refused for carrying one.
 func fixtureUnknownField(number int, value string) protoreflect.RawFields {
 	var encoded []byte
+	if number < 0 {
+		panic("work context fixtures: a proto field number is never negative")
+	}
 	tag := uint64(number)<<3 | 2 // wire type 2: length-delimited
 	for tag >= 0x80 {
 		encoded = append(encoded, byte(tag)|0x80)
@@ -1262,4 +1269,24 @@ func fixtureExecutionFor(ctx context.Context, authority *Authority, principalID 
 		return Execution{}
 	}
 	return Execution{ImageDigest: digest, BuildIncarnation: incarnation}
+}
+
+// cloneClaims is proto.Clone with the assertion checked, because an unchecked
+// one is an error the linter is right about even where it cannot fail: a
+// fixture that panicked here would say nothing about which fixture.
+func cloneClaims(wc *basev0.WorkContextV1) *basev0.WorkContextV1 {
+	cloned, ok := proto.Clone(wc).(*basev0.WorkContextV1)
+	if !ok {
+		panic("work context fixtures: cloning a WorkContextV1 did not yield one")
+	}
+	return cloned
+}
+
+// cloneSeal is cloneClaims for a seal, for the same reason.
+func cloneSeal(seal *basev0.WorkSealV1) *basev0.WorkSealV1 {
+	cloned, ok := proto.Clone(seal).(*basev0.WorkSealV1)
+	if !ok {
+		panic("work context fixtures: cloning a WorkSealV1 did not yield one")
+	}
+	return cloned
 }

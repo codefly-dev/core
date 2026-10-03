@@ -262,7 +262,11 @@ func (a *Authority) requireTrustedParent(parent *Verified) error {
 	// Under THIS issuer's own key, as it holds it now. A rotated key refuses
 	// the derivation rather than producing a child signed with new material
 	// from a parent the new material never signed.
-	if !ed25519.Verify(a.Key.Public().(ed25519.PublicKey), payload, signature) {
+	public, ok := a.Key.Public().(ed25519.PublicKey)
+	if !ok {
+		return fmt.Errorf("work context: this issuer's signing key is not an ed25519 key")
+	}
+	if !ed25519.Verify(public, payload, signature) {
 		return fmt.Errorf("%w: the parent's signature does not verify under key %q as this issuer holds it now",
 			ErrInvalid, a.KeyID)
 	}
@@ -538,7 +542,7 @@ func (a *Authority) derive(parent *Verified, audience, replay string, expires ti
 			ErrInvalid, parentExpiry.UTC().Format(time.RFC3339))
 	}
 	parentSession := parent.Context().GetSessionId()
-	wc := proto.Clone(parent.Context()).(*basev0.WorkContextV1)
+	wc := cloneClaims(parent.Context())
 	wc.Typ = Typ
 	wc.Algorithm = Algorithm
 	wc.KeyId = a.KeyID
@@ -574,7 +578,11 @@ func cloneScopes(scopes []*basev0.WorkScopeV1) []*basev0.WorkScopeV1 {
 	}
 	out := make([]*basev0.WorkScopeV1, 0, len(scopes))
 	for _, scope := range scopes {
-		out = append(out, proto.Clone(scope).(*basev0.WorkScopeV1))
+		cloned, ok := proto.Clone(scope).(*basev0.WorkScopeV1)
+		if !ok {
+			continue
+		}
+		out = append(out, cloned)
 	}
 	return out
 }

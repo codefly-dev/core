@@ -819,8 +819,8 @@ func Activate(request ActivationRequest) (Activation, error) {
 		signer string
 		domain string
 	}{
-		{"authority", request.Authority.signer, authority.OwnershipDomain},
-		{"presence", request.Presence.signer, presence.OwnershipDomain},
+		{string(DocumentTypeAuthority), request.Authority.signer, authority.OwnershipDomain},
+		{string(DocumentTypePresence), request.Presence.signer, presence.OwnershipDomain},
 	} {
 		if !slices.Contains(policy[half.signer], half.domain) {
 			return Activation{}, fmt.Errorf("%w: the %s half was signed by %q, which this host does not let speak for domain %q",
@@ -834,8 +834,8 @@ func Activate(request ActivationRequest) (Activation, error) {
 	// the document under check answers itself. Envelope's own doc already
 	// says why that is not allowed to happen — "an envelope a document
 	// carried would be a document declaring its own ceiling".
-	if err := authority.ValidateAgainst(request.Envelope); err != nil {
-		return Activation{}, err
+	if envelopeErr := authority.ValidateAgainst(request.Envelope); envelopeErr != nil {
+		return Activation{}, envelopeErr
 	}
 	// Both halves must TARGET THIS HOST, the rule Admit applies at host.go.
 	for _, half := range []struct {
@@ -1054,7 +1054,12 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 // case where the diff and the semantics disagree, and it misleads in the
 // direction of reporting a regression that does not exist, or worse,
 // concluding the ceiling is unchecked and designing around it.
-func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelopeRevision uint64, applied AppliedAuthority, appliedPresence Applied, firstAuthority, firstPresence bool) (Activation, error) {
+
+// checkAppliedRecords holds the applied records against the binding they are
+// supposed to describe. Extracted from activate, which gocyclo flagged at 31
+// once these checks landed — and the complexity was a fair signal: this is a
+// separate question from whether the tuple matches.
+func checkAppliedRecords(applied AppliedAuthority, appliedPresence Applied, presence *SolutionHostBinding, firstAuthority, firstPresence bool) error {
 	// "Nothing applied" is asserted PER HALF, never defaulted.
 	//
 	// One marker for both halves was the hole. The guard refused only when
@@ -1077,11 +1082,11 @@ func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 		{"presence", appliedPresence.Binding != "", firstPresence},
 	} {
 		if half.given && half.stated {
-			return Activation{}, fmt.Errorf("%w: the %s half is declared to have no applied record for binding %q, and a record was given",
+			return fmt.Errorf("%w: the %s half is declared to have no applied record for binding %q, and a record was given",
 				ErrNotActivated, half.what, presence.Binding)
 		}
 		if !half.given && !half.stated {
-			return Activation{}, fmt.Errorf("%w: no applied %s record was given for binding %q; pass the host's record, or declare that it holds none",
+			return fmt.Errorf("%w: no applied %s record was given for binding %q; pass the host's record, or declare that it holds none",
 				ErrNotActivated, half.what, presence.Binding)
 		}
 	}
@@ -1090,11 +1095,11 @@ func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 	// generation 1 was treated as A's history when activating A at generation
 	// 4, so the fold compared unrelated counters and passed.
 	if appliedPresence.Binding != "" && appliedPresence.Binding != presence.Binding {
-		return Activation{}, fmt.Errorf("%w: the applied presence record is for binding %q and this is binding %q",
+		return fmt.Errorf("%w: the applied presence record is for binding %q and this is binding %q",
 			ErrAppliedUnusable, appliedPresence.Binding, presence.Binding)
 	}
 	if applied.Binding != "" && applied.Binding != presence.Binding {
-		return Activation{}, fmt.Errorf("%w: the applied authority record is over binding %q and this is binding %q",
+		return fmt.Errorf("%w: the applied authority record is over binding %q and this is binding %q",
 			ErrAppliedUnusable, applied.Binding, presence.Binding)
 	}
 	// And each must be WELL FORMED, which Host.appliedByBinding does for the
@@ -1104,13 +1109,20 @@ func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 		// The DOMAIN is part of being well formed here too: checked only when
 		// non-empty, a record without one disabled domain continuity.
 		if appliedPresence.Generation == 0 || !digestPattern.MatchString(appliedPresence.Digest) || !namePattern.MatchString(appliedPresence.Domain) {
-			return Activation{}, fmt.Errorf("%w: applied presence for binding %q needs a generation, the digest it was applied as, and the domain it was applied under; build it with AppliedFrom rather than by hand",
+			return fmt.Errorf("%w: applied presence for binding %q needs a generation, the digest it was applied as, and the domain it was applied under; build it with AppliedFrom rather than by hand",
 				ErrAppliedUnusable, appliedPresence.Binding)
 		}
 		if appliedPresence.Domain != presence.OwnershipDomain {
-			return Activation{}, fmt.Errorf("%w: binding %q was applied under domain %q and this document declares %q",
+			return fmt.Errorf("%w: binding %q was applied under domain %q and this document declares %q",
 				ErrWrongDomain, appliedPresence.Binding, appliedPresence.Domain, presence.OwnershipDomain)
 		}
+	}
+	return nil
+}
+
+func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelopeRevision uint64, applied AppliedAuthority, appliedPresence Applied, firstAuthority, firstPresence bool) (Activation, error) {
+	if err := checkAppliedRecords(applied, appliedPresence, presence, firstAuthority, firstPresence); err != nil {
+		return Activation{}, err
 	}
 	if err := authority.Validate(); err != nil {
 		return Activation{}, err
