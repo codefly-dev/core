@@ -700,7 +700,17 @@ func Activate(request ActivationRequest) (Activation, error) {
 				ErrNotActivated, half.what, half.signer, half.domain)
 		}
 	}
-	return activate(authority, presence, build, request.Envelope, request.Applied)
+	// The ceiling is the HOST's, and it is checked here rather than in the
+	// shared body, because a renderer cannot answer it: ValidateAgainst tests
+	// the document's own ApprovedBuild against the envelope's approved list
+	// and its bindings against the envelope's, so an envelope assembled from
+	// the document under check answers itself. Envelope's own doc already
+	// says why that is not allowed to happen — "an envelope a document
+	// carried would be a document declaring its own ceiling".
+	if err := authority.ValidateAgainst(request.Envelope); err != nil {
+		return Activation{}, err
+	}
+	return activate(authority, presence, build, request.Envelope.Revision, request.Applied)
 }
 
 // RenderedActivationRequest is the pair a RENDERER holds: parsed documents it
@@ -716,11 +726,32 @@ type RenderedActivationRequest struct {
 	// Build is the execution being asked about.
 	Build ImageDigest
 
-	// Envelope is the ceiling the authority is checked against.
-	Envelope Envelope
+	// EnvelopeRevision is the revision both halves must name. It is a NUMBER
+	// and not an Envelope, and that distinction is the whole reason this
+	// request type exists separately.
+	//
+	// A renderer holds no envelope, by design on both sides: the render
+	// derives an authority document from a module contract, which is a
+	// REQUEST, and the platform checks it against the ceiling at apply. A
+	// composition carries host.envelope_revision — a number a reviewer stamps
+	// — and nothing else of the envelope. Envelope.ApprovedBuilds is the
+	// platform's approval record, and at publish the renderer is PROPOSING a
+	// build to it rather than reading it.
+	//
+	// So the only Envelope a renderer could hand this call is one assembled
+	// from the document under check, which makes ValidateAgainst answer
+	// itself. This type took an Envelope when it shipped, and cli#855
+	// reported there was therefore no honest call available: a zero Envelope
+	// is refused outright, and a derived one is the self-answering shape both
+	// Activate's own comment about the build and Envelope's own doc refuse.
+	// An entrypoint whose only possible caller must lie to it is the same
+	// defect as a permissive branch for a caller who cannot exist.
+	EnvelopeRevision uint64
 
-	// Applied is what the renderer knows was applied for this authority ID,
-	// which for a renderer is usually nothing.
+	// Applied is what the renderer knows was applied for this authority ID.
+	// For a publish reading the base branch this is honest state, through
+	// AppliedAuthorityFrom(prior) — the fold is one of the rules a renderer
+	// CAN answer, so it is not "usually nothing".
 	Applied AppliedAuthority
 }
 
@@ -760,16 +791,27 @@ type RenderedMatch struct {
 // the same split, for the same reason, as AdmitRendered beside Admit: one
 // implementation, two entrypoints.
 //
-// What it checks: both documents validate, the build is a digest, the
-// authority fits the envelope, the generation fold against whatever is
-// applied, the target binding, withdrawal of either half, the host and domain
-// agreeing, the envelope revisions agreeing, the approved build, the presence
-// naming that build, and the effective-from generation.
+// What it checks: both documents validate, the build is a digest, both halves
+// name the envelope revision the caller gave, the generation fold against
+// Applied, the target binding, withdrawal of either half, the host and domain
+// agreeing, the approved build, the presence naming that build, and the
+// effective-from generation.
 //
-// What it CANNOT check, and why that is not a gap: who signed either half. A
-// renderer's documents carry no attestation at all, so there is no signer to
-// hold a policy against. The result type says so — a RenderedMatch is not an
-// Activation and no sequence of calls turns one into the other.
+// What it CANNOT check, and neither is a gap because neither is answerable
+// without host state:
+//
+//   - WHO SIGNED either half. A renderer's documents carry no attestation, so
+//     there is no signer to hold a policy against.
+//   - WHETHER THE AUTHORITY FITS THE CEILING. ValidateAgainst needs the
+//     platform's envelope — the bindings an administrator wrote and the
+//     builds it has approved — and a renderer has neither. Taking an
+//     Envelope here would only invite one derived from the document under
+//     check, which answers itself. The revision is the one part of the
+//     envelope a renderer legitimately holds, so that is the part this takes.
+//
+// Both omissions are the same split AdmitRendered already makes, and the
+// result type carries it: a RenderedMatch is not an Activation and no
+// sequence of calls turns one into the other.
 func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) {
 	if request.Authority == nil {
 		return RenderedMatch{}, fmt.Errorf("%w: no authority document; presence alone grants nothing", ErrNotActivated)
@@ -777,7 +819,7 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 	if request.Presence == nil {
 		return RenderedMatch{}, fmt.Errorf("%w: no presence document; authority alone grants nothing", ErrNotActivated)
 	}
-	activation, err := activate(request.Authority, request.Presence, request.Build, request.Envelope, request.Applied)
+	activation, err := activate(request.Authority, request.Presence, request.Build, request.EnvelopeRevision, request.Applied)
 	if err != nil {
 		return RenderedMatch{}, err
 	}
@@ -787,7 +829,7 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 // activate is the shared tuple check both entrypoints run. Everything that
 // needs an attestation is done by the caller, and everything that does not is
 // here exactly once.
-func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelope Envelope, applied AppliedAuthority) (Activation, error) {
+func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelopeRevision uint64, applied AppliedAuthority) (Activation, error) {
 	if err := authority.Validate(); err != nil {
 		return Activation{}, err
 	}
@@ -797,9 +839,26 @@ func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 	if !digestPattern.MatchString(string(build)) {
 		return Activation{}, fmt.Errorf("%w: %q is not a SHA-256 OCI image manifest digest", ErrNotActivated, build)
 	}
-	// The ceiling, checked here rather than left to the caller's memory.
-	if err := authority.ValidateAgainst(envelope); err != nil {
-		return Activation{}, err
+	// Both halves must name the revision the CALLER named, which is stronger
+	// than the rule this replaced. It used to be that the two halves agreed
+	// with EACH OTHER, which two documents stamped against a superseded
+	// ceiling satisfy between themselves. Naming the revision is the one part
+	// of the envelope a renderer holds honestly, so it is the part both
+	// entrypoints check.
+	if envelopeRevision == 0 {
+		return Activation{}, fmt.Errorf("%w: no envelope revision was named, and a tuple that agrees with itself about no ceiling activates nothing", ErrNotActivated)
+	}
+	for _, half := range []struct {
+		what  string
+		named uint64
+	}{
+		{"authority " + authority.Authority, authority.EnvelopeRevision},
+		{"binding " + presence.Binding, presence.EnvelopeRevision},
+	} {
+		if half.named != envelopeRevision {
+			return Activation{}, fmt.Errorf("%w: %s was validated against envelope revision %d and this is revision %d",
+				ErrNotActivated, half.what, half.named, envelopeRevision)
+		}
 	}
 	// The generation fold. A signed document at an older generation, or a
 	// rewritten one, is refused — and a withdrawn authority is terminal.
@@ -826,10 +885,6 @@ func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 	if authority.OwnershipDomain != presence.OwnershipDomain {
 		return Activation{}, fmt.Errorf("%w: authority %q speaks for domain %q and binding %q for %q",
 			ErrNotActivated, authority.Authority, authority.OwnershipDomain, presence.Binding, presence.OwnershipDomain)
-	}
-	if authority.EnvelopeRevision != presence.EnvelopeRevision {
-		return Activation{}, fmt.Errorf("%w: authority %q was validated against envelope revision %d and binding %q against %d",
-			ErrNotActivated, authority.Authority, authority.EnvelopeRevision, presence.Binding, presence.EnvelopeRevision)
 	}
 	if authority.ApprovedBuild != build {
 		return Activation{}, fmt.Errorf("%w: authority %q is approved for build %s, not %s",

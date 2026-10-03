@@ -416,6 +416,43 @@ an `Activation`, because nobody attested either half, so it cannot be the basis
 of an authorization decision and no sequence of calls converts one into the
 other. Same split, same reason, as `AdmitRendered` beside `Admit`.
 
+```go
+match, err := solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
+    Authority:        authorityDocument, // PARSED, not delivered
+    Presence:         presenceDocument,
+    Build:            build,
+    EnvelopeRevision: revision, // a NUMBER, not an Envelope
+    Applied:          solutionhost.AppliedAuthorityFrom(prior),
+})
+```
+
+**It takes a revision, not an `Envelope`, and that was a correction.** It
+shipped taking an `Envelope` and was therefore uncallable. A renderer holds no
+envelope by design: the render derives an authority document from a module
+contract, which is a *request*, and the platform checks it against the ceiling
+at apply — a composition carries `host.envelope_revision` and nothing else of
+the envelope, and `Envelope.ApprovedBuilds` is the platform's approval record
+that a publish is *proposing* a build to, not reading. So the only `Envelope` a
+renderer could pass is one assembled from the document under check, and
+`ValidateAgainst` tests that document's own `ApprovedBuild` against the
+envelope's approved list and its own bindings against the envelope's. The call
+would answer itself — the shape this page's `Envelope` rule already refuses,
+"an envelope a document carried would be a document declaring its own
+ceiling". A zero `Envelope` was no escape either, being refused outright. An
+entrypoint whose only possible caller must lie to it is the same defect as a
+permissive branch for a caller who cannot exist.
+
+So `ValidateAgainst` stays the **host's**, and both entrypoints share the rest.
+What a renderer therefore cannot check is who signed either half and whether
+the authority fits the ceiling — both needing host state, both the same split
+`AdmitRendered` already makes.
+
+One rule got **stronger** in the move: both halves must name the envelope
+revision *the caller named*, where the shared body previously asked only that
+the two halves agreed with **each other** — which a pair stamped against a
+superseded ceiling satisfies between themselves. Naming no revision is refused
+rather than read as "no ceiling".
+
 Everything that can fail answers one sentinel, `ErrNotActivated`, because the
 response is the same for all of them — nothing is active — and the message names
 the half that is wrong.

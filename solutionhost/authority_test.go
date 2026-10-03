@@ -607,10 +607,10 @@ func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
 	build := presenceDocument.Workloads[0].Image.Digest
 
 	match, err := solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Authority: authorityDocument,
-		Presence:  presenceDocument,
-		Build:     build,
-		Envelope:  solutionhost.FixtureEnvelope(),
+		Authority:        authorityDocument,
+		Presence:         presenceDocument,
+		Build:            build,
+		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
 	})
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.RenderedMatch{
@@ -628,21 +628,87 @@ func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
 	elsewhere := validAuthority(t)
 	elsewhere.PresenceBinding = "some-other-binding"
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Authority: elsewhere,
-		Presence:  presenceDocument,
-		Build:     build,
-		Envelope:  solutionhost.FixtureEnvelope(),
+		Authority:        elsewhere,
+		Presence:         presenceDocument,
+		Build:            build,
+		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "is granted over binding")
 
 	// Each half alone still grants nothing.
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Presence: presenceDocument, Build: build, Envelope: solutionhost.FixtureEnvelope(),
+		Presence: presenceDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Authority: authorityDocument, Build: build, Envelope: solutionhost.FixtureEnvelope(),
+		Authority: authorityDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+}
+
+// A renderer can call ActivateRendered with what it actually holds: a revision
+// number, not an envelope.
+//
+// It took an Envelope when it shipped, which made it uncallable. cli#855
+// reported why, and the report is the test: a renderer holds no envelope by
+// design — the render derives an authority document from a module contract,
+// which is a REQUEST, and the platform checks it against the ceiling at
+// apply. A composition carries host.envelope_revision and nothing else of the
+// envelope. So the only Envelope a renderer could pass is one assembled from
+// the document under check, and ValidateAgainst tests that document's own
+// ApprovedBuild against the envelope's approved list and its own bindings
+// against the envelope's. The call would answer itself, which is the shape
+// Envelope's own doc refuses: "an envelope a document carried would be a
+// document declaring its own ceiling."
+//
+// A zero Envelope was no escape either — ValidateAgainst refuses it with "the
+// envelope names no revision" — so there was no honest call at all. Shipping
+// an entrypoint whose only possible caller must lie to it is the same defect
+// as keeping a permissive branch for a caller who cannot exist, which is the
+// finding ActivateRendered was added to fix.
+func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
+	presenceDocument := valid(t)
+	authorityDocument := validAuthority(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+	revision := uint64(solutionhost.FixtureEnvelopeRevision)
+
+	// The honest call: no envelope anywhere in it.
+	match, err := solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
+		Authority:        authorityDocument,
+		Presence:         presenceDocument,
+		Build:            build,
+		EnvelopeRevision: revision,
+		// Honest state for a publish that read the base branch, which is why
+		// the field is not documented as "usually nothing".
+		Applied: solutionhost.AppliedAuthority{},
+	})
+	require.NoError(t, err)
+	require.Equal(t, revision, match.EnvelopeRevision)
+
+	// Naming no revision is refused rather than treated as "no ceiling": a
+	// tuple that agrees with itself about nothing activates nothing.
+	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
+		Authority: authorityDocument, Presence: presenceDocument, Build: build,
+	})
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "no envelope revision was named")
+
+	// And both halves must name the revision the CALLER named. This is
+	// stronger than the rule it replaced, which asked only that the two
+	// halves agreed with EACH OTHER — a pair stamped against a superseded
+	// ceiling satisfies that between themselves.
+	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
+		Authority: authorityDocument, Presence: presenceDocument, Build: build,
+		EnvelopeRevision: revision + 1,
+	})
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "envelope revision")
+
+	// The host entrypoint keeps the ceiling, because only a host can answer
+	// it. Same documents, same build, and ValidateAgainst still runs there.
+	request := activationOf(t, authorityDocument, presenceDocument, build)
+	request.Envelope = solutionhost.Envelope{Revision: revision}
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
 }
