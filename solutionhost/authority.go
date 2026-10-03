@@ -751,8 +751,16 @@ func Activate(request ActivationRequest) (Activation, error) {
 	//
 	// Why that mattered rather than being a pedantic correction: applied
 	// consistently, the same argument says Host.admit's `host.Coordinate != ""`
-	// guard is pointless too. It is not. Removing it turns EIGHT tests in this
-	// package red, because AdmitRendered routes through Host{}.admit and that
+	// guard is pointless too. It is not: removing it fails every test that
+	// reaches the host-free checks through a zero Host, because
+	// AdmitRenderedSets routes through Host{}.admit and that branch is what
+	// lets a renderer reach them at all.
+	//
+	// THE COUNT IS DELIBERATELY NOT STATED. It was "three" from a consumer,
+	// then seven, then eight, then ten, then eleven — it moves every time a
+	// renderer test is added, and each figure was a floor presented as a
+	// measurement. The property is what matters: the guard is load-bearing,
+	// and TestTheCoordinateGuardIsLoadBearing holds it.
 	// branch is what lets a renderer run the host-free checks at all. A false
 	// justification for a correct change is worse than no justification: the
 	// next reader applies it one file over and removes something that works.
@@ -1049,11 +1057,13 @@ func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 	// admission path and activation did not: an AppliedPresence carrying only
 	// a binding name was folded as a real record.
 	if appliedPresence.Binding != "" {
-		if appliedPresence.Generation == 0 || !digestPattern.MatchString(appliedPresence.Digest) {
-			return Activation{}, fmt.Errorf("%w: applied presence for binding %q needs a generation and the digest it was applied as; build it with AppliedFrom rather than by hand",
+		// The DOMAIN is part of being well formed here too: checked only when
+		// non-empty, a record without one disabled domain continuity.
+		if appliedPresence.Generation == 0 || !digestPattern.MatchString(appliedPresence.Digest) || !namePattern.MatchString(appliedPresence.Domain) {
+			return Activation{}, fmt.Errorf("%w: applied presence for binding %q needs a generation, the digest it was applied as, and the domain it was applied under; build it with AppliedFrom rather than by hand",
 				ErrAppliedUnusable, appliedPresence.Binding)
 		}
-		if appliedPresence.Domain != "" && appliedPresence.Domain != presence.OwnershipDomain {
+		if appliedPresence.Domain != presence.OwnershipDomain {
 			return Activation{}, fmt.Errorf("%w: binding %q was applied under domain %q and this document declares %q",
 				ErrWrongDomain, appliedPresence.Binding, appliedPresence.Domain, presence.OwnershipDomain)
 		}

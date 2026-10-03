@@ -33,7 +33,7 @@ func TestPrincipalFromWorkContext_OwnerActingDirectly(t *testing.T) {
 func TestPrincipalFromWorkContext_AgentOwnerCarriesItsManifestIdentity(t *testing.T) {
 	h := newIdentityHarness(t)
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 1},
+		Execution:          workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1},
 		InstallationID:     installation,
 		TenantID:           tenantID,
 		OwnerPrincipalID:   agentPrincipalID,
@@ -102,7 +102,7 @@ func TestPrincipalFromWorkContext_RejectsAnAgentWithoutItsManifestIdentity(t *te
 	owner := h.ownerSession()
 
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 1},
+		Execution:     workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1},
 		PrincipalID:   agentPrincipalID,
 		PrincipalKind: policy.KindAgent,
 		DelegationID:  delegationID,
@@ -165,4 +165,44 @@ func TestBothIdentityEntrypointsShareOneDerivationAndRecordWhichAnswered(t *test
 		_, err := policy.PrincipalFromAuthenticatedWorkContext(nil)
 		return err
 	}())
+}
+
+// A zero value is refused by NAME, not by panicking. The first pass at this
+// guarded three Verified accessors and missed the rest, so the forwarders on
+// Authenticated still reached a nil *Verified through Encoded and SHA256 —
+// round six called the fix incomplete and it was.
+func TestAZeroCapabilityDerivesNoIdentity(t *testing.T) {
+	for name, derive := range map[string]func() (*policy.Principal, error){
+		"zero Authenticated": func() (*policy.Principal, error) {
+			return policy.PrincipalFromAuthenticatedWorkContext(&workcontext.Authenticated{})
+		},
+		"zero Verified": func() (*policy.Principal, error) {
+			return policy.PrincipalFromWorkContext(&workcontext.Verified{})
+		},
+		"nil Authenticated": func() (*policy.Principal, error) {
+			return policy.PrincipalFromAuthenticatedWorkContext(nil)
+		},
+		"nil Verified": func() (*policy.Principal, error) {
+			return policy.PrincipalFromWorkContext(nil)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				principal, err := derive()
+				require.Nil(t, principal)
+				require.ErrorIs(t, err, policy.ErrPrincipalInvalid)
+			})
+		})
+	}
+
+	// And every accessor on a zero value answers rather than panicking.
+	require.NotPanics(t, func() {
+		zero := &workcontext.Authenticated{}
+		require.Empty(t, zero.Encoded())
+		require.Empty(t, zero.SHA256())
+		require.Empty(t, zero.OperationBindingID())
+		require.Nil(t, zero.Context())
+		require.Nil(t, zero.Actor())
+		require.Error(t, zero.RequireBinding("anything"))
+	})
 }

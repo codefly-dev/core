@@ -224,7 +224,7 @@ func TestChild_RefusesAParentFromAnotherIssuer(t *testing.T) {
 	require.NoError(t, err, "the other issuer's own verifier accepts its own capability")
 
 	_, _, err = h.authority.Child(context.Background(), verified, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-foreign",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
@@ -357,9 +357,18 @@ func TestVerify_RefusesAnUnsealedCapability(t *testing.T) {
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 }
 
-// ... and a minter cannot hand one out either, so a mint path that forgot to
-// seal fails where it can be fixed rather than at a verifier it cannot reach.
-func TestSeal_RefusesToSignAnUnsealedCapability(t *testing.T) {
+// ... and a minter with NO SEAL SOURCE refuses before it can produce one.
+//
+// RENAMED AND RESCOPED, because the old name claimed what it did not test.
+// It was called TestSeal_RefusesToSignAnUnsealedCapability and nulled the seal
+// SOURCE, so it failed inside sealFor and would have stayed green with
+// Authority.seal's unsealed guard deleted. Round six flagged exactly that.
+//
+// What actually holds that guard is TestSealRefusesToSignAnUnsealedCapability
+// in mint_internal_test.go, which is inside the package for this reason: every
+// external route to seal fails earlier. This one now tests the thing it
+// reaches — the missing source — and says so in its name.
+func TestStart_RefusesWithNoSealSource(t *testing.T) {
 	h := newHarness(t)
 	h.authority.Seals = nil
 
@@ -485,7 +494,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 			move(h)
 
 			_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-				Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+				Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 				PrincipalID:   agentID,
 				PrincipalKind: "agent",
 				AgentID:       "fixture.test/agent:1.0.0",
@@ -511,7 +520,7 @@ func TestChild_RefusesToDeriveFromAParentWhoseInstallationIsGone(t *testing.T) {
 	h.authority.Seals = h.seals
 
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -542,7 +551,7 @@ func TestGrant_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 	}))
 
 	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
-		Execution: workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		Grant:     grant, TTL: time.Minute,
 	})
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
@@ -558,7 +567,7 @@ func TestChild_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 
 	_, child, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -591,7 +600,7 @@ func TestChild_ResolvesTheBindingItNames(t *testing.T) {
 	}))
 
 	_, child, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution:          workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:        agentID,
 		PrincipalKind:      "agent",
 		AgentID:            "fixture.test/agent:1.0.0",
@@ -618,7 +627,7 @@ func TestGrant_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 	grant := h.approvedGrant("g-1")
 
 	_, elevated, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
-		Execution: workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		Grant:     grant, TTL: time.Minute,
 	})
 	require.NoError(t, err)
@@ -1054,7 +1063,7 @@ func TestAHeldVerifiedCannotBeEditedIntoValidity(t *testing.T) {
 
 	require.ErrorIs(t, verifier.Recheck(context.Background(), owner), workcontext.ErrRevoked)
 	_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-immutable",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
@@ -1098,7 +1107,7 @@ func TestABindingDoesNotTravelWithADelegation(t *testing.T) {
 	require.Equal(t, bindingID, owner.Context().GetOperationBinding().GetBindingId())
 
 	child := workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -1135,6 +1144,9 @@ func TestABindingDoesNotTravelWithADelegation(t *testing.T) {
 	self.PrincipalID = ownerID
 	self.PrincipalKind = "human"
 	self.AgentID = ""
+	// The hop is now the OWNER, so it attests the owner's build — which is
+	// the point of distinct builds per principal: a hop attests ITS OWN.
+	self.Execution = workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}
 	selfToken, _, err := h.authority.Child(context.Background(), owner, self)
 	require.NoError(t, err)
 	require.Equal(t, bindingID, h.mustVerify(audience, selfToken).OperationBindingID())
@@ -1384,7 +1396,7 @@ func TestAHeldActorCannotBeEditedIntoWiderAuthority(t *testing.T) {
 
 	// And the edit cannot widen a derivation either.
 	_, claims, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution:   workcontext.Execution{ImageDigest: subBuildDigest, BuildIncarnation: 11},
 		PrincipalID: "a-sub", PrincipalKind: "agent", AgentID: "fixture.test/sub:1.0.0",
 		DelegationID: "d-2", Audience: audience, TTL: 10 * time.Minute,
 		// Exactly what the parent holds: the point is the aliasing, so the
@@ -1448,7 +1460,7 @@ func TestSupersedingAnyLinksBuildRevokesTheWholeChain(t *testing.T) {
 		h := newHarness(t)
 		_, owner := h.ownerSession(audience)
 		childToken, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-			Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+			Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 			PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 			DelegationID: "d-1", Audience: audience, TTL: 30 * time.Minute,
 			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
@@ -1456,7 +1468,7 @@ func TestSupersedingAnyLinksBuildRevokesTheWholeChain(t *testing.T) {
 		require.NoError(t, err)
 		child := h.mustVerify(audience, childToken)
 		grandToken, _, err := h.authority.Child(context.Background(), child, workcontext.ChildInput{
-			Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+			Execution:   workcontext.Execution{ImageDigest: subBuildDigest, BuildIncarnation: 11},
 			PrincipalID: "a-sub", PrincipalKind: "agent", AgentID: "fixture.test/sub:1.0.0",
 			DelegationID: "d-2", Audience: audience, TTL: 10 * time.Minute,
 			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
@@ -1521,16 +1533,6 @@ func TestAnUnknownPrincipalIsARefusalAndBearingNoneIsRecorded(t *testing.T) {
 	// re-admit every capability that carries none.
 	require.NoError(t, source.PutApprovedBuild("svc", workcontext.FixtureImageDigest, 3))
 	require.ErrorIs(t, source.PutBearsNoExecution("svc"), workcontext.ErrInvalid)
-}
-
-// The hard-coded fixture public key must stay equal to the key it names, or
-// the refusal in Verify silently stops matching anything.
-func TestTheFixturePublicKeyConstantMatchesTheKey(t *testing.T) {
-	public, _ := workcontext.FixtureKeyPair()
-	// Round-trips through the exported accessor, which is the only thing a
-	// consumer can see, so a drift in either direction fails here.
-	require.True(t, workcontext.IsFixtureKeyForTest(public),
-		"the written-out public key no longer matches FixtureKeyPair's")
 }
 
 // TestAMissingInputNamesItselfRatherThanPanicking covers the two panics round
@@ -1635,4 +1637,60 @@ func TestAHalfExecutionIsARefusalBySCHEMA(t *testing.T) {
 			require.ErrorContains(t, err, "set together or not at all")
 		})
 	}
+}
+
+// TestReplacingABindingKeepsTheHopsOwnExecution is the edge the per-hop
+// execution fix left behind, found by round six.
+//
+// deriveSeal passed the SEAL's execution — the owner's — into sealFor while
+// naming the HOP as exercising, so a child that replaces a binding re-attested
+// the owner's execution as its own. It is invisible whenever both principals
+// run the same build, which is what TestChild_ResolvesTheBindingItNames does,
+// so nothing caught it.
+//
+// Different builds per principal is what lets this test see it, and is the
+// shape a real fleet has: an agent is not the same image as a human's session.
+func TestReplacingABindingKeepsTheHopsOwnExecution(t *testing.T) {
+	h := newHarness(t)
+	agentDigest := "sha256:" + strings.Repeat("a", 64)
+
+	// The agent runs a DIFFERENT build from the owner. The incarnation
+	// advances with the digest, which is the rule C8 added: the harness
+	// already holds the agent at 11.
+	require.NoError(t, h.seals.PutApprovedBuild(agentID, agentDigest, 12))
+	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
+		ID: "binding:alpha:agent", PrincipalID: agentID, InstallationID: installation,
+		Revision: 1, Incarnation: 1,
+	}))
+
+	_, owner := h.operationSession(audience)
+	require.Equal(t, workcontext.FixtureImageDigest, owner.Context().GetSeal().GetImageDigest())
+
+	token, claims, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:          workcontext.Execution{ImageDigest: agentDigest, BuildIncarnation: 12},
+		PrincipalID:        agentID,
+		PrincipalKind:      "agent",
+		AgentID:            "fixture.test/agent:1.0.0",
+		DelegationID:       "d-1",
+		OperationBindingID: "binding:alpha:agent",
+		Audience:           audience,
+		TTL:                30 * time.Minute,
+		GrantedScopes:      []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+	})
+	require.NoError(t, err, "the hop attests ITS OWN build, so replacing a binding mints")
+
+	// The hop carries the agent's execution; the seal still carries the
+	// owner's. Both, separately, which is what per-hop is for.
+	require.Equal(t, agentDigest, claims.GetActorChain()[0].GetImageDigest())
+	require.Equal(t, uint64(12), claims.GetActorChain()[0].GetBuildIncarnation())
+	require.Equal(t, workcontext.FixtureImageDigest, claims.GetSeal().GetImageDigest())
+	require.Equal(t, uint64(11), claims.GetSeal().GetBuildIncarnation())
+	require.NotNil(t, h.mustVerify(audience, token))
+
+	// And superseding EITHER one revokes it, which is what recording them
+	// separately buys.
+	require.NoError(t, h.seals.PutApprovedBuild(agentID, agentDigest, 13))
+	_, err = h.verify(audience, token)
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "actor hop 0")
 }

@@ -24,7 +24,7 @@ import (
 // naming the field, rather than a schema rule that would retroactively
 // invalidate every archived capability and every receipt embedding one.
 func PrincipalFromWorkContext(verified *workcontext.Verified) (*Principal, error) {
-	if verified == nil {
+	if verified == nil || verified.Context() == nil {
 		return nil, fmt.Errorf("%w: no verified work context", ErrPrincipalInvalid)
 	}
 	return principalFrom(verified.Context(), verified.Encoded(), verified.Actor(), EstablishedByVerification)
@@ -48,7 +48,11 @@ func PrincipalFromWorkContext(verified *workcontext.Verified) (*Principal, error
 // distinction *Authenticated exists to carry, which is why it is not simply an
 // overload.
 func PrincipalFromAuthenticatedWorkContext(authenticated *workcontext.Authenticated) (*Principal, error) {
-	if authenticated == nil {
+	// A nil pointer AND a zero value. An outside-constructed
+	// &workcontext.Authenticated{} is not a capability, and deriving an
+	// identity from one would mean deriving from nothing — it used to panic
+	// reaching through to the claims, which names nothing at all.
+	if authenticated == nil || authenticated.Context() == nil {
 		return nil, fmt.Errorf("%w: no authenticated work context", ErrPrincipalInvalid)
 	}
 	return principalFrom(authenticated.Context(), authenticated.Encoded(), authenticated.Actor(), EstablishedByAuthentication)

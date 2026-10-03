@@ -22,6 +22,7 @@
 package workcontext
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -141,6 +142,11 @@ type Verified struct {
 	context *basev0.WorkContextV1
 	encoded string
 	sha256  string
+	// key is the public key that actually authenticated this capability, kept
+	// so Recheck can require that the verifier STILL HOLDS IT. Comparing the
+	// key id alone would accept a kid rotated in place to new material — a
+	// different key under a reused name.
+	key ed25519.PublicKey
 }
 
 // Context is the verified claims, as a DEEP COPY.
@@ -176,14 +182,29 @@ func (v *Verified) Context() *basev0.WorkContextV1 {
 
 // claims is the internal, un-copied view, for this package's own checks. It
 // never leaves the package.
-func (v *Verified) claims() *basev0.WorkContextV1 { return v.context }
+func (v *Verified) claims() *basev0.WorkContextV1 {
+	if v == nil {
+		return nil
+	}
+	return v.context
+}
 
 // Encoded is the token exactly as presented.
-func (v *Verified) Encoded() string { return v.encoded }
+func (v *Verified) Encoded() string {
+	if v == nil {
+		return ""
+	}
+	return v.encoded
+}
 
 // SHA256 is the hex digest of the token, which is what an execution receipt
 // binds its claims snapshot to.
-func (v *Verified) SHA256() string { return v.sha256 }
+func (v *Verified) SHA256() string {
+	if v == nil {
+		return ""
+	}
+	return v.sha256
+}
 
 // Fingerprint is the digest Verify records for a token, exposed so a caller
 // holding only the encoded form can match it against a stored one.
@@ -250,6 +271,9 @@ func (v *Verified) EffectiveScopes() []*basev0.WorkScopeV1 {
 // requirement belongs to the CALL, not to the trust boundary, and two
 // operations behind one verifier legitimately require different bindings.
 func (v *Verified) RequireBinding(id string) error {
+	if v == nil || v.context == nil {
+		return fmt.Errorf("%w: no verified capability", ErrInvalid)
+	}
 	if v == nil {
 		return fmt.Errorf("%w: no verified work context", ErrInvalid)
 	}
@@ -272,5 +296,8 @@ func (v *Verified) RequireBinding(id string) error {
 // exercises none. A caller comparing it by hand is writing RequireBinding
 // badly; it is exported for logging and audit, not for gating.
 func (v *Verified) OperationBindingID() string {
+	if v == nil {
+		return ""
+	}
 	return v.context.GetOperationBinding().GetBindingId()
 }

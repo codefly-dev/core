@@ -100,6 +100,17 @@ const (
 	// another principal, so "sealed to a binding the caller does not hold" is
 	// distinguishable from "sealed to a binding that does not exist".
 	FixtureOtherBindingID = "binding-conformance-other"
+	// FixtureMovedRevisionBindingID is granted to the SAME principal in the
+	// SAME installation, at a revision the live source has moved past. It
+	// exists so the revision half of the binding check is testable on its
+	// own.
+	//
+	// The wrong-binding-revision fixture used FixtureOtherBindingID, which the
+	// live source grants to ANOTHER principal — so that fixture changed
+	// entitlement as well as revision, and since entitlement is checked first
+	// the refusal was the entitlement while the comment claimed the revision.
+	// Two variables, one asserted outcome.
+	FixtureMovedRevisionBindingID = "binding-conformance-moved-revision"
 	// FixtureForeignInstallationBindingID is granted within another
 	// installation, so the installation half of the association is testable
 	// separately from the principal half.
@@ -287,6 +298,13 @@ func FixtureSeals() *MemorySealSource {
 		{
 			ID: FixtureOtherBindingID, PrincipalID: "principal-stranger", InstallationID: FixtureInstallation,
 			Revision: 1, Incarnation: 1,
+		},
+		// Granted to the OWNER, at a revision the wrong-revision fixture is
+		// minted behind — so that fixture varies the revision and nothing
+		// else.
+		{
+			ID: FixtureMovedRevisionBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+			Revision: FixtureBindingRevision + 1, Incarnation: FixtureBindingIncarnation,
 		},
 		// And one in another installation, for the same reason one axis over.
 		{
@@ -711,16 +729,21 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	if err := divergent.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 		return nil, err
 	}
-	// Granted to the owner here so the mint succeeds; the LIVE source grants
-	// the same ID to another principal at another revision, so the refusal is
-	// the revision rather than the entitlement.
+	// Granted to the OWNER at the SAME installation, differing from the live
+	// source in the REVISION ALONE — which is what makes this fixture about
+	// the revision.
+	//
+	// It used FixtureOtherBindingID, which the live source grants to another
+	// principal: so entitlement AND revision both differed, and entitlement is
+	// checked first, so the refusal was the entitlement while this comment
+	// claimed the revision. One fixture, one variable.
 	if err := divergent.PutBinding(OperationBinding{
-		ID: FixtureOtherBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+		ID: FixtureMovedRevisionBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
 		Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
 	}); err != nil {
 		return nil, err
 	}
-	wrongBinding, _, err := fixtureSessionOn(ctx, fixtureAuthority(now, divergent), FixtureInstallation, FixtureOtherBindingID)
+	wrongBinding, _, err := fixtureSessionOn(ctx, fixtureAuthority(now, divergent), FixtureInstallation, FixtureMovedRevisionBindingID)
 	if err != nil {
 		return nil, err
 	}
@@ -1200,11 +1223,6 @@ func fixtureUnknownField(number int, value string) protoreflect.RawFields {
 // It compares in constant time out of habit rather than need — the fixture
 // public key is public by construction — because a key comparison that is
 // sometimes variable-time is the kind of thing that gets copied.
-// IsFixtureKeyForTest exposes the fixture-key comparison so a test can hold
-// the written-out constant against the derived key. It is the only exported
-// path to it and exists for that one assertion.
-func IsFixtureKeyForTest(key ed25519.PublicKey) bool { return isFixtureKey(key) }
-
 func isFixtureKey(key ed25519.PublicKey) bool {
 	return subtle.ConstantTimeCompare(key, fixturePublicKey[:]) == 1
 }

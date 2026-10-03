@@ -82,3 +82,17 @@ func fixtureDigestPointer() *string {
 	value := FixtureImageDigest
 	return &value
 }
+
+// The written-out fixture public key must stay equal to the key it names, or
+// Verify's refusal silently stops matching anything.
+//
+// This lives INSIDE the package because the alternative was an exported
+// IsFixtureKeyForTest hook, which round six rightly called a test hook in the
+// public API — the same objection as the kit's other production-callable
+// conveniences.
+func TestFixturePublicKeyConstantMatchesTheDerivedKey(t *testing.T) {
+	public, _ := FixtureKeyPair()
+	require.True(t, isFixtureKey(public),
+		"the written-out public key no longer matches FixtureKeyPair's")
+	require.False(t, isFixtureKey(public[:len(public)-1]))
+}

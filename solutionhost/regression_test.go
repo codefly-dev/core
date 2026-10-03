@@ -113,7 +113,7 @@ func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 	us.Host.Coordinate = "example/prod/region-b"
 	require.Equal(t, eu.Aliases(), us.Aliases())
 
-	admissions, err := solutionhost.AdmitRendered(eu, us)
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: eu, FirstRecord: true}, solutionhost.RenderedSet{Document: us, FirstRecord: true})
 	require.NoError(t, err)
 	// RenderedAdmission, not Admission: AdmitRendered answering a host's own
 	// type was C4's fail-open under another name. Fold is the generation
@@ -125,7 +125,7 @@ func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 
 	// The same alias twice on ONE coordinate still collides.
 	us.Host.Coordinate = eu.Host.Coordinate
-	_, err = solutionhost.AdmitRendered(eu, us)
+	_, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: eu, FirstRecord: true}, solutionhost.RenderedSet{Document: us, FirstRecord: true})
 	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
@@ -223,7 +223,7 @@ func TestOneMalformedDocumentDoesNotRefuseTheRest(t *testing.T) {
 
 	// And the sound one still admits, with the malformed one simply absent
 	// from the set rather than poisoning it.
-	admissions, err := solutionhost.AdmitRendered(good)
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: good, FirstRecord: true})
 	require.NoError(t, err)
 	require.Len(t, admissions, 1)
 	require.NoError(t, admissions[0].Err)

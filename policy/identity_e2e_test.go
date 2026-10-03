@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,7 +92,10 @@ func newIdentityHarness(t *testing.T) *identityHarness {
 		}))
 		// The approved execution is held per PRINCIPAL now, which is what
 		// lets a delegated hop attest the build it is itself running.
-		require.NoError(t, h.seals.PutApprovedBuild(principal, workcontext.FixtureImageDigest, 1))
+		// A DISTINCT build per principal, for the reason workcontext's harness
+		// has them: a shared digest makes every execution comparison
+		// tautological, which is how the R6-1 regression hid.
+		require.NoError(t, h.seals.PutApprovedBuild(principal, policyBuildDigest(principal), 1))
 		// The epoch has one writer, which is PutEpoch, for owners and actors
 		// alike. Put deliberately no longer sets it.
 		require.NoError(t, h.seals.PutEpoch(principal, 1))
@@ -174,7 +178,7 @@ func (h *identityHarness) ownerSession() *workcontext.Verified {
 func (h *identityHarness) agentSession(owner *workcontext.Verified) *workcontext.Verified {
 	h.t.Helper()
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 1},
+		Execution:     workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1},
 		PrincipalID:   agentPrincipalID,
 		PrincipalKind: policy.KindAgent,
 		AgentID:       agentManifestID,
@@ -206,7 +210,7 @@ func (h *identityHarness) approve(id string) *workcontext.Grant {
 
 func (h *identityHarness) grantCapability(agent *workcontext.Verified, grant *workcontext.Grant) *workcontext.Verified {
 	h.t.Helper()
-	token, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 1}, Grant: grant, TTL: time.Minute})
+	token, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1}, Grant: grant, TTL: time.Minute})
 	require.NoError(h.t, err)
 	return h.verify(toolboxID, token)
 }
@@ -390,4 +394,13 @@ func (h *identityHarness) authenticator(audience string) *workcontext.Authentica
 		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}
+}
+
+// policyBuildDigest gives each principal its own approved build, so an
+// execution confused for another principal's cannot compare equal.
+func policyBuildDigest(principal string) string {
+	if principal == agentPrincipalID {
+		return "sha256:" + strings.Repeat("a1", 32)
+	}
+	return workcontext.FixtureImageDigest
 }

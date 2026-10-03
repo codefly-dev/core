@@ -122,7 +122,7 @@ func TestAuthenticate_RefusesAGrantCapabilityRatherThanSkippingTheApproval(t *te
 
 	// Minted fresh, so the refusal below is the missing grant record and not
 	// the replay the line above caused: a grant capability is single-use.
-	second, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
+	second, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
 	require.NoError(t, err)
 	authenticated, err := h.authenticator(mergeTool).Authenticate(context.Background(), second)
 	require.Nil(t, authenticated)

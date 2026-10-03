@@ -610,6 +610,24 @@ func TestActivationRequiresTheSignerPolicyAndHoldsItPerHalf(t *testing.T) {
 	require.Contains(t, err.Error(), "does not let speak for domain")
 	require.Contains(t, err.Error(), solutionhost.FixtureDomain)
 
+	// THE PRESENCE HALF ON ITS OWN, which this test could not discriminate:
+	// both halves carry the same fixture signer, so a policy that denied it
+	// rejected the AUTHORITY half first and the presence branch was never
+	// reached. Round six was right. Delivering the presence half under a
+	// different signer, allowed for neither domain, is what isolates it.
+	presenceUnderAnotherSigner, err := solutionhost.VerifyDelivered(
+		context.Background(),
+		carrierOf(t, presenceDocument),
+		permissiveVerifier{as: "https://signer.example/other@refs/heads/main"},
+	)
+	require.NoError(t, err)
+	onlyPresenceDenied := activationOf(t, authorityDocument, presenceDocument, build)
+	onlyPresenceDenied.Presence = presenceUnderAnotherSigner
+	_, err = solutionhost.Activate(onlyPresenceDenied)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "the presence half",
+		"the AUTHORITY half is allowed here, so only the presence branch can refuse this")
+
 	// A policy naming a DIFFERENT signer: refused too, so the lookup is by
 	// the attested signer and not merely non-empty.
 	request = activationOf(t, authorityDocument, presenceDocument, build)
@@ -804,7 +822,7 @@ func (p permissiveVerifier) VerifyBundle(context.Context, []byte, json.RawMessag
 // every renderer.
 func TestTheCoordinateGuardIsLoadBearing(t *testing.T) {
 	// A renderer, with no host state of any kind, reaches the checks.
-	admissions, err := solutionhost.AdmitRendered(valid(t))
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: valid(t), FirstRecord: true})
 	require.NoError(t, err)
 	require.Len(t, admissions, 1)
 	require.NoError(t, admissions[0].Err)
@@ -814,7 +832,7 @@ func TestTheCoordinateGuardIsLoadBearing(t *testing.T) {
 	host, err := solutionhost.FixtureHost()
 	require.NoError(t, err)
 	host.DomainsBySigner = nil
-	_, err = solutionhost.AdmitRendered(valid(t))
+	_, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: valid(t), FirstRecord: true})
 	require.NoError(t, err, "a renderer is unaffected by host policy")
 	_, err = host.Admit()
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
@@ -960,7 +978,7 @@ func TestNothingAppliedMustBeStatedRatherThanDefaulted(t *testing.T) {
 	garbage.AppliedPresence = solutionhost.Applied{Binding: presenceDocument.Binding}
 	_, err = solutionhost.Activate(garbage)
 	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
-	require.Contains(t, err.Error(), "needs a generation and the digest")
+	require.Contains(t, err.Error(), "needs a generation, the digest")
 
 	// And a marker cannot be combined with a record of the same kind, which
 	// would be a caller asserting two different things.
@@ -992,7 +1010,7 @@ func TestAnUnnamedHostAdmitsNothing(t *testing.T) {
 
 	// The zero-host path is still there and still correct: it is reached
 	// through AdmitRendered, which takes no Host and so has nothing to forget.
-	admissions, err := solutionhost.AdmitRendered(valid(t))
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: valid(t), FirstRecord: true})
 	require.NoError(t, err)
 	require.Len(t, admissions, 1)
 	require.NoError(t, admissions[0].Err)
@@ -1092,4 +1110,15 @@ func TestActivationBindsToTheHostThatAsks(t *testing.T) {
 	_, err = solutionhost.Activate(halfMoved)
 	require.ErrorIs(t, err, solutionhost.ErrWrongHost)
 	require.Contains(t, err.Error(), "authority "+movedAuthority.Authority)
+}
+
+// carrierOf assembles the signed carrier for a presence document, so a test
+// can deliver the same document under a different attested signer.
+func carrierOf(t *testing.T, document *solutionhost.SolutionHostBinding) *solutionhost.Signed {
+	t.Helper()
+	payload, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+	return carrier
 }

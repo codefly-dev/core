@@ -279,9 +279,6 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	}
 	// The SAME inputs Verify requires, because a verifier that could not have
 	// verified this capability must not report on it either.
-	//
-	// Keys was not checked here, so a verifier holding none — which cannot
-	// check a signature at all — rechecked successfully.
 	if v.Revisions == nil || v.Grants == nil || v.Seals == nil || len(v.Keys) == 0 {
 		return fmt.Errorf("work context: verifier is missing a revision source, grant source, seal source or key set")
 	}
@@ -314,9 +311,42 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	if wc.GetAudience() != v.Audience {
 		return fmt.Errorf("%w: addressed to %q and this verifier answers for %q", ErrInvalid, wc.GetAudience(), v.Audience)
 	}
+	// THE KEY POLICY, not merely "a key map exists".
+	//
+	// Requiring a non-empty map was my previous fix and it does not establish
+	// what matters: that this verifier holds, and still trusts, THE key that
+	// authenticated this capability. A rotated key id — the map populated
+	// with other keys and nothing under the capability's kid — rechecked
+	// successfully while Verify refused it with "no verification key".
+	//
+	// Rotation is the case this exists for. Dropping a compromised key from
+	// the map is how a key is revoked, and a long-running call that kept
+	// re-checking against a verifier that no longer holds it would be exactly
+	// the revocation Recheck is supposed to notice.
+	key, known := v.Keys[wc.GetKeyId()]
+	if !known {
+		return fmt.Errorf("%w: no verification key %q; this verifier no longer holds the key that authenticated this capability",
+			ErrInvalid, wc.GetKeyId())
+	}
+	// And the SAME key, not merely the same id. A kid rotated in place to new
+	// material is a different key under a reused name, and comparing only the
+	// id would accept a capability the current key never signed.
+	if !bytes.Equal(key, verified.key) {
+		return fmt.Errorf("%w: verification key %q has been rotated since this capability was authenticated",
+			ErrInvalid, wc.GetKeyId())
+	}
+	if !v.TrustTheConformanceFixtureKey && isFixtureKey(key) {
+		return fmt.Errorf("%w: key %q is the conformance fixture key", ErrInvalid, wc.GetKeyId())
+	}
 	now := v.now()
 	skew := v.skew()
-	// The window first: a stream must not outlive the capability carrying it.
+	// The window, BOTH ENDS. Not-before was omitted: only expiry was checked,
+	// so a capability whose window had not opened — one Verify refuses —
+	// rechecked successfully. A clock that moves backwards, or a capability
+	// minted for a future window, both reach it.
+	if notBefore := time.Unix(wc.GetNotBeforeUnix(), 0); now.Add(skew).Before(notBefore) {
+		return fmt.Errorf("%w: not valid before %s", ErrInvalid, notBefore.UTC().Format(time.RFC3339))
+	}
 	expires := time.Unix(wc.GetExpiresAtUnix(), 0)
 	if !now.Add(-skew).Before(expires) {
 		return fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))

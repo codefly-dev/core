@@ -300,11 +300,17 @@ func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0
 		return nil
 	}
 	inherited := sealOf(wc)
-	// The execution passed here is the one sealExecutionFor has already held
-	// against ApprovedBuild for this hop, so sealFor re-checks what is now
-	// recorded on the seal rather than what the parent carried.
+	// THE HOP'S OWN EXECUTION, read back off the hop that sealExecutionFor
+	// just stamped — not the seal's, which is the OWNER's.
+	//
+	// This passed the seal's execution while naming the HOP as exercising, so
+	// replacing a binding re-attested the owner's execution as the child's.
+	// It is invisible whenever both principals run the same build, which is
+	// what the existing binding test did, so nothing caught it: the edge the
+	// per-hop fix left behind.
+
 	_, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID, exercising,
-		Execution{ImageDigest: inherited.GetImageDigest(), BuildIncarnation: inherited.GetBuildIncarnation()})
+		Execution{ImageDigest: hop.GetImageDigest(), BuildIncarnation: hop.GetBuildIncarnation()})
 	if err != nil {
 		return err
 	}

@@ -293,7 +293,7 @@ func TestChild_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},

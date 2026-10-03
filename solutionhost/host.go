@@ -241,7 +241,7 @@ func (host Host) Admit(delivered ...*Delivered) ([]Admission, error) {
 	// reachable through the public entrypoint any more. AdmitRendered calls
 	// the internal admit directly, which is why those eight tests still stand.
 	if host.Coordinate == "" {
-		return nil, fmt.Errorf("%w: a host admits documents under its own coordinate; an unnamed host skips every provenance check, and a renderer with no host state wants AdmitRendered",
+		return nil, fmt.Errorf("%w: a host admits documents under its own coordinate; an unnamed host skips every provenance check, and a renderer with no host state wants AdmitRenderedSets",
 			ErrInvalid)
 	}
 	documents := make([]*SolutionHostBinding, len(delivered))
@@ -308,6 +308,36 @@ type RenderedSet struct {
 	FirstRecord bool
 }
 
+// validateAppliedPresence is THE ONE validator for an applied presence record,
+// shared by appliedByBinding, Activate and AdmitRenderedSets.
+//
+// It exists because the three had drifted: appliedByBinding validated the
+// record, activation and the rendered fold guarded domain continuity with
+// `Domain != "" &&`, and a record with a BLANK domain therefore disabled the
+// check in two of the three. Executed: a blank-domain record plus a document
+// moved to another domain activated in that domain, while Host.Admit refused
+// the same record. Mutating the activation check left the suite green.
+//
+// A record's domain is what says who may change this binding, so a record
+// without one is not a weaker record — it is a hand-built one, which the
+// generation and digest requirements already refuse. Three readers of one
+// rule is how the drift happened; one function is the fix.
+func validateAppliedPresence(record Applied, binding, domain string) error {
+	if record.Binding != binding {
+		return fmt.Errorf("%w: the applied record is for binding %q and this document is %q",
+			ErrAppliedUnusable, record.Binding, binding)
+	}
+	if record.Generation == 0 || !digestPattern.MatchString(record.Digest) || !namePattern.MatchString(record.Domain) {
+		return fmt.Errorf("%w: applied record for binding %q needs a generation, the digest it was applied as, and the domain it was applied under; build it with AppliedFrom rather than by hand",
+			ErrAppliedUnusable, record.Binding)
+	}
+	if record.Domain != domain {
+		return fmt.Errorf("%w: binding %q was applied under domain %q and this document declares %q",
+			ErrWrongDomain, record.Binding, record.Domain, domain)
+	}
+	return nil
+}
+
 // AdmitRenderedSets runs the host-free checks AND THE GENERATION FOLD over
 // parsed documents, for a renderer checking a set it is about to write.
 //
@@ -349,6 +379,7 @@ func AdmitRenderedSets(sets ...RenderedSet) ([]RenderedAdmission, error) {
 			Err:      admission.Err,
 		}
 		if out[index].Err != nil {
+			out[index].Decision = ""
 			continue
 		}
 		set := sets[index]
@@ -356,79 +387,47 @@ func AdmitRenderedSets(sets ...RenderedSet) ([]RenderedAdmission, error) {
 		if given == set.FirstRecord {
 			out[index].Err = fmt.Errorf("%w: binding %q must either carry its applied record or declare that none exists",
 				ErrAppliedUnusable, set.Document.Binding)
+			out[index].Decision = ""
 			continue
 		}
 		if !given {
 			out[index].Fold = DecisionApply
 			continue
 		}
-		if set.Applied.Binding != set.Document.Binding {
-			out[index].Err = fmt.Errorf("%w: the applied record is for binding %q and this document is %q",
-				ErrAppliedUnusable, set.Applied.Binding, set.Document.Binding)
-			continue
-		}
-		if set.Applied.Generation == 0 || !digestPattern.MatchString(set.Applied.Digest) {
-			out[index].Err = fmt.Errorf("%w: applied record for binding %q needs a generation and the digest it was applied as; build it with AppliedFrom rather than by hand",
-				ErrAppliedUnusable, set.Applied.Binding)
-			continue
-		}
-		// DOMAIN CONTINUITY — the rule a renderer consumer was restating
-		// because this entrypoint did not exist. The applied record's domain
-		// is what says who may change this binding, so a document arriving
-		// under another domain is refused whatever its generation.
-		if set.Applied.Domain != "" && set.Applied.Domain != set.Document.OwnershipDomain {
-			out[index].Err = fmt.Errorf("%w: binding %q was applied under domain %q and this document declares %q",
-				ErrWrongDomain, set.Applied.Binding, set.Applied.Domain, set.Document.OwnershipDomain)
+		if err := validateAppliedPresence(set.Applied, set.Document.Binding, set.Document.OwnershipDomain); err != nil {
+			out[index].Err = err
+			out[index].Decision = ""
 			continue
 		}
 		fold, err := decide(set.Applied, set.Document)
 		if err != nil {
 			out[index].Err = err
+			out[index].Decision = ""
 			continue
 		}
 		out[index].Fold = fold
 	}
+	// A REFUSAL IS RETURNED, not only recorded per set.
+	//
+	// This returned nil whatever the admissions said, so a caller checking
+	// only the error — which is what Admit's contract trains — read a refused
+	// fold as success. Admit returns non-nil whenever any document was
+	// refused, and a renderer entrypoint that did not was the fail-open the
+	// distinct type was supposed to prevent, reintroduced by the split
+	// between Decision and Fold.
+	for index, admission := range out {
+		if admission.Err != nil {
+			return out, fmt.Errorf("rendered set %d: %w", index, admission.Err)
+		}
+	}
 	return out, nil
 }
 
-// AdmitRendered runs the checks that need no host state, over PARSED
-// documents, for a renderer checking a set it is about to write.
-//
-// It exists because making Admit take *Delivered broke the renderer, and the
-// break was invisible from inside core: a renderer's documents are not signed
-// yet — signing happens at publish, and a --local qualification publish is
-// never signed — so there is no carrier for a BundleVerifier to accept and no
-// way to reach the zero-host checks at all. A consumer reported it by starting
-// to re-implement them, which is the failure this package exists to end
-// appearing in the fix for it. One implementation, two entrypoints.
-//
-// It takes NO Host, deliberately and not as a convenience. A Host carries
-// applied state, a coordinate and a signer policy, and none of those can be
-// checked without an attestation — so a signature cannot be the thing a
-// renderer forgets, because there is nothing here to forget it for. The
-// invariant stands exactly as before: no sequence of calls reaches a HOST's
-// Admit without an attestation having held.
-//
-// What it checks, which is every rule that does not need host state: each
-// document validates, no binding is declared twice in one set, no two
-// documents claim the same route alias, and each document's generation is
-// decided against nothing applied. What it cannot check is anything about a
-// host — a coordinate, a domain the host accepts, who may speak for it, or a
-// generation against an applied record. A renderer pre-checking a set has no
-// host to answer those for.
-func AdmitRendered(documents ...*SolutionHostBinding) ([]RenderedAdmission, error) {
-	// No signers: the signer policy is only consulted for a named host, and
-	// there is none here.
-	//
-	// It answers RenderedAdmission and not Admission, which was C4's
-	// fail-open under another name: the same type a host's Admit returns made
-	// "this set is consistent" and "this host admits these" one value.
-	sets := make([]RenderedSet, len(documents))
-	for index, document := range documents {
-		sets[index] = RenderedSet{Document: document, FirstRecord: true}
-	}
-	return AdmitRenderedSets(sets...)
-}
+// AdmitRendered IS DELETED. It took parsed documents and set FirstRecord for
+// every one of them, so the generation fold ran against no record and answered
+// apply — a fail-open under the very type split that was supposed to prevent
+// one. A renderer calls AdmitRenderedSets and states each record or its
+// absence, which is the whole point of the per-set marker.
 
 func (host Host) admit(documents []*SolutionHostBinding, signers []string) ([]Admission, error) {
 	applied, err := host.appliedByBinding()

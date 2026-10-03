@@ -204,24 +204,26 @@ func (s Settings) Verifier() *workcontext.Verifier {
 	}
 }
 
-// Verifier is New(time.Now()).Verifier() — the common case.
+// Verifier (the zero-argument package-level one) IS DELETED.
 //
-// It returns a verifier that TRUSTS THE CONFORMANCE FIXTURE KEY, whose private
-// half is derivable from core's source by anyone. That is correct for a
-// conformance run and catastrophic anywhere else, and a reviewer was right
-// that leaving it exported made this function the "one mistaken call" core's
-// own README names as the danger — I closed the path for a verifier somebody
-// builds by hand and left the convenience that hands one out ready-made.
+// It was `New(time.Now()).Verifier()` and returned a verifier that TRUSTS THE
+// CONFORMANCE FIXTURE KEY, whose private half anyone can derive from core's
+// source. I kept it with an argument that reads badly now: that the package
+// name at the call site makes it visible in review, and that deleting it would
+// push consumers into assembling the same thing less carefully.
 //
-// It is kept because the kit needs it and deleting it would push every
-// consumer into assembling the same thing less carefully. What makes it safe
-// to keep is that it lives in a package whose name is at the call site: a
-// production file importing workcontext/conformance is visible in review in a
-// way a bool buried in a struct literal is not. If that is not enough, the
-// answer is moving the whole kit to a package production cannot import, which
-// is the open owner call in workcontext/README.md — not a weaker verifier
-// here.
-func Verifier() *workcontext.Verifier { return New(time.Now()).Verifier() }
+// Round six was right that this left M8 open. Moving the fixture seed off the
+// verify path stopped every verifying binary from LINKING the key; it did
+// nothing about the shortest possible call that TRUSTS it, which is the actual
+// hazard and the one core's own README calls "the one mistaken call".
+//
+// What replaces it is not a weaker verifier but an explicit one:
+// `conformance.New(now).Verifier()`, or passing Settings to Run. Both make the
+// kit's involvement a thing the caller wrote down. That is one extra call for
+// a conformance suite and no loss of capability, which is why this is a
+// deletion rather than the build tag or separate module the README floats —
+// those remain available if a reviewer wants the kit unreachable rather than
+// merely un-convenient, and they cost every consumer's suite a change.
 
 // Authenticator assembles core's verify-only entrypoint from the kit's
 // settings, for a consumer whose entrypoint is that one. It is handed to

@@ -439,8 +439,8 @@ identity produces a `*Delivered` with nothing behind it — as `DeliveredBy`'s
 own comment says, the signer "is a string the caller handed it". The correction
 is recorded rather than quietly edited because the false version was
 load-bearing: applied one file over it says `Host.admit`'s `host.Coordinate !=
-""` guard is pointless, and removing that turns eight tests red, since
-`AdmitRendered` routes through `Host{}.admit`.
+""` guard is pointless, and removing that fails every test that reaches the host-free checks through a zero Host, since
+`AdmitRenderedSets` routes through `Host{}.admit`.
 
 What `*Delivered` does buy is **ordering within one codebase**, held by the
 compiler: no sequence of exported calls reaches a judgement without some
@@ -451,7 +451,7 @@ A renderer wanting the same tuple rules over documents it has not signed yet
 calls `ActivateRendered`, which answers a `RenderedMatch` — deliberately not
 an `Activation`, because nobody attested either half, so it cannot be the basis
 of an authorization decision and no sequence of calls converts one into the
-other. Same split, same reason, as `AdmitRendered` beside `Admit`.
+other. Same split, same reason, as `AdmitRenderedSets` beside `Admit`.
 
 ```go
 match, err := solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
@@ -485,7 +485,7 @@ independent source".
 So `ValidateAgainst` stays the **host's**, and both entrypoints share the rest.
 What a renderer therefore cannot check is who signed either half and whether
 the authority fits the ceiling — both needing host state, both the same split
-`AdmitRendered` already makes.
+`AdmitRenderedSets` already makes.
 
 One rule got **stronger** in the move: both halves must name the envelope
 revision *the caller named*, where the shared body previously asked only that
@@ -668,17 +668,17 @@ usable binding ID.
 
 ## How the consumers use it
 
-A **renderer** checks the set it is about to write with `AdmitRendered`, over
+A **renderer** checks the set it is about to write with `AdmitRenderedSets`, over
 **parsed** documents. Its documents are not signed yet — signing happens at
 publish, and a `--local` qualification publish is never signed — so there is no
 carrier for a `BundleVerifier` to accept:
 
 ```go
-admissions, err := solutionhost.AdmitRendered(documents...)
+admissions, err := solutionhost.AdmitRenderedSets(sets...) // RenderedSet per document
 if err := solutionhost.OneDelivery(documents...); err != nil { /* straddle */ }
 ```
 
-`AdmitRendered` takes **no `Host`**, and that is the design rather than a
+`AdmitRenderedSets` takes **no `Host`**, and that is the design rather than a
 convenience: a `Host` carries applied state, a coordinate and a signer policy,
 and none of those is checkable without an attestation — so a signature cannot
 be the thing a renderer forgets, because there is nothing here to forget it
@@ -713,11 +713,11 @@ admissions, err := host.Admit(delivered...)
 
 **`Coordinate` is required.** Every provenance check inside admission is
 guarded by "is this host named", so that the zero `Host` can reach the checks
-that need no host state for `AdmitRendered`'s sake — but `Host{}` is
+that need no host state for `AdmitRenderedSets`'s sake — but `Host{}` is
 constructible by anyone, and `Host{}.Admit` returned `apply` for a document
 from an unlisted signer, under an unlisted domain, targeting a foreign
 coordinate, with an attestation present to make it look checked. A caller with
-no host state wants `AdmitRendered`, which takes no `Host` at all and so has
+no host state wants `AdmitRenderedSets`, which takes no `Host` at all and so has
 nothing to forget.
 
 `Admit` returns one `Admission` per document in the order given, plus an error

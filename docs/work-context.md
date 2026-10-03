@@ -424,7 +424,7 @@ every fixture and fails the consumer's build if any outcome differs.
 
 ```go
 func TestWorkContextConformance(t *testing.T) {
-    verifier := conformance.Verifier()      // core's, configured for the kit
+    verifier := conformance.New(now).Verifier() // core's, configured for the kit
     conformance.Run(t, func(ctx context.Context, token string) error {
         _, err := myPackage.VerifyWorkContext(ctx, token)
         return err

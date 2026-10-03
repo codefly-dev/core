@@ -27,7 +27,7 @@ func TestCoresVerifierPassesTheKit(t *testing.T) {
 
 // The convenience path a consumer actually writes.
 func TestRunWiresItsOwnSettings(t *testing.T) {
-	verifier := conformance.Verifier()
+	verifier := conformance.New(time.Now()).Verifier()
 	conformance.Run(t, func(ctx context.Context, token string) error {
 		_, err := verifier.Verify(ctx, token)
 		return err

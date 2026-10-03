@@ -212,13 +212,13 @@ func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
 
 	// The zero Host is the renderer's view: nothing applied, no coordinate
 	// pinned, and the collision still refused where the set was authored.
-	_, err := solutionhost.AdmitRendered(first, second)
+	_, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: first, FirstRecord: true}, solutionhost.RenderedSet{Document: second, FirstRecord: true})
 	require.ErrorIs(t, err, composition.ErrCollision)
 	require.Contains(t, err.Error(), first.Binding)
 	require.Contains(t, err.Error(), second.Binding)
 
 	second.Routes[0].Alias = "alpha2"
-	admissions, err := solutionhost.AdmitRendered(first, second)
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: first, FirstRecord: true}, solutionhost.RenderedSet{Document: second, FirstRecord: true})
 	require.NoError(t, err)
 	// RenderedAdmission, not Admission: AdmitRendered answering a host's own
 	// type was C4's fail-open under another name. Fold is the generation
@@ -230,7 +230,7 @@ func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
 
 	// An empty set is "nothing declared", not "remove everything": removal is a
 	// generation, so Admit has nothing to say about it.
-	admissions, err = solutionhost.AdmitRendered()
+	admissions, err = solutionhost.AdmitRenderedSets()
 	require.NoError(t, err)
 	require.Empty(t, admissions)
 }
@@ -241,7 +241,7 @@ func TestOneSetDeclaresOneGenerationPerBinding(t *testing.T) {
 	second.Generation = 6
 	second.Routes = nil
 
-	_, err := solutionhost.AdmitRendered(first, second)
+	_, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: first, FirstRecord: true}, solutionhost.RenderedSet{Document: second, FirstRecord: true})
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "declared twice")
 }
@@ -416,7 +416,7 @@ func TestANamedHostMustDeclareTheDomainsItAccepts(t *testing.T) {
 
 	// The renderer's view, unaffected: no coordinate, no domains, and every
 	// check that does not need host state still runs.
-	_, err = solutionhost.AdmitRendered(parse(t, "valid"))
+	_, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: parse(t, "valid"), FirstRecord: true})
 	require.NoError(t, err)
 }
 
@@ -566,7 +566,7 @@ func TestAdmitRenderedIsTheRenderersHalfAndNeedsNoAttestation(t *testing.T) {
 	second := parse(t, "module-presence")
 	second.Routes = nil
 
-	admissions, err := solutionhost.AdmitRendered(first, second)
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: first, FirstRecord: true}, solutionhost.RenderedSet{Document: second, FirstRecord: true})
 	require.NoError(t, err)
 	require.Len(t, admissions, 2)
 	for _, admission := range admissions {
@@ -576,7 +576,7 @@ func TestAdmitRenderedIsTheRenderersHalfAndNeedsNoAttestation(t *testing.T) {
 
 	// It still refuses everything that needs no host: a binding declared
 	// twice in one set...
-	_, err = solutionhost.AdmitRendered(first, parse(t, "valid"))
+	_, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: first, FirstRecord: true}, solutionhost.RenderedSet{Document: parse(t, "valid"), FirstRecord: true})
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "declared twice")
 
@@ -585,7 +585,7 @@ func TestAdmitRenderedIsTheRenderersHalfAndNeedsNoAttestation(t *testing.T) {
 	// than either document being unsound.
 	colliding := parse(t, "valid")
 	colliding.Binding = "alpha-region-a-09"
-	_, err = solutionhost.AdmitRendered(first, colliding)
+	_, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: first, FirstRecord: true}, solutionhost.RenderedSet{Document: colliding, FirstRecord: true})
 	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
@@ -608,7 +608,7 @@ func TestAdmitRenderedCannotBeHandedHostState(t *testing.T) {
 	// has no host to be wrong about.
 	elsewhere := parse(t, "valid")
 	elsewhere.Host.Coordinate = "example/prod/region-z"
-	_, err = solutionhost.AdmitRendered(elsewhere)
+	_, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: elsewhere, FirstRecord: true})
 	require.NoError(t, err, "a renderer pre-checking a set has no host to answer coordinate questions for")
 }
 
@@ -810,11 +810,18 @@ func TestARendererFoldsItsOwnGenerationsAndDomainContinuity(t *testing.T) {
 	// A STALE generation is refused — the fold AdmitRendered could not run.
 	stale := valid(t)
 	stale.Generation = current.Generation - 1
+	// THE RETURNED ERROR, not only the per-set one: this test pinned
+	// `require.NoError(t, err)` for refused folds, so a caller checking only
+	// the error — which is what Admit's contract trains — read a refusal as
+	// success. And Decision must be CLEARED, or the host-free "apply" is
+	// retained beside a refused fold.
 	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
 		Document: stale, Applied: applied,
 	})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, solutionhost.ErrStaleGeneration)
 	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrStaleGeneration)
+	require.Empty(t, admissions[0].Decision, "a refused set retains no decision")
+	require.Empty(t, admissions[0].Fold)
 
 	// DOMAIN CONTINUITY, the rule the consumer was restating: the applied
 	// record's domain says who may change this binding, so a document under
@@ -825,27 +832,30 @@ func TestARendererFoldsItsOwnGenerationsAndDomainContinuity(t *testing.T) {
 	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
 		Document: moved, Applied: applied,
 	})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
 	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrWrongDomain)
+	require.Empty(t, admissions[0].Decision)
 
 	// A record for ANOTHER binding is not this one's history, and a record
 	// that is not well formed is refused rather than folded.
 	for name, set := range map[string]solutionhost.RenderedSet{
 		"other binding": {Document: next, Applied: solutionhost.Applied{Binding: "elsewhere", Generation: 1}},
-		"hand built":    {Document: next, Applied: solutionhost.Applied{Binding: next.Binding}},
+		"hand built":    {Document: next, Applied: solutionhost.Applied{Binding: next.Binding, Generation: 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			admissions, err := solutionhost.AdmitRenderedSets(set)
-			require.NoError(t, err)
+			require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
 			require.ErrorIs(t, admissions[0].Err, solutionhost.ErrAppliedUnusable)
+			require.Empty(t, admissions[0].Decision)
 		})
 	}
 
 	// And "no record" is STATED, never defaulted — the same rule activation
 	// states per half.
 	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: next})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
 	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrAppliedUnusable)
+	require.Empty(t, admissions[0].Decision)
 	require.Contains(t, admissions[0].Err.Error(), "declare that none exists")
 
 	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
@@ -859,8 +869,9 @@ func TestARendererFoldsItsOwnGenerationsAndDomainContinuity(t *testing.T) {
 	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
 		Document: next, Applied: applied, FirstRecord: true,
 	})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
 	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrAppliedUnusable)
+	require.Empty(t, admissions[0].Decision)
 }
 
 // TestADeliveredAuthorityPayloadIsACopy is S9's authority half, which had no
@@ -891,4 +902,46 @@ func TestADeliveredAuthorityPayloadIsACopy(t *testing.T) {
 	first[0] = 'Q'
 	second := delivered.Payload()
 	require.NotEqual(t, first[0], second[0])
+}
+
+// TestABlankDomainRecordDoesNotDisableContinuity is R6-2: both reviewers found
+// that `Domain != "" &&` let a record with a blank domain disable domain
+// continuity entirely — in activation AND in the rendered fold, while
+// Host.Admit refused the same record.
+//
+// Three readers of one rule is how the drift happened, so there is one
+// validator now and this test holds all three paths against it.
+func TestABlankDomainRecordDoesNotDisableContinuity(t *testing.T) {
+	current := valid(t)
+	applied, err := solutionhost.AppliedFrom(current)
+	require.NoError(t, err)
+	blank := applied
+	blank.Domain = ""
+
+	moved := valid(t)
+	moved.Generation = current.Generation + 1
+	moved.OwnershipDomain = "beta"
+
+	// The rendered fold.
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
+		Document: moved, Applied: blank,
+	})
+	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable,
+		"a record with no domain is hand-built, not a record with a weaker rule")
+	require.Empty(t, admissions[0].Decision)
+
+	// Activation.
+	request := activationOf(t, validAuthority(t), valid(t), valid(t).Workloads[0].Image.Digest)
+	request.FirstAuthorityRecord, request.FirstPresenceRecord = true, false
+	request.AppliedPresence = blank
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
+
+	// And a record WITH a domain still catches the move, which is the rule
+	// the blank one was disabling.
+	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
+		Document: moved, Applied: applied,
+	})
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
+	require.Empty(t, admissions[0].Decision)
 }

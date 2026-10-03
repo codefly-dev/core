@@ -54,7 +54,7 @@ differs:
 
 ```go
 func TestWorkContextConformance(t *testing.T) {
-    verifier := conformance.Verifier()
+    verifier := conformance.New(now).Verifier()
     conformance.Run(t, func(ctx context.Context, token string) error {
         _, err := myPackage.VerifyWorkContext(ctx, token)
         return err

@@ -173,7 +173,7 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 		}
 	}
 
-	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded)}, nil
+	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded), key: key}, nil
 }
 
 // CheckEncoding reports whether a payload is in another format entirely,
@@ -194,13 +194,20 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 // that treats nil as permission has skipped verification entirely. Verify is
 // the only thing that turns a token into claims.
 //
-// A JSON payload is detectable with certainty, which is what makes this a
-// check rather than a guess. The first byte of a proto3 encoding is a field
-// tag: field number in the high bits, wire type in the low three. "{" is 0x7b,
-// which is field 15 with wire type 3 — the start-group wire type, which proto3
-// does not emit and which Unmarshal refuses. "[" is 0x5b, field 11 wire type 3,
-// the same. So neither byte can begin a WorkContextV1, and a payload beginning
-// with either is some other format rather than a damaged one of ours.
+// A JSON payload is detectable, and the reasoning has to be stated carefully
+// because the version here was WRONG about why.
+//
+// It said: "{" is 0x7b, field 15 with wire type 3 — the start-group type,
+// which proto3 does not emit AND WHICH UNMARSHAL REFUSES. That last clause is
+// false, executed: proto.Unmarshal([]byte{0x7b, 0x7c}, &WorkContextV1{})
+// returns nil. A well-formed group is parsed and dropped as an unknown field.
+//
+// What is true, and is all this check needs: core's minter emits a
+// deterministic proto3 encoding whose first field is field 1 with wire type 2,
+// so the first byte is 0x0a and never 0x7b or 0x5b. A payload beginning with
+// either was produced by something else, which is what ErrNotACoreToken says.
+// The conclusion stood; the premise did not, and a premise that does not hold
+// is how a check gets removed later by someone who tests it.
 //
 // Leading whitespace is skipped before the test because a JSON encoder may emit
 // it, and a payload that is whitespace followed by "{" is no more a core token
