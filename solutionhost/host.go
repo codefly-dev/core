@@ -228,6 +228,22 @@ type Admission struct {
 // part of a function name and nothing more, and a host that forgot to verify a
 // carrier had no way to find out.
 func (host Host) Admit(delivered ...*Delivered) ([]Admission, error) {
+	// A HOST IS NAMED, and this is the hole that closed.
+	//
+	// Every provenance check in admit is guarded by `host.Coordinate != ""`,
+	// because the zero Host is how AdmitRendered reaches the checks that need
+	// no host state. But Host{} is also constructible by any caller, and
+	// Host{}.Admit then returned DecisionApply for a document from an unlisted
+	// signer, under an unlisted domain, targeting a foreign coordinate — every
+	// provenance rule skipped, with an attestation making it look checked.
+	//
+	// The zero-host path is still there and still correct; it just is not
+	// reachable through the public entrypoint any more. AdmitRendered calls
+	// the internal admit directly, which is why those eight tests still stand.
+	if host.Coordinate == "" {
+		return nil, fmt.Errorf("%w: a host admits documents under its own coordinate; an unnamed host skips every provenance check, and a renderer with no host state wants AdmitRendered",
+			ErrInvalid)
+	}
 	documents := make([]*SolutionHostBinding, len(delivered))
 	signers := make([]string, len(delivered))
 	for index, one := range delivered {
@@ -285,6 +301,11 @@ func (host Host) admit(documents []*SolutionHostBinding, signers []string) ([]Ad
 	// its own, so it is only interpretable against a named host. Without this,
 	// a caller mixing applied state into a coordinate-less check would have its
 	// aliases silently compared against documents for other hosts.
+	// Defence in depth on the INTERNAL entrypoint. Admit now refuses an
+	// unnamed host outright, so this is unreachable through the public
+	// surface; AdmitRendered passes a zero Host and never passes applied
+	// state. It stays because admit is shared and a third caller would
+	// otherwise inherit the hole Admit just closed.
 	if len(host.Applied) != 0 && host.Coordinate == "" {
 		return nil, fmt.Errorf("%w: applied state belongs to a named host, so Host.Coordinate is required", ErrAppliedUnusable)
 	}

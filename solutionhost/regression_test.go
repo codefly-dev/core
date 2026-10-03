@@ -113,7 +113,7 @@ func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 	us.Host.Coordinate = "example/prod/region-b"
 	require.Equal(t, eu.Aliases(), us.Aliases())
 
-	admissions, err := solutionhost.Host{}.Admit(deliverAll(t, eu, us)...)
+	admissions, err := solutionhost.AdmitRendered(eu, us)
 	require.NoError(t, err)
 	require.Equal(t, []solutionhost.Admission{
 		{Binding: eu.Binding, Decision: solutionhost.DecisionApply},
@@ -122,21 +122,35 @@ func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 
 	// The same alias twice on ONE coordinate still collides.
 	us.Host.Coordinate = eu.Host.Coordinate
-	_, err = solutionhost.Host{}.Admit(deliverAll(t, eu, us)...)
+	_, err = solutionhost.AdmitRendered(eu, us)
 	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
 // Applied state is one host's durable record and names no coordinate of its
 // own, so it is only interpretable against a named host.
+//
+// The REFUSAL MOVED, and the move is worth recording rather than just
+// re-pointing the assertion. This asserted ErrAppliedUnusable, which admit
+// still raises for applied state with no coordinate. But Admit now refuses an
+// unnamed host OUTRIGHT — a round-four review showed Host{}.Admit returning
+// DecisionApply for an unlisted signer under an unlisted domain on a foreign
+// coordinate, every provenance check skipped behind the `Coordinate != ""`
+// guards that exist for AdmitRendered's sake. So the stronger check fires
+// first and this condition is no longer reachable through the public surface.
+//
+// The ErrAppliedUnusable branch is KEPT as defence in depth on the internal
+// admit, which AdmitRendered also calls, and is deliberately not asserted
+// here: a test that reached it would have to call an unexported function, and
+// the honest statement about the public surface is the one below.
 func TestAppliedStateRequiresANamedHost(t *testing.T) {
 	applied, err := solutionhost.AppliedFrom(parse(t, "valid"))
 	require.NoError(t, err)
 
 	_, err = solutionhost.Host{Applied: []solutionhost.Applied{applied}}.Admit(deliver(t, parse(t, "valid")))
-	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
-	require.NotErrorIs(t, err, solutionhost.ErrInvalid,
-		"this is the host's own state, not a delivered document; accusing delivery sends the reader to the wrong repository")
-	require.Contains(t, err.Error(), "Host.Coordinate is required")
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "under its own coordinate")
+	require.Contains(t, err.Error(), "AdmitRendered",
+		"the refusal must name the entrypoint a caller with no host state should use")
 }
 
 // A host that starts reserving a namespace must not be frozen by a binding that
@@ -206,7 +220,7 @@ func TestOneMalformedDocumentDoesNotRefuseTheRest(t *testing.T) {
 
 	// And the sound one still admits, with the malformed one simply absent
 	// from the set rather than poisoning it.
-	admissions, err := solutionhost.Host{}.Admit(deliver(t, good))
+	admissions, err := solutionhost.AdmitRendered(good)
 	require.NoError(t, err)
 	require.Len(t, admissions, 1)
 	require.NoError(t, admissions[0].Err)

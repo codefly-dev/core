@@ -539,6 +539,18 @@ func decideAuthority(record AppliedAuthority, document *AuthorityDocument) (Deci
 		// Nothing applied for this ID yet.
 		return DecisionApply, nil
 	}
+	// A WITHDRAWN AUTHORITY IS TERMINAL FOR THE BINDING, checked before the
+	// ID comparison below and that order is the fix.
+	//
+	// The ID check came first, so an authority re-signed under a NEW ID over
+	// the same binding was "a record for another authority" and the caller
+	// passed no record for the new ID — so a withdrawn grant was reinstated by
+	// renaming it. Authority is granted over a binding; the fold belongs on
+	// the binding, and a tombstone over it refuses every later authority ID.
+	if record.Removed && record.Binding == document.PresenceBinding {
+		return "", fmt.Errorf("%w: authority over binding %q was withdrawn at generation %d (as authority %q); a withdrawal is terminal for the binding, so re-signing under a new authority ID does not reinstate it",
+			ErrTombstoned, record.Binding, record.Generation, record.Authority)
+	}
 	if record.Authority != document.Authority {
 		return "", fmt.Errorf("%w: applied record is for authority %q and this document is %q",
 			ErrAppliedUnusable, record.Authority, document.Authority)
@@ -607,11 +619,31 @@ type ActivationRequest struct {
 	// mode here and is now a refusal.
 	DomainsBySigner map[string][]string
 
-	// Applied is what the host recorded for this authority ID. The zero value
-	// means nothing has been applied yet, which is the first generation's
-	// case; anything else is folded, so a replayed older document and a
-	// rewritten generation are both refused.
+	// Applied is what the host recorded for THIS PRESENCE BINDING — whatever
+	// authority ID last held it. It was keyed on the authority ID, and that
+	// was the hole: the same authority re-signed under a NEW ID had no record,
+	// so a withdrawn authority was reinstated by renaming it. Authority is
+	// granted over a binding, so the fold belongs on the binding.
 	Applied AppliedAuthority
+
+	// AppliedPresence is the host's presence record for the same binding.
+	// Activation runs the presence generation fold too, which it did not: a
+	// tombstoned binding at generation 5 refused Admit of generation 4 and
+	// ACTIVATED the same signed generation-4 presence, because Activate
+	// consulted no presence record at all.
+	AppliedPresence Applied
+
+	// FirstActivation says, EXPLICITLY, that this host holds no applied record
+	// for this binding.
+	//
+	// It exists because the zero value could not be told from a caller that
+	// forgot the records, and those two must not read alike — the same
+	// distinction ErrNoApprovedBuild draws for an execution, and the same one
+	// the signer policy's emptiness failed to draw. Activation with no records
+	// and no marker is refused rather than treated as a first generation,
+	// because "nothing applied" is the single most permissive input this call
+	// takes and it must be asserted rather than defaulted.
+	FirstActivation bool
 }
 
 // Activate reports whether an authority document and a presence document form a
@@ -733,7 +765,7 @@ func Activate(request ActivationRequest) (Activation, error) {
 	if err := authority.ValidateAgainst(request.Envelope); err != nil {
 		return Activation{}, err
 	}
-	return activate(authority, presence, build, request.Envelope.Revision, request.Applied)
+	return activate(authority, presence, build, request.Envelope.Revision, request.Applied, request.AppliedPresence, request.FirstActivation)
 }
 
 // RenderedActivationRequest is the pair a RENDERER holds: parsed documents it
@@ -777,11 +809,20 @@ type RenderedActivationRequest struct {
 	// caller gets this value from.
 	EnvelopeRevision uint64
 
-	// Applied is what the renderer knows was applied for this authority ID.
-	// For a publish reading the base branch this is honest state, through
+	// Applied is what the renderer knows was applied over this binding. For a
+	// publish reading the base branch this is honest state, through
 	// AppliedAuthorityFrom(prior) — the fold is one of the rules a renderer
 	// CAN answer, so it is not "usually nothing".
 	Applied AppliedAuthority
+
+	// AppliedPresence is the presence record for the same binding, on the same
+	// terms: a publish reads the base branch, so it can answer this too.
+	AppliedPresence Applied
+
+	// FirstActivation states explicitly that no record exists for this
+	// binding. See ActivationRequest.FirstActivation: the zero value cannot be
+	// told from a caller that forgot, so the permissive case is asserted.
+	FirstActivation bool
 }
 
 // RenderedMatch is what ActivateRendered answers: the two halves MATCH for one
@@ -848,7 +889,7 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 	if request.Presence == nil {
 		return RenderedMatch{}, fmt.Errorf("%w: no presence document; authority alone grants nothing", ErrNotActivated)
 	}
-	activation, err := activate(request.Authority, request.Presence, request.Build, request.EnvelopeRevision, request.Applied)
+	activation, err := activate(request.Authority, request.Presence, request.Build, request.EnvelopeRevision, request.Applied, request.AppliedPresence, request.FirstActivation)
 	if err != nil {
 		return RenderedMatch{}, err
 	}
@@ -877,7 +918,17 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 // case where the diff and the semantics disagree, and it misleads in the
 // direction of reporting a regression that does not exist, or worse,
 // concluding the ceiling is unchecked and designing around it.
-func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelopeRevision uint64, applied AppliedAuthority) (Activation, error) {
+func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelopeRevision uint64, applied AppliedAuthority, appliedPresence Applied, firstActivation bool) (Activation, error) {
+	// "Nothing applied" is asserted, never defaulted. See
+	// ActivationRequest.FirstActivation.
+	if !firstActivation && applied.Authority == "" && appliedPresence.Binding == "" {
+		return Activation{}, fmt.Errorf("%w: no applied records were given for binding %q; pass the host's records, or set FirstActivation to state that it holds none",
+			ErrNotActivated, presence.Binding)
+	}
+	if firstActivation && (applied.Authority != "" || appliedPresence.Binding != "") {
+		return Activation{}, fmt.Errorf("%w: FirstActivation says this host holds no record for binding %q, and a record was given",
+			ErrNotActivated, presence.Binding)
+	}
 	if err := authority.Validate(); err != nil {
 		return Activation{}, err
 	}
@@ -908,9 +959,11 @@ func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 				ErrNotActivated, half.what, half.named, envelopeRevision)
 		}
 	}
-	// The generation fold. A signed document at an older generation, or a
-	// rewritten one, is refused — and a withdrawn authority is terminal.
+	// The generation fold, BOTH HALVES.
 	if _, err := decideAuthority(applied, authority); err != nil {
+		return Activation{}, err
+	}
+	if _, err := decide(appliedPresence, presence); err != nil {
 		return Activation{}, err
 	}
 	// The TARGET. Without this an authority document activated any binding in

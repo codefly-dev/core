@@ -43,12 +43,14 @@ func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 }
 
 // activationOf builds a request with the current envelope and nothing applied
-// — the first-generation case — so each test states only what it varies.
+// — the first-generation case, now STATED through FirstActivation rather than
+// implied by zero values — so each test states only what it varies.
 func activationOf(t *testing.T, a *solutionhost.AuthorityDocument, p *solutionhost.SolutionHostBinding, build solutionhost.ImageDigest) solutionhost.ActivationRequest {
 	t.Helper()
 	request := solutionhost.ActivationRequest{
 		Build: build, Envelope: solutionhost.FixtureEnvelope(),
 		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta"}},
+		FirstActivation: true,
 	}
 	if a != nil {
 		request.Authority = deliverAuthority(t, a)
@@ -212,12 +214,14 @@ func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
 
 	request := activationOf(t, replayed, presenceDocument, build)
 	request.Applied = applied
+	request.FirstActivation = false
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrStaleGeneration)
 
 	// The current generation activates against its own applied record.
 	request = activationOf(t, current, presenceDocument, build)
 	request.Applied = applied
+	request.FirstActivation = false
 	_, err = solutionhost.Activate(request)
 	require.NoError(t, err)
 
@@ -227,6 +231,7 @@ func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
 	rewritten.EffectiveFrom = current.EffectiveFrom + 1
 	request = activationOf(t, rewritten, presenceDocument, build)
 	request.Applied = applied
+	request.FirstActivation = false
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrRewrittenGeneration)
 }
@@ -246,6 +251,7 @@ func TestAWithdrawnAuthorityCannotBeRevived(t *testing.T) {
 	revival.Generation = tombstone.Generation + 1
 	request := activationOf(t, revival, presenceDocument, build)
 	request.Applied = withdrawn
+	request.FirstActivation = false
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
 }
@@ -617,6 +623,7 @@ func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
 		Presence:         presenceDocument,
 		Build:            build,
 		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
+		FirstActivation:  true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.RenderedMatch{
@@ -638,17 +645,18 @@ func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
 		Presence:         presenceDocument,
 		Build:            build,
 		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
+		FirstActivation:  true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "is granted over binding")
 
 	// Each half alone still grants nothing.
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Presence: presenceDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
+		Presence: presenceDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision), FirstActivation: true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Authority: authorityDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
+		Authority: authorityDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision), FirstActivation: true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 }
@@ -685,9 +693,9 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 		Presence:         presenceDocument,
 		Build:            build,
 		EnvelopeRevision: revision,
-		// Honest state for a publish that read the base branch, which is why
-		// the field is not documented as "usually nothing".
-		Applied: solutionhost.AppliedAuthority{},
+		// A publish that read the base branch and found nothing says so
+		// explicitly, rather than letting zero values mean it.
+		FirstActivation: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, revision, match.EnvelopeRevision)
@@ -696,6 +704,7 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 	// tuple that agrees with itself about nothing activates nothing.
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
 		Authority: authorityDocument, Presence: presenceDocument, Build: build,
+		FirstActivation: true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "no envelope revision was named")
@@ -707,6 +716,7 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
 		Authority: authorityDocument, Presence: presenceDocument, Build: build,
 		EnvelopeRevision: revision + 1,
+		FirstActivation:  true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "envelope revision")
@@ -799,4 +809,144 @@ func TestTheCoordinateGuardIsLoadBearing(t *testing.T) {
 	_, err = host.Admit()
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "must declare which signer identities")
+}
+
+// TestActivationRunsThePresenceFoldToo is C3a: a tombstoned binding refused
+// Admit of an older generation and ACTIVATED the same signed document.
+//
+// ActivationRequest carried an applied record for the AUTHORITY and none for
+// the presence, so Activate consulted no presence state at all. Both halves
+// are signed and both are replayable, so a fold on one of them is a fold on
+// neither: the attacker presents the half that is not checked.
+func TestActivationRunsThePresenceFoldToo(t *testing.T) {
+	presenceDocument := valid(t)
+	presenceDocument.Generation = 4
+	authorityDocument := validAuthority(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	// A tombstone claims nothing at all.
+	current := valid(t)
+	current.Generation = 5
+	current.Removed = true
+	current.Routes, current.Artifacts, current.Workloads = nil, nil, nil
+	current.Modules, current.Endpoints = nil, nil
+	tombstone, err := solutionhost.AppliedFrom(current)
+	require.NoError(t, err)
+
+	request := activationOf(t, authorityDocument, presenceDocument, build)
+	request.FirstActivation = false
+	request.AppliedPresence = tombstone
+
+	_, err = solutionhost.Activate(request)
+	require.Error(t, err, "a tombstoned binding activated an older signed presence")
+	// The STALE sentinel, because generation 4 is behind the applied 5: that
+	// is the correct reason for this input, and the point is that a presence
+	// record is now consulted at all.
+	require.ErrorIs(t, err, solutionhost.ErrStaleGeneration)
+
+	// And the tombstone itself is terminal for a LATER generation, which is
+	// the case the stale check cannot answer.
+	later := valid(t)
+	later.Generation = 6
+	afterTombstone := activationOf(t, validAuthority(t), later, later.Workloads[0].Image.Digest)
+	afterTombstone.FirstActivation = false
+	afterTombstone.AppliedPresence = tombstone
+	_, err = solutionhost.Activate(afterTombstone)
+	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
+}
+
+// TestAWithdrawnAuthorityCannotBeRenamedBackIntoLife is C3b: the same
+// authority re-signed under a NEW ID activated a binding whose authority was
+// withdrawn.
+//
+// The fold was keyed on the AUTHORITY ID, so a new ID had no applied record
+// and the withdrawal did not apply to it — a tombstone defeated by renaming.
+// Authority is granted over a binding, so the fold belongs on the binding, and
+// the ID comparison now comes after the withdrawal check rather than before
+// it. That ordering is the whole fix.
+func TestAWithdrawnAuthorityCannotBeRenamedBackIntoLife(t *testing.T) {
+	presenceDocument := valid(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	withdrawnDocument := validAuthority(t)
+	withdrawnDocument.Removed = true
+	withdrawnDocument.Generation = 3
+	// A withdrawal claims nothing: no principals and no approved build.
+	withdrawnDocument.Principals = nil
+	withdrawnDocument.ApprovedBuild = ""
+	withdrawnDocument.EffectiveFrom = 0
+	withdrawn, err := solutionhost.AppliedAuthorityFrom(withdrawnDocument)
+	require.NoError(t, err)
+
+	// A NEW authority ID over the SAME binding, with the host holding only
+	// the withdrawal of the old ID.
+	renamed := validAuthority(t)
+	renamed.Authority = withdrawnDocument.Authority + "-v2"
+	renamed.Generation = 1
+	require.Equal(t, withdrawnDocument.PresenceBinding, renamed.PresenceBinding)
+
+	request := activationOf(t, renamed, presenceDocument, build)
+	request.FirstActivation = false
+	request.Applied = withdrawn
+
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
+	require.Contains(t, err.Error(), "terminal for the binding")
+	require.Contains(t, err.Error(), "new authority ID does not reinstate it")
+}
+
+// TestNothingAppliedMustBeStatedRatherThanDefaulted holds the marker.
+//
+// The zero value meant "first generation", which is also what a caller that
+// forgot the records passes — and "nothing applied" is the most permissive
+// input this call takes. The same conflation appeared three times in this
+// package's history: an empty signer policy meaning "a renderer", an empty
+// digest meaning "bears no execution", and this.
+func TestNothingAppliedMustBeStatedRatherThanDefaulted(t *testing.T) {
+	presenceDocument := valid(t)
+	authorityDocument := validAuthority(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	forgot := activationOf(t, authorityDocument, presenceDocument, build)
+	forgot.FirstActivation = false
+	_, err := solutionhost.Activate(forgot)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "set FirstActivation to state that it holds none")
+
+	// And the marker cannot be combined with a record, which would be a
+	// caller asserting two different things.
+	applied, err := solutionhost.AppliedAuthorityFrom(authorityDocument)
+	require.NoError(t, err)
+	contradictory := activationOf(t, authorityDocument, presenceDocument, build)
+	contradictory.Applied = applied
+	_, err = solutionhost.Activate(contradictory)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "holds no record")
+}
+
+// TestAnUnnamedHostAdmitsNothing is C4: Host{}.Admit returned DecisionApply
+// for a document from an unlisted signer, under an unlisted domain, targeting
+// a foreign coordinate.
+//
+// Every provenance check in admit is guarded by `host.Coordinate != ""`,
+// because the zero Host is how AdmitRendered reaches the host-free checks. But
+// Host{} is constructible by anyone, so the public entrypoint handed back
+// "apply" with every provenance rule skipped — and an attestation present,
+// which makes it look checked.
+func TestAnUnnamedHostAdmitsNothing(t *testing.T) {
+	document := valid(t)
+	document.OwnershipDomain = "not-a-listed-domain"
+	document.Host.Coordinate = "some-other-host"
+
+	_, err := solutionhost.Host{}.Admit(deliver(t, document))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "under its own coordinate")
+	require.Contains(t, err.Error(), "AdmitRendered")
+
+	// The zero-host path is still there and still correct: it is reached
+	// through AdmitRendered, which takes no Host and so has nothing to forget.
+	admissions, err := solutionhost.AdmitRendered(valid(t))
+	require.NoError(t, err)
+	require.Len(t, admissions, 1)
+	require.NoError(t, admissions[0].Err)
 }

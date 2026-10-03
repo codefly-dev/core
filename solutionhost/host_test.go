@@ -212,13 +212,13 @@ func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
 
 	// The zero Host is the renderer's view: nothing applied, no coordinate
 	// pinned, and the collision still refused where the set was authored.
-	_, err := solutionhost.Host{}.Admit(deliverAll(t, first, second)...)
+	_, err := solutionhost.AdmitRendered(first, second)
 	require.ErrorIs(t, err, composition.ErrCollision)
 	require.Contains(t, err.Error(), first.Binding)
 	require.Contains(t, err.Error(), second.Binding)
 
 	second.Routes[0].Alias = "alpha2"
-	admissions, err := solutionhost.Host{}.Admit(deliverAll(t, first, second)...)
+	admissions, err := solutionhost.AdmitRendered(first, second)
 	require.NoError(t, err)
 	require.Equal(t, []solutionhost.Admission{
 		{Binding: first.Binding, Decision: solutionhost.DecisionApply},
@@ -227,7 +227,7 @@ func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
 
 	// An empty set is "nothing declared", not "remove everything": removal is a
 	// generation, so Admit has nothing to say about it.
-	admissions, err = solutionhost.Host{}.Admit()
+	admissions, err = solutionhost.AdmitRendered()
 	require.NoError(t, err)
 	require.Empty(t, admissions)
 }
@@ -238,7 +238,7 @@ func TestOneSetDeclaresOneGenerationPerBinding(t *testing.T) {
 	second.Generation = 6
 	second.Routes = nil
 
-	_, err := solutionhost.Host{}.Admit(deliverAll(t, first, second)...)
+	_, err := solutionhost.AdmitRendered(first, second)
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "declared twice")
 }
@@ -413,7 +413,7 @@ func TestANamedHostMustDeclareTheDomainsItAccepts(t *testing.T) {
 
 	// The renderer's view, unaffected: no coordinate, no domains, and every
 	// check that does not need host state still runs.
-	_, err = solutionhost.Host{}.Admit(deliver(t, parse(t, "valid")))
+	_, err = solutionhost.AdmitRendered(parse(t, "valid"))
 	require.NoError(t, err)
 }
 
