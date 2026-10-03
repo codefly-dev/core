@@ -333,6 +333,49 @@ sites to this package and runs the conformance helper in its own suites. The
 cutover is cold — every token changes format at once, and an old token is
 refused with `ErrNotACoreToken` rather than accepted.
 
+### One encoding, enforced at the wire
+
+`Verify` used to accept **any** protobuf the key had signed. The signature
+covers whatever bytes were presented, so a second minter emitting a
+different-but-valid encoding of the same claims — or one adding a field of its
+own — verified, and passed the whole conformance kit. The one-implementation
+rule was asserted in prose and unenforced where it mattered most.
+`solutionhost` had enforced exactly this for its documents all along, with
+`ErrNotCanonical`; the capability had no equivalent.
+
+Two checks now sit in the single decode path, so `Verify`, `Authenticate` and
+`Inspect` all get them:
+
+- **No unknown fields, recursively.** A capability carrying a field this Core
+  does not know was written by some other minter. The kit's `unknown-field`
+  fixture nests one inside the *seal* rather than at the top level, because a
+  root-only check would pass it.
+- **The payload must BE its own canonical encoding.** Re-marshalled
+  deterministically and compared byte for byte.
+
+The authorization revision is now compared for **exact equality** too, not
+`>=`. The argument was already in the package, written about the seal — "there
+is no legitimate way to hold one; the shapes that could produce it are a
+rolled-back installation and a forged seal" — and it applied to one lever
+while the other accepted a capability claiming a revision *ahead* of the
+issuer's.
+
+### The use site's half of the binding check
+
+A verifier checks a sealed operation binding thoroughly — revision,
+incarnation, withdrawal, and that it is granted to the exercising principal
+within the sealed installation — but only when the capability carries one. A
+capability carrying the same authority scopes and **no** binding passed every
+check, so revoking the binding did not reach it.
+
+Core does not close that by requiring a binding on every capability: a session
+carries the owner's delegated authority and a binding gates one *operation*, so
+making it mandatory would collapse the two forms and force every session to
+name a unit of authority it does not exercise. Instead `(*Verified).RequireBinding(id)`
+lets the place that knows the gate say so. It is a method on the capability
+rather than a verifier option because the requirement belongs to the **call**:
+two operations behind one verifier legitimately require different bindings.
+
 ### Two entrypoints, one implementation, one strength
 
 `Verifier` is issuer-shaped: it requires a revision source, a replay store, a

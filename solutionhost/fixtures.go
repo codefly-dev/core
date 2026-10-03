@@ -11,7 +11,7 @@ import (
 )
 
 // The fixtures are shipped, not test scaffolding: codefly-dev/cli renders these
-// documents and the host in codefly-dev/module-saas-starter reconciles and
+// documents and the host reconciles and
 // verifies them, and all three repositories need the same bytes to test
 // against. Embedding them makes them reachable from another module, which a
 // testdata directory alone is not.

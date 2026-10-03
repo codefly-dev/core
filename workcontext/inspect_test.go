@@ -49,6 +49,9 @@ func TestInspectAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		"zero-installation-revision": workcontext.ErrInvalid,
 		"zero-build-incarnation":     workcontext.ErrInvalid,
 		"partial-operation-binding":  workcontext.ErrInvalid,
+		// Structural too, and deliberately so: a consumer's early refusal
+		// catches a token some other minter wrote, before it goes on a request.
+		"unknown-field": workcontext.ErrInvalid,
 	}
 	seen := map[string]bool{}
 	for _, fixture := range fixtures {

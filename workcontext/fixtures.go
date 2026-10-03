@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
@@ -974,6 +975,29 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		})
 	}
 
+	// A genuinely signed capability carrying an UNKNOWN FIELD, nested inside
+	// the seal rather than at the top level — because a check that looked only
+	// at the root would pass it.
+	//
+	// This is the wire-level half of the one-implementation rule. A second
+	// minter using the same field numbers, or adding one of its own, produced
+	// a token that verified and passed this whole kit, because the signature
+	// covers whatever bytes were presented.
+	foreignField := proto.Clone(session.Context()).(*basev0.WorkContextV1)
+	foreignField.Seal = proto.Clone(session.Context().GetSeal()).(*basev0.WorkSealV1)
+	foreignField.Seal.ProtoReflect().SetUnknown(fixtureUnknownField(4095, "a field this Core does not know"))
+	foreignFieldToken, err := resign(foreignField)
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "unknown-field", Form: FormSession, Token: foreignFieldToken,
+		Outcome: OutcomeRejected, Err: ErrInvalid, Message: "unknown field",
+		Reason: "a genuinely signed capability carrying a field this Core does not know, nested inside the seal. " +
+			"Accepting it is accepting a second implementation at the wire, and it lets data ride inside a signed " +
+			"credential that nothing here reads",
+	})
+
 	// Not the "<payload>.<signature>" shape at all.
 	for name, token := range map[string]string{
 		"no-separator":    base64.RawURLEncoding.EncodeToString([]byte("nonsense")),
@@ -1036,4 +1060,23 @@ func fixtureForeignKey(wc *basev0.WorkContextV1) (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(payload) + "." +
 		base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, payload)), nil
+}
+
+// fixtureUnknownField encodes one length-delimited protobuf field the schema
+// does not declare, for the fixture that must be refused for carrying one.
+func fixtureUnknownField(number int, value string) protoreflect.RawFields {
+	var encoded []byte
+	tag := uint64(number)<<3 | 2 // wire type 2: length-delimited
+	for tag >= 0x80 {
+		encoded = append(encoded, byte(tag)|0x80)
+		tag >>= 7
+	}
+	encoded = append(encoded, byte(tag))
+	length := uint64(len(value))
+	for length >= 0x80 {
+		encoded = append(encoded, byte(length)|0x80)
+		length >>= 7
+	}
+	encoded = append(encoded, byte(length))
+	return append(encoded, value...)
 }

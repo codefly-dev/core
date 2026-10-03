@@ -214,11 +214,20 @@ type SolutionHostBinding struct {
 	// module-scoped delivery express removal without "remove everything else"
 	// being expressible at all.
 	//
-	// The string alone is not the enforcement. Host.Admit refuses a delivered
-	// set that straddles two domains, and refuses a document that reaches a
-	// binding an earlier generation applied under a different domain; and the
-	// domain is inside the signed canonical encoding, so a carrier that relays
-	// the document cannot widen it. Required.
+	// The string alone is not the enforcement. Host.Admit refuses a document
+	// delivered under a domain the host does not accept, and refuses one that
+	// reaches a binding an earlier generation applied under a different
+	// domain; the renderer's OneDelivery refuses a set that straddles two
+	// domains, which Admit deliberately does not, because a host's mount is
+	// the union of however many deliveries reached it. The domain is inside
+	// the signed canonical encoding, so a carrier that relays the document
+	// cannot widen it. Required.
+	//
+	// This comment said "Host.Admit refuses a delivered set that straddles two
+	// domains" for as long as that was false — the refusal moved to
+	// OneDelivery and the comment did not follow. It is named here because the
+	// doc-reference guard cannot catch this class: it reads documents for
+	// deleted API names, not source comments for retracted claims.
 	OwnershipDomain string `yaml:"ownership_domain" json:"ownership_domain"`
 
 	// EnvelopeRevision is the revision of the ceiling this document was

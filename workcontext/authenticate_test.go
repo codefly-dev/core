@@ -262,7 +262,7 @@ func TestAuthenticate_RefusesACapabilityBehindTheIssuersRevision(t *testing.T) {
 // verify-only entrypoint must honour that rather than compare every tenant
 // against one number.
 //
-// This is module-saas-starter#953's finding. An earlier draft took a stated
+// This is a host consumer's finding. An earlier draft took a stated
 // uint64 here, which against a multi-tenant issuer went on accepting
 // capabilities minted at a SUPERSEDED revision for every tenant except the one
 // it named — a check that reads as enforced and fires for at most one tenant.

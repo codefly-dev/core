@@ -30,10 +30,29 @@ import (
 // API is there and the prose around it is current — which is how a withdrawn
 // rule gets re-implemented by hand.
 //
-// What it checks: every `package.Identifier` in the documents below, for the
-// packages it knows how to resolve, must be exported by that package. Nothing
-// about whether the prose is RIGHT — only that it points at something real,
-// which is the part a machine can hold.
+// WHAT IT CHECKS, stated narrowly because a reviewer was right that the first
+// version of this comment claimed more than the code does: every
+// `package.Identifier` in the documents below, for the packages it knows how
+// to resolve, must be a name that package exports.
+//
+// THREE THINGS IT DOES NOT CHECK, each of which has let a false statement
+// through:
+//
+//   - It does not read Go doc comments, so a comment in the SOURCE that
+//     describes a mechanism which does not exist passes it. That is not
+//     hypothetical: `AuthorityDocument.Generation` carried "a replayed older
+//     document is detectable the same way a replayed presence generation is"
+//     while nothing detected it, and `OwnershipDomain` claimed `Host.Admit`
+//     refused a straddling set after that refusal had been removed. Both were
+//     found by human review, not here.
+//   - Any exported METHOD or FIELD name satisfies `pkg.X`, so `pkg.Anything`
+//     resolves if some unrelated type has a field of that name. It catches a
+//     deleted API, not a wrong one.
+//   - It says nothing about whether the prose around the name is true.
+//
+// So this guard's whole value is one narrow thing: a document cannot go on
+// naming an API that no longer exists. That is worth having — it is the escape
+// this was written for — and it is not a substitute for reading the diff.
 func TestDocumentsNameIdentifiersThatExist(t *testing.T) {
 	root := repoRoot(t)
 

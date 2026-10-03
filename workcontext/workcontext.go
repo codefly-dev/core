@@ -25,6 +25,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -155,4 +156,52 @@ func (v *Verified) EffectiveScopes() []*basev0.WorkScopeV1 {
 		return actor.GetGrantedScopes()
 	}
 	return v.context.GetAuthorityScopes()
+}
+
+// RequireBinding asserts that this capability exercises one named operation
+// binding, and refuses when it carries none or carries another.
+//
+// It exists because the binding half of the revocation predicate was
+// unreachable at the use site. A verifier checks the sealed binding against
+// the issuer's live record — revision, incarnation, withdrawal, and that it is
+// granted to the exercising principal within the sealed installation — but
+// only when the capability carries one. A capability carrying the same
+// authority scopes and NO binding passed every check, so revoking the binding
+// did not reach it.
+//
+// Core cannot close that by requiring a binding on every capability: a session
+// carries the owner's delegated authority and a binding gates one OPERATION,
+// so making it mandatory would collapse the two forms into one and force every
+// session to name a unit of authority it does not exercise. What core can do
+// is let the place that knows say so. A handler for an operation that is
+// gated by binding X calls this, and a capability without X is refused there —
+// at the use site, which is the only place that knows X.
+//
+// It is deliberately a method on *Verified rather than a Verifier option: the
+// requirement belongs to the CALL, not to the trust boundary, and two
+// operations behind one verifier legitimately require different bindings.
+func (v *Verified) RequireBinding(id string) error {
+	if v == nil {
+		return fmt.Errorf("%w: no verified work context", ErrInvalid)
+	}
+	if id == "" {
+		return fmt.Errorf("%w: RequireBinding needs the binding id the call is gated by", ErrInvalid)
+	}
+	binding := v.context.GetOperationBinding()
+	if binding == nil {
+		return fmt.Errorf("%w: this call is gated by operation binding %q and the capability exercises none, so revoking that binding would not reach it",
+			ErrInvalid, id)
+	}
+	if binding.GetBindingId() != id {
+		return fmt.Errorf("%w: this call is gated by operation binding %q and the capability exercises %q",
+			ErrInvalid, id, binding.GetBindingId())
+	}
+	return nil
+}
+
+// OperationBindingID is the binding this capability exercises, or "" when it
+// exercises none. A caller comparing it by hand is writing RequireBinding
+// badly; it is exported for logging and audit, not for gating.
+func (v *Verified) OperationBindingID() string {
+	return v.context.GetOperationBinding().GetBindingId()
 }

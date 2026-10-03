@@ -403,3 +403,23 @@ func nilIfContains(err error, message string) error {
 	}
 	return err
 }
+
+// A verifier that accepts a foreign-minted token — one carrying a field this
+// Core does not know — fails the kit. This is the one-implementation rule
+// enforced at the wire rather than asserted in prose.
+func TestTheKitFailsAVerifierThatAcceptsAForeignMintedToken(t *testing.T) {
+	settings := conformance.New(time.Now())
+	verifier := settings.Verifier()
+	reported := &recorder{}
+	conformance.RunWith(reported, settings, func(ctx context.Context, token string) error {
+		err := verifyWith(ctx, verifier, token)
+		if err != nil && strings.Contains(err.Error(), "unknown field") {
+			return nil
+		}
+		return err
+	})
+	require.Empty(t, reported.fatal)
+	require.Len(t, reported.errors, 1)
+	require.Contains(t, reported.errors[0], "unknown-field")
+	require.Contains(t, reported.errors[0], "must be refused and was accepted")
+}

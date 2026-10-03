@@ -655,7 +655,7 @@ func (a *Authority) carryForwardRevision(ctx context.Context, parent *Verified) 
 	if err != nil {
 		return 0, err
 	}
-	if inherited < current {
+	if inherited != current {
 		return 0, fmt.Errorf("%w: the parent was minted at authorization revision %d and the issuer is at %d, so it can derive nothing; mint afresh",
 			ErrRevoked, inherited, current)
 	}

@@ -48,7 +48,7 @@ var (
 	// from ErrInvalid because they accuse different parties, and the wrong
 	// accusation sends the reader to the wrong repository.
 	//
-	// module-saas-starter#953 paid for this distinction. A host that had not
+	// A host consumer paid for this distinction. A host that had not
 	// yet persisted Applied.Domain got "solution host document is invalid:
 	// applied binding "X" requires the ownership domain it was applied
 	// under" — which blames a delivered document, names a binding that is

@@ -49,7 +49,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 }
 
 // The whole conformance kit, driven the way codefly-dev/cli and the host in
-// codefly-dev/module-saas-starter are expected to drive it.
+// the host that reconciles these documents is expected to drive it.
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
@@ -214,7 +214,7 @@ func TestAHostReservesRouteNamespaces(t *testing.T) {
 
 // Unusable applied state is refused, and refused as the HOST's problem.
 //
-// Both halves are asserted. module-saas-starter#953 hit the second: a host
+// Both halves are asserted. A host consumer hit the second: a host
 // that had not yet persisted Applied.Domain got "solution host document is
 // invalid", which blames a delivered document for state only the host can
 // repair — and because applied state is read once for the whole set, one bad

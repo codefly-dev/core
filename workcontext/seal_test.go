@@ -793,3 +793,52 @@ func TestStart_BindsTheMintToTheAttestedExecution(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, workcontext.FixtureImageDigest, inspected.Seal().GetImageDigest())
 }
+
+// A revision AHEAD of the issuer's is refused, exactly as a seal ahead of it
+// is. The package already made this argument for the seal — "there is no
+// legitimate way to hold one" — and applied it to one lever but not the other.
+func TestVerify_RefusesARevisionAheadOfTheIssuer(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+
+	forged := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	forged.AuthorizationRevision = h.revision + 5
+	_, err := h.verify(audience, h.resign(forged))
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "issuer is at")
+}
+
+// The use site can demand the binding that gates it.
+//
+// The binding half of the revocation predicate was unreachable from a call:
+// the verifier checks a sealed binding thoroughly, but only when the
+// capability carries one, so a capability with the same scopes and NO binding
+// passed everything and revoking the binding did not reach it. Core cannot
+// require a binding on every capability without collapsing sessions into
+// operation contexts, so it gives the place that knows the gate a way to say
+// so.
+func TestRequireBinding_IsTheUseSitesHalfOfTheBindingCheck(t *testing.T) {
+	h := newHarness(t)
+
+	// An operation context exercising the binding the call is gated by.
+	_, operation := h.operationSession(audience)
+	require.NoError(t, operation.RequireBinding(bindingID))
+	require.Equal(t, bindingID, operation.OperationBindingID())
+
+	// The same capability is refused for a call gated by another binding.
+	err := operation.RequireBinding("binding:alpha:administer")
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "exercises")
+
+	// A plain session carries the owner's authority and exercises no binding.
+	// It verifies — it is a sound capability — and it is refused for a gated
+	// call, which is the gap this closes.
+	_, session := h.ownerSession(audience)
+	require.Empty(t, session.OperationBindingID())
+	err = session.RequireBinding(bindingID)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "revoking that binding would not reach it")
+
+	// A gate with no id is a programming error, not a pass.
+	require.Error(t, operation.RequireBinding(""))
+}

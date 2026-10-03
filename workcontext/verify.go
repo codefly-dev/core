@@ -122,7 +122,13 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if err != nil {
 		return nil, fmt.Errorf("work context: authorization revision for tenant %q: %w", wc.GetTenantId(), err)
 	}
-	if wc.GetAuthorizationRevision() < current {
+	// Exact equality, not "at least". A capability carrying a revision HIGHER
+	// than the issuer's live one is refused too, for the reason the seal's own
+	// comment already gave and this check did not follow: there is no
+	// legitimate way to hold one. The shapes that produce it are a rolled-back
+	// issuer and a forged claim, and neither is a thing to accept. The
+	// argument was in the package and applied to one lever but not the other.
+	if wc.GetAuthorizationRevision() != current {
 		return nil, fmt.Errorf("%w: minted at revision %d, issuer is at %d", ErrRevoked, wc.GetAuthorizationRevision(), current)
 	}
 	// The seal is checked before the grant hop and before replay consumption:

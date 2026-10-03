@@ -1,7 +1,7 @@
 # The solution host conformance fixtures
 
 These documents are **shipped**, not test scaffolding. `codefly-dev/cli` renders
-them, the host in `codefly-dev/module-saas-starter` reconciles and verifies
+them, the host reconciles and verifies
 them, and all three repositories drive the same bytes — so the renderer, the
 host and core cannot drift on what a rule means while each stays green against
 its own reading of it.

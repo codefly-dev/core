@@ -122,7 +122,7 @@ type Authenticator struct {
 	// An earlier version of this type had a plain uint64 here instead, on the
 	// argument that a party which does not mint cannot read the issuer's
 	// revision live, so a stated number put that limit where a reviewer sees
-	// it. That was wrong, and module-saas-starter#953 found it with the
+	// it. That was wrong, and a host consumer found it with the
 	// evidence: RevisionSource is per TENANT by its own signature, so one
 	// stated number against a multi-tenant issuer either refuses every tenant
 	// not at that number, or — the dangerous one — goes on accepting

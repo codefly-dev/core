@@ -1,6 +1,7 @@
 package workcontext
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
@@ -49,7 +51,75 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 	if err := protovalidate.Validate(wc); err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	// No unknown fields, anywhere in the message.
+	//
+	// A capability carrying a field this Core does not know is a capability
+	// some other minter produced, and accepting it is accepting a second
+	// implementation at the wire — the exact thing the one-implementation rule
+	// forbids, reached without anyone writing a second verifier. It also lets
+	// data ride inside a signed credential that nothing here checks, reads or
+	// can reason about, which a consumer downstream may well read.
+	if path := unknownFieldIn(wc.ProtoReflect()); path != "" {
+		return nil, nil, nil, fmt.Errorf("%w: carries an unknown field at %s; this Core does not know it, so some other minter wrote it",
+			ErrInvalid, path)
+	}
+	// The payload must BE its own canonical encoding.
+	//
+	// The signature covers whatever bytes were presented, so without this a
+	// second minter emitting a different-but-valid encoding of the same
+	// claims passes verification and the whole conformance kit. solutionhost
+	// enforces exactly this for its documents, with ErrNotCanonical; the
+	// capability had no equivalent. Re-marshalling deterministically and
+	// requiring byte equality is what makes "one encoding" checkable rather
+	// than merely asserted.
+	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(wc)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("work context: re-marshal: %w", err)
+	}
+	if !bytes.Equal(canonical, claims) {
+		return nil, nil, nil, fmt.Errorf("%w: the payload is not its own canonical encoding, so it was produced by a different encoder", ErrInvalid)
+	}
 	return wc, claims, sig, nil
+}
+
+// unknownFieldIn reports the path of the first unknown field it finds,
+// recursively, or "" when there is none. Recursion is the point: an unknown
+// field nested inside a seal or an actor hop is as foreign as one at the top,
+// and a check that looked only at the root would pass it.
+func unknownFieldIn(message protoreflect.Message) string {
+	if len(message.GetUnknown()) > 0 {
+		return string(message.Descriptor().FullName())
+	}
+	found := ""
+	message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		switch {
+		case field.IsMap():
+			if field.MapValue().Kind() != protoreflect.MessageKind {
+				return true
+			}
+			value.Map().Range(func(key protoreflect.MapKey, entry protoreflect.Value) bool {
+				if path := unknownFieldIn(entry.Message()); path != "" {
+					found = string(field.FullName()) + "[" + key.String() + "]." + path
+					return false
+				}
+				return true
+			})
+		case field.IsList() && field.Kind() == protoreflect.MessageKind:
+			list := value.List()
+			for index := 0; index < list.Len(); index++ {
+				if path := unknownFieldIn(list.Get(index).Message()); path != "" {
+					found = fmt.Sprintf("%s[%d].%s", field.FullName(), index, path)
+					return false
+				}
+			}
+		case !field.IsList() && field.Kind() == protoreflect.MessageKind:
+			if path := unknownFieldIn(value.Message()); path != "" {
+				found = string(field.FullName()) + "." + path
+			}
+		}
+		return found == ""
+	})
+	return found
 }
 
 // Inspected is a token that is structurally a sealed capability of this
@@ -100,7 +170,7 @@ func (i *Inspected) Seal() *basev0.WorkSealV1 { return i.context.GetSeal() }
 // The first version of this returned an error only, reasoning that returning
 // claims would make it a third STRENGTH — a caller reads them, acts on them,
 // and has authorized on an unverified token with no diff anywhere to show it.
-// The sdk-go consumer pointed out what that argument missed: a holder reading
+// A client consumer pointed out what that argument missed: a holder reading
 // its OWN credential needs the expiry and the seal, so with no claims returned
 // it keeps its hand-written parser, and the second implementation this call
 // exists to delete survives. Half the duplication removed is the half that
@@ -199,7 +269,7 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	if err != nil {
 		return fmt.Errorf("work context: authorization revision for tenant %q: %w", wc.GetTenantId(), err)
 	}
-	if wc.GetAuthorizationRevision() < current {
+	if wc.GetAuthorizationRevision() != current {
 		return fmt.Errorf("%w: minted at revision %d, issuer is at %d", ErrRevoked, wc.GetAuthorizationRevision(), current)
 	}
 	if err := checkSealAgainst(ctx, v.Seals, wc); err != nil {
