@@ -562,9 +562,15 @@ func TestTheRenderersDerivedBindingShapeIsAdmitted(t *testing.T) {
 // was never written, and that is the more damning half of this finding.
 //
 // The hole itself was `if len(policy) > 0`, justified by a comment saying
-// emptiness meant a renderer. No renderer can reach Activate: Delivered's
-// fields are unexported and VerifyDelivered is its only constructor, so the
-// permissive branch served exactly one caller — a host that forgot the field.
+// emptiness meant a renderer. What is wrong with that is simply that it makes
+// a security check optional and indistinguishable from its absence — nothing
+// in the call says whether the caller waived it or forgot the field.
+//
+// It was FIRST justified by a different argument, that no renderer can reach
+// Activate because Delivered's fields are unexported. That argument is false:
+// BundleVerifier is caller-supplied, so a permissive one yields a *Delivered
+// over any bytes. TestADeliveredProvesOrderingAndNotIdentity holds that fact
+// now, so the refuted claim cannot quietly come back as a comment.
 func TestActivationRequiresTheSignerPolicyAndHoldsItPerHalf(t *testing.T) {
 	presenceDocument := valid(t)
 	authorityDocument := validAuthority(t)
@@ -711,4 +717,86 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 	request.Envelope = solutionhost.Envelope{Revision: revision}
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
+}
+
+// A *Delivered proves ORDERING, not identity, and this test exists because I
+// claimed otherwise in a comment and used the claim to justify a change.
+//
+// The claim was that a renderer cannot obtain the *Delivered halves Activate
+// takes, Delivered's fields being unexported and VerifyDelivered its only
+// constructor. module-saas-starter#953 refuted it in nine lines, below:
+// BundleVerifier is an interface the CALLER supplies, so a permissive
+// implementation returning any identity produces a *Delivered with no
+// attestation behind it. DeliveredBy's own comment already said so — the
+// signer "is a string the CALLER handed it" — which is the part I had read and
+// not connected.
+//
+// Requiring the policy was still right, for the plainer reason that an
+// optional security check is indistinguishable from its absence. But the false
+// argument was load-bearing prose: applied one file over it says
+// Host.admit's `host.Coordinate != ""` guard is pointless, and
+// TestTheCoordinateGuardIsLoadBearing shows what removing that costs.
+func TestADeliveredProvesOrderingAndNotIdentity(t *testing.T) {
+	document := valid(t)
+	payload, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+
+	delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, permissiveVerifier{as: "whoever-i-say-i-am"})
+	require.NoError(t, err)
+	require.Equal(t, "whoever-i-say-i-am", delivered.DeliveredBy(),
+		"a caller-supplied BundleVerifier decides the signer, so *Delivered carries no evidence about who signed")
+
+	// What it DOES buy: those exact bytes passed through a verifier before any
+	// judgement could read them, and the document re-derives from them rather
+	// than from anything a caller held separately.
+	rederived, err := delivered.Document()
+	require.NoError(t, err)
+	require.Equal(t, document.Binding, rederived.Binding)
+
+	// And the host's policy is what turns a self-asserted signer into a
+	// refusal, which is why it is required rather than optional.
+	request := activationOf(t, validAuthority(t), document, document.Workloads[0].Image.Digest)
+	request.Presence = delivered
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "does not let speak for domain")
+}
+
+// permissiveVerifier accepts anything and names whatever signer it is told to.
+// It is module-saas-starter#953's nine lines, kept as a test fixture because
+// the claim it refutes was in a comment, a doc, a commit message and a PR
+// comment.
+type permissiveVerifier struct{ as string }
+
+func (p permissiveVerifier) VerifyBundle(context.Context, []byte, json.RawMessage) (string, error) {
+	return p.as, nil
+}
+
+// The `host.Coordinate != ""` guard on the DomainsBySigner requirement is
+// LOAD-BEARING, and this test is the evidence that the argument I used against
+// Activate's permissive branch must not be carried over to it.
+//
+// AdmitRendered routes through Host{}.admit — a zero Host, deliberately taking
+// none — so the Coordinate guard is what lets a renderer reach the host-free
+// checks at all. Requiring a signer policy unconditionally there would refuse
+// every renderer.
+func TestTheCoordinateGuardIsLoadBearing(t *testing.T) {
+	// A renderer, with no host state of any kind, reaches the checks.
+	admissions, err := solutionhost.AdmitRendered(valid(t))
+	require.NoError(t, err)
+	require.Len(t, admissions, 1)
+	require.NoError(t, admissions[0].Err)
+
+	// A NAMED host must still state the policy, which is the other side of the
+	// same guard.
+	host, err := solutionhost.FixtureHost()
+	require.NoError(t, err)
+	host.DomainsBySigner = nil
+	_, err = solutionhost.AdmitRendered(valid(t))
+	require.NoError(t, err, "a renderer is unaffected by host policy")
+	_, err = host.Admit()
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "must declare which signer identities")
 }

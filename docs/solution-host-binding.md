@@ -404,11 +404,28 @@ revision, neither document withdrawn, `authority.ApprovedBuild == build`,
 `presence.Generation >= authority.EffectiveFrom`.
 
 `DomainsBySigner` is **required**. It was consulted only when non-empty, with
-the field documented as "empty means a renderer" — but a renderer cannot
-obtain the `*Delivered` halves this call takes, so the permissive branch served
-only a host that forgot the field, and for that host it skipped the check in
-silence. Deleting the whole branch left the entire suite green, which is how a
-check nobody tests behaves.
+the field documented as "empty means a renderer", which made a security check
+optional and indistinguishable from its absence: a named host stating no policy
+lets every signer it accepts speak for every domain it accepts, and nothing in
+the call says whether the caller waived the check or forgot the field. Deleting
+the whole branch left the entire suite green, which is how a check nobody tests
+behaves.
+
+This paragraph previously argued that a renderer **cannot obtain** the
+`*Delivered` halves, their fields being unexported. That is **false** and
+module-saas-starter#953 refuted it in nine lines: `BundleVerifier` is an
+interface the *caller* supplies, so a permissive implementation returning any
+identity produces a `*Delivered` with nothing behind it — as `DeliveredBy`'s
+own comment says, the signer "is a string the caller handed it". The correction
+is recorded rather than quietly edited because the false version was
+load-bearing: applied one file over it says `Host.admit`'s `host.Coordinate !=
+""` guard is pointless, and removing that turns seven tests red, since
+`AdmitRendered` routes through `Host{}.admit`.
+
+What `*Delivered` does buy is **ordering within one codebase**, held by the
+compiler: no sequence of exported calls reaches a judgement without some
+verifier having accepted those exact bytes. It is not evidence about *who*
+signed.
 
 A renderer wanting the same tuple rules over documents it has not signed yet
 calls `ActivateRendered`, which answers a `RenderedMatch` — deliberately not
@@ -439,8 +456,10 @@ envelope's approved list and its own bindings against the envelope's. The call
 would answer itself — the shape this page's `Envelope` rule already refuses,
 "an envelope a document carried would be a document declaring its own
 ceiling". A zero `Envelope` was no escape either, being refused outright. An
-entrypoint whose only possible caller must lie to it is the same defect as a
-permissive branch for a caller who cannot exist.
+entrypoint whose only possible caller must derive a required input from the
+thing under check is the defect — see
+[`docs/architecture.md`](architecture.md), "A required input needs an
+independent source".
 
 So `ValidateAgainst` stays the **host's**, and both entrypoints share the rest.
 What a renderer therefore cannot check is who signed either half and whether

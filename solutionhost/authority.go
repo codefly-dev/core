@@ -646,17 +646,40 @@ func Activate(request ActivationRequest) (Activation, error) {
 	// The signer policy is REQUIRED, and this is the hole that closed.
 	//
 	// It used to be consulted only `if len(policy) > 0`, with the field's own
-	// comment saying emptiness meant a renderer pre-checking a pair. That
-	// described a caller who cannot exist: Delivered's fields are unexported
-	// and the only constructors are inside VerifyDelivered, so no renderer can
-	// obtain the halves this function takes. The permissive branch was
-	// therefore reachable by exactly one caller — a host that forgot the field
-	// — and for that caller it silently skipped the check.
-	//
-	// Host.admit had already reached the opposite conclusion about the same
-	// policy, one file away: "an unstated policy would let any accepted signer
-	// claim any accepted domain". Same reasoning, and activation is the other
+	// comment saying emptiness meant a renderer pre-checking a pair. The
+	// reason that is wrong is simply that it makes a SECURITY CHECK OPTIONAL
+	// AND INDISTINGUISHABLE FROM ITS ABSENCE: a named host which states no
+	// policy lets every signer it accepts speak for every domain it accepts,
+	// and nothing in the call says whether the caller meant to waive the check
+	// or forgot the field. Host.admit had already reached that conclusion
+	// about the same policy one file away — "an unstated policy would let any
+	// accepted signer claim any accepted domain" — and activation is the other
 	// place a self-asserted domain would otherwise be taken at its word.
+	//
+	// AN EARLIER VERSION OF THIS COMMENT ARGUED SOMETHING FALSE, and the
+	// correction matters more than the original claim because the false
+	// version was load-bearing prose. It said a renderer CANNOT OBTAIN the
+	// *Delivered halves this function takes, since their fields are unexported
+	// and VerifyDelivered is the only constructor. module-saas-starter#953
+	// refuted it in nine lines: BundleVerifier is an interface the CALLER
+	// supplies, so a permissive implementation returning any identity yields a
+	// *Delivered with no attestation behind it, and DeliveredBy's own comment
+	// already says the signer "is a string the CALLER handed it".
+	//
+	// Why that mattered rather than being a pedantic correction: applied
+	// consistently, the same argument says Host.admit's `host.Coordinate != ""`
+	// guard is pointless too. It is not. Removing it turns SEVEN tests in this
+	// package red, because AdmitRendered routes through Host{}.admit and that
+	// branch is what lets a renderer run the host-free checks at all. A false
+	// justification for a correct change is worse than no justification: the
+	// next reader applies it one file over and removes something that works.
+	//
+	// What *Delivered actually buys is ORDERING WITHIN ONE CODEBASE, held by
+	// the compiler: no sequence of exported calls reaches a judgement without
+	// some verifier having accepted those exact bytes. That is what its type
+	// comment claims and it is worth having. It is not evidence to core about
+	// who signed, so it cannot carry an argument about what a caller is ABLE
+	// to construct.
 	//
 	// A renderer that genuinely wants the match without host policy calls
 	// ActivateRendered, which takes the documents a renderer actually holds.
@@ -744,8 +767,9 @@ type RenderedActivationRequest struct {
 	// reported there was therefore no honest call available: a zero Envelope
 	// is refused outright, and a derived one is the self-answering shape both
 	// Activate's own comment about the build and Envelope's own doc refuse.
-	// An entrypoint whose only possible caller must lie to it is the same
-	// defect as a permissive branch for a caller who cannot exist.
+	// An entrypoint whose only possible caller must supply a value it can only
+	// derive from the thing under check is the defect; see the named pattern
+	// below.
 	//
 	// This was the third instance of one shape. It is named and tabulated in
 	// docs/architecture.md under "A required input needs an independent
