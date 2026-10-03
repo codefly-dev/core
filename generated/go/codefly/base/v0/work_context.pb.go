@@ -116,11 +116,19 @@ type WorkContextV1 struct {
 	// against the live value and refuses on any mismatch, which is what stops a
 	// capability outliving the installation or the build it was issued against.
 	//
-	// Optional on the wire, and enforced where the capability is verified. A
-	// schema rule would invalidate every archived capability and every receipt
-	// embedding one, so the requirement belongs in the verifier: a capability
-	// carrying no seal does not verify. See core's workcontext package.
-	Seal *WorkSealV1 `protobuf:"bytes,26,opt,name=seal,proto3,oneof" json:"seal,omitempty"`
+	// REQUIRED. An earlier version of this field was optional, with the stated
+	// reason that a schema rule would invalidate every archived capability and
+	// every receipt embedding one, so the requirement belonged in the verifier.
+	// Two independent reviews named that for what it is: a backward-compatibility
+	// hedge, which the rules in force forbid. It also meant every reader other
+	// than the verifier saw a capability's binding to its installation as
+	// optional, so the strongest check in the model was the easiest one for a
+	// consumer to not notice.
+	//
+	// Archived capabilities and receipts are historical DATA. If they must be
+	// read after this, they get a snapshot type of their own rather than keeping
+	// the live credential permanently weaker than it should be.
+	Seal *WorkSealV1 `protobuf:"bytes,26,opt,name=seal,proto3" json:"seal,omitempty"`
 	// operation_binding is the unit of authority this capability exercises,
 	// sealed by its id, revision and incarnation. Present on an operation
 	// context and absent on a session that exercises none.
@@ -630,10 +638,10 @@ type WorkActorV1 struct {
 	// compromised actor is the tenant's authorization_revision, which cuts off
 	// every capability of the tenant.
 	//
-	// Optional on the wire and enforced where the capability is verified, for
-	// the reason seal gives: a schema rule would invalidate every archived
-	// capability. A verifier refuses a hop that carries no epoch.
-	PrincipalEpoch *uint64 `protobuf:"varint,7,opt,name=principal_epoch,json=principalEpoch,proto3,oneof" json:"principal_epoch,omitempty"`
+	// REQUIRED, for the reason seal gives. A hop with no epoch is a principal
+	// nothing can revoke, and leaving that expressible on the wire made it a
+	// shape a consumer could mint without noticing.
+	PrincipalEpoch uint64 `protobuf:"varint,7,opt,name=principal_epoch,json=principalEpoch,proto3" json:"principal_epoch,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -711,8 +719,8 @@ func (x *WorkActorV1) GetOrganizationId() string {
 }
 
 func (x *WorkActorV1) GetPrincipalEpoch() uint64 {
-	if x != nil && x.PrincipalEpoch != nil {
-		return *x.PrincipalEpoch
+	if x != nil {
+		return x.PrincipalEpoch
 	}
 	return 0
 }
@@ -954,7 +962,7 @@ var File_codefly_base_v0_work_context_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\n" +
-	"\"codefly/base/v0/work_context.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xaa\f\n" +
+	"\"codefly/base/v0/work_context.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xa4\f\n" +
 	"\rWorkContextV1\x120\n" +
 	"\x03typ\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\n" +
 	"\x17codefly.work-context/v1R\x03typ\x12,\n" +
@@ -1002,9 +1010,9 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x04R\fownerAgentId\x88\x01\x01\x128\n" +
 	"\x0forganization_id\x18\x19 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x05R\x0eorganizationId\x88\x01\x01\x12A\n" +
-	"\tgrant_hop\x18\x18 \x01(\v2\x1f.codefly.base.v0.WorkGrantHopV1H\x06R\bgrantHop\x88\x01\x01\x124\n" +
-	"\x04seal\x18\x1a \x01(\v2\x1b.codefly.base.v0.WorkSealV1H\aR\x04seal\x88\x01\x01\x12Y\n" +
-	"\x11operation_binding\x18\x1b \x01(\v2'.codefly.base.v0.WorkOperationBindingV1H\bR\x10operationBinding\x88\x01\x01B\x14\n" +
+	"\tgrant_hop\x18\x18 \x01(\v2\x1f.codefly.base.v0.WorkGrantHopV1H\x06R\bgrantHop\x88\x01\x01\x127\n" +
+	"\x04seal\x18\x1a \x01(\v2\x1b.codefly.base.v0.WorkSealV1B\x06\xbaH\x03\xc8\x01\x01R\x04seal\x12Y\n" +
+	"\x11operation_binding\x18\x1b \x01(\v2'.codefly.base.v0.WorkOperationBindingV1H\aR\x10operationBinding\x88\x01\x01B\x14\n" +
 	"\x12_parent_session_idB\x0f\n" +
 	"\r_workspace_idB\r\n" +
 	"\v_project_idB\x17\n" +
@@ -1012,8 +1020,7 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\x0f_owner_agent_idB\x12\n" +
 	"\x10_organization_idB\f\n" +
 	"\n" +
-	"_grant_hopB\a\n" +
-	"\x05_sealB\x14\n" +
+	"_grant_hopB\x14\n" +
 	"\x12_operation_binding\"\xe7\x01\n" +
 	"\n" +
 	"WorkSealV1\x120\n" +
@@ -1032,7 +1039,7 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\rresource_kind\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\fresourceKind\x12\x18\n" +
 	"\aactions\x18\x02 \x03(\tR\aactions\x12!\n" +
-	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xb7\x03\n" +
+	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xa1\x03\n" +
 	"\vWorkActorV1\x12-\n" +
 	"\fprincipal_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\vprincipalId\x121\n" +
@@ -1044,11 +1051,11 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\bagent_id\x18\x05 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x00R\aagentId\x88\x01\x01\x128\n" +
 	"\x0forganization_id\x18\x06 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\x0eorganizationId\x88\x01\x01\x125\n" +
-	"\x0fprincipal_epoch\x18\a \x01(\x04B\a\xbaH\x042\x02(\x01H\x02R\x0eprincipalEpoch\x88\x01\x01B\v\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\x0eorganizationId\x88\x01\x01\x123\n" +
+	"\x0fprincipal_epoch\x18\a \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02(\x01R\x0eprincipalEpochB\v\n" +
 	"\t_agent_idB\x12\n" +
-	"\x10_organization_idB\x12\n" +
-	"\x10_principal_epoch\"\xa6\x02\n" +
+	"\x10_organization_id\"\xa6\x02\n" +
 	"\x0eWorkGrantHopV1\x12%\n" +
 	"\bgrant_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\agrantId\x12I\n" +

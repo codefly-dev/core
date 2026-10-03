@@ -52,25 +52,6 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 	return wc, claims, sig, nil
 }
 
-// checkSealedStructure enforces what a capability must CARRY to be sealable at
-// all, as distinct from whether what it carries is current. It is the half of
-// the seal contract that needs no issuer state: a seal is present and names an
-// installation, and every actor hop carries an epoch.
-//
-// Verify runs it too, so Inspect cannot accept something Verify refuses
-// structurally.
-func checkSealedStructure(wc *basev0.WorkContextV1) error {
-	if _, err := sealOf(wc); err != nil {
-		return err
-	}
-	for index, hop := range wc.GetActorChain() {
-		if hop.PrincipalEpoch == nil {
-			return fmt.Errorf("%w: actor hop %d (%s) carries no epoch, so it cannot be revoked", ErrUnsealed, index, hop.GetPrincipalId())
-		}
-	}
-	return nil
-}
-
 // Inspected is a token that is structurally a sealed capability of this
 // package. **Nothing about it has been authenticated.**
 //
@@ -134,10 +115,10 @@ func (i *Inspected) Seal() *basev0.WorkSealV1 { return i.context.GetSeal() }
 // # What it checks
 //
 // The shape, the encoding (ErrNotACoreToken for a foreign one), that the
-// payload unmarshals and satisfies the schema, that the chain attenuates and a
-// grant hop is well formed, that a seal is present and names an installation,
-// and that every actor hop carries an epoch. Core's own sentinels, from core's
-// own code — Verify runs the same functions.
+// payload unmarshals and satisfies the schema — which is what now requires a
+// seal naming an installation and an epoch on every actor hop — and that the
+// chain attenuates and a grant hop is well formed. Core's own sentinels, from
+// core's own code: Verify runs the same decodeClaims and checkStructure.
 //
 // # What it does NOT check, and why there is no way to misread that
 //
@@ -168,9 +149,6 @@ func Inspect(encoded string) (*Inspected, error) {
 		return nil, err
 	}
 	if err := checkStructure(wc); err != nil {
-		return nil, err
-	}
-	if err := checkSealedStructure(wc); err != nil {
 		return nil, err
 	}
 	return &Inspected{context: wc}, nil

@@ -234,7 +234,7 @@ func TestVerify_RefusesAnUnsealedCapability(t *testing.T) {
 	unsealed.Seal = nil
 
 	_, err := h.verify(audience, h.resign(unsealed))
-	require.ErrorIs(t, err, workcontext.ErrUnsealed)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
 }
 
 // ... and a minter cannot hand one out either, so a mint path that forgot to

@@ -22,8 +22,8 @@ import (
 //
 // This is the finding it exists for: a consumer hand-parsing a carried
 // capability reached different sentinels than core's fixtures declare — one
-// answered ErrUnsealed where core answers ErrInvalid, and it never read the
-// actor epochs at all. So the contract asserted here is agreement with the
+// answered its own sentinel where core answers ErrInvalid, and it never read
+// the actor epochs at all. So the contract asserted here is agreement with the
 // kit, fixture by fixture, for every refusal that is structural.
 func TestInspectAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 	now := time.Now()
@@ -39,12 +39,12 @@ func TestInspectAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		"payload-not-b64":           workcontext.ErrInvalid,
 		"empty-token":               workcontext.ErrInvalid,
 		"separator-only":            workcontext.ErrInvalid,
-		"missing-seal":              workcontext.ErrUnsealed,
+		"missing-seal":              workcontext.ErrInvalid,
 		"seal-without-installation": workcontext.ErrInvalid,
-		"actor-without-epoch":       workcontext.ErrUnsealed,
-		// The four the sdk-go consumer asked for, all refused by the SCHEMA —
-		// which is why its hand parser answered ErrUnsealed where core answers
-		// ErrInvalid. Inspect runs protovalidate, so it reaches core's answer.
+		"actor-without-epoch":       workcontext.ErrInvalid,
+		// The four the sdk-go consumer asked for, all refused by the SCHEMA.
+		// Inspect runs protovalidate, so it reaches core's answer — which is
+		// the whole point: a hand parser reached a different one.
 		"zero-principal-epoch":       workcontext.ErrInvalid,
 		"zero-installation-revision": workcontext.ErrInvalid,
 		"zero-build-incarnation":     workcontext.ErrInvalid,
@@ -107,7 +107,7 @@ func TestInspectRefusesAnUnsealedCapabilityBeforeItIsSent(t *testing.T) {
 	unsealed := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
 	unsealed.Seal = nil
 	_, err := workcontext.Inspect(h.resign(unsealed))
-	require.ErrorIs(t, err, workcontext.ErrUnsealed)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
 
 	noEpoch := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
 	noEpoch.ActorChain = []*basev0.WorkActorV1{{
@@ -115,7 +115,7 @@ func TestInspectRefusesAnUnsealedCapabilityBeforeItIsSent(t *testing.T) {
 		AgentId: proto.String("codefly.dev/mind:1.2.0"), DelegationId: "d-1",
 	}}
 	_, err = workcontext.Inspect(h.resign(noEpoch))
-	require.ErrorIs(t, err, workcontext.ErrUnsealed)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
 }
 
 // Recheck re-reads live state without consuming the nonce, which is the whole

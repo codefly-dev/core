@@ -9,18 +9,6 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
-// ErrUnsealed is returned when a capability carries no seal, or carries one
-// that names no installation. It is distinct from ErrInvalid because the two
-// name different situations: an invalid capability is one that was malformed or
-// forged, and an unsealed one is a capability from before the seal existed, or
-// one minted by a component that has not adopted it.
-//
-// A capability with no seal does not verify. The schema does not require the
-// field — a schema rule would retroactively invalidate every archived
-// capability and every execution receipt embedding one — so the requirement
-// lives here, in the one place that decides whether a token is a credential.
-var ErrUnsealed = errors.New("work context: carries no seal")
-
 // Seal is the live binding of a principal's authority to one installation and
 // one execution, as the issuer holds it right now. A Verifier compares the
 // capability's sealed values against this field by field, for exact equality.
@@ -156,17 +144,15 @@ func exercisingPrincipal(wc *basev0.WorkContextV1) string {
 	return chain[len(chain)-1].GetPrincipalId()
 }
 
-// sealOf reads the capability's seal, refusing a capability that carries none.
-func sealOf(wc *basev0.WorkContextV1) (*basev0.WorkSealV1, error) {
-	seal := wc.GetSeal()
-	if seal == nil {
-		return nil, fmt.Errorf("%w: principal %q session %q", ErrUnsealed, wc.GetOwnerPrincipalId(), wc.GetSessionId())
-	}
-	if seal.GetInstallationId() == "" {
-		return nil, fmt.Errorf("%w: the seal names no installation", ErrUnsealed)
-	}
-	return seal, nil
-}
+// sealOf reads the capability's seal.
+//
+// It no longer has an error to return. The seal is REQUIRED by the schema and
+// its installation id has a minimum length, so protovalidate refuses a
+// capability carrying neither — and protovalidate runs in decodeClaims, before
+// anything here is reached. The sentinel this used to return, ErrUnsealed, is
+// deleted with it: a sentinel no branch can produce is worse than no sentinel,
+// because a consumer writes a handler for it and the handler never runs.
+func sealOf(wc *basev0.WorkContextV1) *basev0.WorkSealV1 { return wc.GetSeal() }
 
 // checkSeal holds a capability's seal against the issuer's live values, and its
 // operation binding against the one binding its sealed ID resolves to.
@@ -177,10 +163,7 @@ func sealOf(wc *basev0.WorkContextV1) (*basev0.WorkSealV1, error) {
 // authorization revision describes, and a caller distinguishing "re-mint" from
 // "reject this caller" needs them to read alike.
 func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1) error {
-	sealed, err := sealOf(wc)
-	if err != nil {
-		return err
-	}
+	sealed := sealOf(wc)
 	// The principal the seal is held for is the task's OWNER: the installation
 	// is the owner's, and a delegation hop narrows authority within it rather
 	// than moving it. Each actor's own epoch is checked separately below,
@@ -237,12 +220,9 @@ func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkCont
 // kinds it skipped unrevocable.
 func checkActorEpochsAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkContextV1) error {
 	for index, hop := range wc.GetActorChain() {
-		// A hop carrying no epoch is not revocable, so it is refused. The
-		// schema cannot require the field without invalidating every archived
-		// capability, which is why the requirement lives here.
-		if hop.PrincipalEpoch == nil {
-			return fmt.Errorf("%w: actor hop %d (%s) carries no epoch, so it cannot be revoked", ErrUnsealed, index, hop.GetPrincipalId())
-		}
+		// A hop carrying no epoch is not revocable. The SCHEMA refuses one
+		// now, with required plus gte=1, so there is no check for it here —
+		// a shape that cannot reach this function needs no branch.
 		label := fmt.Sprintf("actor hop %d", index)
 		if err := checkEpochAgainst(ctx, seals, label, hop.GetPrincipalId(), hop.GetPrincipalEpoch()); err != nil {
 			return err

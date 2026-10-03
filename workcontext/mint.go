@@ -227,7 +227,7 @@ func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0
 		return err
 	}
 	hop := wc.ActorChain[len(wc.ActorChain)-1]
-	hop.PrincipalEpoch = &epoch
+	hop.PrincipalEpoch = epoch
 
 	if bindingID == "" {
 		// Keep the parent's binding, which carryForwardSeal has already held
@@ -235,10 +235,7 @@ func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0
 		// function exists not to do.
 		return nil
 	}
-	inherited, err := sealOf(wc)
-	if err != nil {
-		return err
-	}
+	inherited := sealOf(wc)
 	_, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID, exercising)
 	if err != nil {
 		return err
@@ -418,21 +415,10 @@ func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV
 	if err := protovalidate.Validate(wc); err != nil {
 		return "", nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	// The schema cannot require the seal without invalidating every archived
-	// capability, so the minter refuses to hand out an unsealed one. Without
-	// this, a mint path that forgot to seal would produce tokens that fail far
-	// away, at verification, in a process that cannot fix them.
-	if _, err := sealOf(wc); err != nil {
-		return "", nil, err
-	}
-	// Every hop must carry its own epoch, for the same reason: a hop without
-	// one is a principal that cannot be revoked, and the schema cannot
-	// require the field without invalidating every archived capability.
-	for index, hop := range wc.GetActorChain() {
-		if hop.PrincipalEpoch == nil {
-			return "", nil, fmt.Errorf("%w: actor hop %d (%s) carries no epoch", ErrUnsealed, index, hop.GetPrincipalId())
-		}
-	}
+	// The seal and every hop's epoch used to be re-checked here, because the
+	// schema did not require them. It does now — required, and the epoch gte=1
+	// — so protovalidate above is the check, and duplicating it would be a
+	// second rule to keep in step with the first.
 	if err := checkStructure(wc); err != nil {
 		return "", nil, err
 	}

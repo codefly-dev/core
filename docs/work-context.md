@@ -177,7 +177,25 @@ wrong direction for the one check that stands between a token and an operation.
 A mismatch is `ErrRevoked`, not `ErrInvalid`: the capability is not malformed
 and was not forged, it was sound when minted and the state it was sealed to has
 moved. A caller distinguishing "re-mint" from "reject this caller" needs those
-to read alike. A capability carrying no seal at all is `ErrUnsealed`.
+to read alike.
+
+A capability carrying no seal at all, or an actor hop carrying no epoch, is
+`ErrInvalid` — **the schema refuses both**. They were optional fields once,
+enforced only by the verifier, on the stated grounds that a schema rule would
+invalidate every archived capability and every execution receipt embedding one.
+Two independent reviews named that for what it is: a backward-compatibility
+hedge, which the rules in force forbid. It also meant every reader other than
+the verifier saw a capability's binding to its installation as optional, so the
+strongest check in the model was the easiest one for a consumer not to notice.
+Archived capabilities and receipts are historical **data**; if they must be read
+after this they get a snapshot type of their own, rather than the live
+credential staying permanently weaker than it should be.
+
+The dedicated `ErrUnsealed` sentinel is **deleted** with that change. Once the
+schema requires the seal, no branch can produce it — `protovalidate` runs
+before anything that could — and a sentinel no branch can produce is worse than
+no sentinel at all, because a consumer writes a handler for it and the handler
+never runs.
 
 ### Minting reads the seal; it never accepts one
 

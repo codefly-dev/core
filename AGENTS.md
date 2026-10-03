@@ -138,9 +138,10 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   derived from a verified one, and its delegation chain with it. An approval
   is a grant hop — the one audited exception to attenuation, bound to one
   tool, subject and call, single-use, and one hop however large the quorum.
-  New capability fields stay optional on the wire: a schema rule invalidates
-  every archived capability and every receipt embedding one, so the
-  requirement belongs where the identity is derived. Core owns the
+  A capability's seal and every hop's epoch are REQUIRED by the schema. They
+  were optional once, with archived receipts as the reason; two reviews called
+  that a compatibility hedge the rules forbid, and archived receipts are
+  historical data that get a snapshot type if they need one. Core owns the
   `approval_required` signal; the approvals engine is product-level.
   **It has exactly one implementation and one strength — this one.** Nothing
   else signs, verifies or re-encodes a capability; two entrypoints share the

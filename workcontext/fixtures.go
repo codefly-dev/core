@@ -651,9 +651,9 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "missing-seal", Form: FormSession, Token: unsealedToken,
-		Outcome: OutcomeRejected, Err: ErrUnsealed,
-		Reason: "a genuinely signed capability carrying no seal; the schema cannot require the field without " +
-			"invalidating every archived capability, so the verifier is what makes it required",
+		Outcome: OutcomeRejected, Err: ErrInvalid,
+		Reason: "a genuinely signed capability carrying no seal. The SCHEMA refuses it: the seal was optional once, " +
+			"with archived receipts as the reason, and two reviews named that a compatibility hedge the rules forbid",
 	})
 
 	noInstallation := proto.Clone(session.Context()).(*basev0.WorkContextV1)
@@ -752,16 +752,16 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// verifier is what makes it required — a hop with no epoch is a principal
 	// that cannot be revoked.
 	noEpoch := proto.Clone(delegated.Context()).(*basev0.WorkContextV1)
-	noEpoch.ActorChain[len(noEpoch.ActorChain)-1].PrincipalEpoch = nil
+	noEpoch.ActorChain[len(noEpoch.ActorChain)-1].PrincipalEpoch = 0
 	noEpochToken, err := resign(noEpoch)
 	if err != nil {
 		return nil, err
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "actor-without-epoch", Form: FormDelegated, Token: noEpochToken,
-		Outcome: OutcomeRejected, Err: ErrUnsealed,
+		Outcome: OutcomeRejected, Err: ErrInvalid,
 		Reason: "a genuinely signed delegated capability whose actor hop carries no epoch, so that principal could " +
-			"never be revoked",
+			"never be revoked. The schema refuses it now, with required plus gte=1",
 	})
 
 	// Sealed to a binding that EXISTS, at the right revision, in the right

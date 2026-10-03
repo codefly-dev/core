@@ -265,6 +265,9 @@ func TestVerify_RejectsAWideningHopThatWasSignedAnyway(t *testing.T) {
 		PrincipalKind: "agent",
 		DelegationId:  "d-2",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"write"}, []string{"codefly/core"})},
+		// A current epoch, so the refusal below is the WIDENING and not the
+		// schema's now-required epoch. A forged hop would carry one.
+		PrincipalEpoch: 1,
 	})
 
 	_, err := h.verify(audience, h.resign(forged))

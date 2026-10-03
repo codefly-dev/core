@@ -117,9 +117,6 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if err := checkStructure(wc); err != nil {
 		return nil, err
 	}
-	if err := checkSealedStructure(wc); err != nil {
-		return nil, err
-	}
 
 	current, err := v.Revisions.AuthorizationRevision(ctx, wc.GetTenantId())
 	if err != nil {

@@ -38,10 +38,14 @@ func TestSealRefusesToSignAnUnsealedCapability(t *testing.T) {
 	_, _, err := authority.seal(sound())
 	require.NoError(t, err)
 
+	// The SCHEMA refuses an unsealed capability now, so the minter's own
+	// refusal is protovalidate's. The sentinel is ErrInvalid, and the
+	// dedicated ErrUnsealed is deleted: a sentinel no branch can produce is
+	// worse than none, because a consumer writes a handler that never runs.
 	unsealed := sound()
 	unsealed.Seal = nil
 	_, _, err = authority.seal(unsealed)
-	require.ErrorIs(t, err, ErrUnsealed)
+	require.ErrorIs(t, err, ErrInvalid)
 
 	// An actor hop with no epoch is a principal that could never be revoked,
 	// and the minter will not hand one out either.
@@ -51,12 +55,10 @@ func TestSealRefusesToSignAnUnsealedCapability(t *testing.T) {
 		GrantedScopes: []*basev0.WorkScopeV1{{ResourceKind: "record", Actions: []string{"read"}}},
 	}}
 	_, _, err = authority.seal(hopless)
-	require.ErrorIs(t, err, ErrUnsealed)
-	require.ErrorContains(t, err, "carries no epoch")
+	require.ErrorIs(t, err, ErrInvalid)
 
 	// With an epoch, the same hop signs.
-	epoch := uint64(1)
-	hopless.ActorChain[0].PrincipalEpoch = &epoch
+	hopless.ActorChain[0].PrincipalEpoch = 1
 	_, _, err = authority.seal(hopless)
 	require.NoError(t, err)
 }
