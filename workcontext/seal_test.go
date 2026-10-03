@@ -842,3 +842,46 @@ func TestRequireBinding_IsTheUseSitesHalfOfTheBindingCheck(t *testing.T) {
 	// A gate with no id is a programming error, not a pass.
 	require.Error(t, operation.RequireBinding(""))
 }
+
+// A production-shaped verifier REFUSES the conformance fixture key.
+//
+// The kit's private key is derivable from this package's source by anyone, and
+// any binary importing workcontext links it; conformance.Verifier() is an
+// exported, ready-made verifier that trusts it. So one mistaken call, or one
+// JWKS document that picked the fixture key up, would have made a real
+// verifier accept tokens anybody can mint. It now refuses unless a field
+// nobody sets in production says otherwise.
+func TestVerify_RefusesTheConformanceFixtureKeyUnlessToldOtherwise(t *testing.T) {
+	now := time.Now()
+	fixtures, err := workcontext.Fixtures(now)
+	require.NoError(t, err)
+	var sound string
+	for _, fixture := range fixtures {
+		if fixture.Name == "session" {
+			sound = fixture.Token
+		}
+	}
+	require.NotEmpty(t, sound)
+
+	clock := func() time.Time { return now }
+	production := &workcontext.Verifier{
+		// Everything the kit's own verifier has, EXCEPT the opt-in.
+		Issuer:    workcontext.FixtureIssuer,
+		Audience:  workcontext.FixtureAudience,
+		Keys:      workcontext.FixtureKeys(),
+		Revisions: workcontext.FixtureRevisions(),
+		Replay:    workcontext.NewMemoryReplayStore(),
+		Grants:    workcontext.FixtureGrants(now),
+		Seals:     workcontext.FixtureSeals(),
+		Now:       clock,
+	}
+	_, err = production.Verify(context.Background(), sound)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "conformance fixture key")
+
+	// With the opt-in, the same verifier accepts it — so the refusal is the
+	// key check and not something else about this configuration.
+	production.TrustTheConformanceFixtureKey = true
+	_, err = production.Verify(context.Background(), sound)
+	require.NoError(t, err)
+}

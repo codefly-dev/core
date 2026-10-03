@@ -114,6 +114,20 @@ type Settings struct {
 	// the windows against a different clock will refuse sound fixtures, so a
 	// consumer that pins a clock must pin this one.
 	Now func() time.Time
+
+	// TrustTheConformanceFixtureKey is always true, and a consumer building
+	// its own verifier field by field MUST copy it, or every fixture is
+	// refused for carrying the kit's key.
+	//
+	// It is here, rather than left for the consumer to discover, because the
+	// first version of this was not: a verifier refuses the fixture key
+	// unless told otherwise, and the recipe this kit documents stopped
+	// working — a consumer doing exactly the right thing could not pass. The
+	// field is in Settings so the recipe is complete.
+	//
+	// Copy it into a CONFORMANCE verifier and nowhere else. Its name is this
+	// long so that copying it into a production one is visible in review.
+	TrustTheConformanceFixtureKey bool
 }
 
 // New returns the settings for one conformance run, pinned to the given clock.
@@ -132,14 +146,15 @@ func New(now time.Time) Settings {
 	replay := workcontext.NewMemoryReplayStore()
 	replay.Now = clock
 	return Settings{
-		Issuer:    workcontext.FixtureIssuer,
-		Audience:  workcontext.FixtureAudience,
-		Keys:      keys,
-		Revisions: workcontext.FixtureRevisions(),
-		Replay:    replay,
-		Seals:     workcontext.FixtureSeals(),
-		Grants:    workcontext.FixtureGrants(now),
-		Now:       clock,
+		TrustTheConformanceFixtureKey: true,
+		Issuer:                        workcontext.FixtureIssuer,
+		Audience:                      workcontext.FixtureAudience,
+		Keys:                          keys,
+		Revisions:                     workcontext.FixtureRevisions(),
+		Replay:                        replay,
+		Seals:                         workcontext.FixtureSeals(),
+		Grants:                        workcontext.FixtureGrants(now),
+		Now:                           clock,
 	}
 }
 
@@ -172,14 +187,15 @@ func (s Settings) PublicKeys() map[string]ed25519.PublicKey {
 // field by field from these settings instead; see PublicKeys.
 func (s Settings) Verifier() *workcontext.Verifier {
 	return &workcontext.Verifier{
-		Issuer:    s.Issuer,
-		Audience:  s.Audience,
-		Keys:      s.PublicKeys(),
-		Revisions: s.Revisions,
-		Replay:    s.Replay,
-		Grants:    s.Grants,
-		Seals:     s.Seals,
-		Now:       s.Now,
+		TrustTheConformanceFixtureKey: s.TrustTheConformanceFixtureKey,
+		Issuer:                        s.Issuer,
+		Audience:                      s.Audience,
+		Keys:                          s.PublicKeys(),
+		Revisions:                     s.Revisions,
+		Replay:                        s.Replay,
+		Grants:                        s.Grants,
+		Seals:                         s.Seals,
+		Now:                           s.Now,
 	}
 }
 
@@ -197,13 +213,14 @@ func Verifier() *workcontext.Verifier { return New(time.Now()).Verifier() }
 // revision is per tenant, so there is no single number to state.
 func (s Settings) Authenticator() *workcontext.Authenticator {
 	return &workcontext.Authenticator{
-		Issuer:    s.Issuer,
-		Audience:  s.Audience,
-		Keys:      s.PublicKeys(),
-		Seals:     s.Seals,
-		Revisions: s.Revisions,
-		Replay:    s.Replay,
-		Now:       s.Now,
+		TrustTheConformanceFixtureKey: s.TrustTheConformanceFixtureKey,
+		Issuer:                        s.Issuer,
+		Audience:                      s.Audience,
+		Keys:                          s.PublicKeys(),
+		Seals:                         s.Seals,
+		Revisions:                     s.Revisions,
+		Replay:                        s.Replay,
+		Now:                           s.Now,
 	}
 }
 

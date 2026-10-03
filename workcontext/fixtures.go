@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"sort"
@@ -511,14 +512,16 @@ func fixtureDelegated(ctx context.Context, authority *Authority, parent *Verifie
 // nonce the consumer's verifier will be asked about.
 func fixtureVerify(ctx context.Context, authority *Authority, token string) (*Verified, error) {
 	verifier := &Verifier{
-		Issuer:    FixtureIssuer,
-		Audience:  FixtureAudience,
-		Keys:      FixtureKeys(),
-		Revisions: FixtureRevisions(),
-		Replay:    NewMemoryReplayStore(),
-		Grants:    FixtureGrants(authority.now()),
-		Seals:     authority.Seals,
-		Now:       authority.Now,
+		// Building the kit means verifying tokens signed by the kit's key.
+		TrustTheConformanceFixtureKey: true,
+		Issuer:                        FixtureIssuer,
+		Audience:                      FixtureAudience,
+		Keys:                          FixtureKeys(),
+		Revisions:                     FixtureRevisions(),
+		Replay:                        NewMemoryReplayStore(),
+		Grants:                        FixtureGrants(authority.now()),
+		Seals:                         authority.Seals,
+		Now:                           authority.Now,
 	}
 	verified, err := verifier.Verify(ctx, token)
 	if err != nil {
@@ -1079,4 +1082,16 @@ func fixtureUnknownField(number int, value string) protoreflect.RawFields {
 	}
 	encoded = append(encoded, byte(length))
 	return append(encoded, value...)
+}
+
+// isFixtureKey reports whether a verification key is the conformance fixture
+// key. A verifier refuses it unless it says otherwise; see
+// Verifier.TrustTheConformanceFixtureKey.
+//
+// It compares in constant time out of habit rather than need — the fixture
+// public key is public by construction — because a key comparison that is
+// sometimes variable-time is the kind of thing that gets copied.
+func isFixtureKey(key ed25519.PublicKey) bool {
+	public, _ := FixtureKeyPair()
+	return subtle.ConstantTimeCompare(key, public) == 1
 }

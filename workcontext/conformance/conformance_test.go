@@ -331,14 +331,17 @@ type sdkVerifier = workcontext.Verifier
 func TestAConsumerCanBuildItsOwnExportedVerifierFromTheSettings(t *testing.T) {
 	settings := conformance.New(time.Now())
 	mine := &sdkVerifier{
-		Issuer:    settings.Issuer,
-		Audience:  settings.Audience,
-		Keys:      settings.PublicKeys(),
-		Revisions: settings.Revisions,
-		Replay:    settings.Replay,
-		Grants:    settings.Grants,
-		Seals:     settings.Seals,
-		Now:       settings.Now,
+		// A consumer must copy this, and the kit's Settings carries it so the
+		// recipe is complete. Only a conformance verifier sets it.
+		TrustTheConformanceFixtureKey: settings.TrustTheConformanceFixtureKey,
+		Issuer:                        settings.Issuer,
+		Audience:                      settings.Audience,
+		Keys:                          settings.PublicKeys(),
+		Revisions:                     settings.Revisions,
+		Replay:                        settings.Replay,
+		Grants:                        settings.Grants,
+		Seals:                         settings.Seals,
+		Now:                           settings.Now,
 	}
 	conformance.RunWith(t, settings, func(ctx context.Context, token string) error {
 		_, err := mine.Verify(ctx, token)

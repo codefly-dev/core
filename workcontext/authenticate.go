@@ -149,6 +149,10 @@ type Authenticator struct {
 	// Skew is the tolerance applied to the capability's window. Zero means
 	// DefaultSkew.
 	Skew time.Duration
+
+	// TrustTheConformanceFixtureKey is Verifier's field of the same name, and
+	// exists here for the same reason. Only the conformance kit sets it.
+	TrustTheConformanceFixtureKey bool
 }
 
 // Authenticate checks a presented capability and consumes it when it is
@@ -188,15 +192,16 @@ func (a *Authenticator) verifier() (*Verifier, error) {
 		return nil, fmt.Errorf("work context: authenticator is missing a revision source; the authorization revision is per tenant, so there is no single number to default to")
 	}
 	return &Verifier{
-		Issuer:    a.Issuer,
-		Audience:  a.Audience,
-		Keys:      a.Keys,
-		Revisions: a.Revisions,
-		Replay:    a.Replay,
-		Grants:    issuerOnlyGrants{},
-		Seals:     a.Seals,
-		Now:       a.Now,
-		Skew:      a.Skew,
+		TrustTheConformanceFixtureKey: a.TrustTheConformanceFixtureKey,
+		Issuer:                        a.Issuer,
+		Audience:                      a.Audience,
+		Keys:                          a.Keys,
+		Revisions:                     a.Revisions,
+		Replay:                        a.Replay,
+		Grants:                        issuerOnlyGrants{},
+		Seals:                         a.Seals,
+		Now:                           a.Now,
+		Skew:                          a.Skew,
 	}, nil
 }
 

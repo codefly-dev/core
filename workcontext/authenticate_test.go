@@ -61,23 +61,25 @@ func TestAuthenticateAndVerifyAgreeOnEveryFixtureIncludingTheMessage(t *testing.
 	authenticatorReplay.Now = clock
 
 	verifier := &workcontext.Verifier{
-		Issuer:    workcontext.FixtureIssuer,
-		Audience:  workcontext.FixtureAudience,
-		Keys:      keys,
-		Revisions: workcontext.FixtureRevisions(),
-		Replay:    verifierReplay,
-		Grants:    workcontext.FixtureGrants(now),
-		Seals:     seals,
-		Now:       clock,
+		TrustTheConformanceFixtureKey: true,
+		Issuer:                        workcontext.FixtureIssuer,
+		Audience:                      workcontext.FixtureAudience,
+		Keys:                          keys,
+		Revisions:                     workcontext.FixtureRevisions(),
+		Replay:                        verifierReplay,
+		Grants:                        workcontext.FixtureGrants(now),
+		Seals:                         seals,
+		Now:                           clock,
 	}
 	authenticator := &workcontext.Authenticator{
-		Issuer:    workcontext.FixtureIssuer,
-		Audience:  workcontext.FixtureAudience,
-		Keys:      keys,
-		Seals:     seals,
-		Revisions: workcontext.FixtureRevisions(),
-		Replay:    authenticatorReplay,
-		Now:       clock,
+		TrustTheConformanceFixtureKey: true,
+		Issuer:                        workcontext.FixtureIssuer,
+		Audience:                      workcontext.FixtureAudience,
+		Keys:                          keys,
+		Seals:                         seals,
+		Revisions:                     workcontext.FixtureRevisions(),
+		Replay:                        authenticatorReplay,
+		Now:                           clock,
 	}
 
 	ctx := context.Background()

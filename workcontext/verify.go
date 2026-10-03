@@ -55,6 +55,23 @@ type Verifier struct {
 	// Skew is the tolerance applied to the capability's window. Zero means
 	// DefaultSkew.
 	Skew time.Duration
+
+	// TrustTheConformanceFixtureKey allows this verifier to accept tokens
+	// signed by the CONFORMANCE FIXTURE KEY, whose private half is derivable
+	// from this package's source by anyone. Only the conformance kit sets it.
+	//
+	// It exists because the kit's key is reachable from production. Any binary
+	// importing workcontext links FixtureKeyPair, and conformance.Verifier()
+	// is an exported, ready-made verifier that trusts that key — so one
+	// mistaken call, or one JWKS document that picked the fixture key up,
+	// would make a real verifier accept tokens anybody can mint. A verifier
+	// refuses that key unless this field says otherwise, which turns a silent
+	// acceptance into a line somebody had to write and a reviewer can grep
+	// for.
+	//
+	// NEVER set this outside a test. There is no legitimate production use:
+	// the key signs conformance tokens and nothing else, ever.
+	TrustTheConformanceFixtureKey bool
 }
 
 func (v *Verifier) now() time.Time {
@@ -97,6 +114,13 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	// verifies nothing, which is a refusal like any other.
 	if len(key) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("%w: verification key %q is %d bytes, not %d", ErrInvalid, wc.GetKeyId(), len(key), ed25519.PublicKeySize)
+	}
+	// The conformance fixture key, refused unless explicitly trusted. Checked
+	// before the signature so the refusal names the real problem rather than
+	// reporting a key the verifier does hold as a signature failure.
+	if !v.TrustTheConformanceFixtureKey && isFixtureKey(key) {
+		return nil, fmt.Errorf("%w: key %q is the conformance fixture key, whose private half is public; a verifier accepts it only with Verifier.TrustTheConformanceFixtureKey, which no production path sets",
+			ErrInvalid, wc.GetKeyId())
 	}
 	if !ed25519.Verify(key, claims, sig) {
 		return nil, fmt.Errorf("%w: signature does not verify under key %q", ErrInvalid, wc.GetKeyId())

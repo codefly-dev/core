@@ -147,4 +147,23 @@ Two more entry points exist, and neither is a third strength:
   different operations and only one belongs in a loop. How often to call it is
   the caller's explicit choice, not core's.
 
+## The fixture key is refused by default
+
+The kit's private key is **derivable from this package's source by anyone**, and
+every binary importing `workcontext` links it. `conformance.Verifier()` is an
+exported, ready-made verifier that trusts it — so one mistaken call, or one
+JWKS document that picked the fixture key up, would make a real verifier accept
+tokens anybody can mint.
+
+A verifier now refuses that key unless `TrustTheConformanceFixtureKey` says
+otherwise. `conformance.Settings` carries the flag so the field-by-field recipe
+above stays complete; copy it into a conformance verifier and **nowhere else**.
+Its name is that long so copying it into a production verifier is visible in
+review.
+
+What this does **not** fix: the key is still linked into any binary importing
+this package. Only moving the kit into a package that production cannot import
+fixes that, which moves `Fixtures`, `FixtureKeys` and every `Fixture*` constant
+for every consumer. That relocation is an owner call, not a quiet one.
+
 See `docs/work-context.md`, "Two entrypoints, one implementation, one strength".
