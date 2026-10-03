@@ -655,6 +655,12 @@ func TestAnOutsideConstructedDeliveredYieldsNothing(t *testing.T) {
 		Presence:  deliver(t, parse(t, "valid")),
 		Build:     parse(t, "valid").Workloads[0].Image.Digest,
 		Envelope:  solutionhost.FixtureEnvelope(),
+		// The policy is supplied because this test's subject is the
+		// re-derivation, and without it the signer-policy refusal now comes
+		// first. That this test used to pass none is itself evidence of the
+		// hole: a request assembled with no policy at all was accepted all
+		// the way to the document checks.
+		DomainsBySigner: map[string][]string{solutionhost.FixtureDeliveredBy: {solutionhost.FixtureDomain}},
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "does not re-derive")

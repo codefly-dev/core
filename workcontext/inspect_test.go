@@ -295,3 +295,49 @@ func TestChild_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "no authority mints beyond")
 }
+
+// TestTheLifetimeBoundIsOneBoundOnEveryEntrypoint holds the bound where it
+// belongs rather than where it was first written.
+//
+// The bound arrived in Verify alone. Verify is the strong path, so the hole
+// looked harmless — but the caller that reads a window WITHOUT verifying is a
+// mint client, which holds a credential minted for it and asks Inspect when
+// it expires. It never checks a signature, because it is not a receiver. So a
+// capability no receiver on any current Core would accept was reported to its
+// holder as valid for thirty days: not an absent answer, a false one, about
+// the single field Inspect is called for.
+//
+// The bound therefore lives in decodeClaims, the one decode path, which is
+// where this file's own comment said a bound belongs before this one was put
+// somewhere else. All three entrypoints inherit it and the message is one
+// message, so a consumer that matches on it matches whichever path it took.
+func TestTheLifetimeBoundIsOneBoundOnEveryEntrypoint(t *testing.T) {
+	h := newHarness(t)
+	_, verified := h.ownerSession(audience)
+	claims := verified.Context()
+	// Thirty days: no Authority will mint it, so it is resigned directly.
+	claims.ExpiresAtUnix = time.Unix(claims.GetNotBeforeUnix(), 0).Add(30 * 24 * time.Hour).Unix()
+	token := h.resign(claims)
+
+	_, err := workcontext.Inspect(token)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.Contains(t, err.Error(), "720h0m0s")
+	require.Contains(t, err.Error(), "beyond 24h0m0s")
+
+	_, err = h.verifier(audience).Verify(t.Context(), token)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.Contains(t, err.Error(), "beyond 24h0m0s")
+
+	_, err = h.authenticator(audience).Authenticate(t.Context(), token)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.Contains(t, err.Error(), "beyond 24h0m0s")
+
+	// Exactly at the ceiling is accepted: the bound is a maximum, and a
+	// consumer pinning MaxCredentialLifetime to MaxTTLCeiling — which sdk-go
+	// now does, reading core's constant rather than carrying a number of its
+	// own — must not find its own ceiling refused by one second of slack.
+	claims.ExpiresAtUnix = time.Unix(claims.GetNotBeforeUnix(), 0).Add(workcontext.MaxTTLCeiling).Unix()
+	inspected, err := workcontext.Inspect(h.resign(claims))
+	require.NoError(t, err)
+	require.Equal(t, workcontext.MaxTTLCeiling, inspected.ExpiresAt().Sub(inspected.NotBefore()))
+}

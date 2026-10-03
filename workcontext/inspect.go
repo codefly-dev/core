@@ -85,6 +85,22 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 	if !bytes.Equal(canonical, claims) {
 		return nil, nil, nil, fmt.Errorf("%w: the payload is not its own canonical encoding, so it was produced by a different encoder", ErrInvalid)
 	}
+	// The LIFETIME, once the claims are known to be this encoding: a window
+	// wider than MaxTTLCeiling is refused whichever entrypoint asked.
+	//
+	// This bound was added to Verify alone, in the same commit whose comment
+	// above says a bound belongs in the one decode path and not in one
+	// entrypoint. The same mistake, in the same file, about a different
+	// bound. What it cost is specific and worse than an unchecked path: a
+	// mint client reads its own window through Inspect, never verifying a
+	// signature, so a thirty-day capability that every Verify refuses was
+	// reported to its holder as thirty days of validity. An absent bound
+	// tells a caller nothing; this one told it something false about the only
+	// field it calls Inspect to read.
+	if lifetime := time.Unix(wc.GetExpiresAtUnix(), 0).Sub(time.Unix(wc.GetNotBeforeUnix(), 0)); lifetime > MaxTTLCeiling {
+		return nil, nil, nil, fmt.Errorf("%w: the capability's lifetime is %s and no capability is accepted beyond %s",
+			ErrInvalid, lifetime, MaxTTLCeiling)
+	}
 	return wc, claims, sig, nil
 }
 

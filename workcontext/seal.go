@@ -53,9 +53,27 @@ type Seal struct {
 }
 
 // Execution is what a caller attests it is running, when it asks for a
-// capability. The host resolves it after authenticating the workload — from
-// the pod's own status, not from anything the process asserts over the wire —
-// and the mint refuses unless it matches the approved build the issuer holds.
+// capability. It must come from the ORCHESTRATOR's record of that workload —
+// the pod status as the API server reports it, never anything the process
+// asserts over the wire — and the mint refuses unless it matches the approved
+// build the issuer holds.
+//
+// # No consumer can source this correctly today, and the field still stays
+//
+// This said "the host resolves it after authenticating the workload", in the
+// indicative, as though that were something a host does. The first implementer
+// reported it is not: that host authenticates with a shared secret, performs
+// no TokenReview, and has no Kubernetes API reader, so there is nothing it can
+// consult about the pod at all. The requirement describes a capability that
+// does not exist yet, and saying so is the difference between a known gap and
+// a silent one.
+//
+// It stays required anyway, and that was the consumer's own call: dropping it
+// would remove the only field that binds a credential to a build, and adding
+// it back later is a breaking schema change made under pressure. What the
+// consumer gets instead of a working check is an accurate description of what
+// it owes — below — so the shortcut is a recorded debt rather than a
+// misunderstanding.
 //
 // # The way to satisfy this field and defeat it at the same time
 //

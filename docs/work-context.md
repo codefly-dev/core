@@ -29,6 +29,34 @@ unchanged across every hop. A hop is a new *session*, never a mutation:
 | `Authority.Child` | one delegation hop | the hop's scopes attenuate the parent's effective scopes, and the child expires no later than the parent |
 | `Authority.Grant` | the capability an approval justifies | the one hop that may hold authority the previous hop did not |
 
+### The lifetime has an absolute ceiling
+
+`MaxTTLCeiling` is 24 hours and no configuration raises it. `DefaultMaxTTL`
+(one hour) is what an `Authority` mints within when it sets nothing;
+`Authority.MaxTTL` narrows that, and a value above the ceiling is clamped to
+it rather than honoured.
+
+`DefaultMaxTTL` alone was a **default and not a bound**: `MaxTTL` took whatever
+a host configured, so a thirty-day credential was mintable, and nothing on the
+receiving side bounded a lifetime either — a verifier asked only "has this
+expired", which a thirty-day capability passes for thirty days. A consumer
+measured both halves and declined advice to drop its own client-side ceiling on
+the grounds that neither layer actually enforced one. It was right.
+
+The bound is now checked in `decodeClaims`, the single decode path, so
+`Verify`, `Authenticate` and `Inspect` all answer it identically and with one
+message. It was first written into `Verify` alone — in the same change whose
+comment says a bound belongs in the one decode path and not in one entrypoint —
+and the caller that paid for that was the one which never verifies a signature
+at all: a **mint client** reads its own window through `Inspect`, so a
+capability every receiver refuses was reported to its holder as thirty days of
+validity. A missing bound tells a caller nothing; that one told it something
+false about the only field it was called for.
+
+Two layers enforcing one rule is not two implementations of one decision. A
+consumer pinning its own ceiling to `workcontext.MaxTTLCeiling` reads core's
+constant rather than carrying a number that can drift from it.
+
 A verifier accepts a capability for `Skew` past its expiry, so a caller can
 hold a `*Verified` that has already expired. Exchanging one is refused rather
 than clamped: a capability minted with an expiry in the past would report

@@ -550,3 +550,99 @@ func TestTheRenderersDerivedBindingShapeIsAdmitted(t *testing.T) {
 	require.Equal(t, "principal:consumer", principal)
 	require.Equal(t, uint64(1), binding.Revision)
 }
+
+// TestActivationRequiresTheSignerPolicyAndHoldsItPerHalf is the test whose
+// absence was the finding.
+//
+// Deleting the ENTIRE signer-policy branch from Activate left the whole
+// repository suite green — not solutionhost's package, the whole `go test
+// ./...`. Every test that passed DomainsBySigner passed a policy that
+// ALLOWED the fixture signer, so none of them could tell the check from its
+// absence. A security check no test holds is indistinguishable from one that
+// was never written, and that is the more damning half of this finding.
+//
+// The hole itself was `if len(policy) > 0`, justified by a comment saying
+// emptiness meant a renderer. No renderer can reach Activate: Delivered's
+// fields are unexported and VerifyDelivered is its only constructor, so the
+// permissive branch served exactly one caller — a host that forgot the field.
+func TestActivationRequiresTheSignerPolicyAndHoldsItPerHalf(t *testing.T) {
+	presenceDocument := valid(t)
+	authorityDocument := validAuthority(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	// No policy: refused, where it used to activate.
+	request := activationOf(t, authorityDocument, presenceDocument, build)
+	request.DomainsBySigner = nil
+	_, err := solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "needs the host's signer policy")
+	require.Contains(t, err.Error(), "ActivateRendered")
+
+	// A policy that names the signer but not THIS domain: refused, and the
+	// message says which half and which domain. This is the assertion that
+	// makes deleting the branch fail a test.
+	request = activationOf(t, authorityDocument, presenceDocument, build)
+	request.DomainsBySigner = map[string][]string{fixtureDeliveredBy: {"some-other-domain"}}
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "does not let speak for domain")
+	require.Contains(t, err.Error(), solutionhost.FixtureDomain)
+
+	// A policy naming a DIFFERENT signer: refused too, so the lookup is by
+	// the attested signer and not merely non-empty.
+	request = activationOf(t, authorityDocument, presenceDocument, build)
+	request.DomainsBySigner = map[string][]string{
+		"https://signer.example/other@refs/heads/main": {solutionhost.FixtureDomain},
+	}
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "does not let speak for domain")
+}
+
+// A renderer holds parsed documents and no attestation, so it gets the match
+// and a type that cannot be mistaken for an authorization conclusion.
+func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
+	presenceDocument := valid(t)
+	authorityDocument := validAuthority(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	match, err := solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
+		Authority: authorityDocument,
+		Presence:  presenceDocument,
+		Build:     build,
+		Envelope:  solutionhost.FixtureEnvelope(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, solutionhost.RenderedMatch{
+		Authority:        authorityDocument.Authority,
+		Binding:          presenceDocument.Binding,
+		Build:            build,
+		Generation:       presenceDocument.Generation,
+		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
+		Domain:           solutionhost.FixtureDomain,
+	}, match)
+
+	// It runs the tuple rules, so a mismatched pair is refused here too — the
+	// point of the entrypoint is that the renderer gets the real checks, not
+	// a courtesy nil.
+	elsewhere := validAuthority(t)
+	elsewhere.PresenceBinding = "some-other-binding"
+	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
+		Authority: elsewhere,
+		Presence:  presenceDocument,
+		Build:     build,
+		Envelope:  solutionhost.FixtureEnvelope(),
+	})
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "is granted over binding")
+
+	// Each half alone still grants nothing.
+	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
+		Presence: presenceDocument, Build: build, Envelope: solutionhost.FixtureEnvelope(),
+	})
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
+		Authority: authorityDocument, Build: build, Envelope: solutionhost.FixtureEnvelope(),
+	})
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+}

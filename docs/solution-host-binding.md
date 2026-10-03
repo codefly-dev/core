@@ -383,14 +383,38 @@ A withdrawal claims nothing, so it is inside every envelope of its revision.
 ### Activation: neither half alone
 
 ```go
-activation, err := solutionhost.Activate(authority, presence, build)
+activation, err := solutionhost.Activate(solutionhost.ActivationRequest{
+    Authority:       deliveredAuthority, // both halves DELIVERED, never parsed
+    Presence:        deliveredPresence,
+    Build:           build,
+    Envelope:        envelope,           // the current ceiling, checked here
+    DomainsBySigner: host.DomainsBySigner, // required
+    Applied:         appliedAuthority,
+})
 ```
 
 A matched `(authority, presence, build)` tuple is the only shape in which
-authority is active. `Activate` requires: the same host coordinate *and*
-component, the same ownership domain, the same envelope revision, neither
-document withdrawn, `authority.ApprovedBuild == build`, `build ∈
-presence.Builds()`, and `presence.Generation >= authority.EffectiveFrom`.
+authority is active. `Activate` requires: both halves re-derived from their
+attested bytes, both signers allowed by the host's policy to speak for the
+domain they claim, the authority inside `Envelope`, the generation fold against
+`Applied`, `authority.PresenceBinding == presence.Binding`, the same host
+coordinate *and* component, the same ownership domain, the same envelope
+revision, neither document withdrawn, `authority.ApprovedBuild == build`,
+`build ∈ presence.Builds()`, and
+`presence.Generation >= authority.EffectiveFrom`.
+
+`DomainsBySigner` is **required**. It was consulted only when non-empty, with
+the field documented as "empty means a renderer" — but a renderer cannot
+obtain the `*Delivered` halves this call takes, so the permissive branch served
+only a host that forgot the field, and for that host it skipped the check in
+silence. Deleting the whole branch left the entire suite green, which is how a
+check nobody tests behaves.
+
+A renderer wanting the same tuple rules over documents it has not signed yet
+calls `ActivateRendered`, which answers a `RenderedMatch` — deliberately not
+an `Activation`, because nobody attested either half, so it cannot be the basis
+of an authorization decision and no sequence of calls converts one into the
+other. Same split, same reason, as `AdmitRendered` beside `Admit`.
 
 Everything that can fail answers one sentinel, `ErrNotActivated`, because the
 response is the same for all of them — nothing is active — and the message names

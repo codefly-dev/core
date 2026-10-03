@@ -1028,3 +1028,66 @@ func TestAHeldVerifiedCannotBeEditedIntoValidity(t *testing.T) {
 		require.NotEqual(t, "mutated", owner.Actor().GetPrincipalId())
 	}
 }
+
+// TestABindingDoesNotTravelWithADelegation holds the rule that a binding is
+// held by a principal rather than carried by a session.
+//
+// The minter used to keep the parent's binding for any hop that named none.
+// For a hop that is the SAME principal that is correct and is what the
+// no-restamping rule requires. For a new principal it minted a capability
+// every Verify refuses — and refuses as ErrRevoked, whose text reads
+// "authorization revision superseded", so the failure arrives in another
+// process looking like a revocation nobody performed. A minter emitting what
+// its own verifier rejects is the defect; the misleading sentinel is why it
+// would have cost someone an afternoon.
+//
+// Dropping the binding instead would have been worse and is the reason this
+// refuses rather than sanitizes: with no binding, checkOperationBindingAgainst
+// returns before every check it performs, so the derivation would have widened
+// authority by shedding the unit it was bound to.
+func TestABindingDoesNotTravelWithADelegation(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.operationSession(audience)
+	require.Equal(t, bindingID, owner.Context().GetOperationBinding().GetBindingId())
+
+	child := workcontext.ChildInput{
+		PrincipalID:   agentID,
+		PrincipalKind: "agent",
+		AgentID:       "fixture.test/agent:1.0.0",
+		DelegationID:  "d-1",
+		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		Audience:      audience,
+		TTL:           30 * time.Minute,
+	}
+
+	// Naming no binding, for a principal that holds none: refused at the
+	// mint, by the issuer, naming the input that resolves it.
+	_, _, err := h.authority.Child(context.Background(), owner, child)
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.Contains(t, err.Error(), "does not travel with a delegation")
+	require.Contains(t, err.Error(), "OperationBindingID")
+
+	// Naming one the hop does hold: minted, and it verifies. This is the half
+	// that makes the refusal above a correction rather than a prohibition.
+	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
+		ID: "binding:alpha:agent-read", PrincipalID: agentID, InstallationID: installation,
+		Revision: 1, Incarnation: 1,
+	}))
+	held := child
+	held.OperationBindingID = "binding:alpha:agent-read"
+	token, _, err := h.authority.Child(context.Background(), owner, held)
+	require.NoError(t, err)
+	verified := h.mustVerify(audience, token)
+	require.Equal(t, "binding:alpha:agent-read", verified.OperationBindingID())
+
+	// And a hop for the SAME principal still inherits, because the binding is
+	// genuinely held by whoever exercises it.
+	require.NoError(t, h.seals.PutEpoch(ownerID, 2))
+	self := child
+	self.PrincipalID = ownerID
+	self.PrincipalKind = "human"
+	self.AgentID = ""
+	selfToken, _, err := h.authority.Child(context.Background(), owner, self)
+	require.NoError(t, err)
+	require.Equal(t, bindingID, h.mustVerify(audience, selfToken).OperationBindingID())
+}

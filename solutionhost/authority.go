@@ -601,10 +601,10 @@ type ActivationRequest struct {
 	// requirement a caller can forget is not a rule.
 	Envelope Envelope
 
-	// DomainsBySigner is the host's signer policy, as Host carries it. When
-	// set, both halves' attested signers must be allowed to speak for the
-	// domain they claim. Empty means the caller is a renderer pre-checking a
-	// pair it is about to write, with no host policy to apply.
+	// DomainsBySigner is the host's signer policy, as Host carries it. Both
+	// halves' attested signers must be allowed to speak for the domain they
+	// claim, and it is REQUIRED: see Activate for why emptiness used to be a
+	// mode here and is now a refusal.
 	DomainsBySigner map[string][]string
 
 	// Applied is what the host recorded for this authority ID. The zero value
@@ -630,10 +630,40 @@ type ActivationRequest struct {
 // build I am actually running", and reading the build out of the document that
 // approves it would make the question answer itself.
 //
-// Activate does not check the envelope — that is ValidateAgainst, and it needs a
-// ceiling neither document may carry. A caller verifies both signatures, checks
-// the authority against its envelope, and then activates.
+// Activate DOES check the envelope, against request.Envelope. It did not once,
+// leaving it to the caller to call ValidateAgainst first — but an ordering
+// requirement a caller can forget is not a rule, and narrowing an envelope has
+// to reach activation to mean anything. This comment said the opposite of the
+// code for a while, which is its own lesson about prose that outlives a change.
+//
+// There are two entrypoints. This one is a HOST's: it takes delivered halves
+// and requires the host's signer policy. ActivateRendered is a renderer's: it
+// takes parsed documents, applies no policy because there is no attestation to
+// apply one to, and answers with a RenderedMatch that is not an Activation.
+// One implementation, two entrypoints — the same shape as Admit and
+// AdmitRendered.
 func Activate(request ActivationRequest) (Activation, error) {
+	// The signer policy is REQUIRED, and this is the hole that closed.
+	//
+	// It used to be consulted only `if len(policy) > 0`, with the field's own
+	// comment saying emptiness meant a renderer pre-checking a pair. That
+	// described a caller who cannot exist: Delivered's fields are unexported
+	// and the only constructors are inside VerifyDelivered, so no renderer can
+	// obtain the halves this function takes. The permissive branch was
+	// therefore reachable by exactly one caller — a host that forgot the field
+	// — and for that caller it silently skipped the check.
+	//
+	// Host.admit had already reached the opposite conclusion about the same
+	// policy, one file away: "an unstated policy would let any accepted signer
+	// claim any accepted domain". Same reasoning, and activation is the other
+	// place a self-asserted domain would otherwise be taken at its word.
+	//
+	// A renderer that genuinely wants the match without host policy calls
+	// ActivateRendered, which takes the documents a renderer actually holds.
+	if len(request.DomainsBySigner) == 0 {
+		return Activation{}, fmt.Errorf("%w: activation needs the host's signer policy; an unstated one would let any signer speak for any domain, and a renderer with no policy to apply wants ActivateRendered",
+			ErrNotActivated)
+	}
 	build := request.Build
 	if request.Authority == nil {
 		return Activation{}, fmt.Errorf("%w: no authority document; presence alone grants nothing", ErrNotActivated)
@@ -656,21 +686,108 @@ func Activate(request ActivationRequest) (Activation, error) {
 	// for the domain they claim — the same policy Admit applies, because
 	// activation is the other place a self-asserted domain would be taken at
 	// its word.
-	if policy := request.DomainsBySigner; len(policy) > 0 {
-		for _, half := range []struct {
-			what   string
-			signer string
-			domain string
-		}{
-			{"authority", request.Authority.signer, authority.OwnershipDomain},
-			{"presence", request.Presence.signer, presence.OwnershipDomain},
-		} {
-			if !slices.Contains(policy[half.signer], half.domain) {
-				return Activation{}, fmt.Errorf("%w: the %s half was signed by %q, which this host does not let speak for domain %q",
-					ErrNotActivated, half.what, half.signer, half.domain)
-			}
+	policy := request.DomainsBySigner
+	for _, half := range []struct {
+		what   string
+		signer string
+		domain string
+	}{
+		{"authority", request.Authority.signer, authority.OwnershipDomain},
+		{"presence", request.Presence.signer, presence.OwnershipDomain},
+	} {
+		if !slices.Contains(policy[half.signer], half.domain) {
+			return Activation{}, fmt.Errorf("%w: the %s half was signed by %q, which this host does not let speak for domain %q",
+				ErrNotActivated, half.what, half.signer, half.domain)
 		}
 	}
+	return activate(authority, presence, build, request.Envelope, request.Applied)
+}
+
+// RenderedActivationRequest is the pair a RENDERER holds: parsed documents it
+// is about to write, with no attestation and so no signer to apply a policy
+// to.
+type RenderedActivationRequest struct {
+	// Authority and Presence are the two halves as parsed, NOT delivered. A
+	// renderer's documents are not signed yet — signing happens at publish —
+	// which is the same reason AdmitRendered exists beside Admit.
+	Authority *AuthorityDocument
+	Presence  *SolutionHostBinding
+
+	// Build is the execution being asked about.
+	Build ImageDigest
+
+	// Envelope is the ceiling the authority is checked against.
+	Envelope Envelope
+
+	// Applied is what the renderer knows was applied for this authority ID,
+	// which for a renderer is usually nothing.
+	Applied AppliedAuthority
+}
+
+// RenderedMatch is what ActivateRendered answers: the two halves MATCH for one
+// build. It is deliberately NOT an Activation.
+//
+// The distinction is the one Verified, Authenticated and Inspected carry in
+// workcontext, for the same reason: the type says which question was answered.
+// An Activation means a host's own signer policy admitted both halves. A
+// RenderedMatch means only that the documents agree with each other — nobody
+// has attested either one, so it cannot be the basis of an authorization
+// decision, and it cannot be passed where an Activation is required. That is
+// enforced by it being a different type rather than by a caution in prose.
+type RenderedMatch struct {
+	// Authority is the authority document's ID.
+	Authority string
+	// Binding is the presence document's binding ID.
+	Binding string
+	// Build is the build both halves name.
+	Build ImageDigest
+	// Generation is the presence generation that matched.
+	Generation uint64
+	// EnvelopeRevision is the revision both halves were validated against.
+	EnvelopeRevision uint64
+	// Domain is the ownership domain both halves speak for.
+	Domain string
+}
+
+// ActivateRendered runs every activation check that does not need an
+// attestation, over PARSED documents, for a renderer checking a pair it is
+// about to write.
+//
+// It exists because requiring the signer policy in Activate would otherwise
+// have left a renderer with no way to ask whether its pair matches — and the
+// way that absence gets resolved in practice is a consumer re-implementing the
+// tuple rules, which is the duplication this package exists to prevent. It is
+// the same split, for the same reason, as AdmitRendered beside Admit: one
+// implementation, two entrypoints.
+//
+// What it checks: both documents validate, the build is a digest, the
+// authority fits the envelope, the generation fold against whatever is
+// applied, the target binding, withdrawal of either half, the host and domain
+// agreeing, the envelope revisions agreeing, the approved build, the presence
+// naming that build, and the effective-from generation.
+//
+// What it CANNOT check, and why that is not a gap: who signed either half. A
+// renderer's documents carry no attestation at all, so there is no signer to
+// hold a policy against. The result type says so — a RenderedMatch is not an
+// Activation and no sequence of calls turns one into the other.
+func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) {
+	if request.Authority == nil {
+		return RenderedMatch{}, fmt.Errorf("%w: no authority document; presence alone grants nothing", ErrNotActivated)
+	}
+	if request.Presence == nil {
+		return RenderedMatch{}, fmt.Errorf("%w: no presence document; authority alone grants nothing", ErrNotActivated)
+	}
+	activation, err := activate(request.Authority, request.Presence, request.Build, request.Envelope, request.Applied)
+	if err != nil {
+		return RenderedMatch{}, err
+	}
+	return RenderedMatch(activation), nil
+}
+
+// activate is the shared tuple check both entrypoints run. Everything that
+// needs an attestation is done by the caller, and everything that does not is
+// here exactly once.
+func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelope Envelope, applied AppliedAuthority) (Activation, error) {
 	if err := authority.Validate(); err != nil {
 		return Activation{}, err
 	}
@@ -681,12 +798,12 @@ func Activate(request ActivationRequest) (Activation, error) {
 		return Activation{}, fmt.Errorf("%w: %q is not a SHA-256 OCI image manifest digest", ErrNotActivated, build)
 	}
 	// The ceiling, checked here rather than left to the caller's memory.
-	if err := authority.ValidateAgainst(request.Envelope); err != nil {
+	if err := authority.ValidateAgainst(envelope); err != nil {
 		return Activation{}, err
 	}
 	// The generation fold. A signed document at an older generation, or a
 	// rewritten one, is refused — and a withdrawn authority is terminal.
-	if _, err := decideAuthority(request.Applied, authority); err != nil {
+	if _, err := decideAuthority(applied, authority); err != nil {
 		return Activation{}, err
 	}
 	// The TARGET. Without this an authority document activated any binding in

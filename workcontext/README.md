@@ -128,15 +128,20 @@ refused — the one assertion a downgraded authenticator fails.
 
 Two more entry points exist, and neither is a third strength:
 
-- **`workcontext.Inspect(token) error`** — is this token *structurally* a sealed
-  capability? Shape, encoding, schema, attenuation, grant shape, a seal naming
-  an installation, an epoch on every actor hop. **Error only, no claims**, and
-  that is the safety argument: returning claims would let a caller act on an
-  unverified token, and with nothing to read the only possible use is the one
-  it is for — a sender refusing early rather than having the receiver refuse
-  late. It checks no signature and no issuer state; a test asserts a forgery
-  passes it. It exists because consumers were answering this question by hand
-  and reaching different sentinels than core's fixtures declare.
+- **`workcontext.Inspect(token) (*Inspected, error)`** — is this token
+  *structurally* a sealed capability? Shape, encoding, schema, the lifetime
+  bound, attenuation, grant shape, a seal naming an installation, an epoch on
+  every actor hop. It checks no signature and no issuer state; a test asserts a
+  forgery passes it.
+
+  **It returns the claims, and this entry used to say "error only, no
+  claims"** with an argument for why that was the safe choice. A consumer
+  showed the argument was wrong in the direction that mattered: a holder
+  reading its OWN credential needs the expiry and the seal, so with nothing
+  returned it keeps the hand-written parser that this call exists to delete.
+  The safety now rests on the TYPE — `Inspected` is not `Verified`, cannot
+  become one, and `policy.PrincipalFromWorkContext` will not take it — rather
+  than on withholding data any holder of the token could base64-decode anyway.
 - **`(*Verifier).Recheck(ctx, *Verified) error`** — re-read live state under a
   long-running call, **without consuming the nonce**. It takes a `*Verified`,
   so it cannot be a first verification: you must already hold one. It re-checks
@@ -146,6 +151,31 @@ Two more entry points exist, and neither is a third strength:
   emission killed the stream on its first check; liveness and consumption are
   different operations and only one belongs in a loop. How often to call it is
   the caller's explicit choice, not core's.
+
+## What the kit does NOT check
+
+The kit proves BEHAVIOUR, not identity and not host sourcing. Three gaps are
+worth naming rather than discovering:
+
+- **Where a host gets `Execution.ImageDigest`.** This is the big one. The field
+  is the running build, and `Seal.ImageDigest` is the APPROVED build; a host
+  that fills the first from the record that produced the second compares
+  approved against approved, so the mint passes for every caller — including
+  the superseded pod the field exists to refuse. **The kit itself does this**,
+  in `fixtureSessionOn`: it reads `Seals.Seal` and attests the answer back.
+  That is deliberate and unavoidable here — a fixture has no pod, and a
+  negative fixture must mint against a divergent source or the capability it
+  exists to present cannot be produced — but it means the reference
+  implementation demonstrates the shortcut, so copying its shape is copying
+  the tautology. The test that catches it needs a host and cannot live here:
+  take a pod from a SUPERSEDED generation and confirm the mint refuses. "A
+  sound execution mints" passes either way.
+- **Who may hold the key.** The kit asserts nothing about key custody; its own
+  key is refused by default for the reason in the next section.
+- **That a consumer imports core rather than reimplementing it.** The kit runs
+  against whatever `Settings` hands it, so passing a hand-written verifier
+  makes the kit pass while proving the opposite of what it exists to prove.
+  The identity proof is the consumer's own import gate, never this.
 
 ## The fixture key is refused by default
 

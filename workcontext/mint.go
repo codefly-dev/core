@@ -243,6 +243,31 @@ func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0
 		// Keep the parent's binding, which carryForwardSeal has already held
 		// against live state. Re-resolving it would be the restamping this
 		// function exists not to do.
+		//
+		// But keeping it is only right when the hop that will EXERCISE the
+		// capability is the principal the binding was granted to. A binding is
+		// held by a principal, not carried by a session: the verifier requires
+		// that the resolved binding is granted to the exercising principal, so
+		// a hop for a new principal that inherited the owner's binding minted
+		// a capability EVERY Verify refuses — and refuses as ErrRevoked, whose
+		// text says "authorization revision superseded", sending whoever
+		// debugs it after a revocation that never happened.
+		//
+		// Silently dropping the binding instead would be worse than the
+		// unverifiable token: with no binding the verifier's whole
+		// binding check returns early, so the derivation would have WIDENED
+		// authority by removing the unit it was bound to. So this refuses, and
+		// names the input that resolves it.
+		if held := wc.GetOperationBinding(); held != nil {
+			binding, err := a.Seals.OperationBinding(ctx, held.GetBindingId())
+			if err != nil {
+				return fmt.Errorf("work context: operation binding %q: %w", held.GetBindingId(), err)
+			}
+			if binding.PrincipalID != exercising {
+				return fmt.Errorf("%w: the parent exercises binding %q, which is granted to %q, and this hop is exercised by %q; name the binding this hop holds in OperationBindingID, because a binding is held by a principal and does not travel with a delegation",
+					ErrInvalid, held.GetBindingId(), binding.PrincipalID, exercising)
+			}
+		}
 		return nil
 	}
 	inherited := sealOf(wc)
