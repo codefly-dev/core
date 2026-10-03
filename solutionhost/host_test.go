@@ -548,3 +548,63 @@ func TestAdmitCannotBeReachedWithoutABundleVerifier(t *testing.T) {
 	_, err = solutionhost.VerifyDelivered(context.Background(), carrier, testBundleVerifier{signer: " "})
 	require.NoError(t, err, "a blank-but-present identity is the caller's business")
 }
+
+// A renderer checks a set it is about to write, over PARSED documents, with no
+// host and no attestation.
+//
+// This entrypoint exists because making Admit take *Delivered broke the
+// renderer and the break was invisible from inside core: a renderer's
+// documents are not signed yet, so there is no carrier to verify and no way to
+// reach the zero-host checks. A consumer reported it by starting to
+// re-implement them, which is the two-implementations failure this package
+// exists to end, appearing in the fix for it.
+func TestAdmitRenderedIsTheRenderersHalfAndNeedsNoAttestation(t *testing.T) {
+	first := parse(t, "valid")
+	second := parse(t, "module-presence")
+	second.Routes = nil
+
+	admissions, err := solutionhost.AdmitRendered(first, second)
+	require.NoError(t, err)
+	require.Len(t, admissions, 2)
+	for _, admission := range admissions {
+		require.NoError(t, admission.Err)
+		require.Equal(t, solutionhost.DecisionApply, admission.Decision)
+	}
+
+	// It still refuses everything that needs no host: a binding declared
+	// twice in one set...
+	_, err = solutionhost.AdmitRendered(first, parse(t, "valid"))
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "declared twice")
+
+	// ...and two documents on one host claiming the same route alias. Both
+	// are complete presence documents, so the refusal is the collision rather
+	// than either document being unsound.
+	colliding := parse(t, "valid")
+	colliding.Binding = "alpha-region-a-09"
+	_, err = solutionhost.AdmitRendered(first, colliding)
+	require.ErrorIs(t, err, composition.ErrCollision)
+}
+
+// AdmitRendered cannot be handed host state, because it takes no Host. That is
+// what keeps the invariant: there is no sequence of calls that reaches a
+// HOST's Admit without an attestation having held.
+func TestAdmitRenderedCannotBeHandedHostState(t *testing.T) {
+	// The only way to check a coordinate, a domain, a signer policy or an
+	// applied record is through Host.Admit, which takes *Delivered.
+	host := solutionhost.Host{
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain},
+		DomainsBySigner: map[string][]string{solutionhost.FixtureDeliveredBy: {solutionhost.FixtureDomain}},
+	}
+	_, err := host.Admit(deliver(t, parse(t, "valid")))
+	require.NoError(t, err)
+
+	// And AdmitRendered reaches none of those checks, so it cannot pass or
+	// fail them: a wrong-coordinate document is fine by it, because a renderer
+	// has no host to be wrong about.
+	elsewhere := parse(t, "valid")
+	elsewhere.Host.Coordinate = "example/prod/region-z"
+	_, err = solutionhost.AdmitRendered(elsewhere)
+	require.NoError(t, err, "a renderer pre-checking a set has no host to answer coordinate questions for")
+}

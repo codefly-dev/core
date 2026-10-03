@@ -239,6 +239,37 @@ func (host Host) Admit(delivered ...*Delivered) ([]Admission, error) {
 	return host.admit(documents, signers)
 }
 
+// AdmitRendered runs the checks that need no host state, over PARSED
+// documents, for a renderer checking a set it is about to write.
+//
+// It exists because making Admit take *Delivered broke the renderer, and the
+// break was invisible from inside core: a renderer's documents are not signed
+// yet — signing happens at publish, and a --local qualification publish is
+// never signed — so there is no carrier for a BundleVerifier to accept and no
+// way to reach the zero-host checks at all. A consumer reported it by starting
+// to re-implement them, which is the failure this package exists to end
+// appearing in the fix for it. One implementation, two entrypoints.
+//
+// It takes NO Host, deliberately and not as a convenience. A Host carries
+// applied state, a coordinate and a signer policy, and none of those can be
+// checked without an attestation — so a signature cannot be the thing a
+// renderer forgets, because there is nothing here to forget it for. The
+// invariant stands exactly as before: no sequence of calls reaches a HOST's
+// Admit without an attestation having held.
+//
+// What it checks, which is every rule that does not need host state: each
+// document validates, no binding is declared twice in one set, no two
+// documents claim the same route alias, and each document's generation is
+// decided against nothing applied. What it cannot check is anything about a
+// host — a coordinate, a domain the host accepts, who may speak for it, or a
+// generation against an applied record. A renderer pre-checking a set has no
+// host to answer those for.
+func AdmitRendered(documents ...*SolutionHostBinding) ([]Admission, error) {
+	// No signers: the signer policy is only consulted for a named host, and
+	// there is none here.
+	return Host{}.admit(documents, make([]string, len(documents)))
+}
+
 func (host Host) admit(documents []*SolutionHostBinding, signers []string) ([]Admission, error) {
 	applied, err := host.appliedByBinding()
 	if err != nil {

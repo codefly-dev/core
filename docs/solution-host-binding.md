@@ -563,21 +563,37 @@ usable binding ID.
 
 ## How the consumers use it
 
-A **renderer** checks the set it is about to write with the zero `Host` — no
-coordinate, no domains, nothing applied. Every check that does not need host
-state still runs, so a collision is refused where it was authored:
+A **renderer** checks the set it is about to write with `AdmitRendered`, over
+**parsed** documents. Its documents are not signed yet — signing happens at
+publish, and a `--local` qualification publish is never signed — so there is no
+carrier for a `BundleVerifier` to accept:
 
 ```go
-admissions, err := solutionhost.Host{}.Admit(documents...)
+admissions, err := solutionhost.AdmitRendered(documents...)
+if err := solutionhost.OneDelivery(documents...); err != nil { /* straddle */ }
 ```
+
+`AdmitRendered` takes **no `Host`**, and that is the design rather than a
+convenience: a `Host` carries applied state, a coordinate and a signer policy,
+and none of those is checkable without an attestation — so a signature cannot
+be the thing a renderer forgets, because there is nothing here to forget it
+for. Every check that needs no host state still runs: each document validates,
+no binding is declared twice, no two documents claim the same route alias, and
+each generation is decided against nothing applied.
+
+This entrypoint exists because making `Admit` take `*Delivered` broke the
+renderer, and the break was invisible from inside core — a consumer reported it
+by starting to re-implement the zero-host checks in its own tree, which is the
+two-implementations failure this package exists to end, appearing in the fix
+for it.
 
 The set may span every host the product delivers to. Route aliases are unique
 within **one** host, so they are compared per `host.coordinate`.
 
-A **host** establishes provenance first — it verifies the bundle over the
-payload with its own trust root and identity allowlist, then reads the document
-with `PresenceFromVerified` — and only then admits against what it has durably
-applied:
+A **host** verifies first and admits second, and the ordering is now enforced
+rather than described: `VerifyDelivered` takes the carrier and the host's own
+`BundleVerifier`, calls it, and returns a `*Delivered` only when it accepts.
+`Admit` takes nothing else:
 
 ```go
 host := solutionhost.Host{
