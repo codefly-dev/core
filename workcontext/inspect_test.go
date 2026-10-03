@@ -147,7 +147,7 @@ func TestRecheck_RefusesEveryLeverThatCanMove(t *testing.T) {
 		"the authorization revision": func(h *harness) { h.revision++ },
 		"the installation revision": func(h *harness) {
 			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
-				ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation, InstallationRevision: 4, BuildIncarnation: 11,
+				InstallationID: installation, InstallationRevision: 4,
 			}))
 		},
 		"the owner's epoch": func(h *harness) { require.NoError(h.t, h.seals.PutEpoch(ownerID, 3)) },
@@ -287,6 +287,7 @@ func TestChild_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},

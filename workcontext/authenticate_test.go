@@ -122,7 +122,7 @@ func TestAuthenticate_RefusesAGrantCapabilityRatherThanSkippingTheApproval(t *te
 
 	// Minted fresh, so the refusal below is the missing grant record and not
 	// the replay the line above caused: a grant capability is single-use.
-	second, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	second, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
 	require.NoError(t, err)
 	authenticated, err := h.authenticator(mergeTool).Authenticate(context.Background(), second)
 	require.Nil(t, authenticated)
@@ -167,8 +167,8 @@ func TestAuthenticate_RefusesACapabilitySealedToASupersededInstallationRevision(
 	require.NotNil(t, authenticated)
 
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
-		InstallationRevision: 4, BuildIncarnation: 11,
+		InstallationID:       installation,
+		InstallationRevision: 4,
 	}))
 	// The SAME authenticator, reused across the revocation, so one that cached
 	// live state after its first success would be caught.

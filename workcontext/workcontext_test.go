@@ -57,9 +57,8 @@ func newHarness(t *testing.T) *harness {
 	h.replay.Now = func() time.Time { return h.clock }
 	h.seals = workcontext.NewMemorySealSource()
 	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
-		ImageDigest: workcontext.FixtureImageDigest, InstallationID: installation,
+		InstallationID:       installation,
 		InstallationRevision: 3,
-		BuildIncarnation:     11,
 	}))
 	require.NoError(t, h.seals.PutEpoch(ownerID, 2))
 	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
@@ -67,9 +66,15 @@ func newHarness(t *testing.T) *harness {
 		Revision: 4, Incarnation: 1,
 	}))
 	// Every principal that appears as an actor needs a live epoch, because a
-	// hop without one cannot be revoked and is refused.
+	// hop without one cannot be revoked and is refused — and now an approved
+	// EXECUTION too, because a derivation attests the build its own hop is
+	// running rather than inheriting the parent's. A principal with no
+	// approved build bears no execution, which is the human case and is
+	// exercised separately.
+	require.NoError(t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 11))
 	for _, principal := range []string{agentID, "a-sub", approver} {
 		require.NoError(t, h.seals.PutEpoch(principal, 1))
+		require.NoError(t, h.seals.PutApprovedBuild(principal, workcontext.FixtureImageDigest, 11))
 	}
 	h.authority = &workcontext.Authority{
 		Issuer:    issuer,
@@ -150,6 +155,7 @@ func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 func (h *harness) agentSession(parent *workcontext.Verified, aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -209,6 +215,7 @@ func TestChild_NeverExtendsExpiry(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -236,6 +243,7 @@ func TestChild_RejectsWidening(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
+				Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 				PrincipalID:   "a-sub",
 				PrincipalKind: "agent",
 				AgentID:       "codefly.dev/sub:1.0.0",

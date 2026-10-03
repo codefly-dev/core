@@ -173,6 +173,11 @@ issuer holds live:
 | `installation_revision` | every capability minted against the installation's previous terms |
 | `build_incarnation` | every capability minted on a replaced run of the build |
 
+`build_incarnation` and `image_digest` are **optional and paired** — absent for
+a principal that bears no execution. See "A principal that bears no execution"
+below; they are read from `SealSource.ApprovedBuild`, keyed on the principal,
+not from the installation seal.
+
 `WorkOperationBindingV1` is on a capability that exercises one unit of
 authority, and carries `binding_id`, `revision` and `incarnation`. The
 `incarnation` is separate from the `revision` because a binding that was
@@ -184,6 +189,57 @@ like the revision source, the replay store and the grant source. A verifier
 missing one refuses every capability rather than reading its absence as "sealing
 off", because that would make the strongest check in the model the easiest one
 to omit.
+
+### The execution belongs to the principal, not to the installation
+
+`SealSource.ApprovedBuild(ctx, principalID) (digest string, incarnation uint64, err error)`
+answers the execution the issuer approves for ONE PRINCIPAL. `Seal` answers
+installation state and nothing else.
+
+They were one method, and the split is the fix for a blocker rather than a
+tidy-up. The execution was read from the **owner's** installation record, so a
+capability's execution binding described the owner's workload however many
+delegation hops had been added and whoever was actually exercising it. And a
+delegated hop's principal does not hold the owner's installation at all — so
+there was nothing a derivation could have been attested against even in
+principle. The consequence: **minting was execution-bound only at `Start`.** A
+caller holding a parent capability derived children whatever it was running,
+which is the threat the execution fields exist to stop, left open at every hop
+but the first.
+
+So `Child` and `Grant` take an `Execution` too, required on the same terms as
+`Start`'s, and the seal's execution describes whoever will EXERCISE the
+capability. `ApprovedBuild` takes no attribute of the workload, deliberately:
+resolving by (service account, image digest) would answer "approved" for
+whatever a superseded pod presents, which is the hole it exists to close.
+
+### A principal that bears no execution
+
+`ApprovedBuild` returns `ErrNoApprovedBuild` when a principal bears no
+execution. **That is an answer, not a failure** — it is the correct answer for
+a human session, because a person at a terminal runs no approved build.
+
+`build_incarnation` and `image_digest` are therefore `optional` on the wire,
+set as a pair or not at all (a schema message rule, not a convention). This is
+**not** the compatibility hedge two reviews rejected for the seal itself and
+for the actor epochs: that hedge made a field optional so ARCHIVED data would
+still parse, trading every live credential's strength for old bytes. This is
+optional because the field does not APPLY to a whole class of principal, and
+requiring it of a human would force every human session to invent a value —
+which is exactly what the field exists to refuse.
+
+The requirement is not weakened, it is made conditional on something the issuer
+knows and the schema cannot. A capability carries an execution **exactly when**
+its exercising principal bears one, and the verifier enforces the
+correspondence in **both** directions:
+
+- an execution-bearing principal whose capability carries none is refused;
+- a principal that bears none whose capability carries one is refused too,
+  because that is a process claiming to be a workload.
+
+Only the first direction is obvious, and checking only the first is what would
+make the optionality a hole: a human's capability could then be sealed to a
+build nobody approved for it, and nothing would object.
 
 ### Exact equality, and exact lookup
 

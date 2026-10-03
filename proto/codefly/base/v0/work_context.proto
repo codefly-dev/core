@@ -163,7 +163,13 @@ message WorkSealV1 {
   // exactly what lets an old pod in, which is why SealSource answers only "the
   // current incarnation for this principal" and offers no lookup by anything
   // the workload itself presents.
-  uint64 build_incarnation = 4 [(buf.validate.field).uint64.gte = 1];
+  //
+  // It is OPTIONAL, together with image_digest, and the two are set or unset
+  // as a pair: see the message rule below. Absent means the principal
+  // exercising this capability BEARS NO EXECUTION — a human session is the
+  // case that matters, since a person at a terminal runs no approved build
+  // and an image digest is not a thing they can have.
+  optional uint64 build_incarnation = 4 [(buf.validate.field).uint64.gte = 1];
   // image_digest is the APPROVED BUILD the issuer held for this installation
   // at mint time, as an OCI image-manifest digest. A verifier compares it for
   // equality against the approved build it holds now.
@@ -189,11 +195,38 @@ message WorkSealV1 {
   // it cannot know where the caller got the bytes — so the check that matters
   // is "a pod from a superseded generation is refused", never "a sound
   // execution mints".
-  string image_digest = 5 [
+  //
+  // OPTIONAL on the same terms as build_incarnation, and absent for the same
+  // reason. This is NOT the compatibility hedge two reviews rejected for the
+  // seal itself and for the actor epochs. That hedge made a field optional so
+  // that ARCHIVED data would still parse, which trades every live credential's
+  // strength for old bytes. This is optional because the field DOES NOT APPLY
+  // to a whole class of principal: a human bears no execution, so requiring an
+  // image digest of one would force every human session to invent a value, and
+  // an invented value is exactly what this field exists to refuse.
+  //
+  // The requirement is not weakened, it is made conditional on something the
+  // issuer knows and the schema cannot: SealSource.ApprovedBuild answers
+  // whether a principal bears an execution at all. A capability carries this
+  // field EXACTLY WHEN its exercising principal bears one, and the verifier
+  // enforces the correspondence in both directions — a missing execution for
+  // an execution-bearing principal is refused, and a PRESENT one for a
+  // principal that bears none is refused too, because that is a process
+  // claiming to be a workload.
+  optional string image_digest = 5 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.max_len = 256,
     (buf.validate.field).string.pattern = "^sha256:[a-f0-9]{64}$"
   ];
+  // Both execution fields are set, or neither is. One without the other
+  // describes an execution nothing can check: an incarnation names WHICH run
+  // of a build and the digest names WHICH build, so a seal carrying one alone
+  // is not a weaker binding but an unreadable one.
+  option (buf.validate.message).cel = {
+    id: "work_seal.execution_is_whole"
+    message: "build_incarnation and image_digest are set together or not at all"
+    expression: "has(this.build_incarnation) == has(this.image_digest)"
+  };
 }
 
 // WorkOperationBindingV1 is the unit of authority an operation context

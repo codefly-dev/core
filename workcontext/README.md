@@ -87,6 +87,33 @@ untouched, and it is the one fixture that *must* report a signature failure;
 real precisely so that a verifier checking the signature first would still
 refuse it — with the wrong error.
 
+## `SealSource` has four methods, and the fourth is per-principal
+
+`Seal` (installation state), `PrincipalEpoch`, `ApprovedBuild`, and
+`OperationBinding`.
+
+`ApprovedBuild(ctx, principalID) (digest string, incarnation uint64, err error)`
+is the newest and the reason the others changed shape: the approved execution
+used to live on `Seal`, read for the task's OWNER, so a derived capability's
+execution described the owner's workload no matter who held it — and a hop's
+principal does not hold the owner's installation, so a derivation had nothing
+to attest against. Minting was execution-bound at `Start` and nowhere else.
+
+Two things to implement deliberately rather than by default:
+
+- **Return `ErrNoApprovedBuild` for a principal that bears no execution.** It
+  is the right answer for a human session, not a missing record. Do NOT return
+  an empty digest: a verifier cannot tell that from an issuer that has lost the
+  record, and those two must not read alike.
+- **Key it on the principal and nothing else.** A lookup by (service account,
+  image digest) answers "approved" for whatever a superseded pod presents,
+  which is the hole the field exists to close.
+
+`MemorySealSource.PutApprovedBuild` is monotone in the incarnation and free in
+the digest — approving a different build is not a rewind, it is what approving
+a build is, and the incarnation advancing with it separates the runs. A
+principal that bears no execution is recorded by recording nothing.
+
 ## What a consumer owes
 
 `conformance.New(now)` returns the `Settings` an entrypoint must be configured
@@ -161,11 +188,12 @@ shape that has now appeared three times in this contract, tabulated in
 an independent source":
 
 - **Where a host gets `Execution.ImageDigest`.** This is the big one. The field
-  is the running build, and `Seal.ImageDigest` is the APPROVED build; a host
-  that fills the first from the record that produced the second compares
-  approved against approved, so the mint passes for every caller — including
-  the superseded pod the field exists to refuse. **The kit itself does this**,
-  in `fixtureSessionOn`: it reads `Seals.Seal` and attests the answer back.
+  is the running build, and `SealSource.ApprovedBuild` answers the APPROVED
+  build; a host that fills the first from the record that produced the second
+  compares approved against approved, so the mint passes for every caller —
+  including the superseded pod the field exists to refuse. **The kit itself
+  does this**, in `fixtureSessionOn`: it reads `ApprovedBuild` and attests the
+  answer back.
   That is deliberate and unavoidable here — a fixture has no pod, and a
   negative fixture must mint against a divergent source or the capability it
   exists to present cannot be produced — but it means the reference

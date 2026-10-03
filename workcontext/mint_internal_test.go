@@ -28,8 +28,9 @@ func TestSealRefusesToSignAnUnsealedCapability(t *testing.T) {
 			AuthorityScopes: []*basev0.WorkScopeV1{{ResourceKind: "record", Actions: []string{"read"}}},
 			Seal: &basev0.WorkSealV1{
 				PrincipalEpoch: 1, InstallationId: "inst",
-				InstallationRevision: 1, BuildIncarnation: 1,
-				ImageDigest: FixtureImageDigest,
+				InstallationRevision: 1,
+				BuildIncarnation:     fixtureIncarnationPointer(),
+				ImageDigest:          fixtureDigestPointer(),
 			},
 		}
 	}
@@ -68,4 +69,16 @@ func testSigningKey(t *testing.T) []byte {
 	t.Helper()
 	_, private := FixtureKeyPair()
 	return private
+}
+
+// The execution fields carry explicit presence now, because a principal that
+// bears no execution carries neither. These keep the literals above readable.
+func fixtureIncarnationPointer() *uint64 {
+	value := uint64(1)
+	return &value
+}
+
+func fixtureDigestPointer() *string {
+	value := FixtureImageDigest
+	return &value
 }

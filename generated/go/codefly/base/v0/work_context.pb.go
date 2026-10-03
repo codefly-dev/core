@@ -403,7 +403,13 @@ type WorkSealV1 struct {
 	// exactly what lets an old pod in, which is why SealSource answers only "the
 	// current incarnation for this principal" and offers no lookup by anything
 	// the workload itself presents.
-	BuildIncarnation uint64 `protobuf:"varint,4,opt,name=build_incarnation,json=buildIncarnation,proto3" json:"build_incarnation,omitempty"`
+	//
+	// It is OPTIONAL, together with image_digest, and the two are set or unset
+	// as a pair: see the message rule below. Absent means the principal
+	// exercising this capability BEARS NO EXECUTION — a human session is the
+	// case that matters, since a person at a terminal runs no approved build
+	// and an image digest is not a thing they can have.
+	BuildIncarnation *uint64 `protobuf:"varint,4,opt,name=build_incarnation,json=buildIncarnation,proto3,oneof" json:"build_incarnation,omitempty"`
 	// image_digest is the APPROVED BUILD the issuer held for this installation
 	// at mint time, as an OCI image-manifest digest. A verifier compares it for
 	// equality against the approved build it holds now.
@@ -429,7 +435,25 @@ type WorkSealV1 struct {
 	// it cannot know where the caller got the bytes — so the check that matters
 	// is "a pod from a superseded generation is refused", never "a sound
 	// execution mints".
-	ImageDigest   string `protobuf:"bytes,5,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
+	//
+	// OPTIONAL on the same terms as build_incarnation, and absent for the same
+	// reason. This is NOT the compatibility hedge two reviews rejected for the
+	// seal itself and for the actor epochs. That hedge made a field optional so
+	// that ARCHIVED data would still parse, which trades every live credential's
+	// strength for old bytes. This is optional because the field DOES NOT APPLY
+	// to a whole class of principal: a human bears no execution, so requiring an
+	// image digest of one would force every human session to invent a value, and
+	// an invented value is exactly what this field exists to refuse.
+	//
+	// The requirement is not weakened, it is made conditional on something the
+	// issuer knows and the schema cannot: SealSource.ApprovedBuild answers
+	// whether a principal bears an execution at all. A capability carries this
+	// field EXACTLY WHEN its exercising principal bears one, and the verifier
+	// enforces the correspondence in both directions — a missing execution for
+	// an execution-bearing principal is refused, and a PRESENT one for a
+	// principal that bears none is refused too, because that is a process
+	// claiming to be a workload.
+	ImageDigest   *string `protobuf:"bytes,5,opt,name=image_digest,json=imageDigest,proto3,oneof" json:"image_digest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -486,15 +510,15 @@ func (x *WorkSealV1) GetInstallationRevision() uint64 {
 }
 
 func (x *WorkSealV1) GetBuildIncarnation() uint64 {
-	if x != nil {
-		return x.BuildIncarnation
+	if x != nil && x.BuildIncarnation != nil {
+		return *x.BuildIncarnation
 	}
 	return 0
 }
 
 func (x *WorkSealV1) GetImageDigest() string {
-	if x != nil {
-		return x.ImageDigest
+	if x != nil && x.ImageDigest != nil {
+		return *x.ImageDigest
 	}
 	return ""
 }
@@ -1070,15 +1094,18 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\x10_organization_idB\f\n" +
 	"\n" +
 	"_grant_hopB\x14\n" +
-	"\x12_operation_binding\"\xad\x02\n" +
+	"\x12_operation_binding\"\x80\x04\n" +
 	"\n" +
 	"WorkSealV1\x120\n" +
 	"\x0fprincipal_epoch\x18\x01 \x01(\x04B\a\xbaH\x042\x02(\x01R\x0eprincipalEpoch\x123\n" +
 	"\x0finstallation_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\x0einstallationId\x12<\n" +
-	"\x15installation_revision\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\x14installationRevision\x124\n" +
-	"\x11build_incarnation\x18\x04 \x01(\x04B\a\xbaH\x042\x02(\x01R\x10buildIncarnation\x12D\n" +
-	"\fimage_digest\x18\x05 \x01(\tB!\xbaH\x1er\x1c\x10\x01\x18\x80\x022\x15^sha256:[a-f0-9]{64}$R\vimageDigest\"\x93\x01\n" +
+	"\x15installation_revision\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\x14installationRevision\x129\n" +
+	"\x11build_incarnation\x18\x04 \x01(\x04B\a\xbaH\x042\x02(\x01H\x00R\x10buildIncarnation\x88\x01\x01\x12I\n" +
+	"\fimage_digest\x18\x05 \x01(\tB!\xbaH\x1er\x1c\x10\x01\x18\x80\x022\x15^sha256:[a-f0-9]{64}$H\x01R\vimageDigest\x88\x01\x01:\x9f\x01\xbaH\x9b\x01\x1a\x98\x01\n" +
+	"\x1cwork_seal.execution_is_whole\x12Abuild_incarnation and image_digest are set together or not at all\x1a5has(this.build_incarnation) == has(this.image_digest)B\x14\n" +
+	"\x12_build_incarnationB\x0f\n" +
+	"\r_image_digest\"\x93\x01\n" +
 	"\x16WorkOperationBindingV1\x12)\n" +
 	"\n" +
 	"binding_id\x18\x01 \x01(\tB\n" +
@@ -1180,6 +1207,7 @@ func file_codefly_base_v0_work_context_proto_init() {
 		return
 	}
 	file_codefly_base_v0_work_context_proto_msgTypes[0].OneofWrappers = []any{}
+	file_codefly_base_v0_work_context_proto_msgTypes[1].OneofWrappers = []any{}
 	file_codefly_base_v0_work_context_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

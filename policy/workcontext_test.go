@@ -102,6 +102,7 @@ func TestPrincipalFromWorkContext_RejectsAnAgentWithoutItsManifestIdentity(t *te
 	owner := h.ownerSession()
 
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 1},
 		PrincipalID:   agentPrincipalID,
 		PrincipalKind: policy.KindAgent,
 		DelegationID:  delegationID,

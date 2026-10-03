@@ -193,8 +193,12 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 			// through, instead of seeing it as optional.
 			Seal: &basev0.WorkSealV1{
 				PrincipalEpoch: 2, InstallationId: "installation-1",
-				InstallationRevision: 3, BuildIncarnation: 11,
-				ImageDigest: "sha256:eca6c756839cbd532a6c7cb16fa75263600f3c710738ac267fb3988e03e146aa",
+				InstallationRevision: 3,
+				// The execution fields carry explicit presence now, because a
+				// principal that bears no execution — a human session —
+				// carries neither, and the schema requires them as a pair.
+				BuildIncarnation: receiptIncarnation(),
+				ImageDigest:      receiptDigest(),
 			},
 			ActorChain: []*basev0.WorkActorV1{{
 				PrincipalId: "principal-claude", PrincipalKind: "agent", DelegationId: "delegation-1",
@@ -224,5 +228,15 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 }
 
 func stringPointer(value string) *string {
+	return &value
+}
+
+func receiptIncarnation() *uint64 {
+	value := uint64(11)
+	return &value
+}
+
+func receiptDigest() *string {
+	value := "sha256:eca6c756839cbd532a6c7cb16fa75263600f3c710738ac267fb3988e03e146aa"
 	return &value
 }

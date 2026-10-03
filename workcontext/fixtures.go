@@ -229,10 +229,14 @@ func FixtureRevisions() RevisionSource { return FixedRevision(FixtureAuthorizati
 func FixtureSeals() *MemorySealSource {
 	source := NewMemorySealSource()
 	if err := source.Put(FixturePrincipal, Seal{
-		ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
+		InstallationID:       FixtureInstallation,
 		InstallationRevision: FixtureInstallationRevision,
-		BuildIncarnation:     FixtureBuildIncarnation,
 	}); err != nil {
+		panic(err)
+	}
+	// The approved execution is held per PRINCIPAL now, not on the
+	// installation seal, which is what lets a delegated hop attest its own.
+	if err := source.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 		panic(err)
 	}
 	// The owner's epoch is recorded like every other principal's, through the
@@ -460,8 +464,8 @@ func fixtureSessionOn(ctx context.Context, authority *Authority, installation, b
 	// would make the mint refuse instead of producing the capability the
 	// fixture exists to be.
 	attested := Execution{ImageDigest: FixtureImageDigest, BuildIncarnation: FixtureBuildIncarnation}
-	if held, err := authority.Seals.Seal(ctx, FixturePrincipal, installation); err == nil {
-		attested = Execution{ImageDigest: held.ImageDigest, BuildIncarnation: held.BuildIncarnation}
+	if digest, incarnation, err := authority.Seals.ApprovedBuild(ctx, FixturePrincipal); err == nil {
+		attested = Execution{ImageDigest: digest, BuildIncarnation: incarnation}
 	}
 	token, _, err := authority.Start(ctx, StartInput{
 		Execution:          attested,
@@ -542,47 +546,49 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// holds 4 — produced here the other way round, by minting at a revision
 	// the live source does not hold.
 	for _, moved := range []struct {
-		name  string
-		seal  Seal
-		epoch uint64
-		rule  string
-		field string
+		name        string
+		seal        Seal
+		epoch       uint64
+		digest      string
+		incarnation uint64
+		rule        string
+		field       string
 	}{
 		{
 			name: "stale-installation-revision",
-			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
-				InstallationRevision: FixtureInstallationRevision - 1, BuildIncarnation: FixtureBuildIncarnation},
-			epoch: FixturePrincipalEpoch,
-			rule:  "sealed to an installation revision the issuer has moved past", field: "installation revision",
+			seal: Seal{InstallationID: FixtureInstallation,
+				InstallationRevision: FixtureInstallationRevision - 1},
+			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation,
+			rule: "sealed to an installation revision the issuer has moved past", field: "installation revision",
 		},
 		{
 			name: "future-installation-revision",
-			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
-				InstallationRevision: FixtureInstallationRevision + 1, BuildIncarnation: FixtureBuildIncarnation},
-			epoch: FixturePrincipalEpoch,
+			seal: Seal{InstallationID: FixtureInstallation,
+				InstallationRevision: FixtureInstallationRevision + 1},
+			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation,
 			rule:  "sealed to an installation revision ahead of the issuer's; comparison is exact equality, not \"at least\"",
 			field: "installation revision",
 		},
 		{
 			name: "stale-principal-epoch",
-			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
-				InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation},
-			epoch: FixturePrincipalEpoch - 1,
-			rule:  "sealed to a superseded principal epoch", field: "principal epoch",
+			seal: Seal{InstallationID: FixtureInstallation,
+				InstallationRevision: FixtureInstallationRevision},
+			epoch: FixturePrincipalEpoch - 1, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation,
+			rule: "sealed to a superseded principal epoch", field: "principal epoch",
 		},
 		{
 			name: "stale-build-incarnation",
-			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
-				InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation - 1},
-			epoch: FixturePrincipalEpoch,
-			rule:  "sealed to a replaced build incarnation", field: "build incarnation",
+			seal: Seal{InstallationID: FixtureInstallation,
+				InstallationRevision: FixtureInstallationRevision},
+			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation - 1,
+			rule: "sealed to a replaced build incarnation", field: "build incarnation",
 		},
 		{
 			name: "unknown-installation",
-			seal: Seal{ImageDigest: FixtureImageDigest, InstallationID: "installation-conformance-other",
-				InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation},
-			epoch: FixturePrincipalEpoch,
-			rule:  "sealed to an installation the principal does not hold", field: "installation",
+			seal: Seal{InstallationID: "installation-conformance-other",
+				InstallationRevision: FixtureInstallationRevision},
+			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation,
+			rule: "sealed to an installation the principal does not hold", field: "installation",
 		},
 	} {
 		divergent := NewMemorySealSource()
@@ -590,6 +596,9 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			return nil, err
 		}
 		if err := divergent.PutEpoch(FixturePrincipal, moved.epoch); err != nil {
+			return nil, err
+		}
+		if err := divergent.PutApprovedBuild(FixturePrincipal, moved.digest, moved.incarnation); err != nil {
 			return nil, err
 		}
 		for _, binding := range []OperationBinding{
@@ -618,12 +627,14 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// fitting the capability's scopes would accept this.
 	divergent := NewMemorySealSource()
 	if err := divergent.Put(FixturePrincipal, Seal{
-		ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
-		InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
+		InstallationID: FixtureInstallation, InstallationRevision: FixtureInstallationRevision,
 	}); err != nil {
 		return nil, err
 	}
 	if err := divergent.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
+		return nil, err
+	}
+	if err := divergent.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 		return nil, err
 	}
 	// Granted to the owner here so the mint succeeds; the LIVE source grants
@@ -735,12 +746,14 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// cutting off the owner or the tenant.
 	staleActor := NewMemorySealSource()
 	if err := staleActor.Put(FixturePrincipal, Seal{
-		ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
-		InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
+		InstallationID: FixtureInstallation, InstallationRevision: FixtureInstallationRevision,
 	}); err != nil {
 		return nil, err
 	}
 	if err := staleActor.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
+		return nil, err
+	}
+	if err := staleActor.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 		return nil, err
 	}
 	if err := staleActor.PutEpoch(FixtureActor, FixtureActorEpoch-1); err != nil {
@@ -804,9 +817,11 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		// and the LIVE source is what refuses it.
 		permissive := NewMemorySealSource()
 		if err := permissive.Put(FixturePrincipal, Seal{
-			ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
-			InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
+			InstallationID: FixtureInstallation, InstallationRevision: FixtureInstallationRevision,
 		}); err != nil {
+			return nil, err
+		}
+		if err := permissive.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 			return nil, err
 		}
 		if err := permissive.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
@@ -855,9 +870,12 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			apply: func(wc *basev0.WorkContextV1) { wc.Seal.InstallationRevision = 0 },
 		},
 		{
-			name:  "zero-build-incarnation",
-			rule:  "a seal carrying build incarnation 0",
-			apply: func(wc *basev0.WorkContextV1) { wc.Seal.BuildIncarnation = 0 },
+			name: "zero-build-incarnation",
+			rule: "a seal carrying build incarnation 0",
+			apply: func(wc *basev0.WorkContextV1) {
+				zero := uint64(0)
+				wc.Seal.BuildIncarnation = &zero
+			},
 		},
 		{
 			name: "partial-operation-binding",
@@ -954,9 +972,11 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	} {
 		permissive := NewMemorySealSource()
 		if err := permissive.Put(FixturePrincipal, Seal{
-			ImageDigest: FixtureImageDigest, InstallationID: FixtureInstallation,
-			InstallationRevision: FixtureInstallationRevision, BuildIncarnation: FixtureBuildIncarnation,
+			InstallationID: FixtureInstallation, InstallationRevision: FixtureInstallationRevision,
 		}); err != nil {
+			return nil, err
+		}
+		if err := permissive.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 			return nil, err
 		}
 		if err := permissive.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {

@@ -41,15 +41,21 @@ type Seal struct {
 	// an earlier one is asking for authority under terms that no longer apply.
 	InstallationRevision uint64
 
-	// BuildIncarnation is the current incarnation of the build. It separates
-	// two runs of one approved build, so a capability cannot be carried from a
-	// replaced incarnation into a new one.
-	BuildIncarnation uint64
-
-	// ImageDigest is the APPROVED BUILD for this installation, as an OCI
-	// image-manifest digest. It is the issuer's answer about what is approved,
-	// never a workload's claim about itself.
-	ImageDigest string
+	// The execution fields that used to live here — BuildIncarnation and
+	// ImageDigest — MOVED to ApprovedBuild, and the move is the fix for a
+	// blocker rather than a tidy-up.
+	//
+	// They were read from the OWNER's installation record, so a capability's
+	// execution binding described the owner's workload however many
+	// delegation hops had been added and whoever was actually exercising it.
+	// A delegated hop's principal does not hold the owner's installation at
+	// all, which is why there was nothing to attest a derivation against and
+	// why execution-binding was closed only at Start.
+	//
+	// An execution belongs to a PRINCIPAL, not to a principal's use of an
+	// installation, for the same reason an epoch does. ApprovedBuild answers
+	// it per principal, and answers ErrNoApprovedBuild for a principal that
+	// bears no execution at all.
 }
 
 // Execution is what a caller attests it is running, when it asks for a
@@ -155,6 +161,17 @@ type OperationBinding struct {
 // coming back empty is the answer rather than an error on the way to one.
 var ErrNoSeal = errors.New("work context: principal holds no such installation")
 
+// ErrNoApprovedBuild is what a SealSource returns from ApprovedBuild when a
+// principal BEARS NO EXECUTION. It is not a failure and not a missing record:
+// it is the answer for a human session, which runs no approved build.
+//
+// It exists as a distinct sentinel because the alternative — an empty digest —
+// cannot be told apart from an issuer that has lost the record, and those two
+// must not read alike. One means "this capability carries no execution and
+// that is correct"; the other means "refuse, because the issuer cannot say
+// what is approved".
+var ErrNoApprovedBuild = errors.New("work context: principal bears no execution")
+
 // ErrNoBinding is what a SealSource returns when no binding exists under the
 // ID a capability sealed. A verifier turns it into a refusal rather than an
 // outage: a capability naming a binding that does not exist is not a
@@ -193,6 +210,28 @@ type SealSource interface {
 	// reach every capability it acts in. It returns ErrNoSeal when the
 	// principal is not known.
 	PrincipalEpoch(ctx context.Context, principalID string) (uint64, error)
+
+	// ApprovedBuild answers the execution the issuer approves for one
+	// principal: the image-manifest digest of the build, and the incarnation
+	// of the run. It is keyed on the PRINCIPAL and on nothing else.
+	//
+	// It returns ErrNoApprovedBuild when the principal bears no execution,
+	// which is the answer for a human session and is not an error.
+	//
+	// Keyed per principal because that is what a delegation needs. The
+	// execution used to be read from the owner's installation seal, so a
+	// derived capability's execution described the owner's workload no matter
+	// who was exercising it — and a hop's principal does not hold the owner's
+	// installation, so there was nothing a derivation could be attested
+	// against. The mint is now execution-bound at every hop, which is the
+	// blocker this method exists to close.
+	//
+	// It takes NO attributes of the workload, deliberately. Resolving by
+	// (service account, image digest) is exactly what lets a pod from a
+	// superseded generation in: it would answer "approved" for whatever that
+	// pod presents. The issuer answers what IT approves, the caller attests
+	// what it is running, and a mismatch is a refusal.
+	ApprovedBuild(ctx context.Context, principalID string) (digest string, incarnation uint64, err error)
 
 	// OperationBinding resolves one binding by its opaque ID, exactly. It
 	// returns ErrNoBinding when there is none.
@@ -249,23 +288,20 @@ func checkSealAgainst(ctx context.Context, seals SealSource, wc *basev0.WorkCont
 	if live.InstallationID != sealed.GetInstallationId() {
 		return fmt.Errorf("work context: seal source answered for installation %q, not %q", live.InstallationID, sealed.GetInstallationId())
 	}
-	for _, field := range []struct {
-		label  string
-		sealed uint64
-		live   uint64
-	}{
-		{"installation revision", sealed.GetInstallationRevision(), live.InstallationRevision},
-		{"build incarnation", sealed.GetBuildIncarnation(), live.BuildIncarnation},
-	} {
-		if field.sealed != field.live {
-			return fmt.Errorf("%w: sealed to %s %d, the issuer holds %d", ErrRevoked, field.label, field.sealed, field.live)
-		}
+	if sealed.GetInstallationRevision() != live.InstallationRevision {
+		return fmt.Errorf("%w: sealed to installation revision %d, the issuer holds %d",
+			ErrRevoked, sealed.GetInstallationRevision(), live.InstallationRevision)
 	}
-	// The approved build, compared exactly. A capability sealed to a build the
-	// issuer no longer approves is not a credential, however current its
-	// counters are.
-	if sealed.GetImageDigest() != live.ImageDigest {
-		return fmt.Errorf("%w: sealed to build %s, the issuer approves %s", ErrRevoked, sealed.GetImageDigest(), live.ImageDigest)
+	// The EXECUTION, against the principal that exercises this capability
+	// rather than against the owner's installation record.
+	//
+	// It used to be read from that installation record, which meant a derived
+	// capability's execution described the OWNER's workload however many hops
+	// had been added. So a hop was never bound to what it was running, and a
+	// caller holding a parent capability derived children regardless of its
+	// own build. That is the blocker; this is the check that closes it.
+	if err := checkExecutionAgainst(ctx, seals, exercisingPrincipal(wc), sealed); err != nil {
+		return err
 	}
 	// The OWNER's epoch, from the one source, exactly as every hop's is read.
 	if err := checkEpochAgainst(ctx, seals, "the task owner", owner, sealed.GetPrincipalEpoch()); err != nil {
@@ -376,6 +412,47 @@ func checkOperationBindingAgainst(ctx context.Context, seals SealSource, wc *bas
 	return nil
 }
 
+// checkExecutionAgainst holds a seal's execution against what the issuer
+// approves for the principal exercising it, IN BOTH DIRECTIONS.
+//
+// Both directions is the whole content. An execution-bearing principal whose
+// capability carries none is refused, which is the obvious half. A principal
+// that bears NO execution whose capability carries one is refused too — that
+// is a process claiming to be a workload, and if only the first half were
+// checked, a human session could be handed an execution nobody approved and
+// nothing would object.
+//
+// The correspondence is what makes the field's optionality honest rather than
+// a hedge: a capability carries an execution exactly when its exercising
+// principal bears one.
+func checkExecutionAgainst(ctx context.Context, seals SealSource, exercising string, sealed *basev0.WorkSealV1) error {
+	digest, incarnation, err := seals.ApprovedBuild(ctx, exercising)
+	bearsNone := errors.Is(err, ErrNoApprovedBuild)
+	if err != nil && !bearsNone {
+		return fmt.Errorf("work context: approved build for principal %q: %w", exercising, err)
+	}
+	carried := sealed.GetImageDigest() != "" || sealed.GetBuildIncarnation() != 0
+	switch {
+	case bearsNone && carried:
+		return fmt.Errorf("%w: sealed to build %s incarnation %d, and principal %q bears no execution the issuer approves",
+			ErrRevoked, sealed.GetImageDigest(), sealed.GetBuildIncarnation(), exercising)
+	case bearsNone:
+		return nil
+	case !carried:
+		return fmt.Errorf("%w: carries no execution, and principal %q exercises build %s incarnation %d",
+			ErrRevoked, exercising, digest, incarnation)
+	}
+	if sealed.GetImageDigest() != digest {
+		return fmt.Errorf("%w: sealed to build %s, the issuer approves %s for principal %q",
+			ErrRevoked, sealed.GetImageDigest(), digest, exercising)
+	}
+	if sealed.GetBuildIncarnation() != incarnation {
+		return fmt.Errorf("%w: sealed to incarnation %d, the issuer holds %d for principal %q, so this execution has been replaced",
+			ErrRevoked, sealed.GetBuildIncarnation(), incarnation, exercising)
+	}
+	return nil
+}
+
 // sealFor reads the live seal and, when the caller named an operation binding,
 // the live binding, and returns the messages a capability carries. A minter
 // reads them rather than accepting them so that a capability can never be
@@ -401,27 +478,50 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 	if live.InstallationID != installationID {
 		return nil, nil, fmt.Errorf("work context: seal source answered for installation %q, not %q", live.InstallationID, installationID)
 	}
-	// The execution the caller attests must be the approved one, and the
-	// incarnation it believes it belongs to must be the live one. BOTH are
-	// checked rather than recorded: a mint that took the caller's word would
-	// hand a superseded pod a capability sealed to the current execution, and
-	// the refusal would surface later as an authentication failure in a
-	// process that cannot explain it.
-	if attested.ImageDigest == "" || attested.BuildIncarnation == 0 {
-		return nil, nil, fmt.Errorf("%w: a capability is sealed to one execution, so the caller must attest the image digest and incarnation it is running",
-			ErrInvalid)
+	// The execution the caller attests must be the one the issuer approves for
+	// the principal that will EXERCISE this capability, and the incarnation it
+	// believes it belongs to must be the live one. Both are checked rather
+	// than recorded: a mint that took the caller's word would hand a
+	// superseded pod a capability sealed to the current execution, and the
+	// refusal would surface later as an authentication failure in a process
+	// that cannot explain it.
+	//
+	// Keyed on `exercising`, not on the owner's installation. That is the
+	// blocker's fix: a hop's principal does not hold the owner's
+	// installation, so an execution read from the installation record
+	// described the owner's workload whoever was actually running.
+	approvedDigest, approvedIncarnation, err := a.Seals.ApprovedBuild(ctx, exercising)
+	bearsNoExecution := errors.Is(err, ErrNoApprovedBuild)
+	if err != nil && !bearsNoExecution {
+		return nil, nil, fmt.Errorf("work context: approved build for principal %q: %w", exercising, err)
 	}
-	if live.ImageDigest == "" {
-		return nil, nil, fmt.Errorf("work context: the seal source holds no approved build for principal %q installation %q, so no execution can be matched against it",
-			principalID, installationID)
+	attestedAny := attested.ImageDigest != "" || attested.BuildIncarnation != 0
+	// A principal that bears no execution — a human session — attests none,
+	// and attesting one anyway is refused rather than ignored. A process
+	// claiming to be a workload is the thing this field exists to catch, and
+	// silently dropping the claim would mint a capability whose seal says
+	// something the caller tried to assert.
+	if bearsNoExecution && attestedAny {
+		return nil, nil, fmt.Errorf("%w: principal %q bears no execution the issuer approves, so it cannot attest build %s incarnation %d",
+			ErrInvalid, exercising, attested.ImageDigest, attested.BuildIncarnation)
 	}
-	if attested.ImageDigest != live.ImageDigest {
-		return nil, nil, fmt.Errorf("%w: the caller attests build %s and the approved build for installation %q is %s",
-			ErrRevoked, attested.ImageDigest, installationID, live.ImageDigest)
+	if !bearsNoExecution && !attestedAny {
+		return nil, nil, fmt.Errorf("%w: principal %q exercises an approved execution, so the caller must attest the image digest and incarnation it is running",
+			ErrInvalid, exercising)
 	}
-	if attested.BuildIncarnation != live.BuildIncarnation {
-		return nil, nil, fmt.Errorf("%w: the caller attests incarnation %d and the issuer holds %d, so this execution has been replaced",
-			ErrRevoked, attested.BuildIncarnation, live.BuildIncarnation)
+	if !bearsNoExecution {
+		if attested.ImageDigest == "" || attested.BuildIncarnation == 0 {
+			return nil, nil, fmt.Errorf("%w: an attested execution is a digest AND an incarnation; one without the other names a run nothing can check",
+				ErrInvalid)
+		}
+		if attested.ImageDigest != approvedDigest {
+			return nil, nil, fmt.Errorf("%w: the caller attests build %s and the issuer approves %s for principal %q",
+				ErrRevoked, attested.ImageDigest, approvedDigest, exercising)
+		}
+		if attested.BuildIncarnation != approvedIncarnation {
+			return nil, nil, fmt.Errorf("%w: the caller attests incarnation %d and the issuer holds %d for principal %q, so this execution has been replaced",
+				ErrRevoked, attested.BuildIncarnation, approvedIncarnation, exercising)
+		}
 	}
 	// The epoch comes from the one source, never from the seal record.
 	epoch, err := a.epochFor(ctx, principalID)
@@ -432,8 +532,13 @@ func (a *Authority) sealFor(ctx context.Context, principalID, installationID, bi
 		PrincipalEpoch:       epoch,
 		InstallationId:       live.InstallationID,
 		InstallationRevision: live.InstallationRevision,
-		BuildIncarnation:     live.BuildIncarnation,
-		ImageDigest:          live.ImageDigest,
+	}
+	// Set as a PAIR or not at all, which is what the schema's own message rule
+	// requires: the two fields describe one execution and one of them alone
+	// names a run nothing can check.
+	if !bearsNoExecution {
+		seal.ImageDigest = &approvedDigest
+		seal.BuildIncarnation = &approvedIncarnation
 	}
 	if bindingID == "" {
 		return seal, nil, nil
@@ -539,6 +644,13 @@ type MemorySealSource struct {
 	seals    map[string]Seal
 	epochs   map[string]uint64
 	bindings map[string]OperationBinding
+	builds   map[string]approvedBuild
+}
+
+// approvedBuild is one principal's approved execution, as a source holds it.
+type approvedBuild struct {
+	digest      string
+	incarnation uint64
 }
 
 // NewMemorySealSource returns an empty source.
@@ -547,6 +659,7 @@ func NewMemorySealSource() *MemorySealSource {
 		seals:    map[string]Seal{},
 		epochs:   map[string]uint64{},
 		bindings: map[string]OperationBinding{},
+		builds:   map[string]approvedBuild{},
 	}
 }
 
@@ -602,13 +715,10 @@ func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 	if principalID == "" || seal.InstallationID == "" {
 		return fmt.Errorf("%w: a seal is held for one principal's use of one installation", ErrInvalid)
 	}
-	if seal.ImageDigest == "" {
-		return fmt.Errorf("%w: a seal names the approved build for the installation; without one no execution can be matched against it", ErrInvalid)
-	}
-	if seal.InstallationRevision == 0 || seal.BuildIncarnation == 0 {
+	if seal.InstallationRevision == 0 {
 		// Zero is not a revision, and a capability sealed to one would compare
 		// equal to a source that simply had nothing recorded.
-		return fmt.Errorf("%w: a seal's revision and incarnation both start at 1", ErrInvalid)
+		return fmt.Errorf("%w: a seal's installation revision starts at 1", ErrInvalid)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -623,7 +733,6 @@ func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 			wanted uint64
 		}{
 			{"installation revision", held.InstallationRevision, seal.InstallationRevision},
-			{"build incarnation", held.BuildIncarnation, seal.BuildIncarnation},
 		} {
 			if field.wanted < field.held {
 				return fmt.Errorf("%w: principal %q installation %q is at %s %d and it only advances; lowering it to %d would re-admit every capability sealed to the earlier one",
@@ -633,6 +742,49 @@ func (s *MemorySealSource) Put(principalID string, seal Seal) error {
 	}
 	s.seals[key] = seal
 	return nil
+}
+
+// PutApprovedBuild records the execution the issuer approves for one
+// principal. A principal with no record BEARS NO EXECUTION and ApprovedBuild
+// answers ErrNoApprovedBuild for it — which is the correct answer for a human
+// session rather than a gap to be filled in.
+//
+// Monotone in the incarnation, for the reason Put and PutEpoch are: the
+// incarnation is compared for EQUALITY, so moving it back re-admits every
+// capability sealed to the earlier run. The DIGEST may change freely, because
+// approving a different build is not a rewind — it is what approving a new
+// build is — and the incarnation advancing with it is what separates the runs.
+func (s *MemorySealSource) PutApprovedBuild(principalID, digest string, incarnation uint64) error {
+	if principalID == "" {
+		return fmt.Errorf("%w: an approved build is held for one principal", ErrInvalid)
+	}
+	if digest == "" || incarnation == 0 {
+		// Both or neither, the same pairing the schema requires of a seal: one
+		// without the other names a run nothing can check. A principal that
+		// bears no execution is recorded by NOT calling this.
+		return fmt.Errorf("%w: an approved build is a digest AND an incarnation starting at 1; to say a principal bears no execution, record none",
+			ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if held, exists := s.builds[principalID]; exists && incarnation < held.incarnation {
+		return fmt.Errorf("%w: principal %q is at incarnation %d and it only advances; lowering it to %d would re-admit every capability sealed to the earlier run",
+			ErrInvalid, principalID, held.incarnation, incarnation)
+	}
+	s.builds[principalID] = approvedBuild{digest: digest, incarnation: incarnation}
+	return nil
+}
+
+// ApprovedBuild answers the execution approved for one principal, or
+// ErrNoApprovedBuild when it bears none.
+func (s *MemorySealSource) ApprovedBuild(_ context.Context, principalID string) (string, uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	held, exists := s.builds[principalID]
+	if !exists {
+		return "", 0, fmt.Errorf("%w: principal %q", ErrNoApprovedBuild, principalID)
+	}
+	return held.digest, held.incarnation, nil
 }
 
 // PutBinding records the live state of one operation binding.

@@ -27,6 +27,7 @@ func TestChild_RefusesAParentThatIsOnlyAliveOnSkew(t *testing.T) {
 	require.NoError(t, err, "the parent is still accepted inside the skew window")
 
 	_, _, err = h.authority.Child(context.Background(), onSkew, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -50,7 +51,7 @@ func TestGrant_RefusesAParentThatIsOnlyAliveOnSkew(t *testing.T) {
 	onSkew, err := h.verify(audience, agent.Encoded())
 	require.NoError(t, err)
 
-	_, _, err = h.authority.Grant(context.Background(), onSkew, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	_, _, err = h.authority.Grant(context.Background(), onSkew, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.Contains(t, err.Error(), "can open no further session")
 }
@@ -66,6 +67,7 @@ func TestChild_DoesNotAliasTheParentsVerifiedClaims(t *testing.T) {
 	before := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
 
 	_, child, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		PrincipalID:   "a-sub",
 		PrincipalKind: "agent",
 		AgentID:       "codefly.dev/sub:1.0.0",
@@ -127,6 +129,7 @@ func TestChild_RefusesAParentWhoseRevisionIsSuperseded(t *testing.T) {
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 
 	_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -149,7 +152,7 @@ func TestGrant_RefusesAParentWhoseRevisionIsSuperseded(t *testing.T) {
 
 	h.revision++
 
-	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 }
 
@@ -160,6 +163,7 @@ func TestChild_CarriesTheIssuersCurrentRevisionWhenTheParentIsCurrent(t *testing
 	_, owner := h.ownerSession(audience)
 
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
