@@ -208,6 +208,41 @@ an independent source":
   makes the kit pass while proving the opposite of what it exists to prove.
   The identity proof is the consumer's own import gate, never this.
 
+## The fixture key is NOT linked into every binary, measured
+
+A review found that `FixtureKeyPair()` derives a private key from a seed in the
+source and concluded it is "linked into every production binary importing
+`workcontext`", with the remedy being to move the kit into a test-only package.
+
+**The premise does not survive measurement.** Go's linker eliminates it. Built
+with a positive control, because a negative result from an unvalidated method
+is worth nothing:
+
+| binary | seed string present | `FixtureKeyPair` symbol |
+| --- | --- | --- |
+| imports `workcontext`, only constructs a `Verifier` | no | no |
+| calls `FixtureKeyPair()` (positive control) | yes | yes |
+
+Method: build each, then `strings <bin> | grep -F "codefly work context
+conformance fixtures"` and `go tool nm <bin> | grep FixtureKeyPair`. The
+control is what makes the first row meaningful — an earlier run of the same
+check used `grep` on the binary directly and reported "absent" for BOTH, which
+would have been a false refutation.
+
+So the exposure is narrower than stated: a binary that REFERENCES the kit links
+the key. That is a real shape but a different one, and relocating the kit — which
+would break every consumer conformance suite just written against
+`Fixtures`/`conformance` — is not justified by a premise that measurement
+contradicts.
+
+**What remains true, and is the open owner item:** `conformance.Verifier()` is
+an exported, ready-made verifier that trusts the fixture key, so the risk is
+reachability by mistake rather than linkage. That is why
+`TrustTheConformanceFixtureKey` must be set explicitly and why the key is
+refused by default — see the next section. A `//go:build` tag or a separate
+module would make it unreachable rather than merely visible, and that is the
+decision still open.
+
 ## The fixture key is refused by default
 
 The kit's private key is **derivable from this package's source by anyone**, and
