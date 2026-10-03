@@ -1153,9 +1153,37 @@ func fixtureUnknownField(number int, value string) protoreflect.RawFields {
 // It compares in constant time out of habit rather than need — the fixture
 // public key is public by construction — because a key comparison that is
 // sometimes variable-time is the kind of thing that gets copied.
+// IsFixtureKeyForTest exposes the fixture-key comparison so a test can hold
+// the written-out constant against the derived key. It is the only exported
+// path to it and exists for that one assertion.
+func IsFixtureKeyForTest(key ed25519.PublicKey) bool { return isFixtureKey(key) }
+
 func isFixtureKey(key ed25519.PublicKey) bool {
-	public, _ := FixtureKeyPair()
-	return subtle.ConstantTimeCompare(key, public) == 1
+	return subtle.ConstantTimeCompare(key, fixturePublicKey[:]) == 1
+}
+
+// fixturePublicKey is the fixture key's PUBLIC half, written out rather than
+// derived, and that is the whole point of it.
+//
+// It used to call FixtureKeyPair, which derives the private key from
+// fixtureSeed. Verify calls isFixtureKey, so every binary that verifies
+// anything linked the seed and the derivation — measured: a binary calling
+// Verify contains the seed string and the FixtureKeyPair symbol.
+//
+// I had reported the opposite, from a control that constructed a Verifier and
+// never called Verify, so the linker dropped the whole chain. That control
+// does not describe any real consumer: nothing imports this package without
+// verifying. The measurement was wrong in the direction of dismissing the
+// finding.
+//
+// Comparing against the public half keeps the refusal — which is the point of
+// isFixtureKey — while leaving the seed reachable only from code that actually
+// uses the kit. A test asserts these bytes still equal FixtureKeyPair's public
+// half, so the constant cannot drift from the key it names.
+var fixturePublicKey = [ed25519.PublicKeySize]byte{
+	0xcd, 0x49, 0x36, 0x20, 0x71, 0x98, 0xa6, 0x0c, 0xd0, 0x22, 0x0e, 0xb6,
+	0x5d, 0x7d, 0xcc, 0xd8, 0x4e, 0x25, 0x8f, 0x09, 0xf7, 0xe2, 0xc8, 0x1d,
+	0x1a, 0xb7, 0x86, 0x38, 0xc9, 0x7d, 0x11, 0xfb,
 }
 
 // fixtureExecutionFor is the execution a fixture hop attests: whatever the

@@ -49,8 +49,8 @@ func activationOf(t *testing.T, a *solutionhost.AuthorityDocument, p *solutionho
 	t.Helper()
 	request := solutionhost.ActivationRequest{
 		Build: build, Envelope: solutionhost.FixtureEnvelope(),
-		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta"}},
-		FirstActivation: true,
+		DomainsBySigner:      map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta"}},
+		FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	}
 	if a != nil {
 		request.Authority = deliverAuthority(t, a)
@@ -214,14 +214,14 @@ func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
 
 	request := activationOf(t, replayed, presenceDocument, build)
 	request.Applied = applied
-	request.FirstActivation = false
+	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrStaleGeneration)
 
 	// The current generation activates against its own applied record.
 	request = activationOf(t, current, presenceDocument, build)
 	request.Applied = applied
-	request.FirstActivation = false
+	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
 	_, err = solutionhost.Activate(request)
 	require.NoError(t, err)
 
@@ -231,7 +231,7 @@ func TestAReplayedAuthorityGenerationActivatesNothing(t *testing.T) {
 	rewritten.EffectiveFrom = current.EffectiveFrom + 1
 	request = activationOf(t, rewritten, presenceDocument, build)
 	request.Applied = applied
-	request.FirstActivation = false
+	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrRewrittenGeneration)
 }
@@ -251,7 +251,7 @@ func TestAWithdrawnAuthorityCannotBeRevived(t *testing.T) {
 	revival.Generation = tombstone.Generation + 1
 	request := activationOf(t, revival, presenceDocument, build)
 	request.Applied = withdrawn
-	request.FirstActivation = false
+	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
 }
@@ -622,11 +622,11 @@ func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
 	build := presenceDocument.Workloads[0].Image.Digest
 
 	match, err := solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Authority:        authorityDocument,
-		Presence:         presenceDocument,
-		Build:            build,
-		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
-		FirstActivation:  true,
+		Authority:            authorityDocument,
+		Presence:             presenceDocument,
+		Build:                build,
+		EnvelopeRevision:     uint64(solutionhost.FixtureEnvelopeRevision),
+		FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.RenderedMatch{
@@ -644,22 +644,22 @@ func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
 	elsewhere := validAuthority(t)
 	elsewhere.PresenceBinding = "some-other-binding"
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Authority:        elsewhere,
-		Presence:         presenceDocument,
-		Build:            build,
-		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
-		FirstActivation:  true,
+		Authority:            elsewhere,
+		Presence:             presenceDocument,
+		Build:                build,
+		EnvelopeRevision:     uint64(solutionhost.FixtureEnvelopeRevision),
+		FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "is granted over binding")
 
 	// Each half alone still grants nothing.
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Presence: presenceDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision), FirstActivation: true,
+		Presence: presenceDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision), FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
-		Authority: authorityDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision), FirstActivation: true,
+		Authority: authorityDocument, Build: build, EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision), FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 }
@@ -698,7 +698,7 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 		EnvelopeRevision: revision,
 		// A publish that read the base branch and found nothing says so
 		// explicitly, rather than letting zero values mean it.
-		FirstActivation: true,
+		FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, revision, match.EnvelopeRevision)
@@ -707,7 +707,7 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 	// tuple that agrees with itself about nothing activates nothing.
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
 		Authority: authorityDocument, Presence: presenceDocument, Build: build,
-		FirstActivation: true,
+		FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "no envelope revision was named")
@@ -718,8 +718,8 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 	// ceiling satisfies that between themselves.
 	_, err = solutionhost.ActivateRendered(solutionhost.RenderedActivationRequest{
 		Authority: authorityDocument, Presence: presenceDocument, Build: build,
-		EnvelopeRevision: revision + 1,
-		FirstActivation:  true,
+		EnvelopeRevision:     revision + 1,
+		FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	})
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
 	require.Contains(t, err.Error(), "envelope revision")
@@ -837,7 +837,7 @@ func TestActivationRunsThePresenceFoldToo(t *testing.T) {
 	require.NoError(t, err)
 
 	request := activationOf(t, authorityDocument, presenceDocument, build)
-	request.FirstActivation = false
+	request.FirstAuthorityRecord, request.FirstPresenceRecord = true, false
 	request.AppliedPresence = tombstone
 
 	_, err = solutionhost.Activate(request)
@@ -852,7 +852,8 @@ func TestActivationRunsThePresenceFoldToo(t *testing.T) {
 	later := valid(t)
 	later.Generation = 6
 	afterTombstone := activationOf(t, validAuthority(t), later, later.Workloads[0].Image.Digest)
-	afterTombstone.FirstActivation = false
+	afterTombstone.FirstAuthorityRecord = true
+	afterTombstone.FirstPresenceRecord = false
 	afterTombstone.AppliedPresence = tombstone
 	_, err = solutionhost.Activate(afterTombstone)
 	require.ErrorIs(t, err, solutionhost.ErrTombstoned)
@@ -889,7 +890,7 @@ func TestAWithdrawnAuthorityCannotBeRenamedBackIntoLife(t *testing.T) {
 	require.Equal(t, withdrawnDocument.PresenceBinding, renamed.PresenceBinding)
 
 	request := activationOf(t, renamed, presenceDocument, build)
-	request.FirstActivation = false
+	request.FirstAuthorityRecord, request.FirstPresenceRecord = false, true
 	request.Applied = withdrawn
 
 	_, err = solutionhost.Activate(request)
@@ -911,20 +912,56 @@ func TestNothingAppliedMustBeStatedRatherThanDefaulted(t *testing.T) {
 	build := presenceDocument.Workloads[0].Image.Digest
 
 	forgot := activationOf(t, authorityDocument, presenceDocument, build)
-	forgot.FirstActivation = false
+	forgot.FirstAuthorityRecord, forgot.FirstPresenceRecord = false, false
 	_, err := solutionhost.Activate(forgot)
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
-	require.Contains(t, err.Error(), "set FirstActivation to state that it holds none")
+	require.Contains(t, err.Error(), "declare that it holds none")
 
-	// And the marker cannot be combined with a record, which would be a
-	// caller asserting two different things.
+	// THE MIXED FORM, which the single marker allowed and which four executed
+	// bypasses went through: supplying one record let the OTHER fold run on
+	// its zero value, and both decide paths read a zero record as "apply".
+	onlyAuthority := activationOf(t, authorityDocument, presenceDocument, build)
+	onlyAuthority.FirstAuthorityRecord, onlyAuthority.FirstPresenceRecord = false, false
 	applied, err := solutionhost.AppliedAuthorityFrom(authorityDocument)
 	require.NoError(t, err)
+	onlyAuthority.Applied = applied
+	_, err = solutionhost.Activate(onlyAuthority)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "no applied presence record was given")
+
+	onlyPresence := activationOf(t, authorityDocument, presenceDocument, build)
+	onlyPresence.FirstAuthorityRecord, onlyPresence.FirstPresenceRecord = false, false
+	appliedPresence, err := solutionhost.AppliedFrom(presenceDocument)
+	require.NoError(t, err)
+	onlyPresence.AppliedPresence = appliedPresence
+	_, err = solutionhost.Activate(onlyPresence)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "no applied authority record was given")
+
+	// A record for ANOTHER BINDING is not this binding's history.
+	foreign := activationOf(t, authorityDocument, presenceDocument, build)
+	foreign.FirstAuthorityRecord, foreign.FirstPresenceRecord = true, false
+	foreign.AppliedPresence = solutionhost.Applied{Binding: "some-other-binding", Generation: 1}
+	_, err = solutionhost.Activate(foreign)
+	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
+	require.Contains(t, err.Error(), "is for binding")
+
+	// And a record that is not well formed is refused rather than folded,
+	// which Host.appliedByBinding already did for the admission path.
+	garbage := activationOf(t, authorityDocument, presenceDocument, build)
+	garbage.FirstAuthorityRecord, garbage.FirstPresenceRecord = true, false
+	garbage.AppliedPresence = solutionhost.Applied{Binding: presenceDocument.Binding}
+	_, err = solutionhost.Activate(garbage)
+	require.ErrorIs(t, err, solutionhost.ErrAppliedUnusable)
+	require.Contains(t, err.Error(), "needs a generation and the digest")
+
+	// And a marker cannot be combined with a record of the same kind, which
+	// would be a caller asserting two different things.
 	contradictory := activationOf(t, authorityDocument, presenceDocument, build)
 	contradictory.Applied = applied
 	_, err = solutionhost.Activate(contradictory)
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
-	require.Contains(t, err.Error(), "holds no record")
+	require.Contains(t, err.Error(), "declared to have no applied record")
 }
 
 // TestAnUnnamedHostAdmitsNothing is C4: Host{}.Admit returned DecisionApply

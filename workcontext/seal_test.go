@@ -1492,3 +1492,13 @@ func TestAnUnknownPrincipalIsARefusalAndBearingNoneIsRecorded(t *testing.T) {
 	require.NoError(t, source.PutApprovedBuild("svc", workcontext.FixtureImageDigest, 3))
 	require.ErrorIs(t, source.PutBearsNoExecution("svc"), workcontext.ErrInvalid)
 }
+
+// The hard-coded fixture public key must stay equal to the key it names, or
+// the refusal in Verify silently stops matching anything.
+func TestTheFixturePublicKeyConstantMatchesTheKey(t *testing.T) {
+	public, _ := workcontext.FixtureKeyPair()
+	// Round-trips through the exported accessor, which is the only thing a
+	// consumer can see, so a drift in either direction fails here.
+	require.True(t, workcontext.IsFixtureKeyForTest(public),
+		"the written-out public key no longer matches FixtureKeyPair's")
+}

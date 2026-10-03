@@ -208,40 +208,44 @@ an independent source":
   makes the kit pass while proving the opposite of what it exists to prove.
   The identity proof is the consumer's own import gate, never this.
 
-## The fixture key is NOT linked into every binary, measured
+## The fixture key and what Verify used to drag in — a corrected measurement
 
-A review found that `FixtureKeyPair()` derives a private key from a seed in the
-source and concluded it is "linked into every production binary importing
-`workcontext`", with the remedy being to move the kit into a test-only package.
+**The previous version of this section was wrong, and it is replaced rather
+than quietly edited because it published a false claim.**
 
-**The premise does not survive measurement.** Go's linker eliminates it. Built
-with a positive control, because a negative result from an unvalidated method
-is worth nothing:
+It said the fixture private key is not linked into a binary importing
+`workcontext`, concluding that M8's premise failed. The control it measured
+constructed a `Verifier` and never called `Verify`. **No real consumer does
+that** — anything using this package verifies — and `Verify` called
+`isFixtureKey`, which called `FixtureKeyPair`, which derives the private key
+from `fixtureSeed`. So the linker kept the whole chain for any binary that
+verifies, and the measurement was wrong in the direction of dismissing the
+finding.
 
-| binary | seed string present | `FixtureKeyPair` symbol |
+Measured with a binary that calls `Verify`, which is the control that describes
+a consumer:
+
+| | seed string | `FixtureKeyPair` symbol |
 | --- | --- | --- |
-| imports `workcontext`, only constructs a `Verifier` | no | no |
-| calls `FixtureKeyPair()` (positive control) | yes | yes |
+| before, binary calling `Verify` | **present** | **present** |
+| after, binary calling `Verify` | absent | absent |
 
-Method: build each, then `strings <bin> | grep -F "codefly work context
-conformance fixtures"` and `go tool nm <bin> | grep FixtureKeyPair`. The
-control is what makes the first row meaningful — an earlier run of the same
-check used `grep` on the binary directly and reported "absent" for BOTH, which
-would have been a false refutation.
+The fix: `isFixtureKey` compares against `fixturePublicKey`, the public half
+written out as bytes, so the refusal stands while nothing on the verify path
+derives the private key. `TestTheFixturePublicKeyConstantMatchesTheKey` holds
+the constant against `FixtureKeyPair`, so it cannot drift from the key it
+names.
 
-So the exposure is narrower than stated: a binary that REFERENCES the kit links
-the key. That is a real shape but a different one, and relocating the kit — which
-would break every consumer conformance suite just written against
-`Fixtures`/`conformance` — is not justified by a premise that measurement
-contradicts.
+Method, so it can be re-run rather than trusted: build a binary that calls
+`Verify`, then `strings <bin> | grep -F "codefly work context conformance
+fixtures"` and `go tool nm <bin> | grep FixtureKeyPair`. **Use a control that
+calls the function under test** — that is the whole lesson of the two wrong
+measurements this section has carried.
 
-**What remains true, and is the open owner item:** `conformance.Verifier()` is
-an exported, ready-made verifier that trusts the fixture key, so the risk is
-reachability by mistake rather than linkage. That is why
-`TrustTheConformanceFixtureKey` must be set explicitly and why the key is
-refused by default — see the next section. A `//go:build` tag or a separate
-module would make it unreachable rather than merely visible, and that is the
-decision still open.
+What remains, unchanged and still the owner's: `conformance.Verifier()` is an
+exported, ready-made verifier that trusts the fixture key, so the residual risk
+is reachability by mistake. A `//go:build` tag or a separate module would make
+it unreachable rather than merely refused by default.
 
 ## The fixture key is refused by default
 

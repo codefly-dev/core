@@ -661,8 +661,13 @@ type ActivationRequest struct {
 	// consulted no presence record at all.
 	AppliedPresence Applied
 
-	// FirstActivation says, EXPLICITLY, that this host holds no applied record
-	// for this binding.
+	// FirstAuthorityRecord and FirstPresenceRecord say, EXPLICITLY and PER
+	// HALF, that this host holds no applied record of that kind for this
+	// binding.
+	//
+	// One marker for both halves was a hole: the guard refused only when BOTH
+	// records were empty, so supplying either let the other fold run on its
+	// zero value, which decideAuthority and decide both read as "apply".
 	//
 	// It exists because the zero value could not be told from a caller that
 	// forgot the records, and those two must not read alike — the same
@@ -671,7 +676,8 @@ type ActivationRequest struct {
 	// and no marker is refused rather than treated as a first generation,
 	// because "nothing applied" is the single most permissive input this call
 	// takes and it must be asserted rather than defaulted.
-	FirstActivation bool
+	FirstAuthorityRecord bool
+	FirstPresenceRecord  bool
 }
 
 // Activate reports whether an authority document and a presence document form a
@@ -793,7 +799,7 @@ func Activate(request ActivationRequest) (Activation, error) {
 	if err := authority.ValidateAgainst(request.Envelope); err != nil {
 		return Activation{}, err
 	}
-	return activate(authority, presence, build, request.Envelope.Revision, request.Applied, request.AppliedPresence, request.FirstActivation)
+	return activate(authority, presence, build, request.Envelope.Revision, request.Applied, request.AppliedPresence, request.FirstAuthorityRecord, request.FirstPresenceRecord)
 }
 
 // RenderedActivationRequest is the pair a RENDERER holds: parsed documents it
@@ -850,7 +856,8 @@ type RenderedActivationRequest struct {
 	// FirstActivation states explicitly that no record exists for this
 	// binding. See ActivationRequest.FirstActivation: the zero value cannot be
 	// told from a caller that forgot, so the permissive case is asserted.
-	FirstActivation bool
+	FirstAuthorityRecord bool
+	FirstPresenceRecord  bool
 }
 
 // RenderedMatch is what ActivateRendered answers: the two halves MATCH for one
@@ -917,7 +924,7 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 	if request.Presence == nil {
 		return RenderedMatch{}, fmt.Errorf("%w: no presence document; authority alone grants nothing", ErrNotActivated)
 	}
-	activation, err := activate(request.Authority, request.Presence, request.Build, request.EnvelopeRevision, request.Applied, request.AppliedPresence, request.FirstActivation)
+	activation, err := activate(request.Authority, request.Presence, request.Build, request.EnvelopeRevision, request.Applied, request.AppliedPresence, request.FirstAuthorityRecord, request.FirstPresenceRecord)
 	if err != nil {
 		return RenderedMatch{}, err
 	}
@@ -946,16 +953,61 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 // case where the diff and the semantics disagree, and it misleads in the
 // direction of reporting a regression that does not exist, or worse,
 // concluding the ceiling is unchecked and designing around it.
-func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelopeRevision uint64, applied AppliedAuthority, appliedPresence Applied, firstActivation bool) (Activation, error) {
-	// "Nothing applied" is asserted, never defaulted. See
-	// ActivationRequest.FirstActivation.
-	if !firstActivation && applied.Authority == "" && appliedPresence.Binding == "" {
-		return Activation{}, fmt.Errorf("%w: no applied records were given for binding %q; pass the host's records, or set FirstActivation to state that it holds none",
-			ErrNotActivated, presence.Binding)
+func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build ImageDigest, envelopeRevision uint64, applied AppliedAuthority, appliedPresence Applied, firstAuthority, firstPresence bool) (Activation, error) {
+	// "Nothing applied" is asserted PER HALF, never defaulted.
+	//
+	// One marker for both halves was the hole. The guard refused only when
+	// BOTH records were empty, so supplying either one let the OTHER fold
+	// run against its zero value — and decideAuthority and decide both treat
+	// a zero record as "nothing applied yet, apply". Four bypasses were
+	// executed against the single marker: a withdrawn authority renamed with
+	// only the presence record given; an older generation replayed with only
+	// the authority record; a tombstoned presence with only the authority
+	// record; and a garbage AppliedPresence that was never validated.
+	//
+	// Worse, my own TestAWithdrawnAuthorityCannotBeRenamedBackIntoLife passed
+	// the mixed form, so the defective shape was the one the tests taught.
+	for _, half := range []struct {
+		what   string
+		given  bool
+		stated bool
+	}{
+		{"authority", applied.Authority != "", firstAuthority},
+		{"presence", appliedPresence.Binding != "", firstPresence},
+	} {
+		if half.given && half.stated {
+			return Activation{}, fmt.Errorf("%w: the %s half is declared to have no applied record for binding %q, and a record was given",
+				ErrNotActivated, half.what, presence.Binding)
+		}
+		if !half.given && !half.stated {
+			return Activation{}, fmt.Errorf("%w: no applied %s record was given for binding %q; pass the host's record, or declare that it holds none",
+				ErrNotActivated, half.what, presence.Binding)
+		}
 	}
-	if firstActivation && (applied.Authority != "" || appliedPresence.Binding != "") {
-		return Activation{}, fmt.Errorf("%w: FirstActivation says this host holds no record for binding %q, and a record was given",
-			ErrNotActivated, presence.Binding)
+	// EACH RECORD MUST BE THIS BINDING'S HISTORY. A valid record for another
+	// binding was folded as this one's: a presence record for binding B at
+	// generation 1 was treated as A's history when activating A at generation
+	// 4, so the fold compared unrelated counters and passed.
+	if appliedPresence.Binding != "" && appliedPresence.Binding != presence.Binding {
+		return Activation{}, fmt.Errorf("%w: the applied presence record is for binding %q and this is binding %q",
+			ErrAppliedUnusable, appliedPresence.Binding, presence.Binding)
+	}
+	if applied.Binding != "" && applied.Binding != presence.Binding {
+		return Activation{}, fmt.Errorf("%w: the applied authority record is over binding %q and this is binding %q",
+			ErrAppliedUnusable, applied.Binding, presence.Binding)
+	}
+	// And each must be WELL FORMED, which Host.appliedByBinding does for the
+	// admission path and activation did not: an AppliedPresence carrying only
+	// a binding name was folded as a real record.
+	if appliedPresence.Binding != "" {
+		if appliedPresence.Generation == 0 || !digestPattern.MatchString(appliedPresence.Digest) {
+			return Activation{}, fmt.Errorf("%w: applied presence for binding %q needs a generation and the digest it was applied as; build it with AppliedFrom rather than by hand",
+				ErrAppliedUnusable, appliedPresence.Binding)
+		}
+		if appliedPresence.Domain != "" && appliedPresence.Domain != presence.OwnershipDomain {
+			return Activation{}, fmt.Errorf("%w: binding %q was applied under domain %q and this document declares %q",
+				ErrWrongDomain, appliedPresence.Binding, appliedPresence.Domain, presence.OwnershipDomain)
+		}
 	}
 	if err := authority.Validate(); err != nil {
 		return Activation{}, err
