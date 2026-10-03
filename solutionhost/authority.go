@@ -513,6 +513,10 @@ type Activation struct {
 	EnvelopeRevision uint64
 	// Domain is the ownership domain both halves speak for.
 	Domain string
+	// Host is the coordinate and component both halves target, and which the
+	// caller named. An Activation that did not say which host it was for
+	// could be read as an activation anywhere.
+	Host HostTarget
 }
 
 // AppliedAuthority is what a host durably recorded for one authority ID. It is
@@ -632,6 +636,19 @@ type ActivationRequest struct {
 	Authority *DeliveredAuthority
 	Presence  *Delivered
 
+	// Coordinate is the host asking, and it is REQUIRED.
+	//
+	// Activation bound to no host at all: both halves re-targeted to another
+	// coordinate activated, while the same documents handed to Admit were
+	// refused with ErrWrongHost. A tuple written for one host activated on
+	// another — the provenance check admission has always made and activation
+	// simply did not.
+	//
+	// Named by the CALLER rather than read out of the documents, for the same
+	// reason the build is: reading the host out of the halves that claim it
+	// would make the question answer itself.
+	Coordinate string
+
 	// Build is the execution being asked about.
 	Build ImageDigest
 
@@ -734,7 +751,7 @@ func Activate(request ActivationRequest) (Activation, error) {
 	//
 	// Why that mattered rather than being a pedantic correction: applied
 	// consistently, the same argument says Host.admit's `host.Coordinate != ""`
-	// guard is pointless too. It is not. Removing it turns SEVEN tests in this
+	// guard is pointless too. It is not. Removing it turns EIGHT tests in this
 	// package red, because AdmitRendered routes through Host{}.admit and that
 	// branch is what lets a renderer run the host-free checks at all. A false
 	// justification for a correct change is worse than no justification: the
@@ -751,6 +768,10 @@ func Activate(request ActivationRequest) (Activation, error) {
 	// ActivateRendered, which takes the documents a renderer actually holds.
 	if len(request.DomainsBySigner) == 0 {
 		return Activation{}, fmt.Errorf("%w: activation needs the host's signer policy; an unstated one would let any signer speak for any domain, and a renderer with no policy to apply wants ActivateRendered",
+			ErrNotActivated)
+	}
+	if request.Coordinate == "" {
+		return Activation{}, fmt.Errorf("%w: activation is asked by a host, so name its coordinate; a tuple written for one host must not activate on another",
 			ErrNotActivated)
 	}
 	build := request.Build
@@ -799,7 +820,25 @@ func Activate(request ActivationRequest) (Activation, error) {
 	if err := authority.ValidateAgainst(request.Envelope); err != nil {
 		return Activation{}, err
 	}
-	return activate(authority, presence, build, request.Envelope.Revision, request.Applied, request.AppliedPresence, request.FirstAuthorityRecord, request.FirstPresenceRecord)
+	// Both halves must TARGET THIS HOST, the rule Admit applies at host.go.
+	for _, half := range []struct {
+		what string
+		host HostTarget
+	}{
+		{"authority " + authority.Authority, authority.Host},
+		{"binding " + presence.Binding, presence.Host},
+	} {
+		if half.host.Coordinate != request.Coordinate {
+			return Activation{}, fmt.Errorf("%w: %s targets host %q and this host is %q",
+				ErrWrongHost, half.what, half.host.Coordinate, request.Coordinate)
+		}
+	}
+	activation, err := activate(authority, presence, build, request.Envelope.Revision, request.Applied, request.AppliedPresence, request.FirstAuthorityRecord, request.FirstPresenceRecord)
+	if err != nil {
+		return Activation{}, err
+	}
+	activation.Host = presence.Host
+	return activation, nil
 }
 
 // RenderedActivationRequest is the pair a RENDERER holds: parsed documents it
@@ -928,7 +967,17 @@ func ActivateRendered(request RenderedActivationRequest) (RenderedMatch, error) 
 	if err != nil {
 		return RenderedMatch{}, err
 	}
-	return RenderedMatch(activation), nil
+	// Field by field rather than a conversion, because RenderedMatch
+	// deliberately has NO Host: a renderer names no host coordinate and
+	// activation's host check is one it cannot answer.
+	return RenderedMatch{
+		Authority:        activation.Authority,
+		Binding:          activation.Binding,
+		Build:            activation.Build,
+		Generation:       activation.Generation,
+		EnvelopeRevision: activation.EnvelopeRevision,
+		Domain:           activation.Domain,
+	}, nil
 }
 
 // activate is the shared tuple check both entrypoints run. Everything that

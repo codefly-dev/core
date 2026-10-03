@@ -551,6 +551,13 @@ func cloneApprovers(approvers []Approver) []*basev0.WorkApproverV1 {
 // seal validates the assembled claims against the schema and signs them. A
 // capability that would not verify is never handed out.
 func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV1, error) {
+	// A NIL KEY IS A REFUSAL, not a panic. ed25519.Sign panics on a key of
+	// the wrong length, so an Authority assembled without one crashed the
+	// caller at the last step of a mint instead of saying what was missing —
+	// and every other missing input here names itself.
+	if len(a.Key) != ed25519.PrivateKeySize {
+		return "", nil, fmt.Errorf("work context: authority has no signing key, so it can mint nothing")
+	}
 	if err := protovalidate.Validate(wc); err != nil {
 		return "", nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}

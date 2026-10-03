@@ -115,9 +115,12 @@ func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 
 	admissions, err := solutionhost.AdmitRendered(eu, us)
 	require.NoError(t, err)
-	require.Equal(t, []solutionhost.Admission{
-		{Binding: eu.Binding, Decision: solutionhost.DecisionApply},
-		{Binding: us.Binding, Decision: solutionhost.DecisionApply},
+	// RenderedAdmission, not Admission: AdmitRendered answering a host's own
+	// type was C4's fail-open under another name. Fold is the generation
+	// decision, DecisionApply here because no record was supplied.
+	require.Equal(t, []solutionhost.RenderedAdmission{
+		{Binding: eu.Binding, Decision: solutionhost.DecisionApply, Fold: solutionhost.DecisionApply},
+		{Binding: us.Binding, Decision: solutionhost.DecisionApply, Fold: solutionhost.DecisionApply},
 	}, admissions)
 
 	// The same alias twice on ONE coordinate still collides.

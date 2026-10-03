@@ -439,7 +439,7 @@ identity produces a `*Delivered` with nothing behind it — as `DeliveredBy`'s
 own comment says, the signer "is a string the caller handed it". The correction
 is recorded rather than quietly edited because the false version was
 load-bearing: applied one file over it says `Host.admit`'s `host.Coordinate !=
-""` guard is pointless, and removing that turns seven tests red, since
+""` guard is pointless, and removing that turns eight tests red, since
 `AdmitRendered` routes through `Host{}.admit`.
 
 What `*Delivered` does buy is **ordering within one codebase**, held by the
@@ -509,9 +509,12 @@ Two shapes that look like conveniences and are not:
   and reading the build from the authority would make the question answer
   itself.
 
-`Activate` does not check the envelope: that needs a ceiling neither document
-may carry. A caller verifies both signatures, runs `ValidateAgainst`, then
-activates.
+`Activate` **does** check the envelope, against `ActivationRequest.Envelope`.
+This said the opposite — that a caller runs `ValidateAgainst` first and then
+activates — and an ordering requirement a caller can forget is not a rule:
+narrowing an envelope has to reach activation to mean anything. It also
+requires `Coordinate`, and compares it against both halves, because activation
+bound to no host at all and a tuple written for one host activated on another.
 
 ### What a matched tuple does not establish
 

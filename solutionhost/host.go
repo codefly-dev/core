@@ -261,6 +261,136 @@ func (host Host) Admit(delivered ...*Delivered) ([]Admission, error) {
 	return host.admit(documents, signers)
 }
 
+// RenderedAdmission is what AdmitRendered answers, and it is deliberately NOT
+// an Admission.
+//
+// AdmitRendered returned Admission, the same type a HOST's Admit answers, so
+// "this set is internally consistent" and "this host admits these documents"
+// were the same value — C4's fail-open under another name. A caller holding
+// one could pass it where the other was meant, and a reviewer reading a
+// function that takes an Admission could not tell which it was given.
+//
+// The distinction is the one Verified, Authenticated and Inspected carry in
+// workcontext, for the same reason: the type says which question was answered.
+type RenderedAdmission struct {
+	// Binding is the document's binding ID, empty when it did not parse far
+	// enough to name one.
+	Binding string
+
+	// Decision is what a host WOULD do on the host-free rules alone, and is
+	// set only when Err is nil. It is not a host's decision: no coordinate, no
+	// domain policy, no signer policy and no applied state were consulted.
+	Decision Decision
+
+	// Err is why this document was refused, or nil, carrying the same
+	// sentinels so errors.Is works on it.
+	Err error
+
+	// Fold is the generation decision against the applied record the caller
+	// supplied, when it supplied one. See AdmitRendered.
+	Fold Decision
+}
+
+// RenderedSet is one parsed document plus what the renderer knows was applied
+// for its binding — the inputs a publish holds from the base branch.
+type RenderedSet struct {
+	// Document is the parsed presence document, not delivered: a renderer's
+	// documents are not signed yet.
+	Document *SolutionHostBinding
+
+	// Applied is the presence record for the SAME binding, or the zero value
+	// with FirstRecord set.
+	Applied Applied
+
+	// FirstRecord states explicitly that no record exists for this binding.
+	// A zero record with no marker is refused rather than folded, for the
+	// reason ActivationRequest states it per half.
+	FirstRecord bool
+}
+
+// AdmitRenderedSets runs the host-free checks AND THE GENERATION FOLD over
+// parsed documents, for a renderer checking a set it is about to write.
+//
+// It exists because AdmitRendered takes no Host and therefore no applied
+// records, so it ran no fold at all — and ActivateRendered folds presence only
+// as half of a pair, so a module with presence and no contract had no
+// entrypoint for it. A renderer consumer reported that it was restating the
+// domain-continuity rule in its own code as a result, which is the duplication
+// this package exists to prevent: the gap was in this surface, not in their
+// reading of it.
+//
+// What it checks beyond AdmitRendered: for each document whose caller supplied
+// a record, the generation fold through decide — stale, rewritten and
+// tombstoned all refused — plus that the record is for THAT binding, is well
+// formed, and was applied under the same ownership domain. That last one is
+// the rule the consumer was duplicating.
+//
+// What it still cannot check, for the reason AdmitRendered cannot: a
+// coordinate, the domains a host accepts, or who may speak for one. Those need
+// host state, and the answer carries RenderedAdmission rather than Admission
+// so it cannot be mistaken for a host's.
+func AdmitRenderedSets(sets ...RenderedSet) ([]RenderedAdmission, error) {
+	documents := make([]*SolutionHostBinding, len(sets))
+	for index, set := range sets {
+		if set.Document == nil {
+			return nil, fmt.Errorf("%w: rendered set %d carries no document", ErrInvalid, index)
+		}
+		documents[index] = set.Document
+	}
+	base, err := Host{}.admit(documents, make([]string, len(documents)))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RenderedAdmission, len(base))
+	for index, admission := range base {
+		out[index] = RenderedAdmission{
+			Binding:  admission.Binding,
+			Decision: admission.Decision,
+			Err:      admission.Err,
+		}
+		if out[index].Err != nil {
+			continue
+		}
+		set := sets[index]
+		given := set.Applied.Binding != ""
+		if given == set.FirstRecord {
+			out[index].Err = fmt.Errorf("%w: binding %q must either carry its applied record or declare that none exists",
+				ErrAppliedUnusable, set.Document.Binding)
+			continue
+		}
+		if !given {
+			out[index].Fold = DecisionApply
+			continue
+		}
+		if set.Applied.Binding != set.Document.Binding {
+			out[index].Err = fmt.Errorf("%w: the applied record is for binding %q and this document is %q",
+				ErrAppliedUnusable, set.Applied.Binding, set.Document.Binding)
+			continue
+		}
+		if set.Applied.Generation == 0 || !digestPattern.MatchString(set.Applied.Digest) {
+			out[index].Err = fmt.Errorf("%w: applied record for binding %q needs a generation and the digest it was applied as; build it with AppliedFrom rather than by hand",
+				ErrAppliedUnusable, set.Applied.Binding)
+			continue
+		}
+		// DOMAIN CONTINUITY — the rule a renderer consumer was restating
+		// because this entrypoint did not exist. The applied record's domain
+		// is what says who may change this binding, so a document arriving
+		// under another domain is refused whatever its generation.
+		if set.Applied.Domain != "" && set.Applied.Domain != set.Document.OwnershipDomain {
+			out[index].Err = fmt.Errorf("%w: binding %q was applied under domain %q and this document declares %q",
+				ErrWrongDomain, set.Applied.Binding, set.Applied.Domain, set.Document.OwnershipDomain)
+			continue
+		}
+		fold, err := decide(set.Applied, set.Document)
+		if err != nil {
+			out[index].Err = err
+			continue
+		}
+		out[index].Fold = fold
+	}
+	return out, nil
+}
+
 // AdmitRendered runs the checks that need no host state, over PARSED
 // documents, for a renderer checking a set it is about to write.
 //
@@ -286,10 +416,18 @@ func (host Host) Admit(delivered ...*Delivered) ([]Admission, error) {
 // host — a coordinate, a domain the host accepts, who may speak for it, or a
 // generation against an applied record. A renderer pre-checking a set has no
 // host to answer those for.
-func AdmitRendered(documents ...*SolutionHostBinding) ([]Admission, error) {
+func AdmitRendered(documents ...*SolutionHostBinding) ([]RenderedAdmission, error) {
 	// No signers: the signer policy is only consulted for a named host, and
 	// there is none here.
-	return Host{}.admit(documents, make([]string, len(documents)))
+	//
+	// It answers RenderedAdmission and not Admission, which was C4's
+	// fail-open under another name: the same type a host's Admit returns made
+	// "this set is consistent" and "this host admits these" one value.
+	sets := make([]RenderedSet, len(documents))
+	for index, document := range documents {
+		sets[index] = RenderedSet{Document: document, FirstRecord: true}
+	}
+	return AdmitRenderedSets(sets...)
 }
 
 func (host Host) admit(documents []*SolutionHostBinding, signers []string) ([]Admission, error) {

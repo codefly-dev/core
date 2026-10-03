@@ -147,7 +147,21 @@ type OperationBinding struct {
 	// Revision is the binding's current revision.
 	Revision uint64
 
-	// Incarnation is the binding's current incarnation.
+	// Incarnation is the binding's current incarnation. Revision changes when
+	// the binding's TERMS change; Incarnation changes when the binding is
+	// withdrawn and re-created under the same ID, so a capability sealed to
+	// the old one does not verify against the new.
+	//
+	// WHERE IT COMES FROM is a seam core does not close, and saying so is
+	// better than leaving it implied. Nothing in this repository derives it:
+	// an issuer holds it, and the only rule core states is the monotonicity
+	// contract above — it only advances, and a reassignment advances the
+	// revision. A host that re-creates a binding under a reused ID without
+	// advancing the incarnation re-admits every capability sealed to the old
+	// one, and core cannot detect that, exactly as it cannot detect a rewound
+	// digest. The counterpart in solutionhost is the presence generation,
+	// which IS derived from the delivered document; a binding has no such
+	// document, so the issuer is the only source.
 	Incarnation uint64
 
 	// Revoked marks the binding withdrawn. A revoked binding refuses every

@@ -485,10 +485,12 @@ func fixtureSessionOn(ctx context.Context, authority *Authority, installation, b
 	// incarnation" is producible at all — and attesting the live values there
 	// would make the mint refuse instead of producing the capability the
 	// fixture exists to be.
-	attested := Execution{ImageDigest: FixtureImageDigest, BuildIncarnation: FixtureBuildIncarnation}
-	if digest, incarnation, err := authority.Seals.ApprovedBuild(ctx, FixturePrincipal); err == nil {
-		attested = Execution{ImageDigest: digest, BuildIncarnation: incarnation}
-	}
+	// Whatever the source being minted AGAINST approves, and NOTHING when it
+	// says the principal bears none — which is how the execution-missing
+	// fixture is producible at all. This used to fall back to the live
+	// constants on any error, so a bears-none source made the mint refuse
+	// instead of producing the capability the fixture exists to present.
+	attested := fixtureExecutionFor(ctx, authority, FixturePrincipal)
 	token, _, err := authority.Start(ctx, StartInput{
 		Execution:          attested,
 		TenantID:           FixtureTenant,
@@ -659,6 +661,39 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			Outcome: OutcomeRejected, Err: ErrRevoked, Reason: moved.rule,
 		})
 	}
+
+	// THE CORRESPONDENCE FROM THE OTHER SIDE, which no fixture covered: a
+	// capability carrying NO execution whose exercising principal the live
+	// issuer approves a build for. That is the shape a minter which forgot to
+	// stamp the execution produces, and only the "carries none" branch
+	// refuses it. Minted against a source where the owner bears no execution.
+	bearsNone := NewMemorySealSource()
+	if err := bearsNone.Put(FixturePrincipal, Seal{
+		InstallationID: FixtureInstallation, InstallationRevision: FixtureInstallationRevision,
+	}); err != nil {
+		return nil, err
+	}
+	if err := bearsNone.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
+		return nil, err
+	}
+	if err := bearsNone.PutBearsNoExecution(FixturePrincipal); err != nil {
+		return nil, err
+	}
+	if err := bearsNone.PutBinding(OperationBinding{
+		ID: FixtureBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
+		Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
+	}); err != nil {
+		return nil, err
+	}
+	noExecution, _, err := fixtureSessionOn(ctx, fixtureAuthority(now, bearsNone), FixtureInstallation, "")
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "execution-missing", Form: FormSession, Token: noExecution,
+		Outcome: OutcomeRejected, Err: ErrRevoked,
+		Reason: "carries no execution, and the issuer approves a build for the principal exercising it",
+	})
 
 	// Sealed to the wrong binding: one the issuer DOES hold, so the refusal is
 	// "this capability is sealed to a binding whose revision does not match"
@@ -910,6 +945,18 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			name:  "zero-installation-revision",
 			rule:  "a seal carrying installation revision 0",
 			apply: func(wc *basev0.WorkContextV1) { wc.Seal.InstallationRevision = 0 },
+		},
+		{
+			// THE PAIRING RULE, which had no fixture: one execution field
+			// without the other names a run nothing can check, and the schema
+			// refuses it before any state is consulted.
+			name: "seal-half-execution",
+			rule: "a seal carrying an image digest with no incarnation",
+			apply: func(wc *basev0.WorkContextV1) {
+				digest := FixtureImageDigest
+				wc.Seal.ImageDigest = &digest
+				wc.Seal.BuildIncarnation = nil
+			},
 		},
 		{
 			name: "zero-build-incarnation",

@@ -163,6 +163,14 @@ type Verified struct {
 // reader remembering not to write, which is the kind of rule that holds until
 // somebody normalises a field.
 func (v *Verified) Context() *basev0.WorkContextV1 {
+	// A zero value answers nil rather than panicking. An outside-constructed
+	// &Verified{} or &Authenticated{} cannot be a capability — nothing here
+	// will treat it as one — but reaching for its claims crashed the caller
+	// inside proto.Clone, which names nothing. The same reasoning as
+	// solutionhost's outside-constructed Delivered returning a refusal.
+	if v == nil || v.context == nil {
+		return nil
+	}
 	return proto.Clone(v.context).(*basev0.WorkContextV1)
 }
 
@@ -196,6 +204,9 @@ func (v *Verified) Actor() *basev0.WorkActorV1 {
 
 // actor is the internal, un-copied view.
 func (v *Verified) actor() *basev0.WorkActorV1 {
+	if v == nil || v.context == nil {
+		return nil
+	}
 	chain := v.context.GetActorChain()
 	if len(chain) == 0 {
 		return nil
@@ -206,6 +217,9 @@ func (v *Verified) actor() *basev0.WorkActorV1 {
 // EffectiveScopes are the scopes the current actor holds, as DEEP COPIES: the
 // last hop's, or the owner's delegated authority when no hop has narrowed it.
 func (v *Verified) EffectiveScopes() []*basev0.WorkScopeV1 {
+	if v == nil || v.context == nil {
+		return nil
+	}
 	scopes := v.context.GetAuthorityScopes()
 	if actor := v.actor(); actor != nil {
 		scopes = actor.GetGrantedScopes()

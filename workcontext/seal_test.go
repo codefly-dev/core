@@ -1532,3 +1532,107 @@ func TestTheFixturePublicKeyConstantMatchesTheKey(t *testing.T) {
 	require.True(t, workcontext.IsFixtureKeyForTest(public),
 		"the written-out public key no longer matches FixtureKeyPair's")
 }
+
+// TestAMissingInputNamesItselfRatherThanPanicking covers the two panics round
+// five found, and they are the same defect in two places: an input that is
+// missing crashed the caller instead of saying what was absent.
+func TestAMissingInputNamesItselfRatherThanPanicking(t *testing.T) {
+	h := newHarness(t)
+
+	// An Authority with every source and NO SIGNING KEY. ed25519.Sign panics
+	// on a key of the wrong length, so this crashed at the last step of a
+	// mint — while every other missing input here names itself.
+	keyless := &workcontext.Authority{
+		Issuer: issuer, KeyID: "k",
+		Revisions: h.authority.Revisions, Seals: h.authority.Seals,
+	}
+	require.NotPanics(t, func() {
+		_, _, err := keyless.Start(context.Background(), workcontext.StartInput{
+			Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+			InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
+			OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
+			Audience: audience, TTL: time.Minute,
+		})
+		require.ErrorContains(t, err, "no signing key")
+	})
+
+	// An outside-constructed zero value cannot be a capability — nothing
+	// treats it as one — but reaching for its claims crashed inside
+	// proto.Clone, which names nothing. Same reasoning as solutionhost's
+	// outside-constructed Delivered answering a refusal.
+	require.NotPanics(t, func() {
+		require.Nil(t, (&workcontext.Authenticated{}).Context())
+		require.Nil(t, (&workcontext.Authenticated{}).Actor())
+		require.Nil(t, (&workcontext.Verified{}).Context())
+		require.Nil(t, (&workcontext.Verified{}).Actor())
+		require.Nil(t, (&workcontext.Verified{}).EffectiveScopes())
+	})
+}
+
+// TestAWorkloadCapabilityCarryingNoExecutionIsRefused is the !carried branch,
+// which had no test in EITHER direction and no kit fixture.
+//
+// The correspondence is enforced both ways — a principal bearing no execution
+// whose capability carries one, and an execution-bearing principal whose
+// capability carries none. Only the first had a test; this is the second, and
+// it is the half that matters more, because it is the shape a minter that
+// simply forgot to stamp the execution would produce.
+func TestAWorkloadCapabilityCarryingNoExecutionIsRefused(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+
+	stripped := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
+	stripped.Seal.ImageDigest, stripped.Seal.BuildIncarnation = nil, nil
+	stripped.Nonce = "n-stripped"
+
+	_, err := h.verify(audience, h.resign(stripped))
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "carries no execution")
+	require.ErrorContains(t, err, "the task owner")
+
+	// And at a HOP, where the minter stamps it per link.
+	_, agent := h.agentSession(owner, audience)
+	strippedHop := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
+	strippedHop.ActorChain[0].ImageDigest = nil
+	strippedHop.ActorChain[0].BuildIncarnation = nil
+	strippedHop.Nonce = "n-stripped-hop"
+
+	_, err = h.verify(audience, h.resign(strippedHop))
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "actor hop 0")
+	require.ErrorContains(t, err, "carries no execution")
+}
+
+// TestAHalfExecutionIsARefusalBySCHEMA holds the CEL pairing rule, which had
+// no test: one execution field without the other names a run nothing can
+// check, and the rule is on BOTH messages.
+func TestAHalfExecutionIsARefusalBySCHEMA(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+	_, agent := h.agentSession(owner, audience)
+
+	digest, incarnation := workcontext.FixtureImageDigest, uint64(11)
+	for name, maim := range map[string]func(*basev0.WorkContextV1){
+		"seal digest without incarnation": func(wc *basev0.WorkContextV1) {
+			wc.Seal.ImageDigest, wc.Seal.BuildIncarnation = &digest, nil
+		},
+		"seal incarnation without digest": func(wc *basev0.WorkContextV1) {
+			wc.Seal.ImageDigest, wc.Seal.BuildIncarnation = nil, &incarnation
+		},
+		"hop digest without incarnation": func(wc *basev0.WorkContextV1) {
+			wc.ActorChain[0].ImageDigest, wc.ActorChain[0].BuildIncarnation = &digest, nil
+		},
+		"hop incarnation without digest": func(wc *basev0.WorkContextV1) {
+			wc.ActorChain[0].ImageDigest, wc.ActorChain[0].BuildIncarnation = nil, &incarnation
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claims := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
+			maim(claims)
+			claims.Nonce = "n-" + name
+			_, err := h.verify(audience, h.resign(claims))
+			require.ErrorIs(t, err, workcontext.ErrInvalid)
+			require.ErrorContains(t, err, "set together or not at all")
+		})
+	}
+}

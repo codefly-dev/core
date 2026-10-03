@@ -220,9 +220,12 @@ func TestARendererChecksASetBeforeItIsDelivered(t *testing.T) {
 	second.Routes[0].Alias = "alpha2"
 	admissions, err := solutionhost.AdmitRendered(first, second)
 	require.NoError(t, err)
-	require.Equal(t, []solutionhost.Admission{
-		{Binding: first.Binding, Decision: solutionhost.DecisionApply},
-		{Binding: second.Binding, Decision: solutionhost.DecisionApply},
+	// RenderedAdmission, not Admission: AdmitRendered answering a host's own
+	// type was C4's fail-open under another name. Fold is the generation
+	// decision, DecisionApply here because no record was supplied.
+	require.Equal(t, []solutionhost.RenderedAdmission{
+		{Binding: first.Binding, Decision: solutionhost.DecisionApply, Fold: solutionhost.DecisionApply},
+		{Binding: second.Binding, Decision: solutionhost.DecisionApply, Fold: solutionhost.DecisionApply},
 	}, admissions)
 
 	// An empty set is "nothing declared", not "remove everything": removal is a
@@ -651,10 +654,11 @@ func TestAnOutsideConstructedDeliveredYieldsNothing(t *testing.T) {
 	require.Error(t, err)
 
 	_, err = solutionhost.Activate(solutionhost.ActivationRequest{
-		Authority: &solutionhost.DeliveredAuthority{},
-		Presence:  deliver(t, parse(t, "valid")),
-		Build:     parse(t, "valid").Workloads[0].Image.Digest,
-		Envelope:  solutionhost.FixtureEnvelope(),
+		Coordinate: solutionhost.FixtureCoordinate,
+		Authority:  &solutionhost.DeliveredAuthority{},
+		Presence:   deliver(t, parse(t, "valid")),
+		Build:      parse(t, "valid").Workloads[0].Image.Digest,
+		Envelope:   solutionhost.FixtureEnvelope(),
 		// The policy is supplied because this test's subject is the
 		// re-derivation, and without it the signer-policy refusal now comes
 		// first. That this test used to pass none is itself evidence of the
@@ -778,4 +782,113 @@ func TestVerifyDeliveredValidatesTheCarrierItself(t *testing.T) {
 			require.Error(t, err, "a malformed carrier reached the verifier")
 		})
 	}
+}
+
+// TestARendererFoldsItsOwnGenerationsAndDomainContinuity closes the gap a
+// renderer consumer reported by restating one of these rules in its own code.
+//
+// AdmitRendered takes no Host and therefore no applied records, so it ran no
+// generation fold at all; ActivateRendered folds presence only as half of a
+// pair, so a module with presence and no contract had no entrypoint for it.
+// The consumer was duplicating the domain-continuity rule as a result — which
+// is the duplication this package exists to prevent, and the gap was in this
+// surface rather than in their reading of it.
+func TestARendererFoldsItsOwnGenerationsAndDomainContinuity(t *testing.T) {
+	current := valid(t)
+	applied, err := solutionhost.AppliedFrom(current)
+	require.NoError(t, err)
+
+	next := valid(t)
+	next.Generation = current.Generation + 1
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
+		Document: next, Applied: applied,
+	})
+	require.NoError(t, err)
+	require.NoError(t, admissions[0].Err)
+	require.Equal(t, solutionhost.DecisionApply, admissions[0].Fold)
+
+	// A STALE generation is refused — the fold AdmitRendered could not run.
+	stale := valid(t)
+	stale.Generation = current.Generation - 1
+	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
+		Document: stale, Applied: applied,
+	})
+	require.NoError(t, err)
+	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrStaleGeneration)
+
+	// DOMAIN CONTINUITY, the rule the consumer was restating: the applied
+	// record's domain says who may change this binding, so a document under
+	// another domain is refused whatever its generation.
+	moved := valid(t)
+	moved.Generation = current.Generation + 1
+	moved.OwnershipDomain = "beta"
+	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
+		Document: moved, Applied: applied,
+	})
+	require.NoError(t, err)
+	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrWrongDomain)
+
+	// A record for ANOTHER binding is not this one's history, and a record
+	// that is not well formed is refused rather than folded.
+	for name, set := range map[string]solutionhost.RenderedSet{
+		"other binding": {Document: next, Applied: solutionhost.Applied{Binding: "elsewhere", Generation: 1}},
+		"hand built":    {Document: next, Applied: solutionhost.Applied{Binding: next.Binding}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			admissions, err := solutionhost.AdmitRenderedSets(set)
+			require.NoError(t, err)
+			require.ErrorIs(t, admissions[0].Err, solutionhost.ErrAppliedUnusable)
+		})
+	}
+
+	// And "no record" is STATED, never defaulted — the same rule activation
+	// states per half.
+	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: next})
+	require.NoError(t, err)
+	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrAppliedUnusable)
+	require.Contains(t, admissions[0].Err.Error(), "declare that none exists")
+
+	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
+		Document: next, FirstRecord: true,
+	})
+	require.NoError(t, err)
+	require.NoError(t, admissions[0].Err)
+	require.Equal(t, solutionhost.DecisionApply, admissions[0].Fold)
+
+	// A marker AND a record is a caller asserting two things.
+	admissions, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{
+		Document: next, Applied: applied, FirstRecord: true,
+	})
+	require.NoError(t, err)
+	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrAppliedUnusable)
+}
+
+// TestADeliveredAuthorityPayloadIsACopy is S9's authority half, which had no
+// test — the presence half did, and the authority half is where the aliasing
+// was originally found.
+func TestADeliveredAuthorityPayloadIsACopy(t *testing.T) {
+	document := validAuthority(t)
+	payload, err := document.CanonicalBytes()
+	require.NoError(t, err)
+	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	require.NoError(t, err)
+	delivered, err := solutionhost.VerifyDeliveredAuthority(context.Background(), carrier, testBundleVerifier{})
+	require.NoError(t, err)
+
+	held := delivered.Payload()
+	require.NotEmpty(t, held)
+	for index := range held {
+		held[index] = 'Z'
+	}
+	again, err := delivered.Document()
+	require.NoError(t, err)
+	require.Equal(t, document.Authority, again.Authority,
+		"DeliveredAuthority.Payload() handed out the attested bytes themselves")
+	require.Equal(t, document.ApprovedBuild, again.ApprovedBuild)
+
+	// Two reads are two copies, so one caller's edit cannot reach another's.
+	first := delivered.Payload()
+	first[0] = 'Q'
+	second := delivered.Payload()
+	require.NotEqual(t, first[0], second[0])
 }

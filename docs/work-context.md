@@ -243,6 +243,22 @@ Only the first direction is obvious, and checking only the first is what would
 make the optionality a hole: a human's capability could then be sealed to a
 build nobody approved for it, and nothing would object.
 
+### Where the binding's incarnation comes from — a seam core does not close
+
+`OperationBinding.Revision` changes when a binding's terms change;
+`Incarnation` changes when a binding is withdrawn and re-created under the same
+ID. **Nothing in core derives either.** An issuer holds them, and the only
+rules core states are the monotonicity ones: both only advance, a withdrawal
+is terminal, and a reassignment between principals advances the revision.
+
+This is worth naming because the presence generation in `solutionhost` is
+*derived* from the delivered document, so a reader may assume a binding's
+counters are too. A binding has no document — there is no carrier for one — so
+the issuer is the only source. A host that re-creates a binding under a reused
+ID without advancing the incarnation re-admits every capability sealed to the
+old one, and core cannot detect it, exactly as it cannot detect a rewound
+approved-build digest.
+
 ### Exact equality, and exact lookup
 
 Every sealed number is compared for **exact equality**, not `>=` as
@@ -292,19 +308,46 @@ accepted the numbers would hand out capabilities nothing verifies, and the
 failure would surface in another process as an authentication error rather than
 at the mint that caused it.
 
-`Child` and `Grant` **reseal** against the issuer's live state rather than
-carrying the parent's sealed numbers forward — the same reason both re-read the
-authorization revision. The installation is always the parent's: a delegation
-hop narrows authority within one installation and never moves it, so taking an
-installation from the hop would be a way to widen across installations.
-`Grant` takes a `context.Context` for this reason.
+`Child` and `Grant` **carry the parent's seal forward and refuse the derivation
+if any of it has moved.** This paragraph said they *reseal against the issuer's
+live state*, which is the laundering an adversarial review reproduced: a parent
+refused at revision 7 against an issuer at 8 still produced a child carrying 8
+that verified. Restamping current counters onto a derived capability is how
+deriving defeats revocation. `carryForwardSeal` runs the verifier's own
+`checkSealAgainst` over the parent's claims rather than a subset of it, and
+`carryForwardRevision` does the same for the revision.
 
-The seal fields are optional **on the wire**, for the reason the previous
-section gives: a `buf.validate` rule would retroactively invalidate every
-archived capability and every receipt embedding one. The requirement lives in
-the verifier instead, so a token without the sealed fields does not verify, and
-`Authority.seal` refuses to sign an unsealed capability so a mint path that
-forgot cannot ship one.
+The EXECUTION is the exception, and it is not restamping: each link attests its
+own. The seal carries the owner's; every actor hop carries its own on
+`WorkActorV1`, exactly as `principal_epoch` does. One slot on the seal let a
+derivation overwrite the owner's execution with the last hop's, so superseding
+the owner's build refused the owner's own capability while every child of it
+verified — see "The execution belongs to the principal" above.
+
+The installation is always the parent's: a delegation hop narrows authority
+within one installation and never moves it, so taking an installation from the
+hop would be a way to widen across installations. `Grant` takes a
+`context.Context` for this reason.
+
+**The seal and every hop's epoch are `required = true` on the wire.** This
+paragraph argued the opposite — that they are optional, with the requirement
+living in the verifier, because a schema rule would retroactively invalidate
+archived capabilities and the receipts embedding them. **Two independent
+reviews called that a compatibility hedge of exactly the kind the rules
+forbid, and they were right.** Archived receipts are historical data: if they
+must stay readable they get a snapshot type, rather than every live credential
+carrying a permanently weaker schema so old bytes still parse.
+
+So the fields are schema-required and `ErrUnsealed` is **deleted** — a
+sentinel no branch can produce is worse than no sentinel. The two
+`executionreceipt` goldens moved with it, deliberately, and the test says why.
+
+The one exception is the EXECUTION pair, `image_digest` and
+`build_incarnation`, which are `optional` and set together or not at all. That
+is not the hedge returning: the field does not **apply** to a principal that
+bears no execution, and requiring it of a human session would force every one
+of them to invent the value the field exists to refuse. See "A principal that
+bears no execution".
 
 ### One implementation, and the gate that keeps it that way
 

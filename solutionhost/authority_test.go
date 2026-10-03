@@ -48,7 +48,11 @@ func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 func activationOf(t *testing.T, a *solutionhost.AuthorityDocument, p *solutionhost.SolutionHostBinding, build solutionhost.ImageDigest) solutionhost.ActivationRequest {
 	t.Helper()
 	request := solutionhost.ActivationRequest{
-		Build: build, Envelope: solutionhost.FixtureEnvelope(),
+		// The host asking. Activation bound to no host at all before this, so
+		// both halves re-targeted elsewhere activated while Admit refused
+		// them.
+		Coordinate: fixtureHostCoordinate(t),
+		Build:      build, Envelope: solutionhost.FixtureEnvelope(),
 		DomainsBySigner:      map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta"}},
 		FirstAuthorityRecord: true, FirstPresenceRecord: true,
 	}
@@ -91,6 +95,9 @@ func TestActivationNeedsBothHalvesAndTheBuild(t *testing.T) {
 		Generation:       presenceDocument.Generation,
 		EnvelopeRevision: uint64(solutionhost.FixtureEnvelopeRevision),
 		Domain:           solutionhost.FixtureDomain,
+		// The Activation now says which host it is for, so it cannot be read
+		// as an activation anywhere.
+		Host: presenceDocument.Host,
 	}, activation)
 
 	_, err = solutionhost.Activate(activationOf(t, nil, presenceDocument, build))
@@ -1028,4 +1035,61 @@ func TestABindingCannotBeMovedBetweenPrincipals(t *testing.T) {
 	err = swapped.ValidateAgainst(envelope)
 	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
 	require.Contains(t, err.Error(), "principal:reporter")
+}
+
+// fixtureHostCoordinate is the coordinate the fixture documents target, read
+// from the fixture host rather than written twice.
+func fixtureHostCoordinate(t *testing.T) string {
+	t.Helper()
+	host, err := solutionhost.FixtureHost()
+	require.NoError(t, err)
+	return host.Coordinate
+}
+
+// TestActivationBindsToTheHostThatAsks is R5.2/N4: activation bound to no host
+// at all.
+//
+// ActivationRequest carried no coordinate, so both halves re-targeted to
+// another host activated — while the SAME documents handed to Admit were
+// refused with ErrWrongHost. A tuple written for one host activated on
+// another: the provenance check admission has always made, and activation
+// simply did not.
+//
+// The coordinate is named by the CALLER, for the reason the build is: reading
+// the host out of the halves that claim it would make the question answer
+// itself.
+func TestActivationBindsToTheHostThatAsks(t *testing.T) {
+	presenceDocument := valid(t)
+	authorityDocument := validAuthority(t)
+	build := presenceDocument.Workloads[0].Image.Digest
+
+	// No coordinate at all is refused rather than read as "any host".
+	bare := activationOf(t, authorityDocument, presenceDocument, build)
+	bare.Coordinate = ""
+	_, err := solutionhost.Activate(bare)
+	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
+	require.Contains(t, err.Error(), "name its coordinate")
+
+	// BOTH HALVES re-targeted elsewhere: Admit refuses these, and so must
+	// activation.
+	elsewhere := "example/prod/region-b"
+	movedPresence := valid(t)
+	movedPresence.Host.Coordinate = elsewhere
+	movedAuthority := validAuthority(t)
+	movedAuthority.Host.Coordinate = elsewhere
+
+	_, err = fixtureHost(t).Admit(deliver(t, movedPresence))
+	require.ErrorIs(t, err, solutionhost.ErrWrongHost,
+		"this is the refusal admission has always made, and activation did not")
+
+	moved := activationOf(t, movedAuthority, movedPresence, build)
+	_, err = solutionhost.Activate(moved)
+	require.ErrorIs(t, err, solutionhost.ErrWrongHost)
+	require.Contains(t, err.Error(), elsewhere)
+
+	// One half moved is refused too, naming which.
+	halfMoved := activationOf(t, movedAuthority, presenceDocument, build)
+	_, err = solutionhost.Activate(halfMoved)
+	require.ErrorIs(t, err, solutionhost.ErrWrongHost)
+	require.Contains(t, err.Error(), "authority "+movedAuthority.Authority)
 }

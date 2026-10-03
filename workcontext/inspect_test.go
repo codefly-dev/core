@@ -51,6 +51,10 @@ func TestInspectAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		"zero-installation-revision": workcontext.ErrInvalid,
 		"zero-build-incarnation":     workcontext.ErrInvalid,
 		"partial-operation-binding":  workcontext.ErrInvalid,
+		// The execution PAIRING rule, which is a schema message rule rather
+		// than a field rule — so Inspect reaches it exactly as it reaches the
+		// field rules above.
+		"seal-half-execution": workcontext.ErrInvalid,
 		// Structural too, and deliberately so: a consumer's early refusal
 		// catches a token some other minter wrote, before it goes on a request.
 		"unknown-field": workcontext.ErrInvalid,
