@@ -60,15 +60,29 @@ type ProfileDerivation struct {
 // deriving from one that is not there, a cycle, or a chain past the depth bound.
 var ErrProfileDerivation = errors.New("configuration profile derivation cannot be resolved")
 
-// ErrUndeclaredProfileKey marks a key a derived profile introduces into a group
-// the profile it derives from already declares. The base profile is the declared
-// set of a group's keys, and a key only one profile carries is a difference
-// between environments that the declared set never mentions: absent from the
-// profiles that do not carry it, it resolves to nothing at all — the empty string
-// every reader of a missing key gets — which is the silent, until-runtime failure
-// the declared set exists to prevent. Declaring it in the base, with
-// ProfileValueMarker when each profile must supply its own, is the remedy.
-var ErrUndeclaredProfileKey = errors.New("configuration key is not declared by the profile it is derived from")
+// ErrUndeclaredProfileKey marks a key a layer introduces into a group the layer
+// below it already declares: a derived profile into the profile it derives from,
+// or a consuming workspace into the group a composed module provides. The layer
+// below is the declared set of a group's keys, and a key only the layer above
+// carries is a difference the declared set never mentions: absent wherever that
+// layer is not read, it resolves to nothing at all — the empty string every
+// reader of a missing key gets — which is the silent, until-runtime failure the
+// declared set exists to prevent. Declaring it in the layer below, with
+// ProfileValueMarker when each profile must supply its own, is the remedy; a
+// consuming workspace that cannot amend the module's group declares a group of
+// its own name instead, which reaches every service of the composition.
+var ErrUndeclaredProfileKey = errors.New("configuration key is not declared by the layer it overrides")
+
+// ErrEmptyProfileValue marks an override that empties a value its declarer
+// marked as supplied per profile (ProfileValueMarker). An empty value is not a
+// value: accepted, it discharges the requirement and the group is delivered with
+// the key reading as the empty string every reader of a missing key gets —
+// exactly the silent, until-runtime failure the marker exists to refuse, with
+// the declaration that was supposed to prevent it still on the page. A consumer
+// with no value for the key leaves it to whoever has one; a key for which
+// nothing is a legitimate value is declared with a default by the group's
+// author, not with the marker.
+var ErrEmptyProfileValue = errors.New("configuration value declared as supplied per profile is overridden with an empty value")
 
 // ProfileRequirement is one configuration value a group declares as supplied per
 // profile (ProfileValueMarker) that the selected profile did not supply.
@@ -369,12 +383,7 @@ func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationIn
 // is about a key that hides inside a group the base already declares, where
 // absence is indistinguishable from an empty value.
 func (overlay *profileOverlay) declares(info *basev0.ConfigurationInformation, key string) bool {
-	for _, existing := range info.GetConfigurationValues() {
-		if resources.Match(existing.GetKey(), key) {
-			return true
-		}
-	}
-	return false
+	return findConfigurationValue(info, key) != nil
 }
 
 func (overlay *profileOverlay) find(name string) *basev0.ConfigurationInformation {
@@ -388,17 +397,43 @@ func (overlay *profileOverlay) find(name string) *basev0.ConfigurationInformatio
 
 func (overlay *profileOverlay) set(layer string, info *basev0.ConfigurationInformation, value *basev0.ConfigurationValue) {
 	overlay.writtenIn[profileValueKey(info.GetName(), value.GetKey())] = layer
+	setConfigurationValue(info, value)
+}
+
+// findConfigurationValue returns the value a group carries for key, matched the
+// way every other configuration lookup matches (resources.Match: case
+// insensitively, with "-" and "_" equivalent), or nil when the group does not
+// declare it. It is what makes "the layer below declares this key" one question
+// with one answer, wherever a layer is overlaid on another.
+func findConfigurationValue(info *basev0.ConfigurationInformation, key string) *basev0.ConfigurationValue {
+	for _, existing := range info.GetConfigurationValues() {
+		if resources.Match(existing.GetKey(), key) {
+			return existing
+		}
+	}
+	return nil
+}
+
+// setConfigurationValue overlays one value onto a group, per key: the
+// declaration replaces the WHOLE value of a key the group already carries, not
+// only its text — a layer that turns a plaintext default into a secret, or into
+// an assembled template, says so here and a merge of the two would deliver half
+// of each — and is appended when the group does not carry it.
+func setConfigurationValue(info *basev0.ConfigurationInformation, value *basev0.ConfigurationValue) {
 	for index, existing := range info.ConfigurationValues {
 		if resources.Match(existing.GetKey(), value.GetKey()) {
-			// The derived layer's declaration replaces the whole value, not only
-			// its text: a profile that turns a plaintext default into a secret,
-			// or into an assembled template, says so here and a merge of the two
-			// would deliver half of each.
 			info.ConfigurationValues[index] = value
 			return
 		}
 	}
 	info.ConfigurationValues = append(info.ConfigurationValues, value)
+}
+
+// configurationValueSuppliesNothing reports whether a value supplies nothing at
+// all: no text, and no template to assemble one. A value that supplies nothing
+// does not discharge a ProfileValueMarker — see ErrEmptyProfileValue.
+func configurationValueSuppliesNothing(value *basev0.ConfigurationValue) bool {
+	return value.GetValue() == "" && value.GetTemplate() == nil
 }
 
 // unsupplied lists what still carries the marker once every layer is in. The

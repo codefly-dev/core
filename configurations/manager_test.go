@@ -559,9 +559,18 @@ layout: modules
 }
 
 // When the composition root and a composed module both declare a configuration
-// of the same name, the root wins at load (mirror of #374) and the name is
-// composition-root origin — the run-wide value is the root's, never the
-// module's suppressed one.
+// of the same name, the root's VALUE wins at load (mirror of #374): what a
+// consumer reads is the root's, never the module's suppressed one.
+//
+// The group itself stays the module's, so it is not composition-root origin and
+// is not injected run-wide (#693). It used to be, back when the root's
+// declaration replaced the module's group whole; once the root's values are
+// overlaid onto that group per key, a run-wide injection would carry the
+// MODULE's keys — every key the root did not mention — into every service of the
+// composition, which is not what declaring one key of someone else's group says.
+// A root group under a name no module provides is run-wide as it always was, and
+// so is an operator's --set
+// (TestManagerCompositionRootConfigurationsIncludeOverrideOfComposedName).
 func TestManagerCompositionRootWinsOnNameConflict(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -603,8 +612,12 @@ agent:
 
 	rootConfs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
 	require.NoError(t, err)
-	require.Len(t, rootConfs, 1)
-	url, err := resources.GetConfigurationValue(ctx, rootConfs[0], "work-context", "authority-jwks-url")
+	require.Empty(t, rootConfs, "an overridden composed group is not injected run-wide")
+
+	depConfs, err := manager.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
+	require.NoError(t, err)
+	require.Len(t, depConfs, 1)
+	url, err := resources.GetConfigurationValue(ctx, depConfs[0], "work-context", "authority-jwks-url")
 	require.NoError(t, err)
 	require.Equal(t, "https://root/jwks.json", url)
 }

@@ -1017,12 +1017,15 @@ modules:
 	require.Equal(t, "host-a-legal", url)
 	require.Empty(t, loader.CompositionRootWorkspaceConfigurationNames())
 
-	// The workspace's own file wins over a module's: the name is no longer
-	// composed, and the module's value is not what is read.
+	// The workspace's own file wins over a module's, per key: the module's value
+	// is not what is read, and the group is still the module's — the workspace
+	// overrode a key of it, which does not make the group its own. See
+	// TestAnOverriddenComposedGroupStaysComposedAndKeepsItsDeliveryScoped for
+	// why that is the delivery this must report.
 	writeConfigurationFile(t, root, "solution/configurations/local/legal.env", "LEGAL_URL=solution-legal\n")
 	provided, err = configurations.ReadWorkspaceConfigurations(ctx, workspace, resources.LocalEnvironment())
 	require.NoError(t, err)
-	require.Equal(t, map[string]string{"analytics": "host-b"}, provided.ComposedBy)
+	require.Equal(t, map[string]string{"legal": "host-a", "analytics": "host-b"}, provided.ComposedBy)
 	for _, info := range provided.Infos {
 		if info.Name != "legal" {
 			continue
