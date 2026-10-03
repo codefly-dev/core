@@ -181,6 +181,14 @@ message WorkSealV1 {
   // It is the ISSUER's answer, never the workload's claim about itself: the
   // caller attests what it is running, the issuer says what is approved, and a
   // mismatch is a refusal rather than a value to record.
+  //
+  // A host that fills the ATTESTED execution from the same record it sealed
+  // has written a tautology: the mint then compares approved against approved
+  // and passes for every caller, including the superseded pod this field
+  // exists to refuse. Nothing in Core can detect that — both are strings and
+  // it cannot know where the caller got the bytes — so the check that matters
+  // is "a pod from a superseded generation is refused", never "a sound
+  // execution mints".
   string image_digest = 5 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.max_len = 256,

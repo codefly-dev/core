@@ -57,6 +57,26 @@ type Seal struct {
 // the pod's own status, not from anything the process asserts over the wire —
 // and the mint refuses unless it matches the approved build the issuer holds.
 //
+// # The way to satisfy this field and defeat it at the same time
+//
+// A host that fills this from THE SAME RECORD IT SEALED has written a
+// tautology. Seal.ImageDigest is the APPROVED build; Execution.ImageDigest is
+// what is RUNNING. Filling both from the admitted presence document makes the
+// mint compare approved against approved, so the check passes for every
+// caller — including the superseded pod this field exists to refuse. The
+// defect it closes is reintroduced by the field that closes it.
+//
+// Core cannot detect that. It cannot know where a caller got the bytes, both
+// fields are strings, and the tautology type-checks. So this is the one
+// requirement in this package that rests on the implementer rather than on a
+// check, and the first implementer reported that the shortcut was the only
+// option available to it — which is exactly how it gets taken.
+//
+// The test that catches it is not "does a sound execution mint". It is: take a
+// pod from a SUPERSEDED generation, and confirm the mint refuses. If that
+// passes while the approved build is the only digest the host can reach, the
+// digest is being read from the wrong place.
+//
 // It is an INPUT because only the host can know it, and it is CHECKED because
 // an input nobody checks is a claim. Before this existed, the minter read the
 // current incarnation for a principal and stamped it, so a pod from a

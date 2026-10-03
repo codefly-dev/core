@@ -421,6 +421,14 @@ type WorkSealV1 struct {
 	// It is the ISSUER's answer, never the workload's claim about itself: the
 	// caller attests what it is running, the issuer says what is approved, and a
 	// mismatch is a refusal rather than a value to record.
+	//
+	// A host that fills the ATTESTED execution from the same record it sealed
+	// has written a tautology: the mint then compares approved against approved
+	// and passes for every caller, including the superseded pod this field
+	// exists to refuse. Nothing in Core can detect that — both are strings and
+	// it cannot know where the caller got the bytes — so the check that matters
+	// is "a pod from a superseded generation is refused", never "a sound
+	// execution mints".
 	ImageDigest   string `protobuf:"bytes,5,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

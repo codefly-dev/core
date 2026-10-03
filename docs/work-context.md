@@ -333,6 +333,32 @@ sites to this package and runs the conformance helper in its own suites. The
 cutover is cold — every token changes format at once, and an old token is
 refused with `ErrNotACoreToken` rather than accepted.
 
+### The one requirement that rests on the implementer
+
+`WorkSealV1.image_digest` is the **approved** build the issuer holds;
+`StartInput.Execution.ImageDigest` is what the caller **attests it is
+running**. The mint refuses unless they match, which is what binds a
+credential to one execution and refuses a pod from a superseded generation.
+
+**A host that fills the attested execution from the same record it sealed has
+written a tautology.** The mint then compares approved against approved, so the
+check passes for every caller — including the superseded pod the field exists
+to refuse. The defect it closes is reintroduced by the field that closes it.
+
+**Core cannot detect that.** It cannot know where a caller got the bytes, both
+fields are strings, and the tautology type-checks. This is the one requirement
+in the model that rests on the implementer rather than on a check, and it is
+written down here because the first implementer reported that the shortcut was
+the only option available to it — the approved digest, from the admitted
+presence document, is the only image digest its host can currently reach. That
+is how the shortcut gets taken: not carelessly, but because the correct source
+needs workload authentication that is not running yet.
+
+So the test that matters is **not** "does a sound execution mint". It is: take
+a pod from a **superseded generation** and confirm the mint refuses. If that
+passes while the approved build is the only digest the host can reach, the
+digest is being read from the wrong place.
+
 ### One encoding, enforced at the wire
 
 `Verify` used to accept **any** protobuf the key had signed. The signature
