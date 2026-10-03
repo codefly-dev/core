@@ -1304,15 +1304,45 @@ func TestTheSealSourcesWritersRefuseEveryRewind(t *testing.T) {
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "re-admit")
 
-	// Revocation is TERMINAL: clearing it would resurrect every capability
-	// the withdrawal refused.
+	// R5.4: REASSIGNMENT at a fixed revision is the same rewind one field
+	// over, and the counter rules above do not cover it. Moving a binding to
+	// another principal revokes every capability the first holds against it —
+	// the verifier refuses a capability whose exercising principal is not the
+	// binding's — so moving it back at the same revision re-admits them all.
+	// Executed before the fix: baseline verified, reassignment gave
+	// ErrRevoked, reassigning back gave nil.
+	err = source.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: "someone-else", InstallationID: installation,
+		Revision: 4, Incarnation: 2,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "at the same revision")
+
+	// The installation half of the same rule.
+	err = source.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: "another-installation",
+		Revision: 4, Incarnation: 2,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+
+	// With the revision advancing, a reassignment is a change of terms and is
+	// accepted — and the capabilities the move revoked stay revoked, because
+	// the revision is compared for equality.
 	require.NoError(t, source.PutBinding(workcontext.OperationBinding{
-		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
-		Revision: 4, Incarnation: 2, Revoked: true,
+		ID: bindingID, PrincipalID: "someone-else", InstallationID: installation,
+		Revision: 5, Incarnation: 2,
+	}))
+
+	// Revocation is TERMINAL: clearing it would resurrect every capability
+	// the withdrawal refused. (At revision 6 and principal "someone-else",
+	// because the reassignment above advanced both.)
+	require.NoError(t, source.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: "someone-else", InstallationID: installation,
+		Revision: 6, Incarnation: 2, Revoked: true,
 	}))
 	err = source.PutBinding(workcontext.OperationBinding{
-		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
-		Revision: 5, Incarnation: 2,
+		ID: bindingID, PrincipalID: "someone-else", InstallationID: installation,
+		Revision: 7, Incarnation: 2,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 

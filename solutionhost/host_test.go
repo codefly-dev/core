@@ -690,10 +690,16 @@ func TestADeliveredIsImmutableThroughEveryAccessor(t *testing.T) {
 	original, err := delivered.Document()
 	require.NoError(t, err)
 
-	// S8: the caller's slice is cloned on the way IN. Scribbling over the
-	// bytes we passed must not reach what was attested.
-	for index := range payload {
-		payload[index] = 'X'
+	// S8: the caller's slice is cloned on the way IN.
+	//
+	// THE FIRST VERSION OF THIS SCRIBBLED `payload`, WHICH PROVES NOTHING.
+	// Carrier() already clones the payload into Signed.Document, so the local
+	// buffer can never reach the stored bytes whether or not VerifyDelivered
+	// clones — mutation-verified: storing the caller's slice left the suite
+	// green. The buffer that discriminates is carrier.Document, which is what
+	// VerifyDelivered is actually handed.
+	for index := range carrier.Document {
+		carrier.Document[index] = 'X'
 	}
 	after, err := delivered.Document()
 	require.NoError(t, err)
@@ -735,8 +741,10 @@ func TestADeliveredIsImmutableThroughEveryAccessor(t *testing.T) {
 		"DeliveredAuthority.Document() returned a shared message")
 	require.Equal(t, authorityDocument.ApprovedBuild, secondRead.ApprovedBuild)
 
-	for index := range authorityPayload {
-		authorityPayload[index] = 'X'
+	// Same correction on the authority half: scribble the carrier's buffer,
+	// not the one Carrier already copied.
+	for index := range authorityCarrier.Document {
+		authorityCarrier.Document[index] = 'X'
 	}
 	thirdRead, err := deliveredAuthority.Document()
 	require.NoError(t, err)

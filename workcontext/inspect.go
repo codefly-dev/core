@@ -277,8 +277,13 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	if verified == nil {
 		return fmt.Errorf("%w: recheck needs a verified capability", ErrInvalid)
 	}
-	if v.Revisions == nil || v.Grants == nil || v.Seals == nil {
-		return fmt.Errorf("work context: verifier is missing a revision source, grant source or seal source")
+	// The SAME inputs Verify requires, because a verifier that could not have
+	// verified this capability must not report on it either.
+	//
+	// Keys was not checked here, so a verifier holding none — which cannot
+	// check a signature at all — rechecked successfully.
+	if v.Revisions == nil || v.Grants == nil || v.Seals == nil || len(v.Keys) == 0 {
+		return fmt.Errorf("work context: verifier is missing a revision source, grant source, seal source or key set")
 	}
 	wc := verified.claims()
 	// THE CAPABILITY MUST BE THIS VERIFIER'S TO RE-CHECK.
@@ -294,10 +299,19 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	// they do not CHANGE under a long-running call. That was the wrong test:
 	// the question is not what can change, it is what this verifier is
 	// entitled to answer about.
-	if v.Issuer != "" && wc.GetIssuer() != v.Issuer {
+	// COMPARED UNCONDITIONALLY, exactly as Verify compares them.
+	//
+	// These were guarded with `v.Issuer != ""`, so a verifier with no issuer
+	// and no audience — one Verify refuses outright — rechecked anything. That
+	// guard is the fifth appearance of one shape in this package: an empty
+	// signer policy meaning "a renderer", an empty digest meaning "bears no
+	// execution", a zero applied record meaning "first generation", no build
+	// record meaning the same, and an empty issuer meaning "do not check".
+	// Each time the absent value was read as permission to skip.
+	if wc.GetIssuer() != v.Issuer {
 		return fmt.Errorf("%w: issued by %q and this verifier answers for %q", ErrInvalid, wc.GetIssuer(), v.Issuer)
 	}
-	if v.Audience != "" && wc.GetAudience() != v.Audience {
+	if wc.GetAudience() != v.Audience {
 		return fmt.Errorf("%w: addressed to %q and this verifier answers for %q", ErrInvalid, wc.GetAudience(), v.Audience)
 	}
 	now := v.now()

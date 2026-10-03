@@ -259,6 +259,20 @@ type SealSource interface {
 
 	// OperationBinding resolves one binding by its opaque ID, exactly. It
 	// returns ErrNoBinding when there is none.
+	//
+	// # THE MONOTONICITY CONTRACT, which is an implementer's to keep
+	//
+	// As with ApprovedBuild, core compares these for EQUALITY and cannot
+	// detect a source that moves backwards. For one binding ID: Revision and
+	// Incarnation never decrease, Revoked is terminal, and A REASSIGNMENT —
+	// a change of PrincipalID or InstallationID — COMES WITH AN INCREASE IN
+	// THE REVISION.
+	//
+	// That last clause is the one that is easy to miss, and MemorySealSource
+	// missed it. The verifier refuses a capability whose exercising principal
+	// is not the binding's, so moving a binding to another principal revokes
+	// every capability the first holds against it; moving it back at the same
+	// revision re-admits them all, with no counter having moved.
 	OperationBinding(ctx context.Context, bindingID string) (OperationBinding, error)
 }
 
@@ -924,6 +938,33 @@ func (s *MemorySealSource) PutBinding(binding OperationBinding) error {
 		if binding.Incarnation < held.Incarnation {
 			return fmt.Errorf("%w: binding %q is at incarnation %d and an incarnation only advances; lowering it to %d would re-admit a capability from a replaced binding",
 				ErrInvalid, binding.ID, held.Incarnation, binding.Incarnation)
+		}
+		// REASSIGNMENT ADVANCES THE REVISION, and this is the swap-back the
+		// counter rules above do not cover — C8's shape, one field over.
+		//
+		// The verifier refuses a capability whose exercising principal is not
+		// the binding's, so moving a binding to another principal REVOKES
+		// every capability the first principal holds against it. Moving it
+		// back at the same revision re-admits them all. The counters never
+		// moved, so neither monotonicity rule fired, and the identity fields
+		// had no rule at all.
+		//
+		// Advancing the revision is what makes the revocation stick: the
+		// verifier compares it for equality, so the capabilities refused by
+		// the move stay refused after the move back. A reassignment is a
+		// change to the binding's terms, which is what a revision is for.
+		for _, identity := range []struct {
+			what  string
+			held  string
+			moved string
+		}{
+			{"principal", held.PrincipalID, binding.PrincipalID},
+			{"installation", held.InstallationID, binding.InstallationID},
+		} {
+			if identity.held != identity.moved && binding.Revision == held.Revision {
+				return fmt.Errorf("%w: binding %q is granted to %s %q and this moves it to %q at the same revision %d; advance the revision, because moving a binding away revokes every capability held against it and moving it back at a fixed revision would re-admit them",
+					ErrInvalid, binding.ID, identity.what, identity.held, identity.moved, held.Revision)
+			}
 		}
 	}
 	s.bindings[binding.ID] = binding

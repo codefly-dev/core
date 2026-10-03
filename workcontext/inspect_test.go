@@ -1,7 +1,6 @@
 package workcontext_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -388,23 +387,50 @@ func TestTheDecodePathHoldsItsOwnBoundsOnEveryEntrypoint(t *testing.T) {
 	// A NON-CANONICAL encoding of sound claims, signed with the real key: the
 	// claims are identical, the signature is valid over the bytes presented,
 	// and only byte-equality against a deterministic re-marshal catches it.
-	// Protobuf lets the same message be encoded with fields in another order.
+	//
+	// THE FIRST VERSION OF THIS TEST DID NOT DISCRIMINATE, and a reviewer
+	// struck it. It marshalled with Deterministic: false and fell back to
+	// `canonical + 0x00` when that produced the same bytes — which it does.
+	// A trailing zero byte is a field-0 tag, which proto.Unmarshal refuses
+	// before the canonical check is ever reached, so the test passed on the
+	// WRONG refusal and disabling the canonical comparison left the suite
+	// green. Mutation-verified now, which is what should have been done then.
+	//
+	// The construction below is a real one: proto3 permits a scalar field to
+	// appear twice on the wire, last occurrence winning. Repeating field 1
+	// with the SAME value unmarshals to an identical message — so no other
+	// check can object — while a deterministic re-marshal emits it once. Only
+	// byte equality separates them.
 	claims := verified.Context()
 	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(claims)
 	require.NoError(t, err)
-	shuffled, err := proto.MarshalOptions{Deterministic: false}.Marshal(claims)
-	require.NoError(t, err)
-	if bytes.Equal(canonical, shuffled) {
-		// The runtime happened to emit the canonical order; build a
-		// non-canonical encoding by hand so the assertion is not vacuous.
-		shuffled = append(append([]byte{}, canonical...), 0)
+	require.Equal(t, byte(0x0a), canonical[0], "field 1, wire type 2: the Typ string leads the canonical encoding")
+	field1 := canonical[:2+int(canonical[1])]
+	noncanonical := append(append([]byte{}, canonical...), field1...)
+	require.NotEqual(t, canonical, noncanonical)
+
+	// It really is the same message: nothing but the byte comparison differs.
+	roundTripped := &basev0.WorkContextV1{}
+	require.NoError(t, proto.Unmarshal(noncanonical, roundTripped),
+		"the encoding must be one Unmarshal ACCEPTS, or the test proves a different refusal")
+	require.True(t, proto.Equal(claims, roundTripped), "the claims are identical")
+
+	token := base64.RawURLEncoding.EncodeToString(noncanonical) + "." +
+		base64.RawURLEncoding.EncodeToString(ed25519.Sign(h.authority.Key, noncanonical))
+	for name, check := range map[string]func(string) error{
+		"Inspect": func(tk string) error {
+			_, err := workcontext.Inspect(tk)
+			return err
+		},
+		"Verify": func(tk string) error {
+			_, err := h.verify(audience, tk)
+			return err
+		},
+	} {
+		err := check(token)
+		require.ErrorIsf(t, err, workcontext.ErrInvalid, "%s accepted a non-canonical encoding", name)
+		require.ErrorContainsf(t, err, "canonical", "%s refused it for the wrong reason", name)
 	}
-	token := base64.RawURLEncoding.EncodeToString(shuffled) + "." +
-		base64.RawURLEncoding.EncodeToString(ed25519.Sign(h.authority.Key, shuffled))
-	_, err = workcontext.Inspect(token)
-	require.ErrorIs(t, err, workcontext.ErrInvalid)
-	_, err = h.verify(audience, token)
-	require.ErrorIs(t, err, workcontext.ErrInvalid)
 }
 
 // TestRecheckRefusesACapabilityThatIsNotThisVerifiersToAnswer covers the gap a
@@ -437,6 +463,26 @@ func TestRecheckRefusesACapabilityThatIsNotThisVerifiersToAnswer(t *testing.T) {
 	err = foreignAudience.Recheck(context.Background(), verified)
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "addressed to")
+
+	// N6: a verifier that cannot VERIFY must not RECHECK either. These were
+	// guarded with `v.Issuer != ""`, so a verifier with no issuer, no audience
+	// and no keys — which Verify refuses outright — rechecked anything. That
+	// guard was the fifth appearance of "the absent value means skip the
+	// check" in this package, and this one was in my own fix for the issuer
+	// gap two commits earlier.
+	blind := h.verifier(audience)
+	blind.Issuer, blind.Audience = "", ""
+	blind.Keys = nil
+	_, err = blind.Verify(context.Background(), verified.Encoded())
+	require.Error(t, err, "Verify refuses it")
+	require.Error(t, blind.Recheck(context.Background(), verified),
+		"and so must Recheck, for the same inputs")
+
+	noKeys := h.verifier(audience)
+	noKeys.Keys = nil
+	err = noKeys.Recheck(context.Background(), verified)
+	require.ErrorContains(t, err, "key set",
+		"a verifier holding no key cannot check a signature, so it cannot report on one")
 
 	// A1: the Authenticator forwards to the same check rather than answering
 	// nil, and inherits the refusal with it.
