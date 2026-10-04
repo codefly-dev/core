@@ -192,6 +192,9 @@ func parsePnpmOutdated(locked, output []byte) ([]*builderv0.OutdatedDep, error) 
 	}
 	var result []*builderv0.OutdatedDep
 	for name, entry := range entries {
+		if entry.Wanted == "" && entry.Latest == "" {
+			return nil, fmt.Errorf("pnpm outdated entry %s has no version evidence", name)
+		}
 		version := current[name]
 		if version == "" {
 			return nil, fmt.Errorf("pnpm outdated package %s is absent from the selected lock", name)

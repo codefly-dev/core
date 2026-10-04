@@ -42,7 +42,7 @@ func TestPnpmOutdatedUsesLockedVersion(t *testing.T) {
 	require.Equal(t, "1.0.0", result[0].Current)
 	require.Equal(t, "1.1.0", result[0].LatestSafe)
 	require.Equal(t, "2.0.0", result[0].LatestMajor)
-	for _, bad := range []string{"null", `{"error":{}}`, `{"b":{"latest":"2.0.0"}}`} {
+	for _, bad := range []string{"null", `{"error":{}}`, `{"a":{}}`, `{"b":{"latest":"2.0.0"}}`} {
 		_, err := parsePnpmOutdated(locked, []byte(bad))
 		require.Error(t, err)
 	}
