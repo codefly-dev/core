@@ -71,6 +71,9 @@ func (ie *InterfaceEndpoint) validate() error {
 			return fmt.Errorf("interface endpoint %s/%s exports at %q to no module: name the modules in allow-modules (%q for every module), or export at %q",
 				ie.Service, ie.Endpoint, VisibilityInternal, AllowAllModules, VisibilityPublic)
 		}
+		if err := validateAllowModules(ie.AllowModules); err != nil {
+			return fmt.Errorf("interface endpoint %s/%s: %w", ie.Service, ie.Endpoint, err)
+		}
 	case VisibilityPublic:
 		if len(ie.AllowModules) > 0 {
 			return fmt.Errorf("interface endpoint %s/%s lists allow-modules with visibility %q; an allow-list is only read for %q",

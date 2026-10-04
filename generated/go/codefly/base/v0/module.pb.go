@@ -294,14 +294,14 @@ var File_codefly_base_v0_module_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_module_proto_rawDesc = "" +
 	"\n" +
-	"\x1ccodefly/base/v0/module.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1dcodefly/base/v0/service.proto\x1a\x1bcodefly/base/v0/agent.proto\"\x8c\x03\n" +
+	"\x1ccodefly/base/v0/module.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1dcodefly/base/v0/service.proto\x1a\x1bcodefly/base/v0/agent.proto\"\xb0\x03\n" +
 	"\x11InterfaceEndpoint\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x127\n" +
 	"\n" +
 	"visibility\x18\x03 \x01(\tB\x17\xbaH\x14r\x12R\x06publicR\binternalR\n" +
-	"visibility\x12#\n" +
-	"\rallow_modules\x18\x04 \x03(\tR\fallowModules:\xe2\x01\xbaH\xde\x01\x1a\xdb\x01\n" +
+	"visibility\x12G\n" +
+	"\rallow_modules\x18\x04 \x03(\tB\"\xbaH\x1f\x92\x01\x1c\"\x1ar\x182\x11^(\\*|[a-z0-9-]+)$\xba\x01\x02--R\fallowModules:\xe2\x01\xbaH\xde\x01\x1a\xdb\x01\n" +
 	"1interface_endpoint.allow_modules_match_visibility\x12Fan internal export names its allow_modules; a public export lists none\x1a^this.visibility == 'internal' ? this.allow_modules.size() > 0 : this.allow_modules.size() == 0\"S\n" +
 	"\x0fModuleInterface\x12@\n" +
 	"\tendpoints\x18\x01 \x03(\v2\".codefly.base.v0.InterfaceEndpointR\tendpoints\"\x87\x02\n" +

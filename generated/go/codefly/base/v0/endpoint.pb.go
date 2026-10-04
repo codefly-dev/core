@@ -785,7 +785,7 @@ var File_codefly_base_v0_endpoint_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1fcodefly/base/v0/readiness.proto\"\xa7\x05\n" +
+	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1fcodefly/base/v0/readiness.proto\"\xcb\x05\n" +
 	"\bEndpoint\x12)\n" +
 	"\x04name\x18\x01 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\x04name\x128\n" +
 	"\aservice\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\aservice\x126\n" +
@@ -797,8 +797,8 @@ const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\x03api\x18\x06 \x01(\tB%\xbaH\"r R\x04httpR\x04grpcR\x03tcpR\x04restR\aconnectR\x03api\x125\n" +
 	"\vapi_details\x18\a \x01(\v2\x14.codefly.base.v0.APIR\n" +
 	"apiDetails\x12-\n" +
-	"\blocation\x18\b \x01(\tB\x11\xbaH\x0er\fR\x00R\bexternalR\blocation\x12#\n" +
-	"\rallow_modules\x18\t \x03(\tR\fallowModules\x12/\n" +
+	"\blocation\x18\b \x01(\tB\x11\xbaH\x0er\fR\x00R\bexternalR\blocation\x12G\n" +
+	"\rallow_modules\x18\t \x03(\tB\"\xbaH\x1f\x92\x01\x1c\"\x1ar\x182\x11^(\\*|[a-z0-9-]+)$\xba\x01\x02--R\fallowModules\x12/\n" +
 	"\x06health\x18\n" +
 	" \x01(\v2\x17.codefly.base.v0.HealthR\x06health:\xa4\x01\xbaH\xa0\x01\x1a\x9d\x01\n" +
 	"$endpoint.allow_modules.internal_only\x124allow_modules is only read for visibility \"internal\"\x1a?this.visibility == 'internal' || this.allow_modules.size() == 0\"\xcb\x01\n" +

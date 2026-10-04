@@ -294,6 +294,8 @@ func TestLoadingRefusesADeclarationTheModelDoesNotDefine(t *testing.T) {
 		"an unknown location":            {"    location: nowhere\n", `unsupported location "nowhere"`},
 		"an allow-list nothing reads":    {"    visibility: public\n    allow-modules: [platform]\n", `allow-modules with visibility "public"`},
 		"an allow-list on a private one": {"    allow-modules: [platform]\n", `allow-modules with visibility ""`},
+		"an entry naming no module":      {"    visibility: internal\n    allow-modules: [\"\"]\n", `allow-modules entry "" names no module`},
+		"a whitespace entry":             {"    visibility: internal\n    allow-modules: [\" \"]\n", `allow-modules entry " " names no module`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -328,6 +330,15 @@ func TestEndpointProtoRefusesWhatTheModelDoesNotDefine(t *testing.T) {
 	endpoint := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityPublic, Location: "nowhere"}
 	_, err := endpoint.Proto()
 	require.Error(t, err, "location")
+	for _, entry := range []string{"", " ", "Platform", "a--b"} {
+		blank := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityInternal, AllowModules: []string{entry}}
+		_, err := blank.Proto()
+		require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "conversion refuses an entry %q", entry)
+		require.Error(t, resources.Validate(&basev0.Endpoint{Name: "http", Service: "vault", Module: "infra", Api: "http", Visibility: resources.VisibilityInternal, AllowModules: []string{entry}}), "the schema refuses an entry %q", entry)
+	}
+	wildcard := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules, "platform"}}
+	_, err = wildcard.Proto()
+	require.NoError(t, err)
 	endpoint.Location = resources.LocationExternal
 	proto, err := endpoint.Proto()
 	require.NoError(t, err)

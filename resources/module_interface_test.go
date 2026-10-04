@@ -56,6 +56,7 @@ func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 	ctx := context.Background()
 	for name, tc := range map[string]struct{ entry, says string }{
 		"internal to nobody":        {"          visibility: internal\n", "to no module"},
+		"an entry naming no module": {"          visibility: internal\n          allow-modules: [\"\"]\n", "names no module"},
 		"undecorated":               {"", "to no module"},
 		"public with an allow-list": {"          visibility: public\n          allow-modules: [platform]\n", `allow-modules with visibility "public"`},
 		// The schema refuses these before the interface validator sees them.
@@ -99,6 +100,7 @@ func TestInterfaceEntryRulesHoldOnTheWire(t *testing.T) {
 		"public with an allow-list": {Service: "api", Endpoint: "grpc", Visibility: VisibilityPublic, AllowModules: []string{"payments"}},
 		"internal to nobody":        {Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal},
 		"a private export":          {Service: "api", Endpoint: "grpc", Visibility: VisibilityPrivate, AllowModules: []string{"payments"}},
+		"an entry naming no module": {Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal, AllowModules: []string{""}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Error(t, Validate(&basev0.Module{Name: "billing", Interface: &basev0.ModuleInterface{Endpoints: []*basev0.InterfaceEndpoint{entry}}}), "schema")

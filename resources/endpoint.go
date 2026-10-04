@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -154,6 +155,26 @@ func ValidateEndpointDeclaration(service, name string, visibility Visibility, lo
 	if len(allowModules) > 0 && visibility != VisibilityInternal {
 		return fmt.Errorf("%w: endpoint %s/%s lists allow-modules with visibility %q; an allow-list is only read for %q",
 			ErrInvalidEndpointDeclaration, service, name, visibility, VisibilityInternal)
+	}
+	if err := validateAllowModules(allowModules); err != nil {
+		return fmt.Errorf("%w: endpoint %s/%s: %w", ErrInvalidEndpointDeclaration, service, name, err)
+	}
+	return nil
+}
+
+// allowModulePattern is what one allow-list entry may be: the wildcard, or a
+// module name as the schema spells one. An entry that names no module — empty,
+// whitespace, anything else — would make a list non-empty while granting
+// nobody, so the "exports to no module" refusal would be escaped by a value
+// that still exports to no module.
+var allowModulePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+func validateAllowModules(allowModules []string) error {
+	for _, module := range allowModules {
+		if module == AllowAllModules || (allowModulePattern.MatchString(module) && !strings.Contains(module, "--")) {
+			continue
+		}
+		return fmt.Errorf("allow-modules entry %q names no module (a module name, or %q for every module)", module, AllowAllModules)
 	}
 	return nil
 }

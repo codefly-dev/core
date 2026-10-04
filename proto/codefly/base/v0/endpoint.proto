@@ -46,7 +46,7 @@ message Endpoint {
   string location = 8 [(buf.validate.field).string.in = "", (buf.validate.field).string.in = "external"];
   // allow_modules is the explicit allow-list of modules permitted to reach an
   // internal endpoint. The single entry "*" permits every module.
-  repeated string allow_modules = 9;
+  repeated string allow_modules = 9 [(buf.validate.field).repeated.items.string.pattern = "^(\\*|[a-z0-9-]+)$", (buf.validate.field).repeated.items.string.not_contains = "--"];
   // health declares what "healthy" means for this endpoint. Absence keeps the
   // legacy transport-only semantics: consumers may assume nothing beyond a
   // reachable address.

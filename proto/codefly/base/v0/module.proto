@@ -25,7 +25,7 @@ message InterfaceEndpoint {
   string visibility = 3 [(buf.validate.field).string.in = "public", (buf.validate.field).string.in = "internal"];
   // allow_modules names the modules an "internal" export may be reached from
   // ("*" for every module).
-  repeated string allow_modules = 4;
+  repeated string allow_modules = 4 [(buf.validate.field).repeated.items.string.pattern = "^(\\*|[a-z0-9-]+)$", (buf.validate.field).repeated.items.string.not_contains = "--"];
 }
 
 // ModuleInterface is the formal contract of what a module exposes.
