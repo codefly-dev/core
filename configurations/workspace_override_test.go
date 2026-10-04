@@ -24,6 +24,17 @@ import (
 // that declaration, never a replacement of it.
 func composedGroupOverriddenBy(t *testing.T, override string) string {
 	t.Helper()
+	return composedGroupDeclaredAsOverriddenBy(t,
+		"CONFIG_DIR=/etc/app\nCONFIG_FILE=${profile}\nCONFIG_MODE=${profile}\n", override, "")
+}
+
+// composedGroupDeclaredAsOverriddenBy is composedGroupOverriddenBy with the
+// module's own declaration of the group under the test's control, and with a
+// second file of the solution's contributing to the same group name — both of
+// which a test about one key declared twice needs, since a duplicate arrives
+// either from a repeated line or from two files consolidated into one group.
+func composedGroupDeclaredAsOverriddenBy(t *testing.T, declaration, override, overrideSecret string) string {
+	t.Helper()
 	root := t.TempDir()
 
 	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
@@ -35,14 +46,16 @@ modules:
 	if override != "" {
 		writeConfigurationFile(t, root, "solution/configurations/local/app-config.env", override)
 	}
+	if overrideSecret != "" {
+		writeConfigurationFile(t, root, "solution/configurations/local/app-config.secret.env", overrideSecret)
+	}
 
 	writeConfigurationFile(t, root, "host/module.codefly.yaml", `kind: module
 name: host
 services:
   - name: telemetry
 `)
-	writeConfigurationFile(t, root, "host/configurations/local/app-config.env",
-		"CONFIG_DIR=/etc/app\nCONFIG_FILE=${profile}\nCONFIG_MODE=${profile}\n")
+	writeConfigurationFile(t, root, "host/configurations/local/app-config.env", declaration)
 	writeConfigurationFile(t, root, "host/services/telemetry/service.codefly.yaml", `kind: service
 name: telemetry
 version: 0.0.0
@@ -187,6 +200,90 @@ func TestAWorkspaceOverrideCannotEmptyAValueTheComposedModuleDeclaresPerProfile(
 	require.NoError(t, err)
 	require.ErrorIs(t, loader.Load(ctx, resources.LocalEnvironment()), configurations.ErrEmptyProfileValue,
 		"the load fails too, so no render can reach a workload from this composition")
+}
+
+// One key declared twice has no single value, and at this boundary it is refused
+// rather than resolved by position. It is how the empty-value refusal above was
+// bypassed: an override reading
+//
+//	CONFIG_FILE=/etc/app/solution.yaml
+//	CONFIG_FILE=
+//
+// discharged the marker with the first entry, and the second then found no
+// marker left to protect — because requiredness was read from the group being
+// built instead of from the module's declaration — so the group was delivered
+// with the key reading as the empty string, the exact failure the marker
+// refuses, from a file that names the key twice on the page.
+//
+// Both halves of that are closed here: a duplicate is refused before any rule
+// reads a value, and every rule reads the module's declaration as it stands
+// before the overlay. A duplicate reaches this function from a repeated line or
+// from two of the solution's files consolidated into one group — the parsers
+// append every declaration they read — and neither spelling of the key has to
+// match the other's, since one key is one key however it is written.
+func TestAWorkspaceOverrideDeclaringOneKeyTwiceIsRefusedRatherThanResolvedByOrder(t *testing.T) {
+	ctx := context.Background()
+	for _, test := range []struct {
+		name     string
+		override string
+		secret   string
+	}{
+		{
+			name:     "the same spelling twice, the second emptying the first",
+			override: "CONFIG_FILE=/etc/app/solution.yaml\nCONFIG_FILE=\nCONFIG_MODE=solution\n",
+		},
+		{
+			name:     "two spellings of one key, matched the way every lookup matches",
+			override: "CONFIG_FILE=/etc/app/solution.yaml\nconfig-file=\nCONFIG_MODE=solution\n",
+		},
+		{
+			name:     "two spellings carrying two real values, with nothing to choose between them",
+			override: "CONFIG_FILE=/etc/app/solution.yaml\nconfig_file=/etc/app/other.yaml\nCONFIG_MODE=solution\n",
+		},
+		{
+			name:     "two of the solution's files consolidated into one group",
+			override: "CONFIG_FILE=/etc/app/solution.yaml\nCONFIG_MODE=solution\n",
+			secret:   "CONFIG_FILE=\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			solution := composedGroupDeclaredAsOverriddenBy(t,
+				"CONFIG_DIR=/etc/app\nCONFIG_FILE=${profile}\nCONFIG_MODE=${profile}\n", test.override, test.secret)
+			workspace := loadWorkspace(t, ctx, solution)
+
+			_, err := configurations.ReadWorkspaceConfigurations(ctx, workspace, resources.LocalEnvironment())
+			require.Error(t, err, "a key declared twice is never resolved by which line came last")
+			require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
+			assert.ErrorContains(t, err, "app-config/CONFIG_FILE", "the diagnostic names the key, under the spelling the file used")
+
+			loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+			require.NoError(t, err)
+			require.Error(t, loader.Load(ctx, resources.LocalEnvironment()),
+				"the load fails rather than discharging the module's requirement with an empty value")
+		})
+	}
+}
+
+// The same rule on the module's side of the boundary, where the duplicate is not
+// the solution's to fix. Replacing the group whole made it invisible: the
+// module's group was discarded, duplicate and all. Overlaying onto it has to
+// pick a declaration to overlay — and a solution that supplies the key would
+// otherwise be told the key is still owed, because the second declaration still
+// carries the marker. Naming the module's duplicate says what is actually
+// wrong, to the only author who can fix it.
+func TestAComposedModuleDeclaringOneKeyTwiceIsRefusedWhereItIsOverridden(t *testing.T) {
+	ctx := context.Background()
+	solution := composedGroupDeclaredAsOverriddenBy(t,
+		"CONFIG_DIR=/etc/app\nCONFIG_FILE=${profile}\nconfig-file=${profile}\n",
+		"CONFIG_FILE=/etc/app/solution.yaml\n", "")
+	workspace := loadWorkspace(t, ctx, solution)
+
+	_, err := configurations.ReadWorkspaceConfigurations(ctx, workspace, resources.LocalEnvironment())
+	require.Error(t, err)
+	require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
+	assert.ErrorContains(t, err, "app-config/CONFIG_FILE")
+	assert.ErrorContains(t, err, "app-config/config-file", "the diagnostic names both declarations")
+	assert.ErrorContains(t, err, `"host"`, "and the module that carries them")
 }
 
 // The module's group is the declared SET of its keys, as a base profile is for

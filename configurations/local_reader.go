@@ -94,12 +94,16 @@ type WorkspaceConfigurations struct {
 	// carrying the module's group with the workspace's values overlaid on it.
 	Infos []*basev0.ConfigurationInformation
 	// ComposedBy names, for each configuration a composed module contributes,
-	// the module that provides it. A name the consuming workspace also declares
-	// stays in it: the workspace's values are overlaid onto the module's group
-	// per key, so the group is still the module's and its delivery stays scoped
-	// to the services that declared it. A name absent from it is the
-	// workspace's own alone — no composed module offers it, or the modules that
-	// do disagree and the workspace's declaration resolves the ambiguity.
+	// the module that provides it. A name the consuming workspace declares as
+	// its OWN stays in it: the workspace's values are overlaid onto the module's
+	// group per key, so the group is still the module's and its delivery stays
+	// scoped to the services that declared it. A name absent from it is the
+	// workspace's own alone, which happens three ways: no composed module offers
+	// it; the modules that do disagree and the workspace's declaration resolves
+	// the ambiguity; or an imported workspace declares it too, which still
+	// replaces a module's group of that name whole rather than overlaying onto
+	// it (readOwnedWorkspaceConfigurations, and the closing paragraph of
+	// docs/workspace-composition.md's "Overriding a composed module's group").
 	ComposedBy map[string]string
 	// Ambiguous holds the names two composed modules define differently, mapped
 	// to the diagnostic naming both providers. They are absent from Infos: a
@@ -686,6 +690,23 @@ func composeModuleWorkspaceConfigurations(
 // replaces the module's whole — as a derived profile's does — and a boundary
 // that would turn a document into key/value pairs, or the reverse, is a conflict
 // rather than a silent choice between them.
+//
+// Both rules are read from the module's declaration as it stands BEFORE the
+// overlay, never from the group being built: a group may declare one key twice
+// (the parsers append every declaration they read), and reading requiredness
+// from the group under construction would let a second declaration of a key be
+// checked against the first declaration's own replacement. An override of
+// CONFIG_FILE=${profile} reading
+//
+//	CONFIG_FILE=/etc/app/solution.yaml
+//	CONFIG_FILE=
+//
+// would then discharge the marker with the first entry, find no marker left for
+// the second, and deliver the key as the empty string the marker exists to
+// refuse. Either side declaring one key twice is refused outright for the same
+// reason the rest of this boundary refuses ambiguity: there is no single value
+// to overlay or to overlay onto, and which declaration would win is a fact
+// about line order rather than about what either author said.
 func overlayWorkspaceConfigurationOverride(
 	base *basev0.ConfigurationInformation,
 	override *basev0.ConfigurationInformation,
@@ -707,13 +728,21 @@ func overlayWorkspaceConfigurationOverride(
 		overlaid.Data = override.GetData()
 		return overlaid, nil
 	}
+	if first, second, duplicated := duplicateConfigurationKey(base); duplicated {
+		return nil, fmt.Errorf("composed module %q declares %s/%s and %s/%s, one key under two spellings, in the group the consuming workspace overrides; declare it once: %w",
+			module, base.GetName(), first, base.GetName(), second, ErrConfigurationConflict)
+	}
+	if first, second, duplicated := duplicateConfigurationKey(override); duplicated {
+		return nil, fmt.Errorf("the consuming workspace declares %s/%s and %s/%s, one key under two spellings, overriding the group composed module %q provides; declare it once: %w",
+			override.GetName(), first, override.GetName(), second, module, ErrConfigurationConflict)
+	}
 	for _, value := range override.GetConfigurationValues() {
-		existing := findConfigurationValue(overlaid, value.GetKey())
-		if existing == nil {
+		declared := findConfigurationValue(base, value.GetKey())
+		if declared == nil {
 			return nil, fmt.Errorf("the consuming workspace overrides %s/%s, a key composed module %q does not declare in the group it provides; declare it there (as %s when each profile supplies its own), or declare a group of the workspace's own name: %w",
 				override.GetName(), value.GetKey(), module, ProfileValueMarker, ErrUndeclaredProfileKey)
 		}
-		if ValueDeclaredPerProfile(existing) && configurationValueSuppliesNothing(value) {
+		if ValueDeclaredPerProfile(declared) && configurationValueSuppliesNothing(value) {
 			return nil, fmt.Errorf("%s/%s is supplied per profile by composed module %q, and the consuming workspace supplies an empty value: %w",
 				override.GetName(), value.GetKey(), module, ErrEmptyProfileValue)
 		}

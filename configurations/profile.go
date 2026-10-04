@@ -429,6 +429,29 @@ func setConfigurationValue(info *basev0.ConfigurationInformation, value *basev0.
 	info.ConfigurationValues = append(info.ConfigurationValues, value)
 }
 
+// duplicateConfigurationKey returns the two spellings under which a group
+// declares one key twice — matched the way every lookup matches, so CONFIG_FILE
+// and config-file are one key — and whether it does.
+//
+// A group that carries one key twice has no single value for it: the parsers
+// append every declaration they read (a repeated line in one .env file, or two
+// files contributing to one group name), findConfigurationValue answers with the
+// first and setConfigurationValue overlays the first, so which declaration a
+// reader gets depends on where it is read from. Where that group is overlaid
+// onto someone else's, the duplicate is refused rather than resolved by
+// position — see overlayWorkspaceConfigurationOverride.
+func duplicateConfigurationKey(info *basev0.ConfigurationInformation) (string, string, bool) {
+	values := info.GetConfigurationValues()
+	for index, value := range values {
+		for _, candidate := range values[index+1:] {
+			if resources.Match(value.GetKey(), candidate.GetKey()) {
+				return value.GetKey(), candidate.GetKey(), true
+			}
+		}
+	}
+	return "", "", false
+}
+
 // configurationValueSuppliesNothing reports whether a value supplies nothing at
 // all: no text, and no template to assemble one. A value that supplies nothing
 // does not discharge a ProfileValueMarker — see ErrEmptyProfileValue.

@@ -60,10 +60,11 @@ refused, naming `app-config/CONFIG_MODE`, instead of running without it. A
 solution overriding one key is never required to restate the group.
 
 **The module's group is the declared set of the group's keys**, exactly as a base
-profile is for the profiles derived from it, and the same two rules follow:
+profile is for the profiles derived from it, and two rules follow:
 
-- a key only the solution carries is refused, naming it. The group is delivered
-  to the module's services, which read the keys the module declared; a key its
+- a key only the solution carries is refused, naming it — the same rule a derived
+  profile gets over the profile it derives from. The group is delivered to the
+  module's services, which read the keys the module declared; a key its
   declaration never mentions is a value nothing reads. A solution that needs a
   key of its own declares a **group** of its own name, which reaches every
   service of the composition.
@@ -74,11 +75,21 @@ profile is for the profiles derived from it, and the same two rules follow:
   refuse. A key for which nothing is a legitimate value is declared with a
   default by the group's author, not with the marker.
 
-Keys are matched the way every other configuration lookup matches them — case
-insensitively, with `-` and `_` equivalent. A structured document (a `.yaml`
-group) has no keys to overlay, so the solution's document replaces the module's
-whole; an empty one does not discharge a document declared per profile, and a
-boundary that turns a document into key/value pairs is a conflict.
+  This second refusal is **this boundary's own**: profile derivation does not
+  carry it today, so a derived profile that empties a `${profile}` its base
+  declares is still accepted. The two layers are not the same situation — the
+  profiles of one workspace are written by the author who wrote the declaration,
+  while across this boundary the author discharging the marker is not the author
+  who declared it, and cannot be refused later by a reviewer of the module.
+
+One key declared twice — a repeated line, or two files consolidated into one
+group, under either spelling — is refused on whichever side of the boundary
+declares it, rather than resolved by which line came last. Keys are matched the
+way every other configuration lookup matches them: case insensitively, with `-`
+and `_` equivalent. A structured document (a `.yaml` group) has no keys to
+overlay, so the solution's document replaces the module's whole; an empty one
+does not discharge a document declared per profile, and a boundary that turns a
+document into key/value pairs is a conflict.
 
 **An overridden group stays composed.** Its provider is still the module, so it
 reaches the services that declared it as a dependency rather than every service
