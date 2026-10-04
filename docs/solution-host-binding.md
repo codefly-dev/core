@@ -752,3 +752,50 @@ is pinned by test against the shipped fixtures, so it cannot move by accident.
 ## Fixtures
 
 See [`solutionhost/testdata/README.md`](../solutionhost/testdata/README.md).
+
+## The module contract and the cell
+
+Two more wire contracts of this lifecycle live here, each with one
+implementation and a shipped kit, for the reason the presence and authority
+documents do: three repositories read them (the CLI's renderer and publisher,
+the runtimes that publish contracts, the platform's loader that derives policy
+from cells), and a second implementation in any of them is where the next
+disagreement about what a file means appears.
+
+**`solutionhost/modulecontract`** is `codefly/module-contract/v1`, the
+request a module publishes beside its manifest as
+`module.contract.codefly.yaml`: the principal its credentials are issued to,
+the operation bindings it redeems (each with a scope ceiling per operation in
+one of two spellings — bare actions qualified by the binding's resource-kind
+slot, or `{resource_kind, actions}` entries naming the kind literally, never
+mixed, never a mapping), the queues and namespaces it declares, its own scope
+ceilings and the destinations it exposes. Audience, resource kind and binding
+key are **slots** into the composition's workspace configuration
+(`{from: <group>/<key>}`), whose key name carries its meaning, and a literal
+where a slot belongs is a schema error. `Parse` decodes strictly (an unknown
+field — a tenancy, a build digest, an identity — is refused, never ignored),
+`Validate` holds every rule, and `Resolve` resolves the slots against the
+values a composition supplies, refusing a secret-classified one.
+
+**`solutionhost/cell`** is `codefly/cell/v1`, the inventory of one
+environment's cell that a publish writes to the delivery repository and the
+platform derives its mesh policy, admission set and RBAC from: per module
+namespace, every pod-producing workload with its exact selector, the
+module-qualified service it runs, the account and SPIFFE identity it runs
+as, the one authenticating container named, every container's pinned image,
+the rendered artifact's digest, its release, endpoints with their container
+ports and declared consumers, ingress routes, cell bindings and cloud
+identity; the delivery Job declared by its labels; and the external reach the
+environment grants. `Parse` decodes strictly and `Validate` holds the host
+header to all-or-nothing, every identity to the cell's trust domain, every
+edge to an endpoint the cell carries, and every image to a repository and
+an OCI digest.
+
+**The kits.** `modulecontract.Fixtures()` / `cell.Fixtures()` ship every
+accepted and refused document with the sentinel and the message a refusal
+must carry, and `Run(t, read)` drives a reader's own entrypoint through them.
+A consumer passes the function it actually reads the file with — the
+renderer's load, the publisher's merge, the loader's parse — never this
+package's `Parse`, which proves nothing about the consumer. The CLI deleted
+its copies of both models when these landed; its tests run both kits through
+its render and publish paths.
