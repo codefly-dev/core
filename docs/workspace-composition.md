@@ -39,6 +39,86 @@ workspace groups fail unless the product supplies that group. Existing module
 configuration fallback remains below workspace-owned configuration. Imported
 environments never override the product's deployment target.
 
+### Overriding a composed module's group
+
+A composed module brings its `configurations/<profile>/*` into the consuming
+workspace's configuration space, so the module's services satisfy their
+workspace-configuration-dependencies from the solution alone. A solution
+overrides one of those groups by declaring a group of the same name — and it
+overrides it **per key**:
+
+```
+host/configurations/local/app-config.env     solution/configurations/local/app-config.env
+    CONFIG_DIR=/etc/app                          CONFIG_FILE=/etc/app/solution.yaml
+    CONFIG_FILE=${profile}
+    CONFIG_MODE=${profile}
+```
+
+`CONFIG_FILE` is the solution's. `CONFIG_DIR` is still the module's default, and
+`CONFIG_MODE` is still a value each profile must supply — so this composition is
+refused, naming `app-config/CONFIG_MODE`, instead of running without it. A
+solution overriding one key is never required to restate the group.
+
+**The module's group is the declared set of the group's keys**, exactly as a base
+profile is for the profiles derived from it, and two rules follow:
+
+- a key only the solution carries is refused, naming it — the same rule a derived
+  profile gets over the profile it derives from. The group is delivered to the
+  module's services, which read the keys the module declared; a key its
+  declaration never mentions is a value nothing reads. A solution that needs a
+  key of its own declares a **group** of its own name, which reaches every
+  service of the composition.
+- a `${profile}` the override does not discharge is still owed, and an override
+  that discharges one with an **empty value** is refused naming the key. An empty
+  value is not a value: accepted, it would deliver the key as the empty string
+  every reader of a missing key gets, which is what the declaration exists to
+  refuse. A key for which nothing is a legitimate value is declared with a
+  default by the group's author, not with the marker.
+
+  This second refusal is **this boundary's own**: profile derivation does not
+  carry it today, so a derived profile that empties a `${profile}` its base
+  declares is still accepted. The two layers are not the same situation — the
+  profiles of one workspace are written by the author who wrote the declaration,
+  while across this boundary the author discharging the marker is not the author
+  who declared it, and cannot be refused later by a reviewer of the module.
+
+One key declared twice **in one profile** — a repeated line, or two files
+consolidated into one group, under either spelling — is refused where it is
+written, naming the profile and both spellings, rather than resolved by which
+line came last. It is refused per profile rather than at this boundary alone,
+because a derived profile's duplicate would otherwise be flattened into one
+value before anything could see it, and *which* value reached the workload would
+be decided by the order of two lines. A key declared once in a base profile and
+once in a profile derived from it is the derivation itself, not a duplicate.
+Keys are matched the way every other configuration lookup matches them: case
+insensitively, with `-` and `_` equivalent. A structured document (a `.yaml` group) has no keys to
+overlay, so the solution's document replaces the module's whole; an empty one
+does not discharge a document declared per profile, and a boundary that turns a
+document into key/value pairs is a conflict.
+
+**An overridden group stays composed.** Its provider is still the module, so it
+reaches the services that declared it as a dependency rather than every service
+of the composition. Overriding a key of someone else's group is not a statement
+about every service in the run — and a run-wide injection of an overridden group
+would carry the module's own keys, the ones the solution never wrote, into every
+service of it. Run-wide delivery has two ways to be asked for, and both say so:
+a group under a name no composed module provides is the composition root's own,
+and an operator's `--set` is attributed to the run, which stays composition-root
+even on a name a composed module provides.
+
+When two composed modules define one name differently, the name is ambiguous and
+unavailable until the solution declares it; a solution that does declare it
+resolves the ambiguity rather than being reported it — there is no single group
+to overlay onto, so its declaration stands whole as the composition root's own.
+
+This per-key overlay is the consuming workspace's **own** declaration over a
+composed module's group. A workspace-level group an imported workspace also
+carries — the product model above — still replaces a module's group of that name
+whole: an imported declaration is not the product's to amend, and overlaying the
+product's own onto the module's group where an imported workspace declares the
+name too would rank a module default above the imported declaration it sits
+below. Deciding the product model's precedence per key is a separate change.
+
 ### Configuration profile chains
 
 An environment reads `configurations/<profile>/` (and each service's
@@ -110,7 +190,10 @@ declares a group nothing provides is told so by name.
 
 A derived declaration replaces the whole value rather than merging into it, so a
 profile that makes a shared default secret, or replaces it with an assembled
-template, says so in one place. A structured document (a `.yaml` group) has no
+template, says so in one place. One profile declaring the same key **twice** is
+refused instead, naming the profile and both spellings: overlaying the second
+onto the first would deliver whichever the file named last, which is not a
+statement either declaration makes. A structured document (a `.yaml` group) has no
 keys to overlay, so a derived profile's document replaces the one it derives from
 — overlaying one *field* of a document per profile is not supported, and such a
 group is declared per profile whole or stays shared; turning a document into

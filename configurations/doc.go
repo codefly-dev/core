@@ -115,11 +115,20 @@
 // GetCompositionRootWorkspaceConfigurations returns exactly the root-provided set
 // for that run-wide injection, resolved and endpoint-interpolated like
 // GetWorkspaceConfigurations. The root-provided and per-dependency composed-module
-// sets are disjoint by name (a name the root also declares is resolved to the
-// root at load), so the root fills what a composed module leaves unset without
-// shadowing a name only the module provides. An invocation-scoped override is the
-// run supplying a value, so it is composition-root even when it lands on a name a
-// composed module also provides.
+// sets are disjoint by name: a name a composed module provides stays in the
+// composed set even when the root declares it as its OWN, because the root's
+// values are overlaid onto the module's group PER KEY
+// (composeModuleWorkspaceConfigurations) — the group is still the module's, so it
+// is still delivered to the services that declared it, and a run-wide injection
+// of it would carry the module's own keys into every service of the composition.
+// So the root fills what a composed module leaves unset without shadowing a name
+// only the module provides, and without widening that name's delivery. A name an
+// imported workspace also declares is the exception the overlay does not cover:
+// an imported declaration is not the product's to amend, so it still replaces a
+// composed module's group of that name whole and is classified as the root's.
+//
+// An invocation-scoped override is the run supplying a value, so it is
+// composition-root even when it lands on a name a composed module also provides.
 //
 // Git owns the non-secret manifest and workspace configuration, Core validates
 // and resolves only provider references, the CLI selects the declared

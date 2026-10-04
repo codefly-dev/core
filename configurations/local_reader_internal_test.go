@@ -1,6 +1,7 @@
 package configurations
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -39,5 +40,53 @@ func TestApplyServiceConfigurationOverridesRejectsOriginCollisionWhenTargeted(t 
 	_, err = applyServiceConfigurationOverrides(map[string]*basev0.Configuration{}, origins, encoded)
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("a targeted override with colliding origins must be rejected, got %v", err)
+	}
+}
+
+// The overlay boundary refuses a duplicate canonical key on either side. With
+// the per-layer refusal in profileOverlay.add, no profile-loaded input can
+// reach here carrying one, so this is the boundary stating its own precondition
+// rather than a reachable path — and it is tested directly, because a guard
+// whose only justification is "nothing can get here" is the guard that silently
+// stops holding when a second caller appears.
+func TestOverlayWorkspaceConfigurationOverrideRefusesADuplicateKeyOnEitherSide(t *testing.T) {
+	group := func(values ...*basev0.ConfigurationValue) *basev0.ConfigurationInformation {
+		return &basev0.ConfigurationInformation{Name: "app-config", ConfigurationValues: values}
+	}
+	value := func(key, v string) *basev0.ConfigurationValue {
+		return &basev0.ConfigurationValue{Key: key, Value: v}
+	}
+
+	for _, test := range []struct {
+		name     string
+		base     *basev0.ConfigurationInformation
+		override *basev0.ConfigurationInformation
+		expect   string
+	}{
+		{
+			name:     "the module's group declares one key twice",
+			base:     group(value("CONFIG_FILE", ProfileValueMarker), value("config-file", ProfileValueMarker)),
+			override: group(value("CONFIG_FILE", "/etc/app/solution.yaml")),
+			expect:   "composed module",
+		},
+		{
+			name:     "the override declares one key twice",
+			base:     group(value("CONFIG_FILE", ProfileValueMarker)),
+			override: group(value("CONFIG_FILE", "/etc/app/solution.yaml"), value("config_file", "")),
+			expect:   "the consuming workspace declares",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := overlayWorkspaceConfigurationOverride(test.base, test.override, "host")
+			if err == nil {
+				t.Fatalf("a duplicate canonical key must be refused, not resolved by position")
+			}
+			if !errors.Is(err, ErrConfigurationConflict) {
+				t.Fatalf("want ErrConfigurationConflict, got %v", err)
+			}
+			if !strings.Contains(err.Error(), test.expect) {
+				t.Fatalf("the diagnostic must name which side declared it, got %v", err)
+			}
+		})
 	}
 }

@@ -89,11 +89,21 @@ func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspa
 // composed modules ship. See ReadWorkspaceConfigurations.
 type WorkspaceConfigurations struct {
 	// Infos holds every provided configuration in provisioning order: the
-	// workspace's own first, then the composed modules' contributions.
+	// workspace's own first, then the composed modules' contributions. A group
+	// the workspace overrides keeps the position the workspace declared it in,
+	// carrying the module's group with the workspace's values overlaid on it.
 	Infos []*basev0.ConfigurationInformation
 	// ComposedBy names, for each configuration a composed module contributes,
-	// the module that provides it. A name absent from it is the workspace's
-	// own — which wins over any module offering the same name.
+	// the module that provides it. A name the consuming workspace declares as
+	// its OWN stays in it: the workspace's values are overlaid onto the module's
+	// group per key, so the group is still the module's and its delivery stays
+	// scoped to the services that declared it. A name absent from it is the
+	// workspace's own alone, which happens three ways: no composed module offers
+	// it; the modules that do disagree and the workspace's declaration resolves
+	// the ambiguity; or an imported workspace declares it too, which still
+	// replaces a module's group of that name whole rather than overlaying onto
+	// it (readOwnedWorkspaceConfigurations, and the closing paragraph of
+	// docs/workspace-composition.md's "Overriding a composed module's group").
 	ComposedBy map[string]string
 	// Ambiguous holds the names two composed modules define differently, mapped
 	// to the diagnostic naming both providers. They are absent from Infos: a
@@ -132,11 +142,11 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot select workspace configuration directory")
 	}
-	workspaceInfos, unsupplied, err := readOwnedWorkspaceConfigurations(ctx, workspace, profiles)
+	workspaceLevel, err := readOwnedWorkspaceConfigurations(ctx, workspace, profiles)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot inherit workspace configurations")
 	}
-	workspaceInfos, composedBy, ambiguous, composedUnsupplied, err := composeModuleWorkspaceConfigurations(ctx, workspace, workspaceInfos, configurationDir, profiles)
+	workspaceInfos, composedBy, ambiguous, composedUnsupplied, err := composeModuleWorkspaceConfigurations(ctx, workspace, workspaceLevel, configurationDir, profiles)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot compose module workspace configurations")
 	}
@@ -144,38 +154,71 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 		Infos:      workspaceInfos,
 		ComposedBy: composedBy,
 		Ambiguous:  ambiguous,
-		Unsupplied: append(unsupplied, composedUnsupplied...),
+		Unsupplied: append(workspaceLevel.Unsupplied, composedUnsupplied...),
 	}, nil
+}
+
+// ownedWorkspaceConfigurations is what the workspace level of one composition
+// provides: a workspace's own configuration groups and the ones it inherited
+// from the workspaces it composes, with the two kinds of provenance kept apart.
+type ownedWorkspaceConfigurations struct {
+	// Infos are the groups in provisioning order, the workspace's own first.
+	Infos []*basev0.ConfigurationInformation
+	// Own names the groups this workspace declares ITSELF.
+	Own map[string]bool
+	// FromComposedWorkspace names every group a composed workspace contributed,
+	// including the ones this workspace's own declaration suppressed — so a
+	// consumer can tell a name that is this workspace's alone from one that two
+	// workspace-level declarations both carry.
+	FromComposedWorkspace map[string]bool
+	// Unsupplied are the per-profile values the provisioned groups still owe.
+	Unsupplied []ProfileRequirement
 }
 
 // A product inherits its selected workspace's wiring. Its own groups override
 // the inherited groups; sibling workspaces must agree unless the product chooses.
 // Module defaults are composed separately, retaining their existing precedence.
-func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, profiles []string) ([]*basev0.ConfigurationInformation, []ProfileRequirement, error) {
+//
+// Provenance is reported, not just the result, because the two kinds are not
+// interchangeable against a composed module's group of the same name. A group
+// the consuming workspace declares itself, and no composed workspace also
+// carries, is overlaid onto the module's group per key
+// (composeModuleWorkspaceConfigurations). Any other workspace-level declaration
+// of that name still replaces the module's group whole: an inherited declaration
+// is not the consuming workspace's to amend, so a per-key overlay there would
+// refuse a product over two files it cannot edit, and where a name is declared by
+// a composed workspace AND the product, overlaying the product's onto the
+// MODULE's group would rank a module default above the inherited declaration it
+// is supposed to sit below. Both want the precedence model of workspace
+// composition decided per key, which this composition rule does not do.
+func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, profiles []string) (*ownedWorkspaceConfigurations, error) {
 	provided, err := LoadProfileConfigurations(ctx, workspace.Dir(), "configurations", profiles)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	infos := provided.Infos
 	unsupplied := provided.Unsupplied
 	owned := make(map[string]bool)
+	fromComposed := make(map[string]bool)
 	inherited := make(map[string]*basev0.ConfigurationInformation)
 	owners := make(map[string]string)
 	for _, info := range infos {
 		owned[info.Name] = true
 	}
 	for _, child := range workspace.ComposedWorkspaces() {
-		contributions, childUnsupplied, err := readOwnedWorkspaceConfigurations(ctx, child, profiles)
+		contributed, err := readOwnedWorkspaceConfigurations(ctx, child, profiles)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		for _, info := range contributions {
+		childUnsupplied := contributed.Unsupplied
+		for _, info := range contributed.Infos {
+			fromComposed[info.Name] = true
 			if owned[info.Name] {
 				continue
 			}
 			if previous, ok := inherited[info.Name]; ok {
 				if !proto.Equal(previous, info) {
-					return nil, nil, fmt.Errorf("workspace configuration %q differs between workspaces %q and %q: %w", info.Name, owners[info.Name], child.Name, ErrConfigurationConflict)
+					return nil, fmt.Errorf("workspace configuration %q differs between workspaces %q and %q: %w", info.Name, owners[info.Name], child.Name, ErrConfigurationConflict)
 				}
 				continue
 			}
@@ -192,7 +235,12 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 			unsupplied = append(unsupplied, requirement)
 		}
 	}
-	return infos, unsupplied, nil
+	return &ownedWorkspaceConfigurations{
+		Infos:                 infos,
+		Own:                   owned,
+		FromComposedWorkspace: fromComposed,
+		Unsupplied:            unsupplied,
+	}, nil
 }
 
 func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env *resources.Environment) error {
@@ -246,14 +294,14 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	serviceConfs := make(map[string]*basev0.Configuration)
 	serviceOrigins := make([]string, 0, len(services))
 	for _, svc := range services {
-		identity, err := svc.Identity()
-		if err != nil {
-			return w.Wrapf(err, "cannot get service identity")
+		identity, identityErr := svc.Identity()
+		if identityErr != nil {
+			return w.Wrapf(identityErr, "cannot get service identity")
 		}
 		serviceOrigins = append(serviceOrigins, identity.Unique())
-		serviceProfile, err := LoadProfileConfigurations(ctx, svc.Dir(), "configurations", profiles)
-		if err != nil {
-			return w.Wrapf(err, "cannot load service configuration profile")
+		serviceProfile, profileErr := LoadProfileConfigurations(ctx, svc.Dir(), "configurations", profiles)
+		if profileErr != nil {
+			return w.Wrapf(profileErr, "cannot load service configuration profile")
 		}
 		if serviceProfile.Exists {
 			serviceInfos := serviceProfile.Infos
@@ -274,14 +322,14 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			}
 		}
 		// Load DNS
-		dnsFile, exists, err := ProfileFile(ctx, svc.Dir(), "dns", profiles, "dns.codefly.yaml")
-		if err != nil {
-			return w.Wrapf(err, "cannot select service dns declaration")
+		dnsFile, exists, dnsSelectErr := ProfileFile(ctx, svc.Dir(), "dns", profiles, "dns.codefly.yaml")
+		if dnsSelectErr != nil {
+			return w.Wrapf(dnsSelectErr, "cannot select service dns declaration")
 		}
 		if exists {
-			dns, err := loadDNS(ctx, dnsFile)
-			if err != nil {
-				return w.Wrapf(err, "cannot load dns")
+			dns, dnsErr := loadDNS(ctx, dnsFile)
+			if dnsErr != nil {
+				return w.Wrapf(dnsErr, "cannot load dns")
 			}
 			for _, d := range dns {
 				d.Service = identity.Name
@@ -367,7 +415,35 @@ type composedConfiguration struct {
 //
 // The consuming workspace wins on a name conflict, so a solution can override a
 // composed configuration by declaring one of the same name, but is never
-// required to redeclare every configuration the host brings. Two composed
+// required to redeclare every configuration the host brings. It wins PER KEY:
+// the workspace's values are overlaid onto the module's group, which keeps
+// supplying every key the workspace does not mention. Replacing the group whole
+// instead lost three things at once — the module's defaults for the keys the
+// workspace never mentioned, the ProfileValueMarker declarations among them (so
+// nothing reported the omission and an empty override discharged a value that
+// must differ per environment), and the group's provenance, which reclassified
+// it as the composition root's own and widened its delivery from the services
+// that declared it to every service of the composition. A partial override
+// narrowed a group's contents and widened its delivery at the same time. So the
+// overlaid group stays composed, the module remains its provider, and the
+// module's group is the declared set of the group's keys across this boundary as
+// a base profile is for the profiles derived from it: a key only the workspace
+// carries is refused (ErrUndeclaredProfileKey, the same rule profile derivation
+// applies), a marker the override does not discharge is still owed, and one key
+// declared twice is refused rather than resolved by position
+// (ErrConfigurationConflict, refused per layer in profileOverlay.add). An
+// override that empties a marker is refused naming it (ErrEmptyProfileValue) —
+// that one is THIS boundary's own, and profile derivation does not carry it; see
+// overlayWorkspaceConfigurationOverride for why. A workspace that needs a key of
+// its own declares a group of its own name, which reaches every service of the
+// composition.
+//
+// That is the consuming workspace's own declaration of a name no composed
+// workspace also carries. Every other workspace-level declaration still replaces
+// a module's group of that name whole — see readOwnedWorkspaceConfigurations for
+// why the product model's precedence is not decided here.
+//
+// Two composed
 // modules defining the same name identically is not a conflict — there is one
 // value to provision and nothing to arbitrate, which is what two submodules
 // vendoring the same file amount to. Two that define it *differently* are
@@ -387,104 +463,163 @@ type composedConfiguration struct {
 func composeModuleWorkspaceConfigurations(
 	ctx context.Context,
 	workspace *resources.Workspace,
-	workspaceInfos []*basev0.ConfigurationInformation,
+	workspaceLevel *ownedWorkspaceConfigurations,
 	workspaceConfigurationDir string,
 	profiles []string,
 ) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
 	w := wool.Get(ctx).In("configurations.composeModuleWorkspaceConfigurations")
 
+	// overriding locates the consuming workspace's own declaration of a name, by
+	// position: a module offering that name does not lose to it, it is overlaid
+	// onto it in place, where the workspace declared it. replacing holds every
+	// other workspace-level declaration — inherited from a composed workspace, or
+	// shadowing one — which still wins whole.
+	workspaceInfos := workspaceLevel.Infos
+	overriding := make(map[string]int, len(workspaceInfos))
+	offers := newComposedModuleOffers(len(workspaceInfos), profiles)
+	for index, info := range workspaceInfos {
+		if workspaceLevel.Own[info.Name] && !workspaceLevel.FromComposedWorkspace[info.Name] {
+			overriding[info.Name] = index
+			continue
+		}
+		offers.replacing[info.Name] = true
+	}
+
+	if err := offers.gather(ctx, workspace, workspaceConfigurationDir); err != nil {
+		return nil, nil, nil, nil, w.Wrap(err)
+	}
+	return offers.resolve(ctx, workspaceInfos, overriding)
+}
+
+// composedModuleOffers accumulates what the composed modules offer for the
+// selected profile, before any of it is resolved against the consuming
+// workspace's own declarations. One name can be offered more than once — by a
+// module and by the repository holding it, or by two modules that disagree about
+// it — so an offer is recorded against what is already there rather than
+// appended, and resolve then turns what survives into the provisioned set.
+type composedModuleOffers struct {
+	// replacing are the workspace-level names that win whole, so a module's
+	// offer of one is dropped where it is made rather than resolved.
+	replacing map[string]bool
+	profiles  []string
+	composed  map[string]*composedConfiguration
+	order     []string
+	// unsuppliedByGroup holds, per group name a composed module offers, the
+	// per-profile values that module left unsupplied. It is keyed by group so only
+	// the requirements of the offers that actually win are reported: a group that
+	// loses an ambiguity is not provisioned and owes nothing. A group the
+	// consuming workspace overrides still owes them — the override is per key, so
+	// a marker it does not discharge is still in the provisioned group, and
+	// StillUnsupplied drops exactly the ones it did discharge.
+	unsuppliedByGroup map[string][]ProfileRequirement
+	// loaded are the configuration directories already read, keyed by resolved
+	// path. Several module references can resolve to the same directory: to one
+	// composed workspace root (e.g. two non-flat submodules composed from one
+	// host repo, one reached through a symlinked path), or — since a foreign
+	// reference names its module by coordinate rather than by name — to one
+	// submodule composed twice under different names. Symlinks are resolved so
+	// those collapse to one key and the directory is read once; reading it twice
+	// would offer every configuration in it against itself.
+	loaded map[string]bool
+}
+
+func newComposedModuleOffers(workspaceNames int, profiles []string) *composedModuleOffers {
+	return &composedModuleOffers{
+		replacing:         make(map[string]bool, workspaceNames),
+		profiles:          profiles,
+		composed:          make(map[string]*composedConfiguration),
+		unsuppliedByGroup: make(map[string][]ProfileRequirement),
+		loaded:            make(map[string]bool),
+	}
+}
+
+// offer records what one composed module provides, from one of its directories.
+func (offers *composedModuleOffers) offer(ctx context.Context, module string, repo string, fromRepo bool, infos []*basev0.ConfigurationInformation) {
+	w := wool.Get(ctx).In("configurations.composedModuleOffers.offer")
+	for _, info := range infos {
+		if offers.replacing[info.Name] {
+			w.Debug("workspace-level configuration a composed workspace also declares replaces composed module configuration",
+				wool.Field("configuration", info.Name), wool.Field("module", module))
+			continue
+		}
+		// A name the consuming workspace declares ITSELF is not dropped here:
+		// its values are overlaid onto this group once every offer is in, so
+		// the group the workspace overrides must first be resolved like any
+		// other — a submodule's declaration over its repository's, and an
+		// ambiguity between two modules that the workspace's own declaration
+		// then resolves.
+		existing, ok := offers.composed[info.Name]
+		if !ok {
+			offers.composed[info.Name] = &composedConfiguration{info: info, module: module, repo: repo, fromRepo: fromRepo}
+			offers.order = append(offers.order, info.Name)
+			continue
+		}
+		if existing.conflict != nil {
+			continue
+		}
+		// A module directory and the root of the repository holding it are
+		// not two competing providers: they are one artifact, where the
+		// module's own directory is the more specific declaration.
+		if existing.repo == repo && existing.fromRepo != fromRepo {
+			overrides := !proto.Equal(existing.info, info)
+			submodule := existing.module
+			if !fromRepo {
+				submodule = module
+				existing.info, existing.module, existing.fromRepo = info, module, false
+			}
+			if overrides {
+				w.Warn("composed module configuration overrides the one its repository provides, for every service in the run",
+					wool.Field("configuration", info.Name), wool.Field("module", submodule))
+			}
+			continue
+		}
+		if proto.Equal(existing.info, info) {
+			continue
+		}
+		existing.conflict = w.NewError(
+			"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
+			info.Name, existing.module, module, ErrConfigurationConflict)
+	}
+}
+
+// readOnce reads one configuration directory, the first time it is asked for it,
+// and collects what the profile left unsupplied there.
+func (offers *composedModuleOffers) readOnce(ctx context.Context, dir string) ([]*basev0.ConfigurationInformation, error) {
+	w := wool.Get(ctx).In("configurations.composedModuleOffers.readOnce")
+	key := dir
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		key = resolved
+	}
+	if offers.loaded[key] {
+		return nil, nil
+	}
+	offers.loaded[key] = true
+	provided, err := LoadProfileConfigurations(ctx, dir, "configurations", offers.profiles)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load module configuration profile")
+	}
+	if !provided.Exists {
+		return nil, nil
+	}
+	for _, requirement := range provided.Unsupplied {
+		offers.unsuppliedByGroup[requirement.Group] = append(offers.unsuppliedByGroup[requirement.Group], requirement)
+	}
+	return provided.Infos, nil
+}
+
+// gather reads every composed module's configurations and offers them.
+func (offers *composedModuleOffers) gather(ctx context.Context, workspace *resources.Workspace, workspaceConfigurationDir string) error {
+	w := wool.Get(ctx).In("configurations.composedModuleOffers.gather")
+
 	modules, err := workspace.LoadModules(ctx)
 	if err != nil {
-		return nil, nil, nil, nil, w.Wrapf(err, "cannot load modules")
-	}
-	fromWorkspace := make(map[string]bool, len(workspaceInfos))
-	for _, info := range workspaceInfos {
-		fromWorkspace[info.Name] = true
+		return w.Wrapf(err, "cannot load modules")
 	}
 	sourceReferenced := make(map[string]bool)
 	for _, ref := range workspace.Modules {
 		if ref.Source != "" {
 			sourceReferenced[ref.Name] = true
 		}
-	}
-
-	composed := make(map[string]*composedConfiguration)
-	var order []string
-	offer := func(module string, repo string, fromRepo bool, infos []*basev0.ConfigurationInformation) {
-		for _, info := range infos {
-			if fromWorkspace[info.Name] {
-				w.Debug("workspace configuration overrides composed module configuration",
-					wool.Field("configuration", info.Name), wool.Field("module", module))
-				continue
-			}
-			existing, ok := composed[info.Name]
-			if !ok {
-				composed[info.Name] = &composedConfiguration{info: info, module: module, repo: repo, fromRepo: fromRepo}
-				order = append(order, info.Name)
-				continue
-			}
-			if existing.conflict != nil {
-				continue
-			}
-			// A module directory and the root of the repository holding it are
-			// not two competing providers: they are one artifact, where the
-			// module's own directory is the more specific declaration.
-			if existing.repo == repo && existing.fromRepo != fromRepo {
-				overrides := !proto.Equal(existing.info, info)
-				submodule := existing.module
-				if !fromRepo {
-					submodule = module
-					existing.info, existing.module, existing.fromRepo = info, module, false
-				}
-				if overrides {
-					w.Warn("composed module configuration overrides the one its repository provides, for every service in the run",
-						wool.Field("configuration", info.Name), wool.Field("module", submodule))
-				}
-				continue
-			}
-			if proto.Equal(existing.info, info) {
-				continue
-			}
-			existing.conflict = w.NewError(
-				"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
-				info.Name, existing.module, module, ErrConfigurationConflict)
-		}
-	}
-
-	// Several module references can resolve to the same directory: to one
-	// composed workspace root (e.g. two non-flat submodules composed from one
-	// host repo, one reached through a symlinked path), or — since a foreign
-	// reference names its module by coordinate rather than by name — to one
-	// submodule composed twice under different names. Resolve symlinks so those
-	// collapse to one key and read the directory once; reading it twice would
-	// offer every configuration in it against itself.
-	loaded := make(map[string]bool)
-	// unsuppliedByGroup holds, per group name a composed module offers, the
-	// per-profile values that module left unsupplied. It is keyed by group so only
-	// the requirements of the offers that actually win are reported: a group the
-	// consuming workspace overrides, or that loses an ambiguity, is not
-	// provisioned and owes nothing.
-	unsuppliedByGroup := make(map[string][]ProfileRequirement)
-	readOnce := func(dir string) ([]*basev0.ConfigurationInformation, error) {
-		key := dir
-		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
-			key = resolved
-		}
-		if loaded[key] {
-			return nil, nil
-		}
-		loaded[key] = true
-		provided, err := LoadProfileConfigurations(ctx, dir, "configurations", profiles)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot load module configuration profile")
-		}
-		if !provided.Exists {
-			return nil, nil
-		}
-		for _, requirement := range provided.Unsupplied {
-			unsuppliedByGroup[requirement.Group] = append(unsuppliedByGroup[requirement.Group], requirement)
-		}
-		return provided.Infos, nil
 	}
 
 	for _, mod := range modules {
@@ -504,49 +639,185 @@ func composeModuleWorkspaceConfigurations(
 		}
 		repoDir := composedModuleWorkspaceDir(mod.Dir(), consumingBoundary)
 		repo := repoDir
-		if resolved, err := filepath.EvalSymlinks(repoDir); err == nil {
+		if resolved, resolveErr := filepath.EvalSymlinks(repoDir); resolveErr == nil {
 			repo = resolved
 		}
 		// The consuming workspace's own configurations are already loaded; a flat
 		// root module's workspace root coincides with the consuming workspace's,
 		// as does an in-repo module whose nearest workspace root is the consuming
 		// one, so skip either rather than load the same directory twice.
-		repoConfigurationDir, _, err := ProfileDirectory(ctx, repoDir, "configurations", profiles)
-		if err != nil {
-			return nil, nil, nil, nil, w.Wrapf(err, "cannot select configuration directory for composed module %s", mod.Name)
+		repoConfigurationDir, _, dirErr := ProfileDirectory(ctx, repoDir, "configurations", offers.profiles)
+		if dirErr != nil {
+			return w.Wrapf(dirErr, "cannot select configuration directory for composed module %s", mod.Name)
 		}
 		if !resources.SameDir(repoConfigurationDir, workspaceConfigurationDir) {
-			infos, err := readOnce(repoDir)
-			if err != nil {
-				return nil, nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+			infos, readErr := offers.readOnce(ctx, repoDir)
+			if readErr != nil {
+				return w.Wrapf(readErr, "cannot load configurations for composed module %s", mod.Name)
 			}
-			offer(mod.Name, repo, true, infos)
+			offers.offer(ctx, mod.Name, repo, true, infos)
 		}
 		if foreign && !resources.SameDir(mod.Dir(), repoDir) {
-			infos, err := readOnce(mod.Dir())
-			if err != nil {
-				return nil, nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+			infos, readErr := offers.readOnce(ctx, mod.Dir())
+			if readErr != nil {
+				return w.Wrapf(readErr, "cannot load configurations for composed module %s", mod.Name)
 			}
-			offer(mod.Name, repo, false, infos)
+			offers.offer(ctx, mod.Name, repo, false, infos)
 		}
 	}
+	return nil
+}
 
-	composedBy := make(map[string]string, len(order))
+// resolve turns the offers that survived into the provisioned set, overlaying
+// the consuming workspace's own declaration of a name onto the group offered
+// under it — in the position the workspace declared it — and reporting what each
+// provisioned name is composed by, which names stayed ambiguous, and what the
+// provisioned groups still owe.
+func (offers *composedModuleOffers) resolve(
+	ctx context.Context,
+	workspaceInfos []*basev0.ConfigurationInformation,
+	overriding map[string]int,
+) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
+	w := wool.Get(ctx).In("configurations.composedModuleOffers.resolve")
+
+	composedBy := make(map[string]string, len(offers.order))
 	ambiguous := make(map[string]error)
 	var unsupplied []ProfileRequirement
-	for _, name := range order {
-		configuration := composed[name]
+	for _, name := range offers.order {
+		configuration := offers.composed[name]
+		index, overridden := overriding[name]
 		if configuration.conflict != nil {
+			// The ambiguity's own remedy is a declaration in the consuming
+			// workspace, so one that is already there resolves it rather than
+			// being reported it. There is no single group to overlay onto —
+			// that is what the two modules disagree about — so the workspace's
+			// declaration stands whole, as the composition root's own.
+			if overridden {
+				w.Debug("the consuming workspace's own configuration resolves an ambiguity between composed modules",
+					wool.Field("configuration", name))
+				continue
+			}
 			w.Warn("composed modules disagree on a workspace configuration; it is unavailable until the solution declares it",
 				wool.Field("configuration", name))
 			ambiguous[name] = configuration.conflict
 			continue
 		}
+		info := configuration.info
+		if overridden {
+			overlaid, err := overlayWorkspaceConfigurationOverride(configuration.info, workspaceInfos[index], configuration.module)
+			if err != nil {
+				return nil, nil, nil, nil, w.Wrap(err)
+			}
+			w.Debug("workspace configuration overrides composed module configuration, per key",
+				wool.Field("configuration", name), wool.Field("module", configuration.module))
+			info = overlaid
+		}
+		// The group is the module's whether or not the workspace overrode keys of
+		// it, so it is reported as composed either way and reaches the services
+		// that declared it rather than every service of the composition.
 		composedBy[name] = configuration.module
-		workspaceInfos = append(workspaceInfos, configuration.info)
-		unsupplied = append(unsupplied, unsuppliedByGroup[name]...)
+		unsupplied = append(unsupplied, offers.unsuppliedByGroup[name]...)
+		if overridden {
+			workspaceInfos[index] = info
+			continue
+		}
+		workspaceInfos = append(workspaceInfos, info)
 	}
 	return workspaceInfos, composedBy, ambiguous, unsupplied, nil
+}
+
+// overlayWorkspaceConfigurationOverride overlays the consuming workspace's
+// declaration of a group onto the group a composed module provides, PER KEY: the
+// workspace supplies the values it declares, and the module's group supplies
+// every other key it declares. It is the same overlay a derived profile gets over
+// the profile it derives from (profileOverlay), applied across the
+// workspace/module boundary, with the same lookup and set mechanics
+// (findConfigurationValue, setConfigurationValue) and the same refusal of a key
+// the layer below never declared.
+//
+// One rule is this boundary's OWN: an override that discharges a
+// ProfileValueMarker with an empty value is refused here, and profile derivation
+// accepts it. The asymmetry is deliberate. A workspace's profiles are written by
+// the author who wrote the declaration they override, in a file beside it, so
+// emptying one there is a local statement about one environment. Across this
+// boundary the author discharging the marker is not the author who declared it,
+// is not reviewed with it, and the module's own reviewers never see the value
+// that satisfied their requirement.
+//
+// The module's group is the declared SET of the group's keys. A key only the
+// workspace carries is refused naming it: the group is the module's, delivered to
+// the module's services, and a key its declaration never mentions is a value no
+// reader of that group knows to read — while the workspace has a way to say what
+// it means, a group of its own name, which reaches every service of the
+// composition. A ProfileValueMarker the override does not discharge survives it
+// and is still owed, and an override that empties one is refused naming it: the
+// marker is the module author's statement that this key must carry a real value
+// in each environment, and a consumer of that group cannot discharge it with
+// nothing.
+//
+// A structured document has no keys to overlay, so the workspace's document
+// replaces the module's whole — as a derived profile's does — and a boundary
+// that would turn a document into key/value pairs, or the reverse, is a conflict
+// rather than a silent choice between them.
+//
+// Both rules are read from the module's declaration as it stands BEFORE the
+// overlay, never from the group being built: a group may declare one key twice
+// (the parsers append every declaration they read), and reading requiredness
+// from the group under construction would let a second declaration of a key be
+// checked against the first declaration's own replacement. An override of
+// CONFIG_FILE=${profile} reading
+//
+//	CONFIG_FILE=/etc/app/solution.yaml
+//	CONFIG_FILE=
+//
+// would then discharge the marker with the first entry, find no marker left for
+// the second, and deliver the key as the empty string the marker exists to
+// refuse. Either side declaring one key twice is refused outright for the same
+// reason the rest of this boundary refuses ambiguity: there is no single value
+// to overlay or to overlay onto, and which declaration would win is a fact
+// about line order rather than about what either author said.
+func overlayWorkspaceConfigurationOverride(
+	base *basev0.ConfigurationInformation,
+	override *basev0.ConfigurationInformation,
+	module string,
+) (*basev0.ConfigurationInformation, error) {
+	overlaid, ok := proto.Clone(base).(*basev0.ConfigurationInformation)
+	if !ok {
+		return nil, fmt.Errorf("cannot clone composed module configuration %q", base.GetName())
+	}
+	if (override.GetData() != nil) != (overlaid.GetData() != nil) {
+		return nil, fmt.Errorf("workspace configuration %q is a structured document on one side of the workspace/module boundary and key/value pairs on the other, between the consuming workspace and composed module %q: %w",
+			override.GetName(), module, ErrConfigurationConflict)
+	}
+	if override.GetData() != nil {
+		if DataDeclaredPerProfile(overlaid.GetData()) && len(bytes.TrimSpace(override.GetData().GetContent())) == 0 {
+			return nil, fmt.Errorf("workspace configuration %q (the whole document) is supplied per profile by composed module %q, and the consuming workspace supplies an empty document: %w",
+				override.GetName(), module, ErrEmptyProfileValue)
+		}
+		overlaid.Data = override.GetData()
+		return overlaid, nil
+	}
+	if first, second, duplicated := duplicateConfigurationKey(base); duplicated {
+		return nil, fmt.Errorf("composed module %q declares %s/%s and %s/%s, one key under two spellings, in the group the consuming workspace overrides; declare it once: %w",
+			module, base.GetName(), first, base.GetName(), second, ErrConfigurationConflict)
+	}
+	if first, second, duplicated := duplicateConfigurationKey(override); duplicated {
+		return nil, fmt.Errorf("the consuming workspace declares %s/%s and %s/%s, one key under two spellings, overriding the group composed module %q provides; declare it once: %w",
+			override.GetName(), first, override.GetName(), second, module, ErrConfigurationConflict)
+	}
+	for _, value := range override.GetConfigurationValues() {
+		declared := findConfigurationValue(base, value.GetKey())
+		if declared == nil {
+			return nil, fmt.Errorf("the consuming workspace overrides %s/%s, a key composed module %q does not declare in the group it provides; declare it there (as %s when each profile supplies its own), or declare a group of the workspace's own name: %w",
+				override.GetName(), value.GetKey(), module, ProfileValueMarker, ErrUndeclaredProfileKey)
+		}
+		if ValueDeclaredPerProfile(declared) && configurationValueSuppliesNothing(value) {
+			return nil, fmt.Errorf("%s/%s is supplied per profile by composed module %q, and the consuming workspace supplies an empty value: %w",
+				override.GetName(), value.GetKey(), module, ErrEmptyProfileValue)
+		}
+		setConfigurationValue(overlaid, value)
+	}
+	return overlaid, nil
 }
 
 // ProfileDirectory selects the profile directory one configuration location is
@@ -742,7 +1013,7 @@ func applyConfigurationValueOverride(
 
 func loadDNS(_ context.Context, file string) ([]*basev0.DNS, error) {
 	var dns []*basev0.DNS
-	f, err := os.ReadFile(file)
+	f, err := os.ReadFile(file) //nolint:gosec // file is a dns declaration of the workspace being read
 	if err != nil {
 		return nil, err
 	}
@@ -832,17 +1103,17 @@ func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].relative < files[j].relative
 	})
-	if err := validateConfigurationDefinitions(files); err != nil {
-		return nil, w.Wrapf(err, "cannot load secret configurations")
+	if definitionErr := validateConfigurationDefinitions(files); definitionErr != nil {
+		return nil, w.Wrapf(definitionErr, "cannot load secret configurations")
 	}
 
 	infos := make([]*basev0.ConfigurationInformation, 0, len(files))
 	for _, file := range files {
 		var confInfo *basev0.ConfigurationInformation
 		switch file.kind {
-		case "env":
+		case kindEnv:
 			confInfo, err = loadFromEnvFile(ctx, file)
-		case "yaml":
+		case kindYaml:
 			confInfo, err = loadFromYamlFile(ctx, file)
 		}
 		if err != nil {
@@ -869,28 +1140,28 @@ func classifyConfigurationFile(dir, p string) (*configurationFile, bool, error) 
 	switch {
 	case strings.HasSuffix(relative, ".secret.ref.env"):
 		file.name = strings.TrimSuffix(relative, ".secret.ref.env")
-		file.kind = "env"
+		file.kind = kindEnv
 		file.secret = true
 		file.referenceOnly = true
 	case strings.HasSuffix(relative, ".secret.ref.yaml"):
 		file.name = strings.TrimSuffix(relative, ".secret.ref.yaml")
-		file.kind = "yaml"
+		file.kind = kindYaml
 		file.secret = true
 		file.referenceOnly = true
 	case strings.HasSuffix(relative, ".secret.env"):
 		file.name = strings.TrimSuffix(relative, ".secret.env")
-		file.kind = "env"
+		file.kind = kindEnv
 		file.secret = true
 	case strings.HasSuffix(relative, ".secret.yaml"):
 		file.name = strings.TrimSuffix(relative, ".secret.yaml")
-		file.kind = "yaml"
+		file.kind = kindYaml
 		file.secret = true
 	case strings.HasSuffix(relative, ".env"):
 		file.name = strings.TrimSuffix(relative, ".env")
-		file.kind = "env"
+		file.kind = kindEnv
 	case strings.HasSuffix(relative, ".yaml"):
 		file.name = strings.TrimSuffix(relative, ".yaml")
-		file.kind = "yaml"
+		file.kind = kindYaml
 	default:
 		return nil, false, nil
 	}
@@ -923,7 +1194,7 @@ func validateConfigurationDefinitions(files []*configurationFile) error {
 				definition.legacy = file.relative
 			}
 		}
-		if file.kind == "yaml" && definition.first != "" {
+		if file.kind == kindYaml && definition.first != "" {
 			return fmt.Errorf("configuration %q has incompatible data definitions in %q and %q: %w", file.name, definition.first, file.relative, ErrConfigurationConflict)
 		}
 		if definition.data != "" {
@@ -932,7 +1203,7 @@ func validateConfigurationDefinitions(files []*configurationFile) error {
 		if definition.first == "" {
 			definition.first = file.relative
 		}
-		if file.kind == "yaml" {
+		if file.kind == kindYaml {
 			definition.data = file.relative
 		}
 		seen[file.name] = definition
