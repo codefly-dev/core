@@ -3,7 +3,6 @@ package workcontext
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
 	"strings"
@@ -335,19 +334,15 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	if err != nil {
 		return err
 	}
-	key, known := v.Keys[wc.GetKeyId()]
-	if !known {
-		return fmt.Errorf("%w: no verification key %q; this verifier no longer holds the key that authenticated this capability",
-			ErrInvalid, wc.GetKeyId())
+	// THE SAME authentication and THE SAME window Verify applies, by calling
+	// the same functions rather than restating them. Both of Recheck's own
+	// copies were missing a check: the key length (a panic) and not-before.
+	if err := v.authenticate(wc, claims, signature); err != nil {
+		return err
 	}
-	if !v.TrustTheConformanceFixtureKey && isFixtureKey(key) {
-		return fmt.Errorf("%w: key %q is the conformance fixture key", ErrInvalid, wc.GetKeyId())
+	if err := v.checkWindow(wc); err != nil {
+		return err
 	}
-	if !ed25519.Verify(key, claims, signature) {
-		return fmt.Errorf("%w: signature does not verify under key %q as this verifier holds it now",
-			ErrInvalid, wc.GetKeyId())
-	}
-
 	now := v.now()
 	skew := v.skew()
 	// The window, BOTH ENDS. Not-before was omitted: only expiry was checked,

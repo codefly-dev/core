@@ -1233,3 +1233,30 @@ func (r halfFailingRecords) PresenceRecord(string) (solutionhost.Applied, bool, 
 	}
 	return solutionhost.Applied{}, false, errors.New("presence store unavailable")
 }
+
+// TestActivationDomainContinuityWithNoAuthorityRecord is F3's fifth guard and
+// the moved-domain case R6-2 asked for and I did not commit: a full applied
+// record under alpha, a document moved to beta, and NO authority record —
+// which is the combination that reaches activation's own continuity check
+// rather than the validator the rendered fold uses.
+func TestActivationDomainContinuityWithNoAuthorityRecord(t *testing.T) {
+	current := valid(t)
+	applied, err := solutionhost.AppliedFrom(current)
+	require.NoError(t, err)
+	require.Equal(t, solutionhost.FixtureDomain, applied.Domain)
+
+	moved := valid(t)
+	moved.Generation = current.Generation + 1
+	moved.OwnershipDomain = "beta"
+	movedAuthority := validAuthority(t)
+	movedAuthority.OwnershipDomain = "beta"
+
+	request := activationOf(t, movedAuthority, moved, moved.Workloads[0].Image.Digest)
+	// Only a PRESENCE record, under the old domain. No authority record.
+	request.Records = recordsHolding(applied)
+	_, err = solutionhost.Activate(request)
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain,
+		"the applied record's domain says who may change this binding, whatever the authority half holds")
+	require.Contains(t, err.Error(), solutionhost.FixtureDomain)
+	require.Contains(t, err.Error(), "beta")
+}

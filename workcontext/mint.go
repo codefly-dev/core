@@ -640,6 +640,23 @@ func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV
 		return "", nil, fmt.Errorf("%w: this capability encodes to %d bytes and no capability over %d is accepted; it carries too many scopes, hops or identifiers to be presented",
 			ErrInvalid, size, MaxTokenSize)
 	}
+	// THE MINTER NEVER EMITS WHAT ITS OWN DECODER REFUSES, guaranteed by
+	// decoding what was just produced rather than by a second list of rules.
+	//
+	// protovalidate and checkStructure above are not the decoder. decodeClaims
+	// also refuses unknown fields, recursively, and requires the payload to be
+	// its own canonical encoding — and a caller-supplied scope carrying an
+	// unknown field is PRESERVED through marshalling, so the mint happily
+	// produced a token every reader rejected with "carries an unknown field at
+	// authority_scopes[0]". The holder then has a credential nothing accepts
+	// and no way to learn why.
+	//
+	// Running the real decode closes the whole class, including the next rule
+	// decodeClaims grows, which a duplicated checklist here would not.
+	if _, _, _, err := decodeClaims(encoded); err != nil {
+		return "", nil, fmt.Errorf("%w: this capability does not decode under this Core's own rules, so it would be refused by every reader: %v",
+			ErrInvalid, err)
+	}
 	return encoded, wc, nil
 }
 

@@ -1,6 +1,7 @@
 package workcontext_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -1738,4 +1739,156 @@ func TestADerivationRefusesAParentItsIssuerDidNotSign(t *testing.T) {
 	// And the sound case still mints, so this is a correction and not a block.
 	_, _, err = h.authority.Child(context.Background(), owner, child)
 	require.NoError(t, err)
+}
+
+// TestAMalformedVerificationKeyIsRefusedNotAPanic is round seven's first new
+// defect, and it is the two-implementations problem in one concrete spot.
+//
+// Verify has always checked the key's length, because ed25519.Verify PANICS on
+// a key that is not PublicKeySize bytes. Recheck grew its own lookup when it
+// started re-verifying signatures, and that copy omitted the check — so a
+// malformed key (a short hex decode, a half-finished rotation) crashed the
+// process instead of refusing. The key is chosen by the UNTRUSTED
+// capability's key id, so that was a crash on demand for anyone who learned
+// the id.
+//
+// There is one resolveKey now, used by both.
+func TestAMalformedVerificationKeyIsRefusedNotAPanic(t *testing.T) {
+	h := newHarness(t)
+	_, verified := h.ownerSession(audience)
+
+	for name, key := range map[string]ed25519.PublicKey{
+		"too short": []byte("too-short"),
+		"empty":     {},
+		"too long":  bytes.Repeat([]byte{1}, ed25519.PublicKeySize+1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := h.verifier(audience)
+			v.Keys = map[string]ed25519.PublicKey{keyID: key}
+
+			require.NotPanics(t, func() {
+				_, err := v.Verify(context.Background(), verified.Encoded())
+				require.ErrorIs(t, err, workcontext.ErrInvalid)
+				require.ErrorContains(t, err, "not 32")
+			})
+			require.NotPanics(t, func() {
+				err := v.Recheck(context.Background(), verified)
+				require.ErrorIs(t, err, workcontext.ErrInvalid)
+				require.ErrorContains(t, err, "not 32", "Recheck must refuse for the same reason Verify does")
+			})
+		})
+	}
+}
+
+// TestTheMintNeverEmitsWhatItsOwnDecoderRefuses is the second: the minter
+// produced tokens every reader rejected.
+//
+// protovalidate and checkStructure are not the decoder. decodeClaims also
+// refuses unknown fields recursively — and an unknown field in a
+// CALLER-SUPPLIED scope survives marshalling, so the mint emitted a token
+// refused with "carries an unknown field at authority_scopes[0]". The holder
+// then has a credential nothing accepts and no way to learn why.
+//
+// The guard decodes what was just produced rather than duplicating the
+// decoder's rules, so the next rule decodeClaims grows is covered too.
+func TestTheMintNeverEmitsWhatItsOwnDecoderRefuses(t *testing.T) {
+	h := newHarness(t)
+
+	sound := scope("repo", []string{"read"}, nil)
+	raw, err := proto.Marshal(sound)
+	require.NoError(t, err)
+	raw = append(raw, 0xF8, 0x3F, 0x01) // field 127, varint: unknown to this Core
+	polluted := &basev0.WorkScopeV1{}
+	require.NoError(t, proto.Unmarshal(raw, polluted))
+	require.NotEmpty(t, polluted.ProtoReflect().GetUnknown(), "the scope really does carry an unknown field")
+
+	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
+		OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
+		Audience: audience, AuthorityScopes: []*basev0.WorkScopeV1{polluted}, TTL: time.Minute,
+	})
+	require.ErrorIs(t, err, workcontext.ErrInvalid)
+	require.ErrorContains(t, err, "does not decode under this Core's own rules")
+
+	// And the sound case still mints, so this is a refusal of the undecodable
+	// rather than of everything.
+	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
+		OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
+		Audience: audience, AuthorityScopes: []*basev0.WorkScopeV1{sound}, TTL: time.Minute,
+	})
+	require.NoError(t, err)
+}
+
+// TestFiveLoadBearingGuardsThatHadNoTest closes F3: each of these could be
+// deleted with the whole suite green, which is the same as never having been
+// written. Four of the five are guards I added in this PR and claimed were
+// held.
+func TestFiveLoadBearingGuardsThatHadNoTest(t *testing.T) {
+	// (1) Grant's execution attestation. Grant with Execution{} minted.
+	t.Run("grant attests its execution", func(t *testing.T) {
+		h := newHarness(t)
+		_, owner := h.ownerSession(audience)
+		_, agent := h.agentSession(owner, audience)
+		_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
+			Grant: h.approvedGrant("g-f3"), TTL: time.Minute,
+		})
+		require.ErrorIs(t, err, workcontext.ErrInvalid)
+		require.ErrorContains(t, err, "must attest the execution it is running")
+	})
+
+	// (2) Child refusing a HUMAN hop that attests an execution. Flagged three
+	// rounds running; the commit claiming TestAHumanSessionBearsNoExecution
+	// covered it was wrong — that test exercises Start only.
+	t.Run("a human hop cannot attest an execution", func(t *testing.T) {
+		h := newHarness(t)
+		const human = "person-ada"
+		require.NoError(t, h.seals.PutEpoch(human, 1))
+		require.NoError(t, h.seals.PutBearsNoExecution(human))
+		_, owner := h.ownerSession(audience)
+
+		_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+			Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+			PrincipalID: human, PrincipalKind: "human",
+			DelegationID: "d-human", Audience: audience, TTL: time.Minute,
+			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+		})
+		require.ErrorIs(t, err, workcontext.ErrInvalid)
+		require.ErrorContains(t, err, "bears no execution")
+
+		// And with nothing attested it mints, so the refusal is of the claim
+		// rather than of human hops.
+		_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+			PrincipalID: human, PrincipalKind: "human",
+			DelegationID: "d-human-2", Audience: audience, TTL: time.Minute,
+			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
+		})
+		require.NoError(t, err)
+	})
+
+	// (3) Recheck's fixture-key refusal.
+	t.Run("recheck refuses the fixture key", func(t *testing.T) {
+		h := newHarness(t)
+		_, verified := h.ownerSession(audience)
+		v := h.verifier(audience)
+		public, _ := workcontext.FixtureKeyPair()
+		v.Keys = map[string]ed25519.PublicKey{keyID: public}
+		v.TrustTheConformanceFixtureKey = false
+		err := v.Recheck(context.Background(), verified)
+		require.ErrorIs(t, err, workcontext.ErrInvalid)
+		require.ErrorContains(t, err, "conformance fixture key")
+	})
+
+	// (4) Recheck's not-before, through the shared window check.
+	t.Run("recheck honours not-before", func(t *testing.T) {
+		h := newHarness(t)
+		_, verified := h.ownerSession(audience)
+		early := h.verifier(audience)
+		early.Now = func() time.Time { return h.clock.Add(-2 * time.Hour) }
+		err := early.Recheck(context.Background(), verified)
+		require.ErrorIs(t, err, workcontext.ErrInvalid)
+		require.ErrorContains(t, err, "not valid before")
+	})
 }

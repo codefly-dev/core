@@ -543,5 +543,5 @@ func TestRecheckReVerifiesUnderTheKeyTheVerifierHoldsNow(t *testing.T) {
 	rotatedOut.Keys = map[string]ed25519.PublicKey{"k-2": fresh}
 	err = rotatedOut.Recheck(context.Background(), verified)
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
-	require.ErrorContains(t, err, "no longer holds the key")
+	require.ErrorContains(t, err, "no longer holds, the key")
 }

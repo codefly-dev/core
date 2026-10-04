@@ -91,6 +91,79 @@ func (v *Verifier) skew() time.Duration {
 // Verify checks a presented capability and consumes it when it is single-use.
 // Replay consumption happens last, so a capability rejected for any other
 // reason is not burned by the attempt.
+// resolveKey is THE key resolution, shared by Verify and Recheck: the key id
+// must be one this verifier holds, the key must be well formed, and it must
+// not be the conformance fixture key unless the caller said otherwise.
+//
+// It is one function because it was two. Recheck grew its own lookup when it
+// started re-verifying signatures, and that copy omitted the length check —
+// so a malformed key (a short hex decode, a half-finished rotation) PANICKED
+// inside ed25519.Verify instead of refusing. The key is chosen by the
+// untrusted capability's key id, so that was a crash of the process on
+// demand for anyone who learned the id.
+//
+// Which is the same lesson this package keeps relearning: a second
+// implementation of a check is where the next gap appears.
+// authenticate is THE authentication: the key id must be one this verifier
+// holds, the key must be well formed, it must not be the conformance fixture
+// key unless the caller said so, and the signature must verify under it.
+//
+// It is one function because it was two, and the second one was missing a
+// check. Recheck grew its own lookup and ed25519.Verify call while claiming
+// in its own comment to be "one implementation shared with Verify" — and that
+// copy dropped the length guard, so a nil, 16-byte or 33-byte key PANICKED
+// with "ed25519: bad public key length" where Verify refused it. The key is
+// chosen by the untrusted capability's key id, so that was a process crash on
+// demand for anyone who learned a misconfigured id.
+//
+// The lesson is not "add the guard back". It is that a comment claiming one
+// implementation is worthless while there are two bodies: this package has now
+// grown a second copy of a check three times, and each time the copy was the
+// one with the hole.
+func (v *Verifier) authenticate(wc *basev0.WorkContextV1, claims, signature []byte) error {
+	key, err := v.resolveKey(wc.GetKeyId())
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(key, claims, signature) {
+		return fmt.Errorf("%w: signature does not verify under key %q as this verifier holds it now",
+			ErrInvalid, wc.GetKeyId())
+	}
+	return nil
+}
+
+// checkWindow is THE window check, both ends, called by Verify and by
+// Recheck. Recheck had its own and it omitted not-before.
+func (v *Verifier) checkWindow(wc *basev0.WorkContextV1) error {
+	now, skew := v.now(), v.skew()
+	if notBefore := time.Unix(wc.GetNotBeforeUnix(), 0); now.Add(skew).Before(notBefore) {
+		return fmt.Errorf("%w: not valid before %s", ErrInvalid, notBefore.UTC().Format(time.RFC3339))
+	}
+	if expires := time.Unix(wc.GetExpiresAtUnix(), 0); !now.Add(-skew).Before(expires) {
+		return fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+func (v *Verifier) resolveKey(keyID string) (ed25519.PublicKey, error) {
+	key, known := v.Keys[keyID]
+	if !known {
+		return nil, fmt.Errorf("%w: no verification key %q; this verifier does not hold, or no longer holds, the key named by this capability",
+			ErrInvalid, keyID)
+	}
+	// ed25519.Verify PANICS on a key that is not PublicKeySize bytes. A
+	// malformed key verifies nothing, which is a refusal like any other.
+	if len(key) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("%w: verification key %q is %d bytes, not %d",
+			ErrInvalid, keyID, len(key), ed25519.PublicKeySize)
+	}
+	if !v.TrustTheConformanceFixtureKey && isFixtureKey(key) {
+		return nil, fmt.Errorf("%w: key %q is the conformance fixture key, which anyone can derive from core's source; set TrustTheConformanceFixtureKey only in a conformance run",
+			ErrInvalid, keyID)
+	}
+	return key, nil
+}
+
 func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error) {
 	if v.Revisions == nil || v.Replay == nil || v.Grants == nil || v.Seals == nil {
 		return nil, fmt.Errorf("work context: verifier is missing a revision source, replay store, grant source or seal source")
@@ -102,42 +175,19 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if wc.GetIssuer() != v.Issuer {
 		return nil, fmt.Errorf("%w: issued by %q, not %q", ErrInvalid, wc.GetIssuer(), v.Issuer)
 	}
-	key, known := v.Keys[wc.GetKeyId()]
-	if !known {
-		return nil, fmt.Errorf("%w: no verification key %q", ErrInvalid, wc.GetKeyId())
-	}
-	// ed25519.Verify panics on a key that is not PublicKeySize bytes, and the
-	// key is chosen by the untrusted capability's key id — so a single
-	// misconfigured entry (a short hex decode, a half-finished rotation) would
-	// turn every capability naming it into a crash of this process rather than a
-	// refusal, on demand for anyone who learns that key id. A malformed key
-	// verifies nothing, which is a refusal like any other.
-	if len(key) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("%w: verification key %q is %d bytes, not %d", ErrInvalid, wc.GetKeyId(), len(key), ed25519.PublicKeySize)
-	}
-	// The conformance fixture key, refused unless explicitly trusted. Checked
-	// before the signature so the refusal names the real problem rather than
-	// reporting a key the verifier does hold as a signature failure.
-	if !v.TrustTheConformanceFixtureKey && isFixtureKey(key) {
-		return nil, fmt.Errorf("%w: key %q is the conformance fixture key, whose private half is public; a verifier accepts it only with Verifier.TrustTheConformanceFixtureKey, which no production path sets",
-			ErrInvalid, wc.GetKeyId())
-	}
-	if !ed25519.Verify(key, claims, sig) {
-		return nil, fmt.Errorf("%w: signature does not verify under key %q", ErrInvalid, wc.GetKeyId())
+	if err := v.authenticate(wc, claims, sig); err != nil {
+		return nil, err
 	}
 	if wc.GetAudience() != v.Audience {
 		return nil, fmt.Errorf("%w: minted for audience %q, presented to %q", ErrInvalid, wc.GetAudience(), v.Audience)
 	}
-
-	now := v.now()
-	skew := v.skew()
-	if notBefore := time.Unix(wc.GetNotBeforeUnix(), 0); now.Add(skew).Before(notBefore) {
-		return nil, fmt.Errorf("%w: not valid before %s", ErrInvalid, notBefore.UTC().Format(time.RFC3339))
+	if err := v.checkWindow(wc); err != nil {
+		return nil, err
 	}
+	// Kept for the grant window and the replay entry's expiry below, which
+	// need the same clock the window check used.
+	now, skew := v.now(), v.skew()
 	expires := time.Unix(wc.GetExpiresAtUnix(), 0)
-	if !now.Add(-skew).Before(expires) {
-		return nil, fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))
-	}
 	if err := checkStructure(wc); err != nil {
 		return nil, err
 	}
