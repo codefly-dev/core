@@ -174,6 +174,15 @@ rejects both interpretations of previously colliding cache entries rather than
 trusting their contents. Single underscores remain valid in names and release
 labels. Existing unambiguous cache paths are unchanged.
 
+GitHub agent downloads use `GITHUB_TOKEN`, then `GH_TOKEN`, when supplied.
+Authenticated acquisition resolves the exact published tag and asset through
+the GitHub API, then streams the asset through its authenticated API endpoint.
+The bounded download client follows asset redirects without API credentials.
+Draft releases, duplicate assets and an asset URL that disagrees with the loader
+selection are refused. Without a token, the public download path is unchanged.
+`manager.OpenReleaseAsset` lets a publisher verify the same selected asset with
+its existing authenticated client; a private release is not a public URL probe.
+
 Agent downloads finish extraction before publishing a binary. Publication copies
 into a temporary file beside the destination, sets permissions, flushes and closes
 the file, then renames it atomically. Concurrent readers retain the old complete

@@ -21,10 +21,7 @@ import (
 // API access is capped at 60 requests/hour per IP, so resolving "latest" for
 // several agents can flakily 403; a token raises the cap to 5000/hour.
 func newGitHubReleaseClient() *github.Client {
-	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
-	}
+	token := githubReleaseToken()
 	var options []github.ClientOptionsFunc
 	if token == "" {
 		client, err := github.NewClient()
@@ -39,6 +36,13 @@ func newGitHubReleaseClient() *github.Client {
 		panic(fmt.Sprintf("configure authenticated GitHub release client: %v", err))
 	}
 	return client
+}
+
+func githubReleaseToken() string {
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		return token
+	}
+	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
 }
 
 // latestReleaseTag returns the newest published release tag for a repository.
