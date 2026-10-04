@@ -35,6 +35,7 @@ import (
 var requiredChecks = []string{
 	"Build",
 	"Proto",
+	"pnpm source evidence",
 	"Registry cache clean runner (go)",
 	"Registry cache clean runner (next)",
 	"Registry cache cold (go)",
