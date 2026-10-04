@@ -21,6 +21,10 @@ func Run(ctx context.Context, dir string, env []string, args ...string) ([]byte,
 	command := exec.Command("git", append([]string{
 		"-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false",
 		"-c", "core.hooksPath=" + os.DevNull,
+		// Automatic maintenance can detach into a new process group and
+		// keep writing .git after Wait and group cleanup have completed.
+		// Fixture repositories must live entirely within the test lifetime.
+		"-c", "maintenance.auto=false",
 	}, args...)...)
 	command.Dir = dir
 	command.Env = append(command.Environ(),
