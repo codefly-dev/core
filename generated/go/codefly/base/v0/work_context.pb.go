@@ -109,9 +109,37 @@ type WorkContextV1 struct {
 	// holds exactly granted_scope, which the preceding hop need not contain.
 	// Present only on a single-use child capability minted for one approved
 	// call; absent on every ordinary session.
-	GrantHop      *WorkGrantHopV1 `protobuf:"bytes,24,opt,name=grant_hop,json=grantHop,proto3,oneof" json:"grant_hop,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	GrantHop *WorkGrantHopV1 `protobuf:"bytes,24,opt,name=grant_hop,json=grantHop,proto3,oneof" json:"grant_hop,omitempty"`
+	// seal binds this capability to one installation and one execution: the
+	// principal's epoch, the installation and revision it was minted for, and
+	// the build incarnation it was minted on. A verifier compares every field
+	// against the live value and refuses on any mismatch, which is what stops a
+	// capability outliving the installation or the build it was issued against.
+	//
+	// REQUIRED. An earlier version of this field was optional, with the stated
+	// reason that a schema rule would invalidate every archived capability and
+	// every receipt embedding one, so the requirement belonged in the verifier.
+	// Two independent reviews named that for what it is: a backward-compatibility
+	// hedge, which the rules in force forbid. It also meant every reader other
+	// than the verifier saw a capability's binding to its installation as
+	// optional, so the strongest check in the model was the easiest one for a
+	// consumer to not notice.
+	//
+	// Archived capabilities and receipts are historical DATA. If they must be
+	// read after this, they get a snapshot type of their own rather than keeping
+	// the live credential permanently weaker than it should be.
+	Seal *WorkSealV1 `protobuf:"bytes,26,opt,name=seal,proto3" json:"seal,omitempty"`
+	// operation_binding is the unit of authority this capability exercises,
+	// sealed by its id, revision and incarnation. Present on an operation
+	// context and absent on a session that exercises none.
+	//
+	// The id is what a verifier looks the binding up by, exactly. Nothing
+	// searches the bindings for one that contains the capability's scopes: a
+	// search is a predicate someone wrote, and a predicate one case too
+	// generous grants authority nobody reviewed.
+	OperationBinding *WorkOperationBindingV1 `protobuf:"bytes,27,opt,name=operation_binding,json=operationBinding,proto3,oneof" json:"operation_binding,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *WorkContextV1) Reset() {
@@ -319,6 +347,275 @@ func (x *WorkContextV1) GetGrantHop() *WorkGrantHopV1 {
 	return nil
 }
 
+func (x *WorkContextV1) GetSeal() *WorkSealV1 {
+	if x != nil {
+		return x.Seal
+	}
+	return nil
+}
+
+func (x *WorkContextV1) GetOperationBinding() *WorkOperationBindingV1 {
+	if x != nil {
+		return x.OperationBinding
+	}
+	return nil
+}
+
+// WorkSealV1 binds a capability to one installation and one execution. Its
+// principal_epoch is the TASK OWNER'S; an actor hop carries its own in
+// WorkActorV1.principal_epoch, because an actor's authority is narrowed
+// independently of the owner's. Every
+// field is a value the issuer holds live and the verifier compares exactly, so
+// a capability minted before an installation was revised, a principal's
+// authority was reset, or a build was replaced stops verifying at that moment
+// rather than at its own expiry.
+type WorkSealV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// principal_epoch is the principal's current epoch. Advancing it
+	// invalidates every capability minted for that principal, which is how a
+	// compromised principal is cut off without waiting for expiry.
+	PrincipalEpoch uint64 `protobuf:"varint,1,opt,name=principal_epoch,json=principalEpoch,proto3" json:"principal_epoch,omitempty"`
+	// installation_id identifies one organization's installation of one module.
+	// Authority is held through an installation, so a capability that names none
+	// is bound to nothing.
+	InstallationId string `protobuf:"bytes,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	// installation_revision is the installation's revision at mint time. A
+	// verifier holding a different revision refuses: the scope of an
+	// installation changes with its revision, so a capability sealed to an
+	// earlier one asks for authority under terms that no longer apply.
+	InstallationRevision uint64 `protobuf:"varint,3,opt,name=installation_revision,json=installationRevision,proto3" json:"installation_revision,omitempty"`
+	// build_incarnation identifies one approved EXECUTION, so a capability
+	// cannot be carried from a replaced execution into a new one.
+	//
+	// The host bumps it on each applied presence generation that changes what
+	// runs. Two readings of it are wrong in opposite directions and both are
+	// worth naming, because a reasonable implementer reaches for each:
+	//
+	//   - Per POD is too narrow: every restart would revoke every sibling's
+	//     credential.
+	//   - Per IMAGE DIGEST alone is too wide: two executions of identical bytes
+	//     with different command, configuration or mounted content are then
+	//     indistinguishable, and a pod from a superseded generation remints into
+	//     the new one.
+	//
+	// A verifier compares it for EQUALITY and never resolves it from the
+	// workload's own attributes. Resolving by (service account, image digest) is
+	// exactly what lets an old pod in, which is why SealSource.ApprovedBuild
+	// answers "the build and incarnation this PRINCIPAL is approved for" and
+	// offers no lookup by anything the workload itself presents.
+	//
+	// That method once answered the incarnation alone, from the installation
+	// seal — so a derived capability's execution described the OWNER's workload
+	// however many delegation hops had been added, and a hop's principal does
+	// not hold the owner's installation at all. Minting was execution-bound only
+	// at the first session as a result.
+	//
+	// It is OPTIONAL, together with image_digest, and the two are set or unset
+	// as a pair: see the message rule below. Absent means the principal
+	// exercising this capability BEARS NO EXECUTION — a human session is the
+	// case that matters, since a person at a terminal runs no approved build
+	// and an image digest is not a thing they can have.
+	BuildIncarnation *uint64 `protobuf:"varint,4,opt,name=build_incarnation,json=buildIncarnation,proto3,oneof" json:"build_incarnation,omitempty"`
+	// image_digest is the APPROVED BUILD the issuer held for this installation
+	// at mint time, as an OCI image-manifest digest. A verifier compares it for
+	// equality against the approved build it holds now.
+	//
+	// It exists because build_incarnation alone did not bind a credential to an
+	// execution. A minter read the CURRENT incarnation for a principal and
+	// stamped it, so any caller able to mint for that principal — including a
+	// pod from a superseded generation — received a capability sealed to the
+	// current execution. The incarnation says WHICH run; this says which BUILD,
+	// and the mint now refuses unless the execution the caller attests matches
+	// both. Without it the approved build digest never reached the credential at
+	// all, so nothing downstream could tell which build an authority was
+	// exercised by.
+	//
+	// It is the ISSUER's answer, never the workload's claim about itself: the
+	// caller attests what it is running, the issuer says what is approved, and a
+	// mismatch is a refusal rather than a value to record.
+	//
+	// A host that fills the ATTESTED execution from the same record it sealed
+	// has written a tautology: the mint then compares approved against approved
+	// and passes for every caller, including the superseded pod this field
+	// exists to refuse. Nothing in Core can detect that — both are strings and
+	// it cannot know where the caller got the bytes — so the check that matters
+	// is "a pod from a superseded generation is refused", never "a sound
+	// execution mints".
+	//
+	// OPTIONAL on the same terms as build_incarnation, and absent for the same
+	// reason. This is NOT the compatibility hedge two reviews rejected for the
+	// seal itself and for the actor epochs. That hedge made a field optional so
+	// that ARCHIVED data would still parse, which trades every live credential's
+	// strength for old bytes. This is optional because the field DOES NOT APPLY
+	// to a whole class of principal: a human bears no execution, so requiring an
+	// image digest of one would force every human session to invent a value, and
+	// an invented value is exactly what this field exists to refuse.
+	//
+	// The requirement is not weakened, it is made conditional on something the
+	// issuer knows and the schema cannot: SealSource.ApprovedBuild answers
+	// whether a principal bears an execution at all. A capability carries this
+	// field EXACTLY WHEN its exercising principal bears one, and the verifier
+	// enforces the correspondence in both directions — a missing execution for
+	// an execution-bearing principal is refused, and a PRESENT one for a
+	// principal that bears none is refused too, because that is a process
+	// claiming to be a workload.
+	ImageDigest   *string `protobuf:"bytes,5,opt,name=image_digest,json=imageDigest,proto3,oneof" json:"image_digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkSealV1) Reset() {
+	*x = WorkSealV1{}
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkSealV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkSealV1) ProtoMessage() {}
+
+func (x *WorkSealV1) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkSealV1.ProtoReflect.Descriptor instead.
+func (*WorkSealV1) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *WorkSealV1) GetPrincipalEpoch() uint64 {
+	if x != nil {
+		return x.PrincipalEpoch
+	}
+	return 0
+}
+
+func (x *WorkSealV1) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *WorkSealV1) GetInstallationRevision() uint64 {
+	if x != nil {
+		return x.InstallationRevision
+	}
+	return 0
+}
+
+func (x *WorkSealV1) GetBuildIncarnation() uint64 {
+	if x != nil && x.BuildIncarnation != nil {
+		return *x.BuildIncarnation
+	}
+	return 0
+}
+
+func (x *WorkSealV1) GetImageDigest() string {
+	if x != nil && x.ImageDigest != nil {
+		return *x.ImageDigest
+	}
+	return ""
+}
+
+// WorkOperationBindingV1 is the unit of authority an operation context
+// exercises, sealed so that a verifier resolves exactly one binding and
+// compares it rather than deciding which binding the capability's scopes fit.
+type WorkOperationBindingV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// binding_id is the host's identifier for the binding. The verifier looks it
+	// up EXACTLY: nothing searches the bindings for one that fits a capability's
+	// scopes, because a search is a predicate somebody wrote and a predicate one
+	// case too generous grants authority nobody reviewed.
+	//
+	// This comment used to say the id "is never derived from the binding's
+	// contents, because a derived id is one a caller can compute for a binding
+	// it was never granted". I refuted a review finding against that sentence by
+	// reading it in isolation and judging it correct. The reviewer was right and
+	// I was wrong: solutionhost/authority.go says the opposite in the package
+	// that owns the id — deriving it deterministically is delivery's business
+	// and better than random, and "predictability costs nothing here: an id is
+	// neither a secret nor a capability".
+	//
+	// Predictability costs nothing because ENTITLEMENT is what refuses a binding
+	// a caller does not hold, not obscurity: the verifier requires the resolved
+	// binding to be granted to the exercising principal within the installation
+	// the capability is sealed to. Guessing an id gets you a refusal. Resting
+	// the rule on unguessability was the retracted reasoning, and leaving it
+	// here contradicted the package it describes.
+	BindingId string `protobuf:"bytes,1,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
+	// revision is the binding's revision at mint time. A verifier holding a
+	// different revision refuses.
+	Revision uint64 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	// incarnation is the binding's incarnation at mint time, which changes when
+	// the binding is re-established rather than merely revised.
+	Incarnation   uint64 `protobuf:"varint,3,opt,name=incarnation,proto3" json:"incarnation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkOperationBindingV1) Reset() {
+	*x = WorkOperationBindingV1{}
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkOperationBindingV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkOperationBindingV1) ProtoMessage() {}
+
+func (x *WorkOperationBindingV1) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkOperationBindingV1.ProtoReflect.Descriptor instead.
+func (*WorkOperationBindingV1) Descriptor() ([]byte, []int) {
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *WorkOperationBindingV1) GetBindingId() string {
+	if x != nil {
+		return x.BindingId
+	}
+	return ""
+}
+
+func (x *WorkOperationBindingV1) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *WorkOperationBindingV1) GetIncarnation() uint64 {
+	if x != nil {
+		return x.Incarnation
+	}
+	return 0
+}
+
 // WorkScopeV1 is a structured, product-neutral capability scope. Empty
 // resource_ids means every resource of resource_kind; a child may narrow that
 // wildcard to explicit IDs but may never widen an explicit parent set.
@@ -337,7 +634,7 @@ type WorkScopeV1 struct {
 
 func (x *WorkScopeV1) Reset() {
 	*x = WorkScopeV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[1]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -349,7 +646,7 @@ func (x *WorkScopeV1) String() string {
 func (*WorkScopeV1) ProtoMessage() {}
 
 func (x *WorkScopeV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[1]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -362,7 +659,7 @@ func (x *WorkScopeV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkScopeV1.ProtoReflect.Descriptor instead.
 func (*WorkScopeV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{1}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *WorkScopeV1) GetResourceKind() string {
@@ -408,13 +705,47 @@ type WorkActorV1 struct {
 	// the one the task runs in. An org-bridge agent acts in an organization the
 	// owner does not belong to, and authorization is scoped to the actor's own.
 	OrganizationId *string `protobuf:"bytes,6,opt,name=organization_id,json=organizationId,proto3,oneof" json:"organization_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// principal_epoch is THIS actor's epoch, distinct from the owner's epoch in
+	// the seal. Advancing it invalidates every capability in which this
+	// principal is an actor, without touching the owner's.
+	//
+	// It exists because the seal's epoch is the task owner's, and an actor's
+	// authority can be narrowed independently of the owner's: a delegated
+	// operation context may have a person as its owner and a service principal
+	// as its actor, and narrowing that service principal must reach the
+	// capabilities it acts in. Without this field the only lever for a
+	// compromised actor is the tenant's authorization_revision, which cuts off
+	// every capability of the tenant.
+	//
+	// REQUIRED, for the reason seal gives. A hop with no epoch is a principal
+	// nothing can revoke, and leaving that expressible on the wire made it a
+	// shape a consumer could mint without noticing.
+	PrincipalEpoch uint64 `protobuf:"varint,7,opt,name=principal_epoch,json=principalEpoch,proto3" json:"principal_epoch,omitempty"`
+	// image_digest and build_incarnation are THIS HOP'S execution, on exactly
+	// the terms WorkSealV1 carries the owner's: optional, set as a pair, absent
+	// when the hop's principal bears no execution.
+	//
+	// They are here, per hop, for the same reason principal_epoch is. The seal
+	// held ONE execution slot and a derivation overwrote it with the last hop's,
+	// so superseding the OWNER's build refused the owner's own capability and
+	// every child of it still verified — and kept minting grandchildren. A
+	// delegation narrows authority within one execution chain; each link has its
+	// own running build, and a credential that records only the last one cannot
+	// be revoked by replacing any earlier one.
+	//
+	// Supersession is how a rollout revokes: a host bumps the incarnation per
+	// applied generation, so a superseded pod that pre-minted delegations would
+	// otherwise outlive its own replacement through them.
+	ImageDigest *string `protobuf:"bytes,8,opt,name=image_digest,json=imageDigest,proto3,oneof" json:"image_digest,omitempty"`
+	// build_incarnation is the incarnation of this hop's run. See image_digest.
+	BuildIncarnation *uint64 `protobuf:"varint,9,opt,name=build_incarnation,json=buildIncarnation,proto3,oneof" json:"build_incarnation,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *WorkActorV1) Reset() {
 	*x = WorkActorV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -426,7 +757,7 @@ func (x *WorkActorV1) String() string {
 func (*WorkActorV1) ProtoMessage() {}
 
 func (x *WorkActorV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[2]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -439,7 +770,7 @@ func (x *WorkActorV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkActorV1.ProtoReflect.Descriptor instead.
 func (*WorkActorV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{2}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WorkActorV1) GetPrincipalId() string {
@@ -484,6 +815,27 @@ func (x *WorkActorV1) GetOrganizationId() string {
 	return ""
 }
 
+func (x *WorkActorV1) GetPrincipalEpoch() uint64 {
+	if x != nil {
+		return x.PrincipalEpoch
+	}
+	return 0
+}
+
+func (x *WorkActorV1) GetImageDigest() string {
+	if x != nil && x.ImageDigest != nil {
+		return *x.ImageDigest
+	}
+	return ""
+}
+
+func (x *WorkActorV1) GetBuildIncarnation() uint64 {
+	if x != nil && x.BuildIncarnation != nil {
+		return *x.BuildIncarnation
+	}
+	return 0
+}
+
 // WorkGrantHopV1 records the approval that justifies a capability holding
 // authority its delegating owner never held. It is minted only as a new child
 // capability bound to one tool, one subject and one call, so the authority it
@@ -510,7 +862,7 @@ type WorkGrantHopV1 struct {
 
 func (x *WorkGrantHopV1) Reset() {
 	*x = WorkGrantHopV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -522,7 +874,7 @@ func (x *WorkGrantHopV1) String() string {
 func (*WorkGrantHopV1) ProtoMessage() {}
 
 func (x *WorkGrantHopV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[3]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -535,7 +887,7 @@ func (x *WorkGrantHopV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkGrantHopV1.ProtoReflect.Descriptor instead.
 func (*WorkGrantHopV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{3}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *WorkGrantHopV1) GetGrantId() string {
@@ -588,7 +940,7 @@ type WorkApproverV1 struct {
 
 func (x *WorkApproverV1) Reset() {
 	*x = WorkApproverV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -600,7 +952,7 @@ func (x *WorkApproverV1) String() string {
 func (*WorkApproverV1) ProtoMessage() {}
 
 func (x *WorkApproverV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[4]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -613,7 +965,7 @@ func (x *WorkApproverV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkApproverV1.ProtoReflect.Descriptor instead.
 func (*WorkApproverV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{4}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *WorkApproverV1) GetPrincipalId() string {
@@ -654,7 +1006,7 @@ type ApprovalRequiredV1 struct {
 
 func (x *ApprovalRequiredV1) Reset() {
 	*x = ApprovalRequiredV1{}
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -666,7 +1018,7 @@ func (x *ApprovalRequiredV1) String() string {
 func (*ApprovalRequiredV1) ProtoMessage() {}
 
 func (x *ApprovalRequiredV1) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_base_v0_work_context_proto_msgTypes[5]
+	mi := &file_codefly_base_v0_work_context_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -679,7 +1031,7 @@ func (x *ApprovalRequiredV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalRequiredV1.ProtoReflect.Descriptor instead.
 func (*ApprovalRequiredV1) Descriptor() ([]byte, []int) {
-	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{5}
+	return file_codefly_base_v0_work_context_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ApprovalRequiredV1) GetRequestId() string {
@@ -721,8 +1073,7 @@ var File_codefly_base_v0_work_context_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\n" +
-	"\"codefly/base/v0/work_context.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xfa\n" +
-	"\n" +
+	"\"codefly/base/v0/work_context.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\"\xa4\f\n" +
 	"\rWorkContextV1\x120\n" +
 	"\x03typ\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19\n" +
 	"\x17codefly.work-context/v1R\x03typ\x12,\n" +
@@ -770,7 +1121,9 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x04R\fownerAgentId\x88\x01\x01\x128\n" +
 	"\x0forganization_id\x18\x19 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x05R\x0eorganizationId\x88\x01\x01\x12A\n" +
-	"\tgrant_hop\x18\x18 \x01(\v2\x1f.codefly.base.v0.WorkGrantHopV1H\x06R\bgrantHop\x88\x01\x01B\x14\n" +
+	"\tgrant_hop\x18\x18 \x01(\v2\x1f.codefly.base.v0.WorkGrantHopV1H\x06R\bgrantHop\x88\x01\x01\x127\n" +
+	"\x04seal\x18\x1a \x01(\v2\x1b.codefly.base.v0.WorkSealV1B\x06\xbaH\x03\xc8\x01\x01R\x04seal\x12Y\n" +
+	"\x11operation_binding\x18\x1b \x01(\v2'.codefly.base.v0.WorkOperationBindingV1H\aR\x10operationBinding\x88\x01\x01B\x14\n" +
 	"\x12_parent_session_idB\x0f\n" +
 	"\r_workspace_idB\r\n" +
 	"\v_project_idB\x17\n" +
@@ -778,12 +1131,30 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\x0f_owner_agent_idB\x12\n" +
 	"\x10_organization_idB\f\n" +
 	"\n" +
-	"_grant_hop\"{\n" +
+	"_grant_hopB\x14\n" +
+	"\x12_operation_binding\"\x80\x04\n" +
+	"\n" +
+	"WorkSealV1\x120\n" +
+	"\x0fprincipal_epoch\x18\x01 \x01(\x04B\a\xbaH\x042\x02(\x01R\x0eprincipalEpoch\x123\n" +
+	"\x0finstallation_id\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\x0einstallationId\x12<\n" +
+	"\x15installation_revision\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\x14installationRevision\x129\n" +
+	"\x11build_incarnation\x18\x04 \x01(\x04B\a\xbaH\x042\x02(\x01H\x00R\x10buildIncarnation\x88\x01\x01\x12I\n" +
+	"\fimage_digest\x18\x05 \x01(\tB!\xbaH\x1er\x1c\x10\x01\x18\x80\x022\x15^sha256:[a-f0-9]{64}$H\x01R\vimageDigest\x88\x01\x01:\x9f\x01\xbaH\x9b\x01\x1a\x98\x01\n" +
+	"\x1cwork_seal.execution_is_whole\x12Abuild_incarnation and image_digest are set together or not at all\x1a5has(this.build_incarnation) == has(this.image_digest)B\x14\n" +
+	"\x12_build_incarnationB\x0f\n" +
+	"\r_image_digest\"\x93\x01\n" +
+	"\x16WorkOperationBindingV1\x12)\n" +
+	"\n" +
+	"binding_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\tbindingId\x12#\n" +
+	"\brevision\x18\x02 \x01(\x04B\a\xbaH\x042\x02(\x01R\brevision\x12)\n" +
+	"\vincarnation\x18\x03 \x01(\x04B\a\xbaH\x042\x02(\x01R\vincarnation\"{\n" +
 	"\vWorkScopeV1\x12/\n" +
 	"\rresource_kind\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\fresourceKind\x12\x18\n" +
 	"\aactions\x18\x02 \x03(\tR\aactions\x12!\n" +
-	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xec\x02\n" +
+	"\fresource_ids\x18\x03 \x03(\tR\vresourceIds\"\xf1\x05\n" +
 	"\vWorkActorV1\x12-\n" +
 	"\fprincipal_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\vprincipalId\x121\n" +
@@ -795,9 +1166,16 @@ const file_codefly_base_v0_work_context_proto_rawDesc = "" +
 	"\bagent_id\x18\x05 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x00R\aagentId\x88\x01\x01\x128\n" +
 	"\x0forganization_id\x18\x06 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\x0eorganizationId\x88\x01\x01B\v\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x04H\x01R\x0eorganizationId\x88\x01\x01\x123\n" +
+	"\x0fprincipal_epoch\x18\a \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02(\x01R\x0eprincipalEpoch\x12I\n" +
+	"\fimage_digest\x18\b \x01(\tB!\xbaH\x1er\x1c\x10\x01\x18\x80\x022\x15^sha256:[a-f0-9]{64}$H\x02R\vimageDigest\x88\x01\x01\x129\n" +
+	"\x11build_incarnation\x18\t \x01(\x04B\a\xbaH\x042\x02(\x01H\x03R\x10buildIncarnation\x88\x01\x01:\xa0\x01\xbaH\x9c\x01\x1a\x99\x01\n" +
+	"\x1dwork_actor.execution_is_whole\x12Abuild_incarnation and image_digest are set together or not at all\x1a5has(this.build_incarnation) == has(this.image_digest)B\v\n" +
 	"\t_agent_idB\x12\n" +
-	"\x10_organization_id\"\xa6\x02\n" +
+	"\x10_organization_idB\x0f\n" +
+	"\r_image_digestB\x14\n" +
+	"\x12_build_incarnation\"\xa6\x02\n" +
 	"\x0eWorkGrantHopV1\x12%\n" +
 	"\bgrant_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x04R\agrantId\x12I\n" +
@@ -838,28 +1216,32 @@ func file_codefly_base_v0_work_context_proto_rawDescGZIP() []byte {
 	return file_codefly_base_v0_work_context_proto_rawDescData
 }
 
-var file_codefly_base_v0_work_context_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_codefly_base_v0_work_context_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_codefly_base_v0_work_context_proto_goTypes = []any{
-	(*WorkContextV1)(nil),      // 0: codefly.base.v0.WorkContextV1
-	(*WorkScopeV1)(nil),        // 1: codefly.base.v0.WorkScopeV1
-	(*WorkActorV1)(nil),        // 2: codefly.base.v0.WorkActorV1
-	(*WorkGrantHopV1)(nil),     // 3: codefly.base.v0.WorkGrantHopV1
-	(*WorkApproverV1)(nil),     // 4: codefly.base.v0.WorkApproverV1
-	(*ApprovalRequiredV1)(nil), // 5: codefly.base.v0.ApprovalRequiredV1
+	(*WorkContextV1)(nil),          // 0: codefly.base.v0.WorkContextV1
+	(*WorkSealV1)(nil),             // 1: codefly.base.v0.WorkSealV1
+	(*WorkOperationBindingV1)(nil), // 2: codefly.base.v0.WorkOperationBindingV1
+	(*WorkScopeV1)(nil),            // 3: codefly.base.v0.WorkScopeV1
+	(*WorkActorV1)(nil),            // 4: codefly.base.v0.WorkActorV1
+	(*WorkGrantHopV1)(nil),         // 5: codefly.base.v0.WorkGrantHopV1
+	(*WorkApproverV1)(nil),         // 6: codefly.base.v0.WorkApproverV1
+	(*ApprovalRequiredV1)(nil),     // 7: codefly.base.v0.ApprovalRequiredV1
 }
 var file_codefly_base_v0_work_context_proto_depIdxs = []int32{
-	1, // 0: codefly.base.v0.WorkContextV1.authority_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	2, // 1: codefly.base.v0.WorkContextV1.actor_chain:type_name -> codefly.base.v0.WorkActorV1
-	3, // 2: codefly.base.v0.WorkContextV1.grant_hop:type_name -> codefly.base.v0.WorkGrantHopV1
-	1, // 3: codefly.base.v0.WorkActorV1.granted_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	4, // 4: codefly.base.v0.WorkGrantHopV1.approvers:type_name -> codefly.base.v0.WorkApproverV1
-	1, // 5: codefly.base.v0.WorkGrantHopV1.granted_scope:type_name -> codefly.base.v0.WorkScopeV1
-	1, // 6: codefly.base.v0.ApprovalRequiredV1.requested_scope:type_name -> codefly.base.v0.WorkScopeV1
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	3, // 0: codefly.base.v0.WorkContextV1.authority_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	4, // 1: codefly.base.v0.WorkContextV1.actor_chain:type_name -> codefly.base.v0.WorkActorV1
+	5, // 2: codefly.base.v0.WorkContextV1.grant_hop:type_name -> codefly.base.v0.WorkGrantHopV1
+	1, // 3: codefly.base.v0.WorkContextV1.seal:type_name -> codefly.base.v0.WorkSealV1
+	2, // 4: codefly.base.v0.WorkContextV1.operation_binding:type_name -> codefly.base.v0.WorkOperationBindingV1
+	3, // 5: codefly.base.v0.WorkActorV1.granted_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	6, // 6: codefly.base.v0.WorkGrantHopV1.approvers:type_name -> codefly.base.v0.WorkApproverV1
+	3, // 7: codefly.base.v0.WorkGrantHopV1.granted_scope:type_name -> codefly.base.v0.WorkScopeV1
+	3, // 8: codefly.base.v0.ApprovalRequiredV1.requested_scope:type_name -> codefly.base.v0.WorkScopeV1
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_codefly_base_v0_work_context_proto_init() }
@@ -868,14 +1250,15 @@ func file_codefly_base_v0_work_context_proto_init() {
 		return
 	}
 	file_codefly_base_v0_work_context_proto_msgTypes[0].OneofWrappers = []any{}
-	file_codefly_base_v0_work_context_proto_msgTypes[2].OneofWrappers = []any{}
+	file_codefly_base_v0_work_context_proto_msgTypes[1].OneofWrappers = []any{}
+	file_codefly_base_v0_work_context_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_base_v0_work_context_proto_rawDesc), len(file_codefly_base_v0_work_context_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -1,0 +1,40 @@
+# REJECTED, ErrInvalid. The workload names an audience and a subject but no
+# SPIFFE ID, so there is nothing the destination's SVID can be verified
+# against.
+#
+# A subject is what a host records; an SVID is what it can check on the
+# connection. Treating the subject as sufficient would leave the host
+# verifying a name it was handed against a name it was handed, so the document
+# names the thing that is checkable and admission refuses a presence entry
+# whose identity is absent.
+schema: codefly/solution-host-binding/v2
+kind: module
+binding: gamma-region-a-02
+generation: 1
+ownership_domain: alpha
+envelope_revision: 7
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+release:
+  publisher: example
+  name: gamma
+  version: 0.9.2
+  digest: sha256:a263c12f0b4b1bcfa8fe7e2e773258baf7f895e7ed145ea35e0527b4b6f6c2f5
+artifacts:
+  - surface: backend
+    name: api
+    release: example/gamma@0.9.2
+    digest: sha256:c54cc12b82d872de37003b50ad3b195f385bf053d8bae43b5f94ddd2efc22c70
+workloads:
+  - name: gamma-api
+    artifact: api
+    container: api
+    image:
+      repository: registry.example/gamma-api
+      digest: sha256:f4dcb6a2832679a2d0b75dc9eb496a2180607a2cdea472440d699bef7571b253
+    identity:
+      audience: https://prod.region-a.example/solutions
+      subject: system:serviceaccount:gamma-region-a-02:gamma-api
+      spiffe_id: ""
+    non_authenticating: []

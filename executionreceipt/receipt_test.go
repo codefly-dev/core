@@ -27,6 +27,15 @@ func TestAttestVerifyAndDeterministicDigest(t *testing.T) {
 	if receipt.GetPayloadSha256() != "" {
 		t.Fatal("Attest mutated caller receipt")
 	}
+	// The two goldens below MOVED when WorkContextV1's seal and actor epochs
+	// became schema-required: a receipt embeds the capability as presented, so
+	// the embedded seal is part of the bytes that are digested and signed.
+	// They are re-pinned deliberately, not adjusted to make a test pass — the
+	// receipt content genuinely changed, and any consumer holding these values
+	// re-pins too. Archived receipts whose embedded capability carries no seal
+	// no longer validate; that is the accepted cost of the field being
+	// required, and such receipts are historical data that need a snapshot
+	// type rather than a permanently weaker live credential.
 	verified, err := Verify(attestation, publicKey)
 	if err != nil {
 		t.Fatal(err)
@@ -34,10 +43,10 @@ func TestAttestVerifyAndDeterministicDigest(t *testing.T) {
 	if verified.GetPayloadSha256() == "" {
 		t.Fatal("verified receipt has no payload digest")
 	}
-	if got := verified.GetPayloadSha256(); got != "723c9643872624f84892a27439a8dc198c312291f9e1959b46d0eac10f8e056f" {
+	if got := verified.GetPayloadSha256(); got != "350da2b91d37c445768536587de8d772bcabecb2411265eaf7d7202cdf003b51" {
 		t.Fatalf("payload_sha256 golden = %s", got)
 	}
-	if got := hex.EncodeToString(attestation.GetSignature()); got != "42203867135231c4c3efbb6392637897e6f429731e60741e9591018adf0a07498fe9fc4bb8c3ff01e725d0ce855908e748ab03a2cb4f45a6a463175c8284980f" {
+	if got := hex.EncodeToString(attestation.GetSignature()); got != "29741b88a7e7a9b2b6fd94b31016381623ffa6b672b7abb8b7f68326e9c3a0faf17336e95d6b3cb86c4b8d831223fb178cc2b08fbbd28fb6e5c2452a8f5b0e03" {
 		t.Fatalf("signature golden = %s", got)
 	}
 
@@ -171,13 +180,29 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 			NotBeforeUnix: started.Add(-time.Minute).Unix(), IssuedAtUnix: started.Add(-time.Minute).Unix(),
 			ExpiresAtUnix: started.Add(4 * time.Minute).Unix(), Nonce: "nonce-1",
 			AuthorizationRevision: 4, ReplayPolicy: "idempotent",
-			TenantId: "tenant-codefly", OwnerPrincipalId: "principal-antoine",
+			TenantId: "tenant-codefly", OwnerPrincipalId: "principal-owner",
 			TaskId: "task-1", SessionId: "session-child", ParentSessionId: &parentSessionID,
 			AuthorityScopes: []*basev0.WorkScopeV1{{
 				ResourceKind: "evidence", Actions: []string{"append"}, ResourceIds: []string{"codefly.execution"},
 			}},
+			// The seal and every hop's epoch are required by the schema. A
+			// receipt embeds the capability as it was presented, so a receipt
+			// of a sealed capability carries the seal — which is the point of
+			// making the field required rather than verifier-enforced: a
+			// reader of a receipt sees the installation the authority was held
+			// through, instead of seeing it as optional.
+			Seal: &basev0.WorkSealV1{
+				PrincipalEpoch: 2, InstallationId: "installation-1",
+				InstallationRevision: 3,
+				// The execution fields carry explicit presence now, because a
+				// principal that bears no execution — a human session —
+				// carries neither, and the schema requires them as a pair.
+				BuildIncarnation: receiptIncarnation(),
+				ImageDigest:      receiptDigest(),
+			},
 			ActorChain: []*basev0.WorkActorV1{{
 				PrincipalId: "principal-claude", PrincipalKind: "agent", DelegationId: "delegation-1",
+				PrincipalEpoch: 1,
 				GrantedScopes: []*basev0.WorkScopeV1{{
 					ResourceKind: "evidence", Actions: []string{"append"}, ResourceIds: []string{"codefly.execution"},
 				}},
@@ -203,5 +228,15 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 }
 
 func stringPointer(value string) *string {
+	return &value
+}
+
+func receiptIncarnation() *uint64 {
+	value := uint64(11)
+	return &value
+}
+
+func receiptDigest() *string {
+	value := "sha256:eca6c756839cbd532a6c7cb16fa75263600f3c710738ac267fb3988e03e146aa"
 	return &value
 }

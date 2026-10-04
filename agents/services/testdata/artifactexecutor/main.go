@@ -155,7 +155,17 @@ func main() {
 		*mode = value
 	}
 	if marker := os.Getenv("EXECUTOR_START_MARKER"); marker != "" {
-		if err := os.WriteFile(marker, []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
+		// Written through a rename, so the marker's EXISTENCE means its content
+		// is complete. A plain os.WriteFile creates the file and then writes it,
+		// and every reader waits on os.Stat — so an empty marker is observable,
+		// and a reader that cancels this process in that window gets a file that
+		// never receives the pid at all. Measured: strconv.Atoi("") in
+		// TestLoadArtifact/cancellation_cleans_snapshot_and_process.
+		partial := marker + ".partial"
+		if err := os.WriteFile(partial, []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
+			panic(err)
+		}
+		if err := os.Rename(partial, marker); err != nil {
 			panic(err)
 		}
 	}

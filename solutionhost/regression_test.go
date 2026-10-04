@@ -1,6 +1,7 @@
 package solutionhost_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/codefly-dev/core/composition"
@@ -19,11 +20,15 @@ import (
 // delivery of tampering. Before these constants existed, reordering two struct
 // fields moved the "valid" digest and the whole suite stayed green.
 //
-// Changing either constant is therefore a deliberate act with a migration
-// behind it, never a side effect of an edit.
+// Changing any constant is therefore a deliberate act with a migration behind
+// it, never a side effect of an edit. The presence values moved once, with the
+// v1 → v2 schema step: the document itself changed, so every stored digest is
+// stale by construction and a host treats it as stale rather than as evidence
+// of a rewrite. That is the migration, and it is the only reason these may
+// move.
 const (
-	validFixtureDigest     = "sha256:01691985abe49c65797b7d428df6936b64554575318808860c995bce106feb14"
-	tombstoneFixtureDigest = "sha256:a1c101ba873c235004c25dc18a09e9fffa694b7d5ef7e0773ac86e24b5b26a7d"
+	validFixtureDigest     = "sha256:7a61119691f9a9e7cb7af9b1bcb0996a4583aafcf0f75c75bd0a16606f538b09"
+	tombstoneFixtureDigest = "sha256:08ddceb70944c4bd18c9771843891a4d3af7a828f2d328b89777f61b6d352354"
 )
 
 func TestCanonicalEncodingIsPinnedAgainstTheShippedFixtures(t *testing.T) {
@@ -45,7 +50,7 @@ func TestCanonicalEncodingSortsKeysAtEveryDepth(t *testing.T) {
 	canonical, err := parse(t, "valid").CanonicalBytes()
 	require.NoError(t, err)
 	require.Contains(t, string(canonical), `{"artifacts":[{"digest":`)
-	require.Contains(t, string(canonical), `"host":{"component":"saas-host","coordinate":`)
+	require.Contains(t, string(canonical), `"host":{"component":"solution-host","coordinate":`)
 	// A number survives as its literal rather than as a rounded float.
 	require.Contains(t, string(canonical), `"generation":4`)
 }
@@ -71,13 +76,13 @@ func TestALargeGenerationKeepsItsExactValue(t *testing.T) {
 }
 
 // A release publisher and name are one segment each. Identity() joins them with
-// "/" and "@", so a "/" inside either would let publisher "obin" + name
-// "crm/web" and publisher "obin/crm" + name "web" render the same identity —
+// "/" and "@", so a "/" inside either would let publisher "example" + name
+// "alpha/web" and publisher "example/alpha" + name "web" render the same identity —
 // and every artifact references its release by exactly that string.
 func TestReleaseIdentityCannotBeAmbiguous(t *testing.T) {
 	for name, release := range map[string]solutionhost.Release{
-		"slash in publisher": {Publisher: "obin/crm", Name: "web", Version: "1.0.0"},
-		"slash in name":      {Publisher: "obin", Name: "crm/web", Version: "1.0.0"},
+		"slash in publisher": {Publisher: "example/alpha", Name: "web", Version: "1.0.0"},
+		"slash in name":      {Publisher: "example", Name: "alpha/web", Version: "1.0.0"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			document := parse(t, "valid")
@@ -93,8 +98,8 @@ func TestReleaseIdentityCannotBeAmbiguous(t *testing.T) {
 
 	// The two pairs that used to collide now cannot both exist.
 	require.NotEqual(t,
-		solutionhost.Release{Publisher: "obin", Name: "crm", Version: "1.0.0"}.Identity(),
-		solutionhost.Release{Publisher: "obin", Name: "crm-web", Version: "1.0.0"}.Identity())
+		solutionhost.Release{Publisher: "example", Name: "alpha", Version: "1.0.0"}.Identity(),
+		solutionhost.Release{Publisher: "example", Name: "alpha-web", Version: "1.0.0"}.Identity())
 }
 
 // Route aliases are unique within ONE host. A product delivery repo covers
@@ -104,32 +109,51 @@ func TestReleaseIdentityCannotBeAmbiguous(t *testing.T) {
 func TestTheSameAliasOnTwoCoordinatesIsNotACollision(t *testing.T) {
 	eu := parse(t, "valid")
 	us := parse(t, "valid")
-	us.Binding = "crm-us-east-1-01"
-	us.Host.Coordinate = "obin/prod/us-east-1"
+	us.Binding = "alpha-region-b-01"
+	us.Host.Coordinate = "example/prod/region-b"
 	require.Equal(t, eu.Aliases(), us.Aliases())
 
-	admissions, err := solutionhost.Host{}.Admit(eu, us)
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: eu, FirstRecord: true}, solutionhost.RenderedSet{Document: us, FirstRecord: true})
 	require.NoError(t, err)
-	require.Equal(t, []solutionhost.Admission{
-		{Binding: eu.Binding, Decision: solutionhost.DecisionApply},
-		{Binding: us.Binding, Decision: solutionhost.DecisionApply},
+	// RenderedAdmission, not Admission: AdmitRendered answering a host's own
+	// type was C4's fail-open under another name. Fold is the generation
+	// decision, DecisionApply here because no record was supplied.
+	require.Equal(t, []solutionhost.RenderedAdmission{
+		{Binding: eu.Binding, Decision: solutionhost.DecisionApply, Fold: solutionhost.DecisionApply},
+		{Binding: us.Binding, Decision: solutionhost.DecisionApply, Fold: solutionhost.DecisionApply},
 	}, admissions)
 
 	// The same alias twice on ONE coordinate still collides.
 	us.Host.Coordinate = eu.Host.Coordinate
-	_, err = solutionhost.Host{}.Admit(eu, us)
+	_, err = solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: eu, FirstRecord: true}, solutionhost.RenderedSet{Document: us, FirstRecord: true})
 	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
 // Applied state is one host's durable record and names no coordinate of its
 // own, so it is only interpretable against a named host.
+//
+// The REFUSAL MOVED, and the move is worth recording rather than just
+// re-pointing the assertion. This asserted ErrAppliedUnusable, which admit
+// still raises for applied state with no coordinate. But Admit now refuses an
+// unnamed host OUTRIGHT — a round-four review showed Host{}.Admit returning
+// DecisionApply for an unlisted signer under an unlisted domain on a foreign
+// coordinate, every provenance check skipped behind the `Coordinate != ""`
+// guards that exist for AdmitRendered's sake. So the stronger check fires
+// first and this condition is no longer reachable through the public surface.
+//
+// The ErrAppliedUnusable branch is KEPT as defence in depth on the internal
+// admit, which AdmitRendered also calls, and is deliberately not asserted
+// here: a test that reached it would have to call an unexported function, and
+// the honest statement about the public surface is the one below.
 func TestAppliedStateRequiresANamedHost(t *testing.T) {
 	applied, err := solutionhost.AppliedFrom(parse(t, "valid"))
 	require.NoError(t, err)
 
-	_, err = solutionhost.Host{Applied: []solutionhost.Applied{applied}}.Admit(parse(t, "valid"))
+	_, err = solutionhost.Host{Applied: []solutionhost.Applied{applied}}.Admit(deliver(t, parse(t, "valid")))
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Contains(t, err.Error(), "Host.Coordinate is required")
+	require.Contains(t, err.Error(), "under its own coordinate")
+	require.Contains(t, err.Error(), "AdmitRendered",
+		"the refusal must name the entrypoint a caller with no host state should use")
 }
 
 // A host that starts reserving a namespace must not be frozen by a binding that
@@ -143,13 +167,15 @@ func TestANewlyReservedNamespaceDoesNotBlockUnrelatedBindings(t *testing.T) {
 	require.NoError(t, err)
 
 	host := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Reserved:   []string{"codefly"},
-		Applied:    []solutionhost.Applied{applied},
+		Coordinate:      solutionhost.FixtureCoordinate,
+		Domains:         []string{solutionhost.FixtureDomain},
+		DomainsBySigner: map[string][]string{fixtureDeliveredBy: {solutionhost.FixtureDomain, "beta", "not a domain"}},
+		Reserved:        []string{"codefly"},
+		Applied:         []solutionhost.Applied{applied},
 	}
 
 	fresh := parse(t, "valid")
-	fresh.Binding = "crm-02"
+	fresh.Binding = "alpha-02"
 	fresh.Routes = []solutionhost.Route{{Alias: "brand-new", Surface: solutionhost.SurfaceFrontend}}
 	decision, err := admitOne(t, host, fresh)
 	require.NoError(t, err)
@@ -162,9 +188,19 @@ func TestANewlyReservedNamespaceDoesNotBlockUnrelatedBindings(t *testing.T) {
 	require.ErrorIs(t, err, composition.ErrCollision)
 }
 
-// Validity is a per-document property, so one malformed binding must not freeze
-// every other binding on the host. The returned error still fails a caller that
-// checks only it.
+// Validity is a per-document property, so one malformed binding must not
+// freeze every other binding on the host.
+//
+// WHERE that is enforced moved, and the property is the same. A malformed
+// document can no longer become Delivered at all: VerifyDelivered parses after
+// the attestation holds, so it is refused at the delivery boundary and never
+// reaches Admit. So the per-document guarantee is now "delivering one document
+// fails that document", which is strictly earlier and strictly narrower than
+// an admission error over a set.
+//
+// This is the invariant the withdrawn ByDomain guidance violated, from the
+// other side: one unreadable document must never decide anything about a
+// sound one.
 func TestOneMalformedDocumentDoesNotRefuseTheRest(t *testing.T) {
 	good := parse(t, "valid")
 	bad := parse(t, "valid")
@@ -172,28 +208,36 @@ func TestOneMalformedDocumentDoesNotRefuseTheRest(t *testing.T) {
 	bad.Routes = nil
 	bad.Generation = 0
 
-	admissions, err := solutionhost.Host{}.Admit(good, bad)
+	// The malformed one cannot be carried at all, let alone delivered or
+	// admitted — and the refusal names its actual defect.
+	//
+	// Marshalled directly rather than through CanonicalBytes, because
+	// CanonicalBytes validates too: an invalid document has no canonical
+	// encoding. So there are three layers between a malformed document and
+	// Admit now, and none of them is a set-wide decision.
+	payload, err := json.Marshal(bad)
+	require.NoError(t, err)
+	_, err = solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
 	require.Error(t, err)
-	require.ErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Len(t, admissions, 2)
+	require.Contains(t, err.Error(), "generation starts at 1")
 
+	// And the sound one still admits, with the malformed one simply absent
+	// from the set rather than poisoning it.
+	admissions, err := solutionhost.AdmitRenderedSets(solutionhost.RenderedSet{Document: good, FirstRecord: true})
+	require.NoError(t, err)
+	require.Len(t, admissions, 1)
 	require.NoError(t, admissions[0].Err)
 	require.Equal(t, good.Binding, admissions[0].Binding)
 	require.Equal(t, solutionhost.DecisionApply, admissions[0].Decision)
-
-	require.ErrorIs(t, admissions[1].Err, solutionhost.ErrInvalid)
-	require.Empty(t, admissions[1].Decision)
-	// The document never validated, so it never named a binding.
-	require.Empty(t, admissions[1].Binding)
 }
 
 // A redeclaration refused before the alias pass — here for being an older
 // generation — never releases its applied alias either.
 func TestARedeclarationRefusedForItsGenerationKeepsItsAppliedAlias(t *testing.T) {
 	host := fixtureHost(t)
-	require.Equal(t, []string{"crm"}, host.Applied[0].Routes)
+	require.Equal(t, []string{"alpha"}, host.Applied[0].Routes)
 
-	// crm-eu-west-1-01 looks like it is releasing "crm"… but the document is an
+	// alpha-region-a-01 looks like it is releasing "alpha"… but the document is an
 	// older generation and will be refused, so the applied one still holds it.
 	stale := parse(t, "stale-generation")
 	stale.Routes = nil
@@ -202,7 +246,7 @@ func TestARedeclarationRefusedForItsGenerationKeepsItsAppliedAlias(t *testing.T)
 
 	claimant := parse(t, "duplicate-route-alias")
 
-	admissions, err := host.Admit(stale, claimant)
+	admissions, err := host.Admit(deliverAll(t, stale, claimant)...)
 	require.Error(t, err)
 	require.Len(t, admissions, 2)
 	require.ErrorIs(t, admissions[0].Err, solutionhost.ErrStaleGeneration)
@@ -214,16 +258,16 @@ func TestARedeclarationRefusedForItsGenerationKeepsItsAppliedAlias(t *testing.T)
 // against one snapshot.
 //
 // aaa-01 passes every per-document check, so the first snapshot treats its
-// applied generation as replaced and "crm" as released — which lets bbb-01
+// applied generation as replaced and "alpha" as released — which lets bbb-01
 // take it. Only when aaa-01 is then refused for claiming "zzz" does it become
-// true that aaa-01 still holds "crm", and bbb-01 must be refused too. A
+// true that aaa-01 still holds "alpha", and bbb-01 must be refused too. A
 // single-pass implementation admits bbb-01 here and collides at apply time.
 func TestTheAliasPassRerunsAfterARefusalFreesNothing(t *testing.T) {
 	incumbent := parse(t, "valid")
 	incumbent.Binding = "aaa-01"
 	incumbentApplied, err := solutionhost.AppliedFrom(incumbent)
 	require.NoError(t, err)
-	require.Equal(t, []string{"crm"}, incumbentApplied.Routes)
+	require.Equal(t, []string{"alpha"}, incumbentApplied.Routes)
 
 	neighbour := parse(t, "valid")
 	neighbour.Binding = "zzz-01"
@@ -231,12 +275,9 @@ func TestTheAliasPassRerunsAfterARefusalFreesNothing(t *testing.T) {
 	neighbourApplied, err := solutionhost.AppliedFrom(neighbour)
 	require.NoError(t, err)
 
-	host := solutionhost.Host{
-		Coordinate: solutionhost.FixtureCoordinate,
-		Applied:    []solutionhost.Applied{incumbentApplied, neighbourApplied},
-	}
+	host := appliedHost(incumbentApplied, neighbourApplied)
 
-	// aaa-01 moves off "crm" and onto an alias zzz-01 already holds.
+	// aaa-01 moves off "alpha" and onto an alias zzz-01 already holds.
 	moving := parse(t, "valid")
 	moving.Binding = "aaa-01"
 	moving.Generation = incumbent.Generation + 1
@@ -247,10 +288,10 @@ func TestTheAliasPassRerunsAfterARefusalFreesNothing(t *testing.T) {
 	successor.Binding = "bbb-01"
 	successor.Generation = 1
 
-	admissions, err := host.Admit(moving, successor)
+	admissions, err := host.Admit(deliverAll(t, moving, successor)...)
 	require.Error(t, err)
 	require.Len(t, admissions, 2)
 	require.ErrorIs(t, admissions[0].Err, composition.ErrCollision)
 	require.ErrorIs(t, admissions[1].Err, composition.ErrCollision,
-		"aaa-01 was refused, so it never released \"crm\" and bbb-01 cannot have it")
+		"aaa-01 was refused, so it never released \"alpha\" and bbb-01 cannot have it")
 }

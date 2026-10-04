@@ -1,0 +1,31 @@
+# REJECTED, ErrOutsideEnvelope. The document grants a binding the envelope does
+# not hold: binding:alpha:administer is nowhere in FixtureEnvelope's list.
+#
+# Containment is exact element inclusion — same ID, same revision, and the same
+# audience, scope, queue and namespace. It deliberately is NOT "some envelope
+# binding subsumes this one": a subsumption predicate is the same rule as
+# searching the bindings for one that contains a set of scopes, and a predicate
+# one case too generous grants authority nobody reviewed. Note that the
+# administer binding here is a plausible widening of a reconcile binding the
+# envelope does hold, which is exactly how a subsumption rule would let it
+# through.
+schema: codefly/solution-authority/v1
+authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
+generation: 3
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+ownership_domain: alpha
+envelope_revision: 7
+approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+effective_from: 4
+principals:
+  - principal: principal:operator
+    bindings:
+      - id: binding:alpha:administer
+        revision: 1
+        audience: https://prod.region-a.example/operations
+        scope: administer
+        queue: reconcile.default
+        namespace: alpha-region-a-01
