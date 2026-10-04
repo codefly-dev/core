@@ -134,3 +134,40 @@ func TestAManagerViewJudgesTheConsumerItNames(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "http://localhost:1111", address)
 }
+
+// The dominance rule through the manager's composition-root read: a root group
+// read run-wide by every service, carrying an omittable reference beside an
+// ambiguous one, is refused with the group and key — not delivered with the
+// key removed.
+func TestTheCompositionRootReadRefusesAFaultBehindAnOmission(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", "name: solution\nlayout: modules\n")
+	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
+		"addresses=${endpoint:platform/authority/hidden},${endpoint:platform/authority/grpc}\n")
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
+	require.NoError(t, err)
+	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
+	require.NoError(t, err)
+	authority := []*resources.Endpoint{
+		{Module: "platform", Service: "authority", Name: "hidden", API: "grpc", Visibility: "private"},
+		{Module: "platform", Service: "authority", Name: "primary", API: "grpc", Visibility: "public"},
+		{Module: "platform", Service: "authority", Name: "secondary", API: "grpc", Visibility: "public"},
+	}
+	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) { return authority, unique == "platform/authority" })
+	mapping := func(name, address string) *basev0.NetworkMapping {
+		return &basev0.NetworkMapping{Endpoint: &basev0.Endpoint{Module: "platform", Service: "authority", Name: name, Api: "grpc"},
+			Instances: []*basev0.NetworkInstance{{Address: address, Access: resources.NewNativeNetworkAccess()}}}
+	}
+	manager, err := configurations.NewManager(ctx, workspace)
+	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", declared)
+	manager.WithLoader(loader).
+		WithNetworkMappings([]*basev0.NetworkMapping{mapping("hidden", "http://localhost:1"), mapping("primary", "http://localhost:2"), mapping("secondary", "http://localhost:3")}, resources.NewNativeNetworkAccess()).
+		WithRunProducers(func(unique string) bool { return unique == "platform/authority" })
+	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
+
+	_, err = manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.ErrorIs(t, err, resources.ErrAmbiguousEndpointReference)
+	require.Contains(t, err.Error(), "work-context/addresses")
+}
