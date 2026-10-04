@@ -343,6 +343,24 @@ func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationIn
 		if info == nil {
 			continue
 		}
+		// One key declared twice IN ONE LAYER is refused here, before the layer is
+		// overlaid onto anything. A layer is one profile's declaration of a group,
+		// so two entries for one key in it have no single value and nothing to
+		// arbitrate between them: set below would simply overlay the second onto
+		// the first and the group would carry whichever the file happened to name
+		// last. That silent collapse also erased the evidence — a duplicate
+		// written in a derived profile reached the workspace/module boundary as
+		// one value, so the refusal there could not see it, and which declaration
+		// was delivered stayed a fact about line order.
+		//
+		// This is per LAYER, which is what keeps a legitimate override
+		// distinguishable from a duplicate: the same key declared once in a base
+		// profile and once in a profile derived from it is the derivation this
+		// type exists to perform, and is not touched here.
+		if first, second, duplicated := duplicateConfigurationKey(info); duplicated {
+			return fmt.Errorf("profile %q declares %s/%s and %s/%s, one key under two spellings; declare it once: %w",
+				path.Base(layer), info.GetName(), first, info.GetName(), second, ErrConfigurationConflict)
+		}
 		existing := overlay.find(info.GetName())
 		if existing == nil {
 			overlay.infos = append(overlay.infos, info)

@@ -269,8 +269,11 @@ func TestAWorkspaceOverrideDeclaringOneKeyTwiceIsRefusedRatherThanResolvedByOrde
 // module's group was discarded, duplicate and all. Overlaying onto it has to
 // pick a declaration to overlay — and a solution that supplies the key would
 // otherwise be told the key is still owed, because the second declaration still
-// carries the marker. Naming the module's duplicate says what is actually
-// wrong, to the only author who can fix it.
+// carries the marker.
+//
+// It is refused where it is written: the diagnostic names the profile holding
+// the two declarations, and the read that failed names the module, so the only
+// author who can fix it is told which file to open.
 func TestAComposedModuleDeclaringOneKeyTwiceIsRefusedWhereItIsOverridden(t *testing.T) {
 	ctx := context.Background()
 	solution := composedGroupDeclaredAsOverriddenBy(t,
@@ -283,7 +286,101 @@ func TestAComposedModuleDeclaringOneKeyTwiceIsRefusedWhereItIsOverridden(t *test
 	require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
 	assert.ErrorContains(t, err, "app-config/CONFIG_FILE")
 	assert.ErrorContains(t, err, "app-config/config-file", "the diagnostic names both declarations")
-	assert.ErrorContains(t, err, `"host"`, "and the module that carries them")
+	assert.ErrorContains(t, err, `profile "local"`, "and the profile they are written in")
+	assert.ErrorContains(t, err, "composed module host", "and the module that carries them")
+}
+
+// A duplicate written in a DERIVED profile used to be erased before any refusal
+// could see it. The solution's shared profile declares the key once; the profile
+// deriving from it declares it twice, under two spellings. profileOverlay.add
+// overlaid the second onto the first and handed one value to the boundary, so
+// the refusal there had nothing to refuse — and the value delivered was whichever
+// spelling the file named last. Reversing the two lines changed what the workload
+// got, which is the thing the refusal exists to prevent, surviving one layer up.
+//
+// The refusal is therefore per layer, before anything is flattened. A key
+// declared once in the base and once in the profile derived from it is the
+// derivation itself and stays legitimate — asserted here so the two cases cannot
+// collapse into one.
+func TestADerivedProfileDeclaringOneKeyTwiceIsRefusedBeforeItIsFlattened(t *testing.T) {
+	ctx := context.Background()
+	for _, test := range []struct {
+		name   string
+		local  string
+		shared string
+		refuse bool
+	}{
+		{
+			name:   "two spellings in the derived profile, the order of which decided the value",
+			local:  "CONFIG_FILE=one\nconfig-file=two\n",
+			shared: "CONFIG_FILE=seed\nCONFIG_MODE=seed\n",
+			refuse: true,
+		},
+		{
+			name:   "the same two, written the other way round",
+			local:  "config-file=two\nCONFIG_FILE=one\n",
+			shared: "CONFIG_FILE=seed\nCONFIG_MODE=seed\n",
+			refuse: true,
+		},
+		{
+			name:   "two spellings in the base profile this one derives from",
+			local:  "CONFIG_FILE=one\n",
+			shared: "CONFIG_FILE=seed\nconfig-file=seed\nCONFIG_MODE=seed\n",
+			refuse: true,
+		},
+		{
+			name:   "one declaration per layer, which is the derivation and not a duplicate",
+			local:  "CONFIG_FILE=one\n",
+			shared: "CONFIG_FILE=seed\nCONFIG_MODE=seed\n",
+			refuse: false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeConfigurationFile(t, root, "solution/workspace.codefly.yaml", `name: solution
+layout: modules
+modules:
+  - name: host
+    path: ../host
+`)
+			writeConfigurationFile(t, root, "solution/configurations/shared/app-config.env", test.shared)
+			writeConfigurationFile(t, root, "solution/configurations/local/profile.codefly.yaml", "derives-from: shared\n")
+			writeConfigurationFile(t, root, "solution/configurations/local/app-config.env", test.local)
+			writeConfigurationFile(t, root, "host/module.codefly.yaml", `kind: module
+name: host
+services:
+  - name: telemetry
+`)
+			writeConfigurationFile(t, root, "host/configurations/local/app-config.env",
+				"CONFIG_DIR=/etc/app\nCONFIG_FILE=${profile}\nCONFIG_MODE=${profile}\n")
+			writeConfigurationFile(t, root, "host/services/telemetry/service.codefly.yaml", `kind: service
+name: telemetry
+version: 0.0.0
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+`)
+			workspace := loadWorkspace(t, ctx, filepath.Join(root, "solution"))
+
+			provided, err := configurations.ReadWorkspaceConfigurations(ctx, workspace, resources.LocalEnvironment())
+			if test.refuse {
+				require.Error(t, err, "the duplicate is refused rather than flattened into one value")
+				require.ErrorIs(t, err, configurations.ErrConfigurationConflict)
+				assert.ErrorContains(t, err, "app-config/CONFIG_FILE")
+				assert.ErrorContains(t, err, "app-config/config-file")
+				return
+			}
+			require.NoError(t, err, "a key declared once per layer is the derivation, not a duplicate")
+			assert.Equal(t, map[string]string{
+				"CONFIG_DIR":  "/etc/app",
+				"CONFIG_FILE": "one",
+				"CONFIG_MODE": "seed",
+			}, groupValues(t, provided.Infos, "app-config"),
+				"the derived profile's value wins per key, over the base's and over the module's")
+		})
+	}
 }
 
 // The module's group is the declared SET of its keys, as a base profile is for

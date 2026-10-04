@@ -425,12 +425,16 @@ type composedConfiguration struct {
 // it as the composition root's own and widened its delivery from the services
 // that declared it to every service of the composition. A partial override
 // narrowed a group's contents and widened its delivery at the same time. So the
-// overlaid group stays composed, the module remains its provider, and the rules
-// that hold between profile derivation layers hold across this boundary too:
-// the module's group is the declared set of the group's keys (a key only the
-// workspace carries is refused, ErrUndeclaredProfileKey), a marker the override
-// does not discharge is still owed, and an override that empties one is refused
-// naming it (ErrEmptyProfileValue). A workspace that needs a key of its own
+// overlaid group stays composed, the module remains its provider, and the
+// module's group is the declared set of the group's keys across this boundary as
+// a base profile is for the profiles derived from it: a key only the workspace
+// carries is refused (ErrUndeclaredProfileKey, the same rule profile derivation
+// applies), a marker the override does not discharge is still owed, and one key
+// declared twice is refused rather than resolved by position
+// (ErrConfigurationConflict, refused per layer in profileOverlay.add). An
+// override that empties a marker is refused naming it (ErrEmptyProfileValue) —
+// that one is THIS boundary's own, and profile derivation does not carry it; see
+// overlayWorkspaceConfigurationOverride for why. A workspace that needs a key of its own
 // declares a group of its own name, which reaches every service of the
 // composition.
 //
@@ -727,7 +731,18 @@ func (offers *composedModuleOffers) resolve(
 // workspace supplies the values it declares, and the module's group supplies
 // every other key it declares. It is the same overlay a derived profile gets over
 // the profile it derives from (profileOverlay), applied across the
-// workspace/module boundary, and it carries the same two rules with it.
+// workspace/module boundary, with the same lookup and set mechanics
+// (findConfigurationValue, setConfigurationValue) and the same refusal of a key
+// the layer below never declared.
+//
+// One rule is this boundary's OWN: an override that discharges a
+// ProfileValueMarker with an empty value is refused here, and profile derivation
+// accepts it. The asymmetry is deliberate. A workspace's profiles are written by
+// the author who wrote the declaration they override, in a file beside it, so
+// emptying one there is a local statement about one environment. Across this
+// boundary the author discharging the marker is not the author who declared it,
+// is not reviewed with it, and the module's own reviewers never see the value
+// that satisfied their requirement.
 //
 // The module's group is the declared SET of the group's keys. A key only the
 // workspace carries is refused naming it: the group is the module's, delivered to

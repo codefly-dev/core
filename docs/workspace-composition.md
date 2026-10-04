@@ -82,11 +82,16 @@ profile is for the profiles derived from it, and two rules follow:
   while across this boundary the author discharging the marker is not the author
   who declared it, and cannot be refused later by a reviewer of the module.
 
-One key declared twice — a repeated line, or two files consolidated into one
-group, under either spelling — is refused on whichever side of the boundary
-declares it, rather than resolved by which line came last. Keys are matched the
-way every other configuration lookup matches them: case insensitively, with `-`
-and `_` equivalent. A structured document (a `.yaml` group) has no keys to
+One key declared twice **in one profile** — a repeated line, or two files
+consolidated into one group, under either spelling — is refused where it is
+written, naming the profile and both spellings, rather than resolved by which
+line came last. It is refused per profile rather than at this boundary alone,
+because a derived profile's duplicate would otherwise be flattened into one
+value before anything could see it, and *which* value reached the workload would
+be decided by the order of two lines. A key declared once in a base profile and
+once in a profile derived from it is the derivation itself, not a duplicate.
+Keys are matched the way every other configuration lookup matches them: case
+insensitively, with `-` and `_` equivalent. A structured document (a `.yaml` group) has no keys to
 overlay, so the solution's document replaces the module's whole; an empty one
 does not discharge a document declared per profile, and a boundary that turns a
 document into key/value pairs is a conflict.
@@ -185,7 +190,10 @@ declares a group nothing provides is told so by name.
 
 A derived declaration replaces the whole value rather than merging into it, so a
 profile that makes a shared default secret, or replaces it with an assembled
-template, says so in one place. A structured document (a `.yaml` group) has no
+template, says so in one place. One profile declaring the same key **twice** is
+refused instead, naming the profile and both spellings: overlaying the second
+onto the first would deliver whichever the file named last, which is not a
+statement either declaration makes. A structured document (a `.yaml` group) has no
 keys to overlay, so a derived profile's document replaces the one it derives from
 — overlaying one *field* of a document per profile is not supported, and such a
 group is declared per profile whole or stays shared; turning a document into
