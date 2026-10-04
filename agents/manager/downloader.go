@@ -141,15 +141,11 @@ func Download(ctx context.Context, p *resources.Agent) error {
 	w.Info(fmt.Sprintf("Downloading agent %s", p.Identifier()))
 	w.Debug("downloading", wool.Field("agent", p.Identifier()), wool.Field("url", releaseURL).Debug())
 
-	resp, err := fetchRelease(ctx, releaseURL)
+	body, size, err := openAgentRelease(ctx, releaseURL)
 	if err != nil {
 		return w.Wrapf(err, "cannot download agent")
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return w.NewError("unexpected status code %d when downloading agent", resp.StatusCode)
-	}
+	defer body.Close()
 
 	tmp, err := os.CreateTemp("", "agent-*.tar.gz")
 	if err != nil {
@@ -162,7 +158,7 @@ func Download(ctx context.Context, p *resources.Agent) error {
 			w.Error("cannot remove temp file", wool.ErrField(err))
 		}
 	}(tmp.Name())
-	if err = writeArchive(tmp, resp.Body, resp.ContentLength); err != nil {
+	if err = writeArchive(tmp, body, size); err != nil {
 		return w.Wrapf(err, "cannot copy agent")
 	}
 
