@@ -284,12 +284,16 @@ candidate.
 
 Omission versus refusal: a configuration injected run-wide reaches every
 service, so a value whose endpoint this consumer was handed no mapping for, or
-may not reach, is **omitted** for that consumer (the value was not for it). Every
-other failure — an ambiguous reference, a qualifier the named endpoint does not
-serve, a producer the workspace does not declare, an endpoint with no instance
-for the consumer's access — is the same fault for every consumer and is
-**refused** with the configuration and key named, never a key silently missing
-from a delivered configuration.
+may not reach under a valid export policy, is **omitted** for that consumer (the
+value was not for it). Those are the only two omissions. Every other failure —
+an ambiguous reference, a malformed one, a qualifier the named endpoint does not
+serve, a producer the workspace does not declare, an invalid declaration (an
+unsupported visibility value), an endpoint with no instance for the consumer's
+access — is **refused** with the configuration and key named, never a key
+silently missing from a delivered configuration. The refusal wins whatever the
+order of the references in a value: every reference of a value and of its
+template literals is classified before an omission is allowed, so a fault
+behind an omittable reference is still reported.
 
 ### Location
 
