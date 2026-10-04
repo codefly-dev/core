@@ -151,3 +151,60 @@ func TestAllUnreachableAPIMatchesRefuseWithTheVisibilityReason(t *testing.T) {
 	require.NotErrorIs(t, err, resources.ErrNoSuchEndpoint)
 	require.Contains(t, err.Error(), "private to module")
 }
+
+// The reserved `${endpoint:` prefix in a form the grammar does not match — an
+// empty marker, an unterminated one — is a fault wherever it is met: never
+// delivered unchanged, never omitted behind a reference this consumer merely
+// cannot resolve, plain or templated.
+func TestAMalformedEndpointMarkerIsRefusedNotDeliveredOrOmitted(t *testing.T) {
+	ctx := context.Background()
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
+	consumer := resources.WithConsumer("payments", declaredBy(selectionEndpoint("hidden", "grpc", "private")))
+	hidden := "${endpoint:" + selectionUnique + "/hidden}"
+	for name, conf := range map[string]*basev0.Configuration{
+		"empty marker alone":              authorityConf("address", "${endpoint:}"),
+		"unterminated marker alone":       authorityConf("address", "${endpoint:"+selectionUnique+"/grpc"),
+		"empty marker beside an omission": authorityConf("address", "${endpoint:},"+hidden),
+		"omission beside an empty marker": authorityConf("address", hidden+",${endpoint:}"),
+		"templated empty marker":          authorityTemplated("address", "x=${endpoint:}"),
+		"templated beside an omission":    authorityTemplated("address", hidden, "y=${endpoint:}"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun, consumer)
+			require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
+			require.Contains(t, err.Error(), "authority/address")
+			_, err = resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun, consumer)
+			require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
+		})
+	}
+	out, err := resources.InterpolateEndpointsFor(ctx, "${endpoint:}", nil, resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declaredBy()})
+	require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
+	require.Empty(t, out)
+}
+
+// Conflicting mapping metadata is refused whichever mapping was published
+// first: every mapping of the selected endpoint is judged before any is bound.
+func TestConflictingMappingMetadataIsRefusedInEitherOrder(t *testing.T) {
+	selection := resources.EndpointSelectionContext{ConsumerModule: "payments",
+		Declared: declaredBy(selectionEndpoint("rpc", "grpc", "public"))}
+	for name, mappings := range map[string][]*basev0.NetworkMapping{
+		"conflict first": {selectionMapping("rpc", "http", nativeAt("http://localhost:8080")), selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090"))},
+		"conflict last":  {selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090")), selectionMapping("rpc", "http", nativeAt("http://localhost:8080"))},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := resolveFor(t, selectionUnique+"/rpc", mappings, resources.NewNativeNetworkAccess(), selection)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "conflicting mapping metadata")
+			require.Empty(t, out)
+		})
+	}
+}
+
+// The model's one list of visibilities is what every path judges against.
+func TestKnownVisibilityIsTheOneList(t *testing.T) {
+	for _, known := range []string{"", resources.VisibilityPrivate, resources.VisibilityInternal, resources.VisibilityPublic} {
+		require.True(t, resources.KnownVisibility(known), known)
+	}
+	require.False(t, resources.KnownVisibility("pubilc"))
+	require.False(t, resources.KnownVisibility("everyone"))
+}

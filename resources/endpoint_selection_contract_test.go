@@ -115,8 +115,8 @@ func TestTwoReferencesIntoOneProducerAreEachAnsweredByTheEndpointTheyName(t *tes
 
 // The run-wide path drops a value only when the endpoint is not available to
 // this consumer or this consumer may not reach it. A composition fault — here an
-// ambiguous API reference, which would be the same fault for every consumer —
-// is a refusal, not a key silently missing from a delivered configuration.
+// ambiguous API reference among the endpoints this consumer may reach — is a
+// refusal, not a key silently missing from a delivered configuration.
 func TestTheRunWidePathRefusesACompositionFaultInsteadOfDroppingTheKey(t *testing.T) {
 	ctx := context.Background()
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
