@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/stretchr/testify/require"
 )
 
@@ -86,6 +87,32 @@ func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 	saved, err := os.ReadFile(filepath.Join(dir, "services", "accounts", "service.codefly.yaml"))
 	require.NoError(t, err)
 	require.NotContains(t, string(saved), "allow-modules", "the entry's list is the module's, never written into the service")
+}
+
+// The wire carries the same rule as the loader: a raw InterfaceEndpoint proto
+// with an allow-list its visibility never reads, or an internal export to
+// nobody, fails schema validation; and a Module built in memory cannot publish
+// such an entry through Proto().
+func TestInterfaceEntryRulesHoldOnTheWire(t *testing.T) {
+	ctx := context.Background()
+	for name, entry := range map[string]*basev0.InterfaceEndpoint{
+		"public with an allow-list": {Service: "api", Endpoint: "grpc", Visibility: VisibilityPublic, AllowModules: []string{"payments"}},
+		"internal to nobody":        {Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal},
+		"a private export":          {Service: "api", Endpoint: "grpc", Visibility: VisibilityPrivate, AllowModules: []string{"payments"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Error(t, Validate(&basev0.Module{Name: "billing", Interface: &basev0.ModuleInterface{Endpoints: []*basev0.InterfaceEndpoint{entry}}}), "schema")
+			mod := &Module{Name: "billing", Interface: &ModuleInterface{Endpoints: []*InterfaceEndpoint{{Service: entry.Service, Endpoint: entry.Endpoint, Visibility: entry.Visibility, AllowModules: entry.AllowModules}}}}
+			_, err := mod.Proto(ctx)
+			require.Error(t, err, "conversion")
+		})
+	}
+	for _, entry := range []*basev0.InterfaceEndpoint{
+		{Service: "api", Endpoint: "grpc", Visibility: VisibilityPublic},
+		{Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal, AllowModules: []string{"payments"}},
+	} {
+		require.NoError(t, Validate(&basev0.Module{Name: "billing", Interface: &basev0.ModuleInterface{Endpoints: []*basev0.InterfaceEndpoint{entry}}}))
+	}
 }
 
 func TestLoadModuleFromDirAcceptsValidInterface(t *testing.T) {

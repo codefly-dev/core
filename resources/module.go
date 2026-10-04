@@ -155,6 +155,12 @@ func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 	if mod.Interface != nil {
 		protoInterface := &basev0.ModuleInterface{}
 		for _, ie := range mod.Interface.Endpoints {
+			// Judged here as the loader judges it: a module built in memory
+			// must not publish an export declaration a manifest could not
+			// carry.
+			if err := ie.validate(); err != nil {
+				return nil, err
+			}
 			protoInterface.Endpoints = append(protoInterface.Endpoints, &basev0.InterfaceEndpoint{
 				Service:      ie.Service,
 				Endpoint:     ie.Endpoint,

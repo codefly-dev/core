@@ -8,6 +8,14 @@ import "codefly/base/v0/agent.proto";
 
 // InterfaceEndpoint declares a single endpoint exposed by the module.
 message InterfaceEndpoint {
+  // The entry is the whole export declaration: an "internal" export names the
+  // modules it exports to (an export to nobody is refused), and a "public" one
+  // lists none (nothing reads it). The same rule the loader enforces.
+  option (buf.validate.message).cel = {
+    id: "interface_endpoint.allow_modules_match_visibility"
+    message: "an internal export names its allow_modules; a public export lists none"
+    expression: "this.visibility == 'internal' ? this.allow_modules.size() > 0 : this.allow_modules.size() == 0"
+  };
   // The service that owns this endpoint
   string service = 1;
   // The endpoint name within the service
