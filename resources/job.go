@@ -154,7 +154,7 @@ func NewJob(ctx context.Context, name string) (*Job, error) {
 	job := &Job{
 		Kind:    "job",
 		Name:    name,
-		Version: "0.0.1",
+		Version: InitialVersion,
 		Execution: &JobExecution{
 			Type:    JobExecutionOneShot,
 			Timeout: "30m",

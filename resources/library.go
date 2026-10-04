@@ -68,7 +68,7 @@ func NewLibrary(ctx context.Context, name string) (*Library, error) {
 	lib := &Library{
 		Kind:    "library",
 		Name:    name,
-		Version: "0.0.1",
+		Version: InitialVersion,
 	}
 
 	return lib, nil

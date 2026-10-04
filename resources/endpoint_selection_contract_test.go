@@ -120,7 +120,6 @@ func TestTwoReferencesIntoOneProducerAreEachAnsweredByTheEndpointTheyName(t *tes
 func TestTheRunWidePathRefusesACompositionFaultInsteadOfDroppingTheKey(t *testing.T) {
 	ctx := context.Background()
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
-	consumer := resources.WithConsumer("payments", publicTrio().Declared)
 	mappings := []*basev0.NetworkMapping{
 		selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 		selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
@@ -178,5 +177,4 @@ func TestTheRunWidePathRefusesACompositionFaultInsteadOfDroppingTheKey(t *testin
 	require.Len(t, values, 1)
 	require.Equal(t, "public", values[0].GetKey())
 	require.Equal(t, "http://localhost:2222", values[0].GetValue())
-	_ = consumer
 }

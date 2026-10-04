@@ -202,3 +202,8 @@ require (
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7 // indirect
 	sigs.k8s.io/yaml v1.5.0 // indirect
 )
+
+// v0.10.0 is core#702 merged at the head its review had blocked: a consumer-less
+// endpoint resolution, a second selector in architecture, run-wide refusals
+// dropped as missing keys. Superseded by v0.11.0 (core#703); nothing may pin it.
+retract v0.10.0
