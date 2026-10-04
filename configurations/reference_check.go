@@ -159,32 +159,17 @@ func checkEndpointReference(reference string, consumerModule string, producer Pr
 		out.Reason = "the producer is not a service of this workspace"
 		return out
 	}
-	for _, endpoint := range service.Endpoints {
-		if endpoint == nil {
-			continue
-		}
-		if !resources.EndpointMatchesReferenceInfo(endpoint, info) {
-			continue
-		}
-		// A reference resolves an address into the consumer's environment, so it
-		// is subject to the producer's export boundary like any other edge that
-		// does. Judged by the one body behind every "may this consumer depend on
-		// this endpoint" answer, so a reference can never carry an endpoint a
-		// declared dependency on the same endpoint would be refused: without
-		// this, declaring the group instead of the dependency would be the way
-		// around visibility.
-		if err := resources.ValidateEndpointVisibility(consumerModule, info.Module, info.Service, endpoint.Name, endpoint.Visibility, endpoint.AllowModules); err != nil {
-			out.Reason = err.Error()
-			return out
-		}
-		return nil
+	// One selection, shared with the resolution. This used to scan the manifest
+	// itself and return on the FIRST endpoint matching the reference, which is
+	// a different question from the one the resolution answers — so a reference
+	// could be JUDGED against one endpoint and RESOLVED to another, and a
+	// composition this check passed could still address an endpoint the
+	// consumer was never permitted. resources.SelectEndpointForReference is now
+	// the only answer to "which endpoint does this reference name", and this
+	// check reports its refusal verbatim.
+	if _, err := resources.SelectEndpointForReference(consumerModule, info, service.Endpoints); err != nil {
+		out.Reason = err.Error()
+		return out
 	}
-	declared := make([]string, 0, len(service.Endpoints))
-	for _, endpoint := range service.Endpoints {
-		if endpoint != nil {
-			declared = append(declared, endpoint.Name)
-		}
-	}
-	out.Reason = fmt.Sprintf("the producer declares no such endpoint (declared: %s)", strings.Join(declared, ", "))
-	return out
+	return nil
 }
