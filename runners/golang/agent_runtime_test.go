@@ -385,6 +385,13 @@ func TestSlowPackage(t *testing.T) {
 	if elapsed := time.Since(started); elapsed >= 8*time.Second {
 		t.Logf("fail-fast took %s, longer than the slow package's own sleep", elapsed)
 	}
+	// WAIT PAST THE SLOW TEST'S OWN SLEEP before looking. Stat'ing
+	// immediately after RunGoTests returns proves only that the marker is not
+	// there YET: an orphaned test binary that survived the kill would write it
+	// eight seconds later and this assertion would already have passed. The
+	// marker is the real evidence that the process group died, so it has to be
+	// read after the moment the orphan would have written it.
+	time.Sleep(9 * time.Second)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("slow package completed after fail-fast: stat error=%v", err)
 	}

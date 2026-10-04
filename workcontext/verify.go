@@ -88,9 +88,6 @@ func (v *Verifier) skew() time.Duration {
 	return v.Skew
 }
 
-// Verify checks a presented capability and consumes it when it is single-use.
-// Replay consumption happens last, so a capability rejected for any other
-// reason is not burned by the attempt.
 // resolveKey is THE key resolution, shared by Verify and Recheck: the key id
 // must be one this verifier holds, the key must be well formed, and it must
 // not be the conformance fixture key unless the caller said otherwise.
@@ -134,15 +131,19 @@ func (v *Verifier) authenticate(wc *basev0.WorkContextV1, claims, signature []by
 
 // checkWindow is THE window check, both ends, called by Verify and by
 // Recheck. Recheck had its own and it omitted not-before.
-func (v *Verifier) checkWindow(wc *basev0.WorkContextV1) error {
+// It RETURNS the clock it used, so a caller that needs the same instant for a
+// later check shares this sample instead of taking its own. Two samples are two
+// clocks: a grant window compared against a different `now` than the
+// capability's window is a second reading of the same question.
+func (v *Verifier) checkWindow(wc *basev0.WorkContextV1) (time.Time, error) {
 	now, skew := v.now(), v.skew()
 	if notBefore := time.Unix(wc.GetNotBeforeUnix(), 0); now.Add(skew).Before(notBefore) {
-		return fmt.Errorf("%w: not valid before %s", ErrInvalid, notBefore.UTC().Format(time.RFC3339))
+		return now, fmt.Errorf("%w: not valid before %s", ErrInvalid, notBefore.UTC().Format(time.RFC3339))
 	}
 	if expires := time.Unix(wc.GetExpiresAtUnix(), 0); !now.Add(-skew).Before(expires) {
-		return fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))
+		return now, fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))
 	}
-	return nil
+	return now, nil
 }
 
 func (v *Verifier) resolveKey(keyID string) (ed25519.PublicKey, error) {
@@ -164,6 +165,9 @@ func (v *Verifier) resolveKey(keyID string) (ed25519.PublicKey, error) {
 	return key, nil
 }
 
+// Verify checks a presented capability and consumes it when it is single-use.
+// Replay consumption happens last, so a capability rejected for any other
+// reason is not burned by the attempt.
 func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error) {
 	if v.Revisions == nil || v.Replay == nil || v.Grants == nil || v.Seals == nil {
 		return nil, fmt.Errorf("work context: verifier is missing a revision source, replay store, grant source or seal source")
@@ -181,12 +185,15 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if wc.GetAudience() != v.Audience {
 		return nil, fmt.Errorf("%w: minted for audience %q, presented to %q", ErrInvalid, wc.GetAudience(), v.Audience)
 	}
-	if err := v.checkWindow(wc); err != nil {
+	now, err := v.checkWindow(wc)
+	if err != nil {
 		return nil, err
 	}
-	// Kept for the grant window and the replay entry's expiry below, which
-	// need the same clock the window check used.
-	now, skew := v.now(), v.skew()
+	// The grant window and the replay entry's expiry use THE CLOCK THE WINDOW
+	// CHECK USED, returned above. This comment used to say that while the code
+	// re-sampled v.now() on the next line — so it was two readings described
+	// as one, which is the same defect as two bodies behind one claim.
+	skew := v.skew()
 	expires := time.Unix(wc.GetExpiresAtUnix(), 0)
 	if err := checkStructure(wc); err != nil {
 		return nil, err

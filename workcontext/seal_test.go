@@ -1797,7 +1797,7 @@ func TestTheMintNeverEmitsWhatItsOwnDecoderRefuses(t *testing.T) {
 	sound := scope("repo", []string{"read"}, nil)
 	raw, err := proto.Marshal(sound)
 	require.NoError(t, err)
-	raw = append(raw, 0xF8, 0x3F, 0x01) // field 127, varint: unknown to this Core
+	raw = append(raw, 0xF8, 0x3F, 0x01) // field 1023, varint: unknown to this Core
 	polluted := &basev0.WorkScopeV1{}
 	require.NoError(t, proto.Unmarshal(raw, polluted))
 	require.NotEmpty(t, polluted.ProtoReflect().GetUnknown(), "the scope really does carry an unknown field")

@@ -340,21 +340,16 @@ func (v *Verifier) Recheck(ctx context.Context, verified *Verified) error {
 	if err := v.authenticate(wc, claims, signature); err != nil {
 		return err
 	}
-	if err := v.checkWindow(wc); err != nil {
+	// ONE window check, and this is now true rather than half true.
+	//
+	// Recheck called checkWindow AND kept its own copy of the same two
+	// comparisons, so "one checkWindow called by both" was a claim with two
+	// bodies behind it — and the not-before test only discriminated when both
+	// copies were deleted. The copy is gone; the shared check returns the
+	// clock it used, which checkGrant below needs.
+	now, err := v.checkWindow(wc)
+	if err != nil {
 		return err
-	}
-	now := v.now()
-	skew := v.skew()
-	// The window, BOTH ENDS. Not-before was omitted: only expiry was checked,
-	// so a capability whose window had not opened — one Verify refuses —
-	// rechecked successfully. A clock that moves backwards, or a capability
-	// minted for a future window, both reach it.
-	if notBefore := time.Unix(wc.GetNotBeforeUnix(), 0); now.Add(skew).Before(notBefore) {
-		return fmt.Errorf("%w: not valid before %s", ErrInvalid, notBefore.UTC().Format(time.RFC3339))
-	}
-	expires := time.Unix(wc.GetExpiresAtUnix(), 0)
-	if !now.Add(-skew).Before(expires) {
-		return fmt.Errorf("%w: expired at %s", ErrInvalid, expires.UTC().Format(time.RFC3339))
 	}
 	current, err := v.Revisions.AuthorizationRevision(ctx, wc.GetTenantId())
 	if err != nil {
