@@ -103,9 +103,9 @@ func TestAStrictReadReportsADenialOverAnUnavailabilityWhateverTheOrder(t *testin
 // mapping, by the validator and by the resolution.
 func TestTheOwningModuleDoesNotBypassAnInvalidDeclaration(t *testing.T) {
 	ctx := context.Background()
-	err := resources.ValidateEndpointVisibility(selectionModule, selectionModule, selectionService, "grpc", "pubilc", nil)
+	err := resources.ValidateEndpointVisibility(selectionModule, selectionModule, selectionService, "grpc", "pubilc", "", nil)
 	require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration)
-	require.NoError(t, resources.ValidateEndpointVisibility(selectionModule, selectionModule, selectionService, "grpc", "private", nil))
+	require.NoError(t, resources.ValidateEndpointVisibility(selectionModule, selectionModule, selectionService, "grpc", "private", "", nil))
 
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
 	own := resources.WithConsumer(selectionModule, declaredBy(selectionEndpoint("grpc", "grpc", "pubilc")))
@@ -243,6 +243,51 @@ func TestTextAroundAWellFormedReferenceIsNotAMarker(t *testing.T) {
 			require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
 		})
 	}
+}
+
+// The whole declaration is judged at every typed boundary, not only when YAML
+// is read: an allow-list on a visibility that never reads one, or a location
+// the model does not define, is an invalid declaration for the selection, for
+// dependency wiring, for the proto conversion and for the schema — and never a
+// per-consumer denial a run-wide read may drop.
+func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
+	ctx := context.Background()
+	for name, broken := range map[string]*resources.Endpoint{
+		"an allow-list nothing reads (public)":  {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityPublic, AllowModules: []string{"payments"}},
+		"an allow-list nothing reads (private)": {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityPrivate, AllowModules: []string{"payments"}},
+		"an unknown location":                   {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityPublic, Location: "nowhere"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			info := &resources.EndpointInformation{Module: "platform", Service: "api", Name: "open"}
+			for _, consumer := range []string{"platform", "payments", "other"} {
+				_, err := resources.SelectEndpointForReference(consumer, info, []*resources.Endpoint{broken})
+				require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "selection for %s", consumer)
+				require.NotErrorIs(t, err, resources.ErrEndpointNotReachable, "never a denial")
+			}
+			_, err := broken.Proto()
+			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "proto conversion")
+
+			typed := &basev0.Endpoint{Module: broken.Module, Service: broken.Service, Name: broken.Name, Api: broken.API, Visibility: broken.Visibility, Location: broken.Location, AllowModules: broken.AllowModules}
+			dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
+			for _, consumer := range []string{"platform", "payments"} {
+				_, err := resources.ConsumedDependencyEndpoints(consumer, dependency, []*basev0.Endpoint{typed})
+				require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "wiring for %s", consumer)
+			}
+			// Run-wide, the fault is refused with the key named, never dropped.
+			conf := authorityConf("address", "${endpoint:platform/api/open}")
+			consumerCtx := resources.WithConsumer("payments", func(unique string) ([]*resources.Endpoint, bool) {
+				return []*resources.Endpoint{broken}, unique == "platform/api"
+			})
+			_, err = resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(),
+				resources.WithRunProducers(func(string) bool { return true }), consumerCtx)
+			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration)
+			require.Contains(t, err.Error(), "authority/address")
+		})
+	}
+	// The schema carries the allow-list rule itself, so a typed endpoint that
+	// never went through this package's conversion is refused on the wire too.
+	typed := &basev0.Endpoint{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic, AllowModules: []string{"payments"}}
+	require.Error(t, resources.Validate(typed), "the schema refuses an allow-list on a public endpoint")
 }
 
 // A declaration the model cannot judge is refused by every wiring path, for

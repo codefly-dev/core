@@ -83,12 +83,9 @@ and the protos the module publishes. A service loaded by directory rather than
 through its module — an agent loading the service it serves — applies it with
 `resources.ApplyModuleInterface`.
 
-The one endpoint the boundary leaves alone is the one whose visibility is the
-deprecated `external`, because there that word records a location rather than a
-permission, and it is the only record of it. Rewriting it would move an endpoint
-resolved from DNS inside the system and give it an allocated port. Declare
-`location: external` alongside a real visibility and the endpoint exports like
-any other.
+Where an endpoint lives is its `location`, which the boundary never touches: an
+endpoint declaring `location: external` is exported or kept like any other and
+keeps resolving from DNS either way.
 
 ### Client facades
 
@@ -202,7 +199,8 @@ version: 0.1.0
 endpoints:
   - name: grpc
     api: grpc
-    visibility: module
+    visibility: internal
+    allow-modules: ["*"]
 service-dependencies:
   - name: store/postgres
 ```

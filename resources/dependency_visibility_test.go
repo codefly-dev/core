@@ -35,7 +35,7 @@ func TestValidateEndpointVisibility(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := resources.ValidateEndpointVisibility(tc.consumer, tc.producer, "accounts", "connect", tc.visibility, tc.allowed)
+			err := resources.ValidateEndpointVisibility(tc.consumer, tc.producer, "accounts", "connect", tc.visibility, "", tc.allowed)
 			if tc.deny {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errorText)

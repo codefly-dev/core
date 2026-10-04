@@ -621,6 +621,7 @@ func (s *Service) preSave() func() {
 		ep              *Endpoint
 		module, svc     string
 		visibility, api string
+		allowModules    []string
 	}
 	type depSnap struct {
 		dep          *ServiceDependency
@@ -660,7 +661,12 @@ func (s *Service) preSave() func() {
 		}
 	}
 	for _, endpoint := range s.Endpoints {
-		eps = append(eps, epSnap{ep: endpoint, module: endpoint.Module, svc: endpoint.Service, visibility: endpoint.Visibility, api: endpoint.API})
+		// The visibility and the allow-list are the endpoint's LIVE authorization
+		// state — what the module's interface exported — and preSave writes the
+		// authored ones over them for the file. Both come back, or a save
+		// would leave the service's own list judging consumers the module
+		// never granted.
+		eps = append(eps, epSnap{ep: endpoint, module: endpoint.Module, svc: endpoint.Service, visibility: endpoint.Visibility, api: endpoint.API, allowModules: endpoint.AllowModules})
 		endpoint.Module = ""
 		endpoint.Service = ""
 		endpoint.preSave()
@@ -681,6 +687,7 @@ func (s *Service) preSave() func() {
 			e.ep.Service = e.svc
 			e.ep.Visibility = e.visibility
 			e.ep.API = e.api
+			e.ep.AllowModules = e.allowModules
 		}
 	}
 }

@@ -961,17 +961,17 @@ func (mod *Module) HasInterface() bool {
 }
 
 // ValidateEndpointVisibility reports whether a service in consumerModule may
-// depend on the named producer endpoint. Private endpoints remain inside their
-// owning module; internal endpoints require an explicit matching allow-list;
-// public endpoints and the deprecated broad module/external aliases permit the
-// dependency. This is the consuming-side counterpart to ValidateInterface,
-// which guards the producing side.
-func ValidateEndpointVisibility(consumerModule, producerModule, producerService, endpoint string, visibility Visibility, allowModules []string) error {
-	// The declaration is judged before any consumer is: a visibility value the
-	// model does not know is a fault of the manifest, and the producer's own
-	// module reaching its own endpoint does not make the declaration valid.
-	if !KnownVisibility(visibility) {
-		return fmt.Errorf("%w: endpoint %s/%s declares unsupported visibility %q", ErrInvalidEndpointDeclaration, producerService, endpoint, visibility)
+// depend on the named producer endpoint. The declaration is judged first
+// (ValidateEndpointDeclaration — a visibility or location the model does not
+// define, or an allow-list nothing reads, is ErrInvalidEndpointDeclaration
+// before any consumer is considered, the owning module included); then
+// private endpoints remain inside their owning module, internal endpoints
+// require a matching allow-list, and public endpoints permit the dependency.
+// This is the consuming-side counterpart to ValidateInterface, which guards
+// the producing side.
+func ValidateEndpointVisibility(consumerModule, producerModule, producerService, endpoint string, visibility Visibility, location string, allowModules []string) error {
+	if err := ValidateEndpointDeclaration(producerService, endpoint, visibility, location, allowModules); err != nil {
+		return err
 	}
 	if consumerModule == producerModule {
 		return nil
@@ -983,7 +983,8 @@ func ValidateEndpointVisibility(consumerModule, producerModule, producerService,
 	if visibility == VisibilityInternal {
 		return fmt.Errorf("endpoint %s/%s does not permit module %q", producerService, endpoint, consumerModule)
 	}
-	// KnownVisibility and AllowsModule leave exactly private (or unset) here.
+	// ValidateEndpointDeclaration and AllowsModule leave exactly private (or
+	// unset) here.
 	return fmt.Errorf("endpoint %s/%s is private to module %q; module %q may not depend on it",
 		producerService, endpoint, producerModule, consumerModule)
 }

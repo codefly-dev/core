@@ -33,10 +33,12 @@ const (
 const LocationExternal = "external"
 
 // KnownVisibility reports whether a visibility value is one the model defines.
-// It is the ONE list of them: the loader, AllowsModule and
-// ValidateEndpointVisibility all judge a declaration against it, so a value the
-// model does not know is refused as an invalid declaration everywhere rather
-// than read as "private" by one path and "denied" by another. The former
+// It is the ONE list of them: ValidateEndpointDeclaration judges every
+// declaration against it — at load, at selection, at dependency wiring — so a
+// value the model does not know is refused as an invalid declaration everywhere
+// rather than read as "private" by one path and "denied" by another;
+// AllowsModule, which only ever runs on a declaration already judged, reads
+// the permission of a known value. The former
 // spellings "module" and "external" are not known: "module" was a permission
 // granted to every module, now written as "internal" with an explicit
 // allow-list, and "external" was a location written as a permission, now
@@ -304,6 +306,9 @@ func (endpoint *Endpoint) AsReference() *EndpointReference {
 }
 
 func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
+	if err := ValidateEndpointDeclaration(endpoint.Service, endpoint.Name, endpoint.Visibility, endpoint.Location, endpoint.AllowModules); err != nil {
+		return nil, err
+	}
 	if endpoint.API == "" && standards.IsSupportedAPI(endpoint.Name) == nil {
 		endpoint.API = endpoint.Name
 	}
@@ -724,7 +729,7 @@ func dependencyEndpointVerdicts(consumerModule string, dependency *ServiceDepend
 	var permitted []*basev0.Endpoint
 	var denials []error
 	for _, endpoint := range resolved {
-		if err := ValidateEndpointVisibility(consumerModule, endpoint.Module, dependency.Name, endpoint.Name, endpoint.Visibility, endpoint.AllowModules); err != nil {
+		if err := ValidateEndpointVisibility(consumerModule, endpoint.Module, dependency.Name, endpoint.Name, endpoint.Visibility, endpoint.Location, endpoint.AllowModules); err != nil {
 			// A declaration the model cannot judge is a fault of the producer's
 			// manifest, not a verdict on this consumer: filing it as a denial
 			// would let "consumes all" drop the endpoint with nothing said —

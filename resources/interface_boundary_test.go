@@ -206,6 +206,48 @@ func TestReloadServiceKeepsModuleAndBoundary(t *testing.T) {
 	}
 }
 
+// Saving writes the authored values to the file and must hand the LIVE ones
+// back: the visibility and the allow-list the interface exported. A save that
+// restored one and not the other would leave the service's own list — here the
+// wildcard — judging consumers the module granted to one module only, and a
+// reference from anywhere else would resolve.
+func TestSavingRestoresTheExportedAllowList(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "module.codefly.yaml"), []byte(
+		"kind: module\nname: saas\nservices:\n    - name: accounts\ninterface:\n    endpoints:\n        - service: accounts\n          endpoint: grpc\n          visibility: internal\n          allow-modules: [payments]\n"), 0o644))
+	svcDir := filepath.Join(dir, "services", "accounts")
+	require.NoError(t, os.MkdirAll(svcDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(svcDir, "service.codefly.yaml"), []byte(
+		"kind: service\nname: accounts\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: grpc\n    api: grpc\n    visibility: internal\n    allow-modules: [\"*\"]\n"), 0o644))
+
+	mod, err := resources.LoadModuleFromDir(ctx, dir)
+	require.NoError(t, err)
+	service, err := mod.LoadServiceFromName(ctx, "accounts")
+	require.NoError(t, err)
+	grpc := service.Endpoints[0]
+	require.Equal(t, []string{"payments"}, grpc.AllowModules)
+
+	judge := func(consumer string) error {
+		info := &resources.EndpointInformation{Module: "saas", Service: "accounts", Name: "grpc"}
+		_, err := resources.SelectEndpointForReference(consumer, info, service.Endpoints)
+		return err
+	}
+	require.NoError(t, judge("payments"))
+	require.ErrorIs(t, judge("other"), resources.ErrEndpointNotReachable)
+
+	require.NoError(t, service.Save(ctx))
+	require.Equal(t, resources.VisibilityInternal, grpc.Visibility, "the live visibility after a save")
+	require.Equal(t, []string{"payments"}, grpc.AllowModules, "the live allow-list after a save is the interface's, not the file's")
+	require.ErrorIs(t, judge("other"), resources.ErrEndpointNotReachable, "a save must not widen what the module exported")
+	require.NoError(t, judge("payments"))
+
+	saved, err := os.ReadFile(filepath.Join(svcDir, "service.codefly.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(saved), "- '*'", "the file keeps what the author wrote")
+	require.NotContains(t, string(saved), "payments")
+}
+
 // Applying the boundary must not rewrite what the author wrote: the exported
 // visibility is a property of the module, and saving a service for an unrelated
 // reason would otherwise migrate its endpoints.

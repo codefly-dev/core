@@ -199,7 +199,7 @@ func visibilityOf(consumerModule string, info *EndpointInformation, endpoint *En
 	if service == "" {
 		service = info.Service
 	}
-	if err := ValidateEndpointVisibility(consumerModule, module, service, endpoint.Name, Visibility(endpoint.Visibility), endpoint.AllowModules); err != nil {
+	if err := ValidateEndpointVisibility(consumerModule, module, service, endpoint.Name, Visibility(endpoint.Visibility), endpoint.Location, endpoint.AllowModules); err != nil {
 		if errors.Is(err, ErrInvalidEndpointDeclaration) {
 			// Not a denial: the declaration cannot be judged. It must not read
 			// as "this consumer may not reach it", which a run-wide

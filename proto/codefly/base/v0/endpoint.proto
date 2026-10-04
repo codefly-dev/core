@@ -17,6 +17,13 @@ Only public endpoint can be accessed across modules
 
 // Endpoint is a logical API exposed by a service and later resolved into network mappings.
 message Endpoint {
+  // An allow-list is only read for visibility "internal": one on any other
+  // visibility is a grant nothing enforces, refused here as the model refuses it.
+  option (buf.validate.message).cel = {
+    id: "endpoint.allow_modules.internal_only"
+    message: "allow_modules is only read for visibility \"internal\""
+    expression: "this.visibility == 'internal' || this.allow_modules.size() == 0"
+  };
   // name is the endpoint identifier, often matching the API type such as http, grpc, or tcp.
   string name = 1 [(buf.validate.field).string.hostname = true,  (buf.validate.field).string.pattern = "^[a-z]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 20];
   // service is the service that owns this endpoint.
