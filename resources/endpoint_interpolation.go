@@ -103,9 +103,11 @@ func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*base
 			if !ReferenceFailureIsAnOmission(err) {
 				return "", err
 			}
-			if omission == nil {
-				omission = err
-			}
+			// Keep the WORSE omission, not the first: a denial outranks an
+			// unavailability, because the strict path may drop the latter and
+			// never the former, and the order of two references must not
+			// decide which policy the value meets.
+			omission = WorseReferenceFailure(omission, err)
 			continue
 		}
 		address := instance.Address
@@ -223,13 +225,17 @@ func WithRunProducers(inRun func(unique string) bool) ConfigurationInterpolation
 // for a configuration the composition root injects run-wide into every service.
 // Such a configuration reaches leaf services that never declared the referenced
 // endpoint and so have it absent from their per-consumer mapping set. A value
-// whose ${endpoint:…} does not resolve for this consumer is not for it: the value
-// is dropped — along with an information left with no values — rather than failing
-// the service. The decision is per endpoint reference, not per service: a value
-// referencing one endpoint of a service the consumer depends on for a *different*
-// endpoint is still dropped, because this consumer has no instance for the
-// referenced one. Contrast the strict variant, which errors on any unresolved
-// reference.
+// whose ${endpoint:…} names an endpoint this consumer was handed no mapping
+// for, or may not reach under a valid export policy, is not for it: the value
+// is dropped — along with an information left with no values — rather than
+// failing the service. Those are the only two omissions; every other failure
+// (an ambiguous or malformed reference, an invalid declaration, an unknown
+// producer, no instance for the access) is refused here as on the strict path.
+// The decision is per endpoint reference, not per service: a value referencing
+// one endpoint of a service the consumer depends on for a *different* endpoint
+// is still dropped, because this consumer has no instance for the referenced
+// one. Contrast the strict variant, which drops only an unavailable endpoint of
+// a producer outside the run.
 //
 // A per-consumer drop is a judgement about one consumer of a render, so it needs
 // a render that said what it was rendering. The rule is the strict path's, for
@@ -293,12 +299,14 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 					// Not every failure is "not for this consumer". An ambiguous
 					// reference, an API qualifier the named endpoint does not
 					// serve, a producer the workspace does not declare, an
-					// endpoint with no instance for this access, a malformed
-					// reference: each is a composition fault that would be the
-					// same for every consumer, and dropping the value would
-					// deliver a configuration with a key silently missing where
-					// a refusal was owed. Only an endpoint this consumer was
-					// handed no mapping for, or may not reach, is an omission.
+					// invalid declaration, an endpoint with no instance for this
+					// access, a malformed reference: each is a fault of the
+					// composition or of a declaration, and dropping the value
+					// would deliver a configuration with a key silently missing
+					// where a refusal was owed. Only the two facts about this
+					// consumer's own view — an endpoint it was handed no mapping
+					// for, or may not reach under a valid export policy — are
+					// omissions.
 					return nil, w.Wrapf(err, "cannot interpolate run-wide configuration %s/%s", info.Name, value.Key)
 				}
 				if dropUnresolved {
@@ -389,9 +397,7 @@ func interpolateConfigurationValue(ctx context.Context, value *basev0.Configurat
 			if !ReferenceFailureIsAnOmission(err) {
 				return "", err
 			}
-			if omission == nil {
-				omission = err
-			}
+			omission = WorseReferenceFailure(omission, err)
 			continue
 		}
 		literal.Literal = resolved
@@ -401,9 +407,7 @@ func interpolateConfigurationValue(ctx context.Context, value *basev0.Configurat
 		if !ReferenceFailureIsAnOmission(err) {
 			return "", err
 		}
-		if omission == nil {
-			omission = err
-		}
+		omission = WorseReferenceFailure(omission, err)
 	}
 	if omission != nil {
 		return "", omission

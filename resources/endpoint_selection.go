@@ -156,6 +156,14 @@ func SelectEndpointForReference(consumerModule string, info *EndpointInformation
 		}
 		matched++
 		if err := visibilityOf(consumerModule, info, endpoint); err != nil {
+			// Only a genuine denial narrows the candidates. A candidate whose
+			// declaration cannot be judged is a fault of the manifest, and it
+			// is reported before any sibling is selected or any omission is
+			// allowed — otherwise a reachable sibling would hide it, and the
+			// declaration order would decide whether it was ever seen.
+			if !errors.Is(err, ErrEndpointNotReachable) {
+				return nil, err
+			}
 			refusals = append(refusals, err)
 			continue
 		}
@@ -178,8 +186,11 @@ func SelectEndpointForReference(consumerModule string, info *EndpointInformation
 	}
 }
 
-// visibilityOf judges the export boundary for one endpoint. Every refusal is
-// wrapped in ErrEndpointNotReachable so a caller can recognise the class.
+// visibilityOf judges the export boundary for one endpoint. A denial by a valid
+// export policy is wrapped in ErrEndpointNotReachable, so a caller can recognise
+// the one class of refusal that is about this consumer; a declaration that
+// cannot be judged (ErrInvalidEndpointDeclaration) is passed through as the
+// manifest fault it is.
 func visibilityOf(consumerModule string, info *EndpointInformation, endpoint *Endpoint) error {
 	module, service := endpoint.Module, endpoint.Service
 	if module == "" {
@@ -259,5 +270,32 @@ func DeclaredEndpointsOf(services []*Service) DeclaredEndpoints {
 	return func(unique string) ([]*Endpoint, bool) {
 		endpoints, ok := byUnique[unique]
 		return endpoints, ok
+	}
+}
+
+// WorseReferenceFailure returns the failure that must be reported when a value
+// carries several: a composition or declaration fault over any omission, and a
+// denial (ErrEndpointNotReachable) over a mere unavailability
+// (errEndpointNotAvailable). The ranking is what lets each entry point apply its
+// own omission policy to the one error it receives: the run-wide path may omit
+// on either omission class, the strict path only on an unavailability for a
+// producer outside the run — so a value that also carries a denial reports the
+// denial, whichever reference came first.
+func WorseReferenceFailure(a, b error) error {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case !ReferenceFailureIsAnOmission(a):
+		return a
+	case !ReferenceFailureIsAnOmission(b):
+		return b
+	case errors.Is(a, ErrEndpointNotReachable):
+		return a
+	case errors.Is(b, ErrEndpointNotReachable):
+		return b
+	default:
+		return a
 	}
 }

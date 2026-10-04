@@ -16,6 +16,8 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
+// ModuleKind is the `kind` a module manifest declares; ModuleConfigurationName
+// is the file that carries it.
 const (
 	ModuleKind              = "module"
 	ModuleConfigurationName = "module.codefly.yaml"
@@ -166,7 +168,7 @@ func (mod *Module) ApplicationsDir() string {
 	return path.Join(mod.dir, "applications")
 }
 
-// An ModuleReference
+// ModuleReference composes a module into a workspace.
 //
 // A reference composes a module into the workspace one of two ways:
 //
@@ -293,8 +295,8 @@ func (workspace *Workspace) NewModule(ctx context.Context, action *actionsv0.New
 			return
 		}
 		workspace.Modules = originalReferences
-		if err := os.RemoveAll(mod.dir); err != nil {
-			result = errors.Join(result, w.Wrapf(err, "cannot remove partial module directory"))
+		if removeErr := os.RemoveAll(mod.dir); removeErr != nil {
+			result = errors.Join(result, w.Wrapf(removeErr, "cannot remove partial module directory"))
 		}
 	}()
 
@@ -951,6 +953,14 @@ func (mod *Module) HasInterface() bool {
 // dependency. This is the consuming-side counterpart to ValidateInterface,
 // which guards the producing side.
 func ValidateEndpointVisibility(consumerModule, producerModule, producerService, endpoint string, visibility Visibility, allowModules []string) error {
+	// The declaration is judged before any consumer is: a visibility value the
+	// model does not know is a fault of the manifest, and the producer's own
+	// module reaching its own endpoint does not make the declaration valid.
+	switch visibility {
+	case "", VisibilityPrivate, VisibilityInternal, VisibilityPublic, VisibilityModule, VisibilityExternal:
+	default:
+		return fmt.Errorf("%w: endpoint %s/%s declares unsupported visibility %q", ErrInvalidEndpointDeclaration, producerService, endpoint, visibility)
+	}
 	if consumerModule == producerModule {
 		return nil
 	}
@@ -1111,10 +1121,10 @@ func (mod *Module) NewApplication(ctx context.Context, action *actionsv0.AddAppl
 	}
 
 	app := &Application{
-		Kind:        "application",
+		Kind:        ApplicationKind,
 		Name:        action.Name,
 		Description: action.Description,
-		Version:     "0.0.1",
+		Version:     InitialVersion,
 		Agent:       agent,
 		Spec:        make(map[string]any),
 	}
@@ -1130,8 +1140,8 @@ func (mod *Module) NewApplication(ctx context.Context, action *actionsv0.AddAppl
 		}
 		mod.ApplicationReferences = originalReferences
 		if createdDir {
-			if err := os.RemoveAll(dir); err != nil {
-				result = errors.Join(result, w.Wrapf(err, "cannot remove partial application directory"))
+			if removeErr := os.RemoveAll(dir); removeErr != nil {
+				result = errors.Join(result, w.Wrapf(removeErr, "cannot remove partial application directory"))
 			}
 		}
 	}()
