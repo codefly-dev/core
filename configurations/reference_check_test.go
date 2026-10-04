@@ -144,7 +144,8 @@ func TestCheckEndpointReferencesLeavesTheRunSetToResolveTime(t *testing.T) {
 
 	conf := &basev0.Configuration{Origin: resources.ConfigurationWorkspace, Infos: provided}
 	dropped, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(),
-		resources.WithRunProducers(func(string) bool { return false }))
+		resources.WithRunProducers(func(string) bool { return false }),
+		resources.WithConsumer("assistant", resources.DeclaredEndpointsOf([]*resources.Service{temporal})))
 	require.NoError(t, err, "a run without the producer drops the value")
 	require.Empty(t, dropped.Infos[0].GetConfigurationValues())
 
@@ -183,4 +184,35 @@ func TestCheckEndpointReferencesSeesTemplateLiterals(t *testing.T) {
 	require.Len(t, unresolved.References, 1)
 	require.Equal(t, "connection", unresolved.References[0].Key)
 	require.Equal(t, "postgres", unresolved.References[0].Group)
+}
+
+// The checker's verdict does not depend on manifest order: with the public API
+// sibling declared FIRST — the order the old first-match scan accepted — an
+// exact name the consumer may not reach is still refused, with the visibility
+// reason, by the real checker.
+func TestCheckEndpointReferencesRefusesAPrivateExactNameWhateverTheManifestOrder(t *testing.T) {
+	for name, endpoints := range map[string][]*resources.Endpoint{
+		"public sibling first": {
+			{Name: "admin", API: "grpc", Visibility: resources.VisibilityPublic},
+			{Name: "grpc", API: "grpc", Visibility: resources.VisibilityPrivate},
+		},
+		"private exact name first": {
+			{Name: "grpc", API: "grpc", Visibility: resources.VisibilityPrivate},
+			{Name: "admin", API: "grpc", Visibility: resources.VisibilityPublic},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			authority := referenceCheckService("platform", "authority", nil, endpoints...)
+			consumer := referenceCheckService("payments", "worker", []string{"work-context"})
+			plan := map[string]*resources.Service{"platform/authority": authority, "payments/worker": consumer}
+			lookup := func(unique string) (*resources.Service, bool) { service, ok := plan[unique]; return service, ok }
+			provided := []*basev0.ConfigurationInformation{{Name: "work-context", ConfigurationValues: []*basev0.ConfigurationValue{
+				{Key: "authority-address", Value: "${endpoint:platform/authority/grpc}"},
+			}}}
+			err := configurations.CheckEndpointReferences(provided, []*resources.Service{consumer}, resources.RunProfile{}, lookup)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "private to module")
+			require.NotContains(t, err.Error(), "admin", "the sibling is never judged in the named endpoint's place")
+		})
+	}
 }

@@ -158,3 +158,29 @@ func TestConfigurationReferencesGateReadinessOnTheReferencedEndpoint(t *testing.
 	require.Len(t, referenced[0].Endpoints, 1, "one endpoint, however many references name it")
 	require.Equal(t, "grpc", referenced[0].Endpoints[0].Name)
 }
+
+// Readiness waits for the endpoint the reference NAMES, selected the way the
+// value's resolution selects it. The host declares `admin` first and `grpc`
+// second, both api grpc: the old first-match recorded `admin` for
+// `${endpoint:…/grpc}` and gated the consumer on the wrong listener, so a
+// consumer could start against a `grpc` that was not yet serving.
+func TestConfigurationReferencesRecordTheEndpointTheReferenceNames(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/configuration-references")
+	require.NoError(t, err)
+	host := shared.Must(workspace.FindUniqueServiceByName(ctx, "host")).MustUnique()
+	worker := shared.Must(workspace.FindUniqueServiceByName(ctx, "worker")).MustUnique()
+
+	dep, err := architecture.NewServiceDependencies(ctx, workspace, architecture.WithConfigurationReferences(map[string][]string{
+		"platform": {host + "/grpc", host + "/admin"},
+	}))
+	require.NoError(t, err)
+	recorded := dep.ConfigurationReferenceDependencies(worker)
+	require.Len(t, recorded, 1, "one producer, both of its endpoints")
+	var names []string
+	for _, endpoint := range recorded[0].Endpoints {
+		names = append(names, endpoint.Name)
+	}
+	require.ElementsMatch(t, []string{"grpc", "admin"}, names,
+		"each reference records the endpoint it names; neither collapses into the other")
+}

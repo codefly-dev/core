@@ -47,13 +47,23 @@ func containerAt(address string) *basev0.NetworkInstance {
 }
 
 // declaredBy answers a selection context's manifest lookup for one producer.
-func declaredBy(endpoints ...*resources.Endpoint) func(string) []*resources.Endpoint {
-	return func(unique string) []*resources.Endpoint {
+func declaredBy(endpoints ...*resources.Endpoint) resources.DeclaredEndpoints {
+	return func(unique string) ([]*resources.Endpoint, bool) {
 		if unique != selectionUnique {
-			return nil
+			return nil, false
 		}
-		return endpoints
+		return endpoints, true
 	}
+}
+
+// publicTrio is the manifest behind the three-sibling fixtures: grpc, admin and
+// metrics all serve the grpc API and all are public, so only the name decides.
+func publicTrio() resources.EndpointSelectionContext {
+	return resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declaredBy(
+		selectionEndpoint("grpc", "grpc", "public"),
+		selectionEndpoint("admin", "grpc", "public"),
+		selectionEndpoint("metrics", "grpc", "public"),
+	)}
 }
 
 func resolveFor(t *testing.T, reference string, mappings []*basev0.NetworkMapping,
@@ -87,13 +97,13 @@ func TestAReferenceResolvesToTheEndpointItNamesInAnyOrder(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			out, err := resolveFor(t, selectionUnique+"/grpc", order.mappings, resources.NewNativeNetworkAccess(),
-				resources.EndpointSelectionContext{})
+				publicTrio())
 			require.NoError(t, err)
 			require.Equal(t, "http://localhost:1111", out)
 
 			// And each sibling still answers the reference that names it.
 			out, err = resolveFor(t, selectionUnique+"/metrics", order.mappings, resources.NewNativeNetworkAccess(),
-				resources.EndpointSelectionContext{})
+				publicTrio())
 			require.NoError(t, err)
 			require.Equal(t, "http://localhost:3333", out)
 		})
@@ -120,23 +130,16 @@ func TestAnAbsentExactNameIsNotAnsweredByAnAPISibling(t *testing.T) {
 	require.NotContains(t, err.Error(), "localhost:2222")
 	require.Empty(t, out)
 
-	// And the reason the manifest is not optional for this case. With only the
+	// And without the manifest there is no answer at all. With only the
 	// mappings to go on, `${…/grpc}` naming an endpoint that published nothing
 	// is indistinguishable from `${…/grpc}` meaning "the endpoint whose API is
-	// grpc" — which is the matcher's documented behaviour and what a
-	// composition referring to an API by name relies on. So the sibling DOES
-	// answer here, and it is not a defect: nothing in this input says `grpc` is
-	// an endpoint at all.
-	//
-	// It is why WithConsumer exists and why a caller that can name its
-	// producer's manifest must pass it. The manifest is the only input that
-	// distinguishes "the endpoint you named is not running" from "you named an
-	// API".
+	// grpc", so the old scan let the sibling answer. That is exactly the
+	// substitution this selection exists to refuse, and a resolution that
+	// cannot read the manifest is refused rather than left to guess.
 	out, err = resolveFor(t, selectionUnique+"/grpc", mappings, resources.NewNativeNetworkAccess(),
-		resources.EndpointSelectionContext{})
-	require.NoError(t, err)
-	require.Equal(t, "http://localhost:2222", out,
-		"with no manifest the token is an API, and the one endpoint carrying it answers")
+		resources.EndpointSelectionContext{ConsumerModule: "payments"})
+	require.ErrorIs(t, err, resources.ErrNoDeclaredEndpoints)
+	require.Empty(t, out, "no manifest, no answer — never the sibling")
 }
 
 // The named endpoint having no address for this access is reported as that, and
@@ -158,7 +161,7 @@ func TestAnEndpointWithNoAddressForThisAccessIsNotReplaced(t *testing.T) {
 				selectionMapping("admin", "grpc", sibling.instance),
 			}
 			out, err := resolveFor(t, selectionUnique+"/grpc", mappings, resources.NewNativeNetworkAccess(),
-				resources.EndpointSelectionContext{})
+				publicTrio())
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "no instance for access")
 			require.Contains(t, err.Error(), `"grpc"`)
@@ -176,25 +179,45 @@ func TestSeveralMappingsForOneEndpointAreSearchedInOrder(t *testing.T) {
 		name     string
 		mappings []*basev0.NetworkMapping
 	}{
-		{"the access is on the first", []*basev0.NetworkMapping{
+		// The sibling comes FIRST in every order: the old scan took the first
+		// mapping matching the reference with an instance for the access, so a
+		// sibling ahead of the named endpoint is exactly the order it answered
+		// wrongly in, and the one a test of this property must use.
+		{"the sibling first, then the access on the first named mapping", []*basev0.NetworkMapping{
+			selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 			selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
 		}},
-		{"the access is on the second", []*basev0.NetworkMapping{
+		{"the sibling first, then the access on the second named mapping", []*basev0.NetworkMapping{
+			selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 			selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
+			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
+		}},
+		{"the sibling between the unusable and the usable named mapping", []*basev0.NetworkMapping{
+			selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
+			selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")),
 			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
 		}},
 	} {
 		t.Run(order.name, func(t *testing.T) {
-			// A sibling is present throughout, so a fall-through would be
-			// visible rather than merely absent.
-			mappings := append(order.mappings, selectionMapping("admin", "grpc", nativeAt("http://localhost:2222")))
-			out, err := resolveFor(t, selectionUnique+"/grpc", mappings, resources.NewNativeNetworkAccess(),
-				resources.EndpointSelectionContext{})
+			out, err := resolveFor(t, selectionUnique+"/grpc", order.mappings, resources.NewNativeNetworkAccess(), publicTrio())
 			require.NoError(t, err)
 			require.Equal(t, "http://localhost:1111", out)
 		})
 	}
+
+	// An API-only reference over duplicate mappings of one endpoint is one
+	// candidate, not two: the duplicates are the same declared endpoint, so
+	// they cannot make the reference ambiguous.
+	t.Run("duplicate mappings of one endpoint are one candidate", func(t *testing.T) {
+		only := resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declaredBy(selectionEndpoint("grpc", "grpc", "public"))}
+		out, err := resolveFor(t, selectionUnique+"/grpc", []*basev0.NetworkMapping{
+			selectionMapping("grpc", "grpc", containerAt("http://grpc:9090")),
+			selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111")),
+		}, resources.NewNativeNetworkAccess(), only)
+		require.NoError(t, err)
+		require.Equal(t, "http://localhost:1111", out)
+	})
 }
 
 // An exact name the consumer may NOT reach is refused with the visibility
@@ -269,33 +292,68 @@ func TestAnAPIReferenceSeveralEndpointsSatisfyIsRefused(t *testing.T) {
 // Selection is scoped to the producer the reference names. An endpoint of
 // another service that happens to share the token is not a candidate.
 func TestSelectionIsScopedToTheProducerTheReferenceNames(t *testing.T) {
-	selected, err := resources.SelectEndpointForReference("payments",
-		&resources.EndpointInformation{Module: selectionModule, Service: selectionService, Name: "grpc"},
-		[]*resources.Endpoint{
-			{Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"},
-			selectionEndpoint("grpc", "grpc", "public"),
-		})
+	reference := &resources.EndpointInformation{Module: selectionModule, Service: selectionService, Name: "grpc"}
+	selected, err := resources.SelectEndpointForReference("payments", reference, []*resources.Endpoint{
+		{Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"},
+		selectionEndpoint("grpc", "grpc", "public"),
+	})
 	require.NoError(t, err)
 	require.Equal(t, selectionModule, selected.Endpoint.Module)
 	require.True(t, selected.ExactName)
 
-	_, err = resources.SelectEndpointForReference("payments",
-		&resources.EndpointInformation{Module: selectionModule, Service: selectionService, Name: "grpc"},
-		[]*resources.Endpoint{
-			{Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"},
+	// Each dimension of the scope on its own, so a selector comparing only one
+	// of them cannot pass: another producer in the same module, and a producer
+	// of the same service name in another module, each declare an endpoint
+	// with the token and neither may answer.
+	for name, foreign := range map[string]*resources.Endpoint{
+		"same module, another service": {Module: selectionModule, Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"},
+		"another module, same service": {Module: "payments", Service: selectionService, Name: "grpc", API: "grpc", Visibility: "public"},
+		"another module and service":   {Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := resources.SelectEndpointForReference("payments", reference, []*resources.Endpoint{foreign})
+			require.ErrorIs(t, err, resources.ErrNoSuchEndpoint, "another producer's endpoint cannot answer this reference")
 		})
-	require.Error(t, err, "another producer's endpoint cannot answer this reference")
-	require.ErrorIs(t, err, resources.ErrNoSuchEndpoint)
+	}
+
+	// And through the resolution, with the foreign producer's mappings mixed
+	// in: the foreign address is never bound for this reference.
+	foreignMapping := &basev0.NetworkMapping{
+		Endpoint:  &basev0.Endpoint{Module: "payments", Service: "ledger", Name: "grpc", Api: "grpc"},
+		Instances: []*basev0.NetworkInstance{nativeAt("http://localhost:3333")},
+	}
+	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) {
+		switch unique {
+		case selectionUnique:
+			return []*resources.Endpoint{selectionEndpoint("grpc", "grpc", "public")}, true
+		case "payments/ledger":
+			return []*resources.Endpoint{{Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"}}, true
+		}
+		return nil, false
+	})
+	out, err := resolveFor(t, selectionUnique+"/grpc",
+		[]*basev0.NetworkMapping{foreignMapping, selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))},
+		resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declared})
+	require.NoError(t, err)
+	require.Equal(t, "http://localhost:1111", out)
 }
 
-// An unidentified consumer is not judged on visibility: a caller that has not
-// said which module receives the address has given no evidence to refuse on.
-func TestAnUnidentifiedConsumerIsNotJudgedOnVisibility(t *testing.T) {
-	selected, err := resources.SelectEndpointForReference("",
+// An unidentified consumer is refused, not waved through. The export boundary
+// is a statement about the consumer's module; a caller that has not said which
+// module receives the address has not asked a question this function can
+// answer, and "nobody asked, so anyone may" is the permissive default the old
+// scan had.
+func TestAnUnidentifiedConsumerIsRefused(t *testing.T) {
+	_, err := resources.SelectEndpointForReference("",
 		&resources.EndpointInformation{Module: selectionModule, Service: selectionService, Name: "grpc"},
-		[]*resources.Endpoint{selectionEndpoint("grpc", "grpc", "private")})
-	require.NoError(t, err)
-	require.Equal(t, "grpc", selected.Endpoint.Name)
+		[]*resources.Endpoint{selectionEndpoint("grpc", "grpc", "public")})
+	require.ErrorIs(t, err, resources.ErrConsumerNotIdentified)
+
+	_, err = resolveFor(t, selectionUnique+"/grpc",
+		[]*basev0.NetworkMapping{selectionMapping("grpc", "grpc", nativeAt("http://localhost:1111"))},
+		resources.NewNativeNetworkAccess(),
+		resources.EndpointSelectionContext{Declared: declaredBy(selectionEndpoint("grpc", "grpc", "public"))})
+	require.ErrorIs(t, err, resources.ErrConsumerNotIdentified, "and the resolution refuses before reading any mapping")
 }
 
 // The plan-time check and the resolution reach the same verdict, because they
