@@ -44,7 +44,7 @@ func TestInterpolateConfigurationEndpointsResolvesTemplateLiterals(t *testing.T)
 			Address: "store.svc:5432",
 		}},
 	}}
-	interpolated, err := InterpolateConfigurationEndpoints(context.Background(), conf, mappings, NewContainerNetworkAccess())
+	interpolated, err := InterpolateConfigurationEndpoints(context.Background(), conf, mappings, NewContainerNetworkAccess(), WithConsumer("payments", templateDeclared()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,10 +85,10 @@ func TestInterpolateConfigurationEndpointsRefusesAnUnresolvableTemplateLiteral(t
 		interpolate func() (*basev0.Configuration, error)
 	}{
 		{"strict", func() (*basev0.Configuration, error) {
-			return InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), outsideTheRun)
+			return InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), WithConsumer("payments", templateDeclared()), outsideTheRun)
 		}},
 		{"run-wide", func() (*basev0.Configuration, error) {
-			return InterpolateRunWideConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), outsideTheRun)
+			return InterpolateRunWideConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), WithConsumer("payments", templateDeclared()), outsideTheRun)
 		}},
 	} {
 		out, err := c.interpolate()
@@ -107,14 +107,29 @@ func TestInterpolateConfigurationEndpointsRefusesAnUnresolvableTemplateLiteral(t
 	// A malformed reference is a hard error on the strict path, and a literal is
 	// no exception: assembling it would ship the unresolved marker.
 	malformed := templatedConnectionConfiguration("@${endpoint:nonsense}/app")
-	if out, err := InterpolateConfigurationEndpoints(context.Background(), malformed, nil, NewContainerNetworkAccess(), outsideTheRun); err == nil {
+	if out, err := InterpolateConfigurationEndpoints(context.Background(), malformed, nil, NewContainerNetworkAccess(), WithConsumer("payments", templateDeclared()), outsideTheRun); err == nil {
 		t.Fatalf("a malformed reference in a template literal must fail, got %v", out)
 	}
 
 	// The same literal, with the caller saying nothing about the run: the value is
 	// a credential assembled around an address, and omitting it because nobody
 	// said what was being rendered is how a workload boots with no database.
-	if out, err := InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess()); err == nil {
+	if out, err := InterpolateConfigurationEndpoints(context.Background(), conf, nil, NewContainerNetworkAccess(), WithConsumer("payments", templateDeclared())); err == nil {
 		t.Fatalf("a template literal that cannot resolve must fail when the run is unstated, got %v", out)
+	}
+}
+
+// templateDeclared is the manifest the template tests resolve against: both the
+// published store and the absent one are DECLARED, so "absent" means absent
+// from this consumer's mappings, which is the availability fact the run-wide
+// path drops on, and not a producer the workspace does not declare.
+func templateDeclared() DeclaredEndpoints {
+	declared := map[string][]*Endpoint{
+		"mod/store":  {{Module: "mod", Service: "store", Name: "postgres", API: "tcp", Visibility: "public"}},
+		"mod/absent": {{Module: "mod", Service: "absent", Name: "postgres", API: "tcp", Visibility: "public"}},
+	}
+	return func(unique string) ([]*Endpoint, bool) {
+		endpoints, ok := declared[unique]
+		return endpoints, ok
 	}
 }

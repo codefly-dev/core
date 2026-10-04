@@ -158,6 +158,7 @@ func TestAnOverriddenComposedGroupStaysComposedAndKeepsItsDeliveryScoped(t *test
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 

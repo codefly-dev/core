@@ -7,6 +7,9 @@ agent:
     version: 0.0.1
     publisher: codefly.ai
 endpoints:
+    - name: admin
+      visibility: public
+      api: grpc
     - name: grpc
       visibility: public
       api: grpc

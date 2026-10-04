@@ -58,6 +58,7 @@ agent:
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
@@ -113,6 +114,7 @@ agent:
 	require.NoError(t, err)
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 
 	// The run loads: nothing has selected the ambiguous name.
@@ -167,6 +169,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
@@ -211,6 +214,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -259,6 +263,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -318,6 +323,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 
 	manager.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
@@ -352,6 +358,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).
 		WithNetworkMappings(nil, resources.NewNativeNetworkAccess()).
 		WithRunProducers(func(string) bool { return false })
@@ -410,6 +417,7 @@ agent:
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -462,6 +470,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -503,6 +512,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	// A leaf service depending on nothing gets an empty mapping set. The render
 	// still states its run set — that is what says an empty mapping set is this
 	// consumer's view rather than a render that bound no network context at all.
@@ -547,6 +557,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -607,6 +618,7 @@ agent:
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -668,6 +680,7 @@ agent:
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -712,6 +725,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -748,6 +762,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -775,6 +790,7 @@ func testLoader(t *testing.T, dir string) {
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 
 	manager.WithLoader(loader)
 
@@ -847,6 +863,7 @@ func TestManagerListsWorkspaceEndpointReferences(t *testing.T) {
 	require.NoError(t, err)
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -878,6 +895,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
