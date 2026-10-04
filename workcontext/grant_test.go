@@ -16,7 +16,7 @@ const (
 	mergeTool     = "codefly.dev/github-bot:0.1.0#merge_pr"
 	subject       = "pr:codefly/core#658"
 	requestDigest = "sha256:9f1c0b"
-	approver      = "u-valerie"
+	approver      = "principal-approver"
 )
 
 // approvedGrant is the record the approvals engine writes when V approves the
@@ -43,7 +43,7 @@ func (h *harness) elevated(t *testing.T) (*workcontext.Verified, string, *workco
 	_, owner := h.ownerSession(audience)
 	_, agent := h.agentSession(owner, audience)
 	grant := h.approvedGrant("g-1")
-	token, _, err := h.authority.Grant(agent, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	token, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
 	require.NoError(t, err)
 	return agent, token, grant
 }
@@ -78,13 +78,13 @@ func TestGrant_WindowNeverOutlivesTheGrantOrTheParent(t *testing.T) {
 	_, agent := h.agentSession(owner, audience)
 	grant := h.approvedGrant("g-1")
 
-	token, _, err := h.authority.Grant(agent, workcontext.GrantInput{Grant: grant, TTL: time.Hour})
+	token, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Hour})
 	require.NoError(t, err)
 	require.Equal(t, grant.NotAfter.Unix(), h.mustVerify(mergeTool, token).Context().GetExpiresAtUnix())
 
 	generous := h.approvedGrant("g-2")
 	generous.NotAfter = h.clock.Add(10 * time.Hour)
-	token, _, err = h.authority.Grant(agent, workcontext.GrantInput{Grant: generous, TTL: time.Hour})
+	token, _, err = h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: generous, TTL: time.Hour})
 	require.NoError(t, err)
 	require.Equal(t, agent.Context().GetExpiresAtUnix(), h.mustVerify(mergeTool, token).Context().GetExpiresAtUnix())
 }
@@ -224,7 +224,7 @@ func TestGrant_RefusesAGrantApprovingMoreThanOneCall(t *testing.T) {
 	grant := h.approvedGrant("g-1")
 	grant.Scope = scope("repo", []string{"merge", "delete"}, []string{"codefly/core"})
 
-	_, _, err := h.authority.Grant(agent, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.Contains(t, err.Error(), "exactly one action on one resource")
 }
@@ -236,12 +236,12 @@ func TestGrant_RefusesARevokedGrantAndAClosedWindow(t *testing.T) {
 
 	revoked := h.approvedGrant("g-revoked")
 	revoked.Revoked = true
-	_, _, err := h.authority.Grant(agent, workcontext.GrantInput{Grant: revoked, TTL: time.Minute})
+	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: revoked, TTL: time.Minute})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 
 	closed := h.approvedGrant("g-closed")
 	closed.NotAfter = h.clock.Add(-time.Second)
-	_, _, err = h.authority.Grant(agent, workcontext.GrantInput{Grant: closed, TTL: time.Minute})
+	_, _, err = h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: closed, TTL: time.Minute})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.Contains(t, err.Error(), "no usable window")
 }
@@ -260,6 +260,7 @@ func TestGrant_LeavesTheParentSessionAloneAndDelegatesNothing(t *testing.T) {
 	require.Len(t, resumed.Context().GetActorChain(), 1)
 
 	_, _, err := h.authority.Child(context.Background(), elevated, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: subBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   "a-sub",
 		PrincipalKind: "agent",
 		AgentID:       "codefly.dev/sub:1.0.0",

@@ -20,11 +20,13 @@ const (
 	issuer       = "https://authority.codefly.test"
 	keyID        = "k-1"
 	tenant       = "t-acme"
-	ownerID      = "u-antoine"
+	ownerID      = "principal-owner"
 	agentID      = "a-mind"
 	taskID       = "task-42"
 	audience     = "codefly.dev/github-bot:0.1.0"
 	organization = "org-platform"
+	installation = "inst-alpha"
+	bindingID    = "binding:alpha:reconcile"
 )
 
 // harness holds the real signer and verifier every test in this package runs
@@ -37,6 +39,7 @@ type harness struct {
 	revision  uint64
 	grants    map[string]*workcontext.Grant
 	replay    *workcontext.MemoryReplayStore
+	seals     *workcontext.MemorySealSource
 }
 
 func newHarness(t *testing.T) *harness {
@@ -52,11 +55,47 @@ func newHarness(t *testing.T) *harness {
 	}
 	h.replay = workcontext.NewMemoryReplayStore()
 	h.replay.Now = func() time.Time { return h.clock }
+	h.seals = workcontext.NewMemorySealSource()
+	require.NoError(t, h.seals.Put(ownerID, workcontext.Seal{
+		InstallationID:       installation,
+		InstallationRevision: 3,
+	}))
+	require.NoError(t, h.seals.PutEpoch(ownerID, 2))
+	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
+		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
+		Revision: 4, Incarnation: 1,
+	}))
+	// Every principal that appears as an actor needs a live epoch, because a
+	// hop without one cannot be revoked and is refused — and now an approved
+	// EXECUTION too, because a derivation attests the build its own hop is
+	// running rather than inheriting the parent's. A principal with no
+	// approved build bears no execution, which is the human case and is
+	// exercised separately.
+	// EVERY PRINCIPAL RUNS A DISTINCT BUILD, and that is what lets this
+	// harness see a whole class of defect it was blind to.
+	//
+	// Every principal used to share FixtureImageDigest at incarnation 11, so
+	// any confusion between one link's execution and another's was invisible:
+	// a derivation that substituted the OWNER's execution for the hop's — the
+	// R6-1 regression — compared one value against an identical one and
+	// passed. Two reviewers found it by executing with distinct builds, which
+	// is also what a real fleet looks like: an agent is not the same image as
+	// a human's session or another agent.
+	require.NoError(t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 11))
+	for principal, digest := range map[string]string{
+		agentID:  agentBuildDigest,
+		"a-sub":  subBuildDigest,
+		approver: approverBuildDigest,
+	} {
+		require.NoError(t, h.seals.PutEpoch(principal, 1))
+		require.NoError(t, h.seals.PutApprovedBuild(principal, digest, 11))
+	}
 	h.authority = &workcontext.Authority{
 		Issuer:    issuer,
 		KeyID:     keyID,
 		Key:       private,
 		Revisions: h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}
 	return h
@@ -72,6 +111,7 @@ func (h *harness) verifier(aud string) *workcontext.Verifier {
 		Revisions: h,
 		Replay:    h.replay,
 		Grants:    h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}
 }
@@ -110,6 +150,8 @@ func scope(kind string, actions []string, ids []string) *basev0.WorkScopeV1 {
 func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		InstallationID:     installation,
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,
 		OwnerPrincipalKind: "human",
@@ -127,9 +169,10 @@ func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 func (h *harness) agentSession(parent *workcontext.Verified, aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
 		Audience:      aud,
@@ -179,12 +222,17 @@ func TestChild_NarrowsAuthorityAndKeepsTaskIdentity(t *testing.T) {
 
 func TestChild_NeverExtendsExpiry(t *testing.T) {
 	h := newHarness(t)
+	// This test is about the PARENT clamp, not the minter's ceiling, so the
+	// ceiling is raised out of the way deliberately: the parent's expiry must
+	// win even when the requested window is one the authority would mint.
+	h.authority.MaxTTL = 24 * time.Hour
 	_, owner := h.ownerSession(audience)
 
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
@@ -209,6 +257,7 @@ func TestChild_RejectsWidening(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
+				Execution:     workcontext.Execution{ImageDigest: subBuildDigest, BuildIncarnation: 11},
 				PrincipalID:   "a-sub",
 				PrincipalKind: "agent",
 				AgentID:       "codefly.dev/sub:1.0.0",
@@ -239,6 +288,9 @@ func TestVerify_RejectsAWideningHopThatWasSignedAnyway(t *testing.T) {
 		PrincipalKind: "agent",
 		DelegationId:  "d-2",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"write"}, []string{"codefly/core"})},
+		// A current epoch, so the refusal below is the WIDENING and not the
+		// schema's now-required epoch. A forged hop would carry one.
+		PrincipalEpoch: 1,
 	})
 
 	_, err := h.verify(audience, h.resign(forged))
@@ -303,12 +355,48 @@ func TestVerify_RejectsASupersededAuthorizationRevision(t *testing.T) {
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
 }
 
-func TestVerify_RefusesWithoutAReplayStoreOrGrantSource(t *testing.T) {
-	h := newHarness(t)
-	token, _ := h.ownerSession(audience)
+// Every source a Verifier holds is load-bearing, so a missing one is refused
+// rather than read as "that check is off". The seal source is in the list for
+// the same reason as the rest: a verifier without one could not tell a
+// capability sealed to a superseded installation from a current one, and
+// skipping the strongest check in the model would be the easiest thing to do
+// by accident.
+func TestVerify_RefusesWithoutAnyOneOfItsSources(t *testing.T) {
+	for name, remove := range map[string]func(*workcontext.Verifier){
+		"revisions": func(v *workcontext.Verifier) { v.Revisions = nil },
+		"replay":    func(v *workcontext.Verifier) { v.Replay = nil },
+		"grants":    func(v *workcontext.Verifier) { v.Grants = nil },
+		"seals":     func(v *workcontext.Verifier) { v.Seals = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			token, _ := h.ownerSession(audience)
 
-	verifier := h.verifier(audience)
-	verifier.Replay = nil
-	_, err := verifier.Verify(context.Background(), token)
-	require.ErrorContains(t, err, "missing a revision source, replay store or grant source")
+			verifier := h.verifier(audience)
+			remove(verifier)
+			_, err := verifier.Verify(context.Background(), token)
+			require.ErrorContains(t, err, "missing a revision source, replay store, grant source or seal source")
+		})
+	}
 }
+
+// resignWithAnotherKey re-signs a token's claims with a key the verifier does
+// not hold, keeping the payload byte-identical.
+func (h *harness) resignWithAnotherKey(t *testing.T, token string) string {
+	t.Helper()
+	payload, _, found := strings.Cut(token, ".")
+	require.True(t, found)
+	claims, err := base64.RawURLEncoding.DecodeString(payload)
+	require.NoError(t, err)
+	_, other, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	return payload + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(other, claims))
+}
+
+// Distinct builds per principal. A shared digest made every execution
+// comparison tautological; see newHarness.
+var (
+	agentBuildDigest    = "sha256:" + strings.Repeat("a1", 32)
+	subBuildDigest      = "sha256:" + strings.Repeat("b2", 32)
+	approverBuildDigest = "sha256:" + strings.Repeat("c3", 32)
+)

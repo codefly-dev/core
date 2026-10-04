@@ -27,9 +27,10 @@ func TestChild_RefusesAParentThatIsOnlyAliveOnSkew(t *testing.T) {
 	require.NoError(t, err, "the parent is still accepted inside the skew window")
 
 	_, _, err = h.authority.Child(context.Background(), onSkew, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
@@ -50,7 +51,7 @@ func TestGrant_RefusesAParentThatIsOnlyAliveOnSkew(t *testing.T) {
 	onSkew, err := h.verify(audience, agent.Encoded())
 	require.NoError(t, err)
 
-	_, _, err = h.authority.Grant(onSkew, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	_, _, err = h.authority.Grant(context.Background(), onSkew, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.Contains(t, err.Error(), "can open no further session")
 }
@@ -66,6 +67,7 @@ func TestChild_DoesNotAliasTheParentsVerifiedClaims(t *testing.T) {
 	before := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
 
 	_, child, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: subBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   "a-sub",
 		PrincipalKind: "agent",
 		AgentID:       "codefly.dev/sub:1.0.0",
@@ -91,7 +93,9 @@ func TestStart_DoesNotCaptureTheCallersScopes(t *testing.T) {
 	scopes := []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})}
 
 	_, wc, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		TenantID: tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		InstallationID: installation,
+		TenantID:       tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human",
 		OrganizationID: organization, TaskID: taskID, Audience: audience,
 		AuthorityScopes: scopes, TTL: time.Hour,
 	})
@@ -101,19 +105,68 @@ func TestStart_DoesNotCaptureTheCallersScopes(t *testing.T) {
 	require.Equal(t, []string{"read"}, wc.GetAuthorityScopes()[0].GetActions())
 }
 
-// Revocation bumps the issuer's revision. A child that inherited the parent's
-// revision was born superseded whenever a bump landed between the parent's
-// verification and the exchange, so the minter reads the current one.
-func TestChild_MintsAtTheIssuersCurrentRevision(t *testing.T) {
+// A revoked parent derives NOTHING. This test asserted the opposite until a
+// second reviewer showed the opposite was an exploit.
+//
+// It used to read: "a child that inherited the parent's revision was born
+// superseded whenever a bump landed between the parent's verification and the
+// exchange, so the minter reads the current one" — and it passed, pinning the
+// laundering as correct. The bump IS the revocation: Verify refuses the parent
+// itself with ErrRevoked after it, so re-reading the revision at the mint let
+// the tenant-wide lever be escaped by deriving once. Measured before the fix:
+// the child carried revision 8 and verified while its parent was refused.
+//
+// The thing re-reading legitimately bought is kept — a child of a CURRENT
+// parent carries the current revision, which the second case asserts.
+func TestChild_RefusesAParentWhoseRevisionIsSuperseded(t *testing.T) {
+	h := newHarness(t)
+	token, owner := h.ownerSession(audience)
+
+	h.revision++ // the bump is the revocation
+
+	// The parent itself is refused, which is what makes deriving from it wrong.
+	_, err := h.verify(audience, token)
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+
+	_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
+		PrincipalID:   agentID,
+		PrincipalKind: "agent",
+		AgentID:       "fixture.test/agent:1.0.0",
+		DelegationID:  "d-1",
+		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
+		Audience:      audience,
+		TTL:           time.Minute,
+	})
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+	require.ErrorContains(t, err, "mint afresh")
+}
+
+// A grant cannot be used to launder the revision either: getting an approval
+// must not be a way around a bump.
+func TestGrant_RefusesAParentWhoseRevisionIsSuperseded(t *testing.T) {
+	h := newHarness(t)
+	_, owner := h.ownerSession(audience)
+	_, agent := h.agentSession(owner, audience)
+	grant := h.approvedGrant("g-revision")
+
+	h.revision++
+
+	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11}, Grant: grant, TTL: time.Minute})
+	require.ErrorIs(t, err, workcontext.ErrRevoked)
+}
+
+// A child of a CURRENT parent carries the issuer's current revision, so a
+// concurrent bump is the ordinary race rather than a stale stamp.
+func TestChild_CarriesTheIssuersCurrentRevisionWhenTheParentIsCurrent(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 
-	h.revision++ // a bump lands between verifying the parent and exchanging it
-
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
-		AgentID:       "codefly.dev/mind:1.2.0",
+		AgentID:       "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
 		Audience:      audience,
@@ -131,7 +184,7 @@ func TestChild_MintsAtTheIssuersCurrentRevision(t *testing.T) {
 func TestVerify_RejectsAGrantHopThatKeepsTheIdAndChangesTheIdentity(t *testing.T) {
 	forgeries := map[string]func(*basev0.WorkActorV1){
 		"another kind":         func(hop *basev0.WorkActorV1) { hop.PrincipalKind = "human" },
-		"another agent":        func(hop *basev0.WorkActorV1) { hop.AgentId = proto.String("codefly.dev/other:9.9.9") },
+		"another agent":        func(hop *basev0.WorkActorV1) { hop.AgentId = proto.String("fixture.test/other:9.9.9") },
 		"another organization": func(hop *basev0.WorkActorV1) { hop.OrganizationId = proto.String("org-elsewhere") },
 	}
 	for name, forge := range forgeries {
@@ -169,7 +222,9 @@ func TestMemoryReplayStore_RefusesWithinRetentionAndForgetsAfter(t *testing.T) {
 func TestStart_RefusesAnOwnerWithNoPrincipalKind(t *testing.T) {
 	h := newHarness(t)
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		TenantID: tenant, OwnerPrincipalID: ownerID, TaskID: taskID,
+		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
+		InstallationID: installation,
+		TenantID:       tenant, OwnerPrincipalID: ownerID, TaskID: taskID,
 		Audience: audience, TTL: time.Hour,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)

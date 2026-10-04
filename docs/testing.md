@@ -181,6 +181,17 @@ svc, _ := resources.LoadServiceFromDir(ctx, "testdata")
 endpoints, _ := svc.LoadEndpoints(ctx)
 ```
 
+## Git fixtures
+
+Use `internal/testgit.Run` for real Git fixture commands. It supplies a test
+identity, disables ambient signing and hooks, and bounds execution and process
+cleanup. Automatic maintenance is disabled for each invocation: Git can detach
+maintenance into a separate process group, leaving a writer in `.git` after the
+command returns and racing temporary-directory cleanup. This changes neither
+the user's Git configuration nor production Git operations. Tests of maintenance
+itself may explicitly override the command configuration and must own its
+lifetime.
+
 ## What Good Tests Look Like
 
 1. **Start real infrastructure.** `sdk.WithDependencies(ctx)` or `sdk.New().Add("postgres").Start(ctx)`.

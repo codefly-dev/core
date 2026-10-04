@@ -3,7 +3,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,10 +20,7 @@ import (
 // API access is capped at 60 requests/hour per IP, so resolving "latest" for
 // several agents can flakily 403; a token raises the cap to 5000/hour.
 func newGitHubReleaseClient() *github.Client {
-	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
-	}
+	token := githubReleaseToken()
 	var options []github.ClientOptionsFunc
 	if token == "" {
 		client, err := github.NewClient()
@@ -33,12 +29,19 @@ func newGitHubReleaseClient() *github.Client {
 		}
 		return client
 	}
-	options = append(options, github.WithHTTPClient(&http.Client{Transport: githubTokenTransport{token: token}}))
+	options = append(options, github.WithAuthToken(token))
 	client, err := github.NewClient(options...)
 	if err != nil {
 		panic(fmt.Sprintf("configure authenticated GitHub release client: %v", err))
 	}
 	return client
+}
+
+func githubReleaseToken() string {
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		return token
+	}
+	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
 }
 
 // latestReleaseTag returns the newest published release tag for a repository.
@@ -51,16 +54,6 @@ func githubLatestReleaseTag(ctx context.Context, owner, repo string) (string, er
 		return "", err
 	}
 	return release.GetTagName(), nil
-}
-
-// githubTokenTransport adds a bearer token to each request without pulling in
-// the oauth2 dependency (same approach as core/toolbox/github).
-type githubTokenTransport struct{ token string }
-
-func (t githubTokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	clone := req.Clone(req.Context())
-	clone.Header.Set("Authorization", "Bearer "+t.token)
-	return http.DefaultTransport.RoundTrip(clone)
 }
 
 // AgentSourceEnv selects where "latest" agent versions are resolved from.

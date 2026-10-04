@@ -2,6 +2,7 @@ package testgit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,44 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestFixtureCommitsDoNotStartAutomaticMaintenance(t *testing.T) {
+	dir := t.TempDir()
+	config := filepath.Join(t.TempDir(), "gitconfig")
+	// Even an ambient opt-in must not leave a detached repository writer
+	// racing TempDir cleanup after the fixture command has returned.
+	body := "[maintenance]\n auto = true\n autoDetach = true\n[gc]\n autoDetach = true\n"
+	require.NoError(t, os.WriteFile(config, []byte(body), 0o600))
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	trace := filepath.Join(t.TempDir(), "trace.json")
+	for _, args := range [][]string{
+		{"init", "-b", "main"},
+		{"commit", "--allow-empty", "-m", "first"},
+		{"commit", "--allow-empty", "-m", "second"},
+	} {
+		out, err := Run(t.Context(), dir, []string{"GIT_TRACE2_EVENT=" + trace}, args...)
+		require.NoError(t, err, "%s", out)
+	}
+	out, err := Run(t.Context(), dir, nil, "rev-list", "--count", "HEAD")
+	require.NoError(t, err)
+	require.Equal(t, "2", strings.TrimSpace(string(out)))
+	data, err := os.ReadFile(trace)
+	require.NoError(t, err)
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var event struct {
+			Event string   `json:"event"`
+			Argv  []string `json:"argv"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(line), &event))
+		if event.Event == "child_start" {
+			require.NotContains(t, event.Argv, "--auto", "fixture started automatic repository maintenance: %v", event.Argv)
+		}
+	}
+	unchanged, err := os.ReadFile(config)
+	require.NoError(t, err)
+	require.Equal(t, body, string(unchanged))
+}
 
 func TestAmbientSigningAndEditor(t *testing.T) {
 	dir := t.TempDir()

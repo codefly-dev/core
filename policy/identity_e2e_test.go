@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,10 +37,10 @@ const (
 	issuerURL           = "https://authority.codefly.test"
 	signingKeyID        = "k-1"
 	tenantID            = "t-acme"
-	ownerPrincipalID    = "u-antoine"
+	ownerPrincipalID    = "principal-owner"
 	agentPrincipalID    = "a-mind"
 	agentManifestID     = "codefly.dev/mind:1.2.0"
-	approverPrincipalID = "u-valerie"
+	approverPrincipalID = "principal-approver"
 	delegationID        = "d-1"
 	taskIdentifier      = "task-658"
 	toolboxID           = "codefly.dev/github-bot:0.1.0"
@@ -50,6 +51,7 @@ const (
 	callDigest          = "sha256:9f1c0b"
 	catalogDigest       = "sha256:catalog"
 	approvalRequestID   = "ar-77"
+	installation        = "inst-acme-platform"
 )
 
 type identityHarness struct {
@@ -60,6 +62,7 @@ type identityHarness struct {
 	revision  uint64
 	grants    map[string]*workcontext.Grant
 	replay    *workcontext.MemoryReplayStore
+	seals     *workcontext.MemorySealSource
 }
 
 func newIdentityHarness(t *testing.T) *identityHarness {
@@ -78,11 +81,31 @@ func newIdentityHarness(t *testing.T) *identityHarness {
 	}
 	h.replay = workcontext.NewMemoryReplayStore()
 	h.replay.Now = func() time.Time { return h.clock }
+	h.seals = workcontext.NewMemorySealSource()
+	// Both principals that own a task in this package's tests hold the same
+	// installation: an agent can own a task outright, and the seal is held for
+	// whoever the owner is.
+	for _, principal := range []string{ownerPrincipalID, agentPrincipalID} {
+		require.NoError(t, h.seals.Put(principal, workcontext.Seal{
+			InstallationID:       installation,
+			InstallationRevision: 1,
+		}))
+		// The approved execution is held per PRINCIPAL now, which is what
+		// lets a delegated hop attest the build it is itself running.
+		// A DISTINCT build per principal, for the reason workcontext's harness
+		// has them: a shared digest makes every execution comparison
+		// tautological, which is how the R6-1 regression hid.
+		require.NoError(t, h.seals.PutApprovedBuild(principal, policyBuildDigest(principal), 1))
+		// The epoch has one writer, which is PutEpoch, for owners and actors
+		// alike. Put deliberately no longer sets it.
+		require.NoError(t, h.seals.PutEpoch(principal, 1))
+	}
 	h.authority = &workcontext.Authority{
 		Issuer:    issuerURL,
 		KeyID:     signingKeyID,
 		Key:       private,
 		Revisions: h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}
 	return h
@@ -109,6 +132,7 @@ func (h *identityHarness) verify(audience, token string) *workcontext.Verified {
 		Revisions: h,
 		Replay:    h.replay,
 		Grants:    h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}).Verify(context.Background(), token)
 	require.NoError(h.t, err)
@@ -134,6 +158,8 @@ func workScope(kind, action, resourceID string) *basev0.WorkScopeV1 {
 func (h *identityHarness) ownerSession() *workcontext.Verified {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
+		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 1},
+		InstallationID:     installation,
 		TenantID:           tenantID,
 		OwnerPrincipalID:   ownerPrincipalID,
 		OwnerPrincipalKind: policy.KindHuman,
@@ -152,6 +178,7 @@ func (h *identityHarness) ownerSession() *workcontext.Verified {
 func (h *identityHarness) agentSession(owner *workcontext.Verified) *workcontext.Verified {
 	h.t.Helper()
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
+		Execution:     workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1},
 		PrincipalID:   agentPrincipalID,
 		PrincipalKind: policy.KindAgent,
 		AgentID:       agentManifestID,
@@ -183,7 +210,7 @@ func (h *identityHarness) approve(id string) *workcontext.Grant {
 
 func (h *identityHarness) grantCapability(agent *workcontext.Verified, grant *workcontext.Grant) *workcontext.Verified {
 	h.t.Helper()
-	token, _, err := h.authority.Grant(agent, workcontext.GrantInput{Grant: grant, TTL: time.Minute})
+	token, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{Execution: workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1}, Grant: grant, TTL: time.Minute})
 	require.NoError(h.t, err)
 	return h.verify(toolboxID, token)
 }
@@ -299,6 +326,7 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 		Revisions: h,
 		Replay:    h.replay,
 		Grants:    h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}).Verify(ctx, elevated.Encoded())
 	require.ErrorIs(t, err, workcontext.ErrReplayed)
@@ -348,7 +376,31 @@ func TestIdentityE2E_ApprovalGrantAndResume(t *testing.T) {
 		Revisions: h,
 		Replay:    workcontext.NewMemoryReplayStore(),
 		Grants:    h,
+		Seals:     h.seals,
 		Now:       func() time.Time { return h.clock },
 	}).Verify(ctx, second.Encoded())
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
+}
+
+// authenticator is the verify-only entrypoint over the same live state this
+// harness's verifier uses.
+func (h *identityHarness) authenticator(audience string) *workcontext.Authenticator {
+	return &workcontext.Authenticator{
+		Issuer:    issuerURL,
+		Audience:  audience,
+		Keys:      map[string]ed25519.PublicKey{signingKeyID: h.public},
+		Revisions: h,
+		Replay:    workcontext.NewMemoryReplayStore(),
+		Seals:     h.seals,
+		Now:       func() time.Time { return h.clock },
+	}
+}
+
+// policyBuildDigest gives each principal its own approved build, so an
+// execution confused for another principal's cannot compare equal.
+func policyBuildDigest(principal string) string {
+	if principal == agentPrincipalID {
+		return "sha256:" + strings.Repeat("a1", 32)
+	}
+	return workcontext.FixtureImageDigest
 }
