@@ -303,3 +303,23 @@ every consumer that evaluates it runs a core whose `validKey` accepts the phase:
 core released after `v0.3.31` (the fix in codefly-dev/core#501). Until that floor
 holds across the fleet, serve the scope, satisfy `ValidateCoverage`, and leave
 the capability unadvertised.
+
+## pnpm source evidence
+
+`sbom.Pnpm(ctx, directory, includeDev)` asks pnpm's `sbom --lockfile-only`
+exporter for CycloneDX 1.5. It uses the committed `pnpm-lock.yaml`, including
+peer resolutions, patches, tarballs and optional dependencies, without installing
+packages or running lifecycle scripts. `includeDev=false` passes `--prod`.
+Install a pnpm version with the `sbom` command; absent tools, absent locks and
+failed exports are errors, never empty inventories. Source evidence remains
+separate from image evidence and does not claim installed OS-package coverage.
+
+`audit.PnpmWithOptions` runs `pnpm audit --json` against the same lock, using
+`--prod` when development dependencies are excluded. Findings retain advisory
+identity, resolved affected version, severity and patched version range. A
+nonzero exit is accepted only for exit 1 with a complete advisory report and
+findings. Missing/malformed reports, registry errors, cancellation and other
+failures cannot become CLEAN. Optional outdated-dependency evidence joins registry
+results with `pnpm list --lockfile-only`, so the current version comes from the
+lock even when no packages are installed. Tarball dependencies without a latest
+registry version are not reported as outdated.

@@ -1,0 +1,8 @@
+{
+  "name": "source-evidence-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.17.0",
+  "dependencies": { "is-number": "7.0.0" },
+  "devDependencies": { "is-odd": "3.0.1" }
+}
