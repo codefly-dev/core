@@ -434,8 +434,8 @@ type composedConfiguration struct {
 // (ErrConfigurationConflict, refused per layer in profileOverlay.add). An
 // override that empties a marker is refused naming it (ErrEmptyProfileValue) —
 // that one is THIS boundary's own, and profile derivation does not carry it; see
-// overlayWorkspaceConfigurationOverride for why. A workspace that needs a key of its own
-// declares a group of its own name, which reaches every service of the
+// overlayWorkspaceConfigurationOverride for why. A workspace that needs a key of
+// its own declares a group of its own name, which reaches every service of the
 // composition.
 //
 // That is the consuming workspace's own declaration of a name no composed

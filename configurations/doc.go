@@ -125,9 +125,10 @@
 // only the module provides, and without widening that name's delivery. A name an
 // imported workspace also declares is the exception the overlay does not cover:
 // an imported declaration is not the product's to amend, so it still replaces a
-// composed module's group of that name whole and is classified as the root's. An invocation-scoped override is the
-// run supplying a value, so it is composition-root even when it lands on a name a
-// composed module also provides.
+// composed module's group of that name whole and is classified as the root's.
+//
+// An invocation-scoped override is the run supplying a value, so it is
+// composition-root even when it lands on a name a composed module also provides.
 //
 // Git owns the non-secret manifest and workspace configuration, Core validates
 // and resolves only provider references, the CLI selects the declared
