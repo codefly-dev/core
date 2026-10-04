@@ -29,6 +29,9 @@ import (
 // Resolved values never touch disk. In legacy files only known schemes are
 // references, so a postgres:// plaintext value still passes through. The
 // SecretResolver seam allows additional backends without changing loaders.
+
+// OnePasswordScheme is the URI scheme that names the 1Password backend in a
+// reference value.
 const OnePasswordScheme = "op"
 
 // ProviderOnePassword is the `secrets.kind` that selects the 1Password backend.
@@ -149,6 +152,7 @@ func (r *OnePasswordResolver) Resolve(ctx context.Context, ref *SecretReference)
 // intact. Provider output is suppressed on failure because neither stream is
 // guaranteed to be free of secret material.
 func runCommand(ctx context.Context, name string, args ...string) (string, error) {
+	//nolint:gosec // name is a resolver's own CLI, named by this package, never by configuration content
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -270,11 +274,11 @@ func (e *secretResolution) resolveConfiguration(ctx context.Context, conf *basev
 func (e *secretResolution) resolveData(ctx context.Context, data *basev0.ConfigurationData, env *resources.Environment, origin string) error {
 	var node any
 	switch data.Kind {
-	case "yaml", "yml":
+	case kindYaml, kindYml:
 		if err := yaml.Unmarshal(data.Content, &node); err != nil {
 			return err
 		}
-	case "json":
+	case kindJSON:
 		dec := json.NewDecoder(bytes.NewReader(data.Content))
 		dec.UseNumber()
 		if err := dec.Decode(&node); err != nil {
@@ -293,9 +297,9 @@ func (e *secretResolution) resolveData(ctx context.Context, data *basev0.Configu
 	}
 	var out []byte
 	switch data.Kind {
-	case "yaml", "yml":
+	case kindYaml, kindYml:
 		out, err = yaml.Marshal(resolved)
-	case "json":
+	case kindJSON:
 		out, err = json.Marshal(resolved)
 	}
 	if err != nil {

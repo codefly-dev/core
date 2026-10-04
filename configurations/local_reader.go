@@ -294,14 +294,14 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 	serviceConfs := make(map[string]*basev0.Configuration)
 	serviceOrigins := make([]string, 0, len(services))
 	for _, svc := range services {
-		identity, err := svc.Identity()
-		if err != nil {
-			return w.Wrapf(err, "cannot get service identity")
+		identity, identityErr := svc.Identity()
+		if identityErr != nil {
+			return w.Wrapf(identityErr, "cannot get service identity")
 		}
 		serviceOrigins = append(serviceOrigins, identity.Unique())
-		serviceProfile, err := LoadProfileConfigurations(ctx, svc.Dir(), "configurations", profiles)
-		if err != nil {
-			return w.Wrapf(err, "cannot load service configuration profile")
+		serviceProfile, profileErr := LoadProfileConfigurations(ctx, svc.Dir(), "configurations", profiles)
+		if profileErr != nil {
+			return w.Wrapf(profileErr, "cannot load service configuration profile")
 		}
 		if serviceProfile.Exists {
 			serviceInfos := serviceProfile.Infos
@@ -322,14 +322,14 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 			}
 		}
 		// Load DNS
-		dnsFile, exists, err := ProfileFile(ctx, svc.Dir(), "dns", profiles, "dns.codefly.yaml")
-		if err != nil {
-			return w.Wrapf(err, "cannot select service dns declaration")
+		dnsFile, exists, dnsSelectErr := ProfileFile(ctx, svc.Dir(), "dns", profiles, "dns.codefly.yaml")
+		if dnsSelectErr != nil {
+			return w.Wrapf(dnsSelectErr, "cannot select service dns declaration")
 		}
 		if exists {
-			dns, err := loadDNS(ctx, dnsFile)
-			if err != nil {
-				return w.Wrapf(err, "cannot load dns")
+			dns, dnsErr := loadDNS(ctx, dnsFile)
+			if dnsErr != nil {
+				return w.Wrapf(dnsErr, "cannot load dns")
 			}
 			for _, d := range dns {
 				d.Service = identity.Name
@@ -465,89 +465,41 @@ func composeModuleWorkspaceConfigurations(
 ) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
 	w := wool.Get(ctx).In("configurations.composeModuleWorkspaceConfigurations")
 
-	modules, err := workspace.LoadModules(ctx)
-	if err != nil {
-		return nil, nil, nil, nil, w.Wrapf(err, "cannot load modules")
-	}
-	workspaceInfos := workspaceLevel.Infos
 	// overriding locates the consuming workspace's own declaration of a name, by
 	// position: a module offering that name does not lose to it, it is overlaid
 	// onto it in place, where the workspace declared it. replacing holds every
 	// other workspace-level declaration — inherited from a composed workspace, or
 	// shadowing one — which still wins whole.
+	workspaceInfos := workspaceLevel.Infos
 	overriding := make(map[string]int, len(workspaceInfos))
-	replacing := make(map[string]bool, len(workspaceInfos))
+	offers := newComposedModuleOffers(len(workspaceInfos), profiles)
 	for index, info := range workspaceInfos {
 		if workspaceLevel.Own[info.Name] && !workspaceLevel.FromComposedWorkspace[info.Name] {
 			overriding[info.Name] = index
 			continue
 		}
-		replacing[info.Name] = true
-	}
-	sourceReferenced := make(map[string]bool)
-	for _, ref := range workspace.Modules {
-		if ref.Source != "" {
-			sourceReferenced[ref.Name] = true
-		}
+		offers.replacing[info.Name] = true
 	}
 
-	composed := make(map[string]*composedConfiguration)
-	var order []string
-	offer := func(module string, repo string, fromRepo bool, infos []*basev0.ConfigurationInformation) {
-		for _, info := range infos {
-			if replacing[info.Name] {
-				w.Debug("workspace-level configuration a composed workspace also declares replaces composed module configuration",
-					wool.Field("configuration", info.Name), wool.Field("module", module))
-				continue
-			}
-			// A name the consuming workspace declares ITSELF is not dropped here:
-			// its values are overlaid onto this group once every offer is in, so
-			// the group the workspace overrides must first be resolved like any
-			// other — a submodule's declaration over its repository's, and an
-			// ambiguity between two modules that the workspace's own declaration
-			// then resolves.
-			existing, ok := composed[info.Name]
-			if !ok {
-				composed[info.Name] = &composedConfiguration{info: info, module: module, repo: repo, fromRepo: fromRepo}
-				order = append(order, info.Name)
-				continue
-			}
-			if existing.conflict != nil {
-				continue
-			}
-			// A module directory and the root of the repository holding it are
-			// not two competing providers: they are one artifact, where the
-			// module's own directory is the more specific declaration.
-			if existing.repo == repo && existing.fromRepo != fromRepo {
-				overrides := !proto.Equal(existing.info, info)
-				submodule := existing.module
-				if !fromRepo {
-					submodule = module
-					existing.info, existing.module, existing.fromRepo = info, module, false
-				}
-				if overrides {
-					w.Warn("composed module configuration overrides the one its repository provides, for every service in the run",
-						wool.Field("configuration", info.Name), wool.Field("module", submodule))
-				}
-				continue
-			}
-			if proto.Equal(existing.info, info) {
-				continue
-			}
-			existing.conflict = w.NewError(
-				"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
-				info.Name, existing.module, module, ErrConfigurationConflict)
-		}
+	if err := offers.gather(ctx, workspace, workspaceConfigurationDir); err != nil {
+		return nil, nil, nil, nil, w.Wrap(err)
 	}
+	return offers.resolve(ctx, workspaceInfos, overriding)
+}
 
-	// Several module references can resolve to the same directory: to one
-	// composed workspace root (e.g. two non-flat submodules composed from one
-	// host repo, one reached through a symlinked path), or — since a foreign
-	// reference names its module by coordinate rather than by name — to one
-	// submodule composed twice under different names. Resolve symlinks so those
-	// collapse to one key and read the directory once; reading it twice would
-	// offer every configuration in it against itself.
-	loaded := make(map[string]bool)
+// composedModuleOffers accumulates what the composed modules offer for the
+// selected profile, before any of it is resolved against the consuming
+// workspace's own declarations. One name can be offered more than once — by a
+// module and by the repository holding it, or by two modules that disagree about
+// it — so an offer is recorded against what is already there rather than
+// appended, and resolve then turns what survives into the provisioned set.
+type composedModuleOffers struct {
+	// replacing are the workspace-level names that win whole, so a module's
+	// offer of one is dropped where it is made rather than resolved.
+	replacing map[string]bool
+	profiles  []string
+	composed  map[string]*composedConfiguration
+	order     []string
 	// unsuppliedByGroup holds, per group name a composed module offers, the
 	// per-profile values that module left unsupplied. It is keyed by group so only
 	// the requirements of the offers that actually win are reported: a group that
@@ -555,27 +507,115 @@ func composeModuleWorkspaceConfigurations(
 	// consuming workspace overrides still owes them — the override is per key, so
 	// a marker it does not discharge is still in the provisioned group, and
 	// StillUnsupplied drops exactly the ones it did discharge.
-	unsuppliedByGroup := make(map[string][]ProfileRequirement)
-	readOnce := func(dir string) ([]*basev0.ConfigurationInformation, error) {
-		key := dir
-		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
-			key = resolved
+	unsuppliedByGroup map[string][]ProfileRequirement
+	// loaded are the configuration directories already read, keyed by resolved
+	// path. Several module references can resolve to the same directory: to one
+	// composed workspace root (e.g. two non-flat submodules composed from one
+	// host repo, one reached through a symlinked path), or — since a foreign
+	// reference names its module by coordinate rather than by name — to one
+	// submodule composed twice under different names. Symlinks are resolved so
+	// those collapse to one key and the directory is read once; reading it twice
+	// would offer every configuration in it against itself.
+	loaded map[string]bool
+}
+
+func newComposedModuleOffers(workspaceNames int, profiles []string) *composedModuleOffers {
+	return &composedModuleOffers{
+		replacing:         make(map[string]bool, workspaceNames),
+		profiles:          profiles,
+		composed:          make(map[string]*composedConfiguration),
+		unsuppliedByGroup: make(map[string][]ProfileRequirement),
+		loaded:            make(map[string]bool),
+	}
+}
+
+// offer records what one composed module provides, from one of its directories.
+func (offers *composedModuleOffers) offer(ctx context.Context, module string, repo string, fromRepo bool, infos []*basev0.ConfigurationInformation) {
+	w := wool.Get(ctx).In("configurations.composedModuleOffers.offer")
+	for _, info := range infos {
+		if offers.replacing[info.Name] {
+			w.Debug("workspace-level configuration a composed workspace also declares replaces composed module configuration",
+				wool.Field("configuration", info.Name), wool.Field("module", module))
+			continue
 		}
-		if loaded[key] {
-			return nil, nil
+		// A name the consuming workspace declares ITSELF is not dropped here:
+		// its values are overlaid onto this group once every offer is in, so
+		// the group the workspace overrides must first be resolved like any
+		// other — a submodule's declaration over its repository's, and an
+		// ambiguity between two modules that the workspace's own declaration
+		// then resolves.
+		existing, ok := offers.composed[info.Name]
+		if !ok {
+			offers.composed[info.Name] = &composedConfiguration{info: info, module: module, repo: repo, fromRepo: fromRepo}
+			offers.order = append(offers.order, info.Name)
+			continue
 		}
-		loaded[key] = true
-		provided, err := LoadProfileConfigurations(ctx, dir, "configurations", profiles)
-		if err != nil {
-			return nil, w.Wrapf(err, "cannot load module configuration profile")
+		if existing.conflict != nil {
+			continue
 		}
-		if !provided.Exists {
-			return nil, nil
+		// A module directory and the root of the repository holding it are
+		// not two competing providers: they are one artifact, where the
+		// module's own directory is the more specific declaration.
+		if existing.repo == repo && existing.fromRepo != fromRepo {
+			overrides := !proto.Equal(existing.info, info)
+			submodule := existing.module
+			if !fromRepo {
+				submodule = module
+				existing.info, existing.module, existing.fromRepo = info, module, false
+			}
+			if overrides {
+				w.Warn("composed module configuration overrides the one its repository provides, for every service in the run",
+					wool.Field("configuration", info.Name), wool.Field("module", submodule))
+			}
+			continue
 		}
-		for _, requirement := range provided.Unsupplied {
-			unsuppliedByGroup[requirement.Group] = append(unsuppliedByGroup[requirement.Group], requirement)
+		if proto.Equal(existing.info, info) {
+			continue
 		}
-		return provided.Infos, nil
+		existing.conflict = w.NewError(
+			"workspace configuration %q is provided by composed modules %q and %q; declare it in the solution workspace to resolve the ambiguity: %w",
+			info.Name, existing.module, module, ErrConfigurationConflict)
+	}
+}
+
+// readOnce reads one configuration directory, the first time it is asked for it,
+// and collects what the profile left unsupplied there.
+func (offers *composedModuleOffers) readOnce(ctx context.Context, dir string) ([]*basev0.ConfigurationInformation, error) {
+	w := wool.Get(ctx).In("configurations.composedModuleOffers.readOnce")
+	key := dir
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		key = resolved
+	}
+	if offers.loaded[key] {
+		return nil, nil
+	}
+	offers.loaded[key] = true
+	provided, err := LoadProfileConfigurations(ctx, dir, "configurations", offers.profiles)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot load module configuration profile")
+	}
+	if !provided.Exists {
+		return nil, nil
+	}
+	for _, requirement := range provided.Unsupplied {
+		offers.unsuppliedByGroup[requirement.Group] = append(offers.unsuppliedByGroup[requirement.Group], requirement)
+	}
+	return provided.Infos, nil
+}
+
+// gather reads every composed module's configurations and offers them.
+func (offers *composedModuleOffers) gather(ctx context.Context, workspace *resources.Workspace, workspaceConfigurationDir string) error {
+	w := wool.Get(ctx).In("configurations.composedModuleOffers.gather")
+
+	modules, err := workspace.LoadModules(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot load modules")
+	}
+	sourceReferenced := make(map[string]bool)
+	for _, ref := range workspace.Modules {
+		if ref.Source != "" {
+			sourceReferenced[ref.Name] = true
+		}
 	}
 
 	for _, mod := range modules {
@@ -595,38 +635,52 @@ func composeModuleWorkspaceConfigurations(
 		}
 		repoDir := composedModuleWorkspaceDir(mod.Dir(), consumingBoundary)
 		repo := repoDir
-		if resolved, err := filepath.EvalSymlinks(repoDir); err == nil {
+		if resolved, resolveErr := filepath.EvalSymlinks(repoDir); resolveErr == nil {
 			repo = resolved
 		}
 		// The consuming workspace's own configurations are already loaded; a flat
 		// root module's workspace root coincides with the consuming workspace's,
 		// as does an in-repo module whose nearest workspace root is the consuming
 		// one, so skip either rather than load the same directory twice.
-		repoConfigurationDir, _, err := ProfileDirectory(ctx, repoDir, "configurations", profiles)
-		if err != nil {
-			return nil, nil, nil, nil, w.Wrapf(err, "cannot select configuration directory for composed module %s", mod.Name)
+		repoConfigurationDir, _, dirErr := ProfileDirectory(ctx, repoDir, "configurations", offers.profiles)
+		if dirErr != nil {
+			return w.Wrapf(dirErr, "cannot select configuration directory for composed module %s", mod.Name)
 		}
 		if !resources.SameDir(repoConfigurationDir, workspaceConfigurationDir) {
-			infos, err := readOnce(repoDir)
-			if err != nil {
-				return nil, nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+			infos, readErr := offers.readOnce(ctx, repoDir)
+			if readErr != nil {
+				return w.Wrapf(readErr, "cannot load configurations for composed module %s", mod.Name)
 			}
-			offer(mod.Name, repo, true, infos)
+			offers.offer(ctx, mod.Name, repo, true, infos)
 		}
 		if foreign && !resources.SameDir(mod.Dir(), repoDir) {
-			infos, err := readOnce(mod.Dir())
-			if err != nil {
-				return nil, nil, nil, nil, w.Wrapf(err, "cannot load configurations for composed module %s", mod.Name)
+			infos, readErr := offers.readOnce(ctx, mod.Dir())
+			if readErr != nil {
+				return w.Wrapf(readErr, "cannot load configurations for composed module %s", mod.Name)
 			}
-			offer(mod.Name, repo, false, infos)
+			offers.offer(ctx, mod.Name, repo, false, infos)
 		}
 	}
+	return nil
+}
 
-	composedBy := make(map[string]string, len(order))
+// resolve turns the offers that survived into the provisioned set, overlaying
+// the consuming workspace's own declaration of a name onto the group offered
+// under it — in the position the workspace declared it — and reporting what each
+// provisioned name is composed by, which names stayed ambiguous, and what the
+// provisioned groups still owe.
+func (offers *composedModuleOffers) resolve(
+	ctx context.Context,
+	workspaceInfos []*basev0.ConfigurationInformation,
+	overriding map[string]int,
+) ([]*basev0.ConfigurationInformation, map[string]string, map[string]error, []ProfileRequirement, error) {
+	w := wool.Get(ctx).In("configurations.composedModuleOffers.resolve")
+
+	composedBy := make(map[string]string, len(offers.order))
 	ambiguous := make(map[string]error)
 	var unsupplied []ProfileRequirement
-	for _, name := range order {
-		configuration := composed[name]
+	for _, name := range offers.order {
+		configuration := offers.composed[name]
 		index, overridden := overriding[name]
 		if configuration.conflict != nil {
 			// The ambiguity's own remedy is a declaration in the consuming
@@ -658,7 +712,7 @@ func composeModuleWorkspaceConfigurations(
 		// it, so it is reported as composed either way and reaches the services
 		// that declared it rather than every service of the composition.
 		composedBy[name] = configuration.module
-		unsupplied = append(unsupplied, unsuppliedByGroup[name]...)
+		unsupplied = append(unsupplied, offers.unsuppliedByGroup[name]...)
 		if overridden {
 			workspaceInfos[index] = info
 			continue
@@ -944,7 +998,7 @@ func applyConfigurationValueOverride(
 
 func loadDNS(_ context.Context, file string) ([]*basev0.DNS, error) {
 	var dns []*basev0.DNS
-	f, err := os.ReadFile(file)
+	f, err := os.ReadFile(file) //nolint:gosec // file is a dns declaration of the workspace being read
 	if err != nil {
 		return nil, err
 	}
@@ -1034,17 +1088,17 @@ func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].relative < files[j].relative
 	})
-	if err := validateConfigurationDefinitions(files); err != nil {
-		return nil, w.Wrapf(err, "cannot load secret configurations")
+	if definitionErr := validateConfigurationDefinitions(files); definitionErr != nil {
+		return nil, w.Wrapf(definitionErr, "cannot load secret configurations")
 	}
 
 	infos := make([]*basev0.ConfigurationInformation, 0, len(files))
 	for _, file := range files {
 		var confInfo *basev0.ConfigurationInformation
 		switch file.kind {
-		case "env":
+		case kindEnv:
 			confInfo, err = loadFromEnvFile(ctx, file)
-		case "yaml":
+		case kindYaml:
 			confInfo, err = loadFromYamlFile(ctx, file)
 		}
 		if err != nil {
@@ -1071,28 +1125,28 @@ func classifyConfigurationFile(dir, p string) (*configurationFile, bool, error) 
 	switch {
 	case strings.HasSuffix(relative, ".secret.ref.env"):
 		file.name = strings.TrimSuffix(relative, ".secret.ref.env")
-		file.kind = "env"
+		file.kind = kindEnv
 		file.secret = true
 		file.referenceOnly = true
 	case strings.HasSuffix(relative, ".secret.ref.yaml"):
 		file.name = strings.TrimSuffix(relative, ".secret.ref.yaml")
-		file.kind = "yaml"
+		file.kind = kindYaml
 		file.secret = true
 		file.referenceOnly = true
 	case strings.HasSuffix(relative, ".secret.env"):
 		file.name = strings.TrimSuffix(relative, ".secret.env")
-		file.kind = "env"
+		file.kind = kindEnv
 		file.secret = true
 	case strings.HasSuffix(relative, ".secret.yaml"):
 		file.name = strings.TrimSuffix(relative, ".secret.yaml")
-		file.kind = "yaml"
+		file.kind = kindYaml
 		file.secret = true
 	case strings.HasSuffix(relative, ".env"):
 		file.name = strings.TrimSuffix(relative, ".env")
-		file.kind = "env"
+		file.kind = kindEnv
 	case strings.HasSuffix(relative, ".yaml"):
 		file.name = strings.TrimSuffix(relative, ".yaml")
-		file.kind = "yaml"
+		file.kind = kindYaml
 	default:
 		return nil, false, nil
 	}
@@ -1125,7 +1179,7 @@ func validateConfigurationDefinitions(files []*configurationFile) error {
 				definition.legacy = file.relative
 			}
 		}
-		if file.kind == "yaml" && definition.first != "" {
+		if file.kind == kindYaml && definition.first != "" {
 			return fmt.Errorf("configuration %q has incompatible data definitions in %q and %q: %w", file.name, definition.first, file.relative, ErrConfigurationConflict)
 		}
 		if definition.data != "" {
@@ -1134,7 +1188,7 @@ func validateConfigurationDefinitions(files []*configurationFile) error {
 		if definition.first == "" {
 			definition.first = file.relative
 		}
-		if file.kind == "yaml" {
+		if file.kind == kindYaml {
 			definition.data = file.relative
 		}
 		seen[file.name] = definition

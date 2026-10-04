@@ -177,8 +177,8 @@ func ProfileLayers(ctx context.Context, base, kind string, profiles []string) ([
 			return nil, false, fmt.Errorf("%s declares no derives-from; remove the file or name the profile this one derives from: %w",
 				path.Join(current, ProfileDerivationFile), ErrProfileDerivation)
 		}
-		if err := resources.ValidateConfigurationProfileName(name); err != nil {
-			return nil, false, fmt.Errorf("%s: %w: %w", path.Join(current, ProfileDerivationFile), err, ErrProfileDerivation)
+		if nameErr := resources.ValidateConfigurationProfileName(name); nameErr != nil {
+			return nil, false, fmt.Errorf("%s: %w: %w", path.Join(current, ProfileDerivationFile), nameErr, ErrProfileDerivation)
 		}
 		if seen[name] {
 			return nil, false, fmt.Errorf("configuration profile %q at %s derives from %q, which is already in the chain: %w",
@@ -219,7 +219,7 @@ func readProfileDerivation(ctx context.Context, dir string) (*ProfileDerivation,
 	if !exists {
 		return nil, nil
 	}
-	content, err := os.ReadFile(file)
+	content, err := os.ReadFile(file) //nolint:gosec // file is the profile derivation declaration of the directory being read
 	if err != nil {
 		return nil, err
 	}
