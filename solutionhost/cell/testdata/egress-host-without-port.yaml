@@ -81,7 +81,7 @@ namespaces:
       egress:
           - service: payments/api
             hosts:
-                - name: api.stripe.com
+                - name: payments.example.net
             cidrs: [10.20.0.0/16]
       delivery:
           kind: Job

@@ -774,8 +774,16 @@ key are **slots** into the composition's workspace configuration
 (`{from: <group>/<key>}`), whose key name carries its meaning, and a literal
 where a slot belongs is a schema error. `Parse` decodes strictly (an unknown
 field — a tenancy, a build digest, an identity — is refused, never ignored),
-`Validate` holds every rule, and `Resolve` resolves the slots against the
-values a composition supplies, refusing a secret-classified one.
+`Validate` holds every rule — a ceiling in both spellings included, whether
+written or constructed, since `Resolve` would mint scopes from both — and
+`Resolve` resolves the slots against the values a composition supplies,
+reporting every unresolved, secret-classified and ambiguous slot in one error
+under its own sentinel (a secret's value never in the message); a key the
+composition supplies in two spellings core treats as one (`MODEL_AUDIENCE`
+and `model-audience`) is refused, never chosen between. The model writes what
+it reads: a ceiling marshals back in the spelling it holds, so a publisher
+using the Go model emits a contract this reader reads, and the valid fixture
+round-trips whole.
 
 **`solutionhost/cell`** is `codefly/cell/v1`, the inventory of one
 environment's cell that a publish writes to the delivery repository and the
@@ -788,14 +796,32 @@ ports and declared consumers, ingress routes, cell bindings and cloud
 identity; the delivery Job declared by its labels; and the external reach the
 environment grants. `Parse` decodes strictly and `Validate` holds the host
 header to all-or-nothing, every identity to the cell's trust domain, every
-edge to an endpoint the cell carries, and every image to a repository and
-an OCI digest.
+edge to an endpoint the cell carries, every egress entry to the namespace's
+own module (a grant located under a namespace is that module's, never
+another's — a local workload is not required, since a managed replacement
+runs none), every image to a **canonical repository** (registry and path as
+the distribution reference grammar reads them, ports kept, no tag, no
+digest — the digest is the field beside it) and an OCI digest, and every
+Kubernetes name and label to **Kubernetes' own grammar**: namespaces and
+container names are DNS labels, workload and account names DNS subdomains,
+selector keys qualified names and selector values label values — an empty
+value is legal, as the API server has it, and an uppercase namespace is not.
 
-**The kits.** `modulecontract.Fixtures()` / `cell.Fixtures()` ship every
-accepted and refused document with the sentinel and the message a refusal
-must carry, and `Run(t, read)` drives a reader's own entrypoint through them.
-A consumer passes the function it actually reads the file with — the
-renderer's load, the publisher's merge, the loader's parse — never this
-package's `Parse`, which proves nothing about the consumer. The CLI deleted
-its copies of both models when these landed; its tests run both kits through
-its render and publish paths.
+**Every refusal is one named rule.** Each package holds its rules in a table
+(`rules.go`), applied in a fixed order, so a document is refused for one
+reason, named — the same reason whichever reader refused it. **The kits.**
+`modulecontract.Fixtures()` (44 documents) / `cell.Fixtures()` (65) ship
+every accepted and refused document with the sentinel and the message a
+refusal must carry and the rule it protects, and `Run(t, read)` drives a
+reader's own entrypoint through them. A consumer passes the function it
+actually reads the file with — the renderer's load, the publisher's merge,
+the loader's parse — never this package's `Parse`, which proves nothing about
+the consumer. Each package's self-check (`TestEveryRuleIsProtectedByAFixture`)
+proves the kit protects every rule: every rule is named by at least one
+refused fixture, and the kit is run with each rule deleted in turn and must
+fail on a fixture naming it — a rule that could be dropped silently is a rule
+the kit does not protect. The CLI deleted its copies of both models when
+these landed (codefly-dev/cli#855 at `b77f5806`), reads every cell through
+`cell.Parse` and every contract through `modulecontract.Load`, and runs both
+kits through its own entrypoints; the platform's loader is the next consumer
+to run the cell kit.

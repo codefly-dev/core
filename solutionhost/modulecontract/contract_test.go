@@ -4,8 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func fixture(t *testing.T) []byte {
@@ -189,7 +192,7 @@ func TestACeilingIsWrittenInOneSpelling(t *testing.T) {
 			mutate: func(s string) string {
 				return strings.Replace(s, "              - resource_kind: annotations.annotations\n                actions: [redact]\n", "              - redact\n", 1)
 			},
-			want: "mixes {resource_kind, actions} entries with bare actions",
+			want: "mixes bare actions with {resource_kind, actions} entries",
 		},
 		"a kind named twice": {
 			mutate: func(s string) string {
@@ -301,7 +304,7 @@ func TestRefusesWhatAModuleMayNotAssert(t *testing.T) {
 			mutate: func(s string) string {
 				return strings.Replace(s, "audience: {from: assistant/model-audience}", "audience: model-gateway", 1)
 			},
-			want: ErrInvalid, text: "a slot is {from: <group>/<key>}",
+			want: ErrInvalid, text: "slot is {from: <group>/<key>}, not the literal",
 		},
 		"a slot with a default": {
 			mutate: func(s string) string {
@@ -350,19 +353,107 @@ func TestRefusesWhatAModuleMayNotAssert(t *testing.T) {
 	}
 }
 
-// TestEveryFixtureReachesItsOutcome runs the kit against this package's own
-// reader: the reference implementation passes its own fixtures, and a
-// fixture whose outcome drifted from the reader is caught here first.
-func TestEveryFixtureReachesItsOutcome(t *testing.T) {
-	Run(t, func(document []byte) error {
-		_, err := Parse(document)
-		return err
-	})
-	all, err := Fixtures()
+// TestTheModelWritesWhatItReads: a publisher adopting this model emits a
+// contract this reader reads — both ceiling spellings and the slots round-trip
+// through yaml.Marshal, and the model that comes back is the one that went in.
+func TestTheModelWritesWhatItReads(t *testing.T) {
+	contract, err := Parse(fixture(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) < 20 {
-		t.Fatalf("the kit ships %d fixtures; a shrinking kit is a deleted rule", len(all))
+	encoded, err := yaml.Marshal(contract)
+	if err != nil {
+		t.Fatalf("the model does not marshal: %v", err)
+	}
+	again, err := Parse(encoded)
+	if err != nil {
+		t.Fatalf("the encoded contract is refused:\n%s\n%v", encoded, err)
+	}
+	if !reflect.DeepEqual(contract, again) {
+		t.Fatalf("the contract did not round-trip:\n%s", encoded)
+	}
+	if !strings.Contains(string(encoded), "invoke:\n            - invoke\n") && !strings.Contains(string(encoded), "invoke: [invoke, read]") {
+		t.Fatalf("a bare ceiling is not written as a list of actions:\n%s", encoded)
+	}
+	if !strings.Contains(string(encoded), "resource_kind: annotations.vocabularies") {
+		t.Fatalf("an explicit ceiling is not written as {resource_kind, actions} entries:\n%s", encoded)
+	}
+}
+
+// TestValidateRefusesWhatResolveWouldEmit: a ceiling holding both spellings
+// can only be constructed, never parsed; Validate refuses it before Resolve
+// could mint scopes from both, and the model refuses to write it.
+func TestValidateRefusesWhatResolveWouldEmit(t *testing.T) {
+	contract, err := Parse(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := &contract.Bindings[0]
+	ceiling := model.ScopeCeiling["invoke"]
+	ceiling.Scopes = append(ceiling.Scopes, CeilingScope{ResourceKind: "bad:kind", Actions: []string{"*"}})
+	model.ScopeCeiling["invoke"] = ceiling
+	for name, check := range map[string]func() error{
+		"Validate": contract.Validate,
+		"Resolve":  func() error { _, err := contract.Resolve(values()); return err },
+		"Marshal":  func() error { _, err := yaml.Marshal(contract); return err },
+	} {
+		err := check()
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "mixes bare actions with {resource_kind, actions} entries") {
+			t.Fatalf("%s accepted a ceiling in both spellings: %v", name, err)
+		}
+	}
+}
+
+// TestRefusesAKeySuppliedInTwoSpellings: MODEL_AUDIENCE and model-audience
+// are one key to core, so a group supplying both is a conflict the reader
+// names, never a choice a map's iteration order makes.
+func TestRefusesAKeySuppliedInTwoSpellings(t *testing.T) {
+	contract, err := Parse(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicting := values()
+	conflicting.Public["assistant"]["model-audience"] = "other-gateway"
+	for _, spelling := range []string{"assistant/model-audience", "assistant/MODEL_AUDIENCE", "assistant/Model-Audience"} {
+		contract.Bindings[0].Audience = Slot{From: spelling}
+		_, err = contract.Resolve(conflicting)
+		if !errors.Is(err, ErrAmbiguousSlot) || !strings.Contains(err.Error(), "MODEL_AUDIENCE and model-audience") {
+			t.Fatalf("the slot %s resolved against two spellings of its key: %v", spelling, err)
+		}
+	}
+	// A secret and a public spelling of one key conflict the same way.
+	split := values()
+	split.Secrets = map[string]map[string]string{"assistant": {"model-audience": "hidden"}}
+	contract.Bindings[0].Audience = Slot{From: "assistant/model-audience"}
+	if _, err = contract.Resolve(split); !errors.Is(err, ErrAmbiguousSlot) {
+		t.Fatalf("a key supplied as a secret and as public was chosen between: %v", err)
+	}
+}
+
+// TestReportsEveryResolutionFailureAtOnce: a composition is fixed in one
+// pass — a secret slot and an unresolved slot in one contract are reported
+// together, each under its own sentinel, and the secret's value is not in
+// the message.
+func TestReportsEveryResolutionFailureAtOnce(t *testing.T) {
+	contract, err := Parse(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial := values()
+	delete(partial.Public["assistant"], "EVIDENCE_RESOURCE_KIND")
+	partial.Secrets = map[string]map[string]string{"assistant": {"ANNOTATIONS_PREFIX_SECRET": "unused"}}
+	delete(partial.Public["assistant"], "ANNOTATIONS_PREFIX")
+	partial.Secrets["assistant"]["ANNOTATIONS_PREFIX"] = "s3cr3t-prefix"
+	_, err = contract.Resolve(partial)
+	if !errors.Is(err, ErrSecretSlot) || !errors.Is(err, ErrUnresolvedSlot) {
+		t.Fatalf("a secret and an unresolved slot were not reported together: %v", err)
+	}
+	for _, want := range []string{"binding annotations audience ← assistant/annotations-prefix", "binding evidence resource_kind ← assistant/evidence-resource-kind"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal %q does not name %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "s3cr3t-prefix") {
+		t.Fatalf("the refusal carries the secret's value: %v", err)
 	}
 }

@@ -1,0 +1,3 @@
+# Refused: not a YAML document at all (well-formed).
+schema: codefly/cell/v1
+environment: [unclosed

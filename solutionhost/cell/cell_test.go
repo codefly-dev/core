@@ -2,9 +2,9 @@ package cell
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -45,8 +45,9 @@ func TestParsesTheAgreedShape(t *testing.T) {
 	if api.Release == nil || api.Release.Version != "1.4.0" {
 		t.Fatalf("release %+v", api.Release)
 	}
-	// What is parsed is what is written: the model round-trips byte for byte
-	// through the encoder a publish uses, so a reader and a writer agree.
+	// What is parsed is what is written: the whole model round-trips through
+	// the encoder a publish uses and back through this reader, so a reader and
+	// a writer agree on every field.
 	encoded, err := yaml.Marshal(file)
 	if err != nil {
 		t.Fatal(err)
@@ -55,42 +56,8 @@ func TestParsesTheAgreedShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the encoded cell is refused: %v", err)
 	}
-	if again.Namespaces[0].Workloads[0].SPIFFEID != api.SPIFFEID {
-		t.Fatal("the cell did not round-trip")
-	}
-}
-
-// TestEveryFixtureReachesItsOutcome runs the kit against this package's own
-// reader: the reference implementation passes its own fixtures, and a
-// fixture whose outcome drifted from the reader is caught here first.
-func TestEveryFixtureReachesItsOutcome(t *testing.T) {
-	Run(t, func(document []byte) error {
-		_, err := Parse(document)
-		return err
-	})
-	all, err := Fixtures()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(all) < 20 {
-		t.Fatalf("the kit ships %d fixtures; a shrinking kit is a deleted rule", len(all))
-	}
-}
-
-// TestTheKitFailsAReaderThatSkipsARule: a reader that decodes but does not
-// validate passes the valid fixtures and fails the refusals by name, which is
-// what makes the kit a gate rather than a round-trip.
-func TestTheKitFailsAReaderThatSkipsARule(t *testing.T) {
-	recorder := &recordingT{}
-	Run(recorder, func(document []byte) error {
-		var file File
-		return yaml.Unmarshal(document, &file)
-	})
-	if recorder.failures == 0 {
-		t.Fatal("a reader that validates nothing passed the kit")
-	}
-	if !strings.Contains(recorder.messages, "cell fixture empty-selector must be refused") {
-		t.Fatalf("the kit did not name the rule the reader skipped:\n%s", recorder.messages)
+	if !reflect.DeepEqual(file, again) {
+		t.Fatalf("the cell did not round-trip:\n%s", encoded)
 	}
 }
 
@@ -143,20 +110,4 @@ func TestRefusesWhatThePlatformCannotPolice(t *testing.T) {
 			}
 		})
 	}
-}
-
-type recordingT struct {
-	failures int
-	messages string
-}
-
-func (r *recordingT) Helper() {}
-
-func (r *recordingT) Errorf(format string, args ...any) {
-	r.failures++
-	r.messages += strings.TrimSpace(fmt.Sprintf(format, args...)) + "\n"
-}
-
-func (r *recordingT) Fatalf(format string, args ...any) {
-	r.Errorf(format, args...)
 }

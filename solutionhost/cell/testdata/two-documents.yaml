@@ -81,7 +81,7 @@ namespaces:
       egress:
           - service: payments/api
             hosts:
-                - name: api.stripe.com
+                - name: payments.example.net
                   port: 443
             cidrs: [10.20.0.0/16]
       delivery:

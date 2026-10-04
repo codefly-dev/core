@@ -32,6 +32,14 @@
 // decoder is strict, so a contract that tries to carry one is refused rather
 // than silently honoured.
 //
+// # Rules
+//
+// Every refusal is one named rule (rules.go), applied in a fixed order, so a
+// document is refused for one reason whichever reader refused it. Each rule
+// is protected by a fixture the kit ships, and the package's self-check
+// deletes each rule in turn and proves a fixture notices: a rule that could
+// be dropped silently is a rule the kit does not protect.
+//
 // # Slots
 //
 // A binding's audience and the resource kind its scopes name are expressed in
@@ -65,7 +73,9 @@
 // [{resource_kind: other.things, actions: [write]}] — naming the kind
 // literally, because a permission's namespace is fixed by the module that
 // contributes it, exactly as its proto package is, while a service the
-// composition chooses is configuration and stays a slot.
+// composition chooses is configuration and stays a slot. The model writes a
+// ceiling back in the spelling it holds (MarshalYAML), so a publisher using it
+// emits a contract this reader reads.
 package modulecontract
 
 import (
@@ -114,6 +124,8 @@ const (
 	fieldAudience     = "audience"
 	fieldResourceKind = "resource_kind"
 	fieldBindingKey   = "binding_key"
+	fieldActions      = "actions"
+	fieldFrom         = "from"
 )
 
 // Destination kinds. The vocabulary belongs with the host's envelope table;
@@ -139,6 +151,11 @@ var (
 	// carries secrets only as references, so the value is refused rather than
 	// written into a delivered document.
 	ErrSecretSlot = errors.New("module contract slot resolves to a secret")
+	// ErrAmbiguousSlot means the composition supplies a slot's key in two
+	// spellings core treats as one (MODEL_AUDIENCE and model-audience): the
+	// same contract would resolve to whichever a reader met first, so neither
+	// is chosen.
+	ErrAmbiguousSlot = errors.New("module contract slot resolves ambiguously")
 )
 
 var (
@@ -198,7 +215,8 @@ type Binding struct {
 	// Audience is the operation audience, a slot into the composition.
 	Audience Slot `yaml:"audience"`
 	// ResourceKind is the other module's resource kind the scopes name, a
-	// slot. Absent for a binding whose scopes are bare actions.
+	// slot. Required by a ceiling written as bare actions, which it qualifies;
+	// absent for a binding whose every ceiling spells its scopes out.
 	ResourceKind *Slot `yaml:"resource_kind,omitempty"`
 	// BindingKey is the key the host installs the binding under, a slot.
 	BindingKey *Slot `yaml:"binding_key,omitempty"`
@@ -217,6 +235,14 @@ type Ceiling struct {
 	Actions []string
 	// Scopes is the explicit spelling: [{resource_kind: k, actions: [...]}].
 	Scopes []CeilingScope
+
+	// What the decoder saw and could not represent, recorded for the rule
+	// that refuses it rather than refused while decoding, so every refusal is
+	// one named rule the kit protects: a ceiling that is not a list, an entry
+	// carrying a field of its own, an entry that does not decode.
+	notAList     bool
+	unknownField string
+	malformed    error
 }
 
 // CeilingScope is one explicit scope of a ceiling: a resource kind, named
@@ -226,43 +252,53 @@ type CeilingScope struct {
 	Actions      []string `yaml:"actions"`
 }
 
-// UnmarshalYAML reads a ceiling in either spelling, deciding by the first
-// element and refusing a sequence that changes shape after it.
+// UnmarshalYAML reads a ceiling in either spelling. A bare item lands in
+// Actions and a mapping in Scopes, so a list mixing the two decodes into both
+// and the one-spelling rule refuses it by name, exactly as it refuses a
+// Ceiling value constructed that way. What cannot be represented at all is
+// recorded for its rule.
 func (ceiling *Ceiling) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.SequenceNode {
-		return fmt.Errorf("%w: a scope ceiling is a list of actions or of {resource_kind, actions} entries", ErrInvalid)
-	}
-	if len(node.Content) == 0 {
+		ceiling.notAList = true
 		return nil
 	}
-	switch node.Content[0].Kind {
-	case yaml.ScalarNode:
-		for _, item := range node.Content {
-			if item.Kind != yaml.ScalarNode {
-				return fmt.Errorf("%w: a scope ceiling mixes bare actions with {resource_kind, actions} entries", ErrInvalid)
-			}
+	for _, item := range node.Content {
+		switch item.Kind {
+		case yaml.ScalarNode:
 			ceiling.Actions = append(ceiling.Actions, item.Value)
-		}
-	case yaml.MappingNode:
-		for _, item := range node.Content {
-			if item.Kind != yaml.MappingNode {
-				return fmt.Errorf("%w: a scope ceiling mixes {resource_kind, actions} entries with bare actions", ErrInvalid)
-			}
-			for index := 0; index < len(item.Content); index += 2 {
-				if key := item.Content[index].Value; key != fieldResourceKind && key != "actions" {
-					return fmt.Errorf("%w: unknown scope ceiling field %q (an entry carries resource_kind and actions)", ErrInvalid, key)
+		case yaml.MappingNode:
+			for index := 0; index+1 < len(item.Content); index += 2 {
+				if key := item.Content[index].Value; key != fieldResourceKind && key != fieldActions && ceiling.unknownField == "" {
+					ceiling.unknownField = key
 				}
 			}
 			var scope CeilingScope
-			if err := item.Decode(&scope); err != nil {
-				return fmt.Errorf("%w: %v", ErrInvalid, err)
+			if err := item.Decode(&scope); err != nil && ceiling.malformed == nil {
+				ceiling.malformed = err
 			}
 			ceiling.Scopes = append(ceiling.Scopes, scope)
+		default:
+			if ceiling.malformed == nil {
+				ceiling.malformed = fmt.Errorf("an entry is neither an action nor a {resource_kind, actions} entry")
+			}
 		}
-	default:
-		return fmt.Errorf("%w: a scope ceiling is a list of actions or of {resource_kind, actions} entries", ErrInvalid)
 	}
 	return nil
+}
+
+// MarshalYAML writes a ceiling back in the spelling it holds: the bare
+// actions, or the explicit scopes, or an empty list. A ceiling holding both
+// has no spelling and is refused, as Validate refuses it.
+func (ceiling Ceiling) MarshalYAML() (any, error) {
+	switch {
+	case len(ceiling.Actions) > 0 && len(ceiling.Scopes) > 0:
+		return nil, fmt.Errorf("%w: a scope ceiling mixes bare actions with {resource_kind, actions} entries; a scope ceiling is written in one spelling", ErrInvalid)
+	case len(ceiling.Scopes) > 0:
+		return ceiling.Scopes, nil
+	case len(ceiling.Actions) > 0:
+		return ceiling.Actions, nil
+	}
+	return []string{}, nil
 }
 
 // empty reports a ceiling that permits nothing.
@@ -278,6 +314,11 @@ type Lookup struct {
 // literal value where a slot belongs is a schema error at the reader.
 type Slot struct {
 	From string `yaml:"from"`
+
+	// What the decoder saw where a slot belongs and the rule that refuses it:
+	// a literal, or a mapping carrying a field a slot does not.
+	literal *string
+	extra   string
 }
 
 // SlotGroups lists the workspace configuration groups the contract's slots
@@ -301,20 +342,32 @@ func (contract *Contract) SlotGroups() []string {
 	return groups
 }
 
-// UnmarshalYAML refuses anything that is not a mapping with exactly the key
-// "from": a bare scalar is a literal written where another module's vocabulary
-// belongs, and an extra key is a slot trying to carry a default.
+// UnmarshalYAML reads a slot: a mapping with exactly the key "from". A bare
+// scalar is a literal written where another module's vocabulary belongs, and
+// an extra key is a slot trying to carry a default; each is recorded for the
+// rule that refuses it.
 func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("%w: a slot is {from: <group>/<key>}, not the literal %q; another module's vocabulary is supplied by the composition, never spelled in a module repository", ErrInvalid, node.Value)
+		literal := node.Value
+		slot.literal = &literal
+		return nil
 	}
-	for index := 0; index < len(node.Content); index += 2 {
-		if key := node.Content[index].Value; key != "from" {
-			return fmt.Errorf("%w: unknown slot field %q (a slot carries only from)", ErrInvalid, key)
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		if key := node.Content[index].Value; key != fieldFrom && slot.extra == "" {
+			slot.extra = key
 		}
 	}
-	type plain Slot
-	return node.Decode((*plain)(slot))
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		if node.Content[index].Value == fieldFrom {
+			slot.From = node.Content[index+1].Value
+		}
+	}
+	return nil
+}
+
+// MarshalYAML writes the slot as {from: <group>/<key>}.
+func (slot Slot) MarshalYAML() (any, error) {
+	return map[string]string{fieldFrom: slot.From}, nil
 }
 
 // Group and Key split the slot's reference into the workspace configuration
@@ -332,23 +385,6 @@ var slotSuffixes = map[string][]string{
 	fieldAudience:     {"_AUDIENCE", "_PREFIX"},
 	fieldResourceKind: {"_RESOURCE_KIND"},
 	fieldBindingKey:   {"_BINDING"},
-}
-
-func (slot Slot) validate(label, field string) error {
-	group, key, found := strings.Cut(slot.From, "/")
-	if !found || !namePattern.MatchString(group) || !slotKeyPattern.MatchString(key) {
-		return fmt.Errorf("%w: %s slot %q is not <group>/<key>", ErrInvalid, label, slot.From)
-	}
-	suffixes := slotSuffixes[field]
-	if !slices.ContainsFunc(suffixes, func(suffix string) bool { return strings.HasSuffix(normalizeKey(key), suffix) }) {
-		spelled := make([]string, 0, len(suffixes))
-		for _, suffix := range suffixes {
-			spelled = append(spelled, "*"+strings.ToLower(strings.ReplaceAll(suffix, "_", "-")))
-		}
-		return fmt.Errorf("%w: %s slot %q names a key that is not %s; a slot's key carries its meaning, because no reader can check what the value it resolves to means",
-			ErrInvalid, label, slot.From, strings.Join(spelled, " or "))
-	}
-	return nil
 }
 
 // Destination is one endpoint the module exposes for a caller outside it.
@@ -388,237 +424,47 @@ func Load(moduleDir string) (*Contract, error) {
 // refuses a contract carrying a tenancy, a build digest or an identity it is not
 // entitled to assert. The schema is checked first and leniently, so a contract
 // of another version is reported as a version skew rather than as malformed.
-func Parse(data []byte) (*Contract, error) {
+func Parse(data []byte) (*Contract, error) { return parse(data, "") }
+
+// parse is Parse with one rule deleted — the self-check's entrypoint, which
+// proves every rule is protected by a fixture. "" deletes none.
+func parse(data []byte, without string) (*Contract, error) {
 	var header struct {
 		Schema string `yaml:"schema"`
 	}
 	if err := yaml.Unmarshal(data, &header); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	if header.Schema != SchemaV1 {
+	if header.Schema != SchemaV1 && without != ruleSchema {
 		return nil, fmt.Errorf("%w: %q (this reader reads %q)", ErrSchema, header.Schema, SchemaV1)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
+	decoder.KnownFields(without != ruleKnownFields)
 	var contract Contract
 	if err := decoder.Decode(&contract); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) && without != ruleOneDocument {
 		return nil, fmt.Errorf("%w: the file holds more than one document", ErrInvalid)
 	}
-	if err := contract.Validate(); err != nil {
+	if err := contract.validate(without); err != nil {
 		return nil, err
 	}
 	return &contract, nil
 }
 
-// Validate checks everything a contract can be checked against on its own.
-func (contract *Contract) Validate() error {
-	if contract == nil {
-		return fmt.Errorf("%w: contract is required", ErrInvalid)
-	}
-	if contract.Schema != SchemaV1 {
-		return fmt.Errorf("%w: %q (this reader reads %q)", ErrSchema, contract.Schema, SchemaV1)
-	}
-	if !namePattern.MatchString(contract.Principal) {
-		return fmt.Errorf("%w: principal %q is not a lowercase name", ErrInvalid, contract.Principal)
-	}
-	for _, list := range []struct {
-		label  string
-		values []string
-	}{{"namespaces", contract.Namespaces}, {"queues", contract.Queues}} {
-		if list.values == nil {
-			return fmt.Errorf("%w: %s must be declared, empty when there are none; an absent list and \"there are none\" must not look the same", ErrInvalid, list.label)
-		}
-		if err := uniqueNames(list.label, list.values); err != nil {
-			return err
-		}
-	}
-	if err := contract.validateScopeCeilings(); err != nil {
-		return err
-	}
-	if err := contract.validateBindings(); err != nil {
-		return err
-	}
-	return contract.validateDestinations()
-}
-
-func uniqueNames(label string, values []string) error {
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		if !namePattern.MatchString(value) {
-			return fmt.Errorf("%w: %s entry %q is not a lowercase name", ErrInvalid, label, value)
-		}
-		if _, exists := seen[value]; exists {
-			return fmt.Errorf("%w: %s entry %q is declared twice", ErrInvalid, label, value)
-		}
-		seen[value] = struct{}{}
-	}
-	return nil
-}
-
-func (contract *Contract) validateScopeCeilings() error {
-	seen := make(map[string]struct{}, len(contract.ScopeCeilings))
-	for _, ceiling := range contract.ScopeCeilings {
-		if !namePattern.MatchString(ceiling.ResourceKind) {
-			return fmt.Errorf("%w: scope ceiling resource kind %q is not a lowercase name", ErrInvalid, ceiling.ResourceKind)
-		}
-		if _, exists := seen[ceiling.ResourceKind]; exists {
-			return fmt.Errorf("%w: scope ceiling %q is declared twice", ErrInvalid, ceiling.ResourceKind)
-		}
-		seen[ceiling.ResourceKind] = struct{}{}
-		if len(ceiling.Actions) == 0 {
-			return fmt.Errorf("%w: scope ceiling %q contributes no action", ErrInvalid, ceiling.ResourceKind)
-		}
-		if err := validateActions("scope ceiling "+ceiling.ResourceKind, ceiling.Actions); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateActions(label string, actions []string) error {
-	seen := make(map[string]struct{}, len(actions))
-	for _, action := range actions {
-		if !actionPattern.MatchString(action) {
-			return fmt.Errorf("%w: %s action %q is not a lowercase action name", ErrInvalid, label, action)
-		}
-		if _, exists := seen[action]; exists {
-			return fmt.Errorf("%w: %s action %q is declared twice", ErrInvalid, label, action)
-		}
-		seen[action] = struct{}{}
-	}
-	return nil
-}
-
-func (contract *Contract) validateBindings() error {
-	seen := make(map[string]struct{}, len(contract.Bindings))
-	for _, binding := range contract.Bindings {
-		if !namePattern.MatchString(binding.ID) {
-			return fmt.Errorf("%w: binding id %q is not a lowercase name", ErrInvalid, binding.ID)
-		}
-		if _, exists := seen[binding.ID]; exists {
-			return fmt.Errorf("%w: binding %q is declared twice", ErrInvalid, binding.ID)
-		}
-		seen[binding.ID] = struct{}{}
-		if len(binding.Operations) == 0 {
-			return fmt.Errorf("%w: binding %q declares no operation", ErrInvalid, binding.ID)
-		}
-		declared := make(map[string]struct{}, len(binding.Operations))
-		for _, operation := range binding.Operations {
-			if !slices.Contains(operations, operation) {
-				return fmt.Errorf("%w: binding %q operation %q is not one of %s", ErrInvalid, binding.ID, operation, strings.Join(operations, ", "))
-			}
-			if _, exists := declared[operation]; exists {
-				return fmt.Errorf("%w: binding %q declares operation %q twice", ErrInvalid, binding.ID, operation)
-			}
-			declared[operation] = struct{}{}
-		}
-		if binding.Lookup != nil {
-			if _, lookup := declared[OperationLookup]; !lookup {
-				return fmt.Errorf("%w: binding %q declares a lookup method without the lookup operation", ErrInvalid, binding.ID)
-			}
-			if !namePattern.MatchString(binding.Lookup.Method) {
-				return fmt.Errorf("%w: binding %q lookup method %q is not a lowercase name", ErrInvalid, binding.ID, binding.Lookup.Method)
-			}
-		}
-		if err := binding.Audience.validate("binding "+binding.ID+" "+fieldAudience, fieldAudience); err != nil {
-			return err
-		}
-		for _, slot := range []struct {
-			label string
-			slot  *Slot
-		}{{fieldResourceKind, binding.ResourceKind}, {fieldBindingKey, binding.BindingKey}} {
-			if slot.slot == nil {
-				continue
-			}
-			if err := slot.slot.validate("binding "+binding.ID+" "+slot.label, slot.label); err != nil {
-				return err
-			}
-		}
-		for operation := range binding.ScopeCeiling {
-			if _, exists := declared[operation]; !exists {
-				return fmt.Errorf("%w: binding %q names a scope ceiling for %q, an operation it does not declare", ErrInvalid, binding.ID, operation)
-			}
-		}
-		for _, operation := range binding.Operations {
-			if err := binding.validateCeiling(operation); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// validateCeiling checks one operation's ceiling: present, and in a spelling
-// the binding can qualify.
-func (binding *Binding) validateCeiling(operation string) error {
-	label := "binding " + binding.ID + " " + operation
-	ceiling := binding.ScopeCeiling[operation]
-	if ceiling.empty() {
-		// The ceiling is the gate: a binding carrying no scopes for an
-		// operation cannot be minted that way at all, so an operation
-		// declared without one is a request for nothing.
-		return fmt.Errorf("%w: binding %q declares operation %q with no scope ceiling", ErrInvalid, binding.ID, operation)
-	}
-	if len(ceiling.Actions) > 0 {
-		if binding.ResourceKind == nil {
-			// A scope names a resource kind (core's WorkScopeV1 requires one),
-			// so a bare action with no kind to qualify it is a request nothing
-			// can mint.
-			return fmt.Errorf("%w: %s ceiling lists bare actions but the binding declares no resource_kind slot to qualify them; "+
-				"add the slot, or spell each scope as {resource_kind: <kind>, actions: [...]}", ErrInvalid, label)
-		}
-		return validateActions(label, ceiling.Actions)
-	}
-	seen := make(map[string]struct{}, len(ceiling.Scopes))
-	for _, scope := range ceiling.Scopes {
-		if !namePattern.MatchString(scope.ResourceKind) {
-			return fmt.Errorf("%w: %s ceiling resource kind %q is not a lowercase name", ErrInvalid, label, scope.ResourceKind)
-		}
-		if _, exists := seen[scope.ResourceKind]; exists {
-			return fmt.Errorf("%w: %s ceiling names resource kind %q twice", ErrInvalid, label, scope.ResourceKind)
-		}
-		seen[scope.ResourceKind] = struct{}{}
-		if len(scope.Actions) == 0 {
-			return fmt.Errorf("%w: %s ceiling resource kind %q permits no action", ErrInvalid, label, scope.ResourceKind)
-		}
-		if err := validateActions(label+" "+scope.ResourceKind, scope.Actions); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (contract *Contract) validateDestinations() error {
-	seen := make(map[string]struct{}, len(contract.Destinations))
-	for _, destination := range contract.Destinations {
-		if !namePattern.MatchString(destination.ID) {
-			return fmt.Errorf("%w: destination id %q is not a lowercase name", ErrInvalid, destination.ID)
-		}
-		if _, exists := seen[destination.ID]; exists {
-			return fmt.Errorf("%w: destination %q is declared twice", ErrInvalid, destination.ID)
-		}
-		seen[destination.ID] = struct{}{}
-		for _, part := range []struct{ label, value string }{{"service", destination.Service}, {"endpoint", destination.Endpoint}} {
-			if !namePattern.MatchString(part.value) {
-				return fmt.Errorf("%w: destination %q %s %q is not a lowercase name", ErrInvalid, destination.ID, part.label, part.value)
-			}
-		}
-		if !slices.Contains(destinationKinds, destination.Kind) {
-			return fmt.Errorf("%w: destination %q kind %q is not one of %s", ErrInvalid, destination.ID, destination.Kind, strings.Join(destinationKinds, ", "))
-		}
-	}
-	return nil
-}
+// Validate checks everything a contract can be checked against on its own:
+// every rule, in order, the first refusal named. Resolve applies no rule of
+// its own beyond these but the ones that need the composition's values.
+func (contract *Contract) Validate() error { return contract.validate("") }
 
 // Values is where slots resolve from: the workspace configuration values the
 // composition supplies for one environment. A lookup answers whether the group
 // and key exist and whether the value is secret-classified; the key is matched
-// in either spelling core accepts (model-profile, MODEL_PROFILE).
+// in either spelling core accepts (model-profile, MODEL_PROFILE), and a group
+// supplying one key in two spellings is an error, never a choice.
 type Values interface {
-	Value(group, key string) (value string, secret bool, found bool)
+	Value(group, key string) (value string, secret bool, found bool, err error)
 }
 
 // Resolved is a contract with every slot resolved to the value the composition
@@ -652,9 +498,10 @@ type ResolvedBinding struct {
 	Scopes map[string][]string
 }
 
-// Resolve resolves every slot of the contract against values. Every unresolved
-// or secret slot is reported in one error, so a composition is fixed in one
-// pass rather than one slot per render.
+// Resolve resolves every slot of the contract against values. Every unresolved,
+// secret or ambiguous slot is reported in one error carrying every sentinel
+// that applies, so a composition is fixed in one pass rather than one slot per
+// render; a secret's value is never part of the message.
 func (contract *Contract) Resolve(values Values) (*Resolved, error) {
 	if err := contract.Validate(); err != nil {
 		return nil, err
@@ -666,13 +513,16 @@ func (contract *Contract) Resolve(values Values) (*Resolved, error) {
 		ScopeCeilings: slices.Clone(contract.ScopeCeilings),
 		Destinations:  slices.Clone(contract.Destinations),
 	}
-	var unresolved, secret []string
+	var unresolved, secret, ambiguous []string
 	resolve := func(label string, slot *Slot) string {
 		if slot == nil {
 			return ""
 		}
-		value, isSecret, found := values.Value(slot.Group(), slot.Key())
+		value, isSecret, found, err := values.Value(slot.Group(), slot.Key())
 		switch {
+		case err != nil:
+			ambiguous = append(ambiguous, label+" ← "+slot.From+" ("+err.Error()+")")
+			return ""
 		case !found:
 			unresolved = append(unresolved, label+" ← "+slot.From)
 			return ""
@@ -715,13 +565,33 @@ func (contract *Contract) Resolve(values Values) (*Resolved, error) {
 		}
 		resolved.Bindings = append(resolved.Bindings, entry)
 	}
-	if len(secret) > 0 {
-		return nil, fmt.Errorf("%w: %s; a slot resolves public configuration only, because its value is written into a delivered document", ErrSecretSlot, strings.Join(secret, "; "))
-	}
-	if len(unresolved) > 0 {
-		return nil, fmt.Errorf("%w: %s; the composition supplies each as a workspace configuration value for this environment", ErrUnresolvedSlot, strings.Join(unresolved, "; "))
+	if err := resolutionError(secret, unresolved, ambiguous); err != nil {
+		return nil, err
 	}
 	return resolved, nil
+}
+
+// resolutionError is the one error a Resolve reports: every category that
+// applies, each under its sentinel, so errors.Is answers for each and a
+// composition is fixed in one pass.
+func resolutionError(secret, unresolved, ambiguous []string) error {
+	var parts []error
+	if len(secret) > 0 {
+		parts = append(parts, fmt.Errorf("%w: %s; a slot resolves public configuration only, because its value is written into a delivered document", ErrSecretSlot, strings.Join(secret, "; ")))
+	}
+	if len(unresolved) > 0 {
+		parts = append(parts, fmt.Errorf("%w: %s; the composition supplies each as a workspace configuration value for this environment", ErrUnresolvedSlot, strings.Join(unresolved, "; ")))
+	}
+	if len(ambiguous) > 0 {
+		parts = append(parts, fmt.Errorf("%w: %s; a composition supplies a key in one spelling", ErrAmbiguousSlot, strings.Join(ambiguous, "; ")))
+	}
+	switch len(parts) {
+	case 0:
+		return nil
+	case 1:
+		return parts[0]
+	}
+	return errors.Join(parts...)
 }
 
 // MapValues is a Values over nested maps: group → key → value, with the keys
@@ -731,29 +601,47 @@ type MapValues struct {
 	Secrets map[string]map[string]string
 }
 
-// Value implements Values.
-func (values MapValues) Value(group, key string) (string, bool, bool) {
-	if value, found := lookupKey(values.Secrets[group], key); found {
-		return value, true, true
+// Value implements Values. A group supplying the key in two spellings core
+// treats as one — in either map, or one in each — is reported, never chosen
+// between. One spelling held as a secret and as public is the secret: the
+// classification is the stricter reading of one key, not a second spelling.
+func (values MapValues) Value(group, key string) (string, bool, bool, error) {
+	secretValue, secretSpellings := lookupKey(values.Secrets[group], key)
+	publicValue, publicSpellings := lookupKey(values.Public[group], key)
+	spellings := append([]string(nil), secretSpellings...)
+	for _, spelling := range publicSpellings {
+		if !slices.Contains(spellings, spelling) {
+			spellings = append(spellings, spelling)
+		}
 	}
-	value, found := lookupKey(values.Public[group], key)
-	return value, false, found
+	if len(spellings) > 1 {
+		sort.Strings(spellings)
+		return "", false, false, fmt.Errorf("group %q supplies it as %s", group, strings.Join(spellings, " and "))
+	}
+	switch {
+	case len(secretSpellings) == 1:
+		return secretValue, true, true, nil
+	case len(publicSpellings) == 1:
+		return publicValue, false, true, nil
+	}
+	return "", false, false, nil
 }
 
 // lookupKey finds key in values in either spelling core accepts: as written, or
 // normalized the way core names a configuration key (upper case, dashes to
-// underscores).
-func lookupKey(values map[string]string, key string) (string, bool) {
-	if value, found := values[key]; found {
-		return value, true
-	}
+// underscores). It reports every spelling the map holds for it, so a caller
+// sees a conflict rather than a winner.
+func lookupKey(values map[string]string, key string) (string, []string) {
 	normalized := normalizeKey(key)
-	for candidate, value := range values {
+	var spellings []string
+	value := ""
+	for candidate, candidateValue := range values {
 		if normalizeKey(candidate) == normalized {
-			return value, true
+			spellings = append(spellings, candidate)
+			value = candidateValue
 		}
 	}
-	return "", false
+	return value, spellings
 }
 
 func normalizeKey(key string) string {
