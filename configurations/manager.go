@@ -138,8 +138,11 @@ func (manager *Manager) WithNetworkMappings(mappings []*basev0.NetworkMapping, a
 // a producer of the run that a consumer cannot resolve is a fault to report,
 // while one to a producer the run does not contain — excluded infrastructure, or
 // a run of one service rather than the workspace — is dropped for that consumer.
-// Without it no producer is provably part of the run, so every unresolvable
-// reference is dropped; the composition root sets it alongside the mappings.
+// Without it no producer is provably part of the run, so nothing may be dropped
+// and an unresolvable reference is a refusal naming the configuration and key —
+// silently omitting a declared address because the caller never said what it
+// was rendering is the failure the option exists to make impossible. The
+// composition root sets it alongside the mappings.
 func (manager *Manager) WithRunProducers(inRun func(unique string) bool) *Manager {
 	if manager == nil {
 		return nil
@@ -350,10 +353,11 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 // does not depend on, absent from its mapping set — is omitted for that consumer
 // rather than failing it (#393). The decision is per endpoint reference: a value
 // referencing one endpoint of a service the consumer depends on for a different
-// endpoint is dropped too. A mistyped reference is therefore dropped rather than
-// erroring here; GetWorkspaceConfigurations, which is fail-fast, is where such a
-// typo surfaces. Unresolvable secrets still fail the run (they are universal, not
-// consumer-specific).
+// endpoint is dropped too. Only those two facts about this consumer's view are
+// omissions: a mistyped reference, an ambiguous one, a producer the workspace
+// does not declare or an invalid declaration is refused here, naming the
+// configuration and key, whichever consumer meets it. Unresolvable secrets
+// still fail the run (they are universal, not consumer-specific).
 func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil

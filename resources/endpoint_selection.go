@@ -43,6 +43,13 @@ var ErrUnknownProducer = errors.New("the reference names a producer this workspa
 // that consumer.
 var ErrEndpointNotReachable = errors.New("the consumer may not reach the endpoint the reference names")
 
+// ErrInvalidEndpointDeclaration is returned when the producer's declaration of
+// the endpoint cannot be judged at all — an unsupported visibility value, for
+// one. It is a fault of the declaration, never a per-consumer omission: a
+// run-wide interpolation that dropped the value would hide a typo in a
+// manifest behind a key silently missing from every consumer.
+var ErrInvalidEndpointDeclaration = errors.New("the endpoint's declaration is invalid")
+
 // ErrEndpointAPIMismatch is returned when a reference qualifies the endpoint it
 // names with an API the named endpoint does not serve. The qualifier is a
 // statement about the endpoint named, not a request for any sibling serving
@@ -182,6 +189,12 @@ func visibilityOf(consumerModule string, info *EndpointInformation, endpoint *En
 		service = info.Service
 	}
 	if err := ValidateEndpointVisibility(consumerModule, module, service, endpoint.Name, Visibility(endpoint.Visibility), endpoint.AllowModules); err != nil {
+		if errors.Is(err, ErrInvalidEndpointDeclaration) {
+			// Not a denial: the declaration cannot be judged. It must not read
+			// as "this consumer may not reach it", which a run-wide
+			// interpolation is entitled to drop.
+			return err
+		}
 		return fmt.Errorf("%w: %w", ErrEndpointNotReachable, err)
 	}
 	return nil

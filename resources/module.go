@@ -965,7 +965,7 @@ func ValidateEndpointVisibility(consumerModule, producerModule, producerService,
 		return fmt.Errorf("endpoint %s/%s is private to module %q; module %q may not depend on it",
 			producerService, endpoint, producerModule, consumerModule)
 	}
-	return fmt.Errorf("endpoint %s/%s has unsupported visibility %q for module %q", producerService, endpoint, visibility, consumerModule)
+	return fmt.Errorf("%w: endpoint %s/%s declares unsupported visibility %q", ErrInvalidEndpointDeclaration, producerService, endpoint, visibility)
 }
 
 func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {

@@ -86,13 +86,27 @@ func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*base
 	if err := selection.Complete(); err != nil {
 		return "", fmt.Errorf("cannot resolve the endpoint references in %q: %w", value, err)
 	}
+	// Every reference is classified before any failure is reported, so that the
+	// failure reported is the one that matters: a composition fault anywhere in
+	// the value (an ambiguous reference, a malformed one, an invalid
+	// declaration, …) dominates an omission the run-wide path would otherwise
+	// be entitled to make on a reference that merely came first. Deciding on
+	// the first failure let the order of two references in one value decide
+	// whether a fault was reported or the key silently dropped.
 	var b strings.Builder
+	var omission error
 	last := 0
 	for _, match := range matches {
 		reference, authority := splitEndpointProjection(value[match[2]:match[3]])
 		instance, err := resolveEndpointReference(ctx, mappings, reference, access, selection)
 		if err != nil {
-			return "", err
+			if !ReferenceFailureIsAnOmission(err) {
+				return "", err
+			}
+			if omission == nil {
+				omission = err
+			}
+			continue
 		}
 		address := instance.Address
 		if authority {
@@ -104,12 +118,24 @@ func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*base
 		b.WriteString(address)
 		last = match[1]
 	}
+	if omission != nil {
+		return "", omission
+	}
 	b.WriteString(value[last:])
 	return b.String(), nil
 }
 
+// ReferenceFailureIsAnOmission reports whether a reference failure is one of the
+// two facts about ONE consumer's view — the endpoint it was handed no mapping
+// for, or may not reach — that a run-wide interpolation is entitled to omit the
+// value on. Every other failure is a fault of the composition or of a
+// declaration, and is refused wherever it is met.
+func ReferenceFailureIsAnOmission(err error) bool {
+	return errors.Is(err, errEndpointNotAvailable) || errors.Is(err, ErrEndpointNotReachable)
+}
+
 // InterpolateConfigurationEndpoints resolves ${endpoint:…} references in every
-// value of conf, using the same resolution as InterpolateEndpoints. The endpoint
+// value of conf, using the same resolution as InterpolateEndpointsFor. The endpoint
 // address depends on the consuming service's network access, so it must not be
 // baked into the shared configuration: when a value carries a reference, a
 // resolved clone is returned and conf is left untouched; otherwise conf itself is
@@ -263,7 +289,7 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 				if dropUnresolved && options.producerInRun == nil {
 					return nil, w.Wrapf(err, "cannot interpolate run-wide configuration %s/%s: this render stated no run producers, so a value this consumer cannot see cannot be told from a render that never bound its network context; state what this run contains (configurations.Manager.WithRunProducers)", info.Name, value.Key)
 				}
-				if dropUnresolved && !errors.Is(err, errEndpointNotAvailable) && !errors.Is(err, ErrEndpointNotReachable) {
+				if dropUnresolved && !ReferenceFailureIsAnOmission(err) {
 					// Not every failure is "not for this consumer". An ambiguous
 					// reference, an API qualifier the named endpoint does not
 					// serve, a producer the workspace does not declare, an
@@ -349,6 +375,10 @@ func configurationHasEndpointReference(conf *basev0.Configuration) bool {
 // assembled from a half-interpolated literal would otherwise reach a workload
 // with "${endpoint:…}" in the middle of a connection string.
 func interpolateConfigurationValue(ctx context.Context, value *basev0.ConfigurationValue, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext) (string, error) {
+	// The same dominance rule as within one value, across the value's parts: a
+	// composition fault in any literal or in the value itself is reported over
+	// an omission in another, whichever came first.
+	var omission error
 	for _, segment := range value.GetTemplate().GetSegments() {
 		literal, isLiteral := segment.GetContent().(*basev0.ConfigurationValueTemplateSegment_Literal)
 		if !isLiteral {
@@ -356,11 +386,29 @@ func interpolateConfigurationValue(ctx context.Context, value *basev0.Configurat
 		}
 		resolved, err := InterpolateEndpointsFor(ctx, literal.Literal, mappings, access, selection)
 		if err != nil {
-			return "", err
+			if !ReferenceFailureIsAnOmission(err) {
+				return "", err
+			}
+			if omission == nil {
+				omission = err
+			}
+			continue
 		}
 		literal.Literal = resolved
 	}
-	return InterpolateEndpointsFor(ctx, value.Value, mappings, access, selection)
+	resolved, err := InterpolateEndpointsFor(ctx, value.Value, mappings, access, selection)
+	if err != nil {
+		if !ReferenceFailureIsAnOmission(err) {
+			return "", err
+		}
+		if omission == nil {
+			omission = err
+		}
+	}
+	if omission != nil {
+		return "", omission
+	}
+	return resolved, nil
 }
 
 // resolveEndpointReference resolves reference against mappings for access, by
