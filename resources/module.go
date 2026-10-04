@@ -956,9 +956,7 @@ func ValidateEndpointVisibility(consumerModule, producerModule, producerService,
 	// The declaration is judged before any consumer is: a visibility value the
 	// model does not know is a fault of the manifest, and the producer's own
 	// module reaching its own endpoint does not make the declaration valid.
-	switch visibility {
-	case "", VisibilityPrivate, VisibilityInternal, VisibilityPublic, VisibilityModule, VisibilityExternal:
-	default:
+	if !KnownVisibility(visibility) {
 		return fmt.Errorf("%w: endpoint %s/%s declares unsupported visibility %q", ErrInvalidEndpointDeclaration, producerService, endpoint, visibility)
 	}
 	if consumerModule == producerModule {

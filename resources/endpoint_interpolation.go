@@ -46,14 +46,31 @@ func addressAuthority(address string) (string, error) {
 	return parsed.Host, nil
 }
 
-// errEndpointNotAvailable marks a well-formed reference to an endpoint absent
-// from the consumer's mappings. It is the one unresolved reference that can be
-// legitimate, so it is the one the callers branch on: the run-wide path drops
-// such a value for the consumer, and the strict path drops it only when the
-// producer it names is not part of this run (see WithRunProducers) and fails
-// otherwise. Every other failure — a malformed reference, an endpoint matched
-// with no instance for the consumer's access — is a hard error on both paths
-// that reach it, and must not carry this sentinel.
+// ErrMalformedEndpointReference is returned when a value carries the reserved
+// `${endpoint:` prefix in a form the reference grammar does not match — an
+// empty marker, an unterminated one. Such a value must never reach a workload
+// unchanged, and must never be omitted as though the marker were a reference
+// this consumer merely cannot resolve: it is a composition fault wherever it is
+// met.
+var ErrMalformedEndpointReference = errors.New("malformed endpoint reference: the reserved ${endpoint: prefix is not a well-formed reference")
+
+// malformedEndpointMarker reports whether value carries the reserved prefix
+// outside any well-formed reference.
+func malformedEndpointMarker(value string) bool {
+	stripped := endpointInterpolationPattern.ReplaceAllString(value, "")
+	return strings.Contains(stripped, "${endpoint:")
+}
+
+// errEndpointNotAvailable marks a well-formed reference to a declared endpoint
+// the consumer was handed no mapping for. With ErrEndpointNotReachable (a
+// denial by a valid export policy) it is one of the two omission classes — the
+// two facts about ONE consumer's view: the run-wide path drops a value on
+// either, and the strict path only on this one, and only when the producer it
+// names is not part of this run (see WithRunProducers). Every other failure —
+// a malformed reference, an ambiguous one, an invalid declaration, an unknown
+// producer, an endpoint matched with no instance for the consumer's access — is
+// a fault of the composition or of a declaration, refused on both paths, and
+// must not carry either sentinel.
 var errEndpointNotAvailable = errors.New("endpoint not available to this consumer")
 
 // EndpointReferences returns the <module>/<service>/<endpoint> references value
@@ -79,6 +96,9 @@ func EndpointReferences(value string) []string {
 // consumer-less resolution, because an endpoint reference is an edge into the
 // consumer's module and the export boundary is a statement about that module.
 func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext) (string, error) {
+	if malformedEndpointMarker(value) {
+		return "", fmt.Errorf("%w: %q", ErrMalformedEndpointReference, value)
+	}
 	matches := endpointInterpolationPattern.FindAllStringSubmatchIndex(value, -1)
 	if matches == nil {
 		return value, nil
@@ -355,7 +375,7 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 func configurationHasEndpointReference(conf *basev0.Configuration) bool {
 	for _, info := range conf.Infos {
 		for _, value := range info.ConfigurationValues {
-			if endpointInterpolationPattern.MatchString(value.Value) {
+			if endpointInterpolationPattern.MatchString(value.Value) || malformedEndpointMarker(value.Value) {
 				return true
 			}
 			// A value carrying a template holds its text in the template's
@@ -365,7 +385,7 @@ func configurationHasEndpointReference(conf *basev0.Configuration) bool {
 			// to write a template except by typing the address the network model
 			// is there to resolve.
 			for _, segment := range value.GetTemplate().GetSegments() {
-				if endpointInterpolationPattern.MatchString(segment.GetLiteral()) {
+				if endpointInterpolationPattern.MatchString(segment.GetLiteral()) || malformedEndpointMarker(segment.GetLiteral()) {
 					return true
 				}
 			}
@@ -475,7 +495,12 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 	// Only the endpoint that was selected, by name. A producer may publish more
 	// than one mapping for it; they are searched in order and the first with an
 	// instance for this access answers.
-	matchedButNoAccess := false
+	// Every mapping of the selected endpoint is judged BEFORE any is bound: a
+	// mapping published under the selected name that STATES another API is
+	// conflicting metadata whichever order it was published in, and binding
+	// an earlier mapping's address would hide it. A mapping that states no API
+	// is not in conflict; the declaration is the authority.
+	var named []*basev0.NetworkMapping
 	for _, mapping := range mappings {
 		if mapping == nil || mapping.Endpoint == nil {
 			continue
@@ -484,16 +509,14 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 		if endpoint.Module != info.Module || endpoint.Service != info.Service || endpoint.Name != selected.Endpoint.Name {
 			continue
 		}
-		// The mapping must be the declared endpoint, not merely share its name:
-		// a mapping published under the selected name that STATES another API
-		// is conflicting metadata, and binding its address would hand the
-		// consumer a listener speaking a protocol the declaration (and any
-		// qualifier the reference carried) did not ask for. A mapping that
-		// states no API is not in conflict; the declaration is the authority.
 		if endpoint.Api != "" && selected.Endpoint.API != "" && endpoint.Api != selected.Endpoint.API {
 			return nil, w.NewError("endpoint reference ${endpoint:%s} names endpoint %q declared with api %q, but a mapping for it carries api %q — conflicting mapping metadata",
 				reference, selected.Endpoint.Name, selected.Endpoint.API, endpoint.Api)
 		}
+		named = append(named, mapping)
+	}
+	matchedButNoAccess := false
+	for _, mapping := range named {
 		matchedButNoAccess = true
 		for _, instance := range mapping.Instances {
 			if !accessKindMatches(instance, access) {

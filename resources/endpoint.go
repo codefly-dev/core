@@ -38,6 +38,21 @@ const (
 // resource resolved by DNS rather than an allocated port).
 const LocationExternal = "external"
 
+// KnownVisibility reports whether a visibility value is one the model defines.
+// It is the ONE list of them: the loader, AllowsModule and
+// ValidateEndpointVisibility all judge a declaration against it, so a value the
+// model does not know is refused as an invalid declaration everywhere rather
+// than read as "private" by one path and "denied" by another. The two
+// deprecated aliases are still known here because the loader still accepts
+// them; their deletion is the model's own cutover, not this list's.
+func KnownVisibility(visibility Visibility) bool {
+	switch visibility {
+	case "", VisibilityPrivate, VisibilityInternal, VisibilityPublic, VisibilityModule, VisibilityExternal:
+		return true
+	}
+	return false
+}
+
 // AllowAllModules is the wildcard allow-list entry that grants every module
 // access to an internal endpoint.
 const AllowAllModules = "*"
