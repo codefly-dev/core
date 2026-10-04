@@ -51,7 +51,7 @@ RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir grpcio-tools
 
 # --- Runtime stage: minimal alpine + the codefly base ---------------
 
-FROM rust:1.90-alpine AS rust-builder
+FROM rust:1.98-alpine AS rust-builder
 RUN apk add --no-cache musl-dev && \
     cargo install --locked protoc-gen-prost --version 0.5.0 && \
     cargo install --locked protoc-gen-tonic --version 0.5.0
