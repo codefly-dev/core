@@ -823,7 +823,7 @@ Ingress routes are held to endpoint order, as endpoints and egress already are.
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (44 documents) / `cell.Fixtures()` (65) ship
+`modulecontract.Fixtures()` (44 documents) / `cell.Fixtures()` (68) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it
@@ -833,8 +833,18 @@ the consumer. Each package's self-check (`TestEveryRuleIsProtectedByAFixture`)
 proves the kit protects every rule: every rule is named by at least one
 refused fixture, and the kit is run with each rule deleted in turn and must
 fail on a fixture naming it — a rule that could be dropped silently is a rule
-the kit does not protect. The CLI deleted its copies of both models when
-these landed (codefly-dev/cli#855 at `b77f5806`), reads every cell through
-`cell.Parse` and every contract through `modulecontract.Load`, and runs both
-kits through its own entrypoints; the platform's loader is the next consumer
-to run the cell kit.
+the kit does not protect.
+
+**Adoption is a requirement, not yet a fact.** Nothing in this repository
+drives a consumer through either kit, and until each consumer's own commit
+lands, the second copies of these models still exist. What each one owes:
+
+| Consumer | What it does, and where it stands |
+| --- | --- |
+| `codefly-dev/cli` | delete `pkg/modulecontract`, the cell model in `pkg/gitops/cell.go`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every cell through `cell.Parse` and every contract through `modulecontract.Load`; run both kits through the render's and the publisher's own entrypoints, never a test-only wrapper around `Parse`. Done on cli#855 at `b77f5806` — `modulecontract.Run` drives `authorityInstancesOf` and `cell.Run` drives `readCellFile`, the publisher's own reader — and it lands when that PR does. |
+| infra-base | read cells through `cell.Parse` and run `cell.Run` against the loader's own entrypoint. Its rules beyond the wire stay its own — a non-empty `cidrs` refused until it renders address-based egress, the closed admission set, RBAC derivation — on top of a document this package has already held to its shape. Not started. |
+| the runtimes that publish contracts | run `modulecontract.Run` against the publisher's output, so a contract they emit is one this reader accepts. Not started. |
+
+The platform's loader has not run against the cell fixtures, and the cell's
+valid fixture is assembled to the shape the CLI's writer emits rather than
+captured from a real publish.
