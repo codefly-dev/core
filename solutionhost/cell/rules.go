@@ -70,11 +70,14 @@ const (
 	ruleEndpointUnique   = "endpoint-unique"
 	ruleEndpointsOrder   = "endpoints-ordered"
 	ruleEndpointPort     = "endpoint-port"
+	ruleVisibility       = "endpoint-visibility"
+	ruleAllowModules     = "allow-modules"
 	ruleConsumerQualify  = "consumer-qualified"
 	ruleConsumersOrder   = "consumers-ordered"
 	ruleIngressServed    = "ingress-served"
 	ruleIngressHasHost   = "ingress-has-host"
 	ruleIngressHostName  = "ingress-host-name"
+	ruleIngressOrder     = "ingress-ordered"
 	ruleBindingName      = "binding-name"
 	ruleBindingUnique    = "binding-unique"
 
@@ -134,11 +137,14 @@ func rules() []rule {
 		{name: ruleEndpointUnique, check: checkEndpointsUnique},
 		{name: ruleEndpointsOrder, check: checkEndpointsOrdered},
 		{name: ruleEndpointPort, check: checkEndpointPorts},
+		{name: ruleVisibility, check: checkVisibilities},
+		{name: ruleAllowModules, check: checkAllowModules},
 		{name: ruleConsumerQualify, check: checkConsumersQualified},
 		{name: ruleConsumersOrder, check: checkConsumersOrdered},
 		{name: ruleIngressServed, check: checkIngressServed},
 		{name: ruleIngressHasHost, check: checkIngressHasHost},
 		{name: ruleIngressHostName, check: checkIngressHostNames},
+		{name: ruleIngressOrder, check: checkIngressOrdered},
 		{name: ruleBindingName, check: checkBindingNames},
 		{name: ruleBindingUnique, check: checkBindingsUnique},
 		{name: ruleEgressQualified, check: checkEgressQualified},
@@ -751,6 +757,53 @@ func checkEndpointPorts(file *File) error {
 	return nil
 }
 
+// visibilities is the endpoint visibility vocabulary a cell may carry: core's
+// own declared set (resources.Visibility*), INCLUDING the two spellings core
+// marks deprecated. The render copies a service's declared visibility
+// verbatim and resources/module.go still assigns "module" itself, so a reader
+// refusing those would refuse a cell a real publish writes.
+//
+// What a visibility PERMITS is not decided here —
+// resources.ValidateEndpointVisibility and the workspace's own validation own
+// that. The cell carries the declaration so the platform derives its mesh
+// policy from what was rendered, and a spelling no reader knows is a policy
+// nobody wrote. TestTheVisibilityVocabularyIsCoreOwn fails if the two drift;
+// it imports resources from the TEST binary only, so a loader linking this
+// package never pulls core's resource tree in with it.
+var visibilities = []string{"private", "internal", "module", "public", "external"}
+
+// allowAllModules is the allow-list wildcard, as resources spells it.
+const allowAllModules = "*"
+
+func checkVisibilities(file *File) error {
+	for _, entry := range file.workloads() {
+		for _, endpoint := range entry.workload.Endpoints {
+			if endpoint.Visibility == "" || slices.Contains(visibilities, endpoint.Visibility) {
+				continue
+			}
+			return fmt.Errorf("%w: %s endpoint %s visibility %q is not one of %s", ErrInvalid, entry.label, endpoint.Name, endpoint.Visibility, strings.Join(visibilities, ", "))
+		}
+	}
+	return nil
+}
+
+// checkAllowModules holds the allow-list to module names and the wildcard. It
+// does NOT require the list to be sorted or deduplicated: the render copies
+// the service's own declaration verbatim, and an allow-list is read as a set.
+func checkAllowModules(file *File) error {
+	for _, entry := range file.workloads() {
+		for _, endpoint := range entry.workload.Endpoints {
+			for _, allowed := range endpoint.AllowModules {
+				if allowed == allowAllModules || namePattern.MatchString(allowed) {
+					continue
+				}
+				return fmt.Errorf("%w: %s endpoint %s allow_modules names %q, which is not a module name or %q", ErrInvalid, entry.label, endpoint.Name, allowed, allowAllModules)
+			}
+		}
+	}
+	return nil
+}
+
 func checkConsumersQualified(file *File) error {
 	for _, entry := range file.workloads() {
 		for _, endpoint := range entry.workload.Endpoints {
@@ -814,6 +867,20 @@ func checkIngressHostNames(file *File) error {
 // subdomain, lowercase, with no port, path or scheme.
 func isHostName(host string) bool {
 	return isDNS1123Subdomain(host)
+}
+
+// checkIngressOrdered: the render sorts ingress by endpoint, and a cell is
+// written deterministically — the same rule endpoints and egress already have.
+func checkIngressOrdered(file *File) error {
+	for _, entry := range file.workloads() {
+		for index := 1; index < len(entry.workload.Ingress); index++ {
+			if entry.workload.Ingress[index-1].Endpoint > entry.workload.Ingress[index].Endpoint {
+				return fmt.Errorf("%w: %s ingress is not in endpoint order (%q after %q)", ErrInvalid, entry.label,
+					entry.workload.Ingress[index].Endpoint, entry.workload.Ingress[index-1].Endpoint)
+			}
+		}
+	}
+	return nil
 }
 
 func checkBindingNames(file *File) error {

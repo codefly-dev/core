@@ -78,17 +78,17 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 	}
 	sort.Strings(names)
 	want := []string{
-		"account-not-a-subdomain", "another-schema", "artifact-digest-not-hex", "authenticating-not-a-container",
+		"account-not-a-subdomain", "allow-modules-not-a-module", "another-schema", "artifact-digest-not-hex", "authenticating-not-a-container",
 		"binding-declared-twice", "binding-not-a-name", "consumer-not-qualified", "consumers-out-of-order",
 		"container-name-not-a-label", "container-named-twice", "delivery-account-malformed",
 		"delivery-container-not-a-label", "delivery-image-repository-malformed", "delivery-image-without-digest",
 		"delivery-not-a-job", "delivery-spiffe-id-of-another-account", "delivery-without-selector",
 		"egress-cidr-malformed", "egress-host-malformed", "egress-host-without-port", "egress-of-another-module",
 		"egress-service-not-qualified", "egress-service-twice", "egress-without-target", "empty-selector",
-		"endpoint-declared-twice", "endpoint-not-a-name", "endpoint-port-out-of-range", "endpoints-out-of-order",
+		"endpoint-declared-twice", "endpoint-not-a-name", "endpoint-port-out-of-range", "endpoint-visibility-unknown", "endpoints-out-of-order",
 		"environment-not-a-name", "host-coordinate-not-a-name", "hostless", "image-digest-not-hex",
 		"image-repository-carries-digest", "image-repository-carries-tag", "image-repository-padded",
-		"image-without-digest", "ingress-host-malformed", "ingress-to-an-endpoint-not-served", "ingress-without-host",
+		"image-without-digest", "ingress-host-malformed", "ingress-out-of-order", "ingress-to-an-endpoint-not-served", "ingress-without-host",
 		"module-in-two-namespaces", "namespace-declared-twice", "namespace-module-not-a-name", "namespace-not-a-label",
 		"namespaces-out-of-order", "not-yaml", "partial-host-header", "release-without-version", "schema-omitted",
 		"selector-empty-label-value", "selector-label-key-malformed", "selector-label-value-malformed",
