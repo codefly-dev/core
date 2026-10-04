@@ -87,8 +87,8 @@ type Manager struct {
 
 	// selection identifies the consumer these reads resolve for, so a
 	// ${endpoint:…} reference is answered by the endpoint it names, judged
-	// against the producer's export boundary. A zero value leaves the
-	// resolution with no consumer to judge — see ForConsumerModule.
+	// against the producer's export boundary. A zero value refuses every
+	// configuration that carries a reference — see ForConsumerModule.
 	selection resources.EndpointSelectionContext
 
 	// runProducers reports whether a <module>/<service> is part of this run, so
@@ -168,18 +168,16 @@ func (manager *Manager) ForConsumer(mappings []*basev0.NetworkMapping, access *b
 // <module>/<service>.
 //
 // Both are what resources.SelectEndpointForReference needs to answer a
-// reference the way CheckEndpointReferences answers it. The module is the
-// export boundary — a reference is an edge into it like any declared
-// dependency, so an endpoint it may not reach is refused rather than resolved
-// to a permitted sibling. The manifest is what says which endpoint a token
-// names: a published mapping carries no visibility, and a producer may publish
-// several mappings for one endpoint, so the mappings alone cannot decide it.
-//
-// A view without it resolves as before minus the two corrections selection
-// makes unconditionally (an exact name wins; an ambiguous reference is
-// refused), and judges no visibility, because a caller that has not named its
-// consumer has given nothing to judge against.
-func (manager *Manager) ForConsumerModule(consumerModule string, declared func(unique string) []*resources.Endpoint) *Manager {
+// reference the way CheckEndpointReferences answers it, and both are REQUIRED
+// once a configuration carries an endpoint reference: a view that has not named
+// its consumer refuses to interpolate rather than resolve as though whoever is
+// reading may reach whatever it named. The module is the export boundary — a
+// reference is an edge into it like any declared dependency, so an endpoint it
+// may not reach is refused rather than resolved to a permitted sibling. The
+// manifest is what says which endpoint a token names: published mappings do
+// not establish the complete declared set, and a producer may publish several
+// mappings for one endpoint, so the mappings alone cannot decide it.
+func (manager *Manager) ForConsumerModule(consumerModule string, declared resources.DeclaredEndpoints) *Manager {
 	if manager == nil {
 		return nil
 	}

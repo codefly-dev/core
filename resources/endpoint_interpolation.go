@@ -68,23 +68,23 @@ func EndpointReferences(value string) []string {
 	return references
 }
 
-// InterpolateEndpoints replaces every ${endpoint:<module>/<service>/<endpoint>}
+// InterpolateEndpointsFor replaces every ${endpoint:<module>/<service>/<endpoint>}
 // reference in value with the endpoint's runtime address, resolved from mappings
 // for access — the same address published as
-// CODEFLY__ENDPOINT__<MODULE>__<SERVICE>__<ENDPOINT>. A value with no reference is
-// returned unchanged. An unresolvable reference is an error, never a broken URL.
-func InterpolateEndpoints(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess) (string, error) {
-	return InterpolateEndpointsFor(ctx, value, mappings, access, EndpointSelectionContext{})
-}
-
-// InterpolateEndpointsFor is InterpolateEndpoints for a caller that knows which
-// consumer it is resolving for, and can therefore have the producer's export
-// boundary enforced on the reference and the producer's manifest decide which
-// endpoint it names. A zero selection is InterpolateEndpoints.
+// CODEFLY__ENDPOINT__<MODULE>__<SERVICE>__<ENDPOINT> — for the consumer the
+// selection names, against the producers' declared endpoints it reads. A value
+// with no reference is returned unchanged. An unresolvable reference is an
+// error, never a broken URL. A selection that does not identify its consumer or
+// cannot read the manifests is refused before any reference is read: there is no
+// consumer-less resolution, because an endpoint reference is an edge into the
+// consumer's module and the export boundary is a statement about that module.
 func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext) (string, error) {
 	matches := endpointInterpolationPattern.FindAllStringSubmatchIndex(value, -1)
 	if matches == nil {
 		return value, nil
+	}
+	if err := selection.Complete(); err != nil {
+		return "", fmt.Errorf("cannot resolve the endpoint references in %q: %w", value, err)
 	}
 	var b strings.Builder
 	last := 0
@@ -158,28 +158,19 @@ type configurationInterpolation struct {
 	// producerInRun reports whether a <module>/<service> is part of this run.
 	// Nil means the caller did not say, so nothing is provably in the run.
 	producerInRun func(unique string) bool
-	// selection is what this resolution knows about its consumer. A zero value
-	// selects from the endpoints the mappings carry and judges no visibility.
+	// selection is what this resolution knows about its consumer. Both halves
+	// are required once a value carries a reference; see WithConsumer.
 	selection EndpointSelectionContext
 }
 
 // WithConsumer tells the resolution which module is receiving these addresses,
-// and how to read a producer's declared endpoints.
-//
-// Both are needed to answer a reference the way the plan-time check answers it.
-// The consumer's module is the export boundary: a reference is an edge into that
-// module like any declared dependency, so an endpoint the module may not reach
-// must be refused rather than resolved. The manifest is what says which endpoint
-// a token names — a published mapping carries no visibility and a producer may
-// publish several mappings for one endpoint, so a scan of mappings alone cannot
-// decide it.
-//
-// Passing neither leaves the resolution selecting from the mappings' own
-// endpoints with no visibility judgement, which is all a caller that has not
-// identified its consumer can honestly ask for. It is not a fallback to the old
-// first-match behaviour: an exact name still wins and an ambiguous reference is
-// still refused.
-func WithConsumer(consumerModule string, declared func(unique string) []*Endpoint) ConfigurationInterpolationOption {
+// and how to read a producer's declared endpoints. Both are required: a
+// configuration carrying an endpoint reference is refused when either is
+// missing, because the export boundary is a statement about the consumer's
+// module and the manifest is the only authority on which endpoint a token names
+// (published mappings establish neither the complete declared set nor a
+// declaration that was never published).
+func WithConsumer(consumerModule string, declared DeclaredEndpoints) ConfigurationInterpolationOption {
 	return func(opt *configurationInterpolation) {
 		opt.selection = EndpointSelectionContext{ConsumerModule: consumerModule, Declared: declared}
 	}
@@ -271,6 +262,18 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 				}
 				if dropUnresolved && options.producerInRun == nil {
 					return nil, w.Wrapf(err, "cannot interpolate run-wide configuration %s/%s: this render stated no run producers, so a value this consumer cannot see cannot be told from a render that never bound its network context; state what this run contains (configurations.Manager.WithRunProducers)", info.Name, value.Key)
+				}
+				if dropUnresolved && !errors.Is(err, errEndpointNotAvailable) && !errors.Is(err, ErrEndpointNotReachable) {
+					// Not every failure is "not for this consumer". An ambiguous
+					// reference, an API qualifier the named endpoint does not
+					// serve, a producer the workspace does not declare, an
+					// endpoint with no instance for this access, a malformed
+					// reference: each is a composition fault that would be the
+					// same for every consumer, and dropping the value would
+					// deliver a configuration with a key silently missing where
+					// a refusal was owed. Only an endpoint this consumer was
+					// handed no mapping for, or may not reach, is an omission.
+					return nil, w.Wrapf(err, "cannot interpolate run-wide configuration %s/%s", info.Name, value.Key)
 				}
 				if dropUnresolved {
 					// The drop is expected in the common case — a run-wide value
@@ -402,45 +405,18 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 		available = append(available, EndpointFromProto(mapping.Endpoint).Unique())
 	}
 
-	// The producer's manifest when the caller supplied one, and otherwise the
-	// endpoints the mappings themselves carry. The manifest is the better
-	// source: it declares endpoints this producer published no mapping for,
-	// which is the difference between "the endpoint you named is not running"
-	// and "the endpoint you named does not exist".
-	candidates := selection.declaredFor(info.Module + "/" + info.Service)
-	fromManifest := candidates != nil
-	if candidates == nil {
-		seen := make(map[string]bool, len(mappings))
-		for _, mapping := range mappings {
-			if mapping == nil || mapping.Endpoint == nil {
-				continue
-			}
-			endpoint := mapping.Endpoint
-			if endpoint.Module != info.Module || endpoint.Service != info.Service {
-				continue
-			}
-			if seen[endpoint.Name] {
-				continue
-			}
-			seen[endpoint.Name] = true
-			candidates = append(candidates, EndpointFromProto(endpoint))
-		}
-	}
-	if len(candidates) == 0 {
-		return nil, fmt.Errorf("endpoint reference ${endpoint:%s} not found for this consumer (access=%s): producer %s/%s is not part of the run or does not publish that endpoint; available endpoints: %v: %w",
-			reference, accessKind(access), info.Module, info.Service, available, errEndpointNotAvailable)
+	// The producer's manifest, and nothing else: it declares endpoints this
+	// producer published no mapping for, which is the difference between "the
+	// endpoint you named is not running" and "the endpoint you named does not
+	// exist", and it is the only source that carries who may reach what. A
+	// producer the workspace does not declare is a composition fault, not an
+	// availability fact, so it does not carry errEndpointNotAvailable.
+	candidates, declared := selection.Declared(info.Module + "/" + info.Service)
+	if !declared {
+		return nil, fmt.Errorf("endpoint reference ${endpoint:%s}: %w (%s/%s)", reference, ErrUnknownProducer, info.Module, info.Service)
 	}
 	selected, err := SelectEndpointForReference(selection.ConsumerModule, info, candidates)
 	if err != nil {
-		// Without a manifest the candidates ARE the published mappings, so
-		// "no such endpoint" means this consumer was handed no mapping for it —
-		// which is availability, the fact errEndpointNotAvailable names and the
-		// run-wide path reads to decide a drop. With a manifest it is a
-		// composition fault and must not be mistaken for one.
-		if !fromManifest && errors.Is(err, ErrNoSuchEndpoint) {
-			return nil, fmt.Errorf("endpoint reference ${endpoint:%s} not found for this consumer (access=%s): producer %s/%s is not part of the run or does not publish that endpoint; available endpoints: %v: %w",
-				reference, accessKind(access), info.Module, info.Service, available, errEndpointNotAvailable)
-		}
 		return nil, w.Wrapf(err, "endpoint reference ${endpoint:%s} cannot be resolved for this consumer", reference)
 	}
 
@@ -455,6 +431,16 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 		endpoint := mapping.Endpoint
 		if endpoint.Module != info.Module || endpoint.Service != info.Service || endpoint.Name != selected.Endpoint.Name {
 			continue
+		}
+		// The mapping must be the declared endpoint, not merely share its name:
+		// a mapping published under the selected name that STATES another API
+		// is conflicting metadata, and binding its address would hand the
+		// consumer a listener speaking a protocol the declaration (and any
+		// qualifier the reference carried) did not ask for. A mapping that
+		// states no API is not in conflict; the declaration is the authority.
+		if endpoint.Api != "" && selected.Endpoint.API != "" && endpoint.Api != selected.Endpoint.API {
+			return nil, w.NewError("endpoint reference ${endpoint:%s} names endpoint %q declared with api %q, but a mapping for it carries api %q — conflicting mapping metadata",
+				reference, selected.Endpoint.Name, selected.Endpoint.API, endpoint.Api)
 		}
 		matchedButNoAccess = true
 		for _, instance := range mapping.Instances {
@@ -520,16 +506,13 @@ func accessKind(access *basev0.NetworkAccess) string {
 	return access.Kind
 }
 
-// EndpointMatchesReferenceInfo reports whether an endpoint a service DECLARES
-// satisfies a parsed ${endpoint:…} reference, by the same rule
-// endpointReferenceMatchesInfo applies to the mapping the reference resolves to.
-// Module and service are not compared: a caller reaches this with the producer
-// already identified.
-//
-// One body rather than a copy per caller: a plan-time check that judged a
-// reference differently from the resolution would pass compositions that then
-// fail, or refuse ones that would have worked.
-func EndpointMatchesReferenceInfo(endpoint *Endpoint, info *EndpointInformation) bool {
+// endpointMatchesReferenceInfo is the one matching predicate behind selection:
+// an endpoint satisfies a parsed ${endpoint:…} reference when the reference's
+// token is its name or its API, and any API qualifier agrees. Module and service
+// are not compared here; SelectEndpointForReference scopes the candidates
+// first. It is not exported: matching is a step of selection, and a caller that
+// matched for itself would be a second selector.
+func endpointMatchesReferenceInfo(endpoint *Endpoint, info *EndpointInformation) bool {
 	if endpoint == nil || info == nil {
 		return false
 	}
