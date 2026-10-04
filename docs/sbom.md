@@ -310,7 +310,8 @@ the capability unadvertised.
 exporter for CycloneDX 1.5. It uses the committed `pnpm-lock.yaml`, including
 peer resolutions, patches, tarballs and optional dependencies, without installing
 packages or running lifecycle scripts. `includeDev=false` passes `--prod`.
-Install a pnpm version with the `sbom` command; absent tools, absent locks and
+pnpm 11.17.0 or newer is checked before dispatch, so older pnpm cannot interpret
+`sbom` as an arbitrary project script; absent tools, absent locks and
 failed exports are errors, never empty inventories. Source evidence remains
 separate from image evidence and does not claim installed OS-package coverage.
 
