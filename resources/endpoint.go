@@ -3,6 +3,7 @@ package resources
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,15 +19,8 @@ import (
 type Visibility = string
 
 const (
-	// VisibilityExternal is a deprecated visibility value. External is a
-	// location, not a permission: use Location = LocationExternal alongside a
-	// real visibility. Kept so raw protos and legacy YAML keep loading.
-	VisibilityExternal Visibility = "external"
 	// VisibilityPublic represents an endpoint accessible from outside the workspace.
 	VisibilityPublic Visibility = "public"
-	// VisibilityModule is a deprecated alias for VisibilityInternal with every
-	// module allow-listed. Kept so legacy YAML keeps loading.
-	VisibilityModule Visibility = "module"
 	// VisibilityInternal represents an endpoint reachable from an explicit
 	// allow-list of other modules (see Endpoint.AllowModules).
 	VisibilityInternal Visibility = "internal"
@@ -42,15 +36,22 @@ const LocationExternal = "external"
 // It is the ONE list of them: the loader, AllowsModule and
 // ValidateEndpointVisibility all judge a declaration against it, so a value the
 // model does not know is refused as an invalid declaration everywhere rather
-// than read as "private" by one path and "denied" by another. The two
-// deprecated aliases are still known here because the loader still accepts
-// them; their deletion is the model's own cutover, not this list's.
+// than read as "private" by one path and "denied" by another. The former
+// spellings "module" and "external" are not known: "module" was a permission
+// granted to every module, now written as "internal" with an explicit
+// allow-list, and "external" was a location written as a permission, now
+// written as "location: external" beside the visibility that applies.
 func KnownVisibility(visibility Visibility) bool {
 	switch visibility {
-	case "", VisibilityPrivate, VisibilityInternal, VisibilityPublic, VisibilityModule, VisibilityExternal:
+	case "", VisibilityPrivate, VisibilityInternal, VisibilityPublic:
 		return true
 	}
 	return false
+}
+
+// KnownLocation reports whether a location value is one the model defines.
+func KnownLocation(location string) bool {
+	return location == "" || location == LocationExternal
 }
 
 // AllowAllModules is the wildcard allow-list entry that grants every module
@@ -74,20 +75,31 @@ type Endpoint struct {
 	// legacy transport-only semantics.
 	Health *Health `yaml:"health,omitempty"`
 
-	// authoredVisibility retains what the YAML declared when a module's
-	// interface decides what the endpoint exports instead, so a save writes the
-	// author's value back rather than the exported one.
-	authoredVisibility *string
+	// authored retains what the YAML declared when a module's interface decides
+	// what the endpoint exports instead, so a save writes the author's values
+	// back rather than the exported ones.
+	authored *authoredExport
 }
 
-// exportAs sets the visibility the endpoint carries across module boundaries,
-// keeping the authored value for save.
-func (endpoint *Endpoint) exportAs(visibility Visibility) {
-	if endpoint.authoredVisibility == nil {
-		authored := endpoint.Visibility
-		endpoint.authoredVisibility = &authored
+// authoredExport is the export-relevant part of an endpoint as its service
+// wrote it, kept aside while the module's interface entry is what the loaded
+// endpoint carries.
+type authoredExport struct {
+	visibility   string
+	allowModules []string
+}
+
+// exportAs sets the visibility and the allow-list the endpoint carries across
+// module boundaries, keeping the authored values for save. The interface entry
+// is the whole export declaration: an entry exporting at "internal" names the
+// modules that may reach the endpoint itself, so the service's own allow-list
+// is never what a consumer is judged against once the module has spoken.
+func (endpoint *Endpoint) exportAs(visibility Visibility, allowModules []string) {
+	if endpoint.authored == nil {
+		endpoint.authored = &authoredExport{visibility: endpoint.Visibility, allowModules: endpoint.AllowModules}
 	}
 	endpoint.Visibility = visibility
+	endpoint.AllowModules = slices.Clone(allowModules)
 }
 
 func validateEndpointNames(endpoints []*Endpoint) error {
@@ -104,18 +116,15 @@ func validateEndpointNames(endpoints []*Endpoint) error {
 	return nil
 }
 
-func (endpoint *Endpoint) postLoad(ctx context.Context) {
-	// "module" and "external" are deprecated visibility values. They are
-	// interpreted by External() and AllowsModule() rather than rewritten here,
-	// so the authored file round-trips unchanged; warn so workspaces migrate to
-	// the new axes ("internal" + "allow-modules", and "location: external").
-	switch endpoint.Visibility {
-	case VisibilityModule:
-		wool.Get(ctx).Warn("endpoint visibility 'module' is deprecated; use 'internal' with an explicit 'allow-modules' list",
-			wool.NameField(endpoint.Name))
-	case VisibilityExternal:
-		wool.Get(ctx).Warn("endpoint visibility 'external' is deprecated; use 'location: external' alongside a real visibility",
-			wool.NameField(endpoint.Name))
+// postLoad completes a declaration the loader read and refuses one the model
+// cannot judge. A visibility or a location the model does not define is
+// ErrInvalidEndpointDeclaration here, at the source, so that no later path has
+// to decide whether "application" means private, denied or dropped; and an
+// allow-list on an endpoint whose visibility never reads it is refused too,
+// because a grant that nothing enforces is a manifest saying something false.
+func (endpoint *Endpoint) postLoad() error {
+	if err := ValidateEndpointDeclaration(endpoint.Service, endpoint.Name, endpoint.Visibility, endpoint.Location, endpoint.AllowModules); err != nil {
+		return err
 	}
 	if endpoint.Visibility == "" {
 		endpoint.Visibility = VisibilityPrivate
@@ -123,24 +132,47 @@ func (endpoint *Endpoint) postLoad(ctx context.Context) {
 	if endpoint.API == "" && slices.Contains(standards.APIS(), endpoint.Name) {
 		endpoint.API = endpoint.Name
 	}
+	return nil
 }
 
-// External reports whether the endpoint lives outside the system.
+// ValidateEndpointDeclaration judges the export-relevant part of an endpoint's
+// declaration on its own, before any consumer is: the visibility and the
+// location must be ones the model defines, and an allow-list is only read for
+// "internal", so it is refused anywhere else. Every error wraps
+// ErrInvalidEndpointDeclaration.
+func ValidateEndpointDeclaration(service, name string, visibility Visibility, location string, allowModules []string) error {
+	if !KnownVisibility(visibility) {
+		return fmt.Errorf("%w: endpoint %s/%s declares unsupported visibility %q (one of %q, %q, %q)",
+			ErrInvalidEndpointDeclaration, service, name, visibility, VisibilityPrivate, VisibilityInternal, VisibilityPublic)
+	}
+	if !KnownLocation(location) {
+		return fmt.Errorf("%w: endpoint %s/%s declares unsupported location %q (only %q, or none)",
+			ErrInvalidEndpointDeclaration, service, name, location, LocationExternal)
+	}
+	if len(allowModules) > 0 && visibility != VisibilityInternal {
+		return fmt.Errorf("%w: endpoint %s/%s lists allow-modules with visibility %q; an allow-list is only read for %q",
+			ErrInvalidEndpointDeclaration, service, name, visibility, VisibilityInternal)
+	}
+	return nil
+}
+
+// External reports whether the endpoint lives outside the system. Location is
+// the one record of it: where an endpoint lives and who may reach it are two
+// axes, and a visibility never says where.
 func (endpoint *Endpoint) External() bool {
-	return endpoint.Location == LocationExternal || endpoint.Visibility == VisibilityExternal
+	return endpoint.Location == LocationExternal
 }
 
 // AllowsModule reports whether a service in the given module may reach this
 // endpoint. Access is always granted within the owning module; across modules
 // it follows the visibility: public is open, internal consults AllowModules
-// (with "*" as a wildcard), the deprecated "module" and "external" values mean
-// every module, and everything else is denied.
+// (with "*" as a wildcard), and everything else is denied.
 func (endpoint *Endpoint) AllowsModule(module string) bool {
 	if module == endpoint.Module {
 		return true
 	}
 	switch endpoint.Visibility {
-	case VisibilityPublic, VisibilityModule, VisibilityExternal:
+	case VisibilityPublic:
 		return true
 	case VisibilityInternal:
 		for _, allowed := range endpoint.AllowModules {
@@ -170,12 +202,13 @@ func EndpointSecured(e *basev0.Endpoint) bool {
 
 // IsExternalEndpoint reports whether a proto endpoint lives outside the system.
 func IsExternalEndpoint(e *basev0.Endpoint) bool {
-	return e.Location == LocationExternal || e.Visibility == VisibilityExternal
+	return e.GetLocation() == LocationExternal
 }
 
 func (endpoint *Endpoint) preSave() {
-	if endpoint.authoredVisibility != nil {
-		endpoint.Visibility = *endpoint.authoredVisibility
+	if endpoint.authored != nil {
+		endpoint.Visibility = endpoint.authored.visibility
+		endpoint.AllowModules = endpoint.authored.allowModules
 	}
 	if endpoint.Visibility == VisibilityPrivate {
 		endpoint.Visibility = ""
@@ -692,6 +725,13 @@ func dependencyEndpointVerdicts(consumerModule string, dependency *ServiceDepend
 	var denials []error
 	for _, endpoint := range resolved {
 		if err := ValidateEndpointVisibility(consumerModule, endpoint.Module, dependency.Name, endpoint.Name, endpoint.Visibility, endpoint.AllowModules); err != nil {
+			// A declaration the model cannot judge is a fault of the producer's
+			// manifest, not a verdict on this consumer: filing it as a denial
+			// would let "consumes all" drop the endpoint with nothing said —
+			// for the owning module too, which no visibility ever denies.
+			if errors.Is(err, ErrInvalidEndpointDeclaration) {
+				return nil, nil, err
+			}
 			denials = append(denials, err)
 			continue
 		}

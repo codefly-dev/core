@@ -232,9 +232,19 @@ producer adding one private endpoint does not break every consumer that did not
 enumerate. Being permitted none of them is still an error — the edge is declared
 and the export boundary grants nothing for it.
 
-**Deprecated aliases** (still load, with a warning): `visibility: module` maps
-to `internal` with `allow-modules: ["*"]`; `visibility: external` maps to
-`location: external` (see below) with the same permissive allow-list.
+**Only these three spellings load.** A visibility the model does not define —
+including the former `module` (every module) and `external` (a location written
+as a permission) — is refused when the manifest is read, as an invalid
+declaration, never read as private by one path and denied by another. `module`
+is written as `visibility: internal` with `allow-modules: ["*"]`; `external` is
+written as `location: external` (see below) beside the visibility that applies.
+An `allow-modules` list is only read for `internal` and is refused elsewhere.
+
+A module's interface entry is the whole export declaration: it names the
+visibility the module grants across its boundary — `public`, or `internal`
+(the default) with its own `allow-modules` — and the service's own visibility
+and allow-list are not consulted once the module has spoken. An `internal`
+entry that names no module is refused: it would export to nobody.
 
 ### Endpoint References
 

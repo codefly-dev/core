@@ -12,9 +12,7 @@ endpoints:
     visibility: public
   - name: restricted
     api: grpc
-    visibility: public
-    allow-modules:
-      - platform
+    visibility: private
   - name: omitted
     api: http
     visibility: public

@@ -16,7 +16,7 @@ import (
 func gatewayMappings() []*basev0.NetworkMapping {
 	return []*basev0.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 			Instances: []*basev0.NetworkInstance{
 				{Address: "http://localhost:1234", Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessNative}},
 				{Address: "http://host.docker.internal:1234", Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessContainer}},
@@ -31,7 +31,7 @@ func TestInterpolateEndpoints(t *testing.T) {
 
 	t.Run("resolves a reference embedded in a URL", func(t *testing.T) {
 		out, err := resources.InterpolateEndpointsFor(ctx,
-			"${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json",
+			"${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json",
 			mappings, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.NoError(t, err)
 		assert.Equal(t, "http://localhost:1234/v1/auth/.well-known/jwks.json", out)
@@ -39,7 +39,7 @@ func TestInterpolateEndpoints(t *testing.T) {
 
 	t.Run("resolves for the requested access", func(t *testing.T) {
 		out, err := resources.InterpolateEndpointsFor(ctx,
-			"${endpoint:saas-starter/auth-sidecar/http}",
+			"${endpoint:edge/sidecar/http}",
 			mappings, resources.NewContainerNetworkAccess(), asGatewayConsumer())
 		require.NoError(t, err)
 		assert.Equal(t, "http://host.docker.internal:1234", out)
@@ -53,7 +53,7 @@ func TestInterpolateEndpoints(t *testing.T) {
 
 	t.Run("errors on an unknown endpoint", func(t *testing.T) {
 		_, err := resources.InterpolateEndpointsFor(ctx,
-			"${endpoint:saas-starter/auth-sidecar/grpc}",
+			"${endpoint:edge/sidecar/grpc}",
 			mappings, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "published no network mapping")
@@ -61,7 +61,7 @@ func TestInterpolateEndpoints(t *testing.T) {
 
 	t.Run("errors when the endpoint has no instance for the access", func(t *testing.T) {
 		_, err := resources.InterpolateEndpointsFor(ctx,
-			"${endpoint:saas-starter/auth-sidecar/http}",
+			"${endpoint:edge/sidecar/http}",
 			mappings, resources.NewPublicNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no instance for access=public")
@@ -70,12 +70,12 @@ func TestInterpolateEndpoints(t *testing.T) {
 	t.Run("errors on an empty resolved address instead of emitting a broken URL", func(t *testing.T) {
 		blank := []*basev0.NetworkMapping{
 			{
-				Endpoint:  &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+				Endpoint:  &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 				Instances: []*basev0.NetworkInstance{{Address: "", Access: resources.NewNativeNetworkAccess()}},
 			},
 		}
 		_, err := resources.InterpolateEndpointsFor(ctx,
-			"${endpoint:saas-starter/auth-sidecar/http}/v1/jwks",
+			"${endpoint:edge/sidecar/http}/v1/jwks",
 			blank, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "empty address")
@@ -83,7 +83,7 @@ func TestInterpolateEndpoints(t *testing.T) {
 
 	t.Run("errors on a reference that names no endpoint", func(t *testing.T) {
 		_, err := resources.InterpolateEndpointsFor(ctx,
-			"${endpoint:saas-starter/auth-sidecar}",
+			"${endpoint:edge/sidecar}",
 			mappings, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "must name an endpoint")
@@ -98,7 +98,7 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 			{
 				Name: "work-context",
 				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json"},
+					{Key: "authority-jwks-url", Value: "${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json"},
 					{Key: "static", Value: "keep-me"},
 				},
 			},
@@ -119,7 +119,7 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 	// keeps its reference, so it can be resolved again for a different access.
 	raw, err := resources.GetConfigurationValue(ctx, conf, "work-context", "authority-jwks-url")
 	require.NoError(t, err)
-	assert.Equal(t, "${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json", raw)
+	assert.Equal(t, "${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json", raw)
 
 	container, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewContainerNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 	require.NoError(t, err)
@@ -140,7 +140,7 @@ func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T
 			{
 				Name: "work-context",
 				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/jwks"},
+					{Key: "authority-jwks-url", Value: "${endpoint:edge/sidecar/http}/v1/jwks"},
 				},
 			},
 			{Name: "empty-context", ConfigurationValues: nil},
@@ -167,7 +167,7 @@ func platformConfiguration(key, value string) *basev0.Configuration {
 		Infos: []*basev0.ConfigurationInformation{{
 			Name: "platform",
 			ConfigurationValues: []*basev0.ConfigurationValue{
-				{Key: "gateway", Value: "${endpoint:saas-starter/auth-sidecar/http}"},
+				{Key: "gateway", Value: "${endpoint:edge/sidecar/http}"},
 				{Key: key, Value: value},
 			},
 		}},
@@ -186,7 +186,7 @@ func TestInterpolateConfigurationEndpointsFailsOnAnEndpointAbsentFromTheConsumer
 	for _, tc := range []struct {
 		key, reference, producer string
 	}{
-		{key: "other-endpoint", reference: "saas-starter/auth-sidecar/grpc", producer: "saas-starter/auth-sidecar"},
+		{key: "other-endpoint", reference: "edge/sidecar/grpc", producer: "edge/sidecar"},
 		{key: "absent-service", reference: "saas/frontend/http", producer: "saas/frontend"},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
@@ -211,7 +211,7 @@ func TestInterpolateConfigurationEndpointsDropsAReferenceToAProducerOutsideTheRu
 	// The shape of `codefly run` with infra/temporal excluded: the group the
 	// consumer declares carries a key for a service this run does not contain.
 	conf := platformConfiguration("temporal-address", "${endpoint:infra/temporal/grpc}")
-	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "edge/sidecar" })
 
 	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 	require.NoError(t, err)
@@ -277,10 +277,10 @@ func TestInterpolateConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers
 // must resolve, so the value is an error rather than a drop.
 func TestInterpolateConfigurationEndpointsFailsOnAMixedValueNamingARunProducer(t *testing.T) {
 	ctx := context.Background()
-	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "edge/sidecar" })
 	for _, value := range []string{
-		"${endpoint:saas-starter/auth-sidecar/grpc}|${endpoint:infra/temporal/grpc}",
-		"${endpoint:infra/temporal/grpc}|${endpoint:saas-starter/auth-sidecar/grpc}",
+		"${endpoint:edge/sidecar/grpc}|${endpoint:infra/temporal/grpc}",
+		"${endpoint:infra/temporal/grpc}|${endpoint:edge/sidecar/grpc}",
 	} {
 		_, err := resources.InterpolateConfigurationEndpoints(ctx, platformConfiguration("mixed", value), gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 		require.Error(t, err, value)
@@ -294,7 +294,7 @@ func TestInterpolateConfigurationEndpointsFailsOnAMixedValueNamingARunProducer(t
 // the producer is demonstrably part of it.
 func TestInterpolateConfigurationEndpointsFailsWhenTheEndpointHasNoInstanceForTheAccess(t *testing.T) {
 	ctx := context.Background()
-	conf := platformConfiguration("gateway-public", "${endpoint:saas-starter/auth-sidecar/http}")
+	conf := platformConfiguration("gateway-public", "${endpoint:edge/sidecar/http}")
 	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewPublicNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no instance for access=public")
@@ -309,7 +309,7 @@ func TestInterpolateConfigurationEndpointsErrorsOnMalformedReference(t *testing.
 		Infos: []*basev0.ConfigurationInformation{
 			{
 				Name:                "platform",
-				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "gateway", Value: "${endpoint:saas-starter}"}},
+				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "gateway", Value: "${endpoint:edge}"}},
 			},
 		},
 	}
@@ -387,7 +387,7 @@ func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing
 }
 
 // The run-wide drop is per endpoint reference, not per service. A consumer that
-// depends on saas-starter/auth-sidecar for its http endpoint, given a run-wide
+// depends on edge/sidecar for its http endpoint, given a run-wide
 // value referencing that service's grpc endpoint (which it does not depend on),
 // has the value dropped — not hard-failed. The service-granularity heuristic would
 // have failed this consumer's boot on a config it never consumes.
@@ -399,16 +399,16 @@ func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedS
 			{
 				Name: "work-context",
 				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "grpc-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}"},
-					{Key: "http-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/jwks"},
+					{Key: "grpc-url", Value: "${endpoint:edge/sidecar/grpc}"},
+					{Key: "http-url", Value: "${endpoint:edge/sidecar/http}/v1/jwks"},
 				},
 			},
 		},
 	}
 
-	// gatewayMappings() gives the consumer only the http endpoint of auth-sidecar.
+	// gatewayMappings() gives the consumer only the http endpoint of sidecar.
 	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()),
-		resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" }))
+		resources.WithRunProducers(func(unique string) bool { return unique == "edge/sidecar" }))
 	require.NoError(t, err)
 
 	// The sibling grpc reference is dropped; the http reference it does depend on
@@ -434,12 +434,12 @@ func TestEndpointReferencesListsEveryReference(t *testing.T) {
 func TestInterpolateEndpointAuthority(t *testing.T) {
 	ctx := context.Background()
 	out, err := resources.InterpolateEndpointsFor(ctx,
-		"${endpoint:saas-starter/auth-sidecar/http|authority}",
+		"${endpoint:edge/sidecar/http|authority}",
 		gatewayMappings(), resources.NewContainerNetworkAccess(), asGatewayConsumer())
 	require.NoError(t, err)
 	assert.Equal(t, "host.docker.internal:1234", out)
-	require.Equal(t, []string{"saas-starter/auth-sidecar/http"},
-		resources.EndpointReferences("${endpoint:saas-starter/auth-sidecar/http|authority}"))
+	require.Equal(t, []string{"edge/sidecar/http"},
+		resources.EndpointReferences("${endpoint:edge/sidecar/http|authority}"))
 }
 
 // A value whose producer declared an assembly holds its text in the template's

@@ -12,4 +12,5 @@ endpoints:
     visibility: public
   - name: usage
     api: grpc
-    visibility: module
+    visibility: internal
+    allow-modules: [platform]

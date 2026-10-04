@@ -55,10 +55,19 @@ func addressAuthority(address string) (string, error) {
 var ErrMalformedEndpointReference = errors.New("malformed endpoint reference: the reserved ${endpoint: prefix is not a well-formed reference")
 
 // malformedEndpointMarker reports whether value carries the reserved prefix
-// outside any well-formed reference.
+// outside any well-formed reference. The spans between well-formed references
+// are judged each in place: joining them would let the text before one
+// reference and the text after it spell a prefix that the value never carried.
 func malformedEndpointMarker(value string) bool {
-	stripped := endpointInterpolationPattern.ReplaceAllString(value, "")
-	return strings.Contains(stripped, "${endpoint:")
+	const marker = "${endpoint:"
+	at := 0
+	for _, span := range endpointInterpolationPattern.FindAllStringIndex(value, -1) {
+		if strings.Contains(value[at:span[0]], marker) {
+			return true
+		}
+		at = span[1]
+	}
+	return strings.Contains(value[at:], marker)
 }
 
 // errEndpointNotAvailable marks a well-formed reference to a declared endpoint

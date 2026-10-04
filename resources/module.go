@@ -25,9 +25,16 @@ const (
 
 // InterfaceEndpoint declares a single endpoint that the module exposes to other modules.
 type InterfaceEndpoint struct {
-	Service    string `yaml:"service"`
-	Endpoint   string `yaml:"endpoint"`
-	Visibility string `yaml:"visibility,omitempty"` // "internal", "module" or "public"; defaults to "module"
+	Service  string `yaml:"service"`
+	Endpoint string `yaml:"endpoint"`
+	// Visibility is what the module grants across its boundary for this
+	// endpoint: "public", or "internal" to the modules AllowModules names. It
+	// defaults to "internal", and an internal entry must name its modules.
+	Visibility string `yaml:"visibility,omitempty"`
+	// AllowModules names the modules an "internal" export may be reached from
+	// ("*" for every module). It is the entry's own list: the module decides who
+	// crosses its boundary, not the service behind it.
+	AllowModules []string `yaml:"allow-modules,omitempty"`
 	// Implements lists the published interface versions the endpoint serves,
 	// each <publisher>/<name>@<version>. One endpoint can serve several: a
 	// gRPC port carries several protobuf services, and often two major
@@ -45,16 +52,35 @@ type InterfaceCapabilityExport struct {
 }
 
 // exportedVisibility is the visibility this entry grants across module
-// boundaries. An entry that names none exports at "module": the deprecated
-// alias is the default because it is the documented one, and because it is what
-// an external topology check expects to see for an undecorated export. Naming
-// "internal" instead would silently require an allow-list the entry has no way
-// to write.
+// boundaries. An entry that names none exports at "internal", to the modules
+// it lists; ValidateInterface has already refused an internal entry that lists
+// none, so an undecorated entry never silently grants every module.
 func (ie *InterfaceEndpoint) exportedVisibility() Visibility {
 	if ie.Visibility == "" {
-		return VisibilityModule
+		return VisibilityInternal
 	}
 	return ie.Visibility
+}
+
+// validate judges the entry on its own: a visibility an export can carry, and
+// an allow-list exactly when the visibility reads one.
+func (ie *InterfaceEndpoint) validate() error {
+	switch ie.exportedVisibility() {
+	case VisibilityInternal:
+		if len(ie.AllowModules) == 0 {
+			return fmt.Errorf("interface endpoint %s/%s exports at %q to no module: name the modules in allow-modules (%q for every module), or export at %q",
+				ie.Service, ie.Endpoint, VisibilityInternal, AllowAllModules, VisibilityPublic)
+		}
+	case VisibilityPublic:
+		if len(ie.AllowModules) > 0 {
+			return fmt.Errorf("interface endpoint %s/%s lists allow-modules with visibility %q; an allow-list is only read for %q",
+				ie.Service, ie.Endpoint, VisibilityPublic, VisibilityInternal)
+		}
+	default:
+		return fmt.Errorf("interface endpoint %s/%s has invalid visibility %q (must be %q or %q)",
+			ie.Service, ie.Endpoint, ie.Visibility, VisibilityInternal, VisibilityPublic)
+	}
+	return nil
 }
 
 // ModuleInterface declares the contract of a module: what it exposes to the
@@ -130,9 +156,10 @@ func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 		protoInterface := &basev0.ModuleInterface{}
 		for _, ie := range mod.Interface.Endpoints {
 			protoInterface.Endpoints = append(protoInterface.Endpoints, &basev0.InterfaceEndpoint{
-				Service:    ie.Service,
-				Endpoint:   ie.Endpoint,
-				Visibility: ie.Visibility,
+				Service:      ie.Service,
+				Endpoint:     ie.Endpoint,
+				Visibility:   ie.exportedVisibility(),
+				AllowModules: ie.AllowModules,
 			})
 		}
 		proto.Interface = protoInterface
@@ -598,22 +625,17 @@ func (mod *Module) applyInterface(service *Service) {
 		return
 	}
 	for _, endpoint := range service.Endpoints {
-		// The deprecated "external" spells a location as a visibility, and it is
-		// the only record that the endpoint lives outside the system. Exporting
-		// over it would move the endpoint inside, so that an address resolved
-		// from DNS becomes an allocated port. Endpoints that say "location:
-		// external" keep it in a separate field and export normally.
-		if endpoint.Visibility == VisibilityExternal {
-			continue
-		}
-		exported := VisibilityPrivate
+		// Where the endpoint lives is its Location, which the interface never
+		// touches: an external endpoint is exported or kept like any other, and
+		// keeps resolving from DNS either way.
+		exported, allowModules := VisibilityPrivate, []string(nil)
 		for _, ie := range mod.Interface.Endpoints {
 			if ReferenceMatch(ie.Service, service.Name) && ie.Endpoint == endpoint.Name {
-				exported = ie.exportedVisibility()
+				exported, allowModules = ie.exportedVisibility(), ie.AllowModules
 				break
 			}
 		}
-		endpoint.exportAs(exported)
+		endpoint.exportAs(exported, allowModules)
 	}
 }
 
@@ -754,16 +776,8 @@ func (mod *Module) ValidateInterface(ctx context.Context) error {
 	}
 
 	for _, ie := range mod.Interface.Endpoints {
-		// Default visibility to "module" if not set (deprecated alias for
-		// "internal"; kept as the default so a migrating workspace's external
-		// topology check keeps seeing MODULE).
-		if ie.Visibility == "" {
-			ie.Visibility = VisibilityModule
-		}
-		// Only cross-module visibilities are valid for interface endpoints.
-		if ie.Visibility != VisibilityInternal && ie.Visibility != VisibilityModule && ie.Visibility != VisibilityPublic {
-			return w.NewError("interface endpoint %s/%s has invalid visibility %q (must be %q, %q, or %q)",
-				ie.Service, ie.Endpoint, ie.Visibility, VisibilityInternal, VisibilityModule, VisibilityPublic)
+		if err := ie.validate(); err != nil {
+			return w.Wrap(err)
 		}
 
 		// Check service exists
@@ -969,11 +983,9 @@ func ValidateEndpointVisibility(consumerModule, producerModule, producerService,
 	if visibility == VisibilityInternal {
 		return fmt.Errorf("endpoint %s/%s does not permit module %q", producerService, endpoint, consumerModule)
 	}
-	if visibility == VisibilityPrivate || visibility == "" {
-		return fmt.Errorf("endpoint %s/%s is private to module %q; module %q may not depend on it",
-			producerService, endpoint, producerModule, consumerModule)
-	}
-	return fmt.Errorf("%w: endpoint %s/%s declares unsupported visibility %q", ErrInvalidEndpointDeclaration, producerService, endpoint, visibility)
+	// KnownVisibility and AllowsModule leave exactly private (or unset) here.
+	return fmt.Errorf("endpoint %s/%s is private to module %q; module %q may not depend on it",
+		producerService, endpoint, producerModule, consumerModule)
 }
 
 func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {

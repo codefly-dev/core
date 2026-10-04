@@ -292,11 +292,11 @@ func TestModuleConformsToThePublishedDefinitions(t *testing.T) {
 	}
 	for message, module := range map[string]string{
 		"platform/redis/tcp serves tcp but implements example.dev/widgets@1.2.0, a grpc interface": moduleWith(
-			"    endpoints:\n        - service: redis\n          endpoint: tcp\n          implements: [example.dev/widgets@1.2.0]\n"),
+			"    endpoints:\n        - service: redis\n          endpoint: tcp\n          visibility: public\n          implements: [example.dev/widgets@1.2.0]\n"),
 		"platform/redis declares capability example.dev/widgets@1.2.0, which is a grpc interface": moduleWith(
 			"    capabilities:\n        - service: redis\n          implements: [example.dev/widgets@1.2.0]\n"),
 		"platform/api/grpc implements codefly.dev/cache@0.3.0, which is a capability": moduleWith(
-			"    endpoints:\n        - service: api\n          endpoint: grpc\n          implements: [codefly.dev/cache@0.3.0]\n"),
+			"    endpoints:\n        - service: api\n          endpoint: grpc\n          visibility: public\n          implements: [codefly.dev/cache@0.3.0]\n"),
 	} {
 		root := bindingWorkspace(t, "", map[string]string{"modules/platform/module.codefly.yaml": module})
 		platform, err := resources.LoadModuleFromDir(context.Background(), filepath.Join(root, "modules/platform"))
@@ -468,13 +468,13 @@ func TestModuleInterfaceDeclarationsAreUnambiguous(t *testing.T) {
 	}
 	for message, declaration := range map[string]string{
 		"platform/api/grpc implements example.dev/widgets at both 1.2.0 and 1.4.0, one compatible line; list only the higher version": module(
-			"    endpoints:\n        - service: api\n          endpoint: grpc\n          implements: [example.dev/widgets@1.2.0, example.dev/widgets@1.4.0]\n"),
+			"    endpoints:\n        - service: api\n          endpoint: grpc\n          visibility: public\n          implements: [example.dev/widgets@1.2.0, example.dev/widgets@1.4.0]\n"),
 		`declares the capabilities of service "redis" twice; list them in one entry`: module(
 			"    capabilities:\n        - service: redis\n          implements: [codefly.dev/cache@0.3.0]\n        - service: redis\n          implements: [codefly.dev/queue@1.0.0]\n"),
 		`capability entry for service "redis" implements nothing`: module(
 			"    capabilities:\n        - service: redis\n"),
 		"cannot unmarshal": module(
-			"    endpoints:\n        - service: api\n          endpoint: grpc\n          implements: example.dev/widgets@1.2.0\n"),
+			"    endpoints:\n        - service: api\n          endpoint: grpc\n          visibility: public\n          implements: example.dev/widgets@1.2.0\n"),
 	} {
 		root := bindingWorkspace(t, "", map[string]string{"modules/platform/module.codefly.yaml": declaration})
 		_, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))

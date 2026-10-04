@@ -837,7 +837,7 @@ func TestSaveLocalOverlayRoundTripsServiceOverrides(t *testing.T) {
 		Resolve: map[string]*resources.ModuleResolveDirective{
 			"saas": {
 				Services: map[string]*resources.ServiceResolveDirective{
-					"accounts":  {Path: "/Users/me/module-saas-starter/module/services/accounts"},
+					"accounts":  {Path: "/Users/me/module-edge/module/services/accounts"},
 					"gateway":   {Worktree: "acme/host@feature"},
 					"telemetry": {Version: "0.0.66"},
 				},
@@ -850,7 +850,7 @@ func TestSaveLocalOverlayRoundTripsServiceOverrides(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, reloaded.Resolve["saas"].Pinned)
 	services := reloaded.Resolve["saas"].Services
-	require.Equal(t, "/Users/me/module-saas-starter/module/services/accounts", services["accounts"].Path)
+	require.Equal(t, "/Users/me/module-edge/module/services/accounts", services["accounts"].Path)
 	require.Equal(t, "acme/host@feature", services["gateway"].Worktree)
 	require.Equal(t, "0.0.66", services["telemetry"].Version)
 }

@@ -9,7 +9,7 @@ agent:
 endpoints:
   - name: listed
     api: tcp
-    visibility: external
+    location: external
   - name: unlisted
     api: tcp
-    visibility: external
+    location: external

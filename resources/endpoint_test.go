@@ -112,7 +112,8 @@ func TestLoadEndpointsAllowsNamedSameAPIEndpoints(t *testing.T) {
 	require.Equal(t, "grpc", endpoints[0].Name)
 	require.Equal(t, resources.VisibilityPublic, endpoints[0].Visibility)
 	require.Equal(t, "usage", endpoints[1].Name)
-	require.Equal(t, resources.VisibilityModule, endpoints[1].Visibility)
+	require.Equal(t, resources.VisibilityInternal, endpoints[1].Visibility)
+	require.Equal(t, []string{"platform"}, endpoints[1].AllowModules)
 	for _, endpoint := range endpoints {
 		require.Equal(t, standards.GRPC, endpoint.Api)
 		require.Equal(t, "accounts.v1", resources.IsGRPC(context.Background(), endpoint).Package)
@@ -228,15 +229,18 @@ func TestEndpointVisibilityInterpretation(t *testing.T) {
 	service, err := resources.LoadServiceFromDir(ctx, "testdata/endpoints/visibility")
 	require.NoError(t, err)
 
-	// Deprecated "module" is preserved on the model (not rewritten) and
-	// interpreted as reachable from every module.
+	// Every module, said so: internal with the wildcard allow-list.
 	grpc := endpointByName(service.Endpoints, "grpc")
-	require.Equal(t, resources.VisibilityModule, grpc.Visibility)
+	require.Equal(t, resources.VisibilityInternal, grpc.Visibility)
+	require.Equal(t, []string{resources.AllowAllModules}, grpc.AllowModules)
 	require.True(t, grpc.AllowsModule("anything"))
+	require.False(t, grpc.External())
 
-	// Deprecated "external" is preserved and treated as external + reachable.
+	// Where an endpoint lives is its location; who may reach it is its
+	// visibility. The two axes are read separately.
 	rest := endpointByName(service.Endpoints, "rest")
-	require.Equal(t, resources.VisibilityExternal, rest.Visibility)
+	require.Equal(t, resources.VisibilityPublic, rest.Visibility)
+	require.Equal(t, resources.LocationExternal, rest.Location)
 	require.True(t, rest.External())
 	require.True(t, rest.AllowsModule("anything"))
 
@@ -253,15 +257,15 @@ func TestEndpointVisibilityInterpretation(t *testing.T) {
 	require.False(t, tcp.External())
 }
 
-// TestEndpointVisibilityRoundTrip guards against silently migrating a user's
-// authored visibility on save: loading and saving must leave the deprecated
-// values exactly as written.
+// TestEndpointVisibilityRoundTrip guards against a save rewriting what the
+// author declared: the visibility, the allow-list and the location come back
+// exactly as written.
 func TestEndpointVisibilityRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	svcDir := filepath.Join(dir, "vault")
 	require.NoError(t, os.MkdirAll(svcDir, 0o755))
-	yaml := "kind: service\nname: vault\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: http\n    api: http\n    visibility: module\n"
+	yaml := "kind: service\nname: vault\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: http\n    api: http\n    visibility: internal\n    allow-modules:\n      - platform\n  - name: tcp\n    api: tcp\n    location: external\n"
 	require.NoError(t, os.WriteFile(filepath.Join(svcDir, "service.codefly.yaml"), []byte(yaml), 0o644))
 
 	service, err := resources.LoadServiceFromDir(ctx, svcDir)
@@ -270,9 +274,64 @@ func TestEndpointVisibilityRoundTrip(t *testing.T) {
 
 	saved, err := os.ReadFile(filepath.Join(svcDir, "service.codefly.yaml"))
 	require.NoError(t, err)
-	require.Contains(t, string(saved), "visibility: module")
-	require.NotContains(t, string(saved), "visibility: internal")
-	require.NotContains(t, string(saved), "allow-modules")
+	require.Contains(t, string(saved), "visibility: internal")
+	require.Contains(t, string(saved), "- platform")
+	require.Contains(t, string(saved), "location: external")
+	require.NotContains(t, string(saved), "visibility: private")
+}
+
+// A declaration the model cannot judge is refused when it is read, with the
+// invalid-declaration error, on every load path — so no later path has to
+// decide what "application", "module" or "external" means, and no consumer is
+// silently wired without an endpoint whose declaration nobody could read.
+func TestLoadingRefusesADeclarationTheModelDoesNotDefine(t *testing.T) {
+	ctx := context.Background()
+	const head = "kind: service\nname: vault\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: http\n    api: http\n"
+	cases := map[string]struct{ endpoint, says string }{
+		"a typo":                         {"    visibility: application\n", `unsupported visibility "application"`},
+		"the former module spelling":     {"    visibility: module\n", `unsupported visibility "module"`},
+		"the former external spelling":   {"    visibility: external\n", `unsupported visibility "external"`},
+		"an unknown location":            {"    location: nowhere\n", `unsupported location "nowhere"`},
+		"an allow-list nothing reads":    {"    visibility: public\n    allow-modules: [platform]\n", `allow-modules with visibility "public"`},
+		"an allow-list on a private one": {"    allow-modules: [platform]\n", `allow-modules with visibility ""`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "module.codefly.yaml"),
+				[]byte("kind: module\nname: infra\nservices:\n    - name: vault\n"), 0o644))
+			svcDir := filepath.Join(dir, "services", "vault")
+			require.NoError(t, os.MkdirAll(svcDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(svcDir, "service.codefly.yaml"), []byte(head+tc.endpoint), 0o644))
+
+			_, err := resources.LoadServiceFromDir(ctx, svcDir)
+			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "by directory")
+			require.ErrorContains(t, err, tc.says)
+
+			mod, err := resources.LoadModuleFromDir(ctx, dir)
+			require.NoError(t, err)
+			_, err = mod.LoadServiceFromName(ctx, "vault")
+			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "through the module")
+			require.ErrorContains(t, err, tc.says)
+		})
+	}
+}
+
+// The proto schema refuses what the model refuses: a visibility or a location
+// outside the model's lists never crosses a process boundary as an endpoint.
+func TestEndpointProtoRefusesWhatTheModelDoesNotDefine(t *testing.T) {
+	for _, visibility := range []string{"module", "external", "application"} {
+		endpoint := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: visibility}
+		_, err := endpoint.Proto()
+		require.Error(t, err, visibility)
+	}
+	endpoint := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityPublic, Location: "nowhere"}
+	_, err := endpoint.Proto()
+	require.Error(t, err, "location")
+	endpoint.Location = resources.LocationExternal
+	proto, err := endpoint.Proto()
+	require.NoError(t, err)
+	require.True(t, resources.IsExternalEndpoint(proto))
 }
 
 func TestEndpointAllowsModule(t *testing.T) {

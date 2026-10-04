@@ -1,8 +1,8 @@
 package runnable_test
 
 import (
-	"slices"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -235,7 +235,7 @@ func sampleTarget(facility basev0.RunnableFacility_Kind) *basev0.RunnableTarget 
 		target.Coordinates = &basev0.RunnableTarget_Generated{Generated: &basev0.RunnableGeneratedTarget{
 			InstallPath: "/opt/codefly/runnables/word-count-0.1.0",
 			Endpoint: &basev0.NetworkMapping{
-				Endpoint:  &basev0.Endpoint{Name: "http", Service: "word-count", Module: "with-runnables", Api: "http", Visibility: "module"},
+				Endpoint:  &basev0.Endpoint{Name: "http", Service: "word-count", Module: "with-runnables", Api: "http", Visibility: "internal", AllowModules: []string{"*"}},
 				Instances: []*basev0.NetworkInstance{{Address: "http://127.0.0.1:41120"}},
 			},
 		}}
@@ -247,7 +247,7 @@ func sampleTarget(facility basev0.RunnableFacility_Kind) *basev0.RunnableTarget 
 	case basev0.RunnableFacility_SERVICE:
 		target.Coordinates = &basev0.RunnableTarget_Service{Service: &basev0.RunnableServiceTarget{
 			Endpoint: &basev0.NetworkMapping{
-				Endpoint:  &basev0.Endpoint{Name: "grpc", Service: "store", Module: "with-runnables", Api: "grpc", Visibility: "module"},
+				Endpoint:  &basev0.Endpoint{Name: "grpc", Service: "store", Module: "with-runnables", Api: "grpc", Visibility: "internal", AllowModules: []string{"*"}},
 				Instances: []*basev0.NetworkInstance{{Address: "store-0.with-runnables.svc:9090"}},
 			},
 		}}
@@ -337,7 +337,7 @@ func sampleBinding(pkg *basev0.RunnablePackage, artifact *basev0.RunnableArtifac
 		PackageDigest: pkg.GetDigest(),
 		Facility:      &basev0.RunnableFacility{Kind: facility},
 		DependencyNetworkMappings: []*basev0.NetworkMapping{{
-			Endpoint: &basev0.Endpoint{Name: "tcp", Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "module"},
+			Endpoint: &basev0.Endpoint{Name: "tcp", Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "internal", AllowModules: []string{"*"}},
 			Instances: []*basev0.NetworkInstance{
 				{Host: "store-1.with-runnables.svc", Port: 5432, Address: "store-1.with-runnables.svc:5432"},
 				{Host: "store-0.with-runnables.svc", Port: 5432, Address: "store-0.with-runnables.svc:5432"},
@@ -370,7 +370,7 @@ func TestPrepareBindingPinsPackageFacilityAndArtifact(t *testing.T) {
 	// another order has installed the same thing.
 	shuffled := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
 	shuffled.DependencyNetworkMappings = append(shuffled.DependencyNetworkMappings, &basev0.NetworkMapping{
-		Endpoint:  &basev0.Endpoint{Name: "admin", Service: "store", Module: "with-runnables", Api: "http", Visibility: "module"},
+		Endpoint:  &basev0.Endpoint{Name: "admin", Service: "store", Module: "with-runnables", Api: "http", Visibility: "internal", AllowModules: []string{"*"}},
 		Instances: []*basev0.NetworkInstance{{Address: "http://store-0.with-runnables.svc:8080"}},
 	})
 	ordered := sampleBinding(pkg, image, basev0.RunnableFacility_KUBERNETES)
@@ -812,7 +812,7 @@ func TestEndpointCoordinatesCanAlwaysNameARealEndpoint(t *testing.T) {
 	agreedAccepted, agreedRejected := 0, 0
 	for _, candidate := range candidates {
 		t.Run("service/"+candidate, func(t *testing.T) {
-			endpoint := accepted(&basev0.Endpoint{Name: "tcp", Service: candidate, Module: "with-runnables", Api: "tcp", Visibility: "module"})
+			endpoint := accepted(&basev0.Endpoint{Name: "tcp", Service: candidate, Module: "with-runnables", Api: "tcp", Visibility: "internal", AllowModules: []string{"*"}})
 			if endpoint {
 				agreedAccepted++
 			} else {
@@ -824,14 +824,14 @@ func TestEndpointCoordinatesCanAlwaysNameARealEndpoint(t *testing.T) {
 			require.Equal(t, endpoint, accepted(serviceOperationNamed(candidate, "with-runnables", "grpc")), "operation service %q", candidate)
 		})
 		t.Run("module/"+candidate, func(t *testing.T) {
-			endpoint := accepted(&basev0.Endpoint{Name: "tcp", Service: "store", Module: candidate, Api: "tcp", Visibility: "module"})
+			endpoint := accepted(&basev0.Endpoint{Name: "tcp", Service: "store", Module: candidate, Api: "tcp", Visibility: "internal", AllowModules: []string{"*"}})
 			require.Equal(t, endpoint, accepted(&basev0.RunnableDependency{
 				Name: "store", Module: candidate, Kind: "runtime", Endpoints: []string{"tcp"},
 			}), "dependency module %q", candidate)
 			require.Equal(t, endpoint, accepted(serviceOperationNamed("store", candidate, "grpc")), "operation module %q", candidate)
 		})
 		t.Run("endpoint/"+candidate, func(t *testing.T) {
-			endpoint := accepted(&basev0.Endpoint{Name: candidate, Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "module"})
+			endpoint := accepted(&basev0.Endpoint{Name: candidate, Service: "store", Module: "with-runnables", Api: "tcp", Visibility: "internal", AllowModules: []string{"*"}})
 			require.Equal(t, endpoint, accepted(&basev0.RunnableDependency{
 				Name: "store", Module: "with-runnables", Kind: "runtime", Endpoints: []string{candidate},
 			}), "dependency endpoint %q", candidate)

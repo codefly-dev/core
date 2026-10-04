@@ -207,4 +207,66 @@ func TestKnownVisibilityIsTheOneList(t *testing.T) {
 	}
 	require.False(t, resources.KnownVisibility("pubilc"))
 	require.False(t, resources.KnownVisibility("everyone"))
+	require.False(t, resources.KnownVisibility("module"), "every module is said with internal and a wildcard allow-list")
+	require.False(t, resources.KnownVisibility("external"), "where an endpoint lives is its location")
+	require.True(t, resources.KnownLocation(""))
+	require.True(t, resources.KnownLocation(resources.LocationExternal))
+	require.False(t, resources.KnownLocation("nowhere"))
+}
+
+// Removing the well-formed references from a value must not let the text
+// before one and the text after it spell a marker the value never carried: the
+// spans between references are judged where they are.
+func TestTextAroundAWellFormedReferenceIsNotAMarker(t *testing.T) {
+	ctx := context.Background()
+	selection := resources.EndpointSelectionContext{ConsumerModule: "payments",
+		Declared: declaredBy(selectionEndpoint("rpc", "grpc", "public"))}
+	mappings := []*basev0.NetworkMapping{selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090"))}
+	for name, value := range map[string]string{
+		"a dollar before and a brace after": "$${endpoint:" + selectionUnique + "/rpc}{endpoint:tail",
+		"prefix split by two references":    "${endpoint:" + selectionUnique + "/rpc}${endpoint:" + selectionUnique + "/rpc}",
+		"the prefix letters around one":     "${endpoint${endpoint:" + selectionUnique + "/rpc}:x",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := resources.InterpolateEndpointsFor(ctx, value, mappings, resources.NewNativeNetworkAccess(), selection)
+			require.NoError(t, err)
+			require.NotContains(t, out, "${endpoint:"+selectionUnique)
+			require.Contains(t, out, "localhost:9090")
+		})
+	}
+	for name, value := range map[string]string{
+		"a real marker after a reference":  "${endpoint:" + selectionUnique + "/rpc},${endpoint:",
+		"a real marker before a reference": "${endpoint:x,${endpoint:" + selectionUnique + "/rpc}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := resources.InterpolateEndpointsFor(ctx, value, mappings, resources.NewNativeNetworkAccess(), selection)
+			require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
+		})
+	}
+}
+
+// A declaration the model cannot judge is refused by every wiring path, for
+// the owning module exactly as for a foreign one: it is a fault of the
+// producer's manifest, not a verdict on the consumer, and a "consumes all"
+// dependency never drops it as though it had been denied.
+func TestAnInvalidDeclarationIsRefusedByEveryWiringPath(t *testing.T) {
+	endpoints := []*basev0.Endpoint{
+		{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic},
+		{Module: "platform", Service: "api", Name: "broken", Api: "http", Visibility: "pubilc"},
+	}
+	mappings := []*basev0.NetworkMapping{
+		{Endpoint: endpoints[0], Instances: []*basev0.NetworkInstance{nativeAt("http://localhost:9090")}},
+		{Endpoint: endpoints[1], Instances: []*basev0.NetworkInstance{nativeAt("http://localhost:8080")}},
+	}
+	dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
+	for _, consumer := range []string{"platform", "payments"} {
+		t.Run(consumer, func(t *testing.T) {
+			_, err := resources.ConsumedDependencyEndpoints(consumer, dependency, endpoints)
+			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "consumed")
+			_, err = resources.PermittedDependencyEndpoints(consumer, dependency, endpoints)
+			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "permitted")
+			_, err = resources.ResolveDependencyNetworkMappings(consumer, []*resources.ServiceDependency{dependency}, mappings)
+			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "network mappings")
+		})
+	}
 }

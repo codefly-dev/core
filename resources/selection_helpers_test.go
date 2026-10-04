@@ -32,8 +32,8 @@ func gatewayDeclared() resources.DeclaredEndpoints {
 		return &resources.Endpoint{Module: module, Service: service, Name: name, API: api, Visibility: "public"}
 	}
 	return declaring(
-		public("saas-starter", "auth-sidecar", "http", standards.HTTP),
-		public("saas-starter", "auth-sidecar", "grpc", standards.GRPC),
+		public("edge", "sidecar", "http", standards.HTTP),
+		public("edge", "sidecar", "grpc", standards.GRPC),
 		public("infra", "temporal", "grpc", standards.GRPC),
 		public("mod", "store", "postgres", standards.TCP),
 		public("mod", "absent", "postgres", standards.TCP),

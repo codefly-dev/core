@@ -81,13 +81,23 @@ func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 		visibility[endpoint.GetName()] = endpoint.GetVisibility()
 	}
 	require.Equal(t, map[string]string{
-		"grpc":       resources.VisibilityModule,
+		"grpc":       resources.VisibilityInternal,
 		"public":     resources.VisibilityPublic,
 		"restricted": resources.VisibilityInternal,
-		// Exported, but its visibility records a location the interface cannot
-		// restate, so the entry grants export without moving it inside.
-		"listed": resources.VisibilityExternal,
+		// Exported like any other: where it lives is its location, which the
+		// entry never touches.
+		"listed": resources.VisibilityInternal,
 	}, visibility)
+	allowed := make(map[string][]string, len(exposed))
+	for _, endpoint := range exposed {
+		allowed[endpoint.GetName()] = endpoint.GetAllowModules()
+	}
+	require.Equal(t, map[string][]string{
+		"grpc":       {resources.AllowAllModules},
+		"public":     nil,
+		"restricted": {"platform"},
+		"listed":     {resources.AllowAllModules},
+	}, allowed, "the allow-list a consumer is judged against is the interface entry's own")
 
 	gateway, err := mod.LoadServiceFromName(ctx, "gateway")
 	require.NoError(t, err)
@@ -95,7 +105,8 @@ func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 	for _, endpoint := range gateway.Endpoints {
 		byName[endpoint.Name] = endpoint
 	}
-	// "restricted" is exported at internal, so only its allow-list reaches it.
+	// "restricted" is private to its service and exported at internal by the
+	// module, so only the entry's allow-list reaches it.
 	require.True(t, byName["restricted"].AllowsModule("platform"))
 	require.False(t, byName["restricted"].AllowsModule("other"))
 	// "omitted" is public on the service and exported by nothing.
@@ -104,11 +115,10 @@ func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 	require.True(t, byName["omitted"].AllowsModule("saas"))
 }
 
-// "external" is a location written as a visibility, and the only record that an
-// endpoint lives outside the system. Exporting over it would move the endpoint
-// inside, turning an address resolved from DNS into an allocated port — for
-// every endpoint of the module, since an interface entry can only grant
-// internal, module or public.
+// Where an endpoint lives is its location, and the interface never touches it:
+// an external endpoint the interface exports is exported at the entry's
+// visibility and still resolves from DNS, and one the interface omits is
+// private and still external. Neither is given an allocated port.
 func TestInterfaceBoundaryKeepsExternalEndpointsExternal(t *testing.T) {
 	ctx := context.Background()
 	const dir = "testdata/workspaces/interface-boundary-visibility"
@@ -120,11 +130,14 @@ func TestInterfaceBoundaryKeepsExternalEndpointsExternal(t *testing.T) {
 	vendor, err := mod.LoadServiceFromName(ctx, "vendor")
 	require.NoError(t, err)
 
+	visibility := make(map[string]string, len(vendor.Endpoints))
 	for _, endpoint := range vendor.Endpoints {
 		require.Truef(t, endpoint.External(), "endpoint %q stopped being external", endpoint.Name)
-		require.Equalf(t, resources.VisibilityExternal, endpoint.Visibility,
-			"endpoint %q lost the location its visibility records", endpoint.Name)
+		require.Equalf(t, resources.LocationExternal, endpoint.Location, "endpoint %q lost its location", endpoint.Name)
+		visibility[endpoint.Name] = endpoint.Visibility
 	}
+	require.Equal(t, map[string]string{"listed": resources.VisibilityInternal, "unlisted": resources.VisibilityPrivate}, visibility,
+		"the interface decides what an external endpoint exports exactly as it does for any other")
 
 	endpoints, err := vendor.LoadEndpoints(ctx)
 	require.NoError(t, err)
@@ -223,11 +236,13 @@ func TestInterfaceBoundaryDoesNotRewriteAuthoredVisibility(t *testing.T) {
 	for _, endpoint := range declaration.Endpoints {
 		authored[endpoint.Name] = endpoint.Visibility
 	}
-	// "restricted" is exported at internal and "omitted" not exported at all,
-	// yet both were authored public and must save as they were written.
+	// "restricted" was authored private and exported at internal to platform,
+	// "omitted" authored public and not exported at all: both save as written,
+	// and the entry's allow-list is never written into the service.
 	require.Equal(t, map[string]string{
 		"public":     resources.VisibilityPublic,
-		"restricted": resources.VisibilityPublic,
+		"restricted": "",
 		"omitted":    resources.VisibilityPublic,
 	}, authored)
+	require.NotContains(t, string(saved), "allow-modules")
 }

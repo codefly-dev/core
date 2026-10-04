@@ -17,7 +17,8 @@ type UnresolvedReference struct {
 	// Group and Key locate the value carrying the reference.
 	Group string
 	Key   string
-	// Reference is the <module>/<service>/<endpoint> the value names.
+	// Reference is the <module>/<service>/<endpoint> the value names, empty
+	// when the value carries a marker the reference grammar cannot read.
 	Reference string
 	// Producer is the <module>/<service> the reference names, empty when the
 	// reference is malformed.
@@ -112,6 +113,17 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 			}
 			for _, info := range byGroup[group] {
 				for _, value := range info.GetConfigurationValues() {
+					// A marker the grammar cannot read is a fault of the value,
+					// reported here with the references: the render refuses
+					// it, and a plan is the earlier place to say so.
+					if resources.ConfigurationValueHasMalformedEndpointMarker(value) {
+						problem := UnresolvedReference{Consumer: unique, Group: group, Key: value.GetKey(),
+							Reason: "malformed reference: the reserved ${endpoint: prefix is not a well-formed reference"}
+						if !seen[problem] {
+							seen[problem] = true
+							unresolved = append(unresolved, problem)
+						}
+					}
 					// Not EndpointReferences(value.GetValue()): a value whose
 					// producer declared an assembly holds its text in the
 					// template's literals, so a ${endpoint:…} written there is

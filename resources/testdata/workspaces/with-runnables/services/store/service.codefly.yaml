@@ -9,4 +9,5 @@ agent:
 endpoints:
   - name: tcp
     api: tcp
-    visibility: module
+    visibility: internal
+    allow-modules: ["*"]

@@ -244,3 +244,20 @@ func ConfigurationValueEndpointReferences(value *basev0.ConfigurationValue) []st
 	}
 	return references
 }
+
+// ConfigurationValueHasMalformedEndpointMarker reports whether the value, or a
+// literal of its template, carries the reserved `${endpoint:` prefix outside
+// any well-formed reference. The reference grammar cannot see such a marker, so
+// a plan-time check asks this separately: the render refuses the value, and a
+// plan that reported nothing until then would have let the fault through.
+func ConfigurationValueHasMalformedEndpointMarker(value *basev0.ConfigurationValue) bool {
+	if malformedEndpointMarker(value.GetValue()) {
+		return true
+	}
+	for _, segment := range value.GetTemplate().GetSegments() {
+		if malformedEndpointMarker(segment.GetLiteral()) {
+			return true
+		}
+	}
+	return false
+}

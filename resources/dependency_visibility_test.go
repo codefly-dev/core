@@ -28,9 +28,10 @@ func TestValidateEndpointVisibility(t *testing.T) {
 		{name: "internal wildcard allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityInternal, allowed: []string{resources.AllowAllModules}},
 		{name: "internal unlisted module denied", consumer: "web", producer: "saas", visibility: resources.VisibilityInternal, allowed: []string{"platform"}, deny: true, errorText: "does not permit module"},
 		{name: "internal empty allow-list denied", consumer: "platform", producer: "saas", visibility: resources.VisibilityInternal, deny: true, errorText: "does not permit module"},
-		{name: "module cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityModule},
 		{name: "public cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityPublic},
-		{name: "external cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityExternal},
+		{name: "the former module spelling is an invalid declaration", consumer: "platform", producer: "saas", visibility: "module", deny: true, errorText: `unsupported visibility "module"`},
+		{name: "the former external spelling is an invalid declaration", consumer: "platform", producer: "saas", visibility: "external", deny: true, errorText: `unsupported visibility "external"`},
+		{name: "an invalid declaration is refused for the owning module too", consumer: "saas", producer: "saas", visibility: "module", deny: true, errorText: `unsupported visibility "module"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

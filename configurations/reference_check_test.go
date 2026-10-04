@@ -80,6 +80,32 @@ func TestCheckEndpointReferencesReportsAMalformedReference(t *testing.T) {
 	require.Contains(t, err.Error(), "malformed reference")
 }
 
+// A marker the reference grammar cannot read fails the plan, not just the
+// render: in the value and in a template literal alike.
+func TestCheckEndpointReferencesReportsAMalformedMarker(t *testing.T) {
+	consumer := referenceCheckService("assistant", "chat", []string{"assistant"})
+	for name, value := range map[string]*basev0.ConfigurationValue{
+		"empty marker":        {Key: "bad", Value: "${endpoint:}"},
+		"unterminated marker": {Key: "bad", Value: "${endpoint:assistant/chat/grpc"},
+		"in a template literal": {Key: "bad", Template: &basev0.ConfigurationValueTemplate{
+			Segments: []*basev0.ConfigurationValueTemplateSegment{
+				{Content: &basev0.ConfigurationValueTemplateSegment_Literal{Literal: "x=${endpoint:"}},
+			},
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
+				{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{value}},
+			}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return nil, false })
+			var unresolved *configurations.UnresolvedReferencesError
+			require.True(t, errors.As(err, &unresolved), "got %v", err)
+			require.Len(t, unresolved.References, 1)
+			require.Equal(t, "bad", unresolved.References[0].Key)
+			require.Contains(t, unresolved.References[0].Reason, "malformed reference")
+		})
+	}
+}
+
 // A reference is subject to the producer's export boundary: declaring the group
 // instead of the dependency must not be a way around endpoint visibility. The
 // same endpoint is fine for a consumer in the producer's own module.

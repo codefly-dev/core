@@ -29,9 +29,8 @@ const RuntimeServiceAgent = "codefly:service:runtime"
 const BuilderServiceAgent = "codefly:service:builder"
 const CodeServiceAgent = "codefly:service:code"
 
-/*
-A Service
-*/
+// Service is one deployable unit of a module: what it declares, the agent that
+// builds and runs it, and the endpoints and dependencies that wire it.
 type Service struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
@@ -215,9 +214,9 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 
 	ref := &ServiceReference{Name: action.Name}
 	if hadReference {
-		existing, err := mod.GetServiceReferences(action.Name)
-		if err != nil {
-			return nil, w.Wrap(err)
+		existing, refErr := mod.GetServiceReferences(action.Name)
+		if refErr != nil {
+			return nil, w.Wrap(refErr)
 		}
 		if existing == nil {
 			return nil, w.NewError("service reference <%s> disappeared", action.Name)
@@ -236,8 +235,8 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 		}
 		mod.ServiceReferences = originalReferences
 		if createdDir {
-			if err := os.RemoveAll(dir); err != nil {
-				result = errors.Join(result, w.Wrapf(err, "cannot remove partial service directory"))
+			if removeErr := os.RemoveAll(dir); removeErr != nil {
+				result = errors.Join(result, w.Wrapf(removeErr, "cannot remove partial service directory"))
 			}
 		}
 	}()
@@ -392,8 +391,7 @@ func LoadServiceFromDir(ctx context.Context, dir string) (*Service, error) {
 // loadServiceFromDir loads a service and runs postLoad EXACTLY ONCE with the
 // module already set. Callers that know the owning module (module-based loads)
 // pass it here rather than loading module-less and re-running postLoad, which
-// would repeat every postLoad side effect — including the deprecated-visibility
-// warnings — for the same service.
+// would repeat every postLoad side effect for the same service.
 func loadServiceFromDir(ctx context.Context, dir, module string) (*Service, error) {
 	w := wool.Get(ctx).In("LoadServiceFromDir", wool.DirField(dir))
 	service, err := LoadFromDir[Service](ctx, dir)
@@ -577,7 +575,9 @@ func (s *Service) postLoad(ctx context.Context) error {
 	for _, endpoint := range s.Endpoints {
 		endpoint.Service = s.Name
 		endpoint.Module = s.module
-		endpoint.postLoad(ctx)
+		if err := endpoint.postLoad(); err != nil {
+			return w.Wrap(err)
+		}
 	}
 	// After endpoint.postLoad, so an endpoint that infers its API from its name
 	// is validated against the API it actually ends up with.
@@ -783,7 +783,7 @@ type MustServiceUnique struct {
 }
 
 func (m *MustServiceUnique) Unique() string {
-	return m.Service.MustUnique()
+	return m.MustUnique()
 }
 
 func WithUnique(s *Service) *MustServiceUnique {

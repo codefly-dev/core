@@ -18,7 +18,7 @@ import (
 // Kubernetes render: one instance per access, the container one naming the
 // in-cluster Service.
 func ownMapping(namespace string) *basev0.NetworkMapping {
-	endpoint := &basev0.Endpoint{Module: "module", Service: "service", Name: "rest", Api: "rest", Visibility: resources.VisibilityModule}
+	endpoint := &basev0.Endpoint{Module: "module", Service: "service", Name: "rest", Api: "rest", Visibility: resources.VisibilityPublic}
 	inCluster := resources.NewHTTPNetworkInstance("service."+namespace+".svc.cluster.local", 8080, false)
 	inCluster.Access = resources.NewContainerNetworkAccess()
 	public := resources.NewHTTPNetworkInstance("service.example.com", 443, true)
@@ -88,7 +88,7 @@ func TestDeployKustomizeOmitsSelfEndpointWhenOwnEndpointsAreNotAnInput(t *testin
 }
 
 func runMapping() *basev0.NetworkMapping {
-	endpoint := &basev0.Endpoint{Module: "module", Service: "service", Name: "rest", Api: "rest", Visibility: resources.VisibilityModule}
+	endpoint := &basev0.Endpoint{Module: "module", Service: "service", Name: "rest", Api: "rest", Visibility: resources.VisibilityPublic}
 	native := resources.NewHTTPNetworkInstance("localhost", 33123, false)
 	native.Access = resources.NewNativeNetworkAccess()
 	container := resources.NewHTTPNetworkInstance("host.docker.internal", 33123, false)

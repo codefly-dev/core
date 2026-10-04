@@ -12,8 +12,12 @@ message InterfaceEndpoint {
   string service = 1;
   // The endpoint name within the service
   string endpoint = 2;
-  // Visibility level: "module" or "public"
-  string visibility = 3;
+  // visibility is what the module grants across its boundary for this
+  // endpoint: "public", or "internal" to the modules allow_modules names.
+  string visibility = 3 [(buf.validate.field).string.in = "public", (buf.validate.field).string.in = "internal"];
+  // allow_modules names the modules an "internal" export may be reached from
+  // ("*" for every module).
+  repeated string allow_modules = 4;
 }
 
 // ModuleInterface is the formal contract of what a module exposes.

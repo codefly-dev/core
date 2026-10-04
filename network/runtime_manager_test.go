@@ -116,7 +116,7 @@ func TestRuntimeManagerAllocatesAndInjectsSameAPIEndpointsIndependently(t *testi
 	service := &resources.ServiceIdentity{Module: "saas", Name: "accounts"}
 	endpoints := []*basev0.Endpoint{
 		{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityPublic},
-		{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC, Visibility: resources.VisibilityModule},
+		{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}},
 	}
 
 	mappings, err := manager.GenerateNetworkMappings(
@@ -164,8 +164,8 @@ func TestRuntimeManagerPinsOverriddenEndpointAndHashesTheRest(t *testing.T) {
 	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
 	require.NoError(t, err)
 	service := &resources.ServiceIdentity{Module: "app", Name: "subject"}
-	pinned := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
-	free := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityModule}
+	pinned := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
+	free := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
 
 	const overridePort = uint16(45678)
 	manager.WithPortOverrides(map[string]uint16{resources.EndpointDestination(pinned): overridePort})
@@ -196,8 +196,8 @@ func TestRuntimeManagerRejectsTwoEndpointsPinnedToSamePort(t *testing.T) {
 	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
 	require.NoError(t, err)
 	service := &resources.ServiceIdentity{Module: "app", Name: "subject"}
-	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
-	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityModule}
+	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
+	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
 
 	manager.WithPortOverrides(map[string]uint16{
 		resources.EndpointDestination(first):  40000,
@@ -261,7 +261,7 @@ func TestRuntimeNetworkMappingAccessKinds_NoDNS(t *testing.T) {
 // TestRuntimeNetworkMappingAccessKinds_ExternalDNS regression-tests the
 // bug that broke postgres/neo4j agent init on local `codefly run`:
 //
-// When an endpoint is visibility=external AND DNS is configured, the
+// When an endpoint is location=external AND DNS is configured, the
 // generator returned two instances BOTH with Public access — the
 // ContainerInstance/NativeInstance wrappers were identity functions and
 // did not overwrite the access kind DNS() sets. As a result, agents
@@ -287,7 +287,8 @@ func TestRuntimeNetworkMappingAccessKinds_ExternalDNS(t *testing.T) {
 		Module:     identity.Module,
 		Service:    identity.Name,
 		Api:        "tcp",
-		Visibility: resources.VisibilityExternal,
+		Visibility: resources.VisibilityPublic,
+		Location:   resources.LocationExternal,
 	}
 
 	dnsManager := &fixedDNSManager{host: "localhost", port: 5432}
@@ -334,7 +335,8 @@ func TestRuntimeNetworkMappingAccessKinds_FindNative(t *testing.T) {
 		Module:     identity.Module,
 		Service:    identity.Name,
 		Api:        "tcp",
-		Visibility: resources.VisibilityExternal,
+		Visibility: resources.VisibilityPublic,
+		Location:   resources.LocationExternal,
 	}
 
 	dnsManager := &fixedDNSManager{host: "localhost", port: 5432}
@@ -498,11 +500,11 @@ func TestGenerateNetworkMappingsReleasesReservationsOnFailure(t *testing.T) {
 
 	const contended = uint16(40100)
 	failing := &resources.ServiceIdentity{Module: "app", Name: "subject"}
-	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
-	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityModule}
+	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
+	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
 
 	later := &resources.ServiceIdentity{Module: "app", Name: "successor"}
-	successor := &basev0.Endpoint{Module: "app", Service: "successor", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityModule}
+	successor := &basev0.Endpoint{Module: "app", Service: "successor", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
 
 	manager.WithPortOverrides(map[string]uint16{
 		resources.EndpointDestination(first):     contended,
