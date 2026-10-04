@@ -3,7 +3,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +29,7 @@ func newGitHubReleaseClient() *github.Client {
 		}
 		return client
 	}
-	options = append(options, github.WithHTTPClient(&http.Client{Transport: githubTokenTransport{token: token}}))
+	options = append(options, github.WithAuthToken(token))
 	client, err := github.NewClient(options...)
 	if err != nil {
 		panic(fmt.Sprintf("configure authenticated GitHub release client: %v", err))
@@ -55,16 +54,6 @@ func githubLatestReleaseTag(ctx context.Context, owner, repo string) (string, er
 		return "", err
 	}
 	return release.GetTagName(), nil
-}
-
-// githubTokenTransport adds a bearer token to each request without pulling in
-// the oauth2 dependency (same approach as core/toolbox/github).
-type githubTokenTransport struct{ token string }
-
-func (t githubTokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	clone := req.Clone(req.Context())
-	clone.Header.Set("Authorization", "Bearer "+t.token)
-	return http.DefaultTransport.RoundTrip(clone)
 }
 
 // AgentSourceEnv selects where "latest" agent versions are resolved from.
