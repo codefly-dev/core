@@ -85,6 +85,12 @@ type Manager struct {
 	networkMappings []*basev0.NetworkMapping
 	networkAccess   *basev0.NetworkAccess
 
+	// selection identifies the consumer these reads resolve for, so a
+	// ${endpoint:…} reference is answered by the endpoint it names, judged
+	// against the producer's export boundary. A zero value leaves the
+	// resolution with no consumer to judge — see ForConsumerModule.
+	selection resources.EndpointSelectionContext
+
 	// runProducers reports whether a <module>/<service> is part of this run, so
 	// a reference the consumer cannot resolve is told apart from one no run
 	// could. See WithRunProducers.
@@ -154,6 +160,31 @@ func (manager *Manager) ForConsumer(mappings []*basev0.NetworkMapping, access *b
 	view := *manager
 	view.networkMappings = mappings
 	view.networkAccess = access
+	return &view
+}
+
+// ForConsumerModule says WHO this view resolves for: the module receiving the
+// addresses, and how to read a producer's declared endpoints by
+// <module>/<service>.
+//
+// Both are what resources.SelectEndpointForReference needs to answer a
+// reference the way CheckEndpointReferences answers it. The module is the
+// export boundary — a reference is an edge into it like any declared
+// dependency, so an endpoint it may not reach is refused rather than resolved
+// to a permitted sibling. The manifest is what says which endpoint a token
+// names: a published mapping carries no visibility, and a producer may publish
+// several mappings for one endpoint, so the mappings alone cannot decide it.
+//
+// A view without it resolves as before minus the two corrections selection
+// makes unconditionally (an exact name wins; an ambiguous reference is
+// refused), and judges no visibility, because a caller that has not named its
+// consumer has given nothing to judge against.
+func (manager *Manager) ForConsumerModule(consumerModule string, declared func(unique string) []*resources.Endpoint) *Manager {
+	if manager == nil {
+		return nil
+	}
+	view := *manager
+	view.selection = resources.EndpointSelectionContext{ConsumerModule: consumerModule, Declared: declared}
 	return &view
 }
 
@@ -366,7 +397,8 @@ func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Co
 func (manager *Manager) interpolateEndpoints(ctx context.Context, name string, conf *basev0.Configuration) (*basev0.Configuration, error) {
 	w := wool.Get(ctx).In("Manager.interpolateEndpoints")
 	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess,
-		resources.WithRunProducers(manager.runProducers))
+		resources.WithRunProducers(manager.runProducers),
+		resources.WithConsumer(manager.selection.ConsumerModule, manager.selection.Declared))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot interpolate workspace configuration %s", name)
 	}
@@ -384,7 +416,8 @@ func (manager *Manager) interpolateEndpointsRunWide(ctx context.Context, name st
 	// it is what tells a consumer that legitimately cannot see an endpoint from a
 	// render that never bound its network context at all.
 	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, manager.networkMappings, manager.networkAccess,
-		resources.WithRunProducers(manager.runProducers))
+		resources.WithRunProducers(manager.runProducers),
+		resources.WithConsumer(manager.selection.ConsumerModule, manager.selection.Declared))
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot interpolate workspace configuration %s", name)
 	}
