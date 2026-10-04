@@ -132,7 +132,7 @@ type Workload struct {
 	// authenticate as the workload.
 	InitContainers []Container `yaml:"init_containers,omitempty"`
 	// Artifact is the rendered unit the workload comes from, pinned by the
-	// digest of its rendered bytes.
+	// SHA-256 of its rendered bytes (sha256:<64 hex>).
 	Artifact Artifact `yaml:"artifact"`
 	// Release is the module package the unit was rendered from, when it has one.
 	Release *Release `yaml:"release,omitempty"`

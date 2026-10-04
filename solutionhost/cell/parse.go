@@ -32,8 +32,9 @@ var (
 	objectNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
 	// imageDigestPattern is an OCI manifest digest as a reference carries it.
 	imageDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	// artifactDigestPattern is the SHA-256 of a rendered unit's bytes, hex.
-	artifactDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	// artifactDigestPattern is the SHA-256 of a rendered unit's bytes, in the
+	// form the render writes it: sha256:<64 hex>.
+	artifactDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	// trustDomainPattern is a SPIFFE trust domain.
 	trustDomainPattern = regexp.MustCompile(`^[a-z0-9._-]+$`)
 	// hostNamePattern is a host coordinate, component or ownership domain.
@@ -206,7 +207,7 @@ func (file *File) validateWorkload(namespace *Namespace, workload *Workload) err
 		return err
 	}
 	if !namePattern.MatchString(workload.Artifact.Name) || !artifactDigestPattern.MatchString(workload.Artifact.Digest) {
-		return fmt.Errorf("%w: %s artifact must name the rendered unit and the hex SHA-256 of its rendered bytes, got %q at %q", ErrInvalid, label, workload.Artifact.Name, workload.Artifact.Digest)
+		return fmt.Errorf("%w: %s artifact must name the rendered unit and the SHA-256 of its rendered bytes (sha256:<64 hex>), got %q at %q", ErrInvalid, label, workload.Artifact.Name, workload.Artifact.Digest)
 	}
 	if release := workload.Release; release != nil && (release.Publisher == "" || release.Name == "" || release.Version == "") {
 		return fmt.Errorf("%w: %s release must carry publisher, name and version", ErrInvalid, label)

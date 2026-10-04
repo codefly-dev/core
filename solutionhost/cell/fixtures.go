@@ -63,7 +63,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "spiffe-id-of-another-account", file: "spiffe-id-of-another-account.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "the trust domain, namespace and account beside it say"},
 		{name: "authenticating-not-a-container", file: "authenticating-not-a-container.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "as its authenticating container, which is not one of its containers"},
 		{name: "image-without-digest", file: "image-without-digest.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must pin a repository and an OCI manifest digest"},
-		{name: "artifact-digest-not-hex", file: "artifact-digest-not-hex.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "the hex SHA-256 of its rendered bytes"},
+		{name: "artifact-digest-not-hex", file: "artifact-digest-not-hex.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "the SHA-256 of its rendered bytes (sha256:<64 hex>)"},
 		{name: "ingress-to-an-endpoint-not-served", file: "ingress-to-an-endpoint-not-served.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "which the workload does not serve"},
 		{name: "consumer-not-qualified", file: "consumer-not-qualified.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not <module>/<service>"},
 		{name: "egress-host-without-port", file: "egress-host-without-port.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "the port is always explicit"},
