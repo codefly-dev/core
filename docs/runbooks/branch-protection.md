@@ -18,6 +18,7 @@ and the ones that will wedge every merge if you require them.
 ```
 Build
 Proto
+pnpm source evidence
 Registry cache cold (go)
 Registry cache cold (next)
 Registry cache clean runner (go)
@@ -27,10 +28,12 @@ Registry cache clean runner (next)
 `Build` is the strict signal from `go.yml` — the test suite, the race detector,
 coverage, `govulncheck`, and the version/tag and CGO-free guards. It is the
 check #447 was red on. `Proto` is the same workflow's `buf breaking` gate on
-`proto/`, split out so a BSR hiccup and a schema break answer separately. The
-other four are `build-cache.yml`'s registry cache-conformance matrix.
+`proto/`, split out so a BSR hiccup and a schema break answer separately.
+`pnpm source evidence` runs the real lockfile audit and inventory tests with the
+pinned pnpm toolchain. The other four are `build-cache.yml`'s registry
+cache-conformance matrix.
 
-All five qualify on the same three grounds, which are what make a required check
+All seven qualify on the same three grounds, which are what make a required check
 safe rather than merely desirable:
 
 - **Their workflow runs on every pull request to `main`** — `on.pull_request`
@@ -52,6 +55,7 @@ gh api -X PUT repos/codefly-dev/core/branches/main/protection --input - <<'JSON'
     "checks": [
       {"context": "Build"},
       {"context": "Proto"},
+      {"context": "pnpm source evidence"},
       {"context": "Registry cache cold (go)"},
       {"context": "Registry cache cold (next)"},
       {"context": "Registry cache clean runner (go)"},
