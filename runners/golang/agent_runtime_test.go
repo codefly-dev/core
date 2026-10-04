@@ -369,8 +369,21 @@ func TestSlowPackage(t *testing.T) {
 	if execution == nil || execution.Failed == 0 {
 		t.Fatalf("execution = %+v, want the first failure preserved", execution)
 	}
-	if elapsed := time.Since(started); elapsed >= 6*time.Second {
-		t.Fatalf("fail-fast took %s; slow package was not stopped", elapsed)
+	// THE MARKER BELOW IS THE ASSERTION. This used to fail the test when the
+	// whole run exceeded six seconds, which is a WALL-CLOCK PROXY for "the
+	// slow package was stopped" — and the elapsed time includes compiling the
+	// generated packages, so under a loaded machine it exceeded the budget
+	// while fail-fast was working correctly. It red this PR's CI once and
+	// passed on a re-run of the same commit, and passes in isolation in
+	// 0.35s against 188s for the package under the parallel suite.
+	//
+	// The property is load-independent and already tested two lines down: the
+	// slow test sleeps eight seconds and then writes the marker, so if
+	// fail-fast did not kill its process group the marker exists. Timing is
+	// kept only as a diagnostic, because a fail-fast that somehow outlasted
+	// the sleep would be worth seeing in the log.
+	if elapsed := time.Since(started); elapsed >= 8*time.Second {
+		t.Logf("fail-fast took %s, longer than the slow package's own sleep", elapsed)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("slow package completed after fail-fast: stat error=%v", err)

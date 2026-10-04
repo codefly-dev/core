@@ -138,11 +138,24 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   derived from a verified one, and its delegation chain with it. An approval
   is a grant hop — the one audited exception to attenuation, bound to one
   tool, subject and call, single-use, and one hop however large the quorum.
-  New capability fields stay optional on the wire: a schema rule invalidates
-  every archived capability and every receipt embedding one, so the
-  requirement belongs where the identity is derived. Core owns the
-  `approval_required` signal; the approvals engine is product-level. See
-  [`docs/work-context.md`](docs/work-context.md).
+  A capability's seal and every hop's epoch are REQUIRED by the schema. They
+  were optional once, with archived receipts as the reason; two reviews called
+  that a compatibility hedge the rules forbid, and archived receipts are
+  historical data that get a snapshot type if they need one. Core owns the
+  `approval_required` signal; the approvals engine is product-level.
+  **It has exactly one implementation and one strength — this one.** Nothing
+  else signs, verifies or re-encodes a capability; two entrypoints share the
+  one check path, and the verify-only one refuses what it cannot answer rather
+  than skipping it. Needing a weaker check is the owner's question, never a
+  local accommodation. A consumer DEMONSTRATES BEHAVIOUR with
+  `workcontext/conformance.Run`, or `RunAuthenticator` for the verify-only
+  entrypoint — the kit proves behaviour and not identity, and the identity
+  proof is the consumer's own import gate; a foreign encoding is refused
+  *before* the signature with
+  `ErrNotACoreToken`, never as a bad signature. A second implementation already
+  cost a day of key-rotation debugging. See
+  [`docs/work-context.md`](docs/work-context.md) and
+  [`workcontext/README.md`](workcontext/README.md).
 - **Readiness is a gRPC health check, never a TCP connect.** An open port does
   not mean a ready service. Endpoints declare `health.readiness`; consumers go
   through `resources.PlanReadiness` and the `readiness` package. See

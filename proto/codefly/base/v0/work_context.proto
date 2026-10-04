@@ -92,6 +92,180 @@ message WorkContextV1 {
   // Present only on a single-use child capability minted for one approved
   // call; absent on every ordinary session.
   optional WorkGrantHopV1 grant_hop = 24;
+  // seal binds this capability to one installation and one execution: the
+  // principal's epoch, the installation and revision it was minted for, and
+  // the build incarnation it was minted on. A verifier compares every field
+  // against the live value and refuses on any mismatch, which is what stops a
+  // capability outliving the installation or the build it was issued against.
+  //
+  // REQUIRED. An earlier version of this field was optional, with the stated
+  // reason that a schema rule would invalidate every archived capability and
+  // every receipt embedding one, so the requirement belonged in the verifier.
+  // Two independent reviews named that for what it is: a backward-compatibility
+  // hedge, which the rules in force forbid. It also meant every reader other
+  // than the verifier saw a capability's binding to its installation as
+  // optional, so the strongest check in the model was the easiest one for a
+  // consumer to not notice.
+  //
+  // Archived capabilities and receipts are historical DATA. If they must be
+  // read after this, they get a snapshot type of their own rather than keeping
+  // the live credential permanently weaker than it should be.
+  WorkSealV1 seal = 26 [(buf.validate.field).required = true];
+  // operation_binding is the unit of authority this capability exercises,
+  // sealed by its id, revision and incarnation. Present on an operation
+  // context and absent on a session that exercises none.
+  //
+  // The id is what a verifier looks the binding up by, exactly. Nothing
+  // searches the bindings for one that contains the capability's scopes: a
+  // search is a predicate someone wrote, and a predicate one case too
+  // generous grants authority nobody reviewed.
+  optional WorkOperationBindingV1 operation_binding = 27;
+}
+
+// WorkSealV1 binds a capability to one installation and one execution. Its
+// principal_epoch is the TASK OWNER'S; an actor hop carries its own in
+// WorkActorV1.principal_epoch, because an actor's authority is narrowed
+// independently of the owner's. Every
+// field is a value the issuer holds live and the verifier compares exactly, so
+// a capability minted before an installation was revised, a principal's
+// authority was reset, or a build was replaced stops verifying at that moment
+// rather than at its own expiry.
+message WorkSealV1 {
+  // principal_epoch is the principal's current epoch. Advancing it
+  // invalidates every capability minted for that principal, which is how a
+  // compromised principal is cut off without waiting for expiry.
+  uint64 principal_epoch = 1 [(buf.validate.field).uint64.gte = 1];
+  // installation_id identifies one organization's installation of one module.
+  // Authority is held through an installation, so a capability that names none
+  // is bound to nothing.
+  string installation_id = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // installation_revision is the installation's revision at mint time. A
+  // verifier holding a different revision refuses: the scope of an
+  // installation changes with its revision, so a capability sealed to an
+  // earlier one asks for authority under terms that no longer apply.
+  uint64 installation_revision = 3 [(buf.validate.field).uint64.gte = 1];
+  // build_incarnation identifies one approved EXECUTION, so a capability
+  // cannot be carried from a replaced execution into a new one.
+  //
+  // The host bumps it on each applied presence generation that changes what
+  // runs. Two readings of it are wrong in opposite directions and both are
+  // worth naming, because a reasonable implementer reaches for each:
+  //
+  //   - Per POD is too narrow: every restart would revoke every sibling's
+  //     credential.
+  //   - Per IMAGE DIGEST alone is too wide: two executions of identical bytes
+  //     with different command, configuration or mounted content are then
+  //     indistinguishable, and a pod from a superseded generation remints into
+  //     the new one.
+  //
+  // A verifier compares it for EQUALITY and never resolves it from the
+  // workload's own attributes. Resolving by (service account, image digest) is
+  // exactly what lets an old pod in, which is why SealSource.ApprovedBuild
+  // answers "the build and incarnation this PRINCIPAL is approved for" and
+  // offers no lookup by anything the workload itself presents.
+  //
+  // That method once answered the incarnation alone, from the installation
+  // seal — so a derived capability's execution described the OWNER's workload
+  // however many delegation hops had been added, and a hop's principal does
+  // not hold the owner's installation at all. Minting was execution-bound only
+  // at the first session as a result.
+  //
+  // It is OPTIONAL, together with image_digest, and the two are set or unset
+  // as a pair: see the message rule below. Absent means the principal
+  // exercising this capability BEARS NO EXECUTION — a human session is the
+  // case that matters, since a person at a terminal runs no approved build
+  // and an image digest is not a thing they can have.
+  optional uint64 build_incarnation = 4 [(buf.validate.field).uint64.gte = 1];
+  // image_digest is the APPROVED BUILD the issuer held for this installation
+  // at mint time, as an OCI image-manifest digest. A verifier compares it for
+  // equality against the approved build it holds now.
+  //
+  // It exists because build_incarnation alone did not bind a credential to an
+  // execution. A minter read the CURRENT incarnation for a principal and
+  // stamped it, so any caller able to mint for that principal — including a
+  // pod from a superseded generation — received a capability sealed to the
+  // current execution. The incarnation says WHICH run; this says which BUILD,
+  // and the mint now refuses unless the execution the caller attests matches
+  // both. Without it the approved build digest never reached the credential at
+  // all, so nothing downstream could tell which build an authority was
+  // exercised by.
+  //
+  // It is the ISSUER's answer, never the workload's claim about itself: the
+  // caller attests what it is running, the issuer says what is approved, and a
+  // mismatch is a refusal rather than a value to record.
+  //
+  // A host that fills the ATTESTED execution from the same record it sealed
+  // has written a tautology: the mint then compares approved against approved
+  // and passes for every caller, including the superseded pod this field
+  // exists to refuse. Nothing in Core can detect that — both are strings and
+  // it cannot know where the caller got the bytes — so the check that matters
+  // is "a pod from a superseded generation is refused", never "a sound
+  // execution mints".
+  //
+  // OPTIONAL on the same terms as build_incarnation, and absent for the same
+  // reason. This is NOT the compatibility hedge two reviews rejected for the
+  // seal itself and for the actor epochs. That hedge made a field optional so
+  // that ARCHIVED data would still parse, which trades every live credential's
+  // strength for old bytes. This is optional because the field DOES NOT APPLY
+  // to a whole class of principal: a human bears no execution, so requiring an
+  // image digest of one would force every human session to invent a value, and
+  // an invented value is exactly what this field exists to refuse.
+  //
+  // The requirement is not weakened, it is made conditional on something the
+  // issuer knows and the schema cannot: SealSource.ApprovedBuild answers
+  // whether a principal bears an execution at all. A capability carries this
+  // field EXACTLY WHEN its exercising principal bears one, and the verifier
+  // enforces the correspondence in both directions — a missing execution for
+  // an execution-bearing principal is refused, and a PRESENT one for a
+  // principal that bears none is refused too, because that is a process
+  // claiming to be a workload.
+  optional string image_digest = 5 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.max_len = 256,
+    (buf.validate.field).string.pattern = "^sha256:[a-f0-9]{64}$"
+  ];
+  // Both execution fields are set, or neither is. One without the other
+  // describes an execution nothing can check: an incarnation names WHICH run
+  // of a build and the digest names WHICH build, so a seal carrying one alone
+  // is not a weaker binding but an unreadable one.
+  option (buf.validate.message).cel = {
+    id: "work_seal.execution_is_whole"
+    message: "build_incarnation and image_digest are set together or not at all"
+    expression: "has(this.build_incarnation) == has(this.image_digest)"
+  };
+}
+
+// WorkOperationBindingV1 is the unit of authority an operation context
+// exercises, sealed so that a verifier resolves exactly one binding and
+// compares it rather than deciding which binding the capability's scopes fit.
+message WorkOperationBindingV1 {
+  // binding_id is the host's identifier for the binding. The verifier looks it
+  // up EXACTLY: nothing searches the bindings for one that fits a capability's
+  // scopes, because a search is a predicate somebody wrote and a predicate one
+  // case too generous grants authority nobody reviewed.
+  //
+  // This comment used to say the id "is never derived from the binding's
+  // contents, because a derived id is one a caller can compute for a binding
+  // it was never granted". I refuted a review finding against that sentence by
+  // reading it in isolation and judging it correct. The reviewer was right and
+  // I was wrong: solutionhost/authority.go says the opposite in the package
+  // that owns the id — deriving it deterministically is delivery's business
+  // and better than random, and "predictability costs nothing here: an id is
+  // neither a secret nor a capability".
+  //
+  // Predictability costs nothing because ENTITLEMENT is what refuses a binding
+  // a caller does not hold, not obscurity: the verifier requires the resolved
+  // binding to be granted to the exercising principal within the installation
+  // the capability is sealed to. Guessing an id gets you a refusal. Resting
+  // the rule on unguessability was the retracted reasoning, and leaving it
+  // here contradicted the package it describes.
+  string binding_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // revision is the binding's revision at mint time. A verifier holding a
+  // different revision refuses.
+  uint64 revision = 2 [(buf.validate.field).uint64.gte = 1];
+  // incarnation is the binding's incarnation at mint time, which changes when
+  // the binding is re-established rather than merely revised.
+  uint64 incarnation = 3 [(buf.validate.field).uint64.gte = 1];
 }
 
 // WorkScopeV1 is a structured, product-neutral capability scope. Empty
@@ -128,6 +302,52 @@ message WorkActorV1 {
   // the one the task runs in. An org-bridge agent acts in an organization the
   // owner does not belong to, and authorization is scoped to the actor's own.
   optional string organization_id = 6 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 512];
+  // principal_epoch is THIS actor's epoch, distinct from the owner's epoch in
+  // the seal. Advancing it invalidates every capability in which this
+  // principal is an actor, without touching the owner's.
+  //
+  // It exists because the seal's epoch is the task owner's, and an actor's
+  // authority can be narrowed independently of the owner's: a delegated
+  // operation context may have a person as its owner and a service principal
+  // as its actor, and narrowing that service principal must reach the
+  // capabilities it acts in. Without this field the only lever for a
+  // compromised actor is the tenant's authorization_revision, which cuts off
+  // every capability of the tenant.
+  //
+  // REQUIRED, for the reason seal gives. A hop with no epoch is a principal
+  // nothing can revoke, and leaving that expressible on the wire made it a
+  // shape a consumer could mint without noticing.
+  uint64 principal_epoch = 7 [(buf.validate.field).uint64.gte = 1, (buf.validate.field).required = true];
+  // image_digest and build_incarnation are THIS HOP'S execution, on exactly
+  // the terms WorkSealV1 carries the owner's: optional, set as a pair, absent
+  // when the hop's principal bears no execution.
+  //
+  // They are here, per hop, for the same reason principal_epoch is. The seal
+  // held ONE execution slot and a derivation overwrote it with the last hop's,
+  // so superseding the OWNER's build refused the owner's own capability and
+  // every child of it still verified — and kept minting grandchildren. A
+  // delegation narrows authority within one execution chain; each link has its
+  // own running build, and a credential that records only the last one cannot
+  // be revoked by replacing any earlier one.
+  //
+  // Supersession is how a rollout revokes: a host bumps the incarnation per
+  // applied generation, so a superseded pod that pre-minted delegations would
+  // otherwise outlive its own replacement through them.
+  optional string image_digest = 8 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.max_len = 256,
+    (buf.validate.field).string.pattern = "^sha256:[a-f0-9]{64}$"
+  ];
+  // build_incarnation is the incarnation of this hop's run. See image_digest.
+  optional uint64 build_incarnation = 9 [(buf.validate.field).uint64.gte = 1];
+  // Both of this hop's execution fields are set, or neither is — the same
+  // pairing WorkSealV1 requires, for the same reason: one without the other
+  // names a run nothing can check.
+  option (buf.validate.message).cel = {
+    id: "work_actor.execution_is_whole"
+    message: "build_incarnation and image_digest are set together or not at all"
+    expression: "has(this.build_incarnation) == has(this.image_digest)"
+  };
 }
 
 // WorkGrantHopV1 records the approval that justifies a capability holding

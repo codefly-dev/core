@@ -24,10 +24,41 @@ import (
 // naming the field, rather than a schema rule that would retroactively
 // invalidate every archived capability and every receipt embedding one.
 func PrincipalFromWorkContext(verified *workcontext.Verified) (*Principal, error) {
-	if verified == nil {
+	if verified == nil || verified.Context() == nil {
 		return nil, fmt.Errorf("%w: no verified work context", ErrPrincipalInvalid)
 	}
-	wc := verified.Context()
+	return principalFrom(verified.Context(), verified.Encoded(), verified.Actor(), EstablishedByVerification)
+}
+
+// PrincipalFromAuthenticatedWorkContext derives the Principal an AUTHENTICATED
+// Work Context describes — one checked against caller-supplied live state
+// rather than against the issuer's own records, and whose approval hop, if it
+// had one, was refused rather than held against a grant record.
+//
+// It exists because leaving it out forced the failure this model exists to
+// prevent. A verify-only gateway needs an identity to authorize with; with no
+// way to derive one it writes its own, re-implementing the delegation-chain
+// derivation below — the grant link, the quorum-as-one-hop rule, the actor
+// override — which is a second implementation of something subtle.
+//
+// The two entrypoints share one derivation, and the DIFFERENCE IS RECORDED on
+// the Principal: EstablishedBy says which question was answered, so a policy
+// that must not act on the weaker answer can refuse it, and an audit record
+// says which it was. Without that field this function would have erased the
+// distinction *Authenticated exists to carry, which is why it is not simply an
+// overload.
+func PrincipalFromAuthenticatedWorkContext(authenticated *workcontext.Authenticated) (*Principal, error) {
+	// A nil pointer AND a zero value. An outside-constructed
+	// &workcontext.Authenticated{} is not a capability, and deriving an
+	// identity from one would mean deriving from nothing — it used to panic
+	// reaching through to the claims, which names nothing at all.
+	if authenticated == nil || authenticated.Context() == nil {
+		return nil, fmt.Errorf("%w: no authenticated work context", ErrPrincipalInvalid)
+	}
+	return principalFrom(authenticated.Context(), authenticated.Encoded(), authenticated.Actor(), EstablishedByAuthentication)
+}
+
+func principalFrom(wc *basev0.WorkContextV1, encoded string, actor *basev0.WorkActorV1, established Establishment) (*Principal, error) {
 	chain := wc.GetActorChain()
 
 	p := &Principal{
@@ -38,11 +69,12 @@ func PrincipalFromWorkContext(verified *workcontext.Verified) (*Principal, error
 		// organizations and authorization is scoped per organization, so
 		// substituting one for the other either denies everything or
 		// matches an organization nobody granted access to.
-		OrgID:     wc.GetOrganizationId(),
-		Token:     verified.Encoded(),
-		ExpiresAt: time.Unix(wc.GetExpiresAtUnix(), 0),
+		OrgID:         wc.GetOrganizationId(),
+		Token:         encoded,
+		EstablishedBy: established,
+		ExpiresAt:     time.Unix(wc.GetExpiresAtUnix(), 0),
 	}
-	if actor := verified.Actor(); actor != nil {
+	if actor != nil {
 		p.ID = actor.GetPrincipalId()
 		p.Kind = actor.GetPrincipalKind()
 		p.AgentID = actor.GetAgentId()

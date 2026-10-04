@@ -61,6 +61,7 @@ func TestPrincipalFromWorkContext_OrgIsTheOrganizationNotTheTenant(t *testing.T)
 func TestPrincipalFromWorkContext_ActorOrganizationOverridesTheTasks(t *testing.T) {
 	h := newIdentityHarness(t)
 	token, _, err := h.authority.Child(context.Background(), h.ownerSession(), workcontext.ChildInput{
+		Execution:      workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1},
 		PrincipalID:    agentPrincipalID,
 		PrincipalKind:  policy.KindAgent,
 		AgentID:        agentManifestID,
