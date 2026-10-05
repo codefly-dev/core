@@ -153,12 +153,19 @@ func EndpointReferences(value string) []string {
 // consumer-less resolution, because an endpoint reference is an edge into the
 // consumer's module and the export boundary is a statement about that module.
 func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext) (string, error) {
-	// A diagnostic never carries the value: a configuration value may be a
-	// secret, and an error travels further than the value was meant to. The
-	// references the value names are not secret, and the caller names the
-	// configuration and key.
+	n := len(endpointInterpolationPattern.FindAllStringIndex(value, -1))
+	return interpolateEndpointsAt(ctx, value, mappings, access, selection, 0, n)
+}
+
+// interpolateEndpointsAt is InterpolateEndpointsFor for one part of a
+// configuration value whose references are numbered as a whole: the part's
+// first reference is number base+1 of total. A diagnostic never carries the
+// value — a configuration value may be a secret, and an error travels further
+// than the value was meant to — so a reference is named by that number, and
+// the number is the same one the plan-time check reports for it.
+func interpolateEndpointsAt(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext, base, total int) (string, error) {
 	if malformedEndpointMarker(value) {
-		return "", fmt.Errorf("%w (%s)", ErrMalformedEndpointReference, referenceCount(value))
+		return "", fmt.Errorf("%w (beside %s)", ErrMalformedEndpointReference, referenceCount(value))
 	}
 	matches := endpointInterpolationPattern.FindAllStringSubmatchIndex(value, -1)
 	if matches == nil {
@@ -182,7 +189,7 @@ func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*base
 		// The marker body is validated as coordinates before anything names
 		// it: a diagnostic may name a reference by its validated coordinates,
 		// and names one that did not validate only by its position.
-		position := fmt.Sprintf("reference %d of %d", i+1, len(matches))
+		position := fmt.Sprintf("reference %d of %d", base+i+1, total)
 		info, err := parseEndpointReference(reference)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", position, err)
@@ -475,13 +482,21 @@ func interpolateConfigurationValue(ctx context.Context, value *basev0.Configurat
 	// The same dominance rule as within one value, across the value's parts: a
 	// composition fault in any literal or in the value itself is reported over
 	// an omission in another, whichever came first.
+	// References are numbered across the whole value, in the order
+	// ConfigurationValueEndpointReferences lists them — the value's own, then
+	// each literal's — so a render and the plan-time check name the same
+	// reference by the same number.
 	var omission error
+	total := len(ConfigurationValueEndpointReferences(value))
+	base := len(EndpointReferences(value.GetValue()))
 	for _, segment := range value.GetTemplate().GetSegments() {
 		literal, isLiteral := segment.GetContent().(*basev0.ConfigurationValueTemplateSegment_Literal)
 		if !isLiteral {
 			continue
 		}
-		resolved, err := InterpolateEndpointsFor(ctx, literal.Literal, mappings, access, selection)
+		count := len(EndpointReferences(literal.Literal))
+		resolved, err := interpolateEndpointsAt(ctx, literal.Literal, mappings, access, selection, base, total)
+		base += count
 		if err != nil {
 			if !ReferenceFailureIsAnOmission(err) {
 				return "", err
@@ -491,7 +506,7 @@ func interpolateConfigurationValue(ctx context.Context, value *basev0.Configurat
 		}
 		literal.Literal = resolved
 	}
-	resolved, err := InterpolateEndpointsFor(ctx, value.Value, mappings, access, selection)
+	resolved, err := interpolateEndpointsAt(ctx, value.Value, mappings, access, selection, 0, total)
 	if err != nil {
 		if !ReferenceFailureIsAnOmission(err) {
 			return "", err

@@ -251,13 +251,20 @@ func ConfigurationValueEndpointReferences(value *basev0.ConfigurationValue) []st
 // a plan-time check asks this separately: the render refuses the value, and a
 // plan that reported nothing until then would have let the fault through.
 func ConfigurationValueHasMalformedEndpointMarker(value *basev0.ConfigurationValue) bool {
+	return ConfigurationValueMalformedEndpointMarkerPart(value) != ""
+}
+
+// ConfigurationValueMalformedEndpointMarkerPart says which part of the value
+// carries a malformed marker — "the value" or "template literal N" — or "" when
+// none does. It locates the marker without carrying any of the value.
+func ConfigurationValueMalformedEndpointMarkerPart(value *basev0.ConfigurationValue) string {
 	if malformedEndpointMarker(value.GetValue()) {
-		return true
+		return "the value"
 	}
-	for _, segment := range value.GetTemplate().GetSegments() {
+	for i, segment := range value.GetTemplate().GetSegments() {
 		if malformedEndpointMarker(segment.GetLiteral()) {
-			return true
+			return fmt.Sprintf("template literal %d", i+1)
 		}
 	}
-	return false
+	return ""
 }

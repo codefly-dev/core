@@ -194,27 +194,36 @@ func SelectEndpointForReference(consumerModule string, info *EndpointInformation
 // cannot be judged (ErrInvalidEndpointDeclaration) is passed through as the
 // manifest fault it is.
 func visibilityOf(consumerModule string, info *EndpointInformation, endpoint *Endpoint) error {
-	// The producer named in a refusal is the manifest's, never the reference's:
-	// a reference is text from a value, and a value may be a secret. A
-	// candidate carrying neither is judged under the module the reference
-	// named — that is what scoped it — but described as "the producer".
+	// A candidate carrying no module or service of its own is judged under the
+	// ones the reference named — that is what scoped it — but a refusal never
+	// prints those: a reference is text from a value, and a value may be a
+	// secret. What the refusal names is the manifest's own endpoint name, the
+	// consumer (the caller's identity), and a producer described as such.
 	module, service := endpoint.Module, endpoint.Service
+	scopedByReference := module == "" || service == ""
 	if module == "" {
 		module = info.Module
 	}
 	if service == "" {
 		service = "the producer"
 	}
-	if err := ValidateEndpointVisibility(consumerModule, module, service, endpoint.Name, Visibility(endpoint.Visibility), endpoint.Location, endpoint.AllowModules); err != nil {
-		if errors.Is(err, ErrInvalidEndpointDeclaration) {
-			// Not a denial: the declaration cannot be judged. It must not read
-			// as "this consumer may not reach it", which a run-wide
-			// interpolation is entitled to drop.
-			return err
-		}
-		return fmt.Errorf("%w: %w", ErrEndpointNotReachable, err)
+	err := ValidateEndpointVisibility(consumerModule, module, service, endpoint.Name, Visibility(endpoint.Visibility), endpoint.Location, endpoint.AllowModules)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if errors.Is(err, ErrInvalidEndpointDeclaration) {
+		// Not a denial: the declaration cannot be judged. It must not read
+		// as "this consumer may not reach it", which a run-wide
+		// interpolation is entitled to drop.
+		if scopedByReference {
+			return fmt.Errorf("%w: endpoint %q of the producer", ErrInvalidEndpointDeclaration, endpoint.Name)
+		}
+		return err
+	}
+	if scopedByReference {
+		return fmt.Errorf("%w: endpoint %q of the producer is not exported to module %q", ErrEndpointNotReachable, endpoint.Name, consumerModule)
+	}
+	return fmt.Errorf("%w: %w", ErrEndpointNotReachable, err)
 }
 
 func declaredNames(declared []*Endpoint) string {

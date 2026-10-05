@@ -18,16 +18,22 @@ type UnresolvedReference struct {
 	Group string
 	Key   string
 	// Position is which reference of the value this is, 1-based, in order of
-	// appearance across the value and its template literals. It is how the
-	// reference is named: a reference is text from a value, a value may be a
-	// secret, and nothing of it — not even coordinates whose every token
-	// validated — is carried here. The reason names what the manifest says.
+	// appearance across the value and its template literals — the number a
+	// render names it by. It is how the reference is named: a reference is text
+	// from a value, a value may be a secret, and nothing of it — not even
+	// coordinates whose every token validated — is carried here. The reason
+	// names what the manifest says. A marker the grammar cannot read has no
+	// number among the references: Position is 0 and the Reason says which
+	// part of the value carries it.
 	Position int
 	// Reason says why the reference cannot resolve.
 	Reason string
 }
 
 func (r UnresolvedReference) String() string {
+	if r.Position == 0 {
+		return fmt.Sprintf("%s: %s/%s: %s", r.Consumer, r.Group, r.Key, r.Reason)
+	}
 	return fmt.Sprintf("%s: %s/%s, reference %d: %s", r.Consumer, r.Group, r.Key, r.Position, r.Reason)
 }
 
@@ -112,9 +118,9 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 					// A marker the grammar cannot read is a fault of the value,
 					// reported here with the references: the render refuses
 					// it, and a plan is the earlier place to say so.
-					if resources.ConfigurationValueHasMalformedEndpointMarker(value) {
+					if where := resources.ConfigurationValueMalformedEndpointMarkerPart(value); where != "" {
 						problem := UnresolvedReference{Consumer: unique, Group: group, Key: value.GetKey(),
-							Reason: "malformed reference: the reserved ${endpoint: prefix is not a well-formed reference"}
+							Reason: "malformed reference: the reserved ${endpoint: prefix is not a well-formed reference, in " + where}
 						if !seen[problem] {
 							seen[problem] = true
 							unresolved = append(unresolved, problem)

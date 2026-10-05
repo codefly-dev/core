@@ -92,12 +92,13 @@ func TestCheckEndpointReferencesNeverEchoesAValue(t *testing.T) {
 	const secret = "syntheticsecret9c1e"
 	consumer := referenceCheckService("assistant", "chat", []string{"assistant"})
 	for name, value := range map[string]string{
-		"a marker body that is the secret":  "${endpoint:credential=" + secret + "}",
-		"beside an empty marker":            "${endpoint:};${endpoint:credential=" + secret + "}",
-		"a bad api qualifier":               "${endpoint:assistant/chat/grpc::" + secret + "}",
-		"a secret that is a valid name":     "${endpoint:assistant/chat/" + secret + "}",
-		"a secret that is a valid producer": "${endpoint:" + secret + "/chat/grpc}",
-		"an empty api qualifier":            "${endpoint:assistant/chat/grpc::}",
+		"a marker body that is the secret":         "${endpoint:credential=" + secret + "}",
+		"beside an empty marker":                   "${endpoint:};${endpoint:credential=" + secret + "}",
+		"a bad api qualifier":                      "${endpoint:assistant/chat/grpc::" + secret + "}",
+		"a secret that is a valid name":            "${endpoint:assistant/chat/" + secret + "}",
+		"a secret that is a valid producer":        "${endpoint:" + secret + "/chat/grpc}",
+		"a private endpoint under a secret module": "${endpoint:" + secret + "/chat/grpc}",
+		"an empty api qualifier":                   "${endpoint:assistant/chat/grpc::}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
@@ -108,6 +109,29 @@ func TestCheckEndpointReferencesNeverEchoesAValue(t *testing.T) {
 			require.Contains(t, err.Error(), "assistant/bad")
 		})
 	}
+	// With a real producer, so the reference reaches selection: a private
+	// module-less declaration scoped under the secret module, an unknown
+	// endpoint, a bad qualifier — the refusal names none of the value.
+	anyProducer := referenceCheckService("x", "y", nil)
+	anyProducer.Endpoints = []*resources.Endpoint{{Name: "grpc", API: "grpc", Visibility: resources.VisibilityPrivate}}
+	for name, value := range map[string]string{
+		"private under a secret module": "${endpoint:" + secret + "/chat/grpc}",
+		"a secret endpoint name":        "${endpoint:assistant/chat/" + secret + "}",
+		"an empty api qualifier":        "${endpoint:assistant/chat/grpc::}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
+				{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "bad", Secret: true, Value: value}}},
+			}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return anyProducer, true })
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), secret)
+			require.Contains(t, err.Error(), "assistant/bad")
+		})
+	}
+	err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
+		{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "bad", Value: "${endpoint:assistant/chat/grpc::}"}}},
+	}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return anyProducer, true })
+	require.ErrorContains(t, err, "malformed reference", "an empty qualifier is malformed, not an unknown endpoint")
 }
 
 // A marker the reference grammar cannot read fails the plan, not just the

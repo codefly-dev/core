@@ -287,6 +287,41 @@ func TestReferenceDiagnosticsDoNotExposeTheValue(t *testing.T) {
 	}
 }
 
+// A module-less declaration is scoped under the module the reference named,
+// and a refusal of it must not print that module: it is text from the value.
+// Positions are numbered across the whole value, the same number the plan-time
+// check reports, so a render and the check name one reference the same way.
+func TestARefusalNeverPrintsTheModuleTheReferenceNamed(t *testing.T) {
+	ctx := context.Background()
+	const secret = "syntheticsecret3b7c"
+	declared := func(unique string) ([]*resources.Endpoint, bool) {
+		return []*resources.Endpoint{{Name: "grpc", API: "grpc", Visibility: resources.VisibilityPrivate}}, unique == secret+"/authority"
+	}
+	value := "${endpoint:" + secret + "/authority/grpc}"
+	_, err := resources.InterpolateEndpointsFor(ctx, value, nil, resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declared})
+	require.ErrorIs(t, err, resources.ErrEndpointNotReachable)
+	require.NotContains(t, err.Error(), secret)
+	require.Contains(t, err.Error(), "reference 1 of 1")
+	conf := authorityConf("credential", value)
+	conf.Infos[0].ConfigurationValues[0].Secret = true
+	_, err = resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(),
+		resources.WithRunProducers(func(string) bool { return true }), resources.WithConsumer("payments", declared))
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), secret)
+
+	// Numbering across the value and its literals: the failing reference in
+	// the second literal is "reference 3 of 3" — after the value's one and the
+	// first literal's one — however the parts are rendered.
+	public := declaredBy(selectionEndpoint("rpc", "grpc", "public"), selectionEndpoint("hidden", "grpc", "private"))
+	mappings := []*basev0.NetworkMapping{selectionMapping("rpc", "grpc", nativeAt("http://localhost:9090"))}
+	templated := authorityTemplated("address", "a=${endpoint:"+selectionUnique+"/rpc}", "b=${endpoint:"+selectionUnique+"/hidden}")
+	templated.Infos[0].ConfigurationValues[0].Value = "${endpoint:" + selectionUnique + "/rpc}"
+	_, err = resources.InterpolateConfigurationEndpoints(ctx, templated, mappings, resources.NewNativeNetworkAccess(),
+		resources.WithRunProducers(func(string) bool { return true }), resources.WithConsumer("payments", public))
+	require.ErrorIs(t, err, resources.ErrEndpointNotReachable)
+	require.Contains(t, err.Error(), "reference 3 of 3")
+}
+
 // Where an endpoint lives is its Location and nothing else: a visibility that
 // spells "external" is an invalid declaration, never a location.
 func TestLocationIsTheOnlyRecordOfWhereAnEndpointLives(t *testing.T) {
