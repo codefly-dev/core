@@ -387,3 +387,62 @@ func TestARefUnrelatedToTheTriggeringRunIsNotFlagged(t *testing.T) {
 		})
 	}
 }
+
+// The three evaluator bypasses, as the round posed them: complete workflow
+// mutations that actionlint accepts, each leaving the webhook-bearing `notify`
+// job reachable from a pull request while the old evaluator certified it safe.
+//
+// Expressed against the real job, because that is the claim that matters -- not
+// that a predicate handles a string, but that this workflow is refused.
+func TestTheThreeEvaluatorBypassesAreRefusedOnTheRealWorkflow(t *testing.T) {
+	const anchor = "    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'\n"
+
+	for _, tc := range []struct {
+		name      string
+		condition string
+	}{
+		{
+			// `&&` and `||` return the selected operand. Read as booleans this
+			// is false; GitHub selects 'run' and runs the job.
+			name:      "operand selection",
+			condition: "    if: (github.event_name == 'pull_request' && 'run' || '') == 'run'\n",
+		},
+		{
+			// Cross-type coercion: '' == 0 holds on GitHub.
+			name: "cross-type coercion",
+			// Wrapped, because a bare `if: '' == 0` is a quoted scalar followed
+			// by more content and YAML will not read it as one string.
+			condition: "    if: ${{ '' == 0 }}\n",
+		},
+		{
+			// A sampled ref made this definitely-false; it is true on pull
+			// request 8.
+			name:      "another pull request's ref",
+			condition: "    if: github.ref == 'refs/pull/8/merge'\n",
+		},
+		{
+			// And the two from the previous round, kept here so all five live
+			// together against the real job.
+			name:      "an alternative appended",
+			condition: "    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' || true\n",
+		},
+		{
+			name:      "the conjunction negated",
+			condition: "    if: ${{ !(always() && github.event_name == 'push' && github.ref == 'refs/heads/main') }}\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolated(t, mutate(t, "go.yml", anchor, tc.condition))
+			notify := wf.Jobs["notify"]
+
+			require.NotEmpty(t, secretsIn(t, wf, "notify"),
+				"this regression depends on notify still holding the webhook")
+
+			ok, reason := mustNotRunUnder(t, notify.If, pullRequest)
+			require.False(t, ok,
+				"condition %q leaves the webhook-bearing job reachable on a pull "+
+					"request, and the guard certified it safe (%s)",
+				strings.TrimSpace(tc.condition), reason)
+		})
+	}
+}

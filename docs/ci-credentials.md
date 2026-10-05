@@ -45,15 +45,36 @@ to a fork, a pushed tag. Anything the evaluator cannot know
 (`needs.build.result`, `success()`) is **unknown**, and unknown is not false, so
 a job is accepted only when its condition is *provably* false.
 
+The evaluator implements GitHub's semantics, not an approximation of them, and
+the differences are each a condition somebody can build:
+
+- **`&&` and `||` return the selected operand**, not a boolean. Reduced to
+  booleans, `(github.event_name == 'pull_request' && 'run' || '') == 'run'`
+  compares `true` with `'run'` and reads false; GitHub selects `'run'` and runs
+  the job.
+- **`==` coerces across types.** Operands of different types are both converted
+  to numbers, so `'' == 0`, `false == 0` and `true == 1` all hold, and a
+  non-numeric string is NaN and equals nothing.
+
 **What a scenario may bind is the soundness argument.** A scenario has to answer
 for every instance of its situation, not for one, so it binds only values the
 *event* determines (`github.event_name`, the repository, the default branch).
 A value the triggering party chooses — `github.head_ref`, an upstream run's
 `head_branch` — is left **unknown**, because binding one guess makes a
 comparison against any other literal read as definitely-false and accepts a job
-that is perfectly reachable. Where a scenario does pin such a value on purpose,
-to oblige one particular condition, it goes in a separate `adversarial` map with
-its reason, and a test refuses any other binding of a party-chosen path.
+that is perfectly reachable.
+
+Some facts sit in between, and a sample is wrong for those too: the event fixes
+`github.ref` to `refs/pull/<n>/merge` for a pull request and `refs/tags/<name>`
+for a tag push, while the number and the name are chosen. Those are bound as a
+**domain** — the prefix the event fixes — so a comparison outside it is false
+(`github.ref == 'refs/heads/main'` cannot hold on a pull request) and one inside
+it is unknown (`github.ref == 'refs/pull/8/merge'` is true on pull request 8).
+Sampling one ref made that second case definitely-false and accepted the job.
+
+Where a scenario pins a party-chosen value on purpose, to oblige one particular
+condition, it goes in a separate `adversarial` map with its reason, and a test
+refuses any other binding of a party-chosen path.
 
 Everything that cannot be read is refused rather than interpreted: an expression
 that will not parse, a `permissions:` scalar or access level the reader does not

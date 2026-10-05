@@ -527,40 +527,158 @@ func (t tri) String() string {
 	return "unknown"
 }
 
-// value is a result the evaluator either knows or does not.
-type value struct {
-	known bool
-	v     any // string, bool or float64
+func triOf(b bool) tri {
+	if b {
+		return triTrue
+	}
+	return triFalse
 }
 
-var unknownValue = value{}
+// value is what an expression evaluates to. Three kinds, and the middle one is
+// what makes the evaluation both sound and precise:
+//
+//   - KNOWN: the concrete value.
+//   - PREFIXED: the value is not known, but every value it could be begins with
+//     a prefix the EVENT fixes. `github.ref` on a pull request is the case
+//     this exists for: GitHub forces `refs/pull/<n>/merge`, and the number is
+//     the author's. Binding one sample (`refs/pull/7/merge`) made
+//     `github.ref == 'refs/pull/8/merge'` definitely-false and accepted a job
+//     that is reachable on pull request #8. Leaving it wholly unknown would be
+//     sound but would then demand an ancestry proof from jobs that plainly
+//     cannot run on a tag. A prefix answers both: a comparison outside the
+//     domain is FALSE, one inside it is UNKNOWN.
+//   - UNKNOWN: nothing is known. Everything a triggering party chooses freely
+//     lands here, and unknown is never accepted as false.
+//
+// Truthiness travels with the value, because `&&` and `||` can determine it
+// without determining which operand was selected.
+type valueKind int
 
-func knownBool(b bool) value { return value{known: true, v: b} }
+const (
+	valueUnknown valueKind = iota
+	valueKnown
+	valuePrefixed
+)
 
-// truth coerces a value to three-valued truth the way GitHub coerces it to
-// boolean: an empty string, a zero and null are false.
-func truth(v value) tri {
-	if !v.known {
-		return triUnknown
-	}
-	switch x := v.v.(type) {
+type value struct {
+	kind   valueKind
+	v      any    // valueKnown: string, bool, float64 or nil
+	prefix string // valuePrefixed
+	t      tri
+}
+
+var unknownValue = value{kind: valueUnknown, t: triUnknown}
+
+func knownValue(v any) value {
+	return value{kind: valueKnown, v: v, t: truthOf(v)}
+}
+
+func knownBool(b bool) value { return knownValue(b) }
+
+// prefixedValue is a string whose leading characters the event fixes. A
+// non-empty prefix means the string is non-empty, hence truthy.
+func prefixedValue(prefix string) value {
+	return value{kind: valuePrefixed, prefix: prefix, t: triOf(prefix != "")}
+}
+
+// truthinessOnly carries a truthiness that is determined while the value is
+// not -- `unknown && <falsy>` is falsy whichever operand is selected.
+func truthinessOnly(t tri) value {
+	return value{kind: valueUnknown, t: t}
+}
+
+// truthOf coerces a concrete value to boolean the way GitHub does: an empty
+// string, a zero and null are false.
+func truthOf(v any) tri {
+	switch x := v.(type) {
 	case bool:
-		if x {
-			return triTrue
-		}
-		return triFalse
+		return triOf(x)
 	case string:
-		if x != "" {
-			return triTrue
-		}
-		return triFalse
+		return triOf(x != "")
 	case float64:
-		if x != 0 {
-			return triTrue
-		}
-		return triFalse
+		return triOf(x != 0)
 	case nil:
 		return triFalse
+	}
+	return triUnknown
+}
+
+func truth(v value) tri { return v.t }
+
+// toNumber is GitHub's numeric coercion, used when `==` compares across types.
+// A string that is not a number becomes NaN, which equals nothing.
+func toNumber(v any) (float64, bool) {
+	switch x := v.(type) {
+	case nil:
+		return 0, true
+	case bool:
+		if x {
+			return 1, true
+		}
+		return 0, true
+	case float64:
+		return x, true
+	case string:
+		trimmed := strings.TrimSpace(x)
+		if trimmed == "" {
+			return 0, true
+		}
+		f, err := strconv.ParseFloat(trimmed, 64)
+		if err != nil {
+			return 0, false // NaN
+		}
+		return f, true
+	}
+	return 0, false
+}
+
+// looseEqual implements GitHub's `==`: same-typed strings compare
+// case-insensitively, and operands of different types are both converted to
+// numbers. `” == 0` is TRUE there, which Go's `==` on `any` reports as false
+// -- a difference a condition can be built out of.
+func looseEqual(a, b any) tri {
+	if as, ok := a.(string); ok {
+		if bs, ok := b.(string); ok {
+			return triOf(strings.EqualFold(as, bs))
+		}
+	}
+	if ab, ok := a.(bool); ok {
+		if bb, ok := b.(bool); ok {
+			return triOf(ab == bb)
+		}
+	}
+	if an, ok := a.(float64); ok {
+		if bn, ok := b.(float64); ok {
+			return triOf(an == bn)
+		}
+	}
+	if a == nil && b == nil {
+		return triTrue
+	}
+	an, aok := toNumber(a)
+	bn, bok := toNumber(b)
+	if !aok || !bok {
+		return triFalse // NaN equals nothing
+	}
+	return triOf(an == bn)
+}
+
+// equality compares two values, including the prefixed kind: a literal outside
+// the domain can never be equal, one inside it might be.
+func equality(a, b value) tri {
+	if a.kind == valueKnown && b.kind == valueKnown {
+		return looseEqual(a.v, b.v)
+	}
+	known, prefixed := a, b
+	if a.kind == valuePrefixed && b.kind == valueKnown {
+		known, prefixed = b, a
+	}
+	if known.kind == valueKnown && prefixed.kind == valuePrefixed {
+		if literal, ok := known.v.(string); ok {
+			if !strings.HasPrefix(strings.ToLower(literal), strings.ToLower(prefixed.prefix)) {
+				return triFalse
+			}
+		}
 	}
 	return triUnknown
 }
@@ -578,10 +696,14 @@ func truth(v value) tri {
 // and a credential-bearing job gated on it is accepted -- while being perfectly
 // reachable from a pull request whose branch is named `release`.
 //
-// So there are two maps, and the difference is not cosmetic:
+// So there are three maps, and the differences are not cosmetic:
 //
 //   - `fixed` holds values the EVENT determines, identically for every
 //     instance. Nobody chooses them, so one binding answers for all.
+//   - `prefixed` holds values whose LEADING PART the event fixes while the rest
+//     is chosen -- `github.ref` is `refs/pull/<n>/merge` for every pull
+//     request. A comparison outside the domain is false; one inside it is
+//     unknown.
 //   - `adversarial` holds values the triggering party does choose, pinned to
 //     the value that most favours them. That is sound for what these scenarios
 //     are for -- obliging one specific condition -- and every entry carries its
@@ -592,27 +714,33 @@ func truth(v value) tri {
 type scenario struct {
 	name        string
 	fixed       map[string]string
+	prefixed    map[string]string
 	adversarial map[string]string
 	always      map[string]tri // function results this situation fixes
 }
 
-// lookup resolves a context path against both maps.
-func (s scenario) lookup(path string) (string, bool) {
-	if value, ok := s.fixed[path]; ok {
-		return value, true
+// lookup resolves a context path.
+func (s scenario) lookup(path string) (value, bool) {
+	if v, ok := s.fixed[path]; ok {
+		return knownValue(v), true
 	}
-	value, ok := s.adversarial[path]
-	return value, ok
+	if v, ok := s.adversarial[path]; ok {
+		return knownValue(v), true
+	}
+	if p, ok := s.prefixed[path]; ok {
+		return prefixedValue(p), true
+	}
+	return unknownValue, false
 }
 
 func (s scenario) eval(n node) value {
 	switch t := n.(type) {
 	case literalNode:
-		return value{known: true, v: t.value}
+		return knownValue(t.value)
 
 	case contextNode:
-		if bound, ok := s.lookup(strings.ToLower(strings.Join(t.path, "."))); ok {
-			return value{known: true, v: bound}
+		if v, ok := s.lookup(strings.ToLower(strings.Join(t.path, "."))); ok {
+			return v
 		}
 		return unknownValue
 
@@ -623,6 +751,7 @@ func (s scenario) eval(n node) value {
 		return s.evalCall(t)
 
 	case unaryNode:
+		// `!` returns a boolean, unlike `&&` and `||`.
 		switch truth(s.eval(t.operand)) {
 		case triTrue:
 			return knownBool(false)
@@ -648,20 +777,41 @@ func (s scenario) evalCall(t callNode) value {
 		return unknownValue
 	}
 
-	// String predicates are computable when both arguments are.
 	if len(t.args) == 2 {
 		left, right := s.eval(t.args[0]), s.eval(t.args[1])
-		ls, lok := left.v.(string)
-		rs, rok := right.v.(string)
-		if left.known && right.known && lok && rok {
-			ls, rs = strings.ToLower(ls), strings.ToLower(rs)
+		literal, literalOK := right.v.(string)
+		if right.kind != valueKnown {
+			literalOK = false
+		}
+
+		if subject, ok := left.v.(string); ok && left.kind == valueKnown && literalOK {
+			subject, literal := strings.ToLower(subject), strings.ToLower(literal)
 			switch t.name {
 			case "startswith":
-				return knownBool(strings.HasPrefix(ls, rs))
+				return knownBool(strings.HasPrefix(subject, literal))
 			case "endswith":
-				return knownBool(strings.HasSuffix(ls, rs))
+				return knownBool(strings.HasSuffix(subject, literal))
 			case "contains":
-				return knownBool(strings.Contains(ls, rs))
+				return knownBool(strings.Contains(subject, literal))
+			}
+		}
+
+		// A prefixed subject decides some of these outright.
+		if left.kind == valuePrefixed && literalOK {
+			domain, literal := strings.ToLower(left.prefix), strings.ToLower(literal)
+			switch t.name {
+			case "startswith":
+				if strings.HasPrefix(domain, literal) {
+					return knownBool(true) // every value in the domain does
+				}
+				if strings.HasPrefix(literal, domain) {
+					return unknownValue // some might
+				}
+				return knownBool(false) // none can
+			case "contains":
+				if strings.Contains(domain, literal) {
+					return knownBool(true)
+				}
 			}
 		}
 	}
@@ -670,62 +820,56 @@ func (s scenario) evalCall(t callNode) value {
 
 func (s scenario) evalBinary(t binaryNode) value {
 	switch t.op {
-	case "&&":
-		// False if either side is false, whatever the other is -- which is why
-		// an unknown beside a false still yields false, and a negation around
-		// the pair yields TRUE rather than being read as a conjunction.
-		lt := truth(s.eval(t.l))
-		if lt == triFalse {
-			return knownBool(false)
-		}
-		rt := truth(s.eval(t.r))
-		if rt == triFalse {
-			return knownBool(false)
-		}
-		if lt == triTrue && rt == triTrue {
-			return knownBool(true)
-		}
-		return unknownValue
+	case "&&", "||":
+		// GitHub's `&&` and `||` return the SELECTED OPERAND, not a boolean.
+		// `(a && 'run' || '') == 'run'` is a condition built out of that: read
+		// as a boolean it compares `true` with `'run'` and is false; read
+		// correctly it selects `'run'` and is true.
+		left := s.eval(t.l)
+		lt := truth(left)
 
-	case "||":
-		lt := truth(s.eval(t.l))
-		if lt == triTrue {
-			return knownBool(true)
+		selectsRight := lt == triTrue
+		if t.op == "||" {
+			selectsRight = lt == triFalse
 		}
+		if lt != triUnknown {
+			if selectsRight {
+				return s.eval(t.r)
+			}
+			return left
+		}
+
+		// Which operand is selected is unknown, but the TRUTHINESS can still be
+		// determined: `unknown && <falsy>` is falsy either way, and
+		// `unknown || <truthy>` is truthy either way.
 		rt := truth(s.eval(t.r))
-		if rt == triTrue {
-			return knownBool(true)
+		if t.op == "&&" && rt == triFalse {
+			return truthinessOnly(triFalse)
 		}
-		if lt == triFalse && rt == triFalse {
-			return knownBool(false)
+		if t.op == "||" && rt == triTrue {
+			return truthinessOnly(triTrue)
 		}
 		return unknownValue
 	}
 
 	left, right := s.eval(t.l), s.eval(t.r)
-	if !left.known || !right.known {
-		return unknownValue
-	}
-	equal := looseEqual(left.v, right.v)
 	switch t.op {
 	case "==":
-		return knownBool(equal)
+		result := equality(left, right)
+		if result == triUnknown {
+			return unknownValue
+		}
+		return knownBool(result == triTrue)
 	case "!=":
-		return knownBool(!equal)
+		result := equality(left, right)
+		if result == triUnknown {
+			return unknownValue
+		}
+		return knownBool(result == triFalse)
 	}
 	// Ordering comparisons are not needed by any condition here, and guessing
 	// would be worse than declining to answer.
 	return unknownValue
-}
-
-// looseEqual compares the way GitHub does: strings case-insensitively.
-func looseEqual(a, b any) bool {
-	as, aok := a.(string)
-	bs, bok := b.(string)
-	if aok && bok {
-		return strings.EqualFold(as, bs)
-	}
-	return a == b
 }
 
 // canRunUnder answers the only question the guards ask of a condition: could

@@ -31,6 +31,14 @@ var pullRequest = scenario{
 		"github.repository":                      theRepository,
 		"github.event.repository.default_branch": theDefaultBranch,
 	},
+	prefixed: map[string]string{
+		// GitHub forces `refs/pull/<n>/merge`; the number is the author's. As a
+		// DOMAIN this is sound and still useful: `== 'refs/heads/main'` is
+		// outside it and therefore false, while `== 'refs/pull/8/merge'` is
+		// inside it and therefore unknown -- which is the right answer, since
+		// on pull request 8 it is true.
+		"github.ref": "refs/pull/",
+	},
 	always: map[string]tri{"always": triTrue},
 }
 
@@ -100,13 +108,13 @@ var pushOfATag = scenario{
 		"github.repository":                      theRepository,
 		"github.event.repository.default_branch": theDefaultBranch,
 	},
-	adversarial: map[string]string{
-		// The ref IS the scenario's premise, so binding a tag is what makes it
-		// the tag scenario rather than a guess. The residual, stated: a job
-		// gated on one exact tag NAME reads as unreachable here and would not
-		// be asked for an ancestry proof.
-		"github.ref":      "refs/tags/v9.9.9",
-		"github.ref_name": "v9.9.9",
+	prefixed: map[string]string{
+		// A tag push fixes the prefix and nothing else: the tag name is chosen.
+		// As a domain, `startsWith(github.ref, 'refs/tags/')` is TRUE for every
+		// tag, `== 'refs/heads/main'` is FALSE, and `== 'refs/tags/v1.0.0'` is
+		// UNKNOWN -- so a job gated on one exact tag name is still asked for an
+		// ancestry proof, which the earlier sampled binding let through.
+		"github.ref": "refs/tags/",
 	},
 	always: map[string]tri{"always": triTrue},
 }
@@ -170,7 +178,12 @@ func TestAConditionOnAChosenValueIsNeverJudgedSafe(t *testing.T) {
 			if _, pinned := s.adversarial[path]; pinned {
 				continue // deliberately pinned to oblige a condition; see the scenario
 			}
+			// A domain-bound path is answerable only within its domain, so the
+			// literal here is chosen to sit inside it.
 			gate := path + " == 'release'"
+			if domain, ok := s.prefixed[path]; ok {
+				gate = path + " == '" + domain + "release'"
+			}
 			got, err := canRunUnder(gate, s)
 			require.NoError(t, err)
 			require.NotEqual(t, triFalse.String(), got.String(),
@@ -355,4 +368,95 @@ func TestEveryExpressionInEveryWorkflowParses(t *testing.T) {
 		}
 	}
 	require.NotZero(t, seen, "no expressions found at all, so this proves nothing")
+}
+
+// The three bypasses of the first evaluator, each a complete workflow mutation
+// that actionlint accepts and each certifying a pull-request-reachable job that
+// holds a secret. They are here as expression cases because that is where the
+// defect was; TestTheThreeEvaluatorBypassesAreRefusedOnTheRealWorkflow applies
+// them to a real job.
+func TestGitHubOperatorAndCoercionSemanticsAreImplemented(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		gate string
+		want tri
+	}{
+		// 1 — `&&` and `||` return the SELECTED OPERAND, not a boolean. Read as
+		// booleans this compares `true` with `'run'` and is false; read as
+		// GitHub reads it, the `&&` selects `'run'` and the comparison holds.
+		{
+			name: "operand selection through && and ||",
+			gate: "(github.event_name == 'pull_request' && 'run' || '') == 'run'",
+			want: triTrue,
+		},
+		{
+			name: "the same shape with the operands reversed",
+			gate: "(github.event_name == 'push' && 'run' || 'skip') == 'skip'",
+			want: triTrue,
+		},
+		{
+			name: "a selected operand's truthiness still drives a bare condition",
+			gate: "github.event_name == 'push' && 'run'",
+			want: triFalse,
+		},
+		{
+			name: "an unknown left operand beside a falsy right is still falsy",
+			gate: "needs.build.result == 'success' && ''",
+			want: triFalse,
+		},
+		{
+			name: "an unknown left operand beside a truthy right is truthy under ||",
+			gate: "needs.build.result == 'success' || 'yes'",
+			want: triTrue,
+		},
+
+		// 2 — cross-type coercion. GitHub converts both operands to numbers
+		// when their types differ, so these hold there and Go's `==` on `any`
+		// reports every one of them false.
+		{name: "an empty string equals zero", gate: "'' == 0", want: triTrue},
+		{name: "false equals zero", gate: "false == 0", want: triTrue},
+		{name: "true equals one", gate: "true == 1", want: triTrue},
+		{name: "null equals zero", gate: "null == 0", want: triTrue},
+		{name: "a numeric string equals its number", gate: "'1' == 1", want: triTrue},
+		{name: "a non-numeric string is NaN and equals nothing", gate: "'abc' == 0", want: triFalse},
+		{name: "strings compare case-insensitively", gate: "'PUSH' == 'push'", want: triTrue},
+		{name: "and != follows the same coercion", gate: "'' != 0", want: triFalse},
+
+		// 3 — a ref is a domain the event fixes, not a sample. Comparing to
+		// another pull request's ref must be UNKNOWN (it is true on that pull
+		// request), while comparing to a branch ref is outside the domain and
+		// therefore false.
+		{name: "another pull request's ref is not refutable", gate: "github.ref == 'refs/pull/8/merge'", want: triUnknown},
+		{name: "a branch ref is outside the domain", gate: "github.ref == 'refs/heads/main'", want: triFalse},
+		{name: "a tag ref is outside the domain", gate: "startsWith(github.ref, 'refs/tags/')", want: triFalse},
+		{name: "the domain itself holds", gate: "startsWith(github.ref, 'refs/pull/')", want: triTrue},
+		{name: "a longer prefix inside the domain is not refutable", gate: "startsWith(github.ref, 'refs/pull/8')", want: triUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := canRunUnder(tc.gate, pullRequest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want.String(), got.String(), "condition %q", tc.gate)
+		})
+	}
+}
+
+// A tag push reads its ref as a domain too, which is what keeps the ancestry
+// demand both correct and narrow.
+func TestATagRefIsADomainNotASample(t *testing.T) {
+	for _, tc := range []struct {
+		gate string
+		want tri
+	}{
+		{gate: "startsWith(github.ref, 'refs/tags/')", want: triTrue},
+		{gate: "github.ref == 'refs/heads/main'", want: triFalse},
+		// Was definitely-false under a sampled `refs/tags/v9.9.9`, which let a
+		// job gated on one exact tag name skip the ancestry proof.
+		{gate: "github.ref == 'refs/tags/v1.0.0'", want: triUnknown},
+	} {
+		t.Run(tc.gate, func(t *testing.T) {
+			got, err := canRunUnder(tc.gate, pushOfATag)
+			require.NoError(t, err)
+			require.Equal(t, tc.want.String(), got.String())
+		})
+	}
 }
