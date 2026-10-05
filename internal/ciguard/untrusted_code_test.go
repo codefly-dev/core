@@ -166,12 +166,21 @@ func jobIDs(wf permissionedWorkflow) []string {
 	return ids
 }
 
-// pinnedToAPushOnMain reports whether gate confines a job to a push of the
-// default branch — the one condition under which a job in a pull-request
-// workflow is not running a pull request's code.
-func pinnedToAPushOnMain(gate string) bool {
-	return strings.Contains(gate, "github.event_name == 'push'") &&
-		strings.Contains(gate, "github.ref == 'refs/heads/main'")
+// cannotRunOnAPullRequest reports whether gate is PROVABLY false when the event
+// is a pull request.
+//
+// This asked whether the condition contained two clauses, which `... || true`
+// and `!(... && ...)` both satisfy while running on a pull request. It is now
+// decided by evaluating the expression -- see expression_test.go -- and an
+// unknown result is not an answer: a condition that turns on something no
+// scenario fixes has established nothing.
+func cannotRunOnAPullRequest(t *testing.T, gate string) bool {
+	t.Helper()
+
+	reached, err := canRunUnder(gate, pullRequest)
+	require.NoError(t, err,
+		"a condition this package cannot parse is one it cannot judge: %q", gate)
+	return reached == triFalse
 }
 
 // A `pull_request` run checks out the pull request's head: for the whole job,
@@ -203,37 +212,33 @@ func TestNoJobRunsPullRequestCodeWithAWriteToken(t *testing.T) {
 			if !writeCapable(grant) {
 				continue
 			}
-			require.True(t, pinnedToAPushOnMain(job.If),
-				"%s: job %q can be triggered by a pull request and its token has %s. "+
-					"A pull request's run checks out that pull request's code, and "+
-					"`permissions:` cannot be narrowed per step, so every step in the "+
-					"job holds that grant. Declare the job read-only and move the write "+
-					"into a job gated `if: github.event_name == 'push' && github.ref == "+
-					"'refs/heads/main'`, which runs no code under review.",
-				filepath.Base(path), id, grant)
+			require.True(t, cannotRunOnAPullRequest(t, job.If),
+				"%s: job %q can be reached by a pull request and its token has %s "+
+					"(condition: %q). A pull request's run checks out that pull "+
+					"request's code, and `permissions:` cannot be narrowed per step, so "+
+					"every step in the job holds that grant. Declare the job read-only "+
+					"and move the write into a job whose condition is provably false on "+
+					"a pull request -- `github.event_name == 'push' && github.ref == "+
+					"'refs/heads/main'` -- which runs no code under review.",
+				filepath.Base(path), id, grant, job.If)
 		}
 	}
 	require.NotZero(t, checked, "no workflow runs on pull requests, so this guard proves nothing")
 }
-
-// workflowRunEventGuard and workflowRunHeadRepositoryGuard are the two
-// conditions that together establish that a `workflow_run` was produced by a
-// push to this repository, rather than by any other event this repository's
-// workflows accept.
-const (
-	workflowRunEventGuard          = "github.event.workflow_run.event == 'push'"
-	workflowRunHeadRepositoryGuard = "github.event.workflow_run.head_repository.full_name == github.repository"
-)
 
 // A `workflow_run` job always runs with the BASE repository's permissions and
 // from the default branch's copy of the workflow file, whatever produced the
 // run it reacts to. The `branches:` filter does not establish that: it matches
 // the triggering run's HEAD branch, a name the head repository chooses.
 //
-// So a write-capable `workflow_run` job needs both halves stated: the
-// triggering event, and that the head repository is this one. Either alone
-// leaves the other open.
-func TestNoWorkflowRunJobHoldsAWriteTokenWithoutAnEventAndHeadRepositoryGuard(t *testing.T) {
+// Two hostile shapes, asserted separately, because each is stopped by a
+// DIFFERENT condition: a run produced by a pull request (which only the event
+// condition refuses) and a run produced by a push to a fork (which only the
+// head-repository condition refuses). A job carrying one of the two passes
+// against one shape and fails against the other, which is the point -- and it
+// is why this asks about reachability rather than about which clauses are
+// present.
+func TestNoWorkflowRunJobHoldsAWriteTokenReachableFromAnUntrustedRun(t *testing.T) {
 	paths, workflows := loadPermissionedWorkflows(t)
 
 	checked := 0
@@ -250,14 +255,19 @@ func TestNoWorkflowRunJobHoldsAWriteTokenWithoutAnEventAndHeadRepositoryGuard(t 
 			if !writeCapable(grant) {
 				continue
 			}
-			for _, guard := range []string{workflowRunEventGuard, workflowRunHeadRepositoryGuard} {
-				require.Contains(t, job.If, guard,
-					"%s: job %q runs on workflow_run with %s but its `if:` does not "+
-						"require %s. The `branches:` filter matches the triggering run's "+
-						"head branch, which the head repository names, so without both the "+
-						"event and the head-repository condition this job is reachable from "+
-						"runs this repository never reviewed.",
-					filepath.Base(path), id, grant, guard)
+			for _, hostile := range []scenario{workflowRunFromAPullRequest, workflowRunFromAForkPush} {
+				reached, err := canRunUnder(job.If, hostile)
+				require.NoError(t, err,
+					"%s: job %q has a condition this package cannot judge: %q",
+					filepath.Base(path), id, job.If)
+				require.Equal(t, triFalse.String(), reached.String(),
+					"%s: job %q runs on workflow_run with %s, and its condition (%q) "+
+						"can still be reached by %s. The `branches:` filter matches the "+
+						"triggering run's head branch, which the head repository names, "+
+						"so the condition has to refuse both the event and the head "+
+						"repository -- and refuse them in a way that evaluating the "+
+						"expression confirms.",
+					filepath.Base(path), id, grant, job.If, hostile.name)
 			}
 		}
 	}

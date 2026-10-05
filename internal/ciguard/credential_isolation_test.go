@@ -34,11 +34,6 @@ import (
 // while executing a tree it had just assembled from unmerged heads, and the
 // job running the suite, which named a webhook secret in a step it skips.
 
-// secretExpression finds a `secrets.NAME` reference anywhere in a workflow,
-// including inside a `run:` script, which is where a credential is most easily
-// smuggled past a guard that only reads `env:`.
-var secretExpression = regexp.MustCompile(`secrets\.([A-Za-z_][A-Za-z0-9_-]*)`)
-
 // builtInToken is exempt. It is injected into every job whether or not it is
 // named, so refusing the name would refuse the thing that is already there;
 // what it can DO is governed by `permissions:`, which untrusted_code_test.go
@@ -65,23 +60,43 @@ type isolatedJob struct {
 }
 
 type isolatedWorkflow struct {
-	On   yaml.Node              `yaml:"on"`
+	On yaml.Node `yaml:"on"`
+	// Workflow-level env is inherited by EVERY job, so a secret put here is a
+	// secret in the job running the suite. Omitting it from the model is the
+	// same as exempting it, and a model that cannot see a credential cannot
+	// report one.
+	Env  map[string]string      `yaml:"env"`
 	Jobs map[string]isolatedJob `yaml:"jobs"`
 }
 
-// secretsIn returns every non-built-in secret name the job references, with
-// where each was found, so a failure points at the line to change.
-func secretsIn(job isolatedJob) map[string][]string {
+// secretsIn returns every non-built-in secret the job can reach, and where
+// each was found, so a failure names the line to change.
+//
+// "Can reach" includes the WORKFLOW's env, because every job inherits it. The
+// names come from the expression parser rather than a pattern, so
+// `secrets['NAME']`, `secrets[format(...)]` and `toJSON(secrets)` count as
+// surely as `secrets.NAME` does; an expression that cannot be parsed fails the
+// test rather than reporting nothing.
+func secretsIn(t *testing.T, wf isolatedWorkflow, job isolatedJob) map[string][]string {
+	t.Helper()
+
 	found := map[string][]string{}
 	note := func(where, text string) {
-		for _, m := range secretExpression.FindAllStringSubmatch(text, -1) {
-			if m[1] == builtInToken {
+		names, err := secretsReferencedIn(text)
+		require.NoError(t, err,
+			"%s: an expression here cannot be parsed, so a credential in it "+
+				"would be invisible to this guard", where)
+		for _, name := range names {
+			if name == builtInToken {
 				continue
 			}
-			found[m[1]] = append(found[m[1]], where)
+			found[name] = append(found[name], where)
 		}
 	}
 
+	for name, value := range wf.Env {
+		note("the WORKFLOW's env "+name+" (inherited by every job)", value)
+	}
 	for name, value := range job.Env {
 		note("the job's env "+name, value)
 	}
@@ -105,8 +120,8 @@ func secretsIn(job isolatedJob) map[string][]string {
 			note(where+" env "+name, value)
 		}
 		for key, value := range step.With {
-			if s, ok := value.(string); ok {
-				note(where+" with."+key, s)
+			if str, ok := value.(string); ok {
+				note(where+" with."+key, str)
 			}
 		}
 		note(where+" run:", step.Run)
@@ -115,102 +130,12 @@ func secretsIn(job isolatedJob) map[string][]string {
 	return found
 }
 
-// clausesOf splits an `if:` into its top-level `&&` terms, and reports whether
-// the expression contains an `||`.
-//
-// The guards in untrusted_code_test.go originally asked whether a condition
-// CONTAINED a required substring, which `(<required>) || true` satisfies while
-// meaning the opposite. A security condition is read as a conjunction or it is
-// not read at all.
-func clausesOf(gate string) (clauses []string, hasAlternative bool) {
-	flat := strings.Join(strings.Fields(gate), " ")
-	if flat == "" {
-		return nil, false
-	}
-	if strings.Contains(flat, "||") {
-		return nil, true
-	}
-	for _, clause := range strings.Split(flat, "&&") {
-		if trimmed := unwrap(strings.TrimSpace(clause)); trimmed != "" {
-			clauses = append(clauses, trimmed)
-		}
-	}
-	return clauses, false
-}
-
-// unwrap removes parentheses that enclose the WHOLE clause, and only those.
-// Trimming a leading "(" and a trailing ")" blindly mangles any clause ending
-// in a call -- `startsWith(github.ref, 'refs/tags/')` becomes unparseable and
-// then never matches, which would silently exempt every job gated on a tag.
-func unwrap(clause string) string {
-	for len(clause) > 1 && clause[0] == '(' && clause[len(clause)-1] == ')' {
-		depth := 0
-		enclosing := true
-		for i, r := range clause {
-			switch r {
-			case '(':
-				depth++
-			case ')':
-				depth--
-			}
-			// Depth returning to zero before the end means the opening paren
-			// closed early, so the pair does not enclose the clause.
-			if depth == 0 && i < len(clause)-1 {
-				enclosing = false
-				break
-			}
-		}
-		if !enclosing {
-			return clause
-		}
-		clause = strings.TrimSpace(clause[1 : len(clause)-1])
-	}
-	return clause
-}
-
-// hasClause reports whether gate requires want as one of its conjuncts. An
-// expression with an `||` requires nothing: one branch of it is enough.
-func hasClause(gate, want string) bool {
-	clauses, hasAlternative := clausesOf(gate)
-	if hasAlternative {
-		return false
-	}
-	for _, clause := range clauses {
-		if clause == want {
-			return true
-		}
-	}
-	return false
-}
-
-// trustedRefClauses are the conditions that confine a job to a ref this
-// repository has reviewed: a push of the default branch, or a pushed tag. Each
-// has to appear beside `github.event_name == 'push'`, because a ref comparison
-// alone is satisfied by other events that set the same ref.
-var trustedRefClauses = []string{
-	"github.ref == 'refs/heads/main'",
-	"startsWith(github.ref, 'refs/tags/')",
-}
-
-// runsOnlyOnATrustedRef reports whether gate confines a job to a merged ref.
-func runsOnlyOnATrustedRef(gate string) bool {
-	if !hasClause(gate, "github.event_name == 'push'") {
-		return false
-	}
-	for _, clause := range trustedRefClauses {
-		if hasClause(gate, clause) {
-			return true
-		}
-	}
-	return false
-}
-
 // reachableFromAPullRequest reports whether code an author of a pull request
 // wrote can run in this workflow.
 //
 // `workflow_call` counts. A reusable workflow runs the CALLER's tree at a ref
 // the caller picks, and nothing here can see whether that caller dispatches it
-// from a pull request — so it has to be assumed, which is also what makes a
+// from a pull request -- so it has to be assumed, which is also what makes a
 // secret in such a workflow the caller's secret to lose.
 func reachableFromAPullRequest(on yaml.Node) bool {
 	for _, trigger := range triggers(on) {
@@ -220,6 +145,14 @@ func reachableFromAPullRequest(on yaml.Node) bool {
 		}
 	}
 	return false
+}
+
+// yamlOf returns a workflow file's raw text.
+func yamlOf(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(raw)
 }
 
 func loadIsolatedWorkflows(t *testing.T) ([]string, map[string]isolatedWorkflow) {
@@ -247,6 +180,25 @@ func isolatedJobIDs(wf isolatedWorkflow) []string {
 	return ids
 }
 
+// mustNotRunUnder asserts a job's condition is PROVABLY false in a situation,
+// and says why when it is not. Unknown is a failure, not a pass: a condition
+// that turns on something unknowable has not established anything.
+func mustNotRunUnder(t *testing.T, gate string, s scenario) (ok bool, reason string) {
+	t.Helper()
+
+	reached, err := canRunUnder(gate, s)
+	require.NoError(t, err,
+		"a condition this package cannot parse is one it cannot judge: %q", gate)
+	switch reached {
+	case triFalse:
+		return true, ""
+	case triTrue:
+		return false, "its condition is TRUE under " + s.name
+	}
+	return false, "its condition is UNKNOWN under " + s.name +
+		" (it turns on something no condition here fixes, which establishes nothing)"
+}
+
 // The rule, stated once: a job that can run code under review references no
 // secret, and a job that references a secret runs on a merged ref and checks
 // out nothing of the pull request.
@@ -269,7 +221,7 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 
 		for _, id := range isolatedJobIDs(wf) {
 			job := wf.Jobs[id]
-			secrets := secretsIn(job)
+			secrets := secretsIn(t, wf, job)
 			if len(secrets) == 0 {
 				continue
 			}
@@ -279,16 +231,16 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 			}
 			sort.Strings(names)
 
-			require.True(t, runsOnlyOnATrustedRef(job.If),
-				"%s: job %q can run code under review and references %s. "+
-					"`permissions:` does not govern a repository secret, so narrowing "+
-					"the built-in token leaves this credential exactly as reachable as "+
-					"before. Move it into a job that runs on a merged ref -- "+
-					"`github.event_name == 'push'` with either %s -- and that checks out "+
-					"none of the pull request's code. A step-level `if:` is not enough: "+
-					"it gates the step, not the job the credential lives in.",
-				filepath.Base(path), id, strings.Join(names, "; "),
-				strings.Join(trustedRefClauses, " or "))
+			ok, reason := mustNotRunUnder(t, job.If, pullRequest)
+			require.True(t, ok,
+				"%s: job %q references %s, and %s. `permissions:` does not govern a "+
+					"repository secret, so narrowing the built-in token leaves this "+
+					"credential exactly as reachable as before. Move it into a job "+
+					"whose condition cannot be true on a pull request -- a push of the "+
+					"default branch, or a pushed tag -- and that checks out none of "+
+					"the pull request's code. A step-level `if:` is not enough: it "+
+					"gates the step, not the job the credential lives in.",
+				filepath.Base(path), id, strings.Join(names, "; "), reason)
 		}
 	}
 	require.NotZero(t, checked,
@@ -351,73 +303,15 @@ func TestAJobThatSelectsASuppliedCommitProvesItIsOnTheDefaultBranch(t *testing.T
 	}
 }
 
-// clausesOf and hasClause decide every condition assertion in this package, so
-// a form they misread is an escape hatch. `|| true` is the one that matters:
-// appending it to any required condition makes the condition vacuous while
-// leaving the required text in place for a substring check to find.
-func TestConditionReadingRefusesAnAlternative(t *testing.T) {
-	const required = "github.event_name == 'push'"
-
-	for _, tc := range []struct {
-		name string
-		gate string
-		has  bool
-	}{
-		{name: "the clause alone", gate: required, has: true},
-		{
-			name: "one conjunct among several",
-			gate: "github.event_name == 'push' && github.ref == 'refs/heads/main'",
-			has:  true,
-		},
-		{
-			name: "wrapped across lines, as a folded block leaves it",
-			gate: "github.event.workflow_run.conclusion == 'success' &&\n  " + required,
-			has:  true,
-		},
-		{name: "parenthesised", gate: "(" + required + ") && always()", has: true},
-		{name: "absent", gate: "always()", has: false},
-		{name: "no condition at all", gate: "", has: false},
-
-		// The escape hatches. Each leaves the required text present, so a
-		// substring check passes it; each makes the condition mean nothing.
-		{name: "neutralised with || true", gate: required + " || true", has: false},
-		{name: "neutralised with a second branch", gate: required + " || github.event_name == 'pull_request'", has: false},
-		{name: "an alternative anywhere in the expression", gate: "always() && (" + required + " || true)", has: false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.has, hasClause(tc.gate, required))
-		})
-	}
-}
-
-// runsOnlyOnATrustedRef needs BOTH halves: an event and a ref. A ref
-// comparison alone is satisfied by events other than a push that set the same
-// ref, and an event alone says nothing about which ref.
-func TestATrustedRefNeedsBothAnEventAndARef(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		gate    string
-		trusted bool
-	}{
-		{name: "push of the default branch", gate: "github.event_name == 'push' && github.ref == 'refs/heads/main'", trusted: true},
-		{name: "pushed tag", gate: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')", trusted: true},
-		{name: "with always(), as a notify job needs", gate: "always() && github.event_name == 'push' && github.ref == 'refs/heads/main'", trusted: true},
-		{name: "the ref without the event", gate: "github.ref == 'refs/heads/main'", trusted: false},
-		{name: "the event without a ref", gate: "github.event_name == 'push'", trusted: false},
-		{name: "a different branch", gate: "github.event_name == 'push' && github.ref == 'refs/heads/wip'", trusted: false},
-		{name: "neutralised", gate: "github.event_name == 'push' && github.ref == 'refs/heads/main' || true", trusted: false},
-		{name: "nothing", gate: "", trusted: false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.trusted, runsOnlyOnATrustedRef(tc.gate))
-		})
-	}
-}
-
 // secretsIn decides the first assertion, so a place it does not look is a
-// place a credential can sit unnoticed. These are the shapes that carry one.
+// place a credential can sit unnoticed. These are the shapes that carry one,
+// including the two a review got past the earlier pattern-matching version:
+// workflow-level env, which every job inherits, and the index and
+// whole-context forms of reading the secrets context.
 func TestSecretsInFindsEveryPlaceACredentialCanSit(t *testing.T) {
 	const doc = `
+env:
+  WORKFLOW_LEVEL: ${{ secrets.WORKFLOW_ENV_SECRET }}
 jobs:
   everything:
     env:
@@ -434,6 +328,21 @@ jobs:
       - name: inline in a script
         run: |
           curl -H "Authorization: ${{ secrets.RUN_SECRET }}" https://example.test
+      - name: read by index rather than by property
+        env:
+          INDEXED: ${{ secrets['INDEXED_SECRET'] }}
+        run: echo hi
+      - name: the whole context handed to a function
+        env:
+          EVERYTHING: ${{ toJSON(secrets) }}
+        run: echo hi
+      - name: an index computed at run time
+        env:
+          COMPUTED: ${{ secrets[format('A_{0}', github.ref_name)] }}
+        run: echo hi
+      - name: in a condition
+        if: ${{ secrets.CONDITION_SECRET != '' }}
+        run: echo hi
       - name: the built-in token is exempt
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -445,19 +354,31 @@ jobs:
 	var wf isolatedWorkflow
 	require.NoError(t, yaml.Unmarshal([]byte(doc), &wf))
 
-	found := secretsIn(wf.Jobs["everything"])
+	found := secretsIn(t, wf, wf.Jobs["everything"])
 	names := make([]string, 0, len(found))
 	for name := range found {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	require.Equal(t,
-		[]string{"JOB_ENV_SECRET", "RUN_SECRET", "STEP_ENV_SECRET", "WITH_SECRET"},
-		names,
-		"a shape that carries a credential is not being read; GITHUB_TOKEN is "+
-			"exempt on purpose because it is present whether or not it is named")
+	require.Equal(t, []string{
+		wholeSecretsContext, // `(` sorts ahead of the names
+		"CONDITION_SECRET",
+		"INDEXED_SECRET",
+		"JOB_ENV_SECRET",
+		"RUN_SECRET",
+		"STEP_ENV_SECRET",
+		"WITH_SECRET",
+		"WORKFLOW_ENV_SECRET",
+	}, names,
+		"a shape that carries a credential is not being read. GITHUB_TOKEN is "+
+			"exempt on purpose because it is present whether or not it is named; "+
+			"everything else here is a credential this workflow asked for.")
 
-	require.Contains(t, secretsIn(wf.Jobs["calls"]),
+	require.Contains(t, found["WORKFLOW_ENV_SECRET"][0], "WORKFLOW's env",
+		"a workflow-level secret must be reported as inherited, so a reader "+
+			"knows it is not in the job's own text")
+
+	require.Contains(t, secretsIn(t, wf, wf.Jobs["calls"]),
 		"(inherit: every secret the caller holds)",
 		"`secrets: inherit` hands over every secret the caller has, which is "+
 			"wider than any single name and must not read as no secret at all")
@@ -525,7 +446,7 @@ func TestNoCredentialBearingJobFetchesPullRequestRefs(t *testing.T) {
 		wf := workflows[path]
 		for _, id := range isolatedJobIDs(wf) {
 			job := wf.Jobs[id]
-			if len(secretsIn(job)) == 0 {
+			if len(secretsIn(t, wf, job)) == 0 {
 				continue
 			}
 			commands := commandsOf(t, job)
@@ -566,7 +487,7 @@ func TestADispatchableCredentialJobChecksOutTheDefaultBranch(t *testing.T) {
 
 		for _, id := range isolatedJobIDs(wf) {
 			job := wf.Jobs[id]
-			if len(secretsIn(job)) == 0 {
+			if len(secretsIn(t, wf, job)) == 0 {
 				continue
 			}
 			for _, step := range job.Steps {
@@ -608,6 +529,26 @@ jobs:
 			"exact string the pull-request-ref guard looks for")
 }
 
+// reachableOnATagPush reports whether a job could run for a pushed tag --
+// either in a workflow this repository triggers on a push, or in a reusable one
+// a caller may invoke from its own tag push.
+func reachableOnATagPush(t *testing.T, wf isolatedWorkflow, job isolatedJob) bool {
+	t.Helper()
+
+	onATagEvent := false
+	for _, trigger := range triggers(wf.On) {
+		if trigger == "push" || trigger == "workflow_call" {
+			onATagEvent = true
+		}
+	}
+	if !onATagEvent {
+		return false
+	}
+	reached, err := canRunUnder(job.If, pushOfATag)
+	require.NoError(t, err)
+	return reached != triFalse
+}
+
 // A tag is not a statement about review. `git push origin <tag>` points a name
 // at any commit in the repository, merged or not, and the ref condition that
 // keeps a credential-bearing job off pull requests is satisfied the moment such
@@ -625,10 +566,14 @@ func TestATagGatedCredentialJobProvesTheTagIsOnTheDefaultBranch(t *testing.T) {
 		wf := workflows[path]
 		for _, id := range isolatedJobIDs(wf) {
 			job := wf.Jobs[id]
-			if len(secretsIn(job)) == 0 {
+			if len(secretsIn(t, wf, job)) == 0 {
 				continue
 			}
-			if !hasClause(job.If, "startsWith(github.ref, 'refs/tags/')") {
+			// Can this job run on a pushed tag at all? Asked of the condition's
+			// meaning, so any spelling that admits a tag is caught, and a
+			// workflow that cannot be reached by a tag push is not asked to
+			// prove anything.
+			if !reachableOnATagPush(t, wf, job) {
 				continue
 			}
 			checked++

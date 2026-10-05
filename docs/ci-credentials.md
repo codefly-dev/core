@@ -20,11 +20,31 @@ Everything else declares read and names no secret. The rest of this says where
 each credential is and what keeps it away from code this repository has not
 reviewed.
 
-Two test files enforce it under `go test ./...`, so none of it needs a workflow
-step: `internal/ciguard/untrusted_code_test.go` for what the built-in token can
-do, and `internal/ciguard/credential_isolation_test.go` for whether a secret is
-reachable from code under review. The second reads the shell scripts a job
-invokes, not only the workflow, because that is where two of the routes were.
+`internal/ciguard` enforces it under `go test ./...`, so none of it needs a
+workflow step: `untrusted_code_test.go` for what the built-in token can do, and
+`credential_isolation_test.go` for whether a secret is reachable from code under
+review. The second reads the shell scripts a job invokes, not only the workflow,
+because that is where two of the routes were.
+
+Both decide their questions from a **parsed expression**, not from its text
+(`expression_test.go`). That is not fussiness — a guard that reads text answers
+wrongly in both directions:
+
+| Looks safe, is not | Why text cannot tell |
+| --- | --- |
+| `if: <safe condition> \|\| true` | contains every required clause; runs on a pull request |
+| `if: ${{ !(always() && <safe condition>) }}` | contains every required clause, negated |
+| `env: { X: "${{ secrets['NAME'] }}" }` | reads a secret; matches no `secrets.NAME` pattern |
+| `env: { X: "${{ toJSON(secrets) }}" }` | reads *every* secret; names none |
+| workflow-level `env:` | inherited by every job while appearing in none of them |
+
+So a condition is **evaluated** in three-valued logic against scenarios that
+bind the hostile facts — a pull request, a `workflow_run` produced by a pull
+request, a `workflow_run` produced by a push to a fork, a pushed tag. Anything
+the evaluator cannot know (`needs.build.result`, `success()`) is **unknown**,
+and unknown is not false, so a job is accepted only when its condition is
+*provably* false. An expression that cannot be parsed fails the guard that asked
+rather than reporting nothing.
 
 ## The rules
 
@@ -70,10 +90,11 @@ Rules 2, 3, 6, 7 and 9 decide *whether* a job runs; rules 4, 5 and 8 decide
 mistake in an expression is an execution, and with only the second, there is
 nothing to say which runs were wanted.
 
-A condition is read as a **conjunction**, not as text. `<required> || true`
-contains the required clause and means the opposite of it, so every condition
-assertion here parses the expression into its `&&` terms and refuses one
-carrying an `||`.
+Rule 6's "runs on a merged ref" is decided by evaluating the condition, so any
+spelling that is provably false on a pull request satisfies it and no list of
+blessed clauses is needed. The two hostile `workflow_run` shapes are asserted
+separately because each is refused by a *different* condition — a job carrying
+only the event condition is still reachable from a fork's push, and vice versa.
 
 ## The writes, and why each one is safe
 
