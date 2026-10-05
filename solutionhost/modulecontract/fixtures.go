@@ -61,6 +61,8 @@ func Fixtures() ([]Fixture, error) {
 		{name: "ceiling-entry-names-a-field-twice", file: "ceiling-entry-names-a-field-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the field "resource_kind" twice`, rule: ruleCeilingEntryKeyOnce},
 		{name: "binding-action-not-a-name", file: "binding-action-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding model invoke action "Read"`, rule: ruleActionName},
 		{name: "binding-action-declared-twice", file: "binding-action-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding model invoke action "read" is declared twice`, rule: ruleActionUnique},
+		{name: "slot-reference-tagged", file: "slot-reference-tagged.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "slot reference is malformed", rule: ruleSlotDecodes},
+		{name: "bare-action-tagged", file: "bare-action-tagged.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "ceiling entry is malformed", rule: ruleCeilingEntryShape},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/module-contract/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "tenancy", file: "tenancy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "tenancy", rule: ruleKnownFields},

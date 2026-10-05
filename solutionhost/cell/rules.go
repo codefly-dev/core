@@ -866,6 +866,12 @@ func checkConsumersOrdered(file *File) error {
 			if !sort.StringsAreSorted(endpoint.Consumers) {
 				return fmt.Errorf("%w: %s endpoint %s consumers are not in order", ErrInvalid, entry.label, endpoint.Name)
 			}
+			// Sorted is not unique: one declared edge is one entry, so a
+			// repeat is a cell saying the same thing twice and a count no
+			// reader can trust.
+			if duplicate, found := firstDuplicate(endpoint.Consumers); found {
+				return fmt.Errorf("%w: %s endpoint %s names consumer %q twice", ErrInvalid, entry.label, endpoint.Name, duplicate)
+			}
 		}
 	}
 	return nil
@@ -896,6 +902,9 @@ func checkIngressHasHost(file *File) error {
 func checkIngressHostNames(file *File) error {
 	for _, entry := range file.workloads() {
 		for _, route := range entry.workload.Ingress {
+			if duplicate, found := firstDuplicate(route.Hosts); found {
+				return fmt.Errorf("%w: %s ingress to %s names host %q twice", ErrInvalid, entry.label, route.Endpoint, duplicate)
+			}
 			for _, host := range route.Hosts {
 				if !isHostName(host) {
 					return fmt.Errorf("%w: %s ingress to %s host %q is not a host name", ErrInvalid, entry.label, route.Endpoint, host)
@@ -920,6 +929,13 @@ func checkIngressOrdered(file *File) error {
 			if entry.workload.Ingress[index-1].Endpoint > entry.workload.Ingress[index].Endpoint {
 				return fmt.Errorf("%w: %s ingress is not in endpoint order (%q after %q)", ErrInvalid, entry.label,
 					entry.workload.Ingress[index].Endpoint, entry.workload.Ingress[index-1].Endpoint)
+			}
+			// One route per endpoint: two routes to one endpoint are two
+			// host sets for one thing, and which one the platform renders
+			// would be its choice to make.
+			if entry.workload.Ingress[index-1].Endpoint == entry.workload.Ingress[index].Endpoint {
+				return fmt.Errorf("%w: %s declares ingress to endpoint %q twice; one endpoint has one route, with its hosts together",
+					ErrInvalid, entry.label, entry.workload.Ingress[index].Endpoint)
 			}
 		}
 	}
@@ -1021,10 +1037,30 @@ func checkEgressHostPorts(file *File) error {
 
 func checkEgressCIDRs(file *File) error {
 	for _, entry := range file.egresses() {
+		networks := make([]*net.IPNet, 0, len(entry.egress.CIDRs))
 		for _, cidr := range entry.egress.CIDRs {
-			if _, _, err := net.ParseCIDR(cidr); err != nil {
+			address, network, err := net.ParseCIDR(cidr)
+			if err != nil {
 				return fmt.Errorf("%w: namespace %s egress for %s CIDR %q: %v", ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr, err)
 			}
+			// Canonical: 10.20.1.7/16 and 10.20.0.0/16 are one range written
+			// two ways, and a platform comparing declared reach to rendered
+			// policy would have to canonicalise it itself — a second place
+			// the meaning lives.
+			if !address.Equal(network.IP) {
+				return fmt.Errorf("%w: namespace %s egress for %s CIDR %q is not canonical; the range it names is %q, and one range has one spelling",
+					ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr, network.String())
+			}
+			for _, other := range networks {
+				// Stated once: a range inside another, or the same range
+				// twice, is reach declared twice, and the narrower statement
+				// grants nothing the wider one did not.
+				if other.Contains(network.IP) || network.Contains(other.IP) {
+					return fmt.Errorf("%w: namespace %s egress for %s declares overlapping CIDRs %q and %q; reach is stated once",
+						ErrInvalid, entry.namespace.Name, entry.egress.Service, other.String(), network.String())
+				}
+			}
+			networks = append(networks, network)
 		}
 	}
 	return nil

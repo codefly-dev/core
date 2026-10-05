@@ -181,7 +181,16 @@ func RunResolution(t TestingT, provider func(group string, records []Record) Val
 		return
 	}
 	for _, fixture := range append(ResolutionFixtures(), ResolvedKindFixtures()...) {
-		runResolutionFixture(t, fixture, provider(fixture.Group, fixture.Records), "")
+		values := provider(fixture.Group, fixture.Records)
+		if values == nil {
+			// Refused at the boundary: a factory that builds no provider —
+			// an adapter whose construction failed — would otherwise be
+			// substituted by the reference provider below and receive a
+			// conformance pass for testing core against itself.
+			t.Fatalf("resolution conformance: the provider factory returned no Values for fixture %q; a kit cannot certify an adapter that was not built", fixture.Name)
+			return
+		}
+		runResolutionFixture(t, fixture, values, "")
 	}
 }
 
@@ -189,6 +198,10 @@ func RunResolution(t TestingT, provider func(group string, records []Record) Val
 // fixture's, so what is exercised is Resolve itself rather than a helper.
 func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, without string) {
 	t.Helper()
+	if values == nil {
+		t.Fatalf("resolution fixture %q was run with no provider", fixture.Name)
+		return
+	}
 	kind := strings.HasSuffix(normalizeKey(fixture.Key), "_RESOURCE_KIND")
 	binding := Binding{
 		ID: "model", Operations: []string{OperationInvoke},
@@ -206,9 +219,6 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 	contract := &Contract{
 		Schema: SchemaV1, Principal: "assistant", Namespaces: []string{"assistant"}, Queues: []string{},
 		Bindings: []Binding{binding},
-	}
-	if values == nil {
-		values = recordValues{group: fixture.Group, records: fixture.Records}
 	}
 	resolved, err := contract.resolve(values, without)
 	switch fixture.Outcome {

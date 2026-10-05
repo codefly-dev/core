@@ -45,6 +45,9 @@ type Fixture struct {
 // each must reach. Every rule the reader enforces is protected by at least
 // one refused fixture here, which the package's own tests prove by deleting
 // each rule in turn.
+// digestRefusal is the one message every image-digest fixture expects.
+const digestRefusal = "must pin an OCI manifest digest"
+
 func Fixtures() ([]Fixture, error) {
 	table := []struct {
 		name, file, message, rule string
@@ -58,10 +61,20 @@ func Fixtures() ([]Fixture, error) {
 		{name: "not-yaml", file: "not-yaml.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "yaml", rule: ruleWellFormed},
 		{name: "init-container-name-not-a-label", file: "init-container-name-not-a-label.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `init container name "Migrate"`, rule: ruleContainerName},
 		{name: "init-container-image-without-digest", file: "init-container-image-without-digest.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "init container", rule: ruleImageDigest},
-		{name: "image-digest-too-short", file: "image-digest-too-short.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must pin an OCI manifest digest", rule: ruleImageDigest},
+		{name: "image-digest-too-short", file: "image-digest-too-short.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: digestRefusal, rule: ruleImageDigest},
 		{name: "artifact-digest-too-short", file: "artifact-digest-too-short.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "the SHA-256 of its rendered bytes", rule: ruleArtifact},
 		{name: "spiffe-id-of-another-trust-domain", file: "spiffe-id-of-another-trust-domain.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "spiffe://other.example", rule: ruleSPIFFEID},
 		{name: "delivery-selector-label-malformed", file: "delivery-selector-label-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `delivery selector label codefly.dev/delivery="bad/value"`, rule: ruleSelectorLabelVal},
+		{name: "image-digest-without-prefix", file: "image-digest-without-prefix.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: digestRefusal, rule: ruleImageDigest},
+		{name: "release-without-publisher", file: "release-without-publisher.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "publisher, name and version", rule: ruleReleaseWhole},
+		{name: "release-without-name", file: "release-without-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "publisher, name and version", rule: ruleReleaseWhole},
+		{name: "egress-host-port-out-of-range", file: "egress-host-port-out-of-range.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "port 70000", rule: ruleEgressHostPort},
+		{name: "authenticating-is-an-init-container", file: "authenticating-is-an-init-container.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "which is not one of its containers", rule: ruleAuthenticating},
+		{name: "consumer-named-twice", file: "consumer-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names consumer "billing/worker" twice`, rule: ruleConsumersOrder},
+		{name: "ingress-to-one-endpoint-twice", file: "ingress-to-one-endpoint-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `ingress to endpoint "rest" twice`, rule: ruleIngressOrder},
+		{name: "ingress-host-named-twice", file: "ingress-host-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names host \"payments.example.com\" twice", rule: ruleIngressHostName},
+		{name: "egress-cidr-not-canonical", file: "egress-cidr-not-canonical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not canonical", rule: ruleEgressCIDR},
+		{name: "egress-cidrs-overlap", file: "egress-cidrs-overlap.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "overlapping CIDRs", rule: ruleEgressCIDR},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},
@@ -98,7 +111,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "image-repository-carries-digest", file: "image-repository-carries-digest.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: reasonTagOrDigest, rule: ruleImageRepository},
 		{name: "image-repository-carries-tag", file: "image-repository-carries-tag.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: reasonTagOrDigest, rule: ruleImageRepository},
 		{name: "delivery-image-repository-malformed", file: "delivery-image-repository-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `delivery container "deliver" image repository "curl" is not a canonical image repository`, rule: ruleImageRepository},
-		{name: "image-without-digest", file: "image-without-digest.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must pin an OCI manifest digest", rule: ruleImageDigest},
+		{name: "image-without-digest", file: "image-without-digest.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: digestRefusal, rule: ruleImageDigest},
 		{name: "image-digest-not-hex", file: "image-digest-not-hex.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must pin an OCI manifest digest (sha256:<64 hex>)", rule: ruleImageDigest},
 		{name: "delivery-image-without-digest", file: "delivery-image-without-digest.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `delivery container "deliver" must pin an OCI manifest digest`, rule: ruleImageDigest},
 		{name: "authenticating-not-a-container", file: "authenticating-not-a-container.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "as its authenticating container, which is not one of its containers", rule: ruleAuthenticating},

@@ -845,8 +845,10 @@ ENUMERATES — a provider reports a group's records as supplied, keeping both
 spellings of a key, a key supplied twice and a key classified two ways — and
 every rule over them lives in `solutionhost/modulecontract`: a key is matched
 in either spelling core accepts, records that are one key must agree on its
-value, a key any occurrence of which is secret IS a secret (so a slot carrying
-it is refused rather than inlined), a resolved value is one non-empty line, and
+value (**two spellings that agree are one value and resolve** — it is the
+disagreement that has no answer), a key any occurrence of which is secret IS a
+secret (so a slot carrying it is refused rather than inlined), a resolved value
+is one non-empty line, and
 a resolved RESOURCE KIND is held to the grammar a literal one is — without
 which a composition supplying `documents.passages:delete,documents.passages`
 turns one declared action into two apparent scopes. `RunResolution` drives a
@@ -856,10 +858,35 @@ occurrence, a missing key, a kind carrying a comma or a colon — so a provider
 that collapses two spellings, drops the secret occurrence or deduplicates fails
 by name.
 
+**A writer gets bytes or an error.** `Contract.Encode` and `File.Encode` are
+the only way to write either document: each validates, marshals, and reads the
+bytes back through its own reader, returning them only when what comes back is
+what went in. Marshaling the model directly let a publisher emit a document its
+reader refuses — a principal of `INVALID PRINCIPAL`, an image digest of the
+wrong length — with the failure surfacing at whoever READ the file, or at
+admission rather than at publish; and, worse, one that parses to something else,
+which no reader refuses at all. Nothing outside these packages marshals either
+model by hand.
+
+**The duplicate and network-range decisions, since the platform must not make
+them.** One declared edge is one entry: a consumer named twice, two ingress
+routes to one endpoint, a host named twice in one route are each refused, so a
+count in a cell is a count a reader can trust. A CIDR must be **canonical** —
+`10.20.1.7/16` and `10.20.0.0/16` are one range written two ways, and a platform
+comparing declared reach with rendered policy would otherwise canonicalise it
+itself — and the CIDRs of one egress entry must not **overlap**, since a range
+inside another is reach declared twice and the narrower statement grants nothing
+the wider one did not. How BROAD a declared range may be is deliberately NOT
+decided here: `0.0.0.0/0` is canonical and parses, and whether a cell asking for
+it is admitted is the platform's policy, which the cell exists to state
+faithfully rather than to pre-empt. A zero endpoint port (the service declares
+none) and a repeated `allow_modules` entry (an allow-list is read as a set) keep
+their documented meanings.
+
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (50 documents) / `cell.Fixtures()` (76) ship
+`modulecontract.Fixtures()` (52 documents) / `cell.Fixtures()` (86) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it
@@ -877,7 +904,7 @@ lands, the second copies of these models still exist. What each one owes:
 
 | Consumer | What it does, and where it stands |
 | --- | --- |
-| `codefly-dev/cli` | delete `pkg/modulecontract`, the cell model in `pkg/gitops/cell.go`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every cell through `cell.Parse` and every contract through `modulecontract.Load`; run both kits through the render's and the publisher's own entrypoints, never a test-only wrapper around `Parse`. Done on cli#855 at `b77f5806` — `modulecontract.Run` drives `authorityInstancesOf` and `cell.Run` drives `readCellFile`, the publisher's own reader — and it lands when that PR does. |
+| `codefly-dev/cli` | delete `pkg/modulecontract`, the cell model in `pkg/gitops/cell.go`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every cell through `cell.Parse` and every contract through `modulecontract.Load`; replace its `Values` adapter with a **duplicate-preserving** `Records(group) ([]Record, error)` provider that keeps repeated records, original key spellings and every secret classification; write through `Encode` rather than marshaling the model; and run **all three** kits — both document kits and `RunResolution` — through the render's and the publisher's own entrypoints, never a test-only wrapper. The deletions are done at `b77f5806`, which PREDATES the `Records` API and the resolution kit, so that commit does not establish adoption of this head; the tested consumer commit is still to be named. |
 | infra-base | read cells through `cell.Parse` and run `cell.Run` against the loader's own entrypoint. Its rules beyond the wire stay its own — a non-empty `cidrs` refused until it renders address-based egress, the closed admission set, RBAC derivation — on top of a document this package has already held to its shape. Not started. |
 | the runtimes that publish contracts | run `modulecontract.Run` against the publisher's output, so a contract they emit is one this reader accepts. Not started. |
 

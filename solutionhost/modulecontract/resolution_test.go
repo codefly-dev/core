@@ -36,7 +36,7 @@ func TestEveryResolutionRuleIsProtectedByAFixture(t *testing.T) {
 		}
 		recorder := &recordingT{}
 		for _, fixture := range all {
-			runResolutionFixture(recorder, fixture, nil, rule)
+			runResolutionFixture(recorder, fixture, recordValues{group: fixture.Group, records: fixture.Records}, rule)
 		}
 		if recorder.failures == 0 {
 			t.Errorf("resolution rule %s can be deleted and the kit still passes: %d fixture(s) name it but none notices", rule, len(fixtures))
@@ -58,11 +58,21 @@ func quote(value string) string { return `"` + value + `"` }
 // differently from core, and each fails the kit by name.
 func TestAProviderThatLosesARecordFailsTheKit(t *testing.T) {
 	for name, lose := range map[string]func([]Record) []Record{
-		"keeps only the first spelling": func(records []Record) []Record {
-			if len(records) == 0 {
-				return records
+		// Keeps the FIRST record of each normalized key and discards the
+		// rest, which is what an adapter indexing by key does. It must be
+		// caught by the conflicting-record fixtures, not by an unrelated
+		// slot going missing, so the companion record is left in place.
+		"keeps only the first occurrence of a key": func(records []Record) []Record {
+			seen := map[string]bool{}
+			kept := make([]Record, 0, len(records))
+			for _, record := range records {
+				if seen[normalizeKey(record.Key)] {
+					continue
+				}
+				seen[normalizeKey(record.Key)] = true
+				kept = append(kept, record)
 			}
-			return records[:1]
+			return kept
 		},
 		"drops the secret occurrences": func(records []Record) []Record {
 			kept := make([]Record, 0, len(records))
@@ -73,14 +83,16 @@ func TestAProviderThatLosesARecordFailsTheKit(t *testing.T) {
 			}
 			return kept
 		},
-		"normalizes the keys itself": func(records []Record) []Record {
+		// Deduplicates by exact spelling, so a key supplied twice under one
+		// spelling collapses while two spellings both survive.
+		"deduplicates each exact spelling": func(records []Record) []Record {
 			seen := map[string]bool{}
 			kept := make([]Record, 0, len(records))
 			for _, record := range records {
-				if seen[normalizeKey(record.Key)] {
+				if seen[record.Key] {
 					continue
 				}
-				seen[normalizeKey(record.Key)] = true
+				seen[record.Key] = true
 				kept = append(kept, record)
 			}
 			return kept
@@ -95,5 +107,20 @@ func TestAProviderThatLosesARecordFailsTheKit(t *testing.T) {
 				t.Fatalf("a provider that %s passed the resolution kit", name)
 			}
 		})
+	}
+}
+
+// TestAFactoryThatBuildsNoProviderFailsTheKit: a factory whose adapter
+// construction failed used to receive a conformance pass, because its nil
+// result was replaced by the reference provider and the kit then tested core
+// against itself.
+func TestAFactoryThatBuildsNoProviderFailsTheKit(t *testing.T) {
+	recorder := &recordingT{}
+	RunResolution(recorder, func(string, []Record) Values { return nil })
+	if recorder.failures == 0 {
+		t.Fatal("a factory that builds no provider passed the resolution kit")
+	}
+	if !strings.Contains(recorder.messages, "cannot certify an adapter that was not built") {
+		t.Fatalf("the kit did not say why:\n%s", recorder.messages)
 	}
 }

@@ -53,6 +53,7 @@ const (
 	ruleSlotIsAReference      = "slot-is-a-reference"
 	ruleSlotCarriesOnlyFrom   = "slot-carries-only-from"
 	ruleSlotKeyOnce           = "slot-key-once"
+	ruleSlotDecodes           = "slot-decodes"
 	ruleSlotReference         = "slot-reference"
 	ruleSlotKeyMeaning        = "slot-key-meaning"
 	ruleCeilingIsAList        = "ceiling-is-a-list"
@@ -99,6 +100,7 @@ func rules() []rule {
 		{name: ruleSlotIsAReference, check: checkSlotsAreReferences},
 		{name: ruleSlotCarriesOnlyFrom, check: checkSlotsCarryOnlyFrom},
 		{name: ruleSlotKeyOnce, check: checkSlotKeysOnce},
+		{name: ruleSlotDecodes, check: checkSlotsDecode},
 		{name: ruleSlotReference, check: checkSlotReferences},
 		{name: ruleSlotKeyMeaning, check: checkSlotKeyMeanings},
 		{name: ruleCeilingIsAList, check: checkCeilingsAreLists},
@@ -423,6 +425,18 @@ func checkSlotsCarryOnlyFrom(contract *Contract) error {
 // checkSlotKeysOnce: a slot naming a key twice says two things, and a decoder
 // that keeps assigning honours the last one silently — which selects a
 // different audience than the document appears to request.
+// checkSlotsDecode: a reference that did not decode as a string — a tagged
+// scalar, a nested mapping — is refused here rather than accepted as whatever
+// text the node happened to carry.
+func checkSlotsDecode(contract *Contract) error {
+	for _, entry := range contract.slots() {
+		if entry.slot.malformed != nil {
+			return fmt.Errorf("%w: %s slot reference is malformed: %v", ErrInvalid, entry.label, entry.slot.malformed)
+		}
+	}
+	return nil
+}
+
 func checkSlotKeysOnce(contract *Contract) error {
 	for _, entry := range contract.slots() {
 		if entry.slot.repeated != "" {

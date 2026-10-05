@@ -151,10 +151,13 @@ var (
 	// carries secrets only as references, so the value is refused rather than
 	// written into a delivered document.
 	ErrSecretSlot = errors.New("module contract slot resolves to a secret")
-	// ErrAmbiguousSlot means the composition supplies a slot's key in two
-	// spellings core treats as one (MODEL_AUDIENCE and model-audience): the
-	// same contract would resolve to whichever a reader met first, so neither
-	// is chosen.
+	// ErrAmbiguousSlot means a slot has no one value to resolve to: records
+	// that are one key to core (MODEL_AUDIENCE and model-audience) supply
+	// DIFFERENT values, or a value resolves to something a scope or an
+	// audience cannot be built from. Two spellings agreeing are one value and
+	// resolve; it is the disagreement that has no answer, and choosing between
+	// them would make a delivered document depend on which record a reader
+	// met first.
 	ErrAmbiguousSlot = errors.New("module contract slot resolves ambiguously")
 )
 
@@ -267,7 +270,17 @@ func (ceiling *Ceiling) UnmarshalYAML(node *yaml.Node) error {
 	for _, item := range node.Content {
 		switch item.Kind {
 		case yaml.ScalarNode:
-			ceiling.Actions = append(ceiling.Actions, item.Value)
+			// Decoded with its type, for the reason a slot's reference is:
+			// [!!int read] is not a list of actions, and reading Value made
+			// it one.
+			var action string
+			if err := item.Decode(&action); err != nil {
+				if ceiling.malformed == nil {
+					ceiling.malformed = err
+				}
+				continue
+			}
+			ceiling.Actions = append(ceiling.Actions, action)
 		case yaml.MappingNode:
 			seen := make(map[string]bool, len(item.Content)/2)
 			for index := 0; index+1 < len(item.Content); index += 2 {
@@ -327,10 +340,11 @@ type Slot struct {
 	// a literal, or a mapping carrying a field a slot does not, or one that
 	// names a key twice. Presence is a bool and not the name itself: a field
 	// named "" is an unknown field, and a sentinel of "" cannot say so.
-	literal  *string
-	hasExtra bool
-	extra    string
-	repeated string
+	literal   *string
+	hasExtra  bool
+	extra     string
+	repeated  string
+	malformed error
 }
 
 // SlotGroups lists the workspace configuration groups the contract's slots
@@ -380,7 +394,14 @@ func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
 				slot.hasExtra, slot.extra = true, key
 			}
 		default:
-			slot.From = node.Content[index+1].Value
+			// Decoded with its type, not copied off the node: a tagged
+			// scalar — {from: !!int assistant/model-audience} — is refused by
+			// the typed decoder and was silently accepted as a string by
+			// reading Value, which also gave the two ceiling spellings
+			// different scalar validation.
+			if err := node.Content[index+1].Decode(&slot.From); err != nil && slot.malformed == nil {
+				slot.malformed = err
+			}
 		}
 		seen[key] = true
 	}
@@ -612,7 +633,7 @@ func resolutionError(secret, unresolved, ambiguous []string) error {
 		parts = append(parts, fmt.Errorf("%w: %s; the composition supplies each as a workspace configuration value for this environment", ErrUnresolvedSlot, strings.Join(unresolved, "; ")))
 	}
 	if len(ambiguous) > 0 {
-		parts = append(parts, fmt.Errorf("%w: %s; a composition supplies a key in one spelling", ErrAmbiguousSlot, strings.Join(ambiguous, "; ")))
+		parts = append(parts, fmt.Errorf("%w: %s; records that are one key supply one value, and a resolved value is one a scope or an audience can be built from", ErrAmbiguousSlot, strings.Join(ambiguous, "; ")))
 	}
 	switch len(parts) {
 	case 0:
