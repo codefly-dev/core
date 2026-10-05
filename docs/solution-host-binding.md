@@ -928,7 +928,7 @@ reason, named — the same reason whichever reader refused it. **The kits.**
 `modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (128) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
-reader's own entrypoint through them. `AllResolutionFixtures()` (67
+reader's own entrypoint through them. `AllResolutionFixtures()` (109
 configurations) does the same for resolution, driven by `RunResolution(t,
 provider)`. **All three counts are pinned by a test**, and the resolution kit
 is pinned by NAME and by cases-per-role as well: a documented count written by

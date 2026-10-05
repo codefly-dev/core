@@ -342,25 +342,59 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 		"an audience carrying a zero-width space",
 		"an empty value",
 		"an upper-case kind",
+		"audience (_PREFIX convention): one spelling supplied twice with different values",
+		"audience (_PREFIX convention): public then secret, a different value, both written lower",
+		"audience (_PREFIX convention): public then secret, a different value, both written upper",
+		"audience (_PREFIX convention): public then secret, a different value, public lower, secret upper",
+		"audience (_PREFIX convention): public then secret, a different value, public upper, secret lower",
+		"audience (_PREFIX convention): public then secret, the same value, both written lower",
+		"audience (_PREFIX convention): public then secret, the same value, both written upper",
+		"audience (_PREFIX convention): public then secret, the same value, public lower, secret upper",
+		"audience (_PREFIX convention): public then secret, the same value, public upper, secret lower",
+		"audience (_PREFIX convention): secret then public, a different value, both written lower",
+		"audience (_PREFIX convention): secret then public, a different value, both written upper",
+		"audience (_PREFIX convention): secret then public, a different value, public lower, secret upper",
+		"audience (_PREFIX convention): secret then public, a different value, public upper, secret lower",
+		"audience (_PREFIX convention): secret then public, the same value, both written lower",
+		"audience (_PREFIX convention): secret then public, the same value, both written upper",
+		"audience (_PREFIX convention): secret then public, the same value, public lower, secret upper",
+		"audience (_PREFIX convention): secret then public, the same value, public upper, secret lower",
+		"audience (_PREFIX convention): two spellings supplied with different values",
 		"audience: one spelling supplied twice with different values",
-		"audience: public then secret, a different value, one spelling",
-		"audience: public then secret, a different value, two spellings",
-		"audience: public then secret, the same value, one spelling",
-		"audience: public then secret, the same value, two spellings",
-		"audience: secret then public, a different value, one spelling",
-		"audience: secret then public, a different value, two spellings",
-		"audience: secret then public, the same value, one spelling",
-		"audience: secret then public, the same value, two spellings",
+		"audience: public then secret, a different value, both written lower",
+		"audience: public then secret, a different value, both written upper",
+		"audience: public then secret, a different value, public lower, secret upper",
+		"audience: public then secret, a different value, public upper, secret lower",
+		"audience: public then secret, the same value, both written lower",
+		"audience: public then secret, the same value, both written upper",
+		"audience: public then secret, the same value, public lower, secret upper",
+		"audience: public then secret, the same value, public upper, secret lower",
+		"audience: secret then public, a different value, both written lower",
+		"audience: secret then public, a different value, both written upper",
+		"audience: secret then public, a different value, public lower, secret upper",
+		"audience: secret then public, a different value, public upper, secret lower",
+		"audience: secret then public, the same value, both written lower",
+		"audience: secret then public, the same value, both written upper",
+		"audience: secret then public, the same value, public lower, secret upper",
+		"audience: secret then public, the same value, public upper, secret lower",
 		"audience: two spellings supplied with different values",
 		"binding_key: one spelling supplied twice with different values",
-		"binding_key: public then secret, a different value, one spelling",
-		"binding_key: public then secret, a different value, two spellings",
-		"binding_key: public then secret, the same value, one spelling",
-		"binding_key: public then secret, the same value, two spellings",
-		"binding_key: secret then public, a different value, one spelling",
-		"binding_key: secret then public, a different value, two spellings",
-		"binding_key: secret then public, the same value, one spelling",
-		"binding_key: secret then public, the same value, two spellings",
+		"binding_key: public then secret, a different value, both written lower",
+		"binding_key: public then secret, a different value, both written upper",
+		"binding_key: public then secret, a different value, public lower, secret upper",
+		"binding_key: public then secret, a different value, public upper, secret lower",
+		"binding_key: public then secret, the same value, both written lower",
+		"binding_key: public then secret, the same value, both written upper",
+		"binding_key: public then secret, the same value, public lower, secret upper",
+		"binding_key: public then secret, the same value, public upper, secret lower",
+		"binding_key: secret then public, a different value, both written lower",
+		"binding_key: secret then public, a different value, both written upper",
+		"binding_key: secret then public, a different value, public lower, secret upper",
+		"binding_key: secret then public, a different value, public upper, secret lower",
+		"binding_key: secret then public, the same value, both written lower",
+		"binding_key: secret then public, the same value, both written upper",
+		"binding_key: secret then public, the same value, public lower, secret upper",
+		"binding_key: secret then public, the same value, public upper, secret lower",
 		"binding_key: two spellings supplied with different values",
 		"competing spellings that agree",
 		"competing spellings that disagree",
@@ -369,14 +403,22 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 		"no resource kind at all",
 		"one record",
 		"resource_kind: one spelling supplied twice with different values",
-		"resource_kind: public then secret, a different value, one spelling",
-		"resource_kind: public then secret, a different value, two spellings",
-		"resource_kind: public then secret, the same value, one spelling",
-		"resource_kind: public then secret, the same value, two spellings",
-		"resource_kind: secret then public, a different value, one spelling",
-		"resource_kind: secret then public, a different value, two spellings",
-		"resource_kind: secret then public, the same value, one spelling",
-		"resource_kind: secret then public, the same value, two spellings",
+		"resource_kind: public then secret, a different value, both written lower",
+		"resource_kind: public then secret, a different value, both written upper",
+		"resource_kind: public then secret, a different value, public lower, secret upper",
+		"resource_kind: public then secret, a different value, public upper, secret lower",
+		"resource_kind: public then secret, the same value, both written lower",
+		"resource_kind: public then secret, the same value, both written upper",
+		"resource_kind: public then secret, the same value, public lower, secret upper",
+		"resource_kind: public then secret, the same value, public upper, secret lower",
+		"resource_kind: secret then public, a different value, both written lower",
+		"resource_kind: secret then public, a different value, both written upper",
+		"resource_kind: secret then public, a different value, public lower, secret upper",
+		"resource_kind: secret then public, a different value, public upper, secret lower",
+		"resource_kind: secret then public, the same value, both written lower",
+		"resource_kind: secret then public, the same value, both written upper",
+		"resource_kind: secret then public, the same value, public lower, secret upper",
+		"resource_kind: secret then public, the same value, public upper, secret lower",
 		"resource_kind: two spellings supplied with different values",
 		"the other spelling",
 		"the same record twice",
@@ -399,16 +441,16 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 		t.Errorf("the resolution kit ships %d configurations, not the %d declared here; a changed kit is a changed contract with every consumer that runs it",
 			len(have), len(want))
 	}
-	for _, role := range []string{fieldAudience, fieldResourceKind, fieldBindingKey} {
+	for _, convention := range lossRoles() {
 		count := 0
 		for _, fixture := range AllResolutionFixtures() {
-			if strings.HasPrefix(fixture.Name, role+":") {
+			if strings.HasPrefix(fixture.Name, convention.label+":") {
 				count++
 			}
 		}
 		if count != lossCasesPerRole {
-			t.Errorf("the %s role ships %d generated loss cases, not %d: a role's protection cannot be deleted quietly",
-				role, count, lossCasesPerRole)
+			t.Errorf("the %s convention ships %d generated loss cases, not %d: a convention's protection cannot be deleted quietly",
+				convention.label, count, lossCasesPerRole)
 		}
 	}
 }
@@ -416,7 +458,12 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 // lossCasesPerRole is what lossFixtures generates for one role: two conflicts,
 // then a public/secret collision over every order, spelling and value
 // agreement.
-const lossCasesPerRole = 2 + 2*2*2
+// lossCasesPerRole is what lossFixtures generates for one convention: two
+// conflicts, then a public/secret collision over every order, every value
+// agreement, and every INDEPENDENT choice of the two records' spellings —
+// four spelling combinations, not two, since pairing them left no lowercase
+// public record with an uppercase secret arriving later.
+const lossCasesPerRole = 2 + 2*2*(2*2)
 
 func TestTheDocumentedResolutionCountIsTheKit(t *testing.T) {
 	const path = "../../docs/solution-host-binding.md"

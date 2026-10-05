@@ -71,6 +71,10 @@ const (
 	notOneLine     = "empty or not a single line"
 	noOneValue     = "no one value to resolve"
 	bindingLookup  = "model-binding"
+	prefixLabel    = "audience (_PREFIX convention)"
+	prefixLookup   = "model-prefix"
+	prefixKey      = "MODEL_PREFIX"
+	prefixValue    = "assistant/model-prefix"
 	kindKey        = "EVIDENCE_RESOURCE_KIND"
 	kindSlot       = "assistant/evidence-resource-kind"
 	bindingSlot    = "assistant/model-binding"
@@ -353,18 +357,57 @@ func BindingKeyFixtures() []ResolutionFixture {
 //
 // Writing the combinations out by hand is what produced each gap, so they are
 // generated.
-func lossFixtures(role, group, key, upper, lower, value string) []ResolutionFixture {
+// spellingOf names which record carried which spelling, so a failure says
+// which combination escaped rather than only that one did.
+func spellingOf(publicKey, secretKey, upper string) string {
+	switch {
+	case publicKey == upper && secretKey == upper:
+		return "both written upper"
+	case publicKey == upper:
+		return "public upper, secret lower"
+	case secretKey == upper:
+		return "public lower, secret upper"
+	}
+	return "both written lower"
+}
+
+// lossRole is one slot convention the kit generates loss cases for: the role,
+// the slot key, and the spellings a record may use.
+type lossRole struct {
+	// label names the convention in a fixture's name. Two conventions of the
+	// same ROLE need different labels, or their generated cases collide and
+	// the kit silently ships one set where it counts two.
+	label                          string
+	role, key, upper, lower, value string
+}
+
+// lossRoles is every supported slot convention. The generator and the
+// inventory pin both read it, so a convention added here is generated AND
+// counted without either being updated by hand — the _PREFIX convention
+// generated no cases at all because it was in neither place.
+func lossRoles() []lossRole {
+	return []lossRole{
+		{fieldAudience, fieldAudience, audienceLookup, audienceKey, audienceLookup, audienceValue},
+		{fieldResourceKind, fieldResourceKind, "evidence-resource-kind", kindKey, "evidence-resource-kind", passagesKind},
+		{fieldBindingKey, fieldBindingKey, bindingLookup, bindingKey, bindingLookup, bindingValue},
+		// The _PREFIX convention, which generated no cases at all: a provider
+		// clearing Secret only for a key spelled this way passed unchanged.
+		{prefixLabel, fieldAudience, prefixLookup, prefixKey, prefixLookup, prefixValue},
+	}
+}
+
+func lossFixtures(label, role, group, key, upper, lower, value string) []ResolutionFixture {
 	const other = "other.value"
 	slot := group + "/" + key
 	fixtures := []ResolutionFixture{
 		{
-			Name: role + ": one spelling supplied twice with different values", Group: group, Key: key,
+			Name: label + ": one spelling supplied twice with different values", Group: group, Key: key,
 			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,
 			Slot:    role,
 			Records: []Record{{Key: upper, Value: value}, {Key: upper, Value: other}},
 		},
 		{
-			Name: role + ": two spellings supplied with different values", Group: group, Key: key,
+			Name: label + ": two spellings supplied with different values", Group: group, Key: key,
 			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,
 			Slot:    role,
 			Records: []Record{{Key: upper, Value: value}, {Key: lower, Value: other}},
@@ -382,26 +425,30 @@ func lossFixtures(role, group, key, upper, lower, value string) []ResolutionFixt
 			agreement = "the same value"
 		}
 		for _, secretFirst := range []bool{false, true} {
-			for _, twoSpellings := range []bool{false, true} {
-				publicKey, secretKey := upper, upper
-				spelling := "one spelling"
-				if twoSpellings {
-					secretKey = lower
-					spelling = "two spellings"
+			// EACH record's spelling is chosen INDEPENDENTLY. Pairing them —
+			// public always upper, secret lower when they differ — left no
+			// case with a LOWERCASE public record and an uppercase secret
+			// arriving later, so a provider dropping exactly that record
+			// changed none of the configurations and was certified. Two
+			// spellings is four combinations, not two.
+			for _, publicKey := range []string{upper, lower} {
+				for _, secretKey := range []string{upper, lower} {
+					spelling := spellingOf(publicKey, secretKey, upper)
+					order := "public then secret"
+					records := []Record{{Key: publicKey, Value: value}, {Key: secretKey, Value: secret, Secret: true}}
+					if secretFirst {
+						order = "secret then public"
+						records = []Record{{Key: secretKey, Value: secret, Secret: true}, {Key: publicKey, Value: value}}
+					}
+					fixtures = append(fixtures, ResolutionFixture{
+						Name:    label + ": " + order + ", " + agreement + ", " + spelling,
+						Group:   group,
+						Key:     key,
+						Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+						Slot:    role,
+						Records: records,
+					})
 				}
-				order := "public then secret"
-				records := []Record{{Key: publicKey, Value: value}, {Key: secretKey, Value: secret, Secret: true}}
-				if secretFirst {
-					order = "secret then public"
-					records = []Record{{Key: secretKey, Value: secret, Secret: true}, {Key: publicKey, Value: value}}
-				}
-				fixtures = append(fixtures, ResolutionFixture{
-					Name:  role + ": " + order + ", " + agreement + ", " + spelling,
-					Group: group, Key: key,
-					Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
-					Slot:    role,
-					Records: records,
-				})
 			}
 		}
 	}
@@ -508,12 +555,8 @@ func AllResolutionFixtures() []ResolutionFixture {
 	all := append([]ResolutionFixture(nil), ResolutionFixtures()...)
 	all = append(all, ResolvedKindFixtures()...)
 	all = append(all, BindingKeyFixtures()...)
-	for _, role := range []struct{ role, key, upper, lower, value string }{
-		{fieldAudience, audienceLookup, audienceKey, audienceLookup, audienceValue},
-		{fieldResourceKind, "evidence-resource-kind", kindKey, "evidence-resource-kind", passagesKind},
-		{fieldBindingKey, bindingLookup, bindingKey, bindingLookup, bindingValue},
-	} {
-		for _, fixture := range lossFixtures(role.role, "assistant", role.key, role.upper, role.lower, role.value) {
+	for _, role := range lossRoles() {
+		for _, fixture := range lossFixtures(role.label, role.role, "assistant", role.key, role.upper, role.lower, role.value) {
 			fixture.Records = withCompanion(withCompanion(fixture.Records, companionKind), companionAudience)
 			all = append(all, fixture)
 		}
