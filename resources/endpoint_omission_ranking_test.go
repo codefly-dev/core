@@ -257,6 +257,10 @@ func TestReferenceDiagnosticsDoNotExposeTheValue(t *testing.T) {
 		"malformed marker":                 "credential=" + secret + ";${endpoint:}",
 		"beside a valid reference":         "credential=" + secret + ";${endpoint:" + selectionUnique + "/grpc};${endpoint:",
 		"unknown producer beside a secret": "credential=" + secret + ";${endpoint:nobody/nothing/grpc}",
+		"the secret inside a marker body":  "${endpoint:};${endpoint:credential=" + secret + "}",
+		"a marker body that is the secret": "${endpoint:credential=" + secret + "}",
+		"an unterminated marker eating it": "${endpoint:platform/x/credential=" + secret + "}",
+		"a bad api qualifier carrying it":  "${endpoint:" + selectionUnique + "/grpc::" + secret + "}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := resources.InterpolateEndpointsFor(ctx, value, nil, resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declaredBy(selectionEndpoint("grpc", "grpc", "public"))})

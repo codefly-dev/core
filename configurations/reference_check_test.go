@@ -80,6 +80,27 @@ func TestCheckEndpointReferencesReportsAMalformedReference(t *testing.T) {
 	require.Contains(t, err.Error(), "malformed reference")
 }
 
+// The plan-time report never carries text from a value: a reference that did
+// not validate as coordinates is named by its key only.
+func TestCheckEndpointReferencesNeverEchoesAValue(t *testing.T) {
+	const secret = "synthetic-secret-9c1e"
+	consumer := referenceCheckService("assistant", "chat", []string{"assistant"})
+	for name, value := range map[string]string{
+		"a marker body that is the secret": "${endpoint:credential=" + secret + "}",
+		"beside an empty marker":           "${endpoint:};${endpoint:credential=" + secret + "}",
+		"a bad api qualifier":              "${endpoint:assistant/chat/grpc::" + secret + "}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{
+				{Name: "assistant", ConfigurationValues: []*basev0.ConfigurationValue{{Key: "bad", Secret: true, Value: value}}},
+			}, []*resources.Service{consumer}, resources.RunProfile{}, func(string) (*resources.Service, bool) { return nil, false })
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), secret)
+			require.Contains(t, err.Error(), "assistant/bad")
+		})
+	}
+}
+
 // A marker the reference grammar cannot read fails the plan, not just the
 // render: in the value and in a template literal alike.
 func TestCheckEndpointReferencesReportsAMalformedMarker(t *testing.T) {

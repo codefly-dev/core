@@ -17,8 +17,9 @@ type UnresolvedReference struct {
 	// Group and Key locate the value carrying the reference.
 	Group string
 	Key   string
-	// Reference is the <module>/<service>/<endpoint> the value names, empty
-	// when the value carries a marker the reference grammar cannot read.
+	// Reference is the <module>/<service>/<endpoint> the value names, as its
+	// validated coordinates; empty when the marker did not validate, so that
+	// nothing of a value that may be a secret is carried here.
 	Reference string
 	// Producer is the <module>/<service> the reference names, empty when the
 	// reference is malformed.
@@ -32,7 +33,11 @@ func (r UnresolvedReference) String() string {
 	if producer == "" {
 		producer = "-"
 	}
-	return fmt.Sprintf("%s: %s/%s = ${endpoint:%s} (producer %s): %s", r.Consumer, r.Group, r.Key, r.Reference, producer, r.Reason)
+	reference := "(a reference that did not validate)"
+	if r.Reference != "" {
+		reference = "${endpoint:" + r.Reference + "}"
+	}
+	return fmt.Sprintf("%s: %s/%s = %s (producer %s): %s", r.Consumer, r.Group, r.Key, reference, producer, r.Reason)
 }
 
 // UnresolvedReferencesError lists every unresolvable reference of a plan at
@@ -155,15 +160,21 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 }
 
 func checkEndpointReference(reference string, consumerModule string, producer ProducerLookup) *UnresolvedReference {
-	out := &UnresolvedReference{Reference: reference}
-	info, err := resources.ParseEndpoint(reference)
+	// A marker body is input until it validates as coordinates, and the value
+	// it came from may be a secret: a reference that did not validate is
+	// reported without its text.
+	out := &UnresolvedReference{}
+	info, err := resources.ParseEndpointReference(reference)
 	if err != nil {
-		out.Reason = fmt.Sprintf("malformed reference: %v", err)
+		out.Reason = "malformed reference: " + err.Error()
 		return out
 	}
-	if info.Module == "" || info.Service == "" || (info.Name == "" && info.API == "") {
-		out.Reason = "malformed reference: it must name <module>/<service>/<endpoint>"
-		return out
+	out.Reference = info.Module + "/" + info.Service
+	if info.Name != "" {
+		out.Reference += "/" + info.Name
+	}
+	if info.API != "" {
+		out.Reference += "::" + info.API
 	}
 	out.Producer = info.Module + "/" + info.Service
 	service, ok := producer(out.Producer)

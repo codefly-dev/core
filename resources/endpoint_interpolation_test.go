@@ -86,7 +86,8 @@ func TestInterpolateEndpoints(t *testing.T) {
 			"${endpoint:edge/sidecar}",
 			mappings, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "must name an endpoint")
+		require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
+		assert.Contains(t, err.Error(), "names <module>/<service>/<endpoint>")
 	})
 }
 

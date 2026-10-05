@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 	"google.golang.org/protobuf/proto"
 )
@@ -70,14 +71,61 @@ func malformedEndpointMarker(value string) bool {
 	return strings.Contains(value[at:], marker)
 }
 
-// referencesOrNone names the well-formed references a value carries, for a
-// diagnostic that must not carry the value itself.
-func referencesOrNone(value string) string {
-	references := EndpointReferences(value)
-	if len(references) == 0 {
-		return "no well-formed reference"
+// referenceCount says how many well-formed markers a value carries, for a
+// diagnostic that must carry nothing from the value: a marker body is input
+// until it has validated as coordinates, and a value may be a secret.
+func referenceCount(value string) string {
+	n := len(endpointInterpolationPattern.FindAllStringIndex(value, -1))
+	if n == 1 {
+		return "1 reference"
 	}
-	return "${endpoint:" + strings.Join(references, "}, ${endpoint:") + "}"
+	return fmt.Sprintf("%d references", n)
+}
+
+// referenceTokenPattern is what each coordinate of a reference may be: a
+// module, service or endpoint name as the schema spells one.
+var referenceTokenPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// ParseEndpointReference parses a marker body into coordinates and validates
+// each one, so that what comes back can be named in a diagnostic: every token
+// matched the name pattern, and the API is one the model knows. A body that
+// does not validate is ErrMalformedEndpointReference, and nothing of it is
+// carried in the error — a value may be a secret. The plan-time checker and
+// the resolution share it, so the two never disagree on what a reference is.
+func ParseEndpointReference(reference string) (*EndpointInformation, error) {
+	return parseEndpointReference(reference)
+}
+
+func parseEndpointReference(reference string) (*EndpointInformation, error) {
+	info, err := ParseEndpoint(reference)
+	if err != nil {
+		return nil, ErrMalformedEndpointReference
+	}
+	if info.Module == "" || info.Service == "" || (info.Name == "" && info.API == "") {
+		return nil, fmt.Errorf("%w: a reference names <module>/<service>/<endpoint>", ErrMalformedEndpointReference)
+	}
+	for _, token := range []string{info.Module, info.Service, info.Name} {
+		if token != "" && (!referenceTokenPattern.MatchString(token) || strings.Contains(token, "--")) {
+			return nil, ErrMalformedEndpointReference
+		}
+	}
+	if info.API != "" && standards.IsSupportedAPI(info.API) != nil {
+		return nil, fmt.Errorf("%w: the API qualifier is not one the model knows", ErrMalformedEndpointReference)
+	}
+	return info, nil
+}
+
+// Reference spells validated coordinates back as the marker a composition
+// would write, for a diagnostic.
+func (endpoint *EndpointInformation) Reference() string {
+	reference := "${endpoint:" + endpoint.Module + "/" + endpoint.Service
+	if endpoint.Name != "" {
+		reference += "/" + endpoint.Name
+	}
+	if endpoint.API != "" {
+		reference += "::" + endpoint.API
+	}
+	return reference + "}"
 }
 
 // errEndpointNotAvailable marks a well-formed reference to a declared endpoint
@@ -120,14 +168,14 @@ func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*base
 	// references the value names are not secret, and the caller names the
 	// configuration and key.
 	if malformedEndpointMarker(value) {
-		return "", fmt.Errorf("%w (the value names: %s)", ErrMalformedEndpointReference, referencesOrNone(value))
+		return "", fmt.Errorf("%w (%s)", ErrMalformedEndpointReference, referenceCount(value))
 	}
 	matches := endpointInterpolationPattern.FindAllStringSubmatchIndex(value, -1)
 	if matches == nil {
 		return value, nil
 	}
 	if err := selection.Complete(); err != nil {
-		return "", fmt.Errorf("cannot resolve the endpoint references %s: %w", referencesOrNone(value), err)
+		return "", fmt.Errorf("cannot resolve the value's %s: %w", referenceCount(value), err)
 	}
 	// Every reference is classified before any failure is reported, so that the
 	// failure reported is the one that matters: a composition fault anywhere in
@@ -139,9 +187,16 @@ func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*base
 	var b strings.Builder
 	var omission error
 	last := 0
-	for _, match := range matches {
+	for i, match := range matches {
 		reference, authority := splitEndpointProjection(value[match[2]:match[3]])
-		instance, err := resolveEndpointReference(ctx, mappings, reference, access, selection)
+		// The marker body is validated as coordinates before anything names
+		// it: a diagnostic may name a reference by its validated coordinates,
+		// and names one that did not validate only by its position.
+		info, err := parseEndpointReference(reference)
+		if err != nil {
+			return "", fmt.Errorf("%w (reference %d of %d)", err, i+1, len(matches))
+		}
+		instance, err := resolveEndpointReference(ctx, mappings, info, access, selection)
 		if err != nil {
 			if !ReferenceFailureIsAnOmission(err) {
 				return "", err
@@ -156,7 +211,7 @@ func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*base
 		address := instance.Address
 		if authority {
 			if address, err = addressAuthority(address); err != nil {
-				return "", fmt.Errorf("endpoint reference ${endpoint:%s%s}: %w", reference, authorityProjection, err)
+				return "", fmt.Errorf("endpoint reference %s%s: %w", info.Reference(), authorityProjection, err)
 			}
 		}
 		b.WriteString(value[last:match[0]])
@@ -482,15 +537,9 @@ func interpolateConfigurationValue(ctx context.Context, value *basev0.Configurat
 // vs InterpolateRunWideConfigurationEndpoints) decides whether an unresolved
 // reference fails the service or is dropped for a consumer that does not depend
 // on it.
-func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMapping, reference string, access *basev0.NetworkAccess, selection EndpointSelectionContext) (*basev0.NetworkInstance, error) {
+func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMapping, info *EndpointInformation, access *basev0.NetworkAccess, selection EndpointSelectionContext) (*basev0.NetworkInstance, error) {
 	w := wool.Get(ctx).In("resources.resolveEndpointReference")
-	info, err := ParseEndpoint(reference)
-	if err != nil {
-		return nil, w.Wrapf(err, "invalid endpoint reference ${endpoint:%s}", reference)
-	}
-	if info.Name == "" && info.API == "" {
-		return nil, w.NewError("endpoint reference ${endpoint:%s} must name an endpoint (module/service/endpoint)", reference)
-	}
+	reference := info.Reference()
 
 	available := make([]string, 0, len(mappings))
 	for _, mapping := range mappings {
@@ -508,11 +557,11 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 	// availability fact, so it does not carry errEndpointNotAvailable.
 	candidates, declared := selection.Declared(info.Module + "/" + info.Service)
 	if !declared {
-		return nil, fmt.Errorf("endpoint reference ${endpoint:%s}: %w (%s/%s)", reference, ErrUnknownProducer, info.Module, info.Service)
+		return nil, fmt.Errorf("endpoint reference %s: %w (%s/%s)", reference, ErrUnknownProducer, info.Module, info.Service)
 	}
 	selected, err := SelectEndpointForReference(selection.ConsumerModule, info, candidates)
 	if err != nil {
-		return nil, w.Wrapf(err, "endpoint reference ${endpoint:%s} cannot be resolved for this consumer", reference)
+		return nil, w.Wrapf(err, "endpoint reference %s cannot be resolved for this consumer", reference)
 	}
 
 	// Only the endpoint that was selected, by name. A producer may publish more
@@ -552,10 +601,10 @@ func resolveEndpointReference(ctx context.Context, mappings []*basev0.NetworkMap
 		}
 	}
 	if matchedButNoAccess {
-		return nil, w.NewError("endpoint reference ${endpoint:%s} names endpoint %q, which has no instance for access=%s; available: %v",
+		return nil, w.NewError("endpoint reference %s names endpoint %q, which has no instance for access=%s; available: %v",
 			reference, selected.Endpoint.Name, accessKind(access), available)
 	}
-	return nil, fmt.Errorf("endpoint reference ${endpoint:%s} names endpoint %q, which published no network mapping for this consumer (access=%s): producer %s/%s is not part of the run or did not publish it; available endpoints: %v: %w",
+	return nil, fmt.Errorf("endpoint reference %s names endpoint %q, which published no network mapping for this consumer (access=%s): producer %s/%s is not part of the run or did not publish it; available endpoints: %v: %w",
 		reference, selected.Endpoint.Name, accessKind(access), info.Module, info.Service, available, errEndpointNotAvailable)
 }
 
@@ -579,14 +628,16 @@ func unresolvedNamesRunProducer(ctx context.Context, value *basev0.Configuration
 		return false
 	}
 	for _, reference := range ConfigurationValueEndpointReferences(value) {
-		info, err := ParseEndpoint(reference)
-		if err != nil || info.Module == "" || info.Service == "" {
+		info, err := parseEndpointReference(reference)
+		if err != nil {
+			// A malformed reference is refused by the resolution itself,
+			// whichever producer it meant; it does not decide the run set.
 			continue
 		}
 		if !inRun(info.Module + "/" + info.Service) {
 			continue
 		}
-		if _, err := resolveEndpointReference(ctx, mappings, reference, access, selection); err != nil {
+		if _, err := resolveEndpointReference(ctx, mappings, info, access, selection); err != nil {
 			return true
 		}
 	}
