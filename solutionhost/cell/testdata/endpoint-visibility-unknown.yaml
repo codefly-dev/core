@@ -51,7 +51,6 @@ namespaces:
                   api: rest
                   port: 8080
                   visibility: public
-                  allow_modules: [billing]
             ingress:
                 - endpoint: rest
                   hosts: [payments.example.com]

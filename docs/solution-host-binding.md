@@ -808,22 +808,28 @@ selector keys qualified names and selector values label values — an empty
 value is legal, as the API server has it, and an uppercase namespace is not.
 
 An endpoint's `visibility` and `allow_modules` are **declarations the platform
-derives policy from**, so they are held to core's own vocabulary
-(`resources.Visibility*`, plus `*` for the allow-list) — including the two
-spellings core marks deprecated, because the render copies a service's declared
-visibility verbatim and core itself still assigns `module`: refusing those
-would refuse a cell a real publish writes. What a visibility PERMITS is not
-decided here; `resources.ValidateEndpointVisibility` and the workspace's own
+derives policy from**, so they are held to core's own vocabulary: `private`,
+`internal` or `public`, and an allow-list of module names or `*`. The `module`
+and `external` spellings are refused — core's endpoint-selection cutover
+deleted them, so a service declaring either no longer loads
+(`resources.KnownVisibility` reports false and
+`resources.ValidateEndpointDeclaration` refuses it), and a cell carrying one
+describes a service that cannot exist. An allow-list is refused anywhere but
+`internal`, which is the one visibility that reads it, for the same reason:
+core refuses that declaration at the source. What a visibility PERMITS is still
+not decided here; `resources.ValidateEndpointVisibility` and the workspace's own
 validation own that. The vocabulary is a literal in `rules.go` and `resources`
 is imported by this package's TESTS only, so the platform's loader never links
 core's resource tree to read a cell; two tests hold that line
-(`TestTheVisibilityVocabularyIsCoreOwn`, `TestTheCellPackageDoesNotLinkResources`).
+(`TestTheVisibilityVocabularyIsCoreOwn`, which is what caught the cell still
+accepting the deleted spellings when the cutover landed, and
+`TestTheCellPackageDoesNotLinkResources`).
 Ingress routes are held to endpoint order, as endpoints and egress already are.
 
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (44 documents) / `cell.Fixtures()` (68) ship
+`modulecontract.Fixtures()` (44 documents) / `cell.Fixtures()` (69) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it

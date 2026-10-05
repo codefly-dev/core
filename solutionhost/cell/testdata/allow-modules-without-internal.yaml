@@ -52,6 +52,7 @@ namespaces:
                   api: rest
                   port: 8080
                   visibility: public
+                  allow_modules: [billing]
             ingress:
                 - endpoint: rest
                   hosts: [payments.example.com]
@@ -82,6 +83,7 @@ namespaces:
           - service: payments/api
             hosts:
                 - name: payments.example.net
+                  port: 443
             cidrs: [10.20.0.0/16]
       delivery:
           kind: Job

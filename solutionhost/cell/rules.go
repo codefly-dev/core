@@ -72,6 +72,7 @@ const (
 	ruleEndpointPort     = "endpoint-port"
 	ruleVisibility       = "endpoint-visibility"
 	ruleAllowModules     = "allow-modules"
+	ruleAllowNeedsInner  = "allow-modules-need-internal"
 	ruleConsumerQualify  = "consumer-qualified"
 	ruleConsumersOrder   = "consumers-ordered"
 	ruleIngressServed    = "ingress-served"
@@ -139,6 +140,7 @@ func rules() []rule {
 		{name: ruleEndpointPort, check: checkEndpointPorts},
 		{name: ruleVisibility, check: checkVisibilities},
 		{name: ruleAllowModules, check: checkAllowModules},
+		{name: ruleAllowNeedsInner, check: checkAllowModulesNeedInternal},
 		{name: ruleConsumerQualify, check: checkConsumersQualified},
 		{name: ruleConsumersOrder, check: checkConsumersOrdered},
 		{name: ruleIngressServed, check: checkIngressServed},
@@ -758,10 +760,12 @@ func checkEndpointPorts(file *File) error {
 }
 
 // visibilities is the endpoint visibility vocabulary a cell may carry: core's
-// own declared set (resources.Visibility*), INCLUDING the two spellings core
-// marks deprecated. The render copies a service's declared visibility
-// verbatim and resources/module.go still assigns "module" itself, so a reader
-// refusing those would refuse a cell a real publish writes.
+// own declared set, which core#703's cold cutover reduced to these three.
+// "module" and "external" are NOT among them — a service declaring either no
+// longer loads at all (resources.ValidateEndpointDeclaration refuses it, and
+// resources.KnownVisibility reports false), so a cell carrying one describes a
+// service that cannot exist, and refusing it here is agreement with core
+// rather than strictness.
 //
 // What a visibility PERMITS is not decided here —
 // resources.ValidateEndpointVisibility and the workspace's own validation own
@@ -770,10 +774,14 @@ func checkEndpointPorts(file *File) error {
 // nobody wrote. TestTheVisibilityVocabularyIsCoreOwn fails if the two drift;
 // it imports resources from the TEST binary only, so a loader linking this
 // package never pulls core's resource tree in with it.
-var visibilities = []string{"private", "internal", "module", "public", "external"}
+var visibilities = []string{"private", "internal", "public"}
 
-// allowAllModules is the allow-list wildcard, as resources spells it.
-const allowAllModules = "*"
+const (
+	// allowAllModules is the allow-list wildcard, as resources spells it.
+	allowAllModules = "*"
+	// visibilityInternal is the one visibility whose allow-list is read.
+	visibilityInternal = "internal"
+)
 
 func checkVisibilities(file *File) error {
 	for _, entry := range file.workloads() {
@@ -799,6 +807,24 @@ func checkAllowModules(file *File) error {
 				}
 				return fmt.Errorf("%w: %s endpoint %s allow_modules names %q, which is not a module name or %q", ErrInvalid, entry.label, endpoint.Name, allowed, allowAllModules)
 			}
+		}
+	}
+	return nil
+}
+
+// checkAllowModulesNeedInternal: an allow-list is only read for "internal",
+// and resources.ValidateEndpointDeclaration refuses one anywhere else, so a
+// cell carrying an allow-list beside "public" or "private" describes a service
+// declaration that cannot load — and would hand the platform an allow-list no
+// visibility consults.
+func checkAllowModulesNeedInternal(file *File) error {
+	for _, entry := range file.workloads() {
+		for _, endpoint := range entry.workload.Endpoints {
+			if len(endpoint.AllowModules) == 0 || endpoint.Visibility == visibilityInternal {
+				continue
+			}
+			return fmt.Errorf("%w: %s endpoint %s lists allow_modules with visibility %q; an allow-list is only read for %q",
+				ErrInvalid, entry.label, endpoint.Name, endpoint.Visibility, visibilityInternal)
 		}
 	}
 	return nil

@@ -42,13 +42,13 @@ namespaces:
                 - name: grpc
                   api: grpc
                   port: 9090
-                  visibility: module
+                  visibility: internal
+                  allow_modules: [billing]
                   consumers: [billing/worker, payments/web]
                 - name: rest
                   api: rest
                   port: 8080
                   visibility: public
-                  allow_modules: [billing]
             ingress:
                 - endpoint: rest
                   hosts: [payments.example.com]

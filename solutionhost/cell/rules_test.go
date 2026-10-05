@@ -78,7 +78,7 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 	}
 	sort.Strings(names)
 	want := []string{
-		"account-not-a-subdomain", "allow-modules-not-a-module", "another-schema", "artifact-digest-not-hex", "authenticating-not-a-container",
+		"account-not-a-subdomain", "allow-modules-not-a-module", "allow-modules-without-internal", "another-schema", "artifact-digest-not-hex", "authenticating-not-a-container",
 		"binding-declared-twice", "binding-not-a-name", "consumer-not-qualified", "consumers-out-of-order",
 		"container-name-not-a-label", "container-named-twice", "delivery-account-malformed",
 		"delivery-container-not-a-label", "delivery-image-repository-malformed", "delivery-image-without-digest",

@@ -104,6 +104,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "endpoint-port-out-of-range", file: "endpoint-port-out-of-range.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "port 70000 is not a port", rule: ruleEndpointPort},
 		{name: "endpoint-visibility-unknown", file: "endpoint-visibility-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `visibility "internal-only" is not one of`, rule: ruleVisibility},
 		{name: "allow-modules-not-a-module", file: "allow-modules-not-a-module.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `allow_modules names "Billing"`, rule: ruleAllowModules},
+		{name: "allow-modules-without-internal", file: "allow-modules-without-internal.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "an allow-list is only read for", rule: ruleAllowNeedsInner},
 		{name: "consumer-not-qualified", file: "consumer-not-qualified.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not <module>/<service>", rule: ruleConsumerQualify},
 		{name: "consumers-out-of-order", file: "consumers-out-of-order.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "consumers are not in order", rule: ruleConsumersOrder},
 		{name: "ingress-to-an-endpoint-not-served", file: "ingress-to-an-endpoint-not-served.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "which the workload does not serve", rule: ruleIngressServed},
