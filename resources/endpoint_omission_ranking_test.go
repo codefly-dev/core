@@ -287,6 +287,29 @@ func TestReferenceDiagnosticsDoNotExposeTheValue(t *testing.T) {
 	}
 }
 
+// A token that does not match the name pattern is a malformed reference — not
+// an unknown producer, not a denial — on both paths, so no later message can
+// be built from it.
+func TestATokenOutsideTheNamePatternIsAMalformedReference(t *testing.T) {
+	ctx := context.Background()
+	selection := resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declaredBy(selectionEndpoint("grpc", "grpc", "public"))}
+	for name, value := range map[string]string{
+		"uppercase module":  "${endpoint:Platform/authority/grpc}",
+		"double dash":       "${endpoint:platform/auth--ority/grpc}",
+		"space in the name": "${endpoint:platform/authority/gr pc}",
+		"an equals sign":    "${endpoint:platform/authority/credential=x}",
+		"a dot":             "${endpoint:platform/authority/grpc.v1}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := resources.InterpolateEndpointsFor(ctx, value, nil, resources.NewNativeNetworkAccess(), selection)
+			require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
+			require.NotErrorIs(t, err, resources.ErrUnknownProducer)
+			_, err = resources.ParseEndpointReference(value[len("${endpoint:") : len(value)-1])
+			require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
+		})
+	}
+}
+
 // A module-less declaration is scoped under the module the reference named,
 // and a refusal of it must not print that module: it is text from the value.
 // Positions are numbered across the whole value, the same number the plan-time
