@@ -38,9 +38,7 @@ func mutate(t *testing.T, workflow, anchor, replacement string) string {
 
 func parseIsolated(t *testing.T, text string) isolatedWorkflow {
 	t.Helper()
-	var wf isolatedWorkflow
-	require.NoError(t, yaml.Unmarshal([]byte(text), &wf))
-	return wf
+	return parseIsolatedDocument(t, text, "a mutated workflow")
 }
 
 func parsePermissioned(t *testing.T, text string) permissionedWorkflow {
@@ -121,7 +119,7 @@ func TestASecretSmuggledIntoTheSuiteJobIsFound(t *testing.T) {
 			}
 			wf := parseIsolated(t, mutate(t, "go.yml", tc.anchor, replacement))
 
-			found := secretsIn(t, wf, wf.Jobs["build"])
+			found := secretsIn(t, wf, "build")
 			require.Contains(t, found, tc.expect,
 				"a credential in this form reaches the job that runs the suite and "+
 					"the guard did not report it")
@@ -144,7 +142,7 @@ func TestASecretInWorkflowLevelEnvIsFoundInEveryJob(t *testing.T) {
 	wf := parseIsolated(t, text)
 
 	for _, id := range isolatedJobIDs(wf) {
-		found := secretsIn(t, wf, wf.Jobs[id])
+		found := secretsIn(t, wf, id)
 		require.Contains(t, found, "SLACK_WEBHOOK_URL",
 			"job %q inherits the workflow's env, so the credential is in it", id)
 		require.Contains(t, strings.Join(found["SLACK_WEBHOOK_URL"], " "), "WORKFLOW's env",
@@ -219,7 +217,7 @@ func TestANeutralisedConditionDoesNotSatisfyTheCredentialGuard(t *testing.T) {
 			wf := parseIsolated(t, mutate(t, "go.yml", anchor, condition))
 			notify := wf.Jobs["notify"]
 
-			require.NotEmpty(t, secretsIn(t, wf, notify),
+			require.NotEmpty(t, secretsIn(t, wf, "notify"),
 				"this regression depends on notify still holding the webhook")
 			ok, _ := mustNotRunUnder(t, notify.If, pullRequest)
 			require.False(t, ok,
@@ -261,4 +259,78 @@ func TestDroppingEitherWorkflowRunConditionIsCaught(t *testing.T) {
 				tc.name, tag.If)
 		})
 	}
+}
+
+// The field-by-field walk in secretsIn names the places a credential is
+// usually written. A job can carry one in at least seven others, and a guard
+// that names fields exempts every field it does not name -- which is the same
+// failure as a pattern that matches one spelling of a secret reference.
+//
+// So these are the UNMODELLED fields, each put on the job that runs the suite.
+// They are reported by the backstop rather than by name, which is the honest
+// answer: it says a credential is in this job and that the guard cannot say
+// which field, instead of saying there is none.
+func TestASecretInAFieldTheModelDoesNotNameIsStillFound(t *testing.T) {
+	const jobHeader = "  build:\n    name: Build\n    runs-on: ubuntu-latest\n"
+
+	for _, tc := range []struct {
+		name     string
+		injected string
+	}{
+		{
+			name:     "a service container's env",
+			injected: "    services:\n      db:\n        image: postgres\n        env:\n          PASSWORD: ${{ secrets.SLACK_WEBHOOK_URL }}\n",
+		},
+		{
+			name:     "a job container's registry credentials",
+			injected: "    container:\n      image: ghcr.io/x/y\n      credentials:\n        password: ${{ secrets.SLACK_WEBHOOK_URL }}\n",
+		},
+		{
+			name:     "a matrix value",
+			injected: "    strategy:\n      matrix:\n        token: ['${{ secrets.SLACK_WEBHOOK_URL }}']\n",
+		},
+		{
+			name:     "a job output",
+			injected: "    outputs:\n      leaked: ${{ secrets.SLACK_WEBHOOK_URL }}\n",
+		},
+		{
+			name:     "an environment url",
+			injected: "    environment:\n      name: staging\n      url: https://x/${{ secrets.SLACK_WEBHOOK_URL }}\n",
+		},
+		{
+			name:     "a concurrency group",
+			injected: "    concurrency:\n      group: g-${{ secrets.SLACK_WEBHOOK_URL }}\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolated(t, mutate(t, "go.yml", jobHeader, jobHeader+tc.injected))
+
+			found := secretsIn(t, wf, "build")
+			require.Contains(t, found, "SLACK_WEBHOOK_URL",
+				"a credential in %s reaches the job that runs the suite, and the "+
+					"guard reported none -- the field walk does not name this field "+
+					"and the backstop did not catch it either", tc.name)
+			require.Contains(t, strings.Join(found["SLACK_WEBHOOK_URL"], " "),
+				"does not model by name",
+				"this field is not modelled, so the report must say so rather than "+
+					"claiming a location it did not read")
+		})
+	}
+}
+
+// And the backstop must not claim a secret that is not there, or every job
+// reads as credential-bearing and the guards stop distinguishing anything.
+func TestTheBackstopDoesNotInventSecrets(t *testing.T) {
+	_, workflows := loadIsolatedWorkflows(t)
+
+	path := filepath.Join(repoRoot(t), ".github", "workflows", "go.yml")
+	wf := workflows[path]
+	require.NotEmpty(t, wf.Jobs, "go.yml did not load")
+
+	for _, id := range []string{"build", "proto", "pnpm-source-evidence", "coverage-badge"} {
+		require.Empty(t, secretsIn(t, wf, id),
+			"job %q names no secret anywhere, and the backstop must agree", id)
+	}
+	require.Contains(t, secretsIn(t, wf, "notify"), "SLACK_WEBHOOK_URL",
+		"the one job that does hold a credential must still be reported")
 }

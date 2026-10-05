@@ -67,6 +67,13 @@ type isolatedWorkflow struct {
 	// report one.
 	Env  map[string]string      `yaml:"env"`
 	Jobs map[string]isolatedJob `yaml:"jobs"`
+	// raw is each job as written, filled by a second decode. The typed model
+	// above names the fields a credential is USUALLY in; a job can also carry
+	// one in `with:`, `strategy.matrix`, `services`, `container`, `outputs`,
+	// `environment` or `concurrency`, and a model that names fields exempts
+	// every field it does not name. This is the backstop that turns such a
+	// field into a loud failure instead of a silent gap.
+	raw map[string]yaml.Node
 }
 
 // secretsIn returns every non-built-in secret the job can reach, and where
@@ -77,9 +84,10 @@ type isolatedWorkflow struct {
 // `secrets['NAME']`, `secrets[format(...)]` and `toJSON(secrets)` count as
 // surely as `secrets.NAME` does; an expression that cannot be parsed fails the
 // test rather than reporting nothing.
-func secretsIn(t *testing.T, wf isolatedWorkflow, job isolatedJob) map[string][]string {
+func secretsIn(t *testing.T, wf isolatedWorkflow, id string) map[string][]string {
 	t.Helper()
 
+	job := wf.Jobs[id]
 	found := map[string][]string{}
 	note := func(where, text string) {
 		names, err := secretsReferencedIn(text)
@@ -127,6 +135,33 @@ func secretsIn(t *testing.T, wf isolatedWorkflow, job isolatedJob) map[string][]
 		note(where+" run:", step.Run)
 		note(where+" if:", step.If)
 	}
+
+	// The backstop. Everything above reads a field by name; this reads the job
+	// as written, so a credential in a field the model does not know about is
+	// still reported -- without a name for where it is, which is the honest
+	// answer and enough to find it.
+	if raw, ok := wf.raw[id]; ok {
+		var rendered strings.Builder
+		if err := yaml.NewEncoder(&rendered).Encode(raw); err == nil {
+			names, err := secretsReferencedIn(rendered.String())
+			require.NoError(t, err,
+				"job %q contains an expression that cannot be parsed, so a "+
+					"credential in it would be invisible to this guard", id)
+			for _, name := range names {
+				if name == builtInToken {
+					continue
+				}
+				if _, already := found[name]; !already {
+					found[name] = []string{
+						"a job field this guard does not model by name (grep job " +
+							id + " for it): `with`, `strategy`, `services`, " +
+							"`container`, `outputs`, `environment` and `concurrency` " +
+							"can all carry one",
+					}
+				}
+			}
+		}
+	}
 	return found
 }
 
@@ -155,6 +190,24 @@ func yamlOf(t *testing.T, path string) string {
 	return string(raw)
 }
 
+// parseIsolatedDocument decodes a workflow twice: into the typed model, and
+// into the raw job nodes the backstop in secretsIn reads. One decode cannot do
+// both -- a typed struct drops the fields it does not name, which is precisely
+// what the backstop exists to notice.
+func parseIsolatedDocument(t *testing.T, text, where string) isolatedWorkflow {
+	t.Helper()
+
+	var wf isolatedWorkflow
+	require.NoError(t, yaml.Unmarshal([]byte(text), &wf), where)
+
+	var verbatim struct {
+		Jobs map[string]yaml.Node `yaml:"jobs"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(text), &verbatim), where)
+	wf.raw = verbatim.Jobs
+	return wf
+}
+
 func loadIsolatedWorkflows(t *testing.T) ([]string, map[string]isolatedWorkflow) {
 	t.Helper()
 
@@ -164,9 +217,7 @@ func loadIsolatedWorkflows(t *testing.T) ([]string, map[string]isolatedWorkflow)
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
-		var wf isolatedWorkflow
-		require.NoError(t, yaml.Unmarshal(raw, &wf), path)
-		out[path] = wf
+		out[path] = parseIsolatedDocument(t, string(raw), path)
 	}
 	return paths, out
 }
@@ -221,7 +272,7 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 
 		for _, id := range isolatedJobIDs(wf) {
 			job := wf.Jobs[id]
-			secrets := secretsIn(t, wf, job)
+			secrets := secretsIn(t, wf, id)
 			if len(secrets) == 0 {
 				continue
 			}
@@ -351,10 +402,9 @@ jobs:
     uses: ./.github/workflows/other.yml
     secrets: inherit
 `
-	var wf isolatedWorkflow
-	require.NoError(t, yaml.Unmarshal([]byte(doc), &wf))
+	wf := parseIsolatedDocument(t, doc, "the fixture above")
 
-	found := secretsIn(t, wf, wf.Jobs["everything"])
+	found := secretsIn(t, wf, "everything")
 	names := make([]string, 0, len(found))
 	for name := range found {
 		names = append(names, name)
@@ -378,7 +428,7 @@ jobs:
 		"a workflow-level secret must be reported as inherited, so a reader "+
 			"knows it is not in the job's own text")
 
-	require.Contains(t, secretsIn(t, wf, wf.Jobs["calls"]),
+	require.Contains(t, secretsIn(t, wf, "calls"),
 		"(inherit: every secret the caller holds)",
 		"`secrets: inherit` hands over every secret the caller has, which is "+
 			"wider than any single name and must not read as no secret at all")
@@ -392,6 +442,19 @@ var scriptReference = regexp.MustCompile(`\.github/scripts/[A-Za-z0-9_.-]+\.sh`)
 
 // commandsOf returns everything a job executes: each step's `run:`, plus the
 // contents of every repository script those runs invoke, transitively.
+//
+// WHAT IT DOES NOT FOLLOW, stated here rather than left to be discovered: only
+// `.github/scripts/*.sh`. A credential-bearing job that reached a pull
+// request's refs through `make`, through a Go program, through a script
+// elsewhere in the tree, or through a tool's own configuration (GoReleaser runs
+// the hooks in `.goreleaser.yaml`) would not be seen by the two guards below.
+//
+// No job here does that today, and the alternative -- refusing every
+// indirection a credential-bearing job cannot be read through -- would have
+// needed an exemption for GoReleaser on the day it was written, which is the
+// kind of guard that is green because of its exemptions. What protects that
+// case instead is the tag condition and the ancestry refusal on the job: the
+// tree whose hooks run has to be one that was merged.
 func commandsOf(t *testing.T, job isolatedJob) string {
 	t.Helper()
 
@@ -446,7 +509,7 @@ func TestNoCredentialBearingJobFetchesPullRequestRefs(t *testing.T) {
 		wf := workflows[path]
 		for _, id := range isolatedJobIDs(wf) {
 			job := wf.Jobs[id]
-			if len(secretsIn(t, wf, job)) == 0 {
+			if len(secretsIn(t, wf, id)) == 0 {
 				continue
 			}
 			commands := commandsOf(t, job)
@@ -487,7 +550,7 @@ func TestADispatchableCredentialJobChecksOutTheDefaultBranch(t *testing.T) {
 
 		for _, id := range isolatedJobIDs(wf) {
 			job := wf.Jobs[id]
-			if len(secretsIn(t, wf, job)) == 0 {
+			if len(secretsIn(t, wf, id)) == 0 {
 				continue
 			}
 			for _, step := range job.Steps {
@@ -566,7 +629,7 @@ func TestATagGatedCredentialJobProvesTheTagIsOnTheDefaultBranch(t *testing.T) {
 		wf := workflows[path]
 		for _, id := range isolatedJobIDs(wf) {
 			job := wf.Jobs[id]
-			if len(secretsIn(t, wf, job)) == 0 {
+			if len(secretsIn(t, wf, id)) == 0 {
 				continue
 			}
 			// Can this job run on a pushed tag at all? Asked of the condition's
