@@ -400,6 +400,26 @@ func lossFixtures(label, role, group, key, upper, lower, value string) []Resolut
 	const other = "other.value"
 	slot := group + "/" + key
 	fixtures := []ResolutionFixture{
+		// A SINGLE secret record, in each spelling. Every collision case
+		// below supplies two records for the slot's key, so a provider that
+		// drops the Secret flag only when exactly ONE record carries that
+		// key changed none of the 109 configurations and was certified --
+		// and then Resolve succeeds with the secret's own value in a public
+		// field where faithful transfer gives ErrSecretSlot. The flag is the
+		// whole of what a secret IS on the wire, so losing it on a lone
+		// record is the plainest loss there is, and it had no case at all.
+		{
+			Name: label + ": one secret record, upper spelling", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: upper, Value: secretValue, Secret: true}},
+		},
+		{
+			Name: label + ": one secret record, lower spelling", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: lower, Value: secretValue, Secret: true}},
+		},
 		{
 			Name: label + ": one spelling supplied twice with different values", Group: group, Key: key,
 			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,

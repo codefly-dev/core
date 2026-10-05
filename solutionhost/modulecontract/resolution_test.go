@@ -76,6 +76,44 @@ func TestAProviderThatLosesARecordFailsTheKit(t *testing.T) {
 			}
 			return kept
 		},
+		// A provider faithful in EVERYTHING except the Secret flag on a lone
+		// record whose key is spelled with the _PREFIX convention. Every
+		// collision case supplies two records for the slot's key, so this
+		// changed none of the shipped configurations and was certified --
+		// and Resolve then succeeded with the secret's own value as the
+		// audience, where faithful transfer gives ErrSecretSlot. The two
+		// singleton cases per convention exist for this.
+		"declassifies a lone _PREFIX secret": func(records []Record) []Record {
+			counts := map[string]int{}
+			for _, record := range records {
+				counts[normalizeKey(record.Key)]++
+			}
+			kept := make([]Record, 0, len(records))
+			for _, record := range records {
+				normalized := normalizeKey(record.Key)
+				if strings.HasSuffix(normalized, "_PREFIX") && counts[normalized] == 1 {
+					record.Secret = false
+				}
+				kept = append(kept, record)
+			}
+			return kept
+		},
+		// The same loss without the _PREFIX spelling: a lone secret record
+		// for any slot, declassified.
+		"declassifies a lone secret record": func(records []Record) []Record {
+			counts := map[string]int{}
+			for _, record := range records {
+				counts[normalizeKey(record.Key)]++
+			}
+			kept := make([]Record, 0, len(records))
+			for _, record := range records {
+				if counts[normalizeKey(record.Key)] == 1 {
+					record.Secret = false
+				}
+				kept = append(kept, record)
+			}
+			return kept
+		},
 		"drops the secret occurrences": func(records []Record) []Record {
 			kept := make([]Record, 0, len(records))
 			for _, record := range records {
@@ -381,6 +419,14 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 		"audience (_PREFIX convention): secret then public, the same value, public upper, secret lower",
 		"audience (_PREFIX convention): two spellings supplied with different values",
 		"audience: one spelling supplied twice with different values",
+		"audience: one secret record, upper spelling",
+		"audience: one secret record, lower spelling",
+		"resource_kind: one secret record, upper spelling",
+		"resource_kind: one secret record, lower spelling",
+		"binding_key: one secret record, upper spelling",
+		"binding_key: one secret record, lower spelling",
+		"audience (_PREFIX convention): one secret record, upper spelling",
+		"audience (_PREFIX convention): one secret record, lower spelling",
 		"audience: public then secret, a different value, both written lower",
 		"audience: public then secret, a different value, both written upper",
 		"audience: public then secret, a different value, public lower, secret upper",
@@ -475,15 +521,19 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 	}
 }
 
-// lossCasesPerRole is what lossFixtures generates for one role: two conflicts,
-// then a public/secret collision over every order, spelling and value
-// agreement.
 // lossCasesPerRole is what lossFixtures generates for one convention: two
-// conflicts, then a public/secret collision over every order, every value
-// agreement, and every INDEPENDENT choice of the two records' spellings —
-// four spelling combinations, not two, since pairing them left no lowercase
-// public record with an uppercase secret arriving later.
-const lossCasesPerRole = 2 + 2*2*(2*2)
+// conflicts; then a SINGLE secret record in each spelling; then a
+// public/secret collision over every order, every value agreement, and every
+// INDEPENDENT choice of the two records' spellings — four spelling
+// combinations, not two, since pairing them left no lowercase public record
+// with an uppercase secret arriving later.
+//
+// The two singletons are the newest and the plainest: every collision case
+// supplies TWO records for the slot's key, so a provider that cleared Secret
+// only when exactly ONE record carried that key changed none of the
+// configurations and was certified — and Resolve then succeeded with the
+// secret's own value in a public field.
+const lossCasesPerRole = 2 + 2 + 2*2*(2*2)
 
 func TestTheDocumentedResolutionCountIsTheKit(t *testing.T) {
 	const path = "../../docs/solution-host-binding.md"
