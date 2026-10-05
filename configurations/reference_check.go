@@ -17,27 +17,18 @@ type UnresolvedReference struct {
 	// Group and Key locate the value carrying the reference.
 	Group string
 	Key   string
-	// Reference is the <module>/<service>/<endpoint> the value names, as its
-	// validated coordinates; empty when the marker did not validate, so that
-	// nothing of a value that may be a secret is carried here.
-	Reference string
-	// Producer is the <module>/<service> the reference names, empty when the
-	// reference is malformed.
-	Producer string
+	// Position is which reference of the value this is, 1-based, in order of
+	// appearance across the value and its template literals. It is how the
+	// reference is named: a reference is text from a value, a value may be a
+	// secret, and nothing of it — not even coordinates whose every token
+	// validated — is carried here. The reason names what the manifest says.
+	Position int
 	// Reason says why the reference cannot resolve.
 	Reason string
 }
 
 func (r UnresolvedReference) String() string {
-	producer := r.Producer
-	if producer == "" {
-		producer = "-"
-	}
-	reference := "(a reference that did not validate)"
-	if r.Reference != "" {
-		reference = "${endpoint:" + r.Reference + "}"
-	}
-	return fmt.Sprintf("%s: %s/%s = %s (producer %s): %s", r.Consumer, r.Group, r.Key, reference, producer, r.Reason)
+	return fmt.Sprintf("%s: %s/%s, reference %d: %s", r.Consumer, r.Group, r.Key, r.Position, r.Reason)
 }
 
 // UnresolvedReferencesError lists every unresolvable reference of a plan at
@@ -135,12 +126,12 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 					// invisible to .Value. This check exists to fail a plan
 					// before anything starts, and missing a reference is exactly
 					// the silent pass it was added to remove.
-					for _, reference := range resources.ConfigurationValueEndpointReferences(value) {
+					for position, reference := range resources.ConfigurationValueEndpointReferences(value) {
 						problem := checkEndpointReference(reference, identity.Module, producer)
 						if problem == nil {
 							continue
 						}
-						problem.Consumer, problem.Group, problem.Key = unique, group, value.GetKey()
+						problem.Consumer, problem.Group, problem.Key, problem.Position = unique, group, value.GetKey(), position+1
 						if !seen[*problem] {
 							seen[*problem] = true
 							unresolved = append(unresolved, *problem)
@@ -169,15 +160,7 @@ func checkEndpointReference(reference string, consumerModule string, producer Pr
 		out.Reason = "malformed reference: " + err.Error()
 		return out
 	}
-	out.Reference = info.Module + "/" + info.Service
-	if info.Name != "" {
-		out.Reference += "/" + info.Name
-	}
-	if info.API != "" {
-		out.Reference += "::" + info.API
-	}
-	out.Producer = info.Module + "/" + info.Service
-	service, ok := producer(out.Producer)
+	service, ok := producer(info.Module + "/" + info.Service)
 	if !ok || service == nil {
 		out.Reason = "the producer is not a service of this workspace"
 		return out

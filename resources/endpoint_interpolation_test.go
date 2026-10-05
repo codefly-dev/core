@@ -196,8 +196,11 @@ func TestInterpolateConfigurationEndpointsFailsOnAnEndpointAbsentFromTheConsumer
 			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "platform/"+tc.key)
-			assert.Contains(t, err.Error(), "${endpoint:"+tc.reference+"}")
-			assert.Contains(t, err.Error(), "producer "+tc.producer)
+			// The diagnostic names the key and the reference's position, and
+			// what the run published — never the reference's text.
+			assert.Contains(t, err.Error(), "reference 1 of 1")
+			assert.NotContains(t, err.Error(), "${endpoint:"+tc.reference+"}")
+			assert.NotContains(t, err.Error(), "producer "+tc.producer)
 		})
 	}
 }

@@ -250,17 +250,21 @@ func TestTextAroundAWellFormedReferenceIsNotAMarker(t *testing.T) {
 // references it names and the key are what a reader needs.
 func TestReferenceDiagnosticsDoNotExposeTheValue(t *testing.T) {
 	ctx := context.Background()
-	const secret = "synthetic-secret-7f3a"
+	const secret = "syntheticsecret7f3a"
 	inRun := resources.WithRunProducers(func(string) bool { return true })
 	consumer := resources.WithConsumer("payments", declaredBy(selectionEndpoint("grpc", "grpc", "public")))
 	for name, value := range map[string]string{
-		"malformed marker":                 "credential=" + secret + ";${endpoint:}",
-		"beside a valid reference":         "credential=" + secret + ";${endpoint:" + selectionUnique + "/grpc};${endpoint:",
-		"unknown producer beside a secret": "credential=" + secret + ";${endpoint:nobody/nothing/grpc}",
-		"the secret inside a marker body":  "${endpoint:};${endpoint:credential=" + secret + "}",
-		"a marker body that is the secret": "${endpoint:credential=" + secret + "}",
-		"an unterminated marker eating it": "${endpoint:platform/x/credential=" + secret + "}",
-		"a bad api qualifier carrying it":  "${endpoint:" + selectionUnique + "/grpc::" + secret + "}",
+		"malformed marker":                  "credential=" + secret + ";${endpoint:}",
+		"beside a valid reference":          "credential=" + secret + ";${endpoint:" + selectionUnique + "/grpc};${endpoint:",
+		"unknown producer beside a secret":  "credential=" + secret + ";${endpoint:nobody/nothing/grpc}",
+		"the secret inside a marker body":   "${endpoint:};${endpoint:credential=" + secret + "}",
+		"a marker body that is the secret":  "${endpoint:credential=" + secret + "}",
+		"an unterminated marker eating it":  "${endpoint:platform/x/credential=" + secret + "}",
+		"a bad api qualifier carrying it":   "${endpoint:" + selectionUnique + "/grpc::" + secret + "}",
+		"a secret that is a valid name":     "${endpoint:" + selectionUnique + "/" + secret + "}",
+		"a secret that is a valid producer": "${endpoint:" + secret + "/chat/grpc}",
+		"a secret that is a valid module":   "${endpoint:" + secret + "/" + secret + "/grpc}",
+		"an empty api qualifier":            "credential=" + secret + ";${endpoint:" + selectionUnique + "/grpc::}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := resources.InterpolateEndpointsFor(ctx, value, nil, resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declaredBy(selectionEndpoint("grpc", "grpc", "public"))})

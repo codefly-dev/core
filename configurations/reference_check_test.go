@@ -51,19 +51,25 @@ func TestCheckEndpointReferencesListsEveryUnresolvedReference(t *testing.T) {
 	err := configurations.CheckEndpointReferences(provided, []*resources.Service{worker, chat}, excludingGroups("excluded"), lookup)
 	var unresolved *configurations.UnresolvedReferencesError
 	require.True(t, errors.As(err, &unresolved), "got %v", err)
-	type found struct{ consumer, key, producer string }
+	type found struct {
+		consumer, key string
+		position      int
+	}
 	var got []found
 	for _, reference := range unresolved.References {
-		got = append(got, found{reference.Consumer, reference.Key, reference.Producer})
+		got = append(got, found{reference.Consumer, reference.Key, reference.Position})
 		require.Equal(t, "assistant", reference.Group)
 	}
 	require.Equal(t, []found{
-		{"assistant/chat", "documents-endpoint", "documents/store"},
-		{"assistant/chat", "host-missing", "host/api"},
-		{"assistant/worker", "documents-endpoint", "documents/store"},
-		{"assistant/worker", "host-missing", "host/api"},
+		{"assistant/chat", "documents-endpoint", 1},
+		{"assistant/chat", "host-missing", 1},
+		{"assistant/worker", "documents-endpoint", 1},
+		{"assistant/worker", "host-missing", 1},
 	}, got)
-	require.Contains(t, err.Error(), "assistant/chat: assistant/documents-endpoint = ${endpoint:documents/store/grpc} (producer documents/store)")
+	// The report names the key and the position, and what the manifest says;
+	// never the reference's text, which is text from a value.
+	require.Contains(t, err.Error(), "assistant/chat: assistant/documents-endpoint, reference 1: ")
+	require.NotContains(t, err.Error(), "documents/store/grpc")
 
 	require.NoError(t, configurations.CheckEndpointReferences(provided[:1], []*resources.Service{host}, resources.RunProfile{}, lookup),
 		"a service that does not declare the group is not checked against it")
@@ -83,12 +89,15 @@ func TestCheckEndpointReferencesReportsAMalformedReference(t *testing.T) {
 // The plan-time report never carries text from a value: a reference that did
 // not validate as coordinates is named by its key only.
 func TestCheckEndpointReferencesNeverEchoesAValue(t *testing.T) {
-	const secret = "synthetic-secret-9c1e"
+	const secret = "syntheticsecret9c1e"
 	consumer := referenceCheckService("assistant", "chat", []string{"assistant"})
 	for name, value := range map[string]string{
-		"a marker body that is the secret": "${endpoint:credential=" + secret + "}",
-		"beside an empty marker":           "${endpoint:};${endpoint:credential=" + secret + "}",
-		"a bad api qualifier":              "${endpoint:assistant/chat/grpc::" + secret + "}",
+		"a marker body that is the secret":  "${endpoint:credential=" + secret + "}",
+		"beside an empty marker":            "${endpoint:};${endpoint:credential=" + secret + "}",
+		"a bad api qualifier":               "${endpoint:assistant/chat/grpc::" + secret + "}",
+		"a secret that is a valid name":     "${endpoint:assistant/chat/" + secret + "}",
+		"a secret that is a valid producer": "${endpoint:" + secret + "/chat/grpc}",
+		"an empty api qualifier":            "${endpoint:assistant/chat/grpc::}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := configurations.CheckEndpointReferences([]*basev0.ConfigurationInformation{

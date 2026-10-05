@@ -332,7 +332,8 @@ layout: modules
 	_, err = manager.GetWorkspaceConfigurations(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "work-context/authority-jwks-url")
-	require.Contains(t, err.Error(), "producer edge/sidecar")
+	require.Contains(t, err.Error(), "reference 1 of 1")
+	require.NotContains(t, err.Error(), "edge/sidecar/grpc", "the reference's text is never in a diagnostic")
 }
 
 // The same reference, when the run does not contain the producer, must not stop

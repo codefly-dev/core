@@ -137,7 +137,9 @@ func SelectEndpointForReference(consumerModule string, info *EndpointInformation
 				continue
 			}
 			if info.API != "" && endpoint.API != info.API {
-				return nil, fmt.Errorf("%w: %s/%s serves %q, the reference asks for %q", ErrEndpointAPIMismatch, info.Service, endpoint.Name, endpoint.API, info.API)
+				// The qualifier is text from the value and is not echoed; the
+				// endpoint's own API is the manifest's.
+				return nil, fmt.Errorf("%w: the named endpoint %q serves %q", ErrEndpointAPIMismatch, endpoint.Name, endpoint.API)
 			}
 			if err := visibilityOf(consumerModule, info, endpoint); err != nil {
 				return nil, err
@@ -192,12 +194,16 @@ func SelectEndpointForReference(consumerModule string, info *EndpointInformation
 // cannot be judged (ErrInvalidEndpointDeclaration) is passed through as the
 // manifest fault it is.
 func visibilityOf(consumerModule string, info *EndpointInformation, endpoint *Endpoint) error {
+	// The producer named in a refusal is the manifest's, never the reference's:
+	// a reference is text from a value, and a value may be a secret. A
+	// candidate carrying neither is judged under the module the reference
+	// named — that is what scoped it — but described as "the producer".
 	module, service := endpoint.Module, endpoint.Service
 	if module == "" {
 		module = info.Module
 	}
 	if service == "" {
-		service = info.Service
+		service = "the producer"
 	}
 	if err := ValidateEndpointVisibility(consumerModule, module, service, endpoint.Name, Visibility(endpoint.Visibility), endpoint.Location, endpoint.AllowModules); err != nil {
 		if errors.Is(err, ErrInvalidEndpointDeclaration) {
