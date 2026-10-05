@@ -88,7 +88,10 @@ type Manager struct {
 	// selection identifies the consumer these reads resolve for, so a
 	// ${endpoint:…} reference is answered by the endpoint it names, judged
 	// against the producer's export boundary. A zero value refuses every
-	// configuration that carries a reference — see ForConsumerModule.
+	// INTERPOLATING read of a configuration that carries a reference — see
+	// ForConsumerModule. The raw getters (GetServiceConfiguration and its
+	// siblings) return what was stored, references unresolved, and are not
+	// reads that resolve.
 	selection resources.EndpointSelectionContext
 
 	// runProducers reports whether a <module>/<service> is part of this run, so
