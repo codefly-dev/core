@@ -118,32 +118,36 @@ func stepsIncludingLocalActionsUnder(root string, job isolatedJob) (steps []isol
 			}
 			seen[target] = true
 
-			var manifest string
-			for _, name := range []string{"action.yml", "action.yaml"} {
-				candidate := filepath.Join(root, strings.TrimPrefix(target, "./"), name)
-				if _, err := os.Stat(candidate); err == nil {
-					manifest = candidate
-				}
-			}
-			if manifest == "" {
+			manifests := manifestsOf(root, target)
+			if len(manifests) == 0 {
 				unreadable = append(unreadable, target+" (no action.yml or action.yaml)")
 				continue
 			}
-			body, err := os.ReadFile(manifest)
-			if err != nil {
-				unreadable = append(unreadable, target+" ("+err.Error()+")")
-				continue
+			// EVERY manifest present, each on its own. GitHub executes
+			// `action.yml` when both names exist, and a loop keeping the LAST
+			// match read `action.yaml` while the runner ran `action.yml` -- so
+			// a bypass could sit in the executed file behind a harmless one.
+			// Walking both removes the precedence question rather than
+			// answering it, and a manifest that will not parse or whose
+			// `runs.using` this cannot read is reported unreadable even when
+			// its sibling is fine.
+			for _, manifest := range manifests {
+				body, err := os.ReadFile(manifest)
+				if err != nil {
+					unreadable = append(unreadable, target+" ("+err.Error()+")")
+					continue
+				}
+				var action localAction
+				if err := yaml.Unmarshal(body, &action); err != nil {
+					unreadable = append(unreadable, filepath.Base(manifest)+" of "+target+" (manifest does not parse)")
+					continue
+				}
+				if action.Runs.Using != "composite" {
+					unreadable = append(unreadable, filepath.Base(manifest)+" of "+target+" (runs.using is "+action.Runs.Using+", whose execution this guard cannot read)")
+					continue
+				}
+				walk(action.Runs.Steps, depth+1)
 			}
-			var action localAction
-			if err := yaml.Unmarshal(body, &action); err != nil {
-				unreadable = append(unreadable, target+" (manifest does not parse)")
-				continue
-			}
-			if action.Runs.Using != "composite" {
-				unreadable = append(unreadable, target+" (runs.using is "+action.Runs.Using+", whose execution this guard cannot read)")
-				continue
-			}
-			walk(action.Runs.Steps, depth+1)
 		}
 	}
 	walk(job.Steps, 0)
@@ -393,6 +397,20 @@ func mustNotRunUnder(t *testing.T, gate string, s scenario) (ok bool, reason str
 // not what the job is; the credential is still named in a job whose other
 // steps execute the author's code, and a reader has to reason about step order
 // to see whether it is safe. The split into two jobs is what makes it legible
+// provablyUnreachable reports whether a condition is false in EVERY hostile
+// situation, and names the first one it is not.
+func provablyUnreachable(t *testing.T, gate string, hostile []scenario) (bool, string) {
+	t.Helper()
+
+	for _, situation := range hostile {
+		ok, reason := mustNotRunUnder(t, gate, situation)
+		if !ok {
+			return false, reason
+		}
+	}
+	return true, ""
+}
+
 // as well as true.
 func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 	paths, workflows := loadIsolatedWorkflows(t)
@@ -400,17 +418,12 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 	checked := 0
 	for _, path := range paths {
 		wf := workflows[path]
-		hostile, unmodelled := hostileScenariosFor(wf.On)
-		require.Empty(t, unmodelled,
-			"%s declares trigger(s) %v that this guard does not model, so no job in it "+
-				"can be proven unreachable from code under review. Add a scenario for "+
-				"each in expression_behaviour_test.go -- binding only what the event "+
-				"itself determines -- or remove the trigger. A trigger with no scenario "+
-				"is not a safe trigger, it is an unanswered question.",
-			filepath.Base(path), unmodelled)
-		if len(hostile) == 0 {
-			continue
-		}
+		hostile, _ := hostileScenariosFor(wf.On)
+		require.NotEmpty(t, hostile,
+			"%s yielded no hostile scenario at all. Every trigger yields one now, so "+
+				"an empty set means the workflow declares no trigger this package can "+
+				"read -- which is an unanswered question, not a safe workflow.",
+			filepath.Base(path))
 		checked++
 
 		for _, id := range isolatedJobIDs(wf) {
@@ -425,18 +438,27 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 			}
 			sort.Strings(names)
 
-			for _, situation := range hostile {
-				ok, reason := mustNotRunUnder(t, job.If, situation)
-				require.True(t, ok,
-					"%s: job %q references %s, and %s. `permissions:` does not govern a "+
-						"repository secret, so narrowing the built-in token leaves this "+
-						"credential exactly as reachable as before. Move it into a job "+
-						"whose condition cannot be true on a pull request -- a push of the "+
-						"default branch, or a pushed tag -- and that checks out none of "+
-						"the pull request's code. A step-level `if:` is not enough: it "+
-						"gates the step, not the job the credential lives in.",
-					filepath.Base(path), id, strings.Join(names, "; "), reason)
+			// Either the job cannot run in any hostile situation, or it proves
+			// what it executes. Trigger identity proves neither.
+			unreachable, why := provablyUnreachable(t, job.If, hostile)
+			if unreachable {
+				continue
 			}
+			pinned, missing := acceptedExecution(t, wf, id)
+			require.True(t, pinned,
+				"%s: job %q references %s.\n"+
+					"  It is not provably unreachable: %s.\n"+
+					"  And it does not prove what it executes: %s.\n"+
+					"`permissions:` does not govern a repository secret, so narrowing "+
+					"the built-in token leaves this credential exactly as reachable as "+
+					"before. Either make the job's condition false in every hostile "+
+					"situation its triggers admit, or pin every checkout to %q with no "+
+					"party-chosen execution surface, or put a `git merge-base "+
+					"--is-ancestor` refusal ahead of everything that runs. A step-level "+
+					"`if:` is not enough: it gates the step, not the job the credential "+
+					"lives in.",
+				filepath.Base(path), id, strings.Join(names, "; "),
+				why, missing, theDefaultBranch)
 		}
 	}
 	require.NotZero(t, checked,
@@ -639,6 +661,35 @@ func commandsOf(t *testing.T, job isolatedJob) string {
 	return all.String()
 }
 
+// manifestsOf returns every action manifest present for a local action, in the
+// order GitHub prefers them. Both names can exist; the runner executes
+// `action.yml`, so a guard that reads one of the two can read a different file
+// from the one that runs.
+func manifestsOf(root, target string) []string {
+	var found []string
+	for _, name := range []string{"action.yml", "action.yaml"} {
+		candidate := filepath.Join(root, strings.TrimPrefix(target, "./"), name)
+		if _, err := os.Stat(candidate); err == nil {
+			found = append(found, candidate)
+		}
+	}
+	return found
+}
+
+// readAll concatenates several files, so one search covers all of them.
+func readAll(paths []string) (string, error) {
+	var joined strings.Builder
+	for _, path := range paths {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		joined.Write(body)
+		joined.WriteString("\n")
+	}
+	return joined.String(), nil
+}
+
 // localActionReference matches a step that uses an action from this repository
 // (`uses: ./path`), whose definition is a file here rather than a pinned
 // upstream release.
@@ -678,16 +729,11 @@ func TestEveryRepositoryLocalActionCanBeReadByTheseGuards(t *testing.T) {
 					continue
 				}
 
-				// A composite or JavaScript action: one of the two manifest
-				// spellings must be readable, and whatever is in it is searched
-				// for credentials.
-				var manifest string
-				for _, name := range []string{"action.yml", "action.yaml"} {
-					candidate := filepath.Join(repoRoot(t), target, name)
-					if _, err := os.Stat(candidate); err == nil {
-						manifest = candidate
-					}
-				}
+				// A composite or JavaScript action: a manifest must be
+				// readable, and EVERY spelling present is searched for
+				// credentials -- see manifestsOf.
+				manifests := manifestsOf(repoRoot(t), target)
+				manifest := strings.Join(manifests, ", ")
 				require.NotEmpty(t, manifest,
 					"%s: job %q uses local action %q but neither %s/action.yml nor "+
 						"%s/action.yaml exists. A local action this package cannot "+
@@ -695,9 +741,9 @@ func TestEveryRepositoryLocalActionCanBeReadByTheseGuards(t *testing.T) {
 						"guard here.",
 					filepath.Base(path), id, target, target, target)
 
-				body, err := os.ReadFile(manifest)
+				body, err := readAll(manifests)
 				require.NoError(t, err)
-				names, err := secretsReferencedIn(string(body))
+				names, err := secretsReferencedIn(body)
 				require.NoError(t, err,
 					"%s contains an expression this package cannot parse", manifest)
 				for _, name := range names {

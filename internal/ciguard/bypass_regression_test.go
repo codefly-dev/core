@@ -95,26 +95,88 @@ func TestEveryKnownCredentialBypassIsRefused(t *testing.T) {
 	}
 }
 
-// A trigger with no scenario must come back unmodelled rather than silently
-// contributing nothing: "added by GitHub next year" has to mean a failing
-// test. `workflow_run` was exempt here once because another guard was said to
-// cover it, and that guard only looked at write-capable jobs.
-func TestATriggerWithNoScenarioIsReportedRatherThanSkipped(t *testing.T) {
-	// Read through a whole workflow, the way the guards do: `on:` is a node
-	// inside a document, and a node decoded on its own is a different shape.
+// Every trigger yields a scenario BINDING ITS OWN EVENT, and nothing is
+// exempt.
+//
+// This replaces a test that required an unmodelled trigger to be *reported*.
+// Reporting was the right instinct for an enumeration, but the enumeration is
+// gone: scenariosForTrigger has a default that binds the event's own name and
+// leaves every other fact unknown, so a trigger nobody has heard of is modelled
+// rather than reported. What has to be true now is stronger -- that the event
+// a scenario binds is the event it is a scenario OF. Substituting one for
+// another is how `pull_request_target` came to be evaluated as `pull_request`,
+// and a condition naming its real event read as definitely false.
+func TestEveryTriggerYieldsAScenarioBindingItsOwnEvent(t *testing.T) {
 	withTrigger := func(trigger string) yaml.Node {
 		wf := parseIsolatedDocument(t, "name: probe\non:\n  "+trigger+"\njobs:\n  probe:\n    runs-on: ubuntu-latest\n", trigger)
 		return wf.On
 	}
 
-	hostile, unmodelled := hostileScenariosFor(withTrigger("discussion:\n    types: [created]"))
-	require.Empty(t, hostile)
-	require.Equal(t, []string{"discussion"}, unmodelled,
-		"a trigger with no scenario must be reported: a silent pass is how workflow_run came to be checked by no guard at all")
+	for _, trigger := range []string{
+		// The four that were substituted for another event.
+		"pull_request_target", "discussion_comment",
+		"pull_request_review", "pull_request_review_comment",
+		// The six that were exempt with a comment naming another guard.
+		"push", "create", "delete", "release", "schedule", "workflow_dispatch",
+		// And one that does not exist.
+		"some_event_github_adds_in_2027",
+	} {
+		t.Run(trigger, func(t *testing.T) {
+			hostile, unmodelled := hostileScenariosFor(withTrigger(trigger + ":\n"))
+			require.Empty(t, unmodelled)
+			require.NotEmpty(t, hostile,
+				"%q yielded no hostile scenario, so a credential-bearing job in such a "+
+					"workflow is answerable to nothing", trigger)
 
-	hostile, unmodelled = hostileScenariosFor(withTrigger("workflow_run:\n    workflows: [go]"))
-	require.Empty(t, unmodelled)
-	require.Len(t, hostile, 2, "workflow_run has two hostile shapes and is exempt from neither")
+			// A job gated on its OWN trigger must not be accepted as
+			// unreachable. That is precisely what happened when a scenario
+			// bound a different event: `pull_request_target` was evaluated as
+			// `pull_request`, so `github.event_name == 'pull_request_target'`
+			// read as definitely false under its only scenario.
+			unreachable, _ := provablyUnreachable(t,
+				"github.event_name == '"+trigger+"'", hostile)
+			require.False(t, unreachable,
+				"a job gated on `github.event_name == %q` is accepted as unreachable "+
+					"in a workflow triggered by %q. The scenario is binding a different "+
+					"event than the one it is a scenario of.", trigger, trigger)
+		})
+	}
+}
+
+// A reusable workflow's caller event is the caller's, and the set of them is
+// open: the remainder is what makes a called job answer for what it executes
+// rather than for a listed event.
+func TestAReusableWorkflowModelsAnUnknownCallerEvent(t *testing.T) {
+	scenarios := callerScenarios()
+	require.NotEmpty(t, scenarios)
+
+	// No caller event -- listed or not -- may make a called job provably
+	// unreachable, because the caller chooses it and this repository cannot
+	// see which. `workflow_dispatch` passed all three caller scenarios the
+	// previous version checked, which is the bypass; the remainder closes it
+	// for every event at once, including ones nobody listed.
+	for _, event := range []string{
+		"workflow_dispatch", "push", "release", "schedule",
+		"pull_request_target", "repository_dispatch",
+		"some_event_github_adds_in_2027",
+	} {
+		unreachable, _ := provablyUnreachable(t,
+			"github.event_name == '"+event+"'", scenarios)
+		require.False(t, unreachable,
+			"a called job gated on `github.event_name == %q` is accepted as "+
+				"unreachable, while a caller running that event reaches it", event)
+	}
+
+	// The remainder has to be in the set for that to hold at all.
+	remainder := false
+	for _, situation := range scenarios {
+		if _, bound := situation.fixed["github.event_name"]; !bound {
+			remainder = true
+		}
+	}
+	require.True(t, remainder,
+		"no scenario leaves the caller's event unbound, so the caller-event set is "+
+			"closed -- and a caller running anything outside it is unmodelled")
 }
 
 // quoteCondition wraps a condition in single quotes when YAML would read its
@@ -185,4 +247,360 @@ runs:
 	_, unreadable = stepsIncludingLocalActionsUnder(root, job)
 	require.Len(t, unreadable, 1)
 	require.Contains(t, unreadable[0], "node20")
+}
+
+// The round-seven constructions. Each is a complete workflow that actionlint
+// accepts and that the guards accepted, and each must now be refused by the
+// unified rule: a credential-bearing job is either provably unreachable under
+// every hostile situation its triggers admit, or it proves what it executes.
+//
+// The four exemption constructions are here together because they were all the
+// same defect: an exemption written in terms of the TRIGGER, with a comment
+// naming a guard whose scope did not reach the job.
+func TestTheExemptionConstructionsAreRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		workflow string
+		why      string
+	}{
+		{
+			name: "release: published with a tag at unmerged code",
+			why:  "the tag proof read only push and workflow_call, so a release-triggered job was asked for nothing",
+			workflow: `name: probe
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PROBE: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: go test ./...
+`,
+		},
+		{
+			name: "push to a branch that is not the default one",
+			why:  "the tag scenario proved it unreachable and no branch ancestry rule applied",
+			workflow: `name: probe
+on:
+  push:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
+    permissions:
+      contents: read
+    env:
+      PROBE: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: go test ./...
+`,
+		},
+		{
+			name: "schedule, checking out a pull request's head explicitly",
+			why:  "the workflow comes from the default branch, which says nothing about the ref a job checks out",
+			workflow: `name: probe
+on:
+  schedule:
+    - cron: '0 0 * * *'
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PROBE: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: refs/pull/8/head
+      - run: go test ./...
+`,
+		},
+		{
+			name: "dispatch whose only credential is the built-in write token",
+			why:  "the dispatch guard skipped jobs without a custom secret and the write-token guard skipped non-PR workflows",
+			workflow: `name: probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: go test ./...
+`,
+		},
+		{
+			name: "a service image chosen by the triggering party",
+			why:  "services were absent from execution analysis while the ordinary checkout stayed pinned",
+			workflow: `name: probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PROBE: ${{ secrets.SLACK_WEBHOOK_URL }}
+    services:
+      probe:
+        image: ${{ github.event.inputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+      - run: go test ./...
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t, tc.workflow, tc.name)
+			hostile, _ := hostileScenariosFor(wf.On)
+			require.NotEmpty(t, hostile)
+
+			credentialBearing := len(secretsIn(t, wf, "probe")) > 0
+			permissioned := parsePermissioned(t, tc.workflow)
+			if writeCapable(effectivePermissions(permissioned, permissioned.Jobs["probe"])) {
+				credentialBearing = true
+			}
+			require.True(t, credentialBearing,
+				"this construction depends on the job holding a credential")
+
+			unreachable, _ := provablyUnreachable(t, wf.Jobs["probe"].If, hostile)
+			if unreachable {
+				t.Fatalf("accepted as unreachable, and it is not: %s", tc.why)
+			}
+			pinned, missing := acceptedExecution(t, wf, "probe")
+			require.False(t, pinned,
+				"accepted as proving what it executes, and it does not: %s (guard said: %q)",
+				tc.why, missing)
+		})
+	}
+}
+
+// The converse, so the rule still distinguishes: a job that genuinely pins what
+// it runs, or genuinely refuses before running it, is accepted.
+func TestAJobThatProvesWhatItExecutesIsAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		workflow string
+	}{
+		{
+			name: "every checkout pinned to the default branch",
+			workflow: `name: probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      PROBE: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+      - run: bash .github/scripts/combine-deps-publish.sh out
+`,
+		},
+		{
+			name: "an ancestry refusal ahead of everything that runs",
+			workflow: `name: probe
+on:
+  workflow_call:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PROBE: ${{ secrets.GH_PAT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: require the tag to be on the default branch, or refuse
+        run: git merge-base --is-ancestor "$GITHUB_SHA" "origin/main"
+      - run: go test ./...
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t, tc.workflow, tc.name)
+			pinned, missing := acceptedExecution(t, wf, "probe")
+			require.True(t, pinned, "refused a job that does prove what it runs: %s", missing)
+		})
+	}
+}
+
+// And the ordering inside that proof: a refusal placed after something has
+// already executed proves nothing.
+func TestAnAncestryProofAfterExecutionIsNotAProof(t *testing.T) {
+	const workflow = `name: probe
+on:
+  workflow_call:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      PROBE: ${{ secrets.GH_PAT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: go test ./...
+      - name: too late
+        run: git merge-base --is-ancestor "$GITHUB_SHA" "origin/main"
+`
+	wf := parseIsolatedDocument(t, workflow, "late proof")
+	pinned, missing := acceptedExecution(t, wf, "probe")
+	require.False(t, pinned,
+		"a refusal that runs after the suite has already run is not a proof")
+	require.Contains(t, missing, "executes repository code before it")
+}
+
+// Three defects introduced while fixing the previous round, each stated by its
+// author on the pull request. They are regressions here because a defect
+// introduced by a fix is the one most likely to come back with the next one.
+func TestTheNumericGrammarMatchesTheRunnerOrReturnsUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		gate string
+		want tri
+	}{
+		// The grammar accepted a sign and an uppercase `0X`, which the runner
+		// converts to NaN -- so this inequality is TRUE on GitHub while the
+		// guard called it false and accepted a job reading a secret.
+		{name: "a signed hex string is not a number", gate: "'-0x10' != -16", want: triUnknown},
+		{name: "an uppercase 0X is not a number", gate: "'0X10' == 16", want: triUnknown},
+		{name: "lowercase 0x is the runner's spelling", gate: "'0x10' == 16", want: triTrue},
+		// These two were modelled as known infinities. They are no longer
+		// special-cased, and they come out FALSE rather than unknown -- which
+		// is right under either reading: a string with no digit in it is NaN
+		// and equals nothing, and if the runner did parse `Infinity` it would
+		// still not equal zero. Recorded as false rather than claimed as
+		// unknown, because the answer happens to be knowable here.
+		{name: "Infinity does not equal zero either way", gate: "'Infinity' == 0", want: triFalse},
+		{name: "NaN does not equal zero either way", gate: "'NaN' == 0", want: triFalse},
+		// Still-verified ground, so the narrowing did not swallow everything.
+		{name: "an empty string is zero", gate: "'' == 0", want: triTrue},
+		{name: "a decimal string is its number", gate: "'1' == 1", want: triTrue},
+		{name: "a string with no digit is NaN", gate: "'abc' == 0", want: triFalse},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := canRunUnder(tc.gate, pullRequest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want.String(), got.String(), "condition %q", tc.gate)
+		})
+	}
+}
+
+// pull_request_target was evaluated as pull_request, so a condition naming its
+// real event read as definitely false while the job checked out the pull
+// request's head with a secret.
+func TestATargetedPullRequestIsNotEvaluatedAsAnOrdinaryOne(t *testing.T) {
+	const workflow = `name: probe
+on: pull_request_target
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request_target'
+    env:
+      PROBE: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: go test ./...
+`
+	wf := parseIsolatedDocument(t, workflow, "pull_request_target")
+	hostile, _ := hostileScenariosFor(wf.On)
+
+	unreachable, _ := provablyUnreachable(t, wf.Jobs["probe"].If, hostile)
+	require.False(t, unreachable,
+		"a job gated on `github.event_name == 'pull_request_target'` was accepted as "+
+			"unreachable, which only happens when its scenario binds a different event")
+
+	pinned, _ := acceptedExecution(t, wf, "probe")
+	require.False(t, pinned,
+		"and it checks out the pull request's head, so it proves nothing about what it runs")
+}
+
+// With both manifest names present the walker read action.yaml while GitHub
+// executes action.yml, so a bypass in the executed file survived behind a
+// harmless sibling. Every manifest present is read now, which removes the
+// precedence question rather than answering it.
+func TestEveryActionManifestPresentIsRead(t *testing.T) {
+	dir := t.TempDir()
+	action := filepath.Join(dir, ".github", "actions", "probe")
+	require.NoError(t, os.MkdirAll(action, 0o755))
+
+	// The one GitHub executes carries the credential; its sibling is harmless.
+	require.NoError(t, os.WriteFile(filepath.Join(action, "action.yml"),
+		[]byte("name: probe\nruns:\n  using: composite\n  steps:\n    - run: echo ${{ secrets.SLACK_WEBHOOK_URL }}\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(action, "action.yaml"),
+		[]byte("name: probe\nruns:\n  using: composite\n  steps:\n    - run: echo harmless\n"), 0o600))
+
+	found := manifestsOf(dir, "./.github/actions/probe")
+	require.Len(t, found, 2, "both manifests must be found, not one of them")
+	require.Contains(t, filepath.Base(found[0]), "action.yml",
+		"the one GitHub executes must come first")
+
+	body, err := readAll(found)
+	require.NoError(t, err)
+	names, err := secretsReferencedIn(body)
+	require.NoError(t, err)
+	require.Contains(t, names, "SLACK_WEBHOOK_URL",
+		"the credential is in action.yml, which is the file GitHub runs; reading "+
+			"only the last manifest found read action.yaml and missed it")
+}
+
+// The fork identity was a sampled literal, so a condition naming a THIRD
+// repository was false under both workflow_run scenarios.
+func TestAThirdRepositoryIsNotRefutedByTheForkScenario(t *testing.T) {
+	const gate = "github.event.workflow_run.event != 'pull_request' && " +
+		"github.event.workflow_run.head_repository.full_name == 'other/core'"
+
+	hostile := []scenario{workflowRunFromAPullRequest, workflowRunFromAForkPush}
+	unreachable, _ := provablyUnreachable(t, gate, hostile)
+	require.False(t, unreachable,
+		"a condition naming a third repository was accepted as unreachable: the fork "+
+			"scenario sampled one name instead of saying 'any repository but this one'")
+
+	// And the relation that does matter is still decided.
+	got, err := canRunUnder(
+		"github.event.workflow_run.head_repository.full_name == github.repository",
+		workflowRunFromAForkPush)
+	require.NoError(t, err)
+	require.Equal(t, triFalse.String(), got.String(),
+		"the fork scenario must still refute 'the head repository is this one'")
+}
+
+// pushOfATag pinned github.repository, so a reusable job gated on owning a
+// different repository was judged unreachable on a tag and skipped the proof.
+func TestATagInACallersRepositoryStillDemandsTheProof(t *testing.T) {
+	const gate = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && " +
+		"github.repository != 'codefly-dev/core'"
+
+	got, err := canRunUnder(gate, pushOfATag)
+	require.NoError(t, err)
+	require.NotEqual(t, triFalse.String(), got.String(),
+		"the tag scenario refuted a condition about owning another repository, so a "+
+			"caller's unmerged tag would skip the ancestry proof")
 }

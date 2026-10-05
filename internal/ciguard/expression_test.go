@@ -2,7 +2,6 @@ package ciguard
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -564,8 +563,16 @@ const (
 type value struct {
 	kind   valueKind
 	v      any    // valueKnown: string, bool, float64 or nil
-	prefix string // valuePrefixed
-	t      tri
+	prefix string // valuePrefixed: every possible value starts with this
+	// excluded are literals the value is known NOT to equal. A prefix says
+	// what a value must look like; this says what it cannot be, and some facts
+	// are only expressible that way: a fork's identity is "any repository
+	// except this one", and a push that is not to the default branch is "any
+	// ref except refs/heads/main". Sampling one literal instead -- the fork
+	// named `a-contributor/core` -- makes a condition naming a THIRD value
+	// definitely-false and accepts the job.
+	excluded []string
+	t        tri
 }
 
 var unknownValue = value{kind: valueUnknown, t: triUnknown}
@@ -580,6 +587,19 @@ func knownBool(b bool) value { return knownValue(b) }
 // non-empty prefix means the string is non-empty, hence truthy.
 func prefixedValue(prefix string) value {
 	return value{kind: valuePrefixed, prefix: prefix, t: triOf(prefix != "")}
+}
+
+// constrainedValue is a string described by a prefix it must have, a set of
+// literals it cannot be, or both. With neither it is simply unknown.
+func constrainedValue(prefix string, excluded []string) value {
+	if prefix == "" && len(excluded) == 0 {
+		return unknownValue
+	}
+	v := value{kind: valuePrefixed, prefix: prefix, excluded: excluded, t: triUnknown}
+	if prefix != "" {
+		v.t = triTrue // a non-empty prefix means a non-empty string
+	}
+	return v
 }
 
 // truthinessOnly carries a truthiness that is determined while the value is
@@ -638,7 +658,13 @@ var decimalNumber = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?
 
 // hexNumber is the other form the runner converts: "0x" and hexadecimal
 // digits, optionally signed.
-var hexNumber = regexp.MustCompile(`^([+-]?)0[xX]([0-9a-fA-F]+)$`)
+// hexNumber is the runner's hexadecimal spelling and NOTHING wider: a lowercase
+// `0x` and hex digits, with no sign. The previous grammar also accepted a sign
+// and an uppercase `0X`, which the runner converts to NaN -- so `'-0x10' != -16`
+// is TRUE on GitHub and the guard called it false, accepting a job that reads a
+// secret. Anything outside this subset falls through to numberUnmodelled, which
+// is unknown, which is refused.
+var hexNumber = regexp.MustCompile(`^0x[0-9a-fA-F]+$`)
 
 // toNumber is GitHub's numeric coercion, used when `==` compares across
 // types. It answers with numberUnmodelled for every spelling it does not
@@ -659,26 +685,18 @@ func toNumber(v any) (float64, numberKind) {
 		if trimmed == "" {
 			return 0, numberKnown
 		}
-		switch trimmed {
-		case "Infinity":
-			return math.Inf(1), numberKnown
-		case "-Infinity":
-			return math.Inf(-1), numberKnown
-		case "NaN":
-			return 0, numberNaN
-		}
-		if groups := hexNumber.FindStringSubmatch(trimmed); groups != nil {
-			digits, err := strconv.ParseUint(groups[2], 16, 64)
+		// `Infinity`, `-Infinity` and `NaN` were modelled as known. This package
+		// has not verified how the runner converts them, and the rule is that
+		// an unverified spelling returns unknown rather than a guess, so they
+		// now fall through to numberUnmodelled with every other spelling.
+		if hexNumber.MatchString(trimmed) {
+			digits, err := strconv.ParseUint(trimmed[2:], 16, 64)
 			if err != nil {
 				// Beyond 64 bits. GitHub converts it to some float; this
 				// package does not claim to know which.
 				return 0, numberUnmodelled
 			}
-			value := float64(digits)
-			if groups[1] == "-" {
-				value = -value
-			}
-			return value, numberKnown
+			return float64(digits), numberKnown
 		}
 		if decimalNumber.MatchString(trimmed) {
 			parsed, err := strconv.ParseFloat(trimmed, 64)
@@ -749,8 +767,14 @@ func equality(a, b value) tri {
 	}
 	if known.kind == valueKnown && prefixed.kind == valuePrefixed {
 		if literal, ok := known.v.(string); ok {
-			if !strings.HasPrefix(strings.ToLower(literal), strings.ToLower(prefixed.prefix)) {
-				return triFalse
+			lowered := strings.ToLower(literal)
+			if prefixed.prefix != "" && !strings.HasPrefix(lowered, strings.ToLower(prefixed.prefix)) {
+				return triFalse // outside the domain the event fixes
+			}
+			for _, forbidden := range prefixed.excluded {
+				if strings.EqualFold(literal, forbidden) {
+					return triFalse // the one value this is known not to be
+				}
 			}
 		}
 	}
@@ -786,9 +810,12 @@ func equality(a, b value) tri {
 // Anything else stays unknown. TestNoScenarioBindsAValueTheTriggeringPartyChooses
 // makes an unsound binding impossible to add by adding a line.
 type scenario struct {
-	name        string
-	fixed       map[string]string
-	prefixed    map[string]string
+	name     string
+	fixed    map[string]string
+	prefixed map[string]string
+	// excluded says what a value is NOT. It replaces pinning a sampled literal
+	// in `adversarial`, which could only ever describe one instance.
+	excluded    map[string][]string
 	adversarial map[string]string
 	always      map[string]tri // function results this situation fixes
 }
@@ -801,8 +828,10 @@ func (s scenario) lookup(path string) (value, bool) {
 	if v, ok := s.adversarial[path]; ok {
 		return knownValue(v), true
 	}
-	if p, ok := s.prefixed[path]; ok {
-		return prefixedValue(p), true
+	prefix, hasPrefix := s.prefixed[path]
+	excluded, hasExcluded := s.excluded[path]
+	if hasPrefix || hasExcluded {
+		return constrainedValue(prefix, excluded), true
 	}
 	return unknownValue, false
 }

@@ -111,13 +111,24 @@ reporting "nothing found".
    A `workflow_call` workflow counts as reachable from a pull request, because
    a caller may dispatch it from one and nothing here can see that it did.
 
-   **Which triggers count is decided the other way round.** A trigger is
-   reachable unless it has been argued unable to carry a pull request's code
-   (`push`, `create`, `delete`, `release`, `schedule`, `workflow_dispatch`, and
-   `workflow_run`, which has stricter scenarios of its own). Listing the
-   dangerous triggers instead would exempt every one nobody thought of —
-   `issue_comment` and `pull_request_review` both carry a pull request's
-   context, and GitHub keeps adding events.
+   **No trigger is exempt, and the rule is positive.** Every trigger yields a
+   hostile scenario binding *its own* event name. A credential-bearing job is
+   accepted only when one of three things is proved about it:
+
+   1. its condition is false in every hostile situation its triggers admit, or
+   2. it pins what it runs — every checkout names the default branch outright,
+      no execution surface (a service or container image) is built from a
+      context the triggering party supplies, and it hands no secret to a
+      workflow these guards cannot read, or
+   3. it proves what it runs — a `git merge-base --is-ancestor` refusal that
+      precedes every step executing repository code.
+
+   Exemptions written in terms of the trigger each had a concrete accepted
+   construction: a secret-bearing job on `release: published` with a tag at
+   unmerged code; one on `push` to a branch named `unmerged`; one on `schedule`
+   checking out `refs/pull/8/head`; a dispatch job whose only credential was
+   the built-in write token. Trigger identity says nothing about which code a
+   job executes, which is the only question that matters.
 7. **A tag is not a statement about review.** A tag can be pushed to any
    commit, so a credential-bearing job gated on one must prove the commit is
    reachable from the default branch with `git merge-base --is-ancestor`.

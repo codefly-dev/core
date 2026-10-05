@@ -217,12 +217,17 @@ func cannotRunOnAPullRequest(t *testing.T, gate string) bool {
 func TestNoJobRunsPullRequestCodeWithAWriteToken(t *testing.T) {
 	paths, workflows := loadPermissionedWorkflows(t)
 
+	_, isolated := loadIsolatedWorkflows(t)
+
 	checked := 0
 	for _, path := range paths {
 		wf := workflows[path]
-		if !runsOnPullRequest(workflow{On: wf.On}) {
-			continue
-		}
+		// EVERY workflow, not only the pull-request-triggered ones. Selecting
+		// those meant a dispatch job with `contents: write`, no custom secret
+		// and a bare checkout was checked by nothing: the dispatch guard skips
+		// jobs without a custom secret, and this one skipped the workflow.
+		hostile, _ := hostileScenariosFor(wf.On)
+		require.NotEmpty(t, hostile, "%s yielded no hostile scenario", filepath.Base(path))
 		checked++
 
 		for _, id := range jobIDs(wf) {
@@ -231,18 +236,31 @@ func TestNoJobRunsPullRequestCodeWithAWriteToken(t *testing.T) {
 			if !writeCapable(grant) {
 				continue
 			}
-			require.True(t, cannotRunOnAPullRequest(t, job.If),
-				"%s: job %q can be reached by a pull request and its token has %s "+
-					"(condition: %q). A pull request's run checks out that pull "+
-					"request's code, and `permissions:` cannot be narrowed per step, so "+
-					"every step in the job holds that grant. Declare the job read-only "+
-					"and move the write into a job whose condition is provably false on "+
-					"a pull request -- `github.event_name == 'push' && github.ref == "+
-					"'refs/heads/main'` -- which runs no code under review.",
-				filepath.Base(path), id, grant, job.If)
+			// The built-in write token is a credential too, so it answers the
+			// same question as a secret: provably unreachable, or proves what
+			// it executes.
+			// The complete rule, and the only one: either no hostile situation
+			// this workflow's triggers admit can reach the job, or the job
+			// proves what it executes. The previous fall-through also asked
+			// `cannotRunOnAPullRequest`, which applies the pull-request
+			// scenarios to every workflow -- the wrong question for a
+			// workflow_run one, whose own scenarios are stricter.
+			if unreachable, _ := provablyUnreachable(t, job.If, hostile); unreachable {
+				continue
+			}
+			pinned, missing := acceptedExecution(t, isolated[path], id)
+			require.True(t, pinned,
+				"%s: job %q holds %s, is not provably unreachable under the hostile "+
+					"situations its triggers admit, and does not prove what it "+
+					"executes: %s.\n`permissions:` cannot be narrowed per step, so "+
+					"every step in the job holds that grant. Either make the condition "+
+					"false in every hostile situation, or pin every checkout to %q with "+
+					"no party-chosen execution surface, or put a `git merge-base "+
+					"--is-ancestor` refusal ahead of everything that runs.",
+				filepath.Base(path), id, grant, missing, theDefaultBranch)
 		}
 	}
-	require.NotZero(t, checked, "no workflow runs on pull requests, so this guard proves nothing")
+	require.NotZero(t, checked, "no workflow was examined, so this guard proves nothing")
 }
 
 // A `workflow_run` job always runs with the BASE repository's permissions and

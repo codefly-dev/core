@@ -100,12 +100,21 @@ var workflowRunFromAForkPush = scenario{
 		"github.repository":                      theRepository,
 		"github.event.repository.default_branch": theDefaultBranch,
 	},
-	adversarial: map[string]string{
-		// The hostile fact, and the ONLY one: the head repository is not
-		// this one. Its exact name is still the attacker's to choose, so
-		// what is bound here is a DOMAIN, not a sample.
-		"github.event.workflow_run.head_repository.full_name": "a-contributor/core",
+	excluded: map[string][]string{
+		// The hostile fact, as a RELATION rather than a sample: the head
+		// repository is any repository except this one. Pinning the literal
+		// `a-contributor/core` described one fork, so a condition naming a
+		// third repository was definitely-false under this scenario and under
+		// the pull-request one, and the job was accepted.
+		"github.event.workflow_run.head_repository.full_name": {theRepository},
 	},
+	// Nothing else. `event` and `conclusion` were pinned here to favourable
+	// values so that one clause did the work, and that made
+	// `workflow_run.event == 'schedule'` and `conclusion == 'failure'` read as
+	// definitely-false -- a job gated on either was accepted. The separation
+	// those pins were for comes from the two scenarios between them instead:
+	// each premise refutes one clause and leaves the other unknown, so a job
+	// carrying only one clause is refused by the other scenario.
 	always: map[string]tri{"always": triTrue},
 }
 
@@ -178,39 +187,130 @@ var commentOnAPullRequest = scenario{
 // failing test rather than a silent pass.
 func hostileScenariosFor(on yaml.Node) (hostile []scenario, unmodelled []string) {
 	for _, trigger := range triggers(on) {
-		switch trigger {
-		case "pull_request", "pull_request_target":
-			hostile = append(hostile, pullRequest)
-		case "merge_group":
-			hostile = append(hostile, mergeGroup)
-		case "issue_comment", "discussion_comment", "pull_request_review", "pull_request_review_comment":
-			hostile = append(hostile, commentOnAPullRequest)
-		case "workflow_run":
-			hostile = append(hostile, workflowRunFromAPullRequest, workflowRunFromAForkPush)
-		case "workflow_call":
-			hostile = append(hostile, calledFromAPullRequest, calledFromACommentOnAPullRequest, calledFromAMergeQueue)
-		case "workflow_dispatch":
-			// Covered by TestADispatchableCredentialJobChecksOutTheDefault-
-			// Branch, whose scope is EVERY job holding a secret in a
-			// workflow declaring this trigger -- not only the write-capable
-			// ones, which is what made workflow_run's exemption unsound. It
-			// requires each checkout, the calling job's and a local action's
-			// after the recursion, to pin the default branch; and a
-			// dispatcher needs write access, which a pull request's author
-			// does not have.
-		case "push", "create", "delete", "release":
-			// Covered by TestATagGatedCredentialJobProvesTheTagIsOnTheDefault-
-			// Branch and by the write-token guard, which read the ref a job
-			// SELECTS rather than trusting the trigger -- a tag or a branch
-			// can be created at any commit, a pull request's head included.
-		case "schedule":
-			// A schedule runs the default branch's workflow at the default
-			// branch, so nothing a contributor writes reaches it.
-		default:
-			unmodelled = append(unmodelled, trigger)
+		hostile = append(hostile, scenariosForTrigger(trigger)...)
+	}
+	return hostile, nil
+}
+
+// scenariosForTrigger builds the hostile situations a trigger admits, BINDING
+// THE EVENT IT IS A SCENARIO OF.
+//
+// The previous version mapped triggers onto a handful of hand-written
+// scenarios: `pull_request_target` was evaluated as `pull_request`, and
+// `discussion_comment`, `pull_request_review` and `pull_request_review_comment`
+// as `issue_comment`. Substituting one event for another is not derivation --
+// a condition naming its own event (`github.event_name ==
+// 'pull_request_target'`) then reads as definitely FALSE, and a job holding a
+// secret and checking out `github.event.pull_request.head.sha` was accepted.
+//
+// It also exempted `push`, `create`, `delete`, `release`, `schedule` and
+// `workflow_dispatch` with comments claiming another guard covered them. Each
+// had a concrete accepted construction, because trigger identity cannot
+// establish WHICH CODE a job executes. There are no exemptions here now: every
+// trigger yields a scenario, and a credential-bearing job answers for itself
+// either by being provably unreachable or by proving what it runs (see
+// acceptedExecution).
+//
+// Built rather than listed, so a trigger GitHub ships next year is covered
+// before anyone notices it exists: the default binds only the event's own name
+// and leaves every other fact unknown.
+func scenariosForTrigger(trigger string) []scenario {
+	switch trigger {
+	case "pull_request", "pull_request_target":
+		// The ref is `refs/pull/<n>/merge` for pull_request and
+		// `refs/pull/<n>/head`-adjacent for pull_request_target; the shared
+		// prefix is what the event fixes either way.
+		return []scenario{eventScenario(trigger, "refs/pull/", nil)}
+
+	case "merge_group":
+		return []scenario{eventScenario(trigger, "refs/heads/gh-readonly-queue/", nil)}
+
+	case "push", "create", "delete":
+		// A ref event, but NOT necessarily the default branch: a branch or tag
+		// can be created at any commit, a pull request's head included. So the
+		// hostile shape is "a ref that is not the default branch", which only a
+		// relational constraint can express.
+		return []scenario{eventScenario(trigger, "refs/", []string{defaultBranchRef})}
+
+	case "workflow_run":
+		return []scenario{workflowRunFromAPullRequest, workflowRunFromAForkPush}
+
+	case "workflow_call":
+		// The caller's event is the caller's choice, and this repository cannot
+		// see it. Every event above is possible, AND so is one nobody listed --
+		// the remainder, which binds no event name at all, so any comparison
+		// against one is unknown. A called job therefore cannot be accepted on
+		// its condition alone; it proves what it executes instead.
+		return callerScenarios()
+
+	default:
+		// Including `schedule`, `release` and `workflow_dispatch`, which used
+		// to be exempt. A schedule does run the default branch's workflow, and
+		// a dispatcher does need write access -- neither fact constrains the
+		// ref a job then CHECKS OUT, which is what the constructions exploited.
+		return []scenario{eventScenario(trigger, "", []string{})}
+	}
+}
+
+// defaultBranchRef is the one ref a hostile ref-event scenario excludes.
+const defaultBranchRef = "refs/heads/" + theDefaultBranch
+
+// eventScenario is the default shape: the event's own name, this repository,
+// its default branch, and NOTHING else. `refPrefix` and `refExcluded` describe
+// the ref where the event constrains it; absent both, the ref is unknown.
+func eventScenario(eventName, refPrefix string, refExcluded []string) scenario {
+	s := scenario{
+		name: "a " + eventName + " event",
+		fixed: map[string]string{
+			"github.event_name":                      eventName,
+			"github.repository":                      theRepository,
+			"github.event.repository.default_branch": theDefaultBranch,
+		},
+		always: map[string]tri{"always": triTrue},
+	}
+	if refPrefix != "" {
+		s.prefixed = map[string]string{"github.ref": refPrefix}
+	}
+	if len(refExcluded) > 0 {
+		s.excluded = map[string][]string{"github.ref": refExcluded}
+	}
+	return s
+}
+
+// callerEvents are the events a reusable workflow's caller may be running
+// under. The list is for COVERAGE, not for closure: callerScenarios always
+// appends the remainder, so a caller event missing from it is still modelled.
+var callerEvents = []string{
+	"pull_request", "pull_request_target", "merge_group",
+	"issue_comment", "discussion_comment",
+	"pull_request_review", "pull_request_review_comment",
+	"push", "create", "delete", "release",
+	"schedule", "workflow_dispatch", "repository_dispatch",
+}
+
+// callerScenarios is every caller event plus the unknown remainder.
+//
+// The remainder is the part that matters. Checking three listed caller events
+// let a called credential job gated on `github.event_name ==
+// 'workflow_dispatch'` pass all three, while a caller dispatching against an
+// unmerged branch reached its bare checkout. With the remainder present no
+// comparison against an event name can be refuted, so such a job must prove
+// what it executes.
+func callerScenarios() []scenario {
+	out := make([]scenario, 0, len(callerEvents)+1)
+	for _, event := range callerEvents {
+		for _, s := range scenariosForTrigger(event) {
+			s.name = "a caller running " + s.name
+			out = append(out, s)
 		}
 	}
-	return hostile, unmodelled
+	// The remainder: this repository and its default branch are still facts,
+	// but the caller's event, ref and ownership are not.
+	out = append(out, scenario{
+		name:   "a caller running an event this package does not enumerate",
+		always: map[string]tri{"always": triTrue},
+	})
+	return out
 }
 
 // pushOfATag is not hostile by itself -- it is how a release happens -- but a
@@ -219,8 +319,12 @@ func hostileScenariosFor(on yaml.Node) (hostile []scenario, unmodelled []string)
 var pushOfATag = scenario{
 	name: "a pushed tag",
 	fixed: map[string]string{
-		"github.event_name":                      "push",
-		"github.repository":                      theRepository,
+		"github.event_name": "push",
+		// NOT `github.repository`. A reusable workflow runs in the CALLER's
+		// repository, so pinning this one made
+		// `github.repository != 'codefly-dev/core'` definitely-false and the
+		// tag-reachability question answered "no" for a caller's tag -- which
+		// skipped the ancestry proof for exactly the job that needed it.
 		"github.event.repository.default_branch": theDefaultBranch,
 	},
 	prefixed: map[string]string{
