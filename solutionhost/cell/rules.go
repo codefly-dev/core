@@ -788,8 +788,18 @@ const (
 func checkVisibilities(file *File) error {
 	for _, entry := range file.workloads() {
 		for _, endpoint := range entry.workload.Endpoints {
-			if endpoint.Visibility == "" || slices.Contains(visibilities, endpoint.Visibility) {
+			if slices.Contains(visibilities, endpoint.Visibility) {
 				continue
+			}
+			if endpoint.Visibility == "" {
+				// An OMITTED visibility is refused, though the resource model
+				// admits one: resources.Endpoint.postLoad has already resolved
+				// the omission to "private" by the time a render writes a cell,
+				// so a cell carrying none describes an endpoint no render
+				// produces — and would put that default in a second place, for
+				// the platform to re-derive, which is the one thing this file
+				// exists not to make it do.
+				return fmt.Errorf("%w: %s endpoint %s carries no visibility; a cell states what the platform derives policy from, so the declaration is written out rather than defaulted again here", ErrInvalid, entry.label, endpoint.Name)
 			}
 			return fmt.Errorf("%w: %s endpoint %s visibility %q is not one of %s", ErrInvalid, entry.label, endpoint.Name, endpoint.Visibility, strings.Join(visibilities, ", "))
 		}

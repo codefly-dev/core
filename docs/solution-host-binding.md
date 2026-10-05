@@ -809,7 +809,10 @@ value is legal, as the API server has it, and an uppercase namespace is not.
 
 An endpoint's `visibility` and `allow_modules` are **declarations the platform
 derives policy from**, so they are held to core's own vocabulary: `private`,
-`internal` or `public`, and an allow-list of module names or `*` — the latter
+`internal` or `public`, **written out and never omitted** — the resource model
+admits an omission and resolves it to `private` before a render writes a cell,
+so a cell carrying none would put that default in a second place for the
+platform to re-derive — and an allow-list of module names or `*` — the latter
 through [`resources/names`](../resources/names), the shared grammar
 `resources.ValidateEndpointDeclaration` holds a service's own declaration to.
 It is a leaf package importing nothing, so this reader holds a name to the same
@@ -856,7 +859,7 @@ by name.
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (50 documents) / `cell.Fixtures()` (75) ship
+`modulecontract.Fixtures()` (50 documents) / `cell.Fixtures()` (76) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it

@@ -108,6 +108,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "endpoint-declared-twice", file: "endpoint-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `endpoint "grpc" is declared twice`, rule: ruleEndpointUnique},
 		{name: "endpoints-out-of-order", file: "endpoints-out-of-order.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "endpoints are not in name order", rule: ruleEndpointsOrder},
 		{name: "endpoint-port-out-of-range", file: "endpoint-port-out-of-range.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "port 70000 is not a port", rule: ruleEndpointPort},
+		{name: "endpoint-visibility-omitted", file: "endpoint-visibility-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "carries no visibility", rule: ruleVisibility},
 		{name: "endpoint-visibility-unknown", file: "endpoint-visibility-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `visibility "internal-only" is not one of`, rule: ruleVisibility},
 		{name: "allow-modules-not-a-module", file: "allow-modules-not-a-module.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `allow_modules names "Billing"`, rule: ruleAllowModules},
 		{name: "allow-modules-without-internal", file: "allow-modules-without-internal.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "an allow-list is only read for", rule: ruleAllowNeedsInner},

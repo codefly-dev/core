@@ -45,6 +45,18 @@ func TestTheVisibilityVocabularyIsCoreOwn(t *testing.T) {
 	if visibilityInternal != resources.VisibilityInternal {
 		t.Errorf("the allow-list's visibility is %q here and %q in core", visibilityInternal, resources.VisibilityInternal)
 	}
+	// The one deliberate divergence: core admits an OMITTED visibility at the
+	// declaration (KnownVisibility("") is true) and resolves it to "private"
+	// in postLoad. A cell is written after that, so it carries the resolved
+	// value; this reader refuses an omission rather than default it a second
+	// time for the platform to re-derive. The owner's basis: there is no
+	// compatibility path — the new clusters start from these wire models.
+	if !resources.KnownVisibility("") {
+		t.Error("core no longer admits an omitted visibility; the cell's refusal of one needs restating, not keeping")
+	}
+	if slices.Contains(visibilities, "") {
+		t.Error("this reader accepts an omitted visibility; a cell states what the platform derives policy from")
+	}
 	// An allow-list is only read for "internal", and core refuses one
 	// anywhere else at the declaration; the cell's rule must agree.
 	if err := resources.ValidateEndpointDeclaration("api", "rest", resources.VisibilityPublic, "", []string{"billing"}); err == nil {

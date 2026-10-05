@@ -93,7 +93,7 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"egress-service-not-qualified", "egress-service-twice",
 		"egress-without-target", "empty-selector", "endpoint-declared-twice",
 		"endpoint-not-a-name", "endpoint-port-out-of-range",
-		"endpoint-visibility-unknown", "endpoints-out-of-order",
+		"endpoint-visibility-omitted", "endpoint-visibility-unknown", "endpoints-out-of-order",
 		"environment-not-a-name", "host-coordinate-not-a-name", "hostless",
 		"image-digest-not-hex", "image-digest-too-short",
 		"image-repository-carries-digest", "image-repository-carries-tag",
