@@ -283,19 +283,14 @@ func (ceiling *Ceiling) UnmarshalYAML(node *yaml.Node) error {
 			}
 			ceiling.Actions = append(ceiling.Actions, action)
 		case yaml.MappingNode:
-			seen := make(map[string]bool, len(item.Content)/2)
-			for index := 0; index+1 < len(item.Content); index += 2 {
-				var key string
-				if err := item.Content[index].Decode(&key); err != nil {
-					if ceiling.malformed == nil {
-						ceiling.malformed = err
-					}
-					continue
-				}
-				seen[key] = true
-				if key != fieldResourceKind && key != fieldActions && !ceiling.hasUnknownField {
-					ceiling.hasUnknownField, ceiling.unknownField = true, key
-				}
+			mapping := wire.ReadMapping(item, func(key string, _ *yaml.Node) (bool, error) {
+				return key == fieldResourceKind || key == fieldActions, nil
+			})
+			if mapping.HasUnknown && !ceiling.hasUnknownField {
+				ceiling.hasUnknownField, ceiling.unknownField = true, mapping.Unknown
+			}
+			if mapping.Err != nil && ceiling.malformed == nil {
+				ceiling.malformed = mapping.Err
 			}
 			var scope CeilingScope
 			if err := item.Decode(&scope); err != nil && ceiling.malformed == nil {
@@ -381,41 +376,16 @@ func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
 		slot.literal = &literal
 		return nil
 	}
-	seen := make(map[string]bool, len(node.Content)/2)
-	for index := 0; index+1 < len(node.Content); index += 2 {
-		// The KEY is decoded with its type, exactly as the value below is.
-		// Reading Value took an alias's ANCHOR NAME for the field name, so
-		// {*from : x} with "&from assistant" elsewhere was read as the field
-		// "from" when the mapping's key is "assistant" — core interpreting a
-		// different mapping than the document expresses.
-		var key string
-		if err := node.Content[index].Decode(&key); err != nil {
-			if slot.malformed == nil {
-				slot.malformed = err
-			}
-			continue
+	mapping := wire.ReadMapping(node, func(key string, value *yaml.Node) (bool, error) {
+		if key != fieldFrom {
+			return false, nil
 		}
-		switch {
-		case seen[key]:
-			// Reported by the document-level one-key rule, which sees every
-			// mapping including the dynamic ones; nothing to record here.
-			continue
-		case key != fieldFrom:
-			if !slot.hasExtra {
-				slot.hasExtra, slot.extra = true, key
-			}
-		default:
-			// Decoded with its type, not copied off the node: a tagged
-			// scalar — {from: !!int assistant/model-audience} — is refused by
-			// the typed decoder and was silently accepted as a string by
-			// reading Value, which also gave the two ceiling spellings
-			// different scalar validation.
-			if err := node.Content[index+1].Decode(&slot.From); err != nil && slot.malformed == nil {
-				slot.malformed = err
-			}
-		}
-		seen[key] = true
-	}
+		// Decoded with its type, not copied off the node: a tagged scalar —
+		// {from: !!int assistant/model-audience} — is refused by the typed
+		// decoder and was silently accepted as a string by reading Value.
+		return true, value.Decode(&slot.From)
+	})
+	slot.hasExtra, slot.extra, slot.malformed = mapping.HasUnknown, mapping.Unknown, mapping.Err
 	return nil
 }
 
@@ -487,7 +457,7 @@ func parse(data []byte, without string) (*Contract, error) {
 		Schema string `yaml:"schema"`
 	}
 	if err := yaml.Unmarshal(data, &header); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, fmt.Errorf("%w: the module contract is not a YAML document: %v", ErrInvalid, err)
 	}
 	if header.Schema != SchemaV1 && without != ruleSchema {
 		return nil, fmt.Errorf("%w: %q (this reader reads %q)", ErrSchema, header.Schema, SchemaV1)
@@ -500,7 +470,7 @@ func parse(data []byte, without string) (*Contract, error) {
 	// selected.
 	var tree yaml.Node
 	if err := yaml.Unmarshal(data, &tree); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, fmt.Errorf("%w: the module contract is not a YAML document: %v", ErrInvalid, err)
 	}
 	switch defect := wire.Check(&tree); {
 	case defect.Kind == wire.DuplicateKey && without != ruleMappingKeysOnce:
@@ -512,6 +482,9 @@ func parse(data []byte, without string) (*Contract, error) {
 	case defect.Kind == wire.FractionalNumber && without != ruleWholeNumbers:
 		return nil, fmt.Errorf("%w: the number %s at %s is not a whole number; yaml CONVERTS a fraction to an integer before any rule sees it, so this would have been validated as %s truncated — no field of a module contract takes a fraction",
 			ErrInvalid, defect.Detail, defect.Path, defect.Detail)
+	case defect.Kind == wire.AliasTooDeep:
+		return nil, fmt.Errorf("%w: the anchors at %s name one another more deeply than this reader follows; an anchor chain that long, or a cycle, has no meaning to resolve",
+			ErrInvalid, defect.Path)
 	case defect.Kind == wire.KeyNotAName && without != ruleKeyIsAName:
 		return nil, fmt.Errorf("%w: the mapping at %s carries a key that is not a name (%q); these mappings are keyed by name",
 			ErrInvalid, defect.Path, defect.Detail)
@@ -520,7 +493,7 @@ func parse(data []byte, without string) (*Contract, error) {
 	decoder.KnownFields(without != ruleKnownFields)
 	var contract Contract
 	if err := decoder.Decode(&contract); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, fmt.Errorf("%w: the module contract carries a field no contract declares, or a value of the wrong shape: %v", ErrInvalid, err)
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) && without != ruleOneDocument {
 		return nil, fmt.Errorf("%w: the file holds more than one document", ErrInvalid)

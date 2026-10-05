@@ -23,6 +23,9 @@ const (
 	NullNode
 	// KeyNotAName is a mapping key that is not a non-empty scalar name.
 	KeyNotAName
+	// AliasTooDeep is an anchor chain longer than this package follows, which
+	// a cycle also produces.
+	AliasTooDeep
 	// FractionalNumber is a number written with a fraction or an exponent,
 	// which neither model ever declares.
 	FractionalNumber
@@ -64,23 +67,35 @@ type Defect struct {
 //   - A KEY THAT IS NOT A NAME. Both models' mappings are keyed by name, so a
 //     sequence or mapping key is a document no reader can act on.
 func Check(node *yaml.Node) Defect {
-	return walk(node, "")
+	return walk(node, "", 0)
 }
 
-func walk(node *yaml.Node, at string) Defect {
+// maxAliasDepth bounds alias resolution. An anchor may name another anchor, so
+// following them is recursion over a graph the document controls; a cycle or a
+// deep chain must end in a refusal rather than a stack overflow.
+const maxAliasDepth = 100
+
+func walk(node *yaml.Node, at string, depth int) Defect {
 	if node == nil {
 		return Defect{}
 	}
-	if node.Tag == nullTag {
-		return Defect{Kind: NullNode, Path: Where(at)}
+	// An ALIAS is its target. The decoder follows it, so a check that does not
+	// is a check the document can step around: `{&fraction 443.9: api}`
+	// anchored a fraction, `port: *fraction` used it, and the fraction reached
+	// an integer field as 443 — a port no declaration states.
+	if node.Kind == yaml.AliasNode {
+		if depth >= maxAliasDepth {
+			return Defect{Kind: AliasTooDeep, Path: Where(at)}
+		}
+		return walk(node.Alias, at, depth+1)
 	}
-	if node.Tag == floatTag {
-		return Defect{Kind: FractionalNumber, Path: Where(at), Detail: node.Value}
+	if defect := scalarDefect(node, at); defect.Kind != NoDefect {
+		return defect
 	}
 	switch node.Kind {
 	case yaml.DocumentNode:
 		for _, child := range node.Content {
-			if found := walk(child, at); found.Kind != NoDefect {
+			if found := walk(child, at, depth); found.Kind != NoDefect {
 				return found
 			}
 		}
@@ -88,10 +103,22 @@ func walk(node *yaml.Node, at string) Defect {
 		seen := make(map[string]bool, len(node.Content)/2)
 		for index := 0; index+1 < len(node.Content); index += 2 {
 			key := node.Content[index]
-			if key.Tag == nullTag {
-				return Defect{Kind: NullNode, Path: Where(at), Detail: "as a key"}
+			// A KEY gets every check a value gets, through the same function.
+			// Keys had their own null check and nothing else, so an anchored
+			// fraction written as a key was never examined — and a key is
+			// where an anchor is most often declared.
+			resolved, defect := resolve(key, at, 0)
+			if defect.Kind != NoDefect {
+				return defect
 			}
-			if key.Kind != yaml.ScalarNode && key.Kind != yaml.AliasNode {
+			if defect := scalarDefect(resolved, at); defect.Kind != NoDefect {
+				if defect.Kind == NullNode {
+					defect.Detail = "as a key"
+				}
+				return defect
+			}
+			key = resolved
+			if key.Kind != yaml.ScalarNode {
 				return Defect{Kind: KeyNotAName, Path: Where(at)}
 			}
 			var name string
@@ -102,13 +129,13 @@ func walk(node *yaml.Node, at string) Defect {
 				return Defect{Kind: DuplicateKey, Path: Where(at), Detail: name}
 			}
 			seen[name] = true
-			if found := walk(node.Content[index+1], join(at, name)); found.Kind != NoDefect {
+			if found := walk(node.Content[index+1], join(at, name), depth); found.Kind != NoDefect {
 				return found
 			}
 		}
 	case yaml.SequenceNode:
 		for index, child := range node.Content {
-			if found := walk(child, fmt.Sprintf("%s[%d]", at, index)); found.Kind != NoDefect {
+			if found := walk(child, fmt.Sprintf("%s[%d]", at, index), depth); found.Kind != NoDefect {
 				return found
 			}
 		}
@@ -120,6 +147,32 @@ const (
 	nullTag  = "!!null"
 	floatTag = "!!float"
 )
+
+// scalarDefect is every check that belongs to a NODE rather than to its place
+// in the document, applied identically to a value and to a key.
+func scalarDefect(node *yaml.Node, at string) Defect {
+	switch node.Tag {
+	case nullTag:
+		return Defect{Kind: NullNode, Path: Where(at)}
+	case floatTag:
+		return Defect{Kind: FractionalNumber, Path: Where(at), Detail: node.Value}
+	}
+	return Defect{}
+}
+
+// resolve follows an alias to the node it names, bounded.
+func resolve(node *yaml.Node, at string, depth int) (*yaml.Node, Defect) {
+	for node != nil && node.Kind == yaml.AliasNode {
+		if depth >= maxAliasDepth {
+			return nil, Defect{Kind: AliasTooDeep, Path: Where(at)}
+		}
+		node, depth = node.Alias, depth+1
+	}
+	if node == nil {
+		return nil, Defect{Kind: KeyNotAName, Path: Where(at)}
+	}
+	return node, Defect{}
+}
 
 func join(at, name string) string {
 	if at == "" {

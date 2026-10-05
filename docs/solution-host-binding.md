@@ -886,11 +886,36 @@ faithfully rather than pre-empts. A zero endpoint port (the service declares
 none) and a repeated `allow_modules` entry (an allow-list is read as a set) keep
 their documented meanings.
 
+**Every refusal CONDITION is protected by construction.** The conditions are
+enumerated from this package's own source — each `fmt.Errorf` carrying
+`ErrInvalid` is one condition — and each must be the refusal some shipped
+fixture actually receives (`TestEveryRefusalConditionIsReachedByAFixture`). A
+condition added without a counterexample fails at its own file and line. This
+replaced eight rounds of finding the same shape of defect by hand: a rule had a
+fixture and a condition inside it did not — a Kubernetes length bound, one
+vocabulary value out of two, a control character that was also whitespace, a
+null as a key but not in a list, an identical CIDR pair where the fixtures
+nested their ranges. A condition no document can reach is declared with its
+reason and asserted to be genuinely unreached, so the one open guard is written
+down rather than silent.
+
+**One strict decoding path.** A type with its own `UnmarshalYAML` does not get
+yaml's `KnownFields`, so each custom decoder re-implemented the same
+strictness and each was fixed separately, a round apart. Mappings are now read
+through `wire.ReadMapping` — key decoded with its type, unknown field
+reported, malformed value kept — and a decoder that handles a mapping without
+it fails `TestEveryCustomDecoderReadsMappingsThroughTheOnePath`.
+
 **Three refusals are properties of the DOCUMENT, not of a typed decoder**, and
 live once in `solutionhost/internal/wire` because one guard per decoder is how a
 dynamic map came to have none. One mapping names one key once, with aliases
 RESOLVED — yaml compares raw key nodes first, so an alias key silently replaced
-a per-operation ceiling and a selector label. An explicit **null** is refused
+a per-operation ceiling and a selector label. An ALIAS is its target, resolved under a
+bound: an anchored fraction declared as a key and used as a port
+(`{&fraction 443.9: api}` with `port: *fraction`) reached an integer field as
+443, because keys and alias targets were examined by neither check. A key now
+gets every check a value gets, through the same function. An explicit **null**
+is refused
 anywhere: decoding null into a string returns false rather than an error, so a
 typed decoder skips the key *and its value* and omits the sequence element —
 `null: {tenancy: dedicated}` discarded a subtree past a boundary advertised as
@@ -900,7 +925,7 @@ are keyed by name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (125) ship
+`modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (128) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (67

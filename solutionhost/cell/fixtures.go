@@ -141,6 +141,14 @@ func Fixtures() ([]Fixture, error) {
 		// another in both orders, so adding an inequality to the overlap test
 		// admitted an identical pair.
 		{name: "egress-cidrs-identical", file: "egress-cidrs-identical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
+		// An anchored FRACTION, declared as a key and used as a port: the
+		// decoder follows the alias and truncates, so a check that examines
+		// neither keys nor alias targets is one the document steps around.
+		{name: "endpoint-port-aliased-fraction", file: "endpoint-port-aliased-fraction.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notWhole, rule: ruleWholeNumbers},
+		{name: "egress-host-port-aliased-fraction", file: "egress-host-port-aliased-fraction.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notWhole, rule: ruleWholeNumbers},
+		// The control: the same shape with a whole number is ACCEPTED, so the
+		// two above refuse the fraction and not the alias.
+		{name: "endpoint-port-aliased-integer", file: "endpoint-port-aliased-integer.yaml", outcome: OutcomeAccepted},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},

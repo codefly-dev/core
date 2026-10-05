@@ -75,7 +75,7 @@ func parse(data []byte, without string) (*File, error) {
 		Schema string `yaml:"schema"`
 	}
 	if err := yaml.Unmarshal(data, &header); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, fmt.Errorf("%w: the cell is not a YAML document: %v", ErrInvalid, err)
 	}
 	if header.Schema != SchemaV1 && without != ruleSchema {
 		return nil, fmt.Errorf("%w: %q (this reader reads %q)", ErrSchema, header.Schema, SchemaV1)
@@ -88,7 +88,7 @@ func parse(data []byte, without string) (*File, error) {
 	// selected.
 	var tree yaml.Node
 	if err := yaml.Unmarshal(data, &tree); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, fmt.Errorf("%w: the cell is not a YAML document: %v", ErrInvalid, err)
 	}
 	switch defect := wire.Check(&tree); {
 	case defect.Kind == wire.DuplicateKey && without != ruleMappingKeysOnce:
@@ -100,6 +100,9 @@ func parse(data []byte, without string) (*File, error) {
 	case defect.Kind == wire.FractionalNumber && without != ruleWholeNumbers:
 		return nil, fmt.Errorf("%w: the number %s at %s is not a whole number; yaml CONVERTS a fraction to an integer before any rule sees it, so this would have been validated as %s truncated — no field of a cell takes a fraction",
 			ErrInvalid, defect.Detail, defect.Path, defect.Detail)
+	case defect.Kind == wire.AliasTooDeep:
+		return nil, fmt.Errorf("%w: the anchors at %s name one another more deeply than this reader follows; an anchor chain that long, or a cycle, has no meaning to resolve",
+			ErrInvalid, defect.Path)
 	case defect.Kind == wire.KeyNotAName && without != ruleKeyIsAName:
 		return nil, fmt.Errorf("%w: the mapping at %s carries a key that is not a name (%q); these mappings are keyed by name",
 			ErrInvalid, defect.Path, defect.Detail)
@@ -108,7 +111,7 @@ func parse(data []byte, without string) (*File, error) {
 	decoder.KnownFields(without != ruleKnownFields)
 	var file File
 	if err := decoder.Decode(&file); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, fmt.Errorf("%w: the cell carries a field no cell declares, or a value of the wrong shape: %v", ErrInvalid, err)
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) && without != ruleOneDocument {
 		return nil, fmt.Errorf("%w: the file holds more than one document", ErrInvalid)
