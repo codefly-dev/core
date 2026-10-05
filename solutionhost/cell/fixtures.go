@@ -49,6 +49,12 @@ type Fixture struct {
 const digestRefusal = "must pin an OCI manifest digest"
 
 // notWhole is the one message every fractional-number fixture expects.
+// explicitNull is the one message every null fixture expects.
+const explicitNull = "explicit null"
+
+// overlappingCIDRs is the one message every overlap fixture expects.
+const overlappingCIDRs = "overlapping CIDRs"
+
 const notWhole = "is not a whole number"
 
 // selectorKeyRefusal is the one message every selector-key fixture expects.
@@ -80,7 +86,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "ingress-to-one-endpoint-twice", file: "ingress-to-one-endpoint-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `ingress to endpoint "rest" twice`, rule: ruleIngressOrder},
 		{name: "ingress-host-named-twice", file: "ingress-host-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names host \"payments.example.com\" twice", rule: ruleIngressHostName},
 		{name: "egress-cidr-not-canonical", file: "egress-cidr-not-canonical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not canonical", rule: ruleEgressCIDR},
-		{name: "egress-cidrs-overlap", file: "egress-cidrs-overlap.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "overlapping CIDRs", rule: ruleEgressCIDR},
+		{name: "egress-cidrs-overlap", file: "egress-cidrs-overlap.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
 		{name: "spiffe-id-of-another-namespace", file: "spiffe-id-of-another-namespace.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "ns/billing/sa/api", rule: ruleSPIFFEID},
 		{name: "artifact-name-not-a-name", file: "artifact-name-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must name the rendered unit", rule: ruleArtifact},
 		{name: "egress-cidr-unspecified", file: "egress-cidr-unspecified.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names every address", rule: ruleEgressCIDRReach},
@@ -96,7 +102,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "service-over-qualified", file: "service-over-qualified.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "<module>/<service>", rule: ruleServiceQualified},
 		{name: "egress-out-of-order", file: "egress-out-of-order.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "egress", rule: ruleEgressOrder},
 		{name: "egress-with-empty-cidrs", file: "egress-with-empty-cidrs.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "neither a host nor a CIDR", rule: ruleEgressHasTarget},
-		{name: "egress-cidrs-overlap-reversed", file: "egress-cidrs-overlap-reversed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "overlapping CIDRs", rule: ruleEgressCIDR},
+		{name: "egress-cidrs-overlap-reversed", file: "egress-cidrs-overlap-reversed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
 		{name: "egress-cidr-ipv6-all-addresses", file: "egress-cidr-ipv6-all-addresses.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names every address", rule: ruleEgressCIDRReach},
 		{name: "hostless-delivery-with-spiffe-id", file: "hostless-delivery-with-spiffe-id.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "but the cell declares no trust domain", rule: ruleSPIFFEIDHostless},
 		{name: "selector-label-named-twice", file: "selector-label-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "app" twice`, rule: ruleMappingKeysOnce},
@@ -108,8 +114,8 @@ func Fixtures() ([]Fixture, error) {
 		{name: "service-component-malformed", file: "service-component-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "<module>/<service>", rule: ruleServiceQualified},
 		{name: "egress-host-not-a-hostname", file: "egress-host-not-a-hostname.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a host name", rule: ruleEgressHostName},
 		{name: "allow-modules-on-a-private-endpoint", file: "allow-modules-on-a-private-endpoint.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "an allow-list is only read for", rule: ruleAllowNeedsInner},
-		{name: "null-key-hiding-a-subtree", file: "null-key-hiding-a-subtree.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "explicit null", rule: ruleNoNulls},
-		{name: "null-in-a-selector-value", file: "null-in-a-selector-value.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "explicit null", rule: ruleNoNulls},
+		{name: "null-key-hiding-a-subtree", file: "null-key-hiding-a-subtree.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: explicitNull, rule: ruleNoNulls},
+		{name: "null-in-a-selector-value", file: "null-in-a-selector-value.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: explicitNull, rule: ruleNoNulls},
 		// The two spellings the cutover DELETED: a consumer re-accepting them
 		// reached every other fixture's outcome, and the package vocabulary
 		// test is not run by a consumer's cell.Run.
@@ -126,6 +132,15 @@ func Fixtures() ([]Fixture, error) {
 		{name: "egress-host-port-negative", file: "egress-host-port-negative.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "port -1", rule: ruleEgressHostPort},
 		{name: "endpoint-port-fractional", file: "endpoint-port-fractional.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notWhole, rule: ruleWholeNumbers},
 		{name: "egress-host-port-fractional", file: "egress-host-port-fractional.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notWhole, rule: ruleWholeNumbers},
+		// A null in a LIST, which the null-key and null-value fixtures did not
+		// reach: skipping only sequence-element nulls in the walker left a
+		// null appended to cidrs, consumers and every other list silently
+		// discarded, with the cell accepted.
+		{name: "egress-cidr-null-list-entry", file: "egress-cidr-null-list-entry.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: explicitNull, rule: ruleNoNulls},
+		// The SAME range twice. The overlap fixtures nest one range inside
+		// another in both orders, so adding an inequality to the overlap test
+		// admitted an identical pair.
+		{name: "egress-cidrs-identical", file: "egress-cidrs-identical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},

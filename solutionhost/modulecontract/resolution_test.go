@@ -1,6 +1,8 @@
 package modulecontract
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -177,65 +179,254 @@ func TestAProviderThatDeclassifiesANonAudienceSlotFailsTheKit(t *testing.T) {
 	}
 }
 
-// TestALastWinsProviderFailsTheKit is the executed round's finding: two
-// adapters that keep only the LAST record for a key — one indexing by core's
-// normalized spelling, one by the exact spelling written — passed all 29
-// configurations, because the resource-kind role had no conflicting pair and
-// the binding-key conflict used two spellings, which an adapter indexing by
-// exact spelling never collapses. Each resolves a composition the contract
-// must refuse.
-func TestALastWinsProviderFailsTheKit(t *testing.T) {
-	for name, keyOf := range map[string]func(Record) string{
-		"last wins per normalized key": func(record Record) string { return normalizeKey(record.Key) },
-		"last wins per exact spelling": func(record Record) string { return record.Key },
-	} {
-		t.Run(name, func(t *testing.T) {
-			recorder := &recordingT{}
-			RunResolution(recorder, func(group string, records []Record) Values {
-				last := map[string]Record{}
-				order := make([]string, 0, len(records))
-				for _, record := range records {
-					key := keyOf(record)
-					if _, seen := last[key]; !seen {
-						order = append(order, key)
-					}
-					last[key] = record
+// TestEveryRoleIsProtectedAgainstRecordLoss drives a faulty provider at ONE
+// slot role at a time, over every axis an adapter can be wrong on: which
+// spelling it indexes by, whether it keeps the first or the last record, and
+// whether it drops a secret arriving under a different spelling. A regression
+// that applies loss to EVERY role and asks only whether SOME fixture failed
+// stays green after one role's protection disappears entirely — which is how
+// deleting all five of a role's generated cases survived the whole suite. So
+// each case here must fail, AND the fixture that fails must belong to the role
+// under test.
+func TestEveryRoleIsProtectedAgainstRecordLoss(t *testing.T) {
+	for _, role := range []string{fieldAudience, fieldResourceKind, fieldBindingKey} {
+		for _, lossy := range lossyProviders() {
+			t.Run(role+"/"+lossy.name, func(t *testing.T) {
+				recorder := &recordingT{}
+				RunResolution(recorder, func(group string, records []Record) Values {
+					return recordValues{group: group, records: lossy.apply(records, role)}
+				})
+				if recorder.failures == 0 {
+					t.Fatalf("a provider that %s for the %s role passed the resolution kit", lossy.name, role)
 				}
-				kept := make([]Record, 0, len(order))
-				for _, key := range order {
-					kept = append(kept, last[key])
+				if !recorder.failedNaming(role) {
+					t.Fatalf("a provider that %s for the %s role was caught, but by no fixture of that role: %v",
+						lossy.name, role, recorder.messages)
 				}
-				return recordValues{group: group, records: kept}
 			})
-			if recorder.failures == 0 {
-				t.Fatalf("a provider that keeps only the %s passed the resolution kit", name)
-			}
-		})
+		}
 	}
 }
 
-// TestADeduplicatingProviderFailsTheKit is the executed round's second
-// finding: a provider keeping the first record per (Key, Value) and ignoring
-// Secret preserved every DISAGREEING pair, so the one-value rule caught it —
-// and collapsed an agreeing public/secret pair, discarding the classification
-// and resolving a slot the contract must refuse as secret.
-func TestADeduplicatingProviderFailsTheKit(t *testing.T) {
-	recorder := &recordingT{}
-	RunResolution(recorder, func(group string, records []Record) Values {
-		type pair struct{ key, value string }
-		seen := map[pair]bool{}
-		kept := make([]Record, 0, len(records))
-		for _, record := range records {
-			at := pair{record.Key, record.Value}
-			if seen[at] {
-				continue
+type lossyProvider struct {
+	name  string
+	apply func(records []Record, role string) []Record
+}
+
+// lossyProviders are the record-losing adapters each role must be protected
+// against. Every one of them received a green kit verdict at some head.
+func lossyProviders() []lossyProvider {
+	keep := func(role string, keyOf func(Record) string, last bool) func([]Record, string) []Record {
+		return func(records []Record, forRole string) []Record {
+			chosen := map[string]Record{}
+			var order []string
+			for _, record := range records {
+				if !belongsTo(record, forRole) {
+					continue
+				}
+				key := keyOf(record)
+				if _, seen := chosen[key]; !seen {
+					order = append(order, key)
+				} else if !last {
+					continue
+				}
+				chosen[key] = record
 			}
-			seen[at] = true
-			kept = append(kept, record)
+			kept := make([]Record, 0, len(records))
+			for _, record := range records {
+				if !belongsTo(record, forRole) {
+					kept = append(kept, record)
+				}
+			}
+			for _, key := range order {
+				kept = append(kept, chosen[key])
+			}
+			return kept
 		}
-		return recordValues{group: group, records: kept}
-	})
-	if recorder.failures == 0 {
-		t.Fatal("a provider deduplicating by (key, value) and ignoring Secret passed the resolution kit")
+	}
+	normalized := func(record Record) string { return normalizeKey(record.Key) }
+	exact := func(record Record) string { return record.Key }
+	return []lossyProvider{
+		{"keeps only the last record per normalized key", func(r []Record, role string) []Record {
+			return keep(role, normalized, true)(r, role)
+		}},
+		{"keeps only the last record per exact spelling", func(r []Record, role string) []Record {
+			return keep(role, exact, true)(r, role)
+		}},
+		{"keeps only the first record per normalized key", func(r []Record, role string) []Record {
+			return keep(role, normalized, false)(r, role)
+		}},
+		{"keeps only the first record per exact spelling", func(r []Record, role string) []Record {
+			return keep(role, exact, false)(r, role)
+		}},
+		{"deduplicates by (key, value), ignoring Secret", func(records []Record, role string) []Record {
+			type pair struct{ key, value string }
+			seen := map[pair]bool{}
+			kept := make([]Record, 0, len(records))
+			for _, record := range records {
+				at := pair{record.Key, record.Value}
+				if belongsTo(record, role) && seen[at] {
+					continue
+				}
+				seen[at] = true
+				kept = append(kept, record)
+			}
+			return kept
+		}},
+		{"drops a secret arriving under another spelling", func(records []Record, role string) []Record {
+			first := map[string]string{}
+			kept := make([]Record, 0, len(records))
+			for _, record := range records {
+				norm := normalizeKey(record.Key)
+				prior, seen := first[norm]
+				if belongsTo(record, role) && record.Secret && seen && prior != record.Key {
+					continue
+				}
+				if !seen {
+					first[norm] = record.Key
+				}
+				kept = append(kept, record)
+			}
+			return kept
+		}},
+	}
+}
+
+// belongsTo is whether a record carries the slot role under test, by its
+// normalized spelling, so a per-role adapter cannot be a no-op that passes for
+// having changed nothing.
+func belongsTo(record Record, role string) bool {
+	marker := map[string]string{
+		fieldAudience:     "AUDIENCE",
+		fieldResourceKind: "RESOURCE_KIND",
+		fieldBindingKey:   "BINDING",
+	}[role]
+	return marker != "" && strings.Contains(normalizeKey(record.Key), marker)
+}
+
+// TestTheResolutionKitShipsExactlyTheseFixtures pins the resolution inventory
+// by NAME, the way the two document kits are pinned.
+//
+// Without it, deleting five of a role's generated cases tripped nothing: the
+// documented count was prose, the per-rule self-check was satisfied by another
+// role's case, and I had claimed all three inventories were enforced when only
+// the two document ones were. A changed resolution kit is a changed contract
+// with every consumer that runs it, so it is declared here.
+func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
+	want := []string{
+		"a binding key",
+		"a binding key carrying a DEL",
+		"a binding key carrying a newline",
+		"a binding key carrying a paragraph separator",
+		"a binding key carrying a zero-width space",
+		"a binding key supplied public and secret",
+		"a binding key supplied twice with different values",
+		"a kind carrying a colon",
+		"a kind carrying a comma",
+		"a kind carrying a comma and a colon",
+		"a kind carrying a line separator",
+		"a public and a secret occurrence",
+		"a resource kind",
+		"a resource kind supplied public and secret",
+		"a secret binding key",
+		"a secret occurrence in the other spelling",
+		"a secret resource kind",
+		"a value that is not one line",
+		"an audience carrying a DEL",
+		"an audience carrying a NUL",
+		"an audience carrying a byte-order mark",
+		"an audience carrying a line separator",
+		"an audience carrying a next line",
+		"an audience carrying a word joiner",
+		"an audience carrying a zero-width joiner",
+		"an audience carrying a zero-width space",
+		"an empty value",
+		"an upper-case kind",
+		"audience: one spelling supplied twice with different values",
+		"audience: public then secret, a different value, one spelling",
+		"audience: public then secret, a different value, two spellings",
+		"audience: public then secret, the same value, one spelling",
+		"audience: public then secret, the same value, two spellings",
+		"audience: secret then public, a different value, one spelling",
+		"audience: secret then public, a different value, two spellings",
+		"audience: secret then public, the same value, one spelling",
+		"audience: secret then public, the same value, two spellings",
+		"audience: two spellings supplied with different values",
+		"binding_key: one spelling supplied twice with different values",
+		"binding_key: public then secret, a different value, one spelling",
+		"binding_key: public then secret, a different value, two spellings",
+		"binding_key: public then secret, the same value, one spelling",
+		"binding_key: public then secret, the same value, two spellings",
+		"binding_key: secret then public, a different value, one spelling",
+		"binding_key: secret then public, a different value, two spellings",
+		"binding_key: secret then public, the same value, one spelling",
+		"binding_key: secret then public, the same value, two spellings",
+		"binding_key: two spellings supplied with different values",
+		"competing spellings that agree",
+		"competing spellings that disagree",
+		"no binding key at all",
+		"no record at all",
+		"no resource kind at all",
+		"one record",
+		"resource_kind: one spelling supplied twice with different values",
+		"resource_kind: public then secret, a different value, one spelling",
+		"resource_kind: public then secret, a different value, two spellings",
+		"resource_kind: public then secret, the same value, one spelling",
+		"resource_kind: public then secret, the same value, two spellings",
+		"resource_kind: secret then public, a different value, one spelling",
+		"resource_kind: secret then public, a different value, two spellings",
+		"resource_kind: secret then public, the same value, one spelling",
+		"resource_kind: secret then public, the same value, two spellings",
+		"resource_kind: two spellings supplied with different values",
+		"the other spelling",
+		"the same record twice",
+		"the same spelling supplied twice with different values",
+	}
+	have := map[string]bool{}
+	for _, fixture := range AllResolutionFixtures() {
+		have[fixture.Name] = true
+	}
+	missing := make([]string, 0, len(want))
+	for _, name := range want {
+		if !have[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("the resolution kit no longer ships %v; a dropped case is a dropped guarantee", missing)
+	}
+	if len(have) != len(want) {
+		t.Errorf("the resolution kit ships %d configurations, not the %d declared here; a changed kit is a changed contract with every consumer that runs it",
+			len(have), len(want))
+	}
+	for _, role := range []string{fieldAudience, fieldResourceKind, fieldBindingKey} {
+		count := 0
+		for _, fixture := range AllResolutionFixtures() {
+			if strings.HasPrefix(fixture.Name, role+":") {
+				count++
+			}
+		}
+		if count != lossCasesPerRole {
+			t.Errorf("the %s role ships %d generated loss cases, not %d: a role's protection cannot be deleted quietly",
+				role, count, lossCasesPerRole)
+		}
+	}
+}
+
+// lossCasesPerRole is what lossFixtures generates for one role: two conflicts,
+// then a public/secret collision over every order, spelling and value
+// agreement.
+const lossCasesPerRole = 2 + 2*2*2
+
+func TestTheDocumentedResolutionCountIsTheKit(t *testing.T) {
+	const path = "../../docs/solution-host-binding.md"
+	document, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stated := fmt.Sprintf("`AllResolutionFixtures()` (%d", len(AllResolutionFixtures()))
+	if !strings.Contains(string(document), stated) {
+		t.Fatalf("%s does not state that the resolution kit ships %d configurations (looking for %q)",
+			path, len(AllResolutionFixtures()), stated)
 	}
 }

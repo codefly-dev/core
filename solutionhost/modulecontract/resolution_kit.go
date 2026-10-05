@@ -330,20 +330,33 @@ func BindingKeyFixtures() []ResolutionFixture {
 }
 
 // lossFixtures are the cases that catch a provider DISCARDING a record rather
-// than mis-reading one, generated for EVERY slot role so none can be missed:
-// a conflict written in one spelling twice, a conflict written in two
-// spellings, and a public/secret collision in both orders and both spellings.
+// than mis-reading one, generated for EVERY slot role so none can be missed,
+// and generated over EVERY axis so no combination can be missed either:
+// a conflict in one spelling and in two, then a public/secret collision over
+// all four combinations of order (public first, secret first) and spelling
+// (one, two) — in both the agreeing and the disagreeing value.
 //
-// Two last-wins adapters passed every other case — one keeping the last record
-// per normalized resource-kind key, one keeping the last per EXACT binding-key
-// spelling — because the kind role had no conflicting pair at all and the
-// binding-key conflict used two spellings, which an adapter indexing by exact
-// spelling never collapses. Each of these cases is a resolution the contract
-// must refuse and a lossy adapter resolves.
+// Each axis was a false certification, not a hypothetical:
+//
+//   - The ROLE axis: two last-wins adapters passed every case, because the
+//     resource-kind role had no conflicting pair at all and the binding-key
+//     conflict used two spellings, which an adapter indexing by exact spelling
+//     never collapses.
+//   - The VALUE-AGREEMENT axis: every collision disagreed on the value, so an
+//     adapter deduplicating by (Key, Value) was caught by the one-value rule;
+//     with the value AGREEING only the flag carries the refusal, and it
+//     resolved.
+//   - The SPELLING-ORDER axis: the public-then-secret collision existed in one
+//     spelling only, so an adapter dropping a secret that arrives under a
+//     DIFFERENT spelling than an earlier occurrence found no case to drop for
+//     the audience and resource-kind roles — the kit never supplied the shape.
+//
+// Writing the combinations out by hand is what produced each gap, so they are
+// generated.
 func lossFixtures(role, group, key, upper, lower, value string) []ResolutionFixture {
 	const other = "other.value"
 	slot := group + "/" + key
-	return []ResolutionFixture{
+	fixtures := []ResolutionFixture{
 		{
 			Name: role + ": one spelling supplied twice with different values", Group: group, Key: key,
 			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,
@@ -356,56 +369,43 @@ func lossFixtures(role, group, key, upper, lower, value string) []ResolutionFixt
 			Slot:    role,
 			Records: []Record{{Key: upper, Value: value}, {Key: lower, Value: other}},
 		},
-		{
-			Name: role + ": public then secret, one spelling", Group: group, Key: key,
-			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
-			Slot:    role,
-			Records: []Record{{Key: upper, Value: value}, {Key: upper, Value: secretValue, Secret: true}},
-		},
-		{
-			Name: role + ": secret then public, one spelling", Group: group, Key: key,
-			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
-			Slot:    role,
-			Records: []Record{{Key: upper, Value: secretValue, Secret: true}, {Key: upper, Value: value}},
-		},
-		{
-			Name: role + ": secret then public, two spellings", Group: group, Key: key,
-			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
-			Slot:    role,
-			Records: []Record{{Key: lower, Value: secretValue, Secret: true}, {Key: upper, Value: value}},
-		},
-		// AGREEING VALUES. Every collision above disagrees on the value, so a
-		// provider deduplicating by (Key, Value) and ignoring Secret kept both
-		// records and was caught by the one-value rule. With the SAME value it
-		// collapsed the pair, discarded the secret occurrence and resolved —
-		// a conformance pass for an adapter that loses the classification
-		// outright. The value agreeing is exactly when only the flag carries
-		// the refusal.
-		{
-			Name: role + ": public then secret, same value, one spelling", Group: group, Key: key,
-			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
-			Slot:    role,
-			Records: []Record{{Key: upper, Value: value}, {Key: upper, Value: value, Secret: true}},
-		},
-		{
-			Name: role + ": secret then public, same value, one spelling", Group: group, Key: key,
-			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
-			Slot:    role,
-			Records: []Record{{Key: upper, Value: value, Secret: true}, {Key: upper, Value: value}},
-		},
-		{
-			Name: role + ": public then secret, same value, two spellings", Group: group, Key: key,
-			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
-			Slot:    role,
-			Records: []Record{{Key: upper, Value: value}, {Key: lower, Value: value, Secret: true}},
-		},
-		{
-			Name: role + ": secret then public, same value, two spellings", Group: group, Key: key,
-			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
-			Slot:    role,
-			Records: []Record{{Key: lower, Value: value, Secret: true}, {Key: upper, Value: value}},
-		},
 	}
+	for _, agreeing := range []bool{true, false} {
+		// The secret's value: the same as the public one, or a different one.
+		// Agreeing is when ONLY the Secret flag carries the refusal;
+		// disagreeing is when the one-value rule would also catch a provider
+		// that kept both records.
+		secret := secretValue
+		agreement := "a different value"
+		if agreeing {
+			secret = value
+			agreement = "the same value"
+		}
+		for _, secretFirst := range []bool{false, true} {
+			for _, twoSpellings := range []bool{false, true} {
+				publicKey, secretKey := upper, upper
+				spelling := "one spelling"
+				if twoSpellings {
+					secretKey = lower
+					spelling = "two spellings"
+				}
+				order := "public then secret"
+				records := []Record{{Key: publicKey, Value: value}, {Key: secretKey, Value: secret, Secret: true}}
+				if secretFirst {
+					order = "secret then public"
+					records = []Record{{Key: secretKey, Value: secret, Secret: true}, {Key: publicKey, Value: value}}
+				}
+				fixtures = append(fixtures, ResolutionFixture{
+					Name:  role + ": " + order + ", " + agreement + ", " + spelling,
+					Group: group, Key: key,
+					Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+					Slot:    role,
+					Records: records,
+				})
+			}
+		}
+	}
+	return fixtures
 }
 
 // RunResolution drives a consumer's own value provider through every

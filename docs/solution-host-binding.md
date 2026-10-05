@@ -900,10 +900,16 @@ are keyed by name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (123) ship
+`modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (125) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
-reader's own entrypoint through them. A consumer passes the function it
+reader's own entrypoint through them. `AllResolutionFixtures()` (67
+configurations) does the same for resolution, driven by `RunResolution(t,
+provider)`. **All three counts are pinned by a test**, and the resolution kit
+is pinned by NAME and by cases-per-role as well: a documented count written by
+hand was never checked at all, so deleting five of a role's cases tripped
+nothing, and the sentence you are reading claimed a guarantee that did not
+exist. A consumer passes the function it
 actually reads the file with — the renderer's load, the publisher's merge,
 the loader's parse — never this package's `Parse`, which proves nothing about
 the consumer. Each package's self-check (`TestEveryRuleIsProtectedByAFixture`)

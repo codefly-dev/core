@@ -149,3 +149,15 @@ func (r *recordingT) Errorf(format string, args ...any) {
 func (r *recordingT) Fatalf(format string, args ...any) {
 	r.Errorf(format, args...)
 }
+
+// failedNaming is whether a recorded failure names a fixture of this slot
+// role, so a per-role regression cannot be satisfied by another role's
+// fixture failing.
+func (r *recordingT) failedNaming(role string) bool {
+	for _, line := range strings.Split(r.messages, "\n") {
+		if strings.Contains(line, "resolution fixture") && strings.Contains(line, role+":") {
+			return true
+		}
+	}
+	return false
+}
