@@ -202,10 +202,14 @@ func secretUses(wf workflow) []secretUse {
 			}
 
 			if refs := secretRefsIn(values); len(refs) > 0 {
+				// Both conditions, because a step runs only when its job does.
+				// Reading the step's alone misses the shape that is now
+				// preferred -- the credential in a job gated to a push, whose
+				// steps carry only which outcome to report.
 				out = append(out, secretUse{
 					where: fmt.Sprintf("job %q step %q", jobName, step.Name),
 					refs:  refs,
-					gate:  step.If,
+					gate:  strings.TrimPrefix(job.If+" && "+step.If, " && "),
 				})
 			}
 		}
@@ -246,12 +250,17 @@ func TestPullRequestWorkflowsDoNotRequireActionsSecrets(t *testing.T) {
 		}
 
 		for _, use := range secretUses(wf) {
-			// It must be unable to run on a pull_request event.
-			require.Contains(t, use.gate, "github.event_name == 'push'",
-				"%s: %s consumes Actions secret(s) %v but is not gated to push "+
-					"events. On a Dependabot pull request those secrets are empty "+
-					"and it fails, turning an otherwise green run red.",
-				filepath.Base(path), use.where, use.refs)
+			// It must be unable to run on a pull_request event. Asked as "is
+			// this one of the condition's conjuncts" rather than "does the text
+			// appear in it", because `<required> || true` satisfies the second
+			// while meaning the opposite -- see clausesOf in
+			// credential_isolation_test.go.
+			require.True(t, hasClause(use.gate, "github.event_name == 'push'"),
+				"%s: %s consumes Actions secret(s) %v but its condition (%q) does "+
+					"not REQUIRE a push event. On a Dependabot pull request those "+
+					"secrets are empty and it fails, turning an otherwise green run "+
+					"red. A condition carrying an `||` requires nothing.",
+				filepath.Base(path), use.where, use.refs, use.gate)
 		}
 	}
 }

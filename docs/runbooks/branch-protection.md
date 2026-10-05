@@ -104,6 +104,11 @@ version bump.
 `pull_request`, and is gated on the test workflow having succeeded, so it
 reports on no pull request at all.
 
+**`Notify Slack` from `go.yml`.** Gated to a push of `main` for two reasons —
+the webhook is empty on a Dependabot or fork run, and a repository secret must
+not sit in the job that runs the suite — so it reports on no pull request. See
+[CI credentials](../ci-credentials.md).
+
 **`Coverage badge` from `go.yml`.** The coverage THRESHOLD is decided in
 `Build`, which is required; this job only pushes the badge `README.md` renders,
 and it is gated to a push of `main` so it reports on no pull request either. It
@@ -137,6 +142,20 @@ Apply a ruleset targeting `refs/tags/v*` that restricts creation to the
 Actions identity this workflow runs as, and denies updating and deleting
 outright. Both halves matter: re-pointing a tag is how a commit ends up
 carrying two versions, which `git describe` then reports ambiguously.
+
+## Also needed: who may dispatch
+
+`combine-deps.yml` is dispatchable, and `workflow_dispatch` is not restricted
+to the default branch: a dispatch names a ref, and both the repository content
+*and the workflow file itself* come from it. The workflow pins its checkouts to
+`ref: main` so a dispatch against a feature branch cannot select that branch's
+scripts, but a branch that edits the workflow file is outside what anything in
+the file on `main` can constrain.
+
+That is a permissions question, not a YAML one. Restrict who can dispatch
+workflows — or move the credential-bearing job into an environment with
+required reviewers — and keep `DEPS_COMBINE_TOKEN` scoped to what the weekly
+combination actually needs. See [CI credentials](../ci-credentials.md).
 
 ## Before you turn it on
 

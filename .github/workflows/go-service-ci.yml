@@ -53,6 +53,10 @@ jobs:
           cache: false
       - name: Setup
         if: inputs.setup-run != ''
-        run: ${{ inputs.setup-run }}
+        # Through the environment rather than interpolated into the script --
+        # see the note on the same step in go-service-release.yml.
+        env:
+          SETUP_RUN: ${{ inputs.setup-run }}
+        run: eval "$SETUP_RUN"
       - name: Test
         run: go test -v ./...

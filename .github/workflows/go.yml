@@ -14,7 +14,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Read by default. On a pull request every job here checks out that pull
+# Read by default, and no job that runs code under review names a secret of any
+# kind -- the Slack webhook moved into `notify`, which checks out nothing. A
+# repository secret is not governed by `permissions:` at all, so narrowing the
+# built-in token would have left a credential in the job that runs the suite
+# exactly as reachable as it was before.
+#
+# On a pull request every job here checks out that pull
 # request's head and then runs its code -- the suite, the race detector, the
 # guards, a pnpm install -- and `permissions:` is job-wide, so a write at this
 # scope would be a write held by all of it. The one thing in this workflow that
@@ -302,15 +308,34 @@ jobs:
         # to the unit + light-integration scope.
         run: go test -race ./... -timeout 10m
 
+  # The notifications were two steps inside Build, skipped on pull requests by
+  # an `if:`. That leaves the webhook named in the job that runs the suite, and
+  # a step condition decides whether a STEP runs -- it is not a boundary around
+  # the job's credential, and a reader has to follow step order to see what is
+  # safe. As a job of its own the webhook is simply not in the job that runs
+  # unreviewed code, which is both true and legible.
+  # internal/ciguard/credential_isolation_test.go holds that.
+  #
+  # Still push-and-main only, and for the original reason as well as this one: a
+  # run triggered by Dependabot (or a fork) is handled as though it came from a
+  # fork, so `secrets.*` resolves to the empty string, and slack-github-action
+  # rejects an empty webhook outright -- `throw new Error('Need to provide at
+  # least one botToken or webhookUrl')` -- which turned otherwise green runs
+  # red. These alerts are about main's health anyway.
+  #
+  # `always()` so a failed Build still reports, and the outcome is read from
+  # `needs` rather than from `failure()`, which would describe this job instead.
+  notify:
+    name: Notify Slack
+    needs: build
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Nothing to read and nothing to write: no checkout, no repository content,
+    # one webhook call.
+    permissions: {}
+    steps:
       - name: Notify Slack on Failure
-        # Push-only, and not merely to cut PR noise: a workflow run triggered by
-        # Dependabot (or a fork) is handled as though it came from a fork, so
-        # `secrets.*` resolves to the empty string. slack-github-action rejects
-        # an empty webhook outright -- `throw new Error('Need to provide at
-        # least one botToken or webhookUrl')` -- and core.setFailed turns the
-        # whole job red after build, test, race and coverage have all passed.
-        # These alerts are about main's health anyway, so gate them on push.
-        if: failure() && github.event_name == 'push'
+        if: needs.build.result == 'failure'
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           # The action resolves the webhook URL from SLACK_WEBHOOK_URL below,
@@ -325,10 +350,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
       - name: Notify Slack on Success
-        # Push-only for the same reason as the failure notification above: on a
-        # Dependabot pull request this step would fire on every GREEN run and
-        # fail it. See the comment there.
-        if: success() && github.event_name == 'push'
+        if: needs.build.result == 'success'
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           # See the failure notification above.

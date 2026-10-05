@@ -33,9 +33,22 @@ jobs:
           # intact for the source-packager build.
           cache: false
       - name: install codefly CLI
+        # The version reaches the script as a value, not as text spliced into
+        # it, and is checked against the shape a release tag has before it is
+        # used in a URL. A caller's input is not hostile here -- it comes from
+        # that repository's own workflow -- but a `run:` assembled by
+        # substitution is a program assembled by its caller, and this job runs
+        # the caller's tree.
+        env:
+          CLI_VERSION: ${{ inputs.codefly-cli-version }}
         run: |
+          set -euo pipefail
+          if ! printf '%s' "$CLI_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::codefly-cli-version must be a bare semver (x.y.z), got <${CLI_VERSION}>" >&2
+            exit 1
+          fi
           curl -fsSL -o codefly.tar.gz \
-            "https://github.com/codefly-dev/cli/releases/download/v${{ inputs.codefly-cli-version }}/codefly_${{ inputs.codefly-cli-version }}_linux_amd64.tar.gz"
+            "https://github.com/codefly-dev/cli/releases/download/v${CLI_VERSION}/codefly_${CLI_VERSION}_linux_amd64.tar.gz"
           tar -xzf codefly.tar.gz codefly
           install -m 0755 codefly /usr/local/bin/codefly
           codefly version

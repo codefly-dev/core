@@ -11,6 +11,13 @@ on:
         description: Version constraint passed to goreleaser-action.
         type: string
         default: '~> v2'
+      default-branch:
+        description: >-
+          The branch a release tag must be reachable from. The publishing job
+          refuses a tag that is not, because the credential it holds would
+          otherwise run release hooks from a commit nobody merged.
+        type: string
+        default: main
 
 jobs:
   test:
@@ -34,23 +41,67 @@ jobs:
           cache: false
       - name: Setup
         if: inputs.setup-run != ''
-        run: ${{ inputs.setup-run }}
+        # Through the environment, not interpolated into the script: a `run:`
+        # built by substituting a caller-supplied string is assembled before
+        # any shell sees it, so the string becomes part of the program. `eval`
+        # keeps the "arbitrary shell command" contract the input promises while
+        # leaving the value a value. This job holds no credential either way;
+        # the point is that neither property depends on the other.
+        env:
+          SETUP_RUN: ${{ inputs.setup-run }}
+        run: eval "$SETUP_RUN"
       - name: Test
         run: go test -v ./...
 
+  # This job holds the caller's release PAT, and `permissions:` says nothing
+  # about a PAT -- it governs the built-in token only. So the token being read
+  # is beside the point: what matters is that the PAT is never in a job that
+  # runs code nobody merged.
+  #
+  # Two conditions do that, and both are needed. The `if:` keeps the job off
+  # every event but a pushed tag, which a pull request cannot produce -- a
+  # caller may dispatch this workflow from a pull request with `secrets:
+  # inherit`, and nothing in this file can see that it did. Then the first step
+  # refuses a tag whose commit is not reachable from the caller's default
+  # branch, because a tag can be pushed to any commit: existing is not the same
+  # as reviewed, and GoReleaser executes the hooks and configuration of
+  # whatever tree it is pointed at.
+  #
+  # internal/ciguard/credential_isolation_test.go holds the first;
+  # the refusal below is the second.
   goreleaser:
     needs: test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
-      # Read as well. GoReleaser authenticates to the forge with the GH_PAT the
-      # caller passes (see the `env:` on its step), never with this job's
-      # token, so the release needs no write grant here -- and a caller that
-      # grants its release job write does not hand that grant to this one.
+      # GoReleaser authenticates to the forge with the GH_PAT the caller passes
+      # (see the `env:` on its step), never with this job's token, so the
+      # release needs no write grant here -- and a caller that grants its
+      # release job write does not hand that grant to this one.
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # Credentials stay persisted here, deliberately. The refusal below
+          # fetches the default branch, and a private caller cannot fetch
+          # anonymously. What is persisted is this job's own read-only built-in
+          # token -- not the PAT, which is only ever a step `env:`.
+
+      - name: require the tag to be on the default branch, or refuse
+        env:
+          DEFAULT_BRANCH: ${{ inputs.default-branch }}
+        run: |
+          set -euo pipefail
+
+          git fetch --quiet --no-tags origin \
+            "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/${DEFAULT_BRANCH}"; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from origin/${DEFAULT_BRANCH}; refusing to release it." >&2
+            echo "A release runs this repository's own hooks and configuration with a credential, so the commit has to be one that was merged." >&2
+            exit 1
+          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
