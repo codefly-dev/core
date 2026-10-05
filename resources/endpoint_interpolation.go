@@ -370,21 +370,24 @@ func interpolateConfigurationEndpoints(ctx context.Context, conf *basev0.Configu
 		for _, value := range info.ConfigurationValues {
 			resolved, err := interpolateConfigurationValue(ctx, value, mappings, access, options.selection)
 			if err != nil {
-				// In the run-wide path, a value the consumer cannot satisfy is
-				// simply not for it: drop the value (and, below, an information
-				// left with no values) rather than fail the service. The strict
-				// path propagates the error, naming the key — unless the only
-				// thing wrong is that the value names a producer this run
-				// provably does not contain, which no composition change would
-				// fix for this run. "Provably" is the caller's run set: with none,
-				// nothing is out of the run and nothing may be dropped.
+				// In the run-wide path, a value is dropped (and, below, an
+				// information left with no values) only on the two facts about
+				// this consumer's view: the endpoint was not published for it, or
+				// it may not reach it under a valid export policy. Every other
+				// failure is a composition fault and fails the service, however
+				// many consumers receive the value. The strict path propagates
+				// every error, naming the key — unless the only thing wrong is
+				// that the value names a producer this run provably does not
+				// contain, which no composition change would fix for this run.
+				// "Provably" is the caller's run set: with none, nothing is out
+				// of the run and nothing may be dropped.
 				if !dropUnresolved && errors.Is(err, errEndpointNotAvailable) && options.producerInRun != nil &&
 					!unresolvedNamesRunProducer(ctx, value, mappings, access, options.producerInRun, options.selection) {
 					// WARN, not DEBUG: the consumer selected this group by name,
 					// so a key of it going missing is worth seeing even though
-					// the run is right to continue. The message carries the
-					// producer, which is what says whether the run was meant to
-					// contain it.
+					// the run is right to continue. The reason names the
+					// reference's position and the published endpoints, never
+					// text from the value.
 					w.Warn("dropping a configuration value the consumer selected: its endpoint reference names a producer this run does not contain",
 						wool.Field("configuration", info.Name),
 						wool.Field("key", value.Key),

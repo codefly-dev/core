@@ -77,9 +77,13 @@ type ProducerLookup func(unique string) (*resources.Service, bool)
 // than assembling a set the check cannot verify; a zero profile excludes
 // nothing. A group the environment does not provide at all is not reported here:
 // resolving it fails on its own, naming the group. Only the groups a consumer
-// declares are checked: the composition root's groups injected into every
-// service never bind one service to another, and a value there that a service
-// cannot resolve is not for it.
+// DECLARES are checked here. The composition root's own groups, injected into
+// every service, are not: they bind no service to another at plan time. At run
+// time they are judged like any value — a fault in one (a malformed or
+// ambiguous reference, an unknown producer, no instance for the access) refuses
+// the run for every receiver, and only the two per-consumer omissions (not
+// published for this consumer, not reachable under a valid export policy) are
+// dropped.
 //
 // This is the COMPOSITION half of the contract, and it is the half that can be
 // checked before anything exists: a typo, an endpoint a producer does not
