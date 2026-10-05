@@ -1,70 +1,249 @@
-package otel
+package otel_test
 
 import (
 	"context"
+	"net"
 	"regexp"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/codefly-dev/core/wool"
+	wooltel "github.com/codefly-dev/core/wool/otel"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-// This is the end-to-end half of the log/trace join: wool/trace_correlation_test.go
-// pins the contract with fakes, and these tests prove the OTEL adapter reports
-// the same ids OpenTelemetry itself puts on the wire. If these two disagree, a
-// log line names a trace the backend stored under a different id — which looks
-// like working correlation right up to the moment someone clicks the link.
-//
-// The test is internal to the package so the invalid-context case can build a
-// spanAdapter directly; the recording case goes through the public path.
+// These tests drive the real OpenTelemetry SDK and, for the RPC case, a real
+// gRPC server over a Unix socket with this repository's own instrumentation.
+// Nothing here fakes a tracer: the repository rule is "Never mock. Tests use
+// real infrastructure. If a boundary is hard to reach, reach it anyway", and the
+// first version of this change passed its fakes while being broken on every real
+// path — the fakes went through wool.StartSpan, which is the one path that
+// already worked.
 
 var (
 	traceIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	spanIDPattern  = regexp.MustCompile(`^[0-9a-f]{16}$`)
 )
 
-func TestTheAdapterReportsTheSameIDsOpenTelemetryDoes(t *testing.T) {
-	// Enable registers globally, exactly as a service's boot does. WithStdout
-	// keeps the exporter off the network; no span is ended, so nothing prints.
-	provider, err := Enable(WithStdout(), WithServiceName("correlation-test"))
+// capture records the Log records a sink receives, so a test can assert on what
+// was actually emitted rather than on what a span reports.
+type capture struct {
+	mu   sync.Mutex
+	logs []*wool.Log
+}
+
+func (c *capture) Process(msg *wool.Log) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.logs = append(c.logs, msg)
+}
+
+func (c *capture) only(t *testing.T) *wool.Log {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	require.Len(t, c.logs, 1, "expected exactly one captured log record")
+	return c.logs[0]
+}
+
+// realBackend enables the real OTEL backend. WithStdout keeps export off the
+// network; tests that care about export capture stdout explicitly.
+func realBackend(t *testing.T, name string) *wooltel.Provider {
+	t.Helper()
+	backend, err := wooltel.Enable(wooltel.WithStdout(), wooltel.WithServiceName(name))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = backend.Shutdown(context.Background()) })
+	return backend
+}
+
+// THE REGRESSION THIS CHANGE WAS REOPENED FOR.
+//
+// An incoming RPC's span is created by the otelgrpc stats handler that
+// GRPCServerOptions installs, and it lives in OpenTelemetry's context slot —
+// not in wool's. A handler that logs through wool.Get(ctx) previously emitted no
+// ids at all despite a live, valid, recording server span, which is every real
+// service in this fleet.
+func TestALogInsideAnIncomingInstrumentedRPCCarriesTheServerSpan(t *testing.T) {
+	backend := realBackend(t, "incoming-rpc")
+	sink := &capture{}
+	provider := wool.New(context.Background(), &wool.Resource{Kind: "test", Unique: "incoming-rpc"}).
+		WithLogger(sink).
+		WithTelemetry(backend)
+
+	// The identity the handler observed, read from OTEL itself inside the call.
+	var observed oteltrace.SpanContext
+	// Loopback TCP rather than a Unix socket: a temp-dir socket path exceeds
+	// sun_path's 104-byte limit on Darwin once the test name is in it. Still a
+	// real server, a real connection and the real stats handler.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	ctx, span := provider.NewTracer("test").Start(context.Background(), "Operation")
+	server := grpc.NewServer(wooltel.GRPCServerOptions()...)
+	healthpb.RegisterHealthServer(server, &recordingHealth{
+		Server: health.NewServer(),
+		onCall: func(ctx context.Context) {
+			observed = oteltrace.SpanFromContext(ctx).SpanContext()
+			// Exactly what a handler does: no wool span of its own.
+			wool.Get(provider.Inject(ctx)).Info("handling request")
+		},
+	})
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
 
-	identity, ok := span.(wool.SpanIdentity)
-	require.True(t, ok, "the OTEL span adapter must implement wool.SpanIdentity")
+	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
 
-	// What OpenTelemetry itself says this context is — the id the backend will
-	// store the trace under.
-	expected := oteltrace.SpanFromContext(ctx).SpanContext()
-	require.True(t, expected.IsValid())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{})
+	require.NoError(t, err)
 
-	require.Equal(t, expected.TraceID().String(), identity.TraceID())
-	require.Equal(t, expected.SpanID().String(), identity.SpanID())
-	require.Regexp(t, traceIDPattern, identity.TraceID())
-	require.Regexp(t, spanIDPattern, identity.SpanID())
+	require.True(t, observed.IsValid(), "the instrumentation must have started a server span")
+	record := sink.only(t)
+	require.Equal(t, observed.TraceID().String(), record.TraceID,
+		"the log must name the server span's trace")
+	require.Equal(t, observed.SpanID().String(), record.SpanID,
+		"the log must name the server span itself")
 }
 
-// An invalid span context stringifies to all zeros. Reporting that as a trace
-// id is worse than reporting nothing: it is a well-formed id for a trace that
-// was never recorded, and a reader cannot tell the difference from the line.
-func TestAnInvalidSpanContextReportsNoIDsRatherThanZeros(t *testing.T) {
-	// The span carried by a bare context is OTEL's non-recording span, whose
-	// context is invalid — the same shape a service gets when it logs outside
-	// any span.
-	adapter := &spanAdapter{span: oteltrace.SpanFromContext(context.Background())}
-	require.False(t, adapter.span.SpanContext().IsValid())
-
-	require.Empty(t, adapter.TraceID())
-	require.Empty(t, adapter.SpanID())
+type recordingHealth struct {
+	*health.Server
+	onCall func(context.Context)
 }
 
-// Logging must never panic, and a type assertion to SpanIdentity succeeds on an
-// interface holding a nil *spanAdapter.
-func TestANilAdapterReportsNoIDs(t *testing.T) {
-	var adapter *spanAdapter
+func (h *recordingHealth) Check(
+	ctx context.Context,
+	request *healthpb.HealthCheckRequest,
+) (*healthpb.HealthCheckResponse, error) {
+	h.onCall(ctx)
+	return h.Server.Check(ctx, request)
+}
 
-	require.Empty(t, adapter.TraceID())
-	require.Empty(t, adapter.SpanID())
+// The second half of the same defect: a span nested on the backend from a wool
+// span's context must be attributed to ITSELF, not to the enclosing wool span.
+// Omission is visible; a confidently wrong span id is not.
+func TestALogInsideANestedBackendSpanNamesThatSpanNotItsParent(t *testing.T) {
+	backend := realBackend(t, "nested-span")
+	sink := &capture{}
+	provider := wool.New(context.Background(), &wool.Resource{Kind: "test", Unique: "nested-span"}).
+		WithLogger(sink).
+		WithTelemetry(backend)
+
+	parent, end := wool.StartSpan(provider.Inject(context.Background()), "Parent")
+	defer end()
+	parentIdentity := oteltrace.SpanFromContext(parent.Context()).SpanContext()
+	require.True(t, parentIdentity.IsValid())
+
+	childCtx, child := backend.NewTracer("test").Start(parent.Context(), "Child")
+	defer child.End()
+	childIdentity := oteltrace.SpanFromContext(childCtx).SpanContext()
+	require.True(t, childIdentity.IsValid())
+	require.NotEqual(t, parentIdentity.SpanID(), childIdentity.SpanID(), "the child must be its own span")
+
+	wool.Get(provider.Inject(childCtx)).WithLogger(sink).Info("deeper")
+
+	record := sink.only(t)
+	require.Equal(t, childIdentity.SpanID().String(), record.SpanID)
+	require.NotEqual(t, parentIdentity.SpanID().String(), record.SpanID)
+	require.Equal(t, childIdentity.TraceID().String(), record.TraceID,
+		"both spans share one trace")
+}
+
+// The on-wire join: the ids on the log must match the ids on the span the
+// exporter actually emitted. Comparing against the live SpanContext proves
+// agreement with the SDK in memory; this proves agreement with what a backend
+// receives, which is what a reader follows.
+func TestTheLoggedIDsMatchTheExportedSpan(t *testing.T) {
+	sink := &capture{}
+	exported := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(exported),
+		sdktrace.WithResource(resource.Empty()),
+	)
+	t.Cleanup(func() { _ = tracerProvider.Shutdown(context.Background()) })
+
+	ctx, span := tracerProvider.Tracer("test").Start(context.Background(), "Operation")
+	provider := wool.New(context.Background(), &wool.Resource{Kind: "test", Unique: "exported"}).
+		WithLogger(sink).
+		WithTelemetry(realBackend(t, "exported"))
+	wool.Get(provider.Inject(ctx)).WithLogger(sink).Info("handling request")
+	span.End()
+	require.NoError(t, tracerProvider.ForceFlush(context.Background()))
+
+	ended := exported.Ended()
+	require.Len(t, ended, 1, "the span must have been exported")
+	record := sink.only(t)
+	require.Equal(t, ended[0].SpanContext().TraceID().String(), record.TraceID)
+	require.Equal(t, ended[0].SpanContext().SpanID().String(), record.SpanID)
+	require.Regexp(t, traceIDPattern, record.TraceID)
+	require.Regexp(t, spanIDPattern, record.SpanID)
+}
+
+// The corrected contract: validity, not recording. An unsampled span is VALID
+// and NOT recording, exports nothing, and its ids are still real — they join
+// this line to a service that did sample the same trace. The earlier prose
+// promised empty ids here, which the adapter never did.
+func TestAnUnsampledSpanStillReportsItsRealIDs(t *testing.T) {
+	backend := realBackend(t, "unsampled")
+	exported := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.NeverSample()),
+		sdktrace.WithSpanProcessor(exported),
+	)
+	t.Cleanup(func() { _ = tracerProvider.Shutdown(context.Background()) })
+
+	ctx, span := tracerProvider.Tracer("test").Start(context.Background(), "Unsampled")
+	require.False(t, span.IsRecording(), "NeverSample must not record")
+	require.True(t, span.SpanContext().IsValid(), "but the context is still valid")
+
+	traceID, spanID := backend.SpanIdentityFromContext(ctx)
+	require.Equal(t, span.SpanContext().TraceID().String(), traceID)
+	require.Equal(t, span.SpanContext().SpanID().String(), spanID)
+
+	span.End()
+	require.NoError(t, tracerProvider.ForceFlush(context.Background()))
+	require.Empty(t, exported.Ended(), "an unsampled span exports nothing, and its ids are still worth stamping")
+}
+
+// An ended span keeps its ids and stops recording — same rule.
+func TestAnEndedSpanStillReportsItsRealIDs(t *testing.T) {
+	backend := realBackend(t, "ended")
+	ctx, span := backend.NewTracer("test").Start(context.Background(), "Ended")
+	identity := oteltrace.SpanFromContext(ctx).SpanContext()
+	span.End()
+
+	traceID, spanID := backend.SpanIdentityFromContext(ctx)
+	require.Equal(t, identity.TraceID().String(), traceID)
+	require.Equal(t, identity.SpanID().String(), spanID)
+}
+
+// An absent identity must report nothing rather than an all-zero id, which is a
+// well-formed id for a trace that never existed.
+func TestAContextWithNoSpanReportsNoIDs(t *testing.T) {
+	backend := realBackend(t, "no-span")
+
+	traceID, spanID := backend.SpanIdentityFromContext(context.Background())
+
+	require.Empty(t, traceID)
+	require.Empty(t, spanID)
+	require.False(t, oteltrace.SpanFromContext(context.Background()).SpanContext().IsValid())
+}
+
+func TestANilContextReportsNoIDs(t *testing.T) {
+	backend := realBackend(t, "nil-ctx")
+
+	traceID, spanID := backend.SpanIdentityFromContext(nil) //nolint:staticcheck // the point is that it does not panic
+
+	require.Empty(t, traceID)
+	require.Empty(t, spanID)
 }

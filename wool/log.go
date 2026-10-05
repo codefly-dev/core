@@ -39,11 +39,15 @@ type Log struct {
 	Message string      `json:"message"`
 	Fields  []*LogField `json:"fields"`
 	// TraceID and SpanID name the trace this line was emitted inside, when the
-	// telemetry backend could report them (see SpanIdentity). They are the join
-	// key between a log stream and a trace stream: logs leave a container on
-	// stdout and are collected from the node, traces leave over OTLP, and these
-	// two ids are the only thing that lets a reader move from a slow trace to
-	// the lines it produced.
+	// telemetry backend could report them (see SpanIdentity and ContextIdentity).
+	// They are the join key between a log stream and a trace stream: logs leave a
+	// container on stdout and are collected from the node, traces leave over
+	// OTLP, and these two ids are the only thing that lets a reader move from a
+	// slow trace to the lines it produced.
+	//
+	// They are always on the record. They do NOT appear on every rendered line:
+	// String returns a FORWARD record verbatim, and NewMessageConsole prints only
+	// Message (see the package doc).
 	//
 	// Both are omitempty: a process with no telemetry enabled has no span, so
 	// its lines carry neither, and nothing about a local run changes shape.
@@ -101,7 +105,9 @@ func (l *Log) String() string {
 		}
 	}
 	// Correlation goes last so it never displaces the message, and only when a
-	// span reported it: a run without telemetry renders exactly as before.
+	// span reported it: a run without telemetry renders exactly as before. Note
+	// the FORWARD return above exits before this — forwarded output is emitted
+	// verbatim and carries its ids on the record only.
 	if l.TraceID != "" {
 		tokens = append(tokens, "trace_id="+l.TraceID)
 	}

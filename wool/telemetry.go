@@ -23,9 +23,17 @@ type Span interface {
 // carry no ids rather than failing to build.
 //
 // An implementation MUST return the empty string rather than a zero-valued id
-// when the span is not recording or its context is invalid. A log line reading
-// trace_id=00000000000000000000000000000000 is worse than one with no id at
-// all: it looks like a real trace that cannot be found.
+// when it has no identity to report — an absent or invalid span context. A log
+// line reading trace_id=00000000000000000000000000000000 is worse than one with
+// no id at all: it looks like a real trace that cannot be found.
+//
+// "No identity" is NOT the same as "not recording", and this interface
+// deliberately does not ask about recording. A span can be valid and
+// non-recording — an unsampled span, a context propagated from a remote caller,
+// a span after End() — and in every one of those cases its ids are real and
+// worth stamping: they join this line to whatever else carries the same trace,
+// including lines from a service that did sample it. Validity cannot promise a
+// backend lookup will succeed, and it is not trying to.
 type SpanIdentity interface {
 	// TraceID identifies the whole trace, and is the key a log line is joined
 	// to its trace by.
@@ -38,6 +46,26 @@ type SpanIdentity interface {
 type Tracer interface {
 	// Start creates a new span. The returned context carries the span.
 	Start(ctx context.Context, name string) (context.Context, Span)
+}
+
+// ContextIdentity is an OPTIONAL capability of a TelemetryProvider: it reports
+// the identity of the BACKEND's own active span in a context.
+//
+// This exists because wool's span and the backend's span are not the same thing.
+// wool knows only about spans started through StartSpan, which it keeps under a
+// private context key. An instrumentation library — including this repository's
+// own wool/otel.GRPCServerOptions() — installs the span it creates for an
+// incoming RPC in the BACKEND's context slot, which wool cannot see. Without
+// this capability a handler logging inside a live, valid server span emitted no
+// ids at all, and a line emitted inside a span a caller nested on the backend
+// was attributed to the enclosing wool span instead of to the span it actually
+// ran in.
+//
+// An implementation returns empty strings when the context carries no valid
+// backend span, under the same rule as SpanIdentity. It must not start a span,
+// mutate the context, or block: it is called once per emitted log line.
+type ContextIdentity interface {
+	SpanIdentityFromContext(ctx context.Context) (traceID, spanID string)
 }
 
 // TelemetryProvider is the bridge between wool and a tracing backend.

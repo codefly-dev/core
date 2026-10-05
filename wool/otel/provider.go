@@ -126,6 +126,48 @@ func (p *Provider) NewTracer(name string) wool.Tracer {
 	return &tracer{t: p.tp.Tracer(name)}
 }
 
+// SpanIdentityFromContext implements wool.ContextIdentity: the identity of
+// OpenTelemetry's OWN active span in ctx, which is where an instrumentation
+// library puts the span it creates.
+//
+// This is the path that makes correlation work on a real service. GRPCServerOptions
+// installs an otelgrpc stats handler, and the server span it starts for an
+// incoming RPC lives here and nowhere wool can see. The same is true of any span
+// a caller starts from an OTEL tracer directly, including one nested inside a
+// wool span — so reading this first is also what attributes a line to the span
+// it actually ran in rather than to its parent.
+//
+// Empty strings when ctx carries no valid span: a context with no span at all
+// yields OpenTelemetry's non-recording span, whose context is invalid and whose
+// ids are zeros.
+func (p *Provider) SpanIdentityFromContext(ctx context.Context) (string, string) {
+	if ctx == nil {
+		return "", ""
+	}
+	return identityOf(oteltrace.SpanFromContext(ctx))
+}
+
+// identityOf reports a span's ids, or empty strings when it has no identity to
+// report.
+//
+// The guard is IsValid, deliberately NOT IsRecording. A valid, non-recording
+// span — unsampled, propagated from a remote caller, or already ended — has real
+// ids that join this line to every other line and service carrying the same
+// trace, so they are stamped. What is refused is an ABSENT identity: an invalid
+// context stringifies to all zeros, and a line claiming
+// trace_id=00000000000000000000000000000000 is a well-formed id for a trace that
+// never existed, which a reader cannot tell from a real one.
+func identityOf(span oteltrace.Span) (string, string) {
+	if span == nil {
+		return "", ""
+	}
+	sc := span.SpanContext()
+	if !sc.IsValid() {
+		return "", ""
+	}
+	return sc.TraceID().String(), sc.SpanID().String()
+}
+
 // Shutdown flushes and shuts down the OTEL provider.
 func (p *Provider) Shutdown(ctx context.Context) error {
 	return p.tp.Shutdown(ctx)
@@ -161,38 +203,29 @@ func (s *spanAdapter) End() {
 }
 
 // TraceID implements wool.SpanIdentity: the id of the trace this span belongs
-// to, as 32 lowercase hex characters, or "" when there is nothing real to name.
+// to, as 32 lowercase hex characters, or "" when the span has no identity to
+// report. See identityOf for why the guard is validity and not recording.
 //
-// The IsValid guard is the whole point. An unset or non-recording span context
-// stringifies to all-zeros, and a log line claiming
-// trace_id=00000000000000000000000000000000 sends a reader looking for a trace
-// that was never recorded. Empty means "no trace", which is true and legible.
-//
-// The nil-receiver check mirrors the typed-nil handling in wool's field
-// rendering: logging must never panic, and an interface holding a nil
-// *spanAdapter is non-nil to a type assertion.
+// The nil-receiver check is kept as a second line of defence. wool normalizes a
+// typed-nil span away at binding now, so this should be unreachable from
+// wool — but this type satisfies a published interface and nothing stops a
+// caller holding one directly.
 func (s *spanAdapter) TraceID() string {
-	if s == nil || s.span == nil {
+	if s == nil {
 		return ""
 	}
-	sc := s.span.SpanContext()
-	if !sc.IsValid() {
-		return ""
-	}
-	return sc.TraceID().String()
+	traceID, _ := identityOf(s.span)
+	return traceID
 }
 
 // SpanID implements wool.SpanIdentity: the id of this one operation within the
 // trace, as 16 lowercase hex characters, under the same rules as TraceID.
 func (s *spanAdapter) SpanID() string {
-	if s == nil || s.span == nil {
+	if s == nil {
 		return ""
 	}
-	sc := s.span.SpanContext()
-	if !sc.IsValid() {
-		return ""
-	}
-	return sc.SpanID().String()
+	_, spanID := identityOf(s.span)
+	return spanID
 }
 
 func toAttribute(f *wool.LogField) attribute.KeyValue {

@@ -10,115 +10,126 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The join key between a log stream and a trace stream is trace_id/span_id on
-// the log record. These tests pin that contract at the wool layer, with fake
-// backends, so it holds for any telemetry provider and not just OTEL. The
-// end-to-end proof against a real OTEL span lives in wool/otel.
+// These are the record-level and compatibility rules, which need no backend.
+// Everything that depends on a real span — an incoming instrumented RPC, a
+// nested backend span, the on-wire join, sampling — is in wool/otel against the
+// real OpenTelemetry SDK, because the first version of this change passed its
+// fakes while being broken on every real path.
+//
+// The implementations below are NOT fakes of infrastructure: they are second
+// implementations of wool's published Span/Tracer/TelemetryProvider contracts,
+// covering shapes no real backend produces (a span that cannot name itself, a
+// typed-nil span). The defects they pin were found with exactly these shapes.
 
-// identifiedSpan is a backend span that CAN name its trace: it implements both
-// wool.Span and wool.SpanIdentity.
-type identifiedSpan struct {
-	traceID string
-	spanID  string
-	events  int
-}
-
-func (s *identifiedSpan) AddEvent(_ string, _ []*wool.LogField) { s.events++ }
-func (s *identifiedSpan) End()                                  {}
-func (s *identifiedSpan) TraceID() string                       { return s.traceID }
-func (s *identifiedSpan) SpanID() string                        { return s.spanID }
-
-// anonymousSpan is a backend span that CANNOT name its trace: it implements
-// wool.Span only. Such a backend must keep working, with logs simply carrying
-// no ids — this is why SpanIdentity is a separate, optional interface.
+// anonymousSpan implements wool.Span only. A backend that cannot name its spans
+// must keep working — that is the reason SpanIdentity is a separate, optional
+// interface rather than two more methods on Span.
 type anonymousSpan struct{ events int }
 
 func (s *anonymousSpan) AddEvent(_ string, _ []*wool.LogField) { s.events++ }
 func (s *anonymousSpan) End()                                  {}
 
-type fakeTracer struct{ span wool.Span }
+// externalSpan is a disabled-span sentinel of the kind a downstream tracer
+// returns as a typed nil: its AddEvent and End are nil-safe no-ops, while its
+// identity getters read a field and so dereference the receiver.
+type externalSpan struct {
+	traceID string
+	spanID  string
+}
 
-func (t *fakeTracer) Start(ctx context.Context, _ string) (context.Context, wool.Span) {
+func (s *externalSpan) AddEvent(_ string, _ []*wool.LogField) {}
+func (s *externalSpan) End()                                  {}
+func (s *externalSpan) TraceID() string                       { return s.traceID }
+func (s *externalSpan) SpanID() string                        { return s.spanID }
+
+type tracerOf struct{ span wool.Span }
+
+func (t tracerOf) Start(ctx context.Context, _ string) (context.Context, wool.Span) {
 	return ctx, t.span
 }
 
-type fakeTelemetry struct{ span wool.Span }
+type backendOf struct{ span wool.Span }
 
-func (f *fakeTelemetry) NewTracer(string) wool.Tracer   { return &fakeTracer{span: f.span} }
-func (f *fakeTelemetry) Shutdown(context.Context) error { return nil }
+func (b backendOf) NewTracer(string) wool.Tracer   { return tracerOf{span: b.span} }
+func (b backendOf) Shutdown(context.Context) error { return nil }
 
-// woolInSpan wires a provider whose tracer hands out the given span, and
-// returns a Wool bound to it plus the sink that captured its records.
 func woolInSpan(t *testing.T, span wool.Span) (*wool.Wool, *capture) {
 	t.Helper()
-	cap := &capture{}
-	provider := wool.New(context.Background(), &wool.Resource{Kind: "test", Unique: "trace-correlation"}).
-		WithLogger(cap).
-		WithTelemetry(&fakeTelemetry{span: span})
+	sink := &capture{}
+	provider := wool.New(context.Background(), &wool.Resource{Kind: "test", Unique: "correlation"}).
+		WithLogger(sink).
+		WithTelemetry(backendOf{span: span})
 	w, end := wool.StartSpan(provider.Inject(context.Background()), "Operation")
 	t.Cleanup(end)
-	return w.WithLogger(cap), cap
+	return w.WithLogger(sink), sink
 }
 
-func TestLogRecordCarriesTheTraceItWasEmittedInside(t *testing.T) {
-	span := &identifiedSpan{
-		traceID: "4bf92f3577b34da6a3ce929d0e0e4736",
-		spanID:  "00f067aa0ba902b7",
-	}
-	w, cap := woolInSpan(t, span)
+// FINDING 1. A typed-nil span passes a comma-ok assertion and an `!= nil`
+// check, so the previous head called into it and logging panicked. wool now
+// normalizes it away at binding, which also protects AddEvent and End.
+func TestATypedNilSpanDoesNotMakeLoggingPanic(t *testing.T) {
+	var disabled *externalSpan // typed nil, carried in a non-nil interface
+	w, sink := woolInSpan(t, disabled)
 
-	w.Info("handling request", wool.Field("id", 42))
+	require.NotPanics(t, func() { w.Info("handling request") })
 
-	require.Len(t, cap.logs, 1)
-	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", cap.logs[0].TraceID)
-	require.Equal(t, "00f067aa0ba902b7", cap.logs[0].SpanID)
-	// The span still receives the line as an event; correlation is additive.
-	require.Equal(t, 1, span.events)
+	require.Len(t, sink.logs, 1, "the line must still reach the sink")
+	require.Empty(t, sink.logs[0].TraceID)
+	require.Empty(t, sink.logs[0].SpanID)
 }
 
-// A backend that cannot name its spans must not break. This is the regression
-// that a widened wool.Span interface would have caused.
+// The same span must not panic when the deferred end func runs either.
+func TestATypedNilSpanDoesNotMakeTheEndFuncPanic(t *testing.T) {
+	var disabled *externalSpan
+	sink := &capture{}
+	provider := wool.New(context.Background(), &wool.Resource{Kind: "test", Unique: "end"}).
+		WithLogger(sink).
+		WithTelemetry(backendOf{span: disabled})
+
+	w, end := wool.StartSpan(provider.Inject(context.Background()), "Operation")
+	w.Info("handling request")
+
+	require.NotPanics(t, end)
+}
+
+// A backend that cannot name its spans keeps working, with no ids.
 func TestASpanThatCannotNameItsTraceStillLogs(t *testing.T) {
 	span := &anonymousSpan{}
-	w, cap := woolInSpan(t, span)
+	w, sink := woolInSpan(t, span)
 
 	w.Info("handling request")
 
-	require.Len(t, cap.logs, 1)
-	require.Empty(t, cap.logs[0].TraceID)
-	require.Empty(t, cap.logs[0].SpanID)
-	require.Equal(t, 1, span.events)
+	require.Len(t, sink.logs, 1)
+	require.Empty(t, sink.logs[0].TraceID)
+	require.Empty(t, sink.logs[0].SpanID)
+	require.Equal(t, 1, span.events, "the line still reaches the span as an event")
 }
 
-// A non-recording span reports empty ids, and an empty id must never reach a
-// line: "trace_id=" or an all-zero id sends a reader hunting a trace that does
-// not exist.
-func TestANonRecordingSpanAddsNothingToTheLine(t *testing.T) {
-	w, cap := woolInSpan(t, &identifiedSpan{traceID: "", spanID: ""})
+// A span reporting empty ids must put nothing on the line: "trace_id=" or an
+// all-zero id is a well-formed reference to a trace that never existed.
+func TestASpanWithNoIdentityAddsNothingToTheLine(t *testing.T) {
+	w, sink := woolInSpan(t, &externalSpan{})
 
 	w.Info("handling request")
 
-	require.Len(t, cap.logs, 1)
-	require.Empty(t, cap.logs[0].TraceID)
-	require.NotContains(t, cap.logs[0].String(), "trace_id")
-	require.NotContains(t, cap.logs[0].String(), "span_id")
+	require.Len(t, sink.logs, 1)
+	require.NotContains(t, sink.logs[0].String(), "trace_id")
+	require.NotContains(t, sink.logs[0].String(), "span_id")
 }
 
-// With no telemetry at all there is no span, so a local run's lines keep
-// exactly the shape they had before this change.
+// With no telemetry at all, a local run's output keeps exactly its old shape.
 func TestWithoutTelemetryTheLineIsUnchanged(t *testing.T) {
-	w, cap := newWool(t, wool.INFO)
+	w, sink := newWool(t, wool.INFO)
 
 	w.Info("handling request", wool.Field("id", 42))
 
-	require.Len(t, cap.logs, 1)
-	require.Empty(t, cap.logs[0].TraceID)
-	require.Empty(t, cap.logs[0].SpanID)
-	require.Equal(t, "(INFO) handling request id=42", cap.logs[0].String())
+	require.Len(t, sink.logs, 1)
+	require.Empty(t, sink.logs[0].TraceID)
+	require.Equal(t, "(INFO) handling request id=42", sink.logs[0].String())
 }
 
-// The console/stdout line is one half of the join: the node-level collector
-// reads container stdout, so the id has to be ON the rendered line.
+// The stdout line is one half of the join: a node-level collector reads
+// container stdout, so the id has to be ON the rendered line.
 func TestTheRenderedLineCarriesTheIDsLast(t *testing.T) {
 	log := &wool.Log{
 		Level:   wool.INFO,
@@ -133,13 +144,34 @@ func TestTheRenderedLineCarriesTheIDsLast(t *testing.T) {
 	require.Equal(t,
 		"(INFO) handling request id=42 trace_id=4bf92f3577b34da6a3ce929d0e0e4736 span_id=00f067aa0ba902b7",
 		line)
-	// The message must stay ahead of the correlation, not be displaced by it.
 	require.Less(t, strings.Index(line, "handling request"), strings.Index(line, "trace_id="))
 }
 
-// The other half of the join: the JSON sink (agents write a JSON envelope to
-// stderr) must carry the ids under the conventional snake_case names a
-// collector's parser looks for.
+// FINDING 3. A FORWARD record is another process's output passing through, and
+// String returns it verbatim — so its ids live on the record only. The docs now
+// say so; this holds them to it, in both directions.
+func TestForwardedOutputIsRenderedVerbatimAndCarriesIDsOnTheRecordOnly(t *testing.T) {
+	log := &wool.Log{
+		Level:   wool.FORWARD,
+		Message: "forwarded output",
+		TraceID: "4bf92f3577b34da6a3ce929d0e0e4736",
+		SpanID:  "00f067aa0ba902b7",
+	}
+
+	require.Equal(t, "forwarded output", log.String(),
+		"forwarded bytes must pass through unchanged")
+
+	data, err := json.Marshal(log)
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", decoded["trace_id"],
+		"a collector joins a forwarded line on the field, not the text")
+	require.Equal(t, "00f067aa0ba902b7", decoded["span_id"])
+}
+
+// The JSON sink (agents write a JSON envelope to stderr) must use the
+// conventional snake_case names a collector's parser looks for.
 func TestTheJSONRecordUsesTheConventionalIDNames(t *testing.T) {
 	data, err := json.Marshal(&wool.Log{
 		Level:   wool.INFO,
@@ -155,8 +187,7 @@ func TestTheJSONRecordUsesTheConventionalIDNames(t *testing.T) {
 	require.Equal(t, "00f067aa0ba902b7", decoded["span_id"])
 }
 
-// Without telemetry the keys must be absent rather than present-and-empty, so
-// a parser cannot mistake "" for a trace.
+// Absent rather than present-and-empty, so a parser cannot read "" as a trace.
 func TestTheJSONRecordOmitsAbsentIDs(t *testing.T) {
 	data, err := json.Marshal(&wool.Log{Level: wool.INFO, Message: "handling request"})
 	require.NoError(t, err)
@@ -167,8 +198,8 @@ func TestTheJSONRecordOmitsAbsentIDs(t *testing.T) {
 	require.NotContains(t, decoded, "span_id")
 }
 
-// AtLevel filters fields. It must not filter away correlation: a line that
-// survives filtering but loses its trace id is no longer joinable.
+// Field filtering must not drop correlation: a line that survives filtering but
+// loses its ids is no longer joinable.
 func TestFieldFilteringKeepsCorrelation(t *testing.T) {
 	log := &wool.Log{
 		Level:   wool.INFO,
@@ -183,18 +214,4 @@ func TestFieldFilteringKeepsCorrelation(t *testing.T) {
 	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", filtered.TraceID)
 	require.Equal(t, "00f067aa0ba902b7", filtered.SpanID)
 	require.Len(t, filtered.Fields, 1)
-}
-
-// Correlation must survive the scoping that real call chains are built from,
-// or only the top frame of an operation would be joinable.
-func TestAScopedChildKeepsTheTrace(t *testing.T) {
-	w, cap := woolInSpan(t, &identifiedSpan{
-		traceID: "4bf92f3577b34da6a3ce929d0e0e4736",
-		spanID:  "00f067aa0ba902b7",
-	})
-
-	w.In("Inner").With(wool.Field("scope", "inner")).Info("deeper")
-
-	require.Len(t, cap.logs, 1)
-	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", cap.logs[0].TraceID)
 }

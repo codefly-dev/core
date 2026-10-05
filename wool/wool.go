@@ -180,12 +180,9 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	}
 
 	// Stamp the active trace onto the record before any sink sees it, so every
-	// sink — console, JSON-to-stderr, gRPC, telemetry — carries the same join
-	// key without each one having to know about tracing.
-	if identity, ok := w.span.(SpanIdentity); ok && identity != nil {
-		log.TraceID = identity.TraceID()
-		log.SpanID = identity.SpanID()
-	}
+	// sink carries the same join key without each one having to know about
+	// tracing.
+	log.TraceID, log.SpanID = w.traceIdentity()
 
 	// Send to telemetry if enabled
 	if w.span != nil {
@@ -195,6 +192,43 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 	if w.logger != nil {
 		w.logger.Process(log)
 	}
+}
+
+// traceIdentity resolves the trace and span ids to stamp on a record.
+//
+// The BACKEND's active span for this Wool's context is authoritative, and is
+// consulted first. It is the only one that sees a span wool did not start: the
+// server span an instrumentation library installs for an incoming RPC, and a
+// span a caller nested on the backend from this context. Asking wool's own span
+// first would stamp the enclosing wool span onto a line that ran inside a
+// deeper one — omission would at least be visible, whereas a confidently wrong
+// span id is not.
+//
+// wool's own span is the fallback, for a backend that cannot read a context and
+// for a span started through StartSpan against a tracer that keeps nothing in
+// the context.
+func (w *Wool) traceIdentity() (traceID, spanID string) {
+	if reporter, ok := w.telemetry().(ContextIdentity); ok && !nilValue(reporter) && w.ctx != nil {
+		if traceID, spanID = reporter.SpanIdentityFromContext(w.ctx); traceID != "" {
+			return traceID, spanID
+		}
+	}
+	// nilValue, not `!= nil`: an interface holding a typed-nil pointer passes a
+	// comma-ok assertion and an inequality check, then panics on the call.
+	if identity, ok := w.span.(SpanIdentity); ok && !nilValue(identity) {
+		return identity.TraceID(), identity.SpanID()
+	}
+	return "", ""
+}
+
+// telemetry returns the backend this Wool should ask about its context: the one
+// its provider was built with, else the globally registered one (which is the
+// same backend Provider.New auto-enables from).
+func (w *Wool) telemetry() TelemetryProvider {
+	if w.provider != nil && w.provider.telemetry != nil {
+		return w.provider.telemetry
+	}
+	return GetTelemetry()
 }
 
 // --- Logging methods ---

@@ -18,15 +18,27 @@
 //
 // Log/trace correlation:
 //
-// When a telemetry backend is active and reports span identity (see
-// SpanIdentity), every log record emitted inside a span carries that span's
-// trace_id and span_id — on the rendered line and in the JSON a sink marshals.
-// That is deliberately the join key for the deployment shape where the two
-// signals leave a container by different routes: logs are written to stdout and
-// collected from the node, traces are exported over OTLP, and the ids are the
-// only thing that lets a reader move from a slow trace to the lines it
-// produced. A process with no telemetry has no span, so its output is
-// unchanged.
+// When a telemetry backend is active, every log RECORD emitted inside a span
+// carries that span's trace_id and span_id. That is deliberately the join key
+// for the deployment shape where the two signals leave a container by different
+// routes: logs are written to stdout and collected from the node, traces are
+// exported over OTLP, and the ids are the only thing that lets a reader move
+// from a slow trace to the lines it produced. A process with no telemetry has no
+// span, so its output is unchanged.
+//
+// The span consulted is the BACKEND's active span for the context, falling back
+// to one started by StartSpan (see ContextIdentity for why that order).
+//
+// Two rendering paths deliberately carry the ids on the record but NOT on the
+// rendered line, because their whole purpose is to emit bytes unchanged:
+//
+//   - FORWARD-level records — Forward, Forwardf and the io.Writer Write — are
+//     another process's output passing through, and Log.String returns that
+//     output verbatim.
+//   - NewMessageConsole prints Message only, by construction.
+//
+// For both, correlation is in the JSON a sink marshals, and a collector reading
+// those lines joins on the fields rather than on the text.
 //
 // Core packages and their use:
 //
