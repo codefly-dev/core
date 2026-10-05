@@ -886,10 +886,21 @@ faithfully rather than pre-empts. A zero endpoint port (the service declares
 none) and a repeated `allow_modules` entry (an allow-list is read as a set) keep
 their documented meanings.
 
+**Three refusals are properties of the DOCUMENT, not of a typed decoder**, and
+live once in `solutionhost/internal/wire` because one guard per decoder is how a
+dynamic map came to have none. One mapping names one key once, with aliases
+RESOLVED — yaml compares raw key nodes first, so an alias key silently replaced
+a per-operation ceiling and a selector label. An explicit **null** is refused
+anywhere: decoding null into a string returns false rather than an error, so a
+typed decoder skips the key *and its value* and omits the sequence element —
+`null: {tenancy: dedicated}` discarded a subtree past a boundary advertised as
+strict. And a mapping key must be a non-empty name, because both models' maps
+are keyed by name. An absent field is absent; an empty list is written `[]`.
+
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (69 documents) / `cell.Fixtures()` (110) ship
+`modulecontract.Fixtures()` (74 documents) / `cell.Fixtures()` (115) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it

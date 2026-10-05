@@ -49,6 +49,9 @@ type Fixture struct {
 // expects.
 const malformedEntry = "ceiling entry is malformed"
 
+// explicitNull is the one message every null fixture expects.
+const explicitNull = "explicit null"
+
 func Fixtures() ([]Fixture, error) {
 	table := []struct {
 		name, file, message, rule string
@@ -60,8 +63,8 @@ func Fixtures() ([]Fixture, error) {
 
 		{name: "not-yaml", file: "not-yaml.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "yaml", rule: ruleWellFormed},
 		{name: "slot-names-from-twice", file: "slot-names-from-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "from" twice`, rule: ruleMappingKeysOnce},
-		{name: "slot-with-empty-field-name", file: "slot-with-empty-field-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `unknown slot field ""`, rule: ruleSlotCarriesOnlyFrom},
-		{name: "ceiling-entry-with-empty-field-name", file: "ceiling-entry-with-empty-field-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `unknown scope ceiling field ""`, rule: ruleCeilingEntryFields},
+		{name: "slot-with-empty-field-name", file: "slot-with-empty-field-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "a key that is not a name", rule: ruleKeyIsAName},
+		{name: "ceiling-entry-with-empty-field-name", file: "ceiling-entry-with-empty-field-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "a key that is not a name", rule: ruleKeyIsAName},
 		{name: "ceiling-entry-names-a-field-twice", file: "ceiling-entry-names-a-field-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "resource_kind" twice`, rule: ruleMappingKeysOnce},
 		{name: "binding-action-not-a-name", file: "binding-action-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding model invoke action "Read"`, rule: ruleActionName},
 		{name: "binding-action-declared-twice", file: "binding-action-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding model invoke action "read" is declared twice`, rule: ruleActionUnique},
@@ -84,6 +87,11 @@ func Fixtures() ([]Fixture, error) {
 		{name: "operation-admin", file: "operation-admin.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `operation "admin" is not one of`, rule: ruleOperationKnown},
 		{name: "destination-kind-cluster-scoped", file: "destination-kind-cluster-scoped.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `kind "cluster-scoped" is not one of`, rule: ruleDestinationKindKnown},
 		{name: "binding-key-slot-key-malformed", file: "binding-key-slot-key-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `slot "assistant/bad.key-binding" is not <group>/<key>`, rule: ruleSlotReference},
+		{name: "null-key-hiding-a-subtree", file: "null-key-hiding-a-subtree.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: explicitNull, rule: ruleNoNulls},
+		{name: "null-in-an-explicit-scope-action", file: "null-in-an-explicit-scope-action.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: explicitNull, rule: ruleNoNulls},
+		{name: "null-in-a-bare-ceiling-action", file: "null-in-a-bare-ceiling-action.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: explicitNull, rule: ruleNoNulls},
+		{name: "explicit-scope-action-not-a-name", file: "explicit-scope-action-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `action "Write"`, rule: ruleActionName},
+		{name: "explicit-scope-action-declared-twice", file: "explicit-scope-action-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `action "write" is declared twice`, rule: ruleActionUnique},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/module-contract/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "tenancy", file: "tenancy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "tenancy", rule: ruleKnownFields},

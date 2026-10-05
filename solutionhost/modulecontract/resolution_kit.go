@@ -170,6 +170,26 @@ func ResolutionFixtures() []ResolutionFixture {
 			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
 			Records: []Record{{Key: audienceKey, Value: "first\u2028second"}},
 		},
+		{
+			// A NON-WHITESPACE control: every earlier case was also Unicode
+			// whitespace, so removing the control test alone kept them all
+			// refused.
+			Name: "an audience carrying a NUL", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: audienceKey, Value: "first\x00second"}},
+		},
+		{
+			Name: "an audience carrying a DEL", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: audienceKey, Value: "first\x7fsecond"}},
+		},
+		{
+			// A FORMAT character, which is neither whitespace nor a control:
+			// an invisible character in a name a receiver matches on.
+			Name: "an audience carrying a zero-width space", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: audienceKey, Value: "first\u200bsecond"}},
+		},
 	}
 	for index := range fixtures {
 		fixtures[index].Slot = fieldAudience
@@ -268,6 +288,16 @@ func BindingKeyFixtures() []ResolutionFixture {
 			Name: "a binding key carrying a newline", Group: group, Key: key, Outcome: OutcomeRefused,
 			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
 			Records: []Record{{Key: bindingKey, Value: "model\nother"}},
+		},
+		{
+			Name: "a binding key carrying a DEL", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: bindingKey, Value: "model\x7fother"}},
+		},
+		{
+			Name: "a binding key carrying a zero-width space", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: bindingKey, Value: "model\u200bother"}},
 		},
 		{
 			Name: "no binding key at all", Group: group, Key: key, Outcome: OutcomeRefused,

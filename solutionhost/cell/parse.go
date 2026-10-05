@@ -90,9 +90,16 @@ func parse(data []byte, without string) (*File, error) {
 	if err := yaml.Unmarshal(data, &tree); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	if path, key, duplicated := wire.DuplicateKey(&tree); duplicated && without != ruleMappingKeysOnce {
+	switch defect := wire.Check(&tree); {
+	case defect.Kind == wire.DuplicateKey && without != ruleMappingKeysOnce:
 		return nil, fmt.Errorf("%w: the mapping at %s names the key %q twice; a repeated key — including one written through an alias — makes the decoded document depend on order",
-			ErrInvalid, wire.Where(path), key)
+			ErrInvalid, defect.Path, defect.Detail)
+	case defect.Kind == wire.NullNode && without != ruleNoNulls:
+		return nil, fmt.Errorf("%w: the document carries an explicit null at %s %s; a null decodes as neither a value nor an error, so a typed decoder DISCARDS it — an absent field is absent, and an empty list is written []",
+			ErrInvalid, defect.Path, defect.Detail)
+	case defect.Kind == wire.KeyNotAName && without != ruleKeyIsAName:
+		return nil, fmt.Errorf("%w: the mapping at %s carries a key that is not a name (%q); these mappings are keyed by name",
+			ErrInvalid, defect.Path, defect.Detail)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(without != ruleKnownFields)

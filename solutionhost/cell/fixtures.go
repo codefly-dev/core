@@ -102,6 +102,14 @@ func Fixtures() ([]Fixture, error) {
 		{name: "service-component-malformed", file: "service-component-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "<module>/<service>", rule: ruleServiceQualified},
 		{name: "egress-host-not-a-hostname", file: "egress-host-not-a-hostname.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a host name", rule: ruleEgressHostName},
 		{name: "allow-modules-on-a-private-endpoint", file: "allow-modules-on-a-private-endpoint.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "an allow-list is only read for", rule: ruleAllowNeedsInner},
+		{name: "null-key-hiding-a-subtree", file: "null-key-hiding-a-subtree.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "explicit null", rule: ruleNoNulls},
+		{name: "null-in-a-selector-value", file: "null-in-a-selector-value.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "explicit null", rule: ruleNoNulls},
+		// The two spellings the cutover DELETED: a consumer re-accepting them
+		// reached every other fixture's outcome, and the package vocabulary
+		// test is not run by a consumer's cell.Run.
+		{name: "endpoint-visibility-module", file: "endpoint-visibility-module.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `visibility "module" is not one of`, rule: ruleVisibility},
+		{name: "endpoint-visibility-external", file: "endpoint-visibility-external.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `visibility "external" is not one of`, rule: ruleVisibility},
+		{name: "selector-key-empty", file: "selector-key-empty.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "a key that is not a name", rule: ruleKeyIsAName},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},
