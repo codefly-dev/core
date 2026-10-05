@@ -906,8 +906,8 @@ because the earlier mechanism — enumerate the refusal sites, require each to
 be *reached* by some fixture — proved a rule was reached and said nothing
 about a condition sharing a rule with another. Nine rounds of review found
 that difference five times, and twice at the end inside one CIDR rule: an
-overlap predicate gated on `network.IP.To4() != nil` and a canonical-spelling
-check run only while no network had been seen yet each accepted an invalid
+overlap predicate gated on the parsed range being IPv4, and a
+canonical-spelling check run only while no range had been seen yet each accepted an invalid
 document while every fixture went on refusing, because a sibling condition
 reached the same refusal site. The egress CIDR rule is now three rules, with
 an IPv6 overlap and a later non-canonical entry as their witnesses; endpoint
