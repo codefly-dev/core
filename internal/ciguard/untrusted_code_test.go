@@ -56,17 +56,28 @@ type permissionGrant struct {
 func readPermissions(node yaml.Node) permissionGrant {
 	switch node.Kind {
 	case yaml.ScalarNode:
-		switch strings.TrimSpace(node.Value) {
+		switch strings.ToLower(strings.TrimSpace(node.Value)) {
 		case "write-all":
 			return permissionGrant{declared: true, writes: []string{writeAll}}
 		case "read-all", "":
 			return permissionGrant{declared: true}
 		}
-		return permissionGrant{declared: true}
+		// A scalar this does not recognise is a grant it cannot read, and an
+		// unreadable grant must not read as read-only. Reported as the widest
+		// one so the guards refuse rather than interpret.
+		return permissionGrant{declared: true, writes: []string{writeAll}}
 	case yaml.MappingNode:
 		grant := permissionGrant{declared: true}
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			if strings.TrimSpace(node.Content[i+1].Value) == "write" {
+			access := strings.ToLower(strings.TrimSpace(node.Content[i+1].Value))
+			switch access {
+			case "read", "none":
+				continue
+			case "write":
+				grant.writes = append(grant.writes, node.Content[i].Value)
+			default:
+				// Same reasoning: an access level this cannot read is treated
+				// as a write on that scope rather than waved through.
 				grant.writes = append(grant.writes, node.Content[i].Value)
 			}
 		}
@@ -177,10 +188,18 @@ func jobIDs(wf permissionedWorkflow) []string {
 func cannotRunOnAPullRequest(t *testing.T, gate string) bool {
 	t.Helper()
 
-	reached, err := canRunUnder(gate, pullRequest)
-	require.NoError(t, err,
-		"a condition this package cannot parse is one it cannot judge: %q", gate)
-	return reached == triFalse
+	// Both ways a pull request's code runs: the pull_request event, and a merge
+	// queue building the candidate commits before they are on the default
+	// branch.
+	for _, hostile := range []scenario{pullRequest, mergeGroup} {
+		reached, err := canRunUnder(gate, hostile)
+		require.NoError(t, err,
+			"a condition this package cannot parse is one it cannot judge: %q", gate)
+		if reached != triFalse {
+			return false
+		}
+	}
+	return true
 }
 
 // A `pull_request` run checks out the pull request's head: for the whole job,

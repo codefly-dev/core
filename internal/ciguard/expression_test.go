@@ -569,10 +569,40 @@ func truth(v value) tri {
 // unknown, which is what keeps the evaluation honest: an unbound
 // `needs.build.result` makes a condition depending on it unknown rather than
 // conveniently false.
+//
+// WHICH values may be bound is the whole soundness argument, and getting it
+// wrong is silent. A scenario must answer for EVERY instance of its situation,
+// not for one; binding a value the triggering party CHOOSES answers for the one
+// instance that was guessed. `github.head_ref` is the example that bit: bound to
+// some branch name, `github.head_ref == 'release'` evaluates to definitely-false
+// and a credential-bearing job gated on it is accepted -- while being perfectly
+// reachable from a pull request whose branch is named `release`.
+//
+// So there are two maps, and the difference is not cosmetic:
+//
+//   - `fixed` holds values the EVENT determines, identically for every
+//     instance. Nobody chooses them, so one binding answers for all.
+//   - `adversarial` holds values the triggering party does choose, pinned to
+//     the value that most favours them. That is sound for what these scenarios
+//     are for -- obliging one specific condition -- and every entry carries its
+//     reason.
+//
+// Anything else stays unknown. TestNoScenarioBindsAValueTheTriggeringPartyChooses
+// makes an unsound binding impossible to add by adding a line.
 type scenario struct {
-	name   string
-	bound  map[string]string
-	always map[string]tri // function results this situation fixes
+	name        string
+	fixed       map[string]string
+	adversarial map[string]string
+	always      map[string]tri // function results this situation fixes
+}
+
+// lookup resolves a context path against both maps.
+func (s scenario) lookup(path string) (string, bool) {
+	if value, ok := s.fixed[path]; ok {
+		return value, true
+	}
+	value, ok := s.adversarial[path]
+	return value, ok
 }
 
 func (s scenario) eval(n node) value {
@@ -581,7 +611,7 @@ func (s scenario) eval(n node) value {
 		return value{known: true, v: t.value}
 
 	case contextNode:
-		if bound, ok := s.bound[strings.ToLower(strings.Join(t.path, "."))]; ok {
+		if bound, ok := s.lookup(strings.ToLower(strings.Join(t.path, "."))); ok {
 			return value{known: true, v: bound}
 		}
 		return unknownValue
@@ -710,14 +740,20 @@ func canRunUnder(gate string, s scenario) (tri, error) {
 	if trimmed == "" {
 		return triTrue, nil
 	}
-	for _, body := range expressionsIn(trimmed, true) {
+	// A condition is one expression -- either bare, or one `${{ }}` spanning the
+	// whole value. Anything else is string CONCATENATION, and GitHub treats a
+	// non-empty string as true: `${{ false }}x` runs. Reading only the first
+	// interpolation of such a value would report false and accept the job.
+	bodies := expressionsIn(trimmed, true)
+	whole := strings.HasPrefix(trimmed, "${{") && strings.HasSuffix(trimmed, "}}")
+	if len(bodies) > 1 || (len(bodies) == 1 && strings.Contains(trimmed, "${{") && !whole) {
+		return triTrue, nil
+	}
+	for _, body := range bodies {
 		tree, err := parseExpression(body)
 		if err != nil {
 			return triUnknown, fmt.Errorf("cannot parse condition %q: %w", trimmed, err)
 		}
-		// A condition is one expression; several interpolations in one `if:`
-		// would be a string, which GitHub treats as truthy, so the first is the
-		// one that decides.
 		return truth(s.eval(tree)), nil
 	}
 	return triTrue, nil

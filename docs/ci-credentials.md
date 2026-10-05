@@ -39,12 +39,27 @@ wrongly in both directions:
 | workflow-level `env:` | inherited by every job while appearing in none of them |
 
 So a condition is **evaluated** in three-valued logic against scenarios that
-bind the hostile facts — a pull request, a `workflow_run` produced by a pull
-request, a `workflow_run` produced by a push to a fork, a pushed tag. Anything
-the evaluator cannot know (`needs.build.result`, `success()`) is **unknown**,
-and unknown is not false, so a job is accepted only when its condition is
-*provably* false. An expression that cannot be parsed fails the guard that asked
-rather than reporting nothing.
+bind the hostile facts — a pull request, a merge-queue candidate, a
+`workflow_run` produced by a pull request, a `workflow_run` produced by a push
+to a fork, a pushed tag. Anything the evaluator cannot know
+(`needs.build.result`, `success()`) is **unknown**, and unknown is not false, so
+a job is accepted only when its condition is *provably* false.
+
+**What a scenario may bind is the soundness argument.** A scenario has to answer
+for every instance of its situation, not for one, so it binds only values the
+*event* determines (`github.event_name`, the repository, the default branch).
+A value the triggering party chooses — `github.head_ref`, an upstream run's
+`head_branch` — is left **unknown**, because binding one guess makes a
+comparison against any other literal read as definitely-false and accepts a job
+that is perfectly reachable. Where a scenario does pin such a value on purpose,
+to oblige one particular condition, it goes in a separate `adversarial` map with
+its reason, and a test refuses any other binding of a party-chosen path.
+
+Everything that cannot be read is refused rather than interpreted: an expression
+that will not parse, a `permissions:` scalar or access level the reader does not
+recognise, a job that cannot be re-encoded for the backstop, a repository-local
+action with no loadable manifest. Each fails the guard that asked instead of
+reporting "nothing found".
 
 ## The rules
 

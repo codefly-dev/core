@@ -112,9 +112,12 @@ func secretsIn(t *testing.T, wf isolatedWorkflow, id string) map[string][]string
 	// every secret the caller holds, which is the widest form there is.
 	if job.Secrets.Kind != 0 {
 		var rendered strings.Builder
-		if err := yaml.NewEncoder(&rendered).Encode(job.Secrets); err == nil {
-			note("the job's secrets:", rendered.String())
-		}
+		// Not `if err == nil`: skipping on an encode failure would mean a
+		// `secrets:` block this guard could not read counted as no secrets.
+		require.NoError(t, yaml.NewEncoder(&rendered).Encode(job.Secrets),
+			"job %q has a `secrets:` block that cannot be re-encoded, so what it "+
+				"hands over cannot be read", id)
+		note("the job's secrets:", rendered.String())
 		if strings.TrimSpace(job.Secrets.Value) == "inherit" {
 			found["(inherit: every secret the caller holds)"] = []string{"the job's secrets:"}
 		}
@@ -140,25 +143,28 @@ func secretsIn(t *testing.T, wf isolatedWorkflow, id string) map[string][]string
 	// as written, so a credential in a field the model does not know about is
 	// still reported -- without a name for where it is, which is the honest
 	// answer and enough to find it.
-	if raw, ok := wf.raw[id]; ok {
-		var rendered strings.Builder
-		if err := yaml.NewEncoder(&rendered).Encode(raw); err == nil {
-			names, err := secretsReferencedIn(rendered.String())
-			require.NoError(t, err,
-				"job %q contains an expression that cannot be parsed, so a "+
-					"credential in it would be invisible to this guard", id)
-			for _, name := range names {
-				if name == builtInToken {
-					continue
-				}
-				if _, already := found[name]; !already {
-					found[name] = []string{
-						"a job field this guard does not model by name (grep job " +
-							id + " for it): `with`, `strategy`, `services`, " +
-							"`container`, `outputs`, `environment` and `concurrency` " +
-							"can all carry one",
-					}
-				}
+	raw, ok := wf.raw[id]
+	require.True(t, ok,
+		"job %q was not captured verbatim, so the backstop below cannot read it "+
+			"and every field this guard does not name would be exempt", id)
+
+	var rendered strings.Builder
+	require.NoError(t, yaml.NewEncoder(&rendered).Encode(raw),
+		"job %q cannot be re-encoded, so the backstop cannot read it", id)
+	names, err := secretsReferencedIn(rendered.String())
+	require.NoError(t, err,
+		"job %q contains an expression that cannot be parsed, so a credential "+
+			"in it would be invisible to this guard", id)
+	for _, name := range names {
+		if name == builtInToken {
+			continue
+		}
+		if _, already := found[name]; !already {
+			found[name] = []string{
+				"a job field this guard does not model by name (grep job " +
+					id + " for it): `with`, `strategy`, `services`, " +
+					"`container`, `outputs`, `environment` and `concurrency` " +
+					"can all carry one",
 			}
 		}
 	}
@@ -286,16 +292,18 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 			}
 			sort.Strings(names)
 
-			ok, reason := mustNotRunUnder(t, job.If, pullRequest)
-			require.True(t, ok,
-				"%s: job %q references %s, and %s. `permissions:` does not govern a "+
-					"repository secret, so narrowing the built-in token leaves this "+
-					"credential exactly as reachable as before. Move it into a job "+
-					"whose condition cannot be true on a pull request -- a push of the "+
-					"default branch, or a pushed tag -- and that checks out none of "+
-					"the pull request's code. A step-level `if:` is not enough: it "+
-					"gates the step, not the job the credential lives in.",
-				filepath.Base(path), id, strings.Join(names, "; "), reason)
+			for _, hostile := range []scenario{pullRequest, mergeGroup} {
+				ok, reason := mustNotRunUnder(t, job.If, hostile)
+				require.True(t, ok,
+					"%s: job %q references %s, and %s. `permissions:` does not govern a "+
+						"repository secret, so narrowing the built-in token leaves this "+
+						"credential exactly as reachable as before. Move it into a job "+
+						"whose condition cannot be true on a pull request -- a push of the "+
+						"default branch, or a pushed tag -- and that checks out none of "+
+						"the pull request's code. A step-level `if:` is not enough: it "+
+						"gates the step, not the job the credential lives in.",
+					filepath.Base(path), id, strings.Join(names, "; "), reason)
+			}
 		}
 	}
 	require.NotZero(t, checked,
@@ -492,6 +500,89 @@ func commandsOf(t *testing.T, job isolatedJob) string {
 		pending = append(pending, scriptReference.FindAllString(string(body), -1)...)
 	}
 	return all.String()
+}
+
+// localActionReference matches a step that uses an action from this repository
+// (`uses: ./path`), whose definition is a file here rather than a pinned
+// upstream release.
+var localActionReference = regexp.MustCompile(`^\./([A-Za-z0-9_./-]+)$`)
+
+// A repository-local action is code this repository ships and a step's `with:`
+// flows straight into it, so a secret passed to one is a secret inside it --
+// and a composite action's `runs.steps` can do anything a job step can.
+//
+// There are none here today. That is exactly why this exists: the guards above
+// read workflows and `.github/scripts/*.sh`, so the day somebody adds
+// `.github/actions/x/action.yml` and passes it a credential, nothing would have
+// noticed. Rather than enumerate what such an action may do, this refuses the
+// case it cannot read: a local action must have a definition this package can
+// load, and its definition is then searched for secret references like any
+// other file.
+func TestEveryRepositoryLocalActionCanBeReadByTheseGuards(t *testing.T) {
+	paths, workflows := loadIsolatedWorkflows(t)
+
+	for _, path := range paths {
+		wf := workflows[path]
+		for _, id := range isolatedJobIDs(wf) {
+			job := wf.Jobs[id]
+
+			// A job can also call a reusable workflow by local path, which is
+			// itself guarded by every assertion in this package.
+			for _, reference := range append([]string{job.Uses}, stepUses(job)...) {
+				match := localActionReference.FindStringSubmatch(strings.TrimSpace(reference))
+				if match == nil {
+					continue
+				}
+				target := match[1]
+				if strings.HasSuffix(target, ".yml") || strings.HasSuffix(target, ".yaml") {
+					require.FileExists(t, filepath.Join(repoRoot(t), target),
+						"%s: job %q calls local workflow %q, which does not exist",
+						filepath.Base(path), id, target)
+					continue
+				}
+
+				// A composite or JavaScript action: one of the two manifest
+				// spellings must be readable, and whatever is in it is searched
+				// for credentials.
+				var manifest string
+				for _, name := range []string{"action.yml", "action.yaml"} {
+					candidate := filepath.Join(repoRoot(t), target, name)
+					if _, err := os.Stat(candidate); err == nil {
+						manifest = candidate
+					}
+				}
+				require.NotEmpty(t, manifest,
+					"%s: job %q uses local action %q but neither %s/action.yml nor "+
+						"%s/action.yaml exists. A local action this package cannot "+
+						"load is one whose steps and inputs are exempt from every "+
+						"guard here.",
+					filepath.Base(path), id, target, target, target)
+
+				body, err := os.ReadFile(manifest)
+				require.NoError(t, err)
+				names, err := secretsReferencedIn(string(body))
+				require.NoError(t, err,
+					"%s contains an expression this package cannot parse", manifest)
+				for _, name := range names {
+					require.Equal(t, builtInToken, name,
+						"%s names secret %q. A local action runs inside the calling "+
+							"job, so a credential it reads is a credential in that "+
+							"job -- pass it as an input from a job the guards above "+
+							"have already judged.",
+						manifest, name)
+				}
+			}
+		}
+	}
+}
+
+// stepUses returns each step's `uses:`.
+func stepUses(job isolatedJob) []string {
+	out := make([]string, 0, len(job.Steps))
+	for _, step := range job.Steps {
+		out = append(out, step.Uses)
+	}
+	return out
 }
 
 // A job holding a privileged credential must not reach for a pull request's

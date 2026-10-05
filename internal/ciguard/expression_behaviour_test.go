@@ -12,17 +12,36 @@ import (
 // is an escape hatch for all of them at once. These are the shapes that matter,
 // including each one a review has got through.
 
-// pullRequest binds what a same-repository pull request fixes. Only these are
-// bound: everything else -- `needs.*`, `success()` -- stays unknown, and a
-// condition turning on an unknown is not accepted as safe.
+// theRepository and theDefaultBranch are facts about this repository, not about
+// any event.
+const (
+	theRepository    = "codefly-dev/core"
+	theDefaultBranch = "main"
+)
+
+// pullRequest binds ONLY what the event itself determines. Not the ref, not the
+// head branch, not the actor -- a pull request's author chooses those, and a
+// condition comparing one of them to a literal must therefore read as UNKNOWN
+// rather than as false. Three bindings are enough to make a push-gated
+// condition provably false, which is the only sound way to be false here.
 var pullRequest = scenario{
 	name: "a pull request",
-	bound: map[string]string{
-		"github.event_name": "pull_request",
-		"github.ref":        "refs/pull/7/merge",
-		"github.ref_name":   "7/merge",
-		"github.head_ref":   "a-contributor-branch",
-		"github.repository": "codefly-dev/core",
+	fixed: map[string]string{
+		"github.event_name":                      "pull_request",
+		"github.repository":                      theRepository,
+		"github.event.repository.default_branch": theDefaultBranch,
+	},
+	always: map[string]tri{"always": triTrue},
+}
+
+// mergeGroup is the other way a pull request's code runs: a merge queue builds
+// the candidate commits, which are not on the default branch yet.
+var mergeGroup = scenario{
+	name: "a merge queue candidate",
+	fixed: map[string]string{
+		"github.event_name":                      "merge_group",
+		"github.repository":                      theRepository,
+		"github.event.repository.default_branch": theDefaultBranch,
 	},
 	always: map[string]tri{"always": triTrue},
 }
@@ -31,36 +50,42 @@ var pullRequest = scenario{
 // shapes a workflow_run can take, and they are separate on purpose: each is
 // stopped by a DIFFERENT condition, so a job guarded on only one of the two
 // still fails against the other.
+//
+// Each pins the fields the triggering party controls to the values that most
+// favour it, so that exactly one condition is left to do the work. Note what is
+// NOT pinned: `head_branch`, which the head repository names freely. Pinning it
+// to "main" once made `head_branch == 'release'` read as definitely-false.
 var workflowRunFromAPullRequest = scenario{
 	name: "a workflow_run produced by a pull request",
-	bound: map[string]string{
-		"github.event_name": "workflow_run",
-		"github.ref":        "refs/heads/main",
-		"github.repository": "codefly-dev/core",
-		// Deliberately favourable: the run succeeded, on a head branch named
-		// main, in this very repository. Only the EVENT is hostile.
+	fixed: map[string]string{
+		"github.event_name":                      "workflow_run",
+		"github.repository":                      theRepository,
+		"github.event.repository.default_branch": theDefaultBranch,
+	},
+	adversarial: map[string]string{
+		// The hostile fact: the upstream run came from a pull request.
+		"github.event.workflow_run.event": "pull_request",
+		// Favourable, so only the event condition can refuse the job: the run
+		// succeeded, in this very repository.
 		"github.event.workflow_run.conclusion":                "success",
-		"github.event.workflow_run.event":                     "pull_request",
-		"github.event.workflow_run.head_branch":               "main",
-		"github.event.workflow_run.head_repository.full_name": "codefly-dev/core",
-		"github.event.repository.default_branch":              "main",
+		"github.event.workflow_run.head_repository.full_name": theRepository,
 	},
 	always: map[string]tri{"always": triTrue},
 }
 
 var workflowRunFromAForkPush = scenario{
 	name: "a workflow_run produced by a push to a fork",
-	bound: map[string]string{
-		"github.event_name": "workflow_run",
-		"github.ref":        "refs/heads/main",
-		"github.repository": "codefly-dev/core",
-		// Now the event is a push and the branch is named main; only the head
-		// REPOSITORY is hostile.
-		"github.event.workflow_run.conclusion":                "success",
-		"github.event.workflow_run.event":                     "push",
-		"github.event.workflow_run.head_branch":               "main",
+	fixed: map[string]string{
+		"github.event_name":                      "workflow_run",
+		"github.repository":                      theRepository,
+		"github.event.repository.default_branch": theDefaultBranch,
+	},
+	adversarial: map[string]string{
+		// The hostile fact: the head repository is not this one.
 		"github.event.workflow_run.head_repository.full_name": "a-contributor/core",
-		"github.event.repository.default_branch":              "main",
+		// Favourable, so only the head-repository condition can refuse it.
+		"github.event.workflow_run.event":      "push",
+		"github.event.workflow_run.conclusion": "success",
 	},
 	always: map[string]tri{"always": triTrue},
 }
@@ -70,13 +95,90 @@ var workflowRunFromAForkPush = scenario{
 // job to prove the commit is on the default branch.
 var pushOfATag = scenario{
 	name: "a pushed tag",
-	bound: map[string]string{
-		"github.event_name": "push",
-		"github.ref":        "refs/tags/v9.9.9",
-		"github.ref_name":   "v9.9.9",
-		"github.repository": "codefly-dev/core",
+	fixed: map[string]string{
+		"github.event_name":                      "push",
+		"github.repository":                      theRepository,
+		"github.event.repository.default_branch": theDefaultBranch,
+	},
+	adversarial: map[string]string{
+		// The ref IS the scenario's premise, so binding a tag is what makes it
+		// the tag scenario rather than a guess. The residual, stated: a job
+		// gated on one exact tag NAME reads as unreachable here and would not
+		// be asked for an ancestry proof.
+		"github.ref":      "refs/tags/v9.9.9",
+		"github.ref_name": "v9.9.9",
 	},
 	always: map[string]tri{"always": triTrue},
+}
+
+// everyScenario is what the construction tests below sweep.
+var everyScenario = []scenario{
+	pullRequest, mergeGroup,
+	workflowRunFromAPullRequest, workflowRunFromAForkPush,
+	pushOfATag,
+}
+
+// chosenByTheTriggeringParty are context paths whose value is picked by whoever
+// triggered the run. Binding one of them in `fixed` is unsound: a comparison
+// against any other literal then reads as definitely-false, and a
+// credential-bearing job gated on it is accepted while being perfectly
+// reachable.
+//
+// This is the construction. The hole it closes was live -- `github.head_ref`
+// and `github.event.workflow_run.head_branch` were both bound -- and it was
+// invisible in every passing test, because a wrong binding makes guards pass,
+// never fail.
+var chosenByTheTriggeringParty = []string{
+	"github.head_ref",
+	"github.actor",
+	"github.triggering_actor",
+	"github.event.pull_request.head.ref",
+	"github.event.pull_request.head.repo.full_name",
+	"github.event.pull_request.title",
+	"github.event.pull_request.body",
+	"github.event.workflow_run.head_branch",
+	"github.event.workflow_run.head_sha",
+	"github.event.workflow_run.head_commit.message",
+	"github.event.workflow_run.head_repository.full_name",
+	"github.event.workflow_run.event",
+	"github.event.workflow_run.conclusion",
+	"github.ref",
+	"github.ref_name",
+}
+
+func TestNoScenarioBindsAValueTheTriggeringPartyChoosesAsIfItWereFixed(t *testing.T) {
+	for _, s := range everyScenario {
+		for _, path := range chosenByTheTriggeringParty {
+			require.NotContains(t, s.fixed, path,
+				"scenario %q binds %s in `fixed`, but the triggering party chooses "+
+					"that value. One binding then answers for one instance: a "+
+					"condition comparing it to any other literal reads as "+
+					"definitely-false, and a credential-bearing job gated on it is "+
+					"ACCEPTED while remaining reachable. If this scenario needs the "+
+					"value pinned to oblige a particular condition, put it in "+
+					"`adversarial` with the reason.",
+				s.name, path)
+		}
+	}
+}
+
+// And the consequence, asserted directly: a condition on a value the triggering
+// party chooses can never be judged safe.
+func TestAConditionOnAChosenValueIsNeverJudgedSafe(t *testing.T) {
+	for _, s := range everyScenario {
+		for _, path := range chosenByTheTriggeringParty {
+			if _, pinned := s.adversarial[path]; pinned {
+				continue // deliberately pinned to oblige a condition; see the scenario
+			}
+			gate := path + " == 'release'"
+			got, err := canRunUnder(gate, s)
+			require.NoError(t, err)
+			require.NotEqual(t, triFalse.String(), got.String(),
+				"scenario %q judged %q as definitely false. A job gated on it would "+
+					"be accepted, yet whoever triggers the run picks that value.",
+				s.name, gate)
+		}
+	}
 }
 
 func TestAConditionIsJudgedByMeaningNotByItsText(t *testing.T) {
