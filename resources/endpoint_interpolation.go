@@ -70,6 +70,16 @@ func malformedEndpointMarker(value string) bool {
 	return strings.Contains(value[at:], marker)
 }
 
+// referencesOrNone names the well-formed references a value carries, for a
+// diagnostic that must not carry the value itself.
+func referencesOrNone(value string) string {
+	references := EndpointReferences(value)
+	if len(references) == 0 {
+		return "no well-formed reference"
+	}
+	return "${endpoint:" + strings.Join(references, "}, ${endpoint:") + "}"
+}
+
 // errEndpointNotAvailable marks a well-formed reference to a declared endpoint
 // the consumer was handed no mapping for. With ErrEndpointNotReachable (a
 // denial by a valid export policy) it is one of the two omission classes — the
@@ -105,15 +115,19 @@ func EndpointReferences(value string) []string {
 // consumer-less resolution, because an endpoint reference is an edge into the
 // consumer's module and the export boundary is a statement about that module.
 func InterpolateEndpointsFor(ctx context.Context, value string, mappings []*basev0.NetworkMapping, access *basev0.NetworkAccess, selection EndpointSelectionContext) (string, error) {
+	// A diagnostic never carries the value: a configuration value may be a
+	// secret, and an error travels further than the value was meant to. The
+	// references the value names are not secret, and the caller names the
+	// configuration and key.
 	if malformedEndpointMarker(value) {
-		return "", fmt.Errorf("%w: %q", ErrMalformedEndpointReference, value)
+		return "", fmt.Errorf("%w (the value names: %s)", ErrMalformedEndpointReference, referencesOrNone(value))
 	}
 	matches := endpointInterpolationPattern.FindAllStringSubmatchIndex(value, -1)
 	if matches == nil {
 		return value, nil
 	}
 	if err := selection.Complete(); err != nil {
-		return "", fmt.Errorf("cannot resolve the endpoint references in %q: %w", value, err)
+		return "", fmt.Errorf("cannot resolve the endpoint references %s: %w", referencesOrNone(value), err)
 	}
 	// Every reference is classified before any failure is reported, so that the
 	// failure reported is the one that matters: a composition fault anywhere in

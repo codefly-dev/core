@@ -42,8 +42,11 @@ func TestArtifactExecutionOverIndependentProcess(t *testing.T) {
 			command.Stderr = os.Stderr
 			require.NoError(t, command.Start())
 			t.Cleanup(func() { cancel(); _ = command.Wait() })
-			var address []byte
-			require.Eventually(t, func() bool { address, err = os.ReadFile(addressFile); return err == nil && len(address) != 0 }, 5*time.Second, 10*time.Millisecond)
+			// The condition runs on Eventually's goroutine; the address is read
+			// again here, on this one, rather than through a captured variable.
+			require.Eventually(t, func() bool { polled, readErr := os.ReadFile(addressFile); return readErr == nil && len(polled) != 0 }, 5*time.Second, 10*time.Millisecond)
+			address, err := os.ReadFile(addressFile)
+			require.NoError(t, err)
 			conn, err := grpc.NewClient(string(address), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithUnaryInterceptor(solution.EnforcingClientInterceptor()))
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, conn.Close()) })

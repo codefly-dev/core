@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,8 +44,9 @@ func TestServeRegistersSolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	// Read by this goroutine while the child's copy goroutine writes it.
+	stderr := &lockedBuffer{}
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +55,7 @@ func TestServeRegistersSolution(t *testing.T) {
 		_ = cmd.Wait()
 	})
 
-	endpoint := readHandshakeEndpoint(t, stdout, &stderr)
+	endpoint := readHandshakeEndpoint(t, stdout, stderr)
 
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -76,7 +78,27 @@ func TestServeRegistersSolution(t *testing.T) {
 
 // readHandshakeEndpoint reads the "VERSION|endpoint" line the agent writes to
 // stdout on startup, verifies the protocol version, and returns the endpoint.
-func readHandshakeEndpoint(t *testing.T, stdout io.Reader, stderr *bytes.Buffer) string {
+// lockedBuffer is a bytes.Buffer whose reads and writes may come from
+// different goroutines: exec copies the child's stderr into it while the test
+// reads it for a failure message.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func readHandshakeEndpoint(t *testing.T, stdout io.Reader, stderr *lockedBuffer) string {
 	t.Helper()
 	type result struct {
 		line string

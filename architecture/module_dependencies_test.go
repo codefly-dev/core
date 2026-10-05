@@ -57,10 +57,10 @@ func TestPublicModuleGraph(t *testing.T) {
 
 	// modules:
 	// management:
-	// - organization [module endpoint]
+	// - organization [internal rest, exported to web and billing]
 	// web:
 	// - frontend -> gateway [public http]
-	// - gateway -> organization [public rest]
+	// - gateway -> organization [internal rest]
 	// billing
 	// - accounts [public rest]
 	//

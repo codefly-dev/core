@@ -245,6 +245,51 @@ func TestTextAroundAWellFormedReferenceIsNotAMarker(t *testing.T) {
 	}
 }
 
+// A diagnostic never carries the configuration value: a value may be a
+// secret, and an error travels further than the value was meant to. The
+// references it names and the key are what a reader needs.
+func TestReferenceDiagnosticsDoNotExposeTheValue(t *testing.T) {
+	ctx := context.Background()
+	const secret = "synthetic-secret-7f3a"
+	inRun := resources.WithRunProducers(func(string) bool { return true })
+	consumer := resources.WithConsumer("payments", declaredBy(selectionEndpoint("grpc", "grpc", "public")))
+	for name, value := range map[string]string{
+		"malformed marker":                 "credential=" + secret + ";${endpoint:}",
+		"beside a valid reference":         "credential=" + secret + ";${endpoint:" + selectionUnique + "/grpc};${endpoint:",
+		"unknown producer beside a secret": "credential=" + secret + ";${endpoint:nobody/nothing/grpc}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := resources.InterpolateEndpointsFor(ctx, value, nil, resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{ConsumerModule: "payments", Declared: declaredBy(selectionEndpoint("grpc", "grpc", "public"))})
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), secret)
+			_, err = resources.InterpolateEndpointsFor(ctx, value, nil, resources.NewNativeNetworkAccess(), resources.EndpointSelectionContext{})
+			require.Error(t, err, "an incomplete selection refuses")
+			require.NotContains(t, err.Error(), secret, "and names no value doing so")
+			for _, conf := range []*basev0.Configuration{authorityConf("credential", value), authorityTemplated("credential", value)} {
+				conf.Infos[0].ConfigurationValues[0].Secret = true
+				_, err = resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun, consumer)
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), secret)
+				require.Contains(t, err.Error(), "authority/credential", "the key is named")
+				_, err = resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun, consumer)
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), secret)
+			}
+		})
+	}
+}
+
+// Where an endpoint lives is its Location and nothing else: a visibility that
+// spells "external" is an invalid declaration, never a location.
+func TestLocationIsTheOnlyRecordOfWhereAnEndpointLives(t *testing.T) {
+	spelled := &resources.Endpoint{Module: "infra", Service: "db", Name: "tcp", API: "tcp", Visibility: "external"}
+	require.False(t, spelled.External())
+	require.False(t, resources.IsExternalEndpoint(&basev0.Endpoint{Module: "infra", Service: "db", Name: "tcp", Api: "tcp", Visibility: "external"}))
+	located := &resources.Endpoint{Module: "infra", Service: "db", Name: "tcp", API: "tcp", Visibility: resources.VisibilityPrivate, Location: resources.LocationExternal}
+	require.True(t, located.External())
+	require.True(t, resources.IsExternalEndpoint(&basev0.Endpoint{Module: "infra", Service: "db", Name: "tcp", Api: "tcp", Location: resources.LocationExternal}))
+}
+
 // The whole declaration is judged at every typed boundary, not only when YAML
 // is read: an allow-list on a visibility that never reads one, or a location
 // the model does not define, is an invalid declaration for the selection, for
