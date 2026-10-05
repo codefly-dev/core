@@ -446,3 +446,48 @@ func TestTheThreeEvaluatorBypassesAreRefusedOnTheRealWorkflow(t *testing.T) {
 		})
 	}
 }
+
+// The trigger classification is inverted -- a trigger must be argued safe
+// rather than listed as dangerous -- so these are the triggers that would have
+// been exempt under the enumeration, including one GitHub has not invented.
+func TestATriggerNobodyEnumeratedIsTreatedAsReachable(t *testing.T) {
+	for _, trigger := range []string{
+		// Both carry a pull request's context and are the classic way to reach
+		// unreviewed code; neither was in the old list.
+		"issue_comment",
+		"pull_request_review",
+		"pull_request_review_comment",
+		"pull_request_target",
+		"merge_group",
+		// Not a real event. That is the test: a trigger this package has never
+		// heard of must not be exempt.
+		"some_event_github_adds_in_2027",
+	} {
+		t.Run(trigger, func(t *testing.T) {
+			var on struct {
+				On yaml.Node `yaml:"on"`
+			}
+			require.NoError(t, yaml.Unmarshal([]byte("on:\n  "+trigger+":\n"), &on))
+			require.True(t, reachableFromAPullRequest(on.On),
+				"%q is not on the list of triggers argued unable to carry a pull "+
+					"request's code, so it must count as reachable. Listing the "+
+					"dangerous triggers instead exempts every one nobody thought of.",
+				trigger)
+		})
+	}
+}
+
+// And the converse: the triggers that genuinely cannot carry a pull request's
+// code must not be treated as reachable, or every workflow reads as hostile and
+// the guards stop distinguishing.
+func TestATriggerThatCannotCarryPullRequestCodeIsNotReachable(t *testing.T) {
+	for _, trigger := range triggersThatCannotCarryAPullRequestsCode {
+		t.Run(trigger, func(t *testing.T) {
+			var on struct {
+				On yaml.Node `yaml:"on"`
+			}
+			require.NoError(t, yaml.Unmarshal([]byte("on:\n  "+trigger+":\n"), &on))
+			require.False(t, reachableFromAPullRequest(on.On), trigger)
+		})
+	}
+}

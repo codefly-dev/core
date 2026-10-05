@@ -110,6 +110,14 @@ reporting "nothing found".
    `github.ref == 'refs/heads/main'` or `startsWith(github.ref, 'refs/tags/')`.
    A `workflow_call` workflow counts as reachable from a pull request, because
    a caller may dispatch it from one and nothing here can see that it did.
+
+   **Which triggers count is decided the other way round.** A trigger is
+   reachable unless it has been argued unable to carry a pull request's code
+   (`push`, `create`, `delete`, `release`, `schedule`, `workflow_dispatch`, and
+   `workflow_run`, which has stricter scenarios of its own). Listing the
+   dangerous triggers instead would exempt every one nobody thought of —
+   `issue_comment` and `pull_request_review` both carry a pull request's
+   context, and GitHub keeps adding events.
 7. **A tag is not a statement about review.** A tag can be pushed to any
    commit, so a credential-bearing job gated on one must prove the commit is
    reachable from the default branch with `git merge-base --is-ancestor`.

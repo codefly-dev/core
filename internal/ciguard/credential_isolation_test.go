@@ -171,21 +171,55 @@ func secretsIn(t *testing.T, wf isolatedWorkflow, id string) map[string][]string
 	return found
 }
 
+// triggersThatCannotCarryAPullRequestsCode is the list, and the direction of
+// the list is the point.
+//
+// This used to read the other way -- `pull_request`, `pull_request_target`,
+// `workflow_call`, `merge_group` were listed as the reachable ones, and
+// anything else was treated as safe. That is the shape two review rounds found
+// twice elsewhere: an enumeration exempts whatever it does not name. GitHub has
+// some thirty-five trigger events and adds more; `issue_comment` and
+// `pull_request_review` both carry a pull request's context, and a workflow
+// reacting to either is a well-known way to reach unreviewed code. Naming the
+// reachable ones means a trigger nobody here thought about is exempt by
+// default, silently.
+//
+// Inverted, a trigger has to be ARGUED safe to be treated as safe. These are
+// the ones that cannot carry a pull request's code at all:
+//
+//   - `push`, `create`, `delete`, `release`: a ref event in this repository,
+//     which requires write access.
+//   - `schedule`: no triggering party.
+//   - `workflow_dispatch`: requires write access, and has a guard of its own
+//     (TestADispatchableCredentialJobChecksOutTheDefaultBranch) because the
+//     dispatched ref is chosen.
+//   - `workflow_run`: has its own two hostile scenarios, which are stricter
+//     than this question.
+//
+// Everything else -- named today or added by GitHub next year -- counts as
+// reachable, and a credential-bearing job in such a workflow has to prove its
+// condition false.
+var triggersThatCannotCarryAPullRequestsCode = []string{
+	"push",
+	"create",
+	"delete",
+	"release",
+	"schedule",
+	"workflow_dispatch",
+	"workflow_run",
+}
+
 // reachableFromAPullRequest reports whether code an author of a pull request
 // wrote can run in this workflow.
 //
-// `workflow_call` counts. A reusable workflow runs the CALLER's tree at a ref
-// the caller picks, and nothing here can see whether that caller dispatches it
-// from a pull request -- so it has to be assumed, which is also what makes a
-// secret in such a workflow the caller's secret to lose.
+// `workflow_call` counts, and not only because it is in no list above: a
+// reusable workflow runs the CALLER's tree at a ref the caller picks, and
+// nothing here can see whether that caller dispatches it from a pull request --
+// so it has to be assumed, which is also what makes a secret in such a workflow
+// the caller's secret to lose.
 func reachableFromAPullRequest(on yaml.Node) bool {
 	for _, trigger := range triggers(on) {
-		switch trigger {
-		case "pull_request", "pull_request_target", "workflow_call", "merge_group":
-			// merge_group belongs here: a merge queue runs the candidate
-			// commits, which are a pull request's code and are not on the
-			// default branch yet. Leaving it out would have exempted a whole
-			// trigger rather than a field.
+		if !contains(triggersThatCannotCarryAPullRequestsCode, trigger) {
 			return true
 		}
 	}
