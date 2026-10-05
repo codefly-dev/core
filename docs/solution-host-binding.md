@@ -778,12 +778,11 @@ field — a tenancy, a build digest, an identity — is refused, never ignored),
 written or constructed, since `Resolve` would mint scopes from both — and
 `Resolve` resolves the slots against the values a composition supplies,
 reporting every unresolved, secret-classified and ambiguous slot in one error
-under its own sentinel (a secret's value never in the message); a key the
-composition supplies in two spellings core treats as one (`MODEL_AUDIENCE`
-and `model-audience`) is refused, never chosen between. The model writes what
-it reads: a ceiling marshals back in the spelling it holds, so a publisher
-using the Go model emits a contract this reader reads, and the valid fixture
-round-trips whole.
+under its own sentinel (a secret's value never in the message). Records that
+are one key to core (`MODEL_AUDIENCE` and `model-audience`) must AGREE on its
+value: agreeing spellings are one value and resolve, and it is the disagreement
+that has no answer — see the resolution rules below. A publisher writes through
+`Encode`, never by marshaling the model.
 
 **`solutionhost/cell`** is `codefly/cell/v1`, the inventory of one
 environment's cell that a publish writes to the delivery repository and the
@@ -889,7 +888,7 @@ their documented meanings.
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (52 documents) / `cell.Fixtures()` (89) ship
+`modulecontract.Fixtures()` (57 documents) / `cell.Fixtures()` (94) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it

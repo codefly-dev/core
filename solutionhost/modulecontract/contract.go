@@ -284,7 +284,13 @@ func (ceiling *Ceiling) UnmarshalYAML(node *yaml.Node) error {
 		case yaml.MappingNode:
 			seen := make(map[string]bool, len(item.Content)/2)
 			for index := 0; index+1 < len(item.Content); index += 2 {
-				key := item.Content[index].Value
+				var key string
+				if err := item.Content[index].Decode(&key); err != nil {
+					if ceiling.malformed == nil {
+						ceiling.malformed = err
+					}
+					continue
+				}
 				if seen[key] && ceiling.repeatedField == "" {
 					ceiling.repeatedField = key
 				}
@@ -380,7 +386,18 @@ func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
 	}
 	seen := make(map[string]bool, len(node.Content)/2)
 	for index := 0; index+1 < len(node.Content); index += 2 {
-		key := node.Content[index].Value
+		// The KEY is decoded with its type, exactly as the value below is.
+		// Reading Value took an alias's ANCHOR NAME for the field name, so
+		// {*from : x} with "&from assistant" elsewhere was read as the field
+		// "from" when the mapping's key is "assistant" — core interpreting a
+		// different mapping than the document expresses.
+		var key string
+		if err := node.Content[index].Decode(&key); err != nil {
+			if slot.malformed == nil {
+				slot.malformed = err
+			}
+			continue
+		}
 		switch {
 		case seen[key]:
 			// A repeated key means the document says two things and a

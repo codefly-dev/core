@@ -1,8 +1,8 @@
 package cell
 
 import (
+	"bytes"
 	"fmt"
-	"reflect"
 
 	"gopkg.in/yaml.v3"
 )
@@ -32,7 +32,17 @@ func (file *File) Encode() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: the encoded cell is refused by its own reader, so it is not written: %v", ErrInvalid, err)
 	}
-	if !reflect.DeepEqual(file, again) {
+	// Compared by WIRE MEANING, not by Go value: nil and an empty slice are
+	// the same document — `omitempty` writes neither, and a parsed `[]`
+	// becomes one or the other depending on the field — so DeepEqual refused
+	// valid models and made the prescribed writer unusable for a
+	// programmatically built one. What must hold is that writing the bytes
+	// again produces the same bytes.
+	rewritten, err := yaml.Marshal(again)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the re-read cell cannot be encoded: %v", ErrInvalid, err)
+	}
+	if !bytes.Equal(document, rewritten) {
 		return nil, fmt.Errorf("%w: the encoded cell reads back as a different cell, so it is not written", ErrInvalid)
 	}
 	return document, nil

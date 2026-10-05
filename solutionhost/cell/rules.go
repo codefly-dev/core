@@ -1051,6 +1051,9 @@ func checkEgressCIDRsNameAReach(file *File) error {
 			if err != nil {
 				continue // its own rule names this
 			}
+			if _, canonical, err := net.ParseCIDR(network.String()); err == nil {
+				network = canonical
+			}
 			if ones, _ := network.Mask.Size(); ones == 0 {
 				return fmt.Errorf("%w: namespace %s egress for %s declares CIDR %q, which names every address; that is the absence of a declared reach, not a reach the platform can police",
 					ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr)
@@ -1068,13 +1071,16 @@ func checkEgressCIDRs(file *File) error {
 			if err != nil {
 				return fmt.Errorf("%w: namespace %s egress for %s CIDR %q: %v", ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr, err)
 			}
-			// Canonical: 10.20.1.7/16 and 10.20.0.0/16 are one range written
-			// two ways, and a platform comparing declared reach to rendered
-			// policy would have to canonicalise it itself — a second place
-			// the meaning lives.
-			if !address.Equal(network.IP) {
-				return fmt.Errorf("%w: namespace %s egress for %s CIDR %q is not canonical; the range it names is %q, and one range has one spelling",
-					ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr, network.String())
+			// Canonical SPELLING, not merely zero host bits: 10.20.1.7/16,
+			// 2001:0DB8:0000:.../32 and ::ffff:0.0.0.0/96 each name a range
+			// whose one spelling is something else, and a consumer would
+			// otherwise have to pick a textual form and an address family
+			// itself. The accepted representation is the one Go's net gives
+			// the network it parsed, per family.
+			_ = address
+			if canonical := network.String(); cidr != canonical {
+				return fmt.Errorf("%w: namespace %s egress for %s CIDR %q is not canonical; the range it names is written %q, and one range has one spelling",
+					ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr, canonical)
 			}
 			for _, other := range networks {
 				// Stated once: a range inside another, or the same range
