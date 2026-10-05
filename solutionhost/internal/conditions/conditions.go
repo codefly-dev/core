@@ -33,6 +33,12 @@ type Site struct {
 	File    string
 	Line    int
 	Literal string
+	// Func is the function the refusal is written in. It is what makes
+	// "one rule holds one condition" answerable: a rule is a function, so
+	// two sites in one function are two conditions sharing one witness,
+	// which is how a weakened predicate kept a green scan while its
+	// sibling's fixture went on refusing.
+	Func string
 }
 
 // Sites returns every refusal site in dir's non-test Go files whose
@@ -61,25 +67,36 @@ func Sites(dir string, sentinels ...string) ([]Site, error) {
 	}
 	var sites []Site
 	for path, file := range files {
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok || len(call.Args) < 2 || !isErrorf(call.Fun) {
-				return true
+		// Walked declaration by declaration, so every site carries the
+		// function it is written in. ast.Inspect reports the end of EVERY
+		// node, not only of a declaration, so a stack popped on nil empties
+		// itself at the first leaf and names nothing.
+		for _, decl := range file.Decls {
+			function, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
 			}
-			format, ok := stringLiteral(call.Args[0])
-			if !ok || !strings.Contains(format, "%w") {
+			ast.Inspect(function, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok || len(call.Args) < 2 || !isErrorf(call.Fun) {
+					return true
+				}
+				format, ok := stringLiteral(call.Args[0])
+				if !ok || !strings.Contains(format, "%w") {
+					return true
+				}
+				if name, ok := call.Args[1].(*ast.Ident); !ok || !wanted[name.Name] {
+					return true
+				}
+				sites = append(sites, Site{
+					File:    filepath.Base(path),
+					Line:    set.Position(call.Pos()).Line,
+					Literal: longestRun(format),
+					Func:    function.Name.Name,
+				})
 				return true
-			}
-			if name, ok := call.Args[1].(*ast.Ident); !ok || !wanted[name.Name] {
-				return true
-			}
-			sites = append(sites, Site{
-				File:    filepath.Base(path),
-				Line:    set.Position(call.Pos()).Line,
-				Literal: longestRun(format),
 			})
-			return true
-		})
+		}
 	}
 	return sites, nil
 }
@@ -93,13 +110,38 @@ func isErrorf(fun ast.Expr) bool {
 	return ok && pkg.Name == "fmt"
 }
 
+// stringLiteral is the text of a string expression, INCLUDING one written as
+// a concatenation. A refusal whose message is spelled across two lines --
+// "%w: ... " + "add the slot, or ..." -- is one condition like any other, and
+// while this read only a single literal every such refusal was invisible to
+// the enumeration: not a condition without a witness, but a condition the
+// check for witnesses could not see at all. The one in this repository was
+// found by the rule-to-condition pairing, not by review.
 func stringLiteral(expr ast.Expr) (string, bool) {
-	literal, ok := expr.(*ast.BasicLit)
-	if !ok || literal.Kind != token.STRING {
-		return "", false
+	switch node := expr.(type) {
+	case *ast.BasicLit:
+		if node.Kind != token.STRING {
+			return "", false
+		}
+		value, err := strconv.Unquote(node.Value)
+		return value, err == nil
+	case *ast.BinaryExpr:
+		if node.Op != token.ADD {
+			return "", false
+		}
+		left, ok := stringLiteral(node.X)
+		if !ok {
+			return "", false
+		}
+		right, ok := stringLiteral(node.Y)
+		if !ok {
+			return "", false
+		}
+		return left + right, true
+	case *ast.ParenExpr:
+		return stringLiteral(node.X)
 	}
-	value, err := strconv.Unquote(literal.Value)
-	return value, err == nil
+	return "", false
 }
 
 // longestRun is the longest stretch of a format string carrying no verb, with
@@ -110,8 +152,15 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 func longestRun(format string) string {
 	format = strings.TrimPrefix(format, "%w: ")
 	var longest string
-	for _, run := range strings.Split(format, "%") {
-		if index := strings.IndexAny(run, "swdqv"); index == 0 && len(run) > 0 {
+	for index, run := range strings.Split(format, "%") {
+		// Every segment but the FIRST follows a "%", so its leading
+		// character is the verb and is dropped. The first segment follows
+		// nothing, and stripping a leading "s", "w", "d", "q" or "v" from it
+		// ate the first letter of any message beginning with one -- "written
+		// ..." was enumerated as "ritten ...". Harmless to a substring match,
+		// which is why it survived; wrong in the text a failure prints, and
+		// wrong in what "this literal identifies this condition" means.
+		if index > 0 && len(run) > 0 && strings.IndexAny(run[:1], "swdqv") == 0 {
 			run = run[1:]
 		}
 		if trimmed := strings.TrimSpace(run); len(trimmed) > len(longest) {

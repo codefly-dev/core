@@ -77,14 +77,18 @@ const (
 	ruleEndpointsOrder   = "endpoints-ordered"
 	ruleEndpointPort     = "endpoint-port"
 	ruleVisibility       = "endpoint-visibility"
+	ruleVisibilityStated = "endpoint-visibility-stated"
 	ruleAllowModules     = "allow-modules"
 	ruleAllowNeedsInner  = "allow-modules-need-internal"
 	ruleConsumerQualify  = "consumer-qualified"
 	ruleConsumersOrder   = "consumers-ordered"
+	ruleConsumerUnique   = "consumer-named-once"
 	ruleIngressServed    = "ingress-served"
 	ruleIngressHasHost   = "ingress-has-host"
 	ruleIngressHostName  = "ingress-host-name"
+	ruleIngressHostOnce  = "ingress-host-named-once"
 	ruleIngressOrder     = "ingress-ordered"
+	ruleIngressOnce      = "ingress-endpoint-once"
 	ruleBindingName      = "binding-name"
 	ruleBindingUnique    = "binding-unique"
 
@@ -94,6 +98,8 @@ const (
 	ruleEgressHostName  = "egress-host-name"
 	ruleEgressHostPort  = "egress-host-port"
 	ruleEgressCIDR      = "egress-cidr"
+	ruleEgressCIDRShape = "egress-cidr-canonical"
+	ruleEgressCIDROver  = "egress-cidr-stated-once"
 	ruleEgressCIDRReach = "egress-cidr-names-a-reach"
 	ruleEgressOrder     = "egress-ordered"
 
@@ -149,15 +155,19 @@ func rules() []rule {
 		{name: ruleEndpointUnique, check: checkEndpointsUnique},
 		{name: ruleEndpointsOrder, check: checkEndpointsOrdered},
 		{name: ruleEndpointPort, check: checkEndpointPorts},
+		{name: ruleVisibilityStated, check: checkVisibilityStated},
 		{name: ruleVisibility, check: checkVisibilities},
 		{name: ruleAllowModules, check: checkAllowModules},
 		{name: ruleAllowNeedsInner, check: checkAllowModulesNeedInternal},
 		{name: ruleConsumerQualify, check: checkConsumersQualified},
 		{name: ruleConsumersOrder, check: checkConsumersOrdered},
+		{name: ruleConsumerUnique, check: checkConsumersNamedOnce},
 		{name: ruleIngressServed, check: checkIngressServed},
 		{name: ruleIngressHasHost, check: checkIngressHasHost},
+		{name: ruleIngressHostOnce, check: checkIngressHostsNamedOnce},
 		{name: ruleIngressHostName, check: checkIngressHostNames},
 		{name: ruleIngressOrder, check: checkIngressOrdered},
+		{name: ruleIngressOnce, check: checkIngressEndpointOnce},
 		{name: ruleBindingName, check: checkBindingNames},
 		{name: ruleBindingUnique, check: checkBindingsUnique},
 		{name: ruleEgressQualified, check: checkEgressQualified},
@@ -166,6 +176,8 @@ func rules() []rule {
 		{name: ruleEgressHostName, check: checkEgressHostNames},
 		{name: ruleEgressHostPort, check: checkEgressHostPorts},
 		{name: ruleEgressCIDR, check: checkEgressCIDRs},
+		{name: ruleEgressCIDRShape, check: checkEgressCIDRsCanonical},
+		{name: ruleEgressCIDROver, check: checkEgressCIDRsStatedOnce},
 		{name: ruleEgressCIDRReach, check: checkEgressCIDRsNameAReach},
 		{name: ruleEgressOrder, check: checkEgressOrdered},
 		{name: ruleDeliveryKind, check: checkDeliveryKinds},
@@ -795,23 +807,35 @@ const (
 	visibilityInternal = "internal"
 )
 
+func checkVisibilityStated(file *File) error {
+	for _, entry := range file.workloads() {
+		for _, endpoint := range entry.workload.Endpoints {
+			// An OMITTED visibility is refused, though the resource model
+			// admits one: resources.Endpoint.postLoad has already resolved
+			// the omission to "private" by the time a render writes a cell,
+			// so a cell carrying none describes an endpoint no render
+			// produces — and would put that default in a second place, for
+			// the platform to re-derive, which is the one thing this file
+			// exists not to make it do.
+			if endpoint.Visibility == "" {
+				return fmt.Errorf("%w: %s endpoint %s carries no visibility; a cell states what the platform derives policy from, so the declaration is written out rather than defaulted again here", ErrInvalid, entry.label, endpoint.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// checkVisibilities holds a STATED visibility to the vocabulary. The
+// omission is its own condition with its own witness, so it is not retested
+// here: a document reaching this rule with an empty visibility has already
+// been refused, or the rule that refuses it was deleted — and that rule's
+// own fixture is what says so.
 func checkVisibilities(file *File) error {
 	for _, entry := range file.workloads() {
 		for _, endpoint := range entry.workload.Endpoints {
-			if slices.Contains(visibilities, endpoint.Visibility) {
-				continue
+			if endpoint.Visibility != "" && !slices.Contains(visibilities, endpoint.Visibility) {
+				return fmt.Errorf("%w: %s endpoint %s visibility %q is not one of %s", ErrInvalid, entry.label, endpoint.Name, endpoint.Visibility, strings.Join(visibilities, ", "))
 			}
-			if endpoint.Visibility == "" {
-				// An OMITTED visibility is refused, though the resource model
-				// admits one: resources.Endpoint.postLoad has already resolved
-				// the omission to "private" by the time a render writes a cell,
-				// so a cell carrying none describes an endpoint no render
-				// produces — and would put that default in a second place, for
-				// the platform to re-derive, which is the one thing this file
-				// exists not to make it do.
-				return fmt.Errorf("%w: %s endpoint %s carries no visibility; a cell states what the platform derives policy from, so the declaration is written out rather than defaulted again here", ErrInvalid, entry.label, endpoint.Name)
-			}
-			return fmt.Errorf("%w: %s endpoint %s visibility %q is not one of %s", ErrInvalid, entry.label, endpoint.Name, endpoint.Visibility, strings.Join(visibilities, ", "))
 		}
 	}
 	return nil
@@ -876,9 +900,18 @@ func checkConsumersOrdered(file *File) error {
 			if !sort.StringsAreSorted(endpoint.Consumers) {
 				return fmt.Errorf("%w: %s endpoint %s consumers are not in order", ErrInvalid, entry.label, endpoint.Name)
 			}
-			// Sorted is not unique: one declared edge is one entry, so a
-			// repeat is a cell saying the same thing twice and a count no
-			// reader can trust.
+		}
+	}
+	return nil
+}
+
+// checkConsumersNamedOnce: sorted is not unique, so this is its own
+// condition with its own witness — one declared edge is one entry, and a
+// repeat is a cell saying the same thing twice and a count no reader can
+// trust.
+func checkConsumersNamedOnce(file *File) error {
+	for _, entry := range file.workloads() {
+		for _, endpoint := range entry.workload.Endpoints {
 			if duplicate, found := firstDuplicate(endpoint.Consumers); found {
 				return fmt.Errorf("%w: %s endpoint %s names consumer %q twice", ErrInvalid, entry.label, endpoint.Name, duplicate)
 			}
@@ -909,12 +942,20 @@ func checkIngressHasHost(file *File) error {
 	return nil
 }
 
-func checkIngressHostNames(file *File) error {
+func checkIngressHostsNamedOnce(file *File) error {
 	for _, entry := range file.workloads() {
 		for _, route := range entry.workload.Ingress {
 			if duplicate, found := firstDuplicate(route.Hosts); found {
 				return fmt.Errorf("%w: %s ingress to %s names host %q twice", ErrInvalid, entry.label, route.Endpoint, duplicate)
 			}
+		}
+	}
+	return nil
+}
+
+func checkIngressHostNames(file *File) error {
+	for _, entry := range file.workloads() {
+		for _, route := range entry.workload.Ingress {
 			for _, host := range route.Hosts {
 				if !isHostName(host) {
 					return fmt.Errorf("%w: %s ingress to %s host %q is not a host name", ErrInvalid, entry.label, route.Endpoint, host)
@@ -940,9 +981,19 @@ func checkIngressOrdered(file *File) error {
 				return fmt.Errorf("%w: %s ingress is not in endpoint order (%q after %q)", ErrInvalid, entry.label,
 					entry.workload.Ingress[index].Endpoint, entry.workload.Ingress[index-1].Endpoint)
 			}
-			// One route per endpoint: two routes to one endpoint are two
-			// host sets for one thing, and which one the platform renders
-			// would be its choice to make.
+		}
+	}
+	return nil
+}
+
+// checkIngressEndpointOnce: one route per endpoint. Two routes to one
+// endpoint are two host sets for one thing, and which one the platform
+// renders would be its choice to make. Its own condition with its own
+// witness: while it shared a rule with the ordering comparison, a weakening
+// of that comparison left the repeat unprotected.
+func checkIngressEndpointOnce(file *File) error {
+	for _, entry := range file.workloads() {
+		for index := 1; index < len(entry.workload.Ingress); index++ {
 			if entry.workload.Ingress[index-1].Endpoint == entry.workload.Ingress[index].Endpoint {
 				return fmt.Errorf("%w: %s declares ingress to endpoint %q twice; one endpoint has one route, with its hosts together",
 					ErrInvalid, entry.label, entry.workload.Ingress[index].Endpoint)
@@ -1073,27 +1124,63 @@ func checkEgressCIDRsNameAReach(file *File) error {
 
 func checkEgressCIDRs(file *File) error {
 	for _, entry := range file.egresses() {
-		networks := make([]*net.IPNet, 0, len(entry.egress.CIDRs))
 		for _, cidr := range entry.egress.CIDRs {
-			address, network, err := net.ParseCIDR(cidr)
-			if err != nil {
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
 				return fmt.Errorf("%w: namespace %s egress for %s CIDR %q: %v", ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr, err)
 			}
-			// Canonical SPELLING, not merely zero host bits: 10.20.1.7/16,
-			// 2001:0DB8:0000:.../32 and ::ffff:0.0.0.0/96 each name a range
-			// whose one spelling is something else, and a consumer would
-			// otherwise have to pick a textual form and an address family
-			// itself. The accepted representation is the one Go's net gives
-			// the network it parsed, per family.
-			_ = address
+		}
+	}
+	return nil
+}
+
+// checkEgressCIDRsCanonical holds a CIDR to its canonical SPELLING, not
+// merely to zero host bits: 10.20.1.7/16, 2001:0DB8:0000:.../32 and
+// ::ffff:0.0.0.0/96 each name a range whose one spelling is something else,
+// and a consumer would otherwise have to pick a textual form and an address
+// family itself. The accepted representation is the one Go's net gives the
+// network it parsed, per family.
+//
+// Its own condition with its own witness, and the witness is a LATER entry
+// (egress-cidr-not-canonical-later): while this lived inside one CIDR rule
+// whose only non-canonical fixture was the FIRST entry, the predicate could
+// be weakened to run only while no network had been seen yet, and no
+// fixture changed outcome.
+func checkEgressCIDRsCanonical(file *File) error {
+	for _, entry := range file.egresses() {
+		for _, cidr := range entry.egress.CIDRs {
+			_, network, err := net.ParseCIDR(cidr)
+			if err != nil {
+				// Malformed is its own rule with its own witness. Skipped
+				// here rather than refused again, so deleting THAT rule
+				// fails its own fixture and not this one's.
+				continue
+			}
 			if canonical := network.String(); cidr != canonical {
 				return fmt.Errorf("%w: namespace %s egress for %s CIDR %q is not canonical; the range it names is written %q, and one range has one spelling",
 					ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr, canonical)
 			}
+		}
+	}
+	return nil
+}
+
+// checkEgressCIDRsStatedOnce: a range inside another, or the same range
+// twice, is reach declared twice, and the narrower statement grants nothing
+// the wider one did not.
+//
+// Its own condition with its own witness, and the witness is an IPv6 pair
+// (egress-cidrs-overlap-ipv6): while this lived inside one CIDR rule whose
+// overlap fixtures were all IPv4, the predicate could be gated on
+// network.IP.To4() != nil and no fixture changed outcome.
+func checkEgressCIDRsStatedOnce(file *File) error {
+	for _, entry := range file.egresses() {
+		networks := make([]*net.IPNet, 0, len(entry.egress.CIDRs))
+		for _, cidr := range entry.egress.CIDRs {
+			_, network, err := net.ParseCIDR(cidr)
+			if err != nil {
+				continue
+			}
 			for _, other := range networks {
-				// Stated once: a range inside another, or the same range
-				// twice, is reach declared twice, and the narrower statement
-				// grants nothing the wider one did not.
 				if other.Contains(network.IP) || network.Contains(other.IP) {
 					return fmt.Errorf("%w: namespace %s egress for %s declares overlapping CIDRs %q and %q; reach is stated once",
 						ErrInvalid, entry.namespace.Name, entry.egress.Service, other.String(), network.String())

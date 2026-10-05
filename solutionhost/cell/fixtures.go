@@ -85,19 +85,19 @@ func Fixtures() ([]Fixture, error) {
 		{name: "release-without-name", file: "release-without-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "publisher, name and version", rule: ruleReleaseWhole},
 		{name: "egress-host-port-out-of-range", file: "egress-host-port-out-of-range.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "port 70000", rule: ruleEgressHostPort},
 		{name: "authenticating-is-an-init-container", file: "authenticating-is-an-init-container.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "which is not one of its containers", rule: ruleAuthenticating},
-		{name: "consumer-named-twice", file: "consumer-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names consumer "billing/worker" twice`, rule: ruleConsumersOrder},
-		{name: "ingress-to-one-endpoint-twice", file: "ingress-to-one-endpoint-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `ingress to endpoint "rest" twice`, rule: ruleIngressOrder},
-		{name: "ingress-host-named-twice", file: "ingress-host-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names host \"payments.example.com\" twice", rule: ruleIngressHostName},
-		{name: "egress-cidr-not-canonical", file: "egress-cidr-not-canonical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDR},
-		{name: "egress-cidrs-overlap", file: "egress-cidrs-overlap.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
+		{name: "consumer-named-twice", file: "consumer-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names consumer "billing/worker" twice`, rule: ruleConsumerUnique},
+		{name: "ingress-to-one-endpoint-twice", file: "ingress-to-one-endpoint-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `ingress to endpoint "rest" twice`, rule: ruleIngressOnce},
+		{name: "ingress-host-named-twice", file: "ingress-host-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names host \"payments.example.com\" twice", rule: ruleIngressHostOnce},
+		{name: "egress-cidr-not-canonical", file: "egress-cidr-not-canonical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDRShape},
+		{name: "egress-cidrs-overlap", file: "egress-cidrs-overlap.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDROver},
 		{name: "spiffe-id-of-another-namespace", file: "spiffe-id-of-another-namespace.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "ns/billing/sa/api", rule: ruleSPIFFEID},
 		{name: "artifact-name-not-a-name", file: "artifact-name-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must name the rendered unit", rule: ruleArtifact},
 		{name: "egress-cidr-unspecified", file: "egress-cidr-unspecified.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names every address", rule: ruleEgressCIDRReach},
 		{name: "delivery-selector-key-malformed", file: "delivery-selector-key-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: selectorKeyRefusal, rule: ruleSelectorLabelKey},
 		{name: "init-container-image-repository-malformed", file: "init-container-image-repository-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a canonical image repository", rule: ruleImageRepository},
 		{name: "init-container-named-twice", file: "init-container-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `init container "migrate" twice`, rule: ruleContainerUnique},
-		{name: "egress-cidr-not-canonical-ipv6", file: "egress-cidr-not-canonical-ipv6.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "2001:db8::/32", rule: ruleEgressCIDR},
-		{name: "egress-cidr-mapped-all-addresses", file: "egress-cidr-mapped-all-addresses.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDR},
+		{name: "egress-cidr-not-canonical-ipv6", file: "egress-cidr-not-canonical-ipv6.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "2001:db8::/32", rule: ruleEgressCIDRShape},
+		{name: "egress-cidr-mapped-all-addresses", file: "egress-cidr-mapped-all-addresses.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDRShape},
 		{name: "host-component-not-a-name", file: "host-component-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "component", rule: ruleHostName},
 		{name: "host-domain-not-a-name", file: "host-domain-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "domain", rule: ruleHostName},
 		{name: "host-coordinate-segment-not-a-name", file: "host-coordinate-segment-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "coordinate", rule: ruleHostName},
@@ -105,7 +105,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "service-over-qualified", file: "service-over-qualified.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "<module>/<service>", rule: ruleServiceQualified},
 		{name: "egress-out-of-order", file: "egress-out-of-order.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "egress", rule: ruleEgressOrder},
 		{name: "egress-with-empty-cidrs", file: "egress-with-empty-cidrs.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "neither a host nor a CIDR", rule: ruleEgressHasTarget},
-		{name: "egress-cidrs-overlap-reversed", file: "egress-cidrs-overlap-reversed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
+		{name: "egress-cidrs-overlap-reversed", file: "egress-cidrs-overlap-reversed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDROver},
 		{name: "egress-cidr-ipv6-all-addresses", file: "egress-cidr-ipv6-all-addresses.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names every address", rule: ruleEgressCIDRReach},
 		{name: "hostless-delivery-with-spiffe-id", file: "hostless-delivery-with-spiffe-id.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "but the cell declares no trust domain", rule: ruleSPIFFEIDHostless},
 		{name: "selector-label-named-twice", file: "selector-label-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "app" twice`, rule: ruleMappingKeysOnce},
@@ -143,7 +143,7 @@ func Fixtures() ([]Fixture, error) {
 		// The SAME range twice. The overlap fixtures nest one range inside
 		// another in both orders, so adding an inequality to the overlap test
 		// admitted an identical pair.
-		{name: "egress-cidrs-identical", file: "egress-cidrs-identical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
+		{name: "egress-cidrs-identical", file: "egress-cidrs-identical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDROver},
 		// An anchored FRACTION, declared as a key and used as a port: the
 		// decoder follows the alias and truncates, so a check that examines
 		// neither keys nor alias targets is one the document steps around.
@@ -155,8 +155,8 @@ func Fixtures() ([]Fixture, error) {
 		// The two weakenings the confirming round named, each of which changed
 		// NO fixture's outcome: the overlap witnesses were all IPv4, and the
 		// non-canonical witness was the first entry.
-		{name: "egress-cidrs-overlap-ipv6", file: "egress-cidrs-overlap-ipv6.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
-		{name: "egress-cidr-not-canonical-later", file: "egress-cidr-not-canonical-later.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDR},
+		{name: "egress-cidrs-overlap-ipv6", file: "egress-cidrs-overlap-ipv6.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDROver},
+		{name: "egress-cidr-not-canonical-later", file: "egress-cidr-not-canonical-later.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDRShape},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},
@@ -203,7 +203,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "endpoint-declared-twice", file: "endpoint-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `endpoint "grpc" is declared twice`, rule: ruleEndpointUnique},
 		{name: "endpoints-out-of-order", file: "endpoints-out-of-order.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "endpoints are not in name order", rule: ruleEndpointsOrder},
 		{name: "endpoint-port-out-of-range", file: "endpoint-port-out-of-range.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "port 70000 is not a port", rule: ruleEndpointPort},
-		{name: "endpoint-visibility-omitted", file: "endpoint-visibility-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "carries no visibility", rule: ruleVisibility},
+		{name: "endpoint-visibility-omitted", file: "endpoint-visibility-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "carries no visibility", rule: ruleVisibilityStated},
 		{name: "endpoint-visibility-unknown", file: "endpoint-visibility-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `visibility "internal-only" is not one of`, rule: ruleVisibility},
 		{name: "allow-modules-not-a-module", file: "allow-modules-not-a-module.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `allow_modules names "Billing"`, rule: ruleAllowModules},
 		{name: "allow-modules-without-internal", file: "allow-modules-without-internal.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "an allow-list is only read for", rule: ruleAllowNeedsInner},

@@ -886,18 +886,48 @@ faithfully rather than pre-empts. A zero endpoint port (the service declares
 none) and a repeated `allow_modules` entry (an allow-list is read as a set) keep
 their documented meanings.
 
-**Every refusal CONDITION is protected by construction.** The conditions are
-enumerated from this package's own source — each `fmt.Errorf` carrying
-`ErrInvalid` is one condition — and each must be the refusal some shipped
-fixture actually receives (`TestEveryRefusalConditionIsReachedByAFixture`). A
-condition added without a counterexample fails at its own file and line. This
-replaced eight rounds of finding the same shape of defect by hand: a rule had a
-fixture and a condition inside it did not — a Kubernetes length bound, one
-vocabulary value out of two, a control character that was also whitespace, a
-null as a key but not in a list, an identical CIDR pair where the fixtures
-nested their ranges. A condition no document can reach is declared with its
-reason and asserted to be genuinely unreached, so the one open guard is written
-down rather than silent.
+**Every refusal CONDITION is protected by construction**, and the
+construction is two properties that hold together rather than one scan.
+
+*A rule holds exactly one condition.* A rule is a function in `rules.go`, and
+`TestEveryRuleHoldsExactlyOneCondition` enumerates the refusals in each from
+the package's own source: a second `fmt.Errorf` added inside an existing rule
+fails at that function, and a refusal written in a function that is no rule's
+check fails too, because nothing could be required to protect it.
+
+*Every rule is falsified by a fixture.* `TestEveryRuleIsProtectedByAFixture`
+deletes each rule in turn and requires a shipped fixture to notice — and to
+notice by its own message, so a refusal arriving from a later rule does not
+count. A new rule therefore cannot exist without a witness.
+
+Together they leave no third place to put a condition: inside a rule it is
+caught by the first, as a new rule it is caught by the second. That matters
+because the earlier mechanism — enumerate the refusal sites, require each to
+be *reached* by some fixture — proved a rule was reached and said nothing
+about a condition sharing a rule with another. Nine rounds of review found
+that difference five times, and twice at the end inside one CIDR rule: an
+overlap predicate gated on `network.IP.To4() != nil` and a canonical-spelling
+check run only while no network had been seen yet each accepted an invalid
+document while every fixture went on refusing, because a sibling condition
+reached the same refusal site. The egress CIDR rule is now three rules, with
+an IPv6 overlap and a later non-canonical entry as their witnesses; endpoint
+visibility, consumer uniqueness, ingress host uniqueness and one-route-per-
+endpoint were split the same way.
+
+The reachability scan remains beside them
+(`TestEveryRefusalConditionIsReachedByAFixture`), covering the refusals that
+live outside the rule table — the parser's and the writer's. A condition no
+document can reach is declared with its reason and asserted to be genuinely
+unreached, so the one open guard is written down rather than silent.
+
+The enumeration itself is now tested
+(`solutionhost/internal/conditions`), because it is what decides whether a
+condition is protected and two of its own defects had read as "everything is
+protected": the enclosing function was tracked on a stack popped at every
+node rather than at every declaration, and a format string written as a
+concatenation was not read at all — so a refusal spelled across two lines was
+invisible to the check for witnesses. One such refusal existed here and was
+found by the rule-to-condition pairing, not by review.
 
 **One strict decoding path.** A type with its own `UnmarshalYAML` does not get
 yaml's `KnownFields`, so each custom decoder re-implemented the same
