@@ -87,11 +87,14 @@ func referenceCount(value string) string {
 var referenceTokenPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // ParseEndpointReference parses a marker body into coordinates and validates
-// each one, so that what comes back can be named in a diagnostic: every token
-// matched the name pattern, and the API is one the model knows. A body that
-// does not validate is ErrMalformedEndpointReference, and nothing of it is
-// carried in the error — a value may be a secret. The plan-time checker and
-// the resolution share it, so the two never disagree on what a reference is.
+// each one syntactically: every token matches the name pattern, and the API
+// is one the model knows. A body that does not validate is
+// ErrMalformedEndpointReference. Syntactic validity is all this establishes:
+// a token that validates may still be text the author meant as a secret, so
+// nothing of the body — valid or not — is carried in any diagnostic; a
+// reference is named by its position and by the configuration and key. The
+// plan-time checker and the resolution share this parser, so the two never
+// disagree on what a reference is.
 func ParseEndpointReference(reference string) (*EndpointInformation, error) {
 	return parseEndpointReference(reference)
 }
@@ -186,9 +189,9 @@ func interpolateEndpointsAt(ctx context.Context, value string, mappings []*basev
 	last := 0
 	for i, match := range matches {
 		reference, authority := splitEndpointProjection(value[match[2]:match[3]])
-		// The marker body is validated as coordinates before anything names
-		// it: a diagnostic may name a reference by its validated coordinates,
-		// and names one that did not validate only by its position.
+		// The marker body is parsed before it is resolved, and a diagnostic
+		// names it only by its position, whether or not it validated: its
+		// tokens are text from the value.
 		position := fmt.Sprintf("reference %d of %d", base+i+1, total)
 		info, err := parseEndpointReference(reference)
 		if err != nil {
