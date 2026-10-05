@@ -176,3 +176,40 @@ func TestAProviderThatDeclassifiesANonAudienceSlotFailsTheKit(t *testing.T) {
 		})
 	}
 }
+
+// TestALastWinsProviderFailsTheKit is the executed round's finding: two
+// adapters that keep only the LAST record for a key — one indexing by core's
+// normalized spelling, one by the exact spelling written — passed all 29
+// configurations, because the resource-kind role had no conflicting pair and
+// the binding-key conflict used two spellings, which an adapter indexing by
+// exact spelling never collapses. Each resolves a composition the contract
+// must refuse.
+func TestALastWinsProviderFailsTheKit(t *testing.T) {
+	for name, keyOf := range map[string]func(Record) string{
+		"last wins per normalized key": func(record Record) string { return normalizeKey(record.Key) },
+		"last wins per exact spelling": func(record Record) string { return record.Key },
+	} {
+		t.Run(name, func(t *testing.T) {
+			recorder := &recordingT{}
+			RunResolution(recorder, func(group string, records []Record) Values {
+				last := map[string]Record{}
+				order := make([]string, 0, len(records))
+				for _, record := range records {
+					key := keyOf(record)
+					if _, seen := last[key]; !seen {
+						order = append(order, key)
+					}
+					last[key] = record
+				}
+				kept := make([]Record, 0, len(order))
+				for _, key := range order {
+					kept = append(kept, last[key])
+				}
+				return recordValues{group: group, records: kept}
+			})
+			if recorder.failures == 0 {
+				t.Fatalf("a provider that keeps only the %s passed the resolution kit", name)
+			}
+		})
+	}
+}

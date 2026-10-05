@@ -92,6 +92,12 @@ func Fixtures() ([]Fixture, error) {
 		{name: "null-in-a-bare-ceiling-action", file: "null-in-a-bare-ceiling-action.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: explicitNull, rule: ruleNoNulls},
 		{name: "explicit-scope-action-not-a-name", file: "explicit-scope-action-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `action "Write"`, rule: ruleActionName},
 		{name: "explicit-scope-action-declared-twice", file: "explicit-scope-action-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `action "write" is declared twice`, rule: ruleActionUnique},
+		// The values the executed rounds' vocabulary mutations ADD, which differ
+		// from the ones my own fixtures named: a fixture catches a named added
+		// value, so the named ones are these.
+		{name: "operation-delete", file: "operation-delete.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `operation "delete" is not one of`, rule: ruleOperationKnown},
+		{name: "destination-kind-public", file: "destination-kind-public.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `kind "public" is not one of`, rule: ruleDestinationKindKnown},
+		{name: "explicit-scope-action-wildcard", file: "explicit-scope-action-wildcard.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `action "*"`, rule: ruleActionName},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/module-contract/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "tenancy", file: "tenancy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "tenancy", rule: ruleKnownFields},

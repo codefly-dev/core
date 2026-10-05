@@ -48,6 +48,9 @@ type Fixture struct {
 // digestRefusal is the one message every image-digest fixture expects.
 const digestRefusal = "must pin an OCI manifest digest"
 
+// selectorKeyRefusal is the one message every selector-key fixture expects.
+const selectorKeyRefusal = "selector label key"
+
 func Fixtures() ([]Fixture, error) {
 	table := []struct {
 		name, file, message, rule string
@@ -78,7 +81,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "spiffe-id-of-another-namespace", file: "spiffe-id-of-another-namespace.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "ns/billing/sa/api", rule: ruleSPIFFEID},
 		{name: "artifact-name-not-a-name", file: "artifact-name-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must name the rendered unit", rule: ruleArtifact},
 		{name: "egress-cidr-unspecified", file: "egress-cidr-unspecified.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names every address", rule: ruleEgressCIDRReach},
-		{name: "delivery-selector-key-malformed", file: "delivery-selector-key-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "selector label key", rule: ruleSelectorLabelKey},
+		{name: "delivery-selector-key-malformed", file: "delivery-selector-key-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: selectorKeyRefusal, rule: ruleSelectorLabelKey},
 		{name: "init-container-image-repository-malformed", file: "init-container-image-repository-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a canonical image repository", rule: ruleImageRepository},
 		{name: "init-container-named-twice", file: "init-container-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `init container "migrate" twice`, rule: ruleContainerUnique},
 		{name: "egress-cidr-not-canonical-ipv6", file: "egress-cidr-not-canonical-ipv6.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "2001:db8::/32", rule: ruleEgressCIDR},
@@ -110,6 +113,14 @@ func Fixtures() ([]Fixture, error) {
 		{name: "endpoint-visibility-module", file: "endpoint-visibility-module.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `visibility "module" is not one of`, rule: ruleVisibility},
 		{name: "endpoint-visibility-external", file: "endpoint-visibility-external.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `visibility "external" is not one of`, rule: ruleVisibility},
 		{name: "selector-key-empty", file: "selector-key-empty.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "a key that is not a name", rule: ruleKeyIsAName},
+		// Kubernetes' own boundaries: each was caught by a package unit test
+		// and by no shipped fixture, so a consumer loosening one passed the kit.
+		{name: "selector-key-prefix-upper-case", file: "selector-key-prefix-upper-case.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: selectorKeyRefusal, rule: ruleSelectorLabelKey},
+		{name: "selector-key-name-too-long", file: "selector-key-name-too-long.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: selectorKeyRefusal, rule: ruleSelectorLabelKey},
+		{name: "selector-value-too-long", file: "selector-value-too-long.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "selector label", rule: ruleSelectorLabelVal},
+		{name: "container-name-too-long", file: "container-name-too-long.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a DNS label", rule: ruleContainerName},
+		{name: "workload-name-too-long", file: "workload-name-too-long.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a DNS subdomain", rule: ruleWorkloadName},
+		{name: "egress-host-port-negative", file: "egress-host-port-negative.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "port -1", rule: ruleEgressHostPort},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},

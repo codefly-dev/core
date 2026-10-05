@@ -69,6 +69,8 @@ const (
 	secretValue    = "hidden"
 	passagesKind   = "documents.passages"
 	notOneLine     = "empty or not a single line"
+	noOneValue     = "no one value to resolve"
+	bindingLookup  = "model-binding"
 	kindKey        = "EVIDENCE_RESOURCE_KIND"
 	kindSlot       = "assistant/evidence-resource-kind"
 	bindingSlot    = "assistant/model-binding"
@@ -128,7 +130,7 @@ func ResolutionFixtures() []ResolutionFixture {
 		},
 		{
 			Name: "the same spelling supplied twice with different values", Group: group, Key: key, Outcome: OutcomeRefused,
-			Sentinel: ErrAmbiguousSlot, Message: "no one value to resolve", Rule: ruleOneValue,
+			Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,
 			Records: []Record{{Key: audienceKey, Value: audienceValue}, {Key: audienceKey, Value: "other-gateway"}},
 		},
 		{
@@ -189,6 +191,21 @@ func ResolutionFixtures() []ResolutionFixture {
 			Name: "an audience carrying a zero-width space", Group: group, Key: key, Outcome: OutcomeRefused,
 			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
 			Records: []Record{{Key: audienceKey, Value: "first\u200bsecond"}},
+		},
+		{
+			Name: "an audience carrying a zero-width joiner", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: audienceKey, Value: "first\u200dsecond"}},
+		},
+		{
+			Name: "an audience carrying a word joiner", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: audienceKey, Value: "first\u2060second"}},
+		},
+		{
+			Name: "an audience carrying a byte-order mark", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: audienceKey, Value: "first\ufeffsecond"}},
 		},
 	}
 	for index := range fixtures {
@@ -256,7 +273,7 @@ func ResolvedKindFixtures() []ResolutionFixture {
 // installs the binding under: it had no resolution case at all, so a provider
 // could lose it while every audience and kind case passed.
 func BindingKeyFixtures() []ResolutionFixture {
-	const group, key = "assistant", "model-binding"
+	const group, key = "assistant", bindingLookup
 	fixtures := []ResolutionFixture{
 		{
 			Name: "a binding key", Group: group, Key: key, Outcome: OutcomeAccepted, Value: bindingValue,
@@ -266,7 +283,7 @@ func BindingKeyFixtures() []ResolutionFixture {
 		},
 		{
 			Name: "a binding key supplied twice with different values", Group: group, Key: key, Outcome: OutcomeRefused,
-			Sentinel: ErrAmbiguousSlot, Message: "no one value to resolve", Rule: ruleOneValue,
+			Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,
 			Records: []Record{{Key: bindingKey, Value: bindingValue}, {Key: "model-binding", Value: "other"}},
 		},
 		{
@@ -310,6 +327,54 @@ func BindingKeyFixtures() []ResolutionFixture {
 		fixtures[index].Records = withCompanion(withCompanion(fixtures[index].Records, companionKind), companionAudience)
 	}
 	return fixtures
+}
+
+// lossFixtures are the cases that catch a provider DISCARDING a record rather
+// than mis-reading one, generated for EVERY slot role so none can be missed:
+// a conflict written in one spelling twice, a conflict written in two
+// spellings, and a public/secret collision in both orders and both spellings.
+//
+// Two last-wins adapters passed every other case — one keeping the last record
+// per normalized resource-kind key, one keeping the last per EXACT binding-key
+// spelling — because the kind role had no conflicting pair at all and the
+// binding-key conflict used two spellings, which an adapter indexing by exact
+// spelling never collapses. Each of these cases is a resolution the contract
+// must refuse and a lossy adapter resolves.
+func lossFixtures(role, group, key, upper, lower, value string) []ResolutionFixture {
+	const other = "other.value"
+	slot := group + "/" + key
+	return []ResolutionFixture{
+		{
+			Name: role + ": one spelling supplied twice with different values", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,
+			Slot:    role,
+			Records: []Record{{Key: upper, Value: value}, {Key: upper, Value: other}},
+		},
+		{
+			Name: role + ": two spellings supplied with different values", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,
+			Slot:    role,
+			Records: []Record{{Key: upper, Value: value}, {Key: lower, Value: other}},
+		},
+		{
+			Name: role + ": public then secret, one spelling", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: upper, Value: value}, {Key: upper, Value: secretValue, Secret: true}},
+		},
+		{
+			Name: role + ": secret then public, one spelling", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: upper, Value: secretValue, Secret: true}, {Key: upper, Value: value}},
+		},
+		{
+			Name: role + ": secret then public, two spellings", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: lower, Value: secretValue, Secret: true}, {Key: upper, Value: value}},
+		},
+	}
 }
 
 // RunResolution drives a consumer's own value provider through every
@@ -411,7 +476,18 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 func AllResolutionFixtures() []ResolutionFixture {
 	all := append([]ResolutionFixture(nil), ResolutionFixtures()...)
 	all = append(all, ResolvedKindFixtures()...)
-	return append(all, BindingKeyFixtures()...)
+	all = append(all, BindingKeyFixtures()...)
+	for _, role := range []struct{ role, key, upper, lower, value string }{
+		{fieldAudience, audienceLookup, audienceKey, audienceLookup, audienceValue},
+		{fieldResourceKind, "evidence-resource-kind", kindKey, "evidence-resource-kind", passagesKind},
+		{fieldBindingKey, bindingLookup, bindingKey, bindingLookup, bindingValue},
+	} {
+		for _, fixture := range lossFixtures(role.role, "assistant", role.key, role.upper, role.lower, role.value) {
+			fixture.Records = withCompanion(withCompanion(fixture.Records, companionKind), companionAudience)
+			all = append(all, fixture)
+		}
+	}
+	return all
 }
 
 // recordValues is the kit's own provider: it reports the records it was given,
