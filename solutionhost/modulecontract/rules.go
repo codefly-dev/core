@@ -27,10 +27,11 @@ type rule struct {
 // The rules, by name. A refused fixture names one of these; a reader that
 // drops one fails the kit on that fixture.
 const (
-	ruleWellFormed  = "well-formed"
-	ruleSchema      = "schema"
-	ruleKnownFields = "known-fields"
-	ruleOneDocument = "one-document"
+	ruleWellFormed      = "well-formed"
+	ruleSchema          = "schema"
+	ruleKnownFields     = "known-fields"
+	ruleOneDocument     = "one-document"
+	ruleMappingKeysOnce = "mapping-keys-once"
 
 	rulePrincipal       = "principal-name"
 	ruleListsDeclared   = "lists-declared"
@@ -52,13 +53,11 @@ const (
 	ruleLookupMethodName      = "lookup-method-name"
 	ruleSlotIsAReference      = "slot-is-a-reference"
 	ruleSlotCarriesOnlyFrom   = "slot-carries-only-from"
-	ruleSlotKeyOnce           = "slot-key-once"
 	ruleSlotDecodes           = "slot-decodes"
 	ruleSlotReference         = "slot-reference"
 	ruleSlotKeyMeaning        = "slot-key-meaning"
 	ruleCeilingIsAList        = "ceiling-is-a-list"
 	ruleCeilingEntryFields    = "ceiling-entry-fields"
-	ruleCeilingEntryKeyOnce   = "ceiling-entry-key-once"
 	ruleCeilingEntryShape     = "ceiling-entry-shape"
 	ruleCeilingOneSpelling    = "ceiling-one-spelling"
 	ruleCeilingForDeclaredOp  = "ceiling-for-declared-operation"
@@ -83,6 +82,7 @@ func rules() []rule {
 		{name: ruleSchema, check: checkSchema},
 		{name: ruleKnownFields, check: func(*Contract) error { return nil }},
 		{name: ruleOneDocument, check: func(*Contract) error { return nil }},
+		{name: ruleMappingKeysOnce, check: func(*Contract) error { return nil }},
 		{name: rulePrincipal, check: checkPrincipal},
 		{name: ruleListsDeclared, check: checkListsDeclared},
 		{name: ruleListEntryName, check: checkListEntryNames},
@@ -99,13 +99,11 @@ func rules() []rule {
 		{name: ruleLookupMethodName, check: checkLookupMethodNames},
 		{name: ruleSlotIsAReference, check: checkSlotsAreReferences},
 		{name: ruleSlotCarriesOnlyFrom, check: checkSlotsCarryOnlyFrom},
-		{name: ruleSlotKeyOnce, check: checkSlotKeysOnce},
 		{name: ruleSlotDecodes, check: checkSlotsDecode},
 		{name: ruleSlotReference, check: checkSlotReferences},
 		{name: ruleSlotKeyMeaning, check: checkSlotKeyMeanings},
 		{name: ruleCeilingIsAList, check: checkCeilingsAreLists},
 		{name: ruleCeilingEntryFields, check: checkCeilingEntryFields},
-		{name: ruleCeilingEntryKeyOnce, check: checkCeilingEntryKeysOnce},
 		{name: ruleCeilingEntryShape, check: checkCeilingEntryShapes},
 		{name: ruleCeilingOneSpelling, check: checkCeilingsOneSpelling},
 		{name: ruleCeilingForDeclaredOp, check: checkCeilingsForDeclaredOperations},
@@ -437,15 +435,6 @@ func checkSlotsDecode(contract *Contract) error {
 	return nil
 }
 
-func checkSlotKeysOnce(contract *Contract) error {
-	for _, entry := range contract.slots() {
-		if entry.slot.repeated != "" {
-			return fmt.Errorf("%w: %s slot names the field %q twice; a repeated key makes the selected reference depend on decode order", ErrInvalid, entry.label, entry.slot.repeated)
-		}
-	}
-	return nil
-}
-
 func checkSlotReferences(contract *Contract) error {
 	for _, entry := range contract.slots() {
 		group, key, found := strings.Cut(entry.slot.From, "/")
@@ -507,17 +496,6 @@ func checkCeilingEntryFields(contract *Contract) error {
 	for _, entry := range contract.ceilings() {
 		if entry.ceiling.hasUnknownField {
 			return fmt.Errorf("%w: %s ceiling carries the unknown scope ceiling field %q (an entry carries resource_kind and actions)", ErrInvalid, entry.label, entry.ceiling.unknownField)
-		}
-	}
-	return nil
-}
-
-// checkCeilingEntryKeysOnce: as for a slot, a repeated key in a ceiling entry
-// makes the decoded value depend on decode order.
-func checkCeilingEntryKeysOnce(contract *Contract) error {
-	for _, entry := range contract.ceilings() {
-		if entry.ceiling.repeatedField != "" {
-			return fmt.Errorf("%w: %s ceiling entry names the field %q twice; a repeated key makes the decoded entry depend on decode order", ErrInvalid, entry.label, entry.ceiling.repeatedField)
 		}
 	}
 	return nil

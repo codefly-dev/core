@@ -34,6 +34,14 @@ type ResolutionFixture struct {
 	Outcome Outcome
 	// Value is the value a resolved slot must carry when accepted.
 	Value string
+	// Audience, Kind, BindingKey and Scopes are the WHOLE resolved binding an
+	// accepted case must produce — not only the field under test. A provider
+	// that transferred the slot under test faithfully and corrupted the
+	// companion record changed the derived authority and passed anyway.
+	Audience   string
+	Kind       string
+	BindingKey string
+	Scopes     []string
 	// Sentinel is the error a refusal must match with errors.Is.
 	Sentinel error
 	// Message is a substring a refusal's message must carry.
@@ -48,13 +56,19 @@ const (
 	audienceSlot   = "assistant/model-audience"
 	audienceLookup = "model-audience"
 	audienceValue  = "model-gateway"
+	kindValue      = "modelservice.profiles"
+	kindScope      = kindValue + ":read"
+	bindingKey     = "MODEL_BINDING"
+	bindingValue   = "model"
+	secretValue    = "hidden"
+	passagesKind   = "documents.passages"
 )
 
 // companion is the record the slot BESIDE the one under test resolves from, so
 // every fixture is the group's records whole and a provider receives all of
 // them.
 var (
-	companionKind     = Record{Key: "MODEL_RESOURCE_KIND", Value: "modelservice.profiles"}
+	companionKind     = Record{Key: "MODEL_RESOURCE_KIND", Value: kindValue}
 	companionAudience = Record{Key: audienceKey, Value: audienceValue}
 )
 
@@ -75,22 +89,26 @@ func ResolutionFixtures() []ResolutionFixture {
 	fixtures := []ResolutionFixture{
 		{
 			Name: "one record", Group: group, Key: key, Outcome: OutcomeAccepted, Value: audienceValue,
+			Audience: audienceValue, Kind: kindValue, BindingKey: "", Scopes: []string{kindScope},
 			Records: []Record{{Key: audienceKey, Value: audienceValue}},
 		},
 		{
 			// The convention core accepts: a slot written in one spelling
 			// resolves a record written in the other.
 			Name: "the other spelling", Group: group, Key: key, Outcome: OutcomeAccepted, Value: audienceValue,
+			Audience: audienceValue, Kind: kindValue, BindingKey: "", Scopes: []string{kindScope},
 			Records: []Record{{Key: audienceLookup, Value: audienceValue}},
 		},
 		{
 			// Two spellings agreeing are one value: there is nothing a reader
 			// could get wrong, so this must resolve rather than refuse.
 			Name: "competing spellings that agree", Group: group, Key: key, Outcome: OutcomeAccepted, Value: audienceValue,
+			Audience: audienceValue, Kind: kindValue, BindingKey: "", Scopes: []string{kindScope},
 			Records: []Record{{Key: audienceKey, Value: audienceValue}, {Key: audienceLookup, Value: audienceValue}},
 		},
 		{
 			Name: "the same record twice", Group: group, Key: key, Outcome: OutcomeAccepted, Value: audienceValue,
+			Audience: audienceValue, Kind: kindValue, BindingKey: "", Scopes: []string{kindScope},
 			Records: []Record{{Key: audienceKey, Value: audienceValue}, {Key: audienceKey, Value: audienceValue}},
 		},
 		{
@@ -110,12 +128,12 @@ func ResolutionFixtures() []ResolutionFixture {
 			// only, so this refuses.
 			Name: "a public and a secret occurrence", Group: group, Key: key, Outcome: OutcomeRefused,
 			Sentinel: ErrSecretSlot, Message: audienceSlot, Rule: ruleSecretPrecedence,
-			Records: []Record{{Key: audienceKey, Value: "visible"}, {Key: audienceKey, Value: "hidden", Secret: true}},
+			Records: []Record{{Key: audienceKey, Value: "visible"}, {Key: audienceKey, Value: secretValue, Secret: true}},
 		},
 		{
 			Name: "a secret occurrence in the other spelling", Group: group, Key: key, Outcome: OutcomeRefused,
 			Sentinel: ErrSecretSlot, Message: audienceSlot, Rule: ruleSecretPrecedence,
-			Records: []Record{{Key: audienceLookup, Value: "hidden", Secret: true}},
+			Records: []Record{{Key: audienceLookup, Value: secretValue, Secret: true}},
 		},
 		{
 			Name: "no record at all", Group: group, Key: key, Outcome: OutcomeRefused,
@@ -154,8 +172,9 @@ func ResolvedKindFixtures() []ResolutionFixture {
 	}
 	fixtures := []ResolutionFixture{
 		{
-			Name: "a resource kind", Group: group, Key: key, Outcome: OutcomeAccepted, Value: "documents.passages",
-			Records: []Record{{Key: "EVIDENCE_RESOURCE_KIND", Value: "documents.passages"}},
+			Name: "a resource kind", Group: group, Key: key, Outcome: OutcomeAccepted, Value: passagesKind,
+			Audience: audienceValue, Kind: passagesKind, BindingKey: "", Scopes: []string{"documents.passages:read"},
+			Records: []Record{{Key: "EVIDENCE_RESOURCE_KIND", Value: passagesKind}},
 		},
 		refused("a kind carrying a comma and a colon", "documents.passages:delete,documents.passages", "not a lowercase resource kind"),
 		refused("a kind carrying a colon", "documents.passages:delete", "not a lowercase resource kind"),
@@ -164,6 +183,35 @@ func ResolvedKindFixtures() []ResolutionFixture {
 	}
 	for index := range fixtures {
 		fixtures[index].Records = withCompanion(fixtures[index].Records, companionAudience)
+	}
+	return fixtures
+}
+
+// BindingKeyFixtures are the same for the slot whose value is the key the host
+// installs the binding under: it had no resolution case at all, so a provider
+// could lose it while every audience and kind case passed.
+func BindingKeyFixtures() []ResolutionFixture {
+	const group, key = "assistant", "model-binding"
+	fixtures := []ResolutionFixture{
+		{
+			Name: "a binding key", Group: group, Key: key, Outcome: OutcomeAccepted, Value: bindingValue,
+			Audience: audienceValue, Kind: kindValue, BindingKey: bindingValue,
+			Scopes:  []string{kindScope},
+			Records: []Record{{Key: bindingKey, Value: bindingValue}},
+		},
+		{
+			Name: "a binding key supplied twice with different values", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: "no one value to resolve", Rule: ruleOneValue,
+			Records: []Record{{Key: bindingKey, Value: bindingValue}, {Key: "model-binding", Value: "other"}},
+		},
+		{
+			Name: "a secret binding key", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrSecretSlot, Message: "assistant/model-binding", Rule: ruleSecretPrecedence,
+			Records: []Record{{Key: bindingKey, Value: secretValue, Secret: true}},
+		},
+	}
+	for index := range fixtures {
+		fixtures[index].Records = withCompanion(withCompanion(fixtures[index].Records, companionKind), companionAudience)
 	}
 	return fixtures
 }
@@ -180,7 +228,7 @@ func RunResolution(t TestingT, provider func(group string, records []Record) Val
 		t.Fatalf("resolution conformance: no provider given")
 		return
 	}
-	for _, fixture := range append(ResolutionFixtures(), ResolvedKindFixtures()...) {
+	for _, fixture := range AllResolutionFixtures() {
 		values := provider(fixture.Group, fixture.Records)
 		if values == nil {
 			// Refused at the boundary: a factory that builds no provider —
@@ -203,17 +251,22 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 		return
 	}
 	kind := strings.HasSuffix(normalizeKey(fixture.Key), "_RESOURCE_KIND")
+	bindingKey := strings.HasSuffix(normalizeKey(fixture.Key), "_BINDING")
 	binding := Binding{
 		ID: "model", Operations: []string{OperationInvoke},
 		ScopeCeiling: map[string]Ceiling{OperationInvoke: {Actions: []string{"read"}}},
 		ResourceKind: &Slot{From: "assistant/model-resource-kind"},
 	}
-	if kind {
+	switch {
+	case kind:
 		// The kind slot is the one under test; the audience beside it
 		// resolves from the fixture's companion record.
 		binding.Audience = Slot{From: audienceSlot}
 		binding.ResourceKind = &Slot{From: fixture.Group + "/" + fixture.Key}
-	} else {
+	case bindingKey:
+		binding.Audience = Slot{From: audienceSlot}
+		binding.BindingKey = &Slot{From: fixture.Group + "/" + fixture.Key}
+	default:
 		binding.Audience = Slot{From: fixture.Group + "/" + fixture.Key}
 	}
 	contract := &Contract{
@@ -223,13 +276,26 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 	resolved, err := contract.resolve(values, without)
 	switch fixture.Outcome {
 	case OutcomeAccepted:
-		switch {
-		case err != nil:
+		if err != nil {
 			t.Errorf("resolution fixture %q must resolve, got: %v", fixture.Name, err)
-		case kind && resolved.Bindings[0].ResourceKind != fixture.Value:
-			t.Errorf("resolution fixture %q must resolve to %q, got %q", fixture.Name, fixture.Value, resolved.Bindings[0].ResourceKind)
-		case !kind && resolved.Bindings[0].Audience != fixture.Value:
-			t.Errorf("resolution fixture %q must resolve to %q, got %q", fixture.Name, fixture.Value, resolved.Bindings[0].Audience)
+			return
+		}
+		// The WHOLE binding, so a provider cannot corrupt a value the fixture
+		// does not name and still pass.
+		got := resolved.Bindings[0]
+		for _, field := range []struct {
+			what, have, want string
+		}{
+			{"audience", got.Audience, fixture.Audience},
+			{"resource_kind", got.ResourceKind, fixture.Kind},
+			{"binding_key", got.BindingKey, fixture.BindingKey},
+		} {
+			if field.have != field.want {
+				t.Errorf("resolution fixture %q must resolve %s to %q, got %q", fixture.Name, field.what, field.want, field.have)
+			}
+		}
+		if have := strings.Join(got.Scopes[OperationInvoke], ","); have != strings.Join(fixture.Scopes, ",") {
+			t.Errorf("resolution fixture %q must produce scopes %v, got %v", fixture.Name, fixture.Scopes, got.Scopes[OperationInvoke])
 		}
 	case OutcomeRefused:
 		switch {
@@ -241,6 +307,13 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 			t.Errorf("resolution fixture %q must be refused naming %q, got: %v", fixture.Name, fixture.Message, err)
 		}
 	}
+}
+
+// AllResolutionFixtures is every shipped resolution case.
+func AllResolutionFixtures() []ResolutionFixture {
+	all := append([]ResolutionFixture(nil), ResolutionFixtures()...)
+	all = append(all, ResolvedKindFixtures()...)
+	return append(all, BindingKeyFixtures()...)
 }
 
 // recordValues is the kit's own provider: it reports the records it was given,

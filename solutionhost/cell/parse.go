@@ -8,6 +8,8 @@ import (
 	"regexp"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/codefly-dev/core/solutionhost/internal/wire"
 )
 
 var (
@@ -77,6 +79,20 @@ func parse(data []byte, without string) (*File, error) {
 	}
 	if header.Schema != SchemaV1 && without != ruleSchema {
 		return nil, fmt.Errorf("%w: %q (this reader reads %q)", ErrSchema, header.Schema, SchemaV1)
+	}
+	// One mapping, one key — at EVERY mapping boundary, including the
+	// ordinary maps a typed decoder cannot guard: a per-operation ceiling and
+	// a selector are dynamic maps, and yaml's own duplicate check compares
+	// raw key nodes before resolving an alias, so an alias key silently
+	// replaced an earlier entry and changed the requested scopes or the pods
+	// selected.
+	var tree yaml.Node
+	if err := yaml.Unmarshal(data, &tree); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if path, key, duplicated := wire.DuplicateKey(&tree); duplicated && without != ruleMappingKeysOnce {
+		return nil, fmt.Errorf("%w: the mapping at %s names the key %q twice; a repeated key — including one written through an alias — makes the decoded document depend on order",
+			ErrInvalid, wire.Where(path), key)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(without != ruleKnownFields)

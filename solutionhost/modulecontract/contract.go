@@ -91,6 +91,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/codefly-dev/core/solutionhost/internal/wire"
 )
 
 const (
@@ -246,7 +248,6 @@ type Ceiling struct {
 	notAList        bool
 	hasUnknownField bool
 	unknownField    string
-	repeatedField   string
 	malformed       error
 }
 
@@ -290,9 +291,6 @@ func (ceiling *Ceiling) UnmarshalYAML(node *yaml.Node) error {
 						ceiling.malformed = err
 					}
 					continue
-				}
-				if seen[key] && ceiling.repeatedField == "" {
-					ceiling.repeatedField = key
 				}
 				seen[key] = true
 				if key != fieldResourceKind && key != fieldActions && !ceiling.hasUnknownField {
@@ -349,7 +347,6 @@ type Slot struct {
 	literal   *string
 	hasExtra  bool
 	extra     string
-	repeated  string
 	malformed error
 }
 
@@ -400,11 +397,8 @@ func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
 		}
 		switch {
 		case seen[key]:
-			// A repeated key means the document says two things and a
-			// decoder that keeps assigning silently honours the last.
-			if slot.repeated == "" {
-				slot.repeated = key
-			}
+			// Reported by the document-level one-key rule, which sees every
+			// mapping including the dynamic ones; nothing to record here.
 			continue
 		case key != fieldFrom:
 			if !slot.hasExtra {
@@ -497,6 +491,20 @@ func parse(data []byte, without string) (*Contract, error) {
 	}
 	if header.Schema != SchemaV1 && without != ruleSchema {
 		return nil, fmt.Errorf("%w: %q (this reader reads %q)", ErrSchema, header.Schema, SchemaV1)
+	}
+	// One mapping, one key — at EVERY mapping boundary, including the
+	// ordinary maps a typed decoder cannot guard: a per-operation ceiling and
+	// a selector are dynamic maps, and yaml's own duplicate check compares
+	// raw key nodes before resolving an alias, so an alias key silently
+	// replaced an earlier entry and changed the requested scopes or the pods
+	// selected.
+	var tree yaml.Node
+	if err := yaml.Unmarshal(data, &tree); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if path, key, duplicated := wire.DuplicateKey(&tree); duplicated && without != ruleMappingKeysOnce {
+		return nil, fmt.Errorf("%w: the mapping at %s names the key %q twice; a repeated key — including one written through an alias — makes the decoded document depend on order",
+			ErrInvalid, wire.Where(path), key)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(without != ruleKnownFields)

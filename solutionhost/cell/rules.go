@@ -33,10 +33,11 @@ type rule struct {
 // The rules, by name. A refused fixture names one of these; a reader that
 // drops one fails the kit on that fixture.
 const (
-	ruleWellFormed  = "well-formed"
-	ruleSchema      = "schema"
-	ruleKnownFields = "known-fields"
-	ruleOneDocument = "one-document"
+	ruleWellFormed      = "well-formed"
+	ruleSchema          = "schema"
+	ruleKnownFields     = "known-fields"
+	ruleOneDocument     = "one-document"
+	ruleMappingKeysOnce = "mapping-keys-once"
 
 	ruleEnvironmentName = "environment-name"
 	ruleHostHeaderWhole = "host-header-whole"
@@ -108,6 +109,7 @@ func rules() []rule {
 		{name: ruleSchema, check: checkSchema},
 		{name: ruleKnownFields, check: func(*File) error { return nil }},
 		{name: ruleOneDocument, check: func(*File) error { return nil }},
+		{name: ruleMappingKeysOnce, check: func(*File) error { return nil }},
 		{name: ruleEnvironmentName, check: checkEnvironmentName},
 		{name: ruleHostHeaderWhole, check: checkHostHeaderWhole},
 		{name: ruleHostName, check: checkHostNames},

@@ -117,15 +117,16 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"namespace-not-a-label", "namespaces-out-of-order", "not-yaml",
 		"partial-host-header", "release-without-name", "release-without-publisher",
 		"release-without-version", "schema-omitted", "selector-empty-label-value",
-		"selector-label-key-malformed", "selector-label-value-malformed",
+		"selector-label-key-malformed", "selector-label-named-twice",
+		"selector-label-repeated", "selector-label-value-malformed",
 		"service-not-qualified", "service-of-another-module",
 		"service-over-qualified", "spiffe-id-of-another-account",
 		"spiffe-id-of-another-namespace", "spiffe-id-of-another-trust-domain",
 		"spiffe-id-without-trust-domain", "trust-domain-malformed",
 		"trust-domain-with-a-space", "two-documents", "unknown-field",
 		"unknown-workload-kind", "valid", "workload-declared-twice",
-		"workload-name-not-a-subdomain", "workload-without-container",
-		"workloads-out-of-order",
+		"workload-kind-pod", "workload-name-not-a-subdomain",
+		"workload-without-container", "workloads-out-of-order",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("the kit ships %v; a changed kit is a changed rule set, declared here", names)

@@ -864,8 +864,9 @@ what went in. Marshaling the model directly let a publisher emit a document its
 reader refuses — a principal of `INVALID PRINCIPAL`, an image digest of the
 wrong length — with the failure surfacing at whoever READ the file, or at
 admission rather than at publish; and, worse, one that parses to something else,
-which no reader refuses at all. Nothing outside these packages marshals either
-model by hand.
+which no reader refuses at all. Writing through `Encode` rather than marshaling
+the model is a REQUIREMENT on each consumer, which the adoption table carries
+and which this repository cannot establish for them.
 
 **The duplicate and network-range decisions, since the platform must not make
 them.** One declared edge is one entry: a consumer named twice, two ingress
@@ -888,7 +889,7 @@ their documented meanings.
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (65 documents) / `cell.Fixtures()` (104) ship
+`modulecontract.Fixtures()` (68 documents) / `cell.Fixtures()` (107) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it

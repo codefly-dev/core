@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestTheClosedVocabulariesAreExactlyThese: a fixture cannot catch a value
-// ADDED to a closed set — the executed round's `extra-operation-allowed` and
+// TestTheClosedVocabulariesAreExactlyThese guards the sets WHOLE, which is
+// what a fixture cannot do for an UNNAMED added value — the executed round's `extra-operation-allowed` and
 // `extra-destination-allowed` mutations widen the set, and every refusal
 // fixture keeps refusing because it names a value that is still absent. So the
 // sets are asserted whole. Adding an operation or a destination kind without

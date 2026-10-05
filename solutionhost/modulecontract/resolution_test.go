@@ -21,7 +21,7 @@ func TestEveryResolutionFixtureReachesItsOutcome(t *testing.T) {
 // isolates it must notice. A resolution rule that could be dropped silently is
 // a rule a consumer could resolve differently without failing the kit.
 func TestEveryResolutionRuleIsProtectedByAFixture(t *testing.T) {
-	all := append(ResolutionFixtures(), ResolvedKindFixtures()...)
+	all := AllResolutionFixtures()
 	protected := map[string][]ResolutionFixture{}
 	for _, fixture := range all {
 		if fixture.Outcome == OutcomeRefused && fixture.Rule != "" {
@@ -122,5 +122,30 @@ func TestAFactoryThatBuildsNoProviderFailsTheKit(t *testing.T) {
 	}
 	if !strings.Contains(recorder.messages, "cannot certify an adapter that was not built") {
 		t.Fatalf("the kit did not say why:\n%s", recorder.messages)
+	}
+}
+
+// TestAProviderThatCorruptsACompanionValueFailsTheKit is finding 2's
+// regression: a provider that transfers the record under test faithfully and
+// replaces the COMPANION resource kind changes the derived authority — the
+// accepted audience cases then produce "other.profiles:read" — and used to
+// pass, because each case checked only the field it was named for.
+func TestAProviderThatCorruptsACompanionValueFailsTheKit(t *testing.T) {
+	recorder := &recordingT{}
+	RunResolution(recorder, func(group string, records []Record) Values {
+		corrupted := make([]Record, 0, len(records))
+		for _, record := range records {
+			if normalizeKey(record.Key) == "MODEL_RESOURCE_KIND" {
+				record.Value = "other.profiles"
+			}
+			corrupted = append(corrupted, record)
+		}
+		return recordValues{group: group, records: corrupted}
+	})
+	if recorder.failures == 0 {
+		t.Fatal("a provider that corrupts a companion value passed the resolution kit")
+	}
+	if !strings.Contains(recorder.messages, "other.profiles") {
+		t.Fatalf("the kit did not name the corrupted value:\n%s", recorder.messages)
 	}
 }

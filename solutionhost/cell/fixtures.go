@@ -93,6 +93,12 @@ func Fixtures() ([]Fixture, error) {
 		{name: "egress-cidrs-overlap-reversed", file: "egress-cidrs-overlap-reversed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "overlapping CIDRs", rule: ruleEgressCIDR},
 		{name: "egress-cidr-ipv6-all-addresses", file: "egress-cidr-ipv6-all-addresses.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names every address", rule: ruleEgressCIDRReach},
 		{name: "hostless-delivery-with-spiffe-id", file: "hostless-delivery-with-spiffe-id.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "but the cell declares no trust domain", rule: ruleSPIFFEIDHostless},
+		{name: "selector-label-named-twice", file: "selector-label-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "app" twice`, rule: ruleMappingKeysOnce},
+		{name: "selector-label-repeated", file: "selector-label-repeated.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "twice", rule: ruleMappingKeysOnce},
+		// A fixture CAN catch a named added value, and a package assertion is
+		// not run by a consumer's conformance call — so the widenings the
+		// review named ship here, where cell.Run sees them.
+		{name: "workload-kind-pod", file: "workload-kind-pod.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `kind "Pod" is not one of`, rule: ruleWorkloadKind},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},
