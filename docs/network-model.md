@@ -232,9 +232,78 @@ producer adding one private endpoint does not break every consumer that did not
 enumerate. Being permitted none of them is still an error — the edge is declared
 and the export boundary grants nothing for it.
 
-**Deprecated aliases** (still load, with a warning): `visibility: module` maps
-to `internal` with `allow-modules: ["*"]`; `visibility: external` maps to
-`location: external` (see below) with the same permissive allow-list.
+**Only these three spellings load.** A visibility the model does not define —
+including the former `module` (every module) and `external` (a location written
+as a permission) — is refused when the manifest is read, as an invalid
+declaration, never read as private by one path and denied by another. `module`
+is written as `visibility: internal` with `allow-modules: ["*"]`; `external` is
+written as `location: external` (see below) beside the visibility that applies.
+An `allow-modules` list is only read for `internal` and is refused elsewhere.
+
+A module's interface entry is the whole export declaration: it names the
+visibility the module grants across its boundary — `public`, or `internal`
+(the default) with its own `allow-modules` — and the service's own visibility
+and allow-list are not consulted once the module has spoken. An `internal`
+entry that names no module is refused: it would export to nobody.
+
+### Endpoint References
+
+A configuration value may name an endpoint instead of typing its address:
+`${endpoint:<module>/<service>/<endpoint>}` (with `|authority` for host:port, and
+`::<api>` to qualify the name with the API it must serve). The reference is
+resolved to the address the run published for the consuming service's access —
+and *which* endpoint it names is decided once, in core, by the same rule for the
+plan-time check, the readiness graph and the value's resolution
+(`resources.SelectEndpointForReference`). No caller models the selection beside
+it; a consumer of this package that ordered or pruned the mappings it handed
+over to influence the answer was the defect this rule removed.
+
+The rule, per reference, for the consumer's module:
+
+1. **The exact name wins, and is found first.** An endpoint whose *name* is the
+   reference's token is the endpoint named, before any matching by API. A
+   producer declaring `grpc` (api grpc) and `admin` (api grpc) has two endpoints
+   that *serve* grpc; `${…/grpc}` names the one called `grpc`. Nothing else may
+   answer it: not a sibling published earlier, not a sibling that has an address
+   for this access when the named one does not, not a sibling when the reference
+   qualifies the name with an API the named endpoint does not serve (that is a
+   refusal, never a substitution).
+2. **An exact name the consumer may not reach is refused, never replaced.** The
+   reference is an edge into the consumer's module like a declared dependency,
+   judged by the same export boundary. Resolving to a permitted sibling instead
+   would answer a reference for an endpoint the consumer was refused with another
+   endpoint's address, silently.
+3. **With no exact name, the token is an API**, and the candidates are the
+   endpoints serving it that the consumer may reach. Exactly one is the answer;
+   several are ambiguous and refused (name the one you mean); none is a refusal
+   carrying the visibility reason when an endpoint existed but was not
+   reachable.
+
+Two inputs are required for any resolution, and a value carrying a reference is
+refused when either is missing: the **consumer's module**, because visibility is
+a statement about it, and the **producers' declared endpoints** (the manifest),
+because published mappings establish neither the complete declared set nor a
+declaration that was never published, and carry no authority on who may reach
+what. A producer the workspace does not declare is a composition fault; a
+declared endpoint the run published no mapping for is an availability fact.
+
+Once selected, only that endpoint's mappings are bound, in publication order,
+by name; a mapping published under that name that states another API is
+conflicting metadata and refused. Duplicate mappings of one endpoint are one
+candidate.
+
+Omission versus refusal: a configuration injected run-wide reaches every
+service, so a value whose endpoint this consumer was handed no mapping for, or
+may not reach under a valid export policy, is **omitted** for that consumer (the
+value was not for it). Those are the only two omissions. Every other failure —
+an ambiguous reference, a malformed one, a qualifier the named endpoint does not
+serve, a producer the workspace does not declare, an invalid declaration (an
+unsupported visibility value), an endpoint with no instance for the consumer's
+access — is **refused** with the configuration and key named, never a key
+silently missing from a delivered configuration. The refusal wins whatever the
+order of the references in a value: every reference of a value and of its
+template literals is classified before an omission is allowed, so a fault
+behind an omittable reference is still reported.
 
 ### Location
 

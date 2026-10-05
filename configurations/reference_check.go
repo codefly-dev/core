@@ -17,21 +17,24 @@ type UnresolvedReference struct {
 	// Group and Key locate the value carrying the reference.
 	Group string
 	Key   string
-	// Reference is the <module>/<service>/<endpoint> the value names.
-	Reference string
-	// Producer is the <module>/<service> the reference names, empty when the
-	// reference is malformed.
-	Producer string
+	// Position is which reference of the value this is, 1-based, in order of
+	// appearance across the value and its template literals — the number a
+	// render names it by. It is how the reference is named: a reference is text
+	// from a value, a value may be a secret, and nothing of it — not even
+	// coordinates whose every token validated — is carried here. The reason
+	// names what the manifest says. A marker the grammar cannot read has no
+	// number among the references: Position is 0 and the Reason says which
+	// part of the value carries it.
+	Position int
 	// Reason says why the reference cannot resolve.
 	Reason string
 }
 
 func (r UnresolvedReference) String() string {
-	producer := r.Producer
-	if producer == "" {
-		producer = "-"
+	if r.Position == 0 {
+		return fmt.Sprintf("%s: %s/%s: %s", r.Consumer, r.Group, r.Key, r.Reason)
 	}
-	return fmt.Sprintf("%s: %s/%s = ${endpoint:%s} (producer %s): %s", r.Consumer, r.Group, r.Key, r.Reference, producer, r.Reason)
+	return fmt.Sprintf("%s: %s/%s, reference %d: %s", r.Consumer, r.Group, r.Key, r.Position, r.Reason)
 }
 
 // UnresolvedReferencesError lists every unresolvable reference of a plan at
@@ -74,9 +77,13 @@ type ProducerLookup func(unique string) (*resources.Service, bool)
 // than assembling a set the check cannot verify; a zero profile excludes
 // nothing. A group the environment does not provide at all is not reported here:
 // resolving it fails on its own, naming the group. Only the groups a consumer
-// declares are checked: the composition root's groups injected into every
-// service never bind one service to another, and a value there that a service
-// cannot resolve is not for it.
+// DECLARES are checked here. The composition root's own groups, injected into
+// every service, are not: they bind no service to another at plan time. At run
+// time they are judged like any value — a fault in one (a malformed or
+// ambiguous reference, an unknown producer, no instance for the access) refuses
+// the run for every receiver, and only the two per-consumer omissions (not
+// published for this consumer, not reachable under a valid export policy) are
+// dropped.
 //
 // This is the COMPOSITION half of the contract, and it is the half that can be
 // checked before anything exists: a typo, an endpoint a producer does not
@@ -112,18 +119,29 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 			}
 			for _, info := range byGroup[group] {
 				for _, value := range info.GetConfigurationValues() {
+					// A marker the grammar cannot read is a fault of the value,
+					// reported here with the references: the render refuses
+					// it, and a plan is the earlier place to say so.
+					if where := resources.ConfigurationValueMalformedEndpointMarkerPart(value); where != "" {
+						problem := UnresolvedReference{Consumer: unique, Group: group, Key: value.GetKey(),
+							Reason: "malformed reference: the reserved ${endpoint: prefix is not a well-formed reference, in " + where}
+						if !seen[problem] {
+							seen[problem] = true
+							unresolved = append(unresolved, problem)
+						}
+					}
 					// Not EndpointReferences(value.GetValue()): a value whose
 					// producer declared an assembly holds its text in the
 					// template's literals, so a ${endpoint:…} written there is
 					// invisible to .Value. This check exists to fail a plan
 					// before anything starts, and missing a reference is exactly
 					// the silent pass it was added to remove.
-					for _, reference := range resources.ConfigurationValueEndpointReferences(value) {
+					for position, reference := range resources.ConfigurationValueEndpointReferences(value) {
 						problem := checkEndpointReference(reference, identity.Module, producer)
 						if problem == nil {
 							continue
 						}
-						problem.Consumer, problem.Group, problem.Key = unique, group, value.GetKey()
+						problem.Consumer, problem.Group, problem.Key, problem.Position = unique, group, value.GetKey(), position+1
 						if !seen[*problem] {
 							seen[*problem] = true
 							unresolved = append(unresolved, *problem)
@@ -143,18 +161,16 @@ func CheckEndpointReferences(provided []*basev0.ConfigurationInformation, consum
 }
 
 func checkEndpointReference(reference string, consumerModule string, producer ProducerLookup) *UnresolvedReference {
-	out := &UnresolvedReference{Reference: reference}
-	info, err := resources.ParseEndpoint(reference)
+	// A marker body is input until it validates as coordinates, and the value
+	// it came from may be a secret: a reference that did not validate is
+	// reported without its text.
+	out := &UnresolvedReference{}
+	info, err := resources.ParseEndpointReference(reference)
 	if err != nil {
-		out.Reason = fmt.Sprintf("malformed reference: %v", err)
+		out.Reason = "malformed reference: " + err.Error()
 		return out
 	}
-	if info.Module == "" || info.Service == "" || (info.Name == "" && info.API == "") {
-		out.Reason = "malformed reference: it must name <module>/<service>/<endpoint>"
-		return out
-	}
-	out.Producer = info.Module + "/" + info.Service
-	service, ok := producer(out.Producer)
+	service, ok := producer(info.Module + "/" + info.Service)
 	if !ok || service == nil {
 		out.Reason = "the producer is not a service of this workspace"
 		return out

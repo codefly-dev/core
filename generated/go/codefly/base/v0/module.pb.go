@@ -30,8 +30,12 @@ type InterfaceEndpoint struct {
 	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
 	// The endpoint name within the service
 	Endpoint string `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	// Visibility level: "module" or "public"
-	Visibility    string `protobuf:"bytes,3,opt,name=visibility,proto3" json:"visibility,omitempty"`
+	// visibility is what the module grants across its boundary for this
+	// endpoint: "public", or "internal" to the modules allow_modules names.
+	Visibility string `protobuf:"bytes,3,opt,name=visibility,proto3" json:"visibility,omitempty"`
+	// allow_modules names the modules an "internal" export may be reached from
+	// ("*" for every module).
+	AllowModules  []string `protobuf:"bytes,4,rep,name=allow_modules,json=allowModules,proto3" json:"allow_modules,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -85,6 +89,13 @@ func (x *InterfaceEndpoint) GetVisibility() string {
 		return x.Visibility
 	}
 	return ""
+}
+
+func (x *InterfaceEndpoint) GetAllowModules() []string {
+	if x != nil {
+		return x.AllowModules
+	}
+	return nil
 }
 
 // ModuleInterface is the formal contract of what a module exposes.
@@ -283,13 +294,15 @@ var File_codefly_base_v0_module_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_module_proto_rawDesc = "" +
 	"\n" +
-	"\x1ccodefly/base/v0/module.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1dcodefly/base/v0/service.proto\x1a\x1bcodefly/base/v0/agent.proto\"i\n" +
+	"\x1ccodefly/base/v0/module.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1dcodefly/base/v0/service.proto\x1a\x1bcodefly/base/v0/agent.proto\"\xb0\x03\n" +
 	"\x11InterfaceEndpoint\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1a\n" +
-	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12\x1e\n" +
+	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x127\n" +
 	"\n" +
-	"visibility\x18\x03 \x01(\tR\n" +
-	"visibility\"S\n" +
+	"visibility\x18\x03 \x01(\tB\x17\xbaH\x14r\x12R\x06publicR\binternalR\n" +
+	"visibility\x12G\n" +
+	"\rallow_modules\x18\x04 \x03(\tB\"\xbaH\x1f\x92\x01\x1c\"\x1ar\x182\x11^(\\*|[a-z0-9-]+)$\xba\x01\x02--R\fallowModules:\xe2\x01\xbaH\xde\x01\x1a\xdb\x01\n" +
+	"1interface_endpoint.allow_modules_match_visibility\x12Fan internal export names its allow_modules; a public export lists none\x1a^this.visibility == 'internal' ? this.allow_modules.size() > 0 : this.allow_modules.size() == 0\"S\n" +
 	"\x0fModuleInterface\x12@\n" +
 	"\tendpoints\x18\x01 \x03(\v2\".codefly.base.v0.InterfaceEndpointR\tendpoints\"\x87\x02\n" +
 	"\x06Module\x12\x12\n" +

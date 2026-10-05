@@ -14,6 +14,13 @@ import (
 
 const ApplicationConfigurationName = "application.codefly.yaml"
 
+// ApplicationKind is the `kind` an application manifest declares.
+const ApplicationKind = "application"
+
+// InitialVersion is the version a newly created application, job, library,
+// module or runnable declares before its first release.
+const InitialVersion = "0.0.1"
+
 // ApplicationDependency represents a dependency on another application
 type ApplicationDependency struct {
 	Name   string `yaml:"name"`
@@ -64,9 +71,9 @@ func NewApplication(ctx context.Context, name string) (*Application, error) {
 	}
 
 	app := &Application{
-		Kind:    "application",
+		Kind:    ApplicationKind,
 		Name:    name,
-		Version: "0.0.1",
+		Version: InitialVersion,
 	}
 
 	return app, nil

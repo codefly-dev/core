@@ -8,10 +8,12 @@ agent:
 endpoints:
   - name: grpc
     api: grpc
-    visibility: module
+    visibility: internal
+    allow-modules: ["*"]
   - name: rest
     api: rest
-    visibility: external
+    visibility: public
+    location: external
   - name: http
     api: http
     visibility: internal

@@ -9,8 +9,8 @@ func TestNormalizeRepo(t *testing.T) {
 		"https://github.com/codefly-dev/core.git":   "codefly-dev/core",
 		"https://github.com/codefly-dev/core":       "codefly-dev/core",
 		"ssh://git@github.com/codefly-dev/core.git": "codefly-dev/core",
-		"obin-ai/module-saas-starter":               "obin-ai/module-saas-starter",
-		"git@github.com:Obin-AI/Module.git":         "obin-ai/module",
+		"example-org/module-edge":                   "example-org/module-edge",
+		"git@github.com:Example-Org/Module.git":     "example-org/module",
 	}
 	for in, want := range cases {
 		if got := normalizeRepo(in); got != want {

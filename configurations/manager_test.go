@@ -58,6 +58,7 @@ agent:
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
@@ -113,6 +114,7 @@ agent:
 	require.NoError(t, err)
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 
 	// The run loads: nothing has selected the ambiguous name.
@@ -148,7 +150,7 @@ func TestManagerInterpolatesEndpointInWorkspaceConfiguration(t *testing.T) {
 layout: modules
 `)
 	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
-		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json\n")
+		"authority-jwks-url=${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -158,7 +160,7 @@ layout: modules
 
 	mappings := []*basev0.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 			Instances: []*basev0.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 			},
@@ -167,6 +169,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
@@ -191,7 +194,7 @@ func TestManagerInterpolatesEndpointPerConsumerAccess(t *testing.T) {
 layout: modules
 `)
 	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
-		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json\n")
+		"authority-jwks-url=${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -201,7 +204,7 @@ layout: modules
 
 	mappings := []*basev0.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 			Instances: []*basev0.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 				{Address: "http://host.docker.internal:45123", Access: resources.NewContainerNetworkAccess()},
@@ -211,6 +214,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -239,7 +243,7 @@ func TestManagerForConsumerResolvesEachConsumerIndependently(t *testing.T) {
 layout: modules
 `)
 	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
-		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json\n")
+		"authority-jwks-url=${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -249,16 +253,17 @@ layout: modules
 
 	mappings := []*basev0.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 			Instances: []*basev0.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
-				{Address: "http://auth-sidecar.solution-saas-starter.svc.cluster.local:8080", Access: resources.NewContainerNetworkAccess()},
+				{Address: "http://sidecar.solution-edge.svc.cluster.local:8080", Access: resources.NewContainerNetworkAccess()},
 			},
 		},
 	}
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -269,7 +274,7 @@ layout: modules
 	require.NoError(t, err)
 	containerURL, err := resources.GetConfigurationValue(ctx, containerConfs[0], "work-context", "authority-jwks-url")
 	require.NoError(t, err)
-	require.Equal(t, "http://auth-sidecar.solution-saas-starter.svc.cluster.local:8080/v1/auth/.well-known/jwks.json", containerURL)
+	require.Equal(t, "http://sidecar.solution-edge.svc.cluster.local:8080/v1/auth/.well-known/jwks.json", containerURL)
 
 	nativeConfs, err := native.GetWorkspaceDependenciesConfigurations(ctx, "work-context")
 	require.NoError(t, err)
@@ -299,7 +304,7 @@ func TestManagerFailsOnUnknownEndpointReference(t *testing.T) {
 layout: modules
 `)
 	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
-		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/grpc}/v1/auth/.well-known/jwks.json\n")
+		"authority-jwks-url=${endpoint:edge/sidecar/grpc}/v1/auth/.well-known/jwks.json\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -309,7 +314,7 @@ layout: modules
 
 	mappings := []*basev0.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 			Instances: []*basev0.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 			},
@@ -318,15 +323,17 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 
-	manager.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
+	manager.WithRunProducers(func(unique string) bool { return unique == "edge/sidecar" })
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
 	_, err = manager.GetWorkspaceConfigurations(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "work-context/authority-jwks-url")
-	require.Contains(t, err.Error(), "producer saas-starter/auth-sidecar")
+	require.Contains(t, err.Error(), "reference 1 of 1")
+	require.NotContains(t, err.Error(), "edge/sidecar/grpc", "the reference's text is never in a diagnostic")
 }
 
 // The same reference, when the run does not contain the producer, must not stop
@@ -341,7 +348,7 @@ func TestManagerDropsAnEndpointReferenceToAProducerOutsideTheRun(t *testing.T) {
 layout: modules
 `)
 	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
-		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/grpc}/v1/auth/.well-known/jwks.json"+"\n"+
+		"authority-jwks-url=${endpoint:edge/sidecar/grpc}/v1/auth/.well-known/jwks.json"+"\n"+
 			"static=keep-me"+"\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
@@ -352,6 +359,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).
 		WithNetworkMappings(nil, resources.NewNativeNetworkAccess()).
 		WithRunProducers(func(string) bool { return false })
@@ -410,6 +418,7 @@ agent:
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -442,7 +451,7 @@ func TestManagerCompositionRootConfigurationsInterpolateEndpoints(t *testing.T) 
 layout: modules
 `)
 	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
-		"authority-jwks-url=${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json\n")
+		"authority-jwks-url=${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -452,7 +461,7 @@ layout: modules
 
 	mappings := []*basev0.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 			Instances: []*basev0.NetworkInstance{
 				{Address: "http://localhost:45123", Access: resources.NewNativeNetworkAccess()},
 				{Address: "http://host.docker.internal:45123", Access: resources.NewContainerNetworkAccess()},
@@ -462,6 +471,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader).WithNetworkMappings(mappings, resources.NewNativeNetworkAccess())
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -503,6 +513,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	// A leaf service depending on nothing gets an empty mapping set. The render
 	// still states its run set — that is what says an empty mapping set is this
 	// consumer's view rather than a render that bound no network context at all.
@@ -547,6 +558,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -607,6 +619,7 @@ agent:
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -668,6 +681,7 @@ agent:
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -712,6 +726,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -748,6 +763,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -775,6 +791,7 @@ func testLoader(t *testing.T, dir string) {
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 
 	manager.WithLoader(loader)
 
@@ -839,7 +856,7 @@ func TestManagerListsWorkspaceEndpointReferences(t *testing.T) {
 	writeConfigurationFile(t, root, "solution/configurations/local/platform.env",
 		"accounts-endpoint=${endpoint:saas/accounts/grpc}\ngateway-endpoint=${endpoint:saas/auth-gateway/rest}\n")
 	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
-		"authority-jwks-url=${endpoint:saas/auth-gateway/rest}/v1/auth/.well-known/jwks.json\nissuer=saas-starter\n")
+		"authority-jwks-url=${endpoint:saas/auth-gateway/rest}/v1/auth/.well-known/jwks.json\nissuer=edge\n")
 
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, filepath.Join(root, "solution"))
 	require.NoError(t, err)
@@ -847,6 +864,7 @@ func TestManagerListsWorkspaceEndpointReferences(t *testing.T) {
 	require.NoError(t, err)
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 
@@ -878,6 +896,7 @@ layout: modules
 
 	manager, err := configurations.NewManager(ctx, workspace)
 	require.NoError(t, err)
+	manager = manager.ForConsumerModule("payments", managerDeclared())
 	manager.WithLoader(loader)
 	require.NoError(t, manager.Load(ctx, resources.LocalEnvironment()))
 

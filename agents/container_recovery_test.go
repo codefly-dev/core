@@ -1,7 +1,6 @@
 package agents
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -45,11 +44,11 @@ func TestAgentAcknowledgesInheritedContainerRecoveryOverGRPC(t *testing.T) {
 			command.Env = append(os.Environ(), "CODEFLY_AGENT_TOKEN=recovery-test", "CODEFLY_AGENT_UDS_PATH=", recoveryscope.EnvironmentVariable+"="+marker, "TEST_AGENT_CONTRACT="+tc.declaration)
 			stdout, err := command.StdoutPipe()
 			require.NoError(t, err)
-			var stderr bytes.Buffer
-			command.Stderr = &stderr
+			stderr := &lockedBuffer{}
+			command.Stderr = stderr
 			require.NoError(t, command.Start())
 			t.Cleanup(func() { _ = command.Process.Kill(); _ = command.Wait() })
-			endpoint := readHandshakeEndpoint(t, stdout, &stderr)
+			endpoint := readHandshakeEndpoint(t, stdout, stderr)
 			conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = conn.Close() })

@@ -101,7 +101,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: agent contract release notes
-        run: python3 -m unittest discover -s scripts -p test_agent_contract_release.py
+        run: python3 -m unittest discover -s scripts -p "test_*.py"
 
       - name: version/tag drift guard
         # version/info.codefly.yaml is embedded into the binary and gates every
@@ -194,7 +194,7 @@ jobs:
           --with googleapis-common-protos==1.75.3
           python -m unittest discover
           -s generated/python/codefly-cli/codefly_cli/tests
-          -p test_effective_inputs_contract.py
+          -p "test_*_contract.py"
 
       - name: Install Nix
         # Strict — nix is core to the platform; if it doesn't install,

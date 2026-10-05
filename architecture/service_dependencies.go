@@ -497,9 +497,10 @@ func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context
 		if d.options.SkipDependencyFor[consumer] {
 			continue
 		}
+		consumerModule, _, _ := strings.Cut(consumer, "/")
 		for _, group := range d.uniqueToService[consumer].WorkspaceConfigurationDependencies {
 			for _, reference := range d.options.ConfigurationProducers[group] {
-				producer, endpoint := d.resolveReference(reference)
+				producer, endpoint := d.resolveReference(consumerModule, reference)
 				if producer == "" || producer == consumer || d.options.ExcludeService[producer] {
 					continue
 				}
@@ -540,13 +541,17 @@ func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context
 }
 
 // resolveReference splits a <module>/<service>/<endpoint> reference into the
-// producer it names and the producer's own name for the endpoint. The endpoint is
-// resolved against what the producer declares, by the same rule the value's
-// resolution applies, so what is recorded is an endpoint that exists rather than
-// the token the reference spelled it with (`${endpoint:m/s/grpc}` may name an
-// endpoint called `rpc` that serves the grpc API). It is empty when the reference
-// names no endpoint, or none the producer declares.
-func (d *ServiceDependencies) resolveReference(reference string) (string, string) {
+// producer it names and the producer's own name for the endpoint, for the
+// consumer in consumerModule. The endpoint is the one
+// resources.SelectEndpointForReference names — the same selection the value's
+// resolution and the plan-time check make — so what is recorded is the endpoint
+// that will actually be dialled rather than the first manifest entry matching
+// the token (`${endpoint:m/s/grpc}` on a producer declaring `admin` and `grpc`,
+// both api grpc, is `grpc`, and readiness must wait for that listener). It is
+// empty when the reference names no endpoint, none the producer declares, or
+// one this consumer may not reach: the plan-time check reports those; the
+// graph records no dependency on an endpoint that will not be resolved.
+func (d *ServiceDependencies) resolveReference(consumerModule, reference string) (string, string) {
 	info, err := resources.ParseEndpoint(reference)
 	if err != nil || info.Module == "" || info.Service == "" {
 		return "", ""
@@ -556,12 +561,11 @@ func (d *ServiceDependencies) resolveReference(reference string) (string, string
 	if !ok || (info.Name == "" && info.API == "") {
 		return producer, ""
 	}
-	for _, endpoint := range service.Endpoints {
-		if resources.EndpointMatchesReferenceInfo(endpoint, info) {
-			return producer, endpoint.Name
-		}
+	selected, err := resources.SelectEndpointForReference(consumerModule, info, service.Endpoints)
+	if err != nil {
+		return producer, ""
 	}
-	return producer, ""
+	return producer, selected.Endpoint.Name
 }
 
 // recordReferenceDependency records the referenced endpoint as the runtime

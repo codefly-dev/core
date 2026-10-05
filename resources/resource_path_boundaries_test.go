@@ -107,7 +107,7 @@ func TestAbsoluteResourceOverridesRemainSupported(t *testing.T) {
 
 func TestModuleOwnOverrideAllowsComposedOutOfRepoPath(t *testing.T) {
 	abs := t.TempDir()
-	for _, override := range []string{abs, "../../../module-saas-starter/module", "../host"} {
+	for _, override := range []string{abs, "../../../module-edge/module", "../host"} {
 		value := override
 		mod := &Module{Name: "saas", PathOverride: &value}
 		if err := mod.validatePaths(); err != nil {
@@ -132,7 +132,7 @@ func TestLoadModuleFromDirAcceptsComposedOutOfRepoOverride(t *testing.T) {
 
 	t.Run("upward override loads", func(t *testing.T) {
 		dir := t.TempDir()
-		content := []byte("kind: module\nname: saas\npath: ../../../module-saas-starter/module\n")
+		content := []byte("kind: module\nname: saas\npath: ../../../module-edge/module\n")
 		if err := os.WriteFile(filepath.Join(dir, ModuleConfigurationName), content, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -140,14 +140,14 @@ func TestLoadModuleFromDirAcceptsComposedOutOfRepoOverride(t *testing.T) {
 		if err != nil {
 			t.Fatalf("composed out-of-repo module rejected on load: %v", err)
 		}
-		if mod.PathOverride == nil || *mod.PathOverride != "../../../module-saas-starter/module" {
+		if mod.PathOverride == nil || *mod.PathOverride != "../../../module-edge/module" {
 			t.Fatalf("override not preserved: %v", mod.PathOverride)
 		}
 	})
 
 	t.Run("backslash override still rejected", func(t *testing.T) {
 		dir := t.TempDir()
-		content := []byte("kind: module\nname: saas\npath: ..\\module-saas-starter\n")
+		content := []byte("kind: module\nname: saas\npath: ..\\module-edge\n")
 		if err := os.WriteFile(filepath.Join(dir, ModuleConfigurationName), content, 0o600); err != nil {
 			t.Fatal(err)
 		}

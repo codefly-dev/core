@@ -26,6 +26,8 @@ func SplitUnique(unique string) (module, name string) {
 // JobExecutionType defines how a job is executed
 type JobExecutionType string
 
+// The execution types a job declares: run once, on a schedule, or when
+// triggered.
 const (
 	JobExecutionOneShot   JobExecutionType = "one-shot"
 	JobExecutionScheduled JobExecutionType = "scheduled"
@@ -154,7 +156,7 @@ func NewJob(ctx context.Context, name string) (*Job, error) {
 	job := &Job{
 		Kind:    "job",
 		Name:    name,
-		Version: "0.0.1",
+		Version: InitialVersion,
 		Execution: &JobExecution{
 			Type:    JobExecutionOneShot,
 			Timeout: "30m",

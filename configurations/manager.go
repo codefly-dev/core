@@ -87,8 +87,11 @@ type Manager struct {
 
 	// selection identifies the consumer these reads resolve for, so a
 	// ${endpoint:…} reference is answered by the endpoint it names, judged
-	// against the producer's export boundary. A zero value leaves the
-	// resolution with no consumer to judge — see ForConsumerModule.
+	// against the producer's export boundary. A zero value refuses every
+	// INTERPOLATING read of a configuration that carries a reference — see
+	// ForConsumerModule. The raw getters (GetServiceConfiguration and its
+	// siblings) return what was stored, references unresolved, and are not
+	// reads that resolve.
 	selection resources.EndpointSelectionContext
 
 	// runProducers reports whether a <module>/<service> is part of this run, so
@@ -138,8 +141,11 @@ func (manager *Manager) WithNetworkMappings(mappings []*basev0.NetworkMapping, a
 // a producer of the run that a consumer cannot resolve is a fault to report,
 // while one to a producer the run does not contain — excluded infrastructure, or
 // a run of one service rather than the workspace — is dropped for that consumer.
-// Without it no producer is provably part of the run, so every unresolvable
-// reference is dropped; the composition root sets it alongside the mappings.
+// Without it no producer is provably part of the run, so nothing may be dropped
+// and an unresolvable reference is a refusal naming the configuration and key —
+// silently omitting a declared address because the caller never said what it
+// was rendering is the failure the option exists to make impossible. The
+// composition root sets it alongside the mappings.
 func (manager *Manager) WithRunProducers(inRun func(unique string) bool) *Manager {
 	if manager == nil {
 		return nil
@@ -168,18 +174,16 @@ func (manager *Manager) ForConsumer(mappings []*basev0.NetworkMapping, access *b
 // <module>/<service>.
 //
 // Both are what resources.SelectEndpointForReference needs to answer a
-// reference the way CheckEndpointReferences answers it. The module is the
-// export boundary — a reference is an edge into it like any declared
-// dependency, so an endpoint it may not reach is refused rather than resolved
-// to a permitted sibling. The manifest is what says which endpoint a token
-// names: a published mapping carries no visibility, and a producer may publish
-// several mappings for one endpoint, so the mappings alone cannot decide it.
-//
-// A view without it resolves as before minus the two corrections selection
-// makes unconditionally (an exact name wins; an ambiguous reference is
-// refused), and judges no visibility, because a caller that has not named its
-// consumer has given nothing to judge against.
-func (manager *Manager) ForConsumerModule(consumerModule string, declared func(unique string) []*resources.Endpoint) *Manager {
+// reference the way CheckEndpointReferences answers it, and both are REQUIRED
+// once a configuration carries an endpoint reference: a view that has not named
+// its consumer refuses to interpolate rather than resolve as though whoever is
+// reading may reach whatever it named. The module is the export boundary — a
+// reference is an edge into it like any declared dependency, so an endpoint it
+// may not reach is refused rather than resolved to a permitted sibling. The
+// manifest is what says which endpoint a token names: published mappings do
+// not establish the complete declared set, and a producer may publish several
+// mappings for one endpoint, so the mappings alone cannot decide it.
+func (manager *Manager) ForConsumerModule(consumerModule string, declared resources.DeclaredEndpoints) *Manager {
 	if manager == nil {
 		return nil
 	}
@@ -352,10 +356,11 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 // does not depend on, absent from its mapping set — is omitted for that consumer
 // rather than failing it (#393). The decision is per endpoint reference: a value
 // referencing one endpoint of a service the consumer depends on for a different
-// endpoint is dropped too. A mistyped reference is therefore dropped rather than
-// erroring here; GetWorkspaceConfigurations, which is fail-fast, is where such a
-// typo surfaces. Unresolvable secrets still fail the run (they are universal, not
-// consumer-specific).
+// endpoint is dropped too. Only those two facts about this consumer's view are
+// omissions: a mistyped reference, an ambiguous one, a producer the workspace
+// does not declare or an invalid declaration is refused here, naming the
+// configuration and key, whichever consumer meets it. Unresolvable secrets
+// still fail the run (they are universal, not consumer-specific).
 func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil

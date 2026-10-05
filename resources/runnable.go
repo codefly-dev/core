@@ -476,7 +476,7 @@ func NewRunnable(ctx context.Context, name string, agent *Agent, handler string)
 	r := &Runnable{
 		Kind:    RunnableKind,
 		Name:    name,
-		Version: "0.0.1",
+		Version: InitialVersion,
 		Agent:   agent,
 		Contract: &RunnableContract{
 			Protocol: RunnableServedProtocolV1,

@@ -68,7 +68,7 @@ func NewLibrary(ctx context.Context, name string) (*Library, error) {
 	lib := &Library{
 		Kind:    "library",
 		Name:    name,
-		Version: "0.0.1",
+		Version: InitialVersion,
 	}
 
 	return lib, nil
@@ -352,8 +352,8 @@ func (workspace *Workspace) CreateLibrary(ctx context.Context, name string, lang
 		return nil, w.Wrap(err)
 	}
 	for _, lang := range languages {
-		if err := validateResourcePathComponent("language", lang); err != nil {
-			return nil, w.Wrap(err)
+		if langErr := validateResourcePathComponent("language", lang); langErr != nil {
+			return nil, w.Wrap(langErr)
 		}
 	}
 

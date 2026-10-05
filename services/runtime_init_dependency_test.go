@@ -56,7 +56,9 @@ func TestRuntimeInitDependencyMappingsCrossWireWithVisibilityAndSelection(t *tes
 	require.True(t, proto.Equal(mapping, received.DependenciesNetworkMappings[0]))
 	require.Len(t, request.DependenciesNetworkMappings, 2, "filtering must not mutate the caller's request")
 
-	endpoint.Visibility = resources.VisibilityPrivate
+	// Private, with no allow-list: a list on a private endpoint is an invalid
+	// declaration, which is a different refusal from the denial tested here.
+	endpoint.Visibility, endpoint.AllowModules = resources.VisibilityPrivate, nil
 	_, err = instance.Init(context.Background(), request)
 	require.ErrorContains(t, err, "private to module")
 	require.Empty(t, peer.requests, "a private dependency must not reach the runtime")

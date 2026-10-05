@@ -129,6 +129,22 @@ func TestSelectClosureEnforcesAcyclicity(t *testing.T) {
 	require.Contains(t, err.Error(), "cycle")
 }
 
+// Both checked-in layouts load under the three-visibility model and verify
+// their closures: the fixture is the contract's own example, so a fixture that
+// loads but cannot verify is a defect of the fixture, caught here.
+func TestCheckedInLayoutsLoadAndVerify(t *testing.T) {
+	ctx := context.Background()
+	for dir, service := range map[string]string{"testdata/flat-layout": "gateway", "testdata/module-layout": "web/gateway"} {
+		t.Run(dir, func(t *testing.T) {
+			workspace, err := resources.LoadWorkspaceFromDir(ctx, dir)
+			require.NoError(t, err)
+			closure, err := architecture.SelectClosure(ctx, workspace, service)
+			require.NoError(t, err)
+			require.NoError(t, closure.Verify(ctx, resources.PhaseRun))
+		})
+	}
+}
+
 func TestSelectClosureFlatLayout(t *testing.T) {
 	ctx := context.Background()
 	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/flat-layout")

@@ -16,7 +16,7 @@ import (
 func gatewayMappings() []*basev0.NetworkMapping {
 	return []*basev0.NetworkMapping{
 		{
-			Endpoint: &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+			Endpoint: &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 			Instances: []*basev0.NetworkInstance{
 				{Address: "http://localhost:1234", Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessNative}},
 				{Address: "http://host.docker.internal:1234", Access: &basev0.NetworkAccess{Kind: resources.NetworkAccessContainer}},
@@ -30,39 +30,39 @@ func TestInterpolateEndpoints(t *testing.T) {
 	mappings := gatewayMappings()
 
 	t.Run("resolves a reference embedded in a URL", func(t *testing.T) {
-		out, err := resources.InterpolateEndpoints(ctx,
-			"${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json",
-			mappings, resources.NewNativeNetworkAccess())
+		out, err := resources.InterpolateEndpointsFor(ctx,
+			"${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json",
+			mappings, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.NoError(t, err)
 		assert.Equal(t, "http://localhost:1234/v1/auth/.well-known/jwks.json", out)
 	})
 
 	t.Run("resolves for the requested access", func(t *testing.T) {
-		out, err := resources.InterpolateEndpoints(ctx,
-			"${endpoint:saas-starter/auth-sidecar/http}",
-			mappings, resources.NewContainerNetworkAccess())
+		out, err := resources.InterpolateEndpointsFor(ctx,
+			"${endpoint:edge/sidecar/http}",
+			mappings, resources.NewContainerNetworkAccess(), asGatewayConsumer())
 		require.NoError(t, err)
 		assert.Equal(t, "http://host.docker.internal:1234", out)
 	})
 
 	t.Run("leaves a value without a reference unchanged", func(t *testing.T) {
-		out, err := resources.InterpolateEndpoints(ctx, "https://static.example.com", mappings, resources.NewNativeNetworkAccess())
+		out, err := resources.InterpolateEndpointsFor(ctx, "https://static.example.com", mappings, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.NoError(t, err)
 		assert.Equal(t, "https://static.example.com", out)
 	})
 
 	t.Run("errors on an unknown endpoint", func(t *testing.T) {
-		_, err := resources.InterpolateEndpoints(ctx,
-			"${endpoint:saas-starter/auth-sidecar/grpc}",
-			mappings, resources.NewNativeNetworkAccess())
+		_, err := resources.InterpolateEndpointsFor(ctx,
+			"${endpoint:edge/sidecar/grpc}",
+			mappings, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
+		assert.Contains(t, err.Error(), "published no network mapping")
 	})
 
 	t.Run("errors when the endpoint has no instance for the access", func(t *testing.T) {
-		_, err := resources.InterpolateEndpoints(ctx,
-			"${endpoint:saas-starter/auth-sidecar/http}",
-			mappings, resources.NewPublicNetworkAccess())
+		_, err := resources.InterpolateEndpointsFor(ctx,
+			"${endpoint:edge/sidecar/http}",
+			mappings, resources.NewPublicNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no instance for access=public")
 	})
@@ -70,23 +70,24 @@ func TestInterpolateEndpoints(t *testing.T) {
 	t.Run("errors on an empty resolved address instead of emitting a broken URL", func(t *testing.T) {
 		blank := []*basev0.NetworkMapping{
 			{
-				Endpoint:  &basev0.Endpoint{Module: "saas-starter", Service: "auth-sidecar", Name: "http", Api: standards.HTTP},
+				Endpoint:  &basev0.Endpoint{Module: "edge", Service: "sidecar", Name: "http", Api: standards.HTTP},
 				Instances: []*basev0.NetworkInstance{{Address: "", Access: resources.NewNativeNetworkAccess()}},
 			},
 		}
-		_, err := resources.InterpolateEndpoints(ctx,
-			"${endpoint:saas-starter/auth-sidecar/http}/v1/jwks",
-			blank, resources.NewNativeNetworkAccess())
+		_, err := resources.InterpolateEndpointsFor(ctx,
+			"${endpoint:edge/sidecar/http}/v1/jwks",
+			blank, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "empty address")
 	})
 
 	t.Run("errors on a reference that names no endpoint", func(t *testing.T) {
-		_, err := resources.InterpolateEndpoints(ctx,
-			"${endpoint:saas-starter/auth-sidecar}",
-			mappings, resources.NewNativeNetworkAccess())
+		_, err := resources.InterpolateEndpointsFor(ctx,
+			"${endpoint:edge/sidecar}",
+			mappings, resources.NewNativeNetworkAccess(), asGatewayConsumer())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "must name an endpoint")
+		require.ErrorIs(t, err, resources.ErrMalformedEndpointReference)
+		assert.Contains(t, err.Error(), "names <module>/<service>/<endpoint>")
 	})
 }
 
@@ -98,13 +99,13 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 			{
 				Name: "work-context",
 				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json"},
+					{Key: "authority-jwks-url", Value: "${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json"},
 					{Key: "static", Value: "keep-me"},
 				},
 			},
 		},
 	}
-	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 	require.NoError(t, err)
 
 	url, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "authority-jwks-url")
@@ -119,9 +120,9 @@ func TestInterpolateConfigurationEndpoints(t *testing.T) {
 	// keeps its reference, so it can be resolved again for a different access.
 	raw, err := resources.GetConfigurationValue(ctx, conf, "work-context", "authority-jwks-url")
 	require.NoError(t, err)
-	assert.Equal(t, "${endpoint:saas-starter/auth-sidecar/http}/v1/auth/.well-known/jwks.json", raw)
+	assert.Equal(t, "${endpoint:edge/sidecar/http}/v1/auth/.well-known/jwks.json", raw)
 
-	container, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewContainerNetworkAccess())
+	container, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewContainerNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 	require.NoError(t, err)
 	url, err = resources.GetConfigurationValue(ctx, container, "work-context", "authority-jwks-url")
 	require.NoError(t, err)
@@ -140,14 +141,14 @@ func TestInterpolateConfigurationEndpointsPreservesEmptyInformation(t *testing.T
 			{
 				Name: "work-context",
 				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "authority-jwks-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/jwks"},
+					{Key: "authority-jwks-url", Value: "${endpoint:edge/sidecar/http}/v1/jwks"},
 				},
 			},
 			{Name: "empty-context", ConfigurationValues: nil},
 		},
 	}
 
-	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 	require.NoError(t, err)
 
 	names := make([]string, 0, len(resolved.Infos))
@@ -167,7 +168,7 @@ func platformConfiguration(key, value string) *basev0.Configuration {
 		Infos: []*basev0.ConfigurationInformation{{
 			Name: "platform",
 			ConfigurationValues: []*basev0.ConfigurationValue{
-				{Key: "gateway", Value: "${endpoint:saas-starter/auth-sidecar/http}"},
+				{Key: "gateway", Value: "${endpoint:edge/sidecar/http}"},
 				{Key: key, Value: value},
 			},
 		}},
@@ -186,17 +187,20 @@ func TestInterpolateConfigurationEndpointsFailsOnAnEndpointAbsentFromTheConsumer
 	for _, tc := range []struct {
 		key, reference, producer string
 	}{
-		{key: "other-endpoint", reference: "saas-starter/auth-sidecar/grpc", producer: "saas-starter/auth-sidecar"},
+		{key: "other-endpoint", reference: "edge/sidecar/grpc", producer: "edge/sidecar"},
 		{key: "absent-service", reference: "saas/frontend/http", producer: "saas/frontend"},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
 			conf := platformConfiguration(tc.key, "${endpoint:"+tc.reference+"}")
 			inRun := resources.WithRunProducers(func(unique string) bool { return unique == tc.producer })
-			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), inRun)
+			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "platform/"+tc.key)
-			assert.Contains(t, err.Error(), "${endpoint:"+tc.reference+"}")
-			assert.Contains(t, err.Error(), "producer "+tc.producer)
+			// The diagnostic names the key and the reference's position, and
+			// what the run published — never the reference's text.
+			assert.Contains(t, err.Error(), "reference 1 of 1")
+			assert.NotContains(t, err.Error(), "${endpoint:"+tc.reference+"}")
+			assert.NotContains(t, err.Error(), "producer "+tc.producer)
 		})
 	}
 }
@@ -211,9 +215,9 @@ func TestInterpolateConfigurationEndpointsDropsAReferenceToAProducerOutsideTheRu
 	// The shape of `codefly run` with infra/temporal excluded: the group the
 	// consumer declares carries a key for a service this run does not contain.
 	conf := platformConfiguration("temporal-address", "${endpoint:infra/temporal/grpc}")
-	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "edge/sidecar" })
 
-	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), inRun)
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 	require.NoError(t, err)
 	require.Len(t, resolved.Infos, 1)
 	require.Len(t, resolved.Infos[0].ConfigurationValues, 1, "the group keeps the keys this consumer reads")
@@ -224,7 +228,7 @@ func TestInterpolateConfigurationEndpointsDropsAReferenceToAProducerOutsideTheRu
 	// stays selected, so the consumer reports the key it reads rather than the run
 	// failing over a group written for a larger composition.
 	noneInRun := resources.WithRunProducers(func(string) bool { return false })
-	none, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), noneInRun)
+	none, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), noneInRun)
 	require.NoError(t, err)
 	require.Len(t, none.Infos, 1, "the group stays selected when none of its values is for this consumer")
 	assert.Empty(t, none.Infos[0].ConfigurationValues)
@@ -255,7 +259,7 @@ func TestInterpolateConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers
 		{name: "no mappings bound at all", mappings: nil, key: "platform/gateway"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, tc.mappings, resources.NewNativeNetworkAccess())
+			_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, tc.mappings, resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.key)
 			assert.Contains(t, err.Error(), "stated no run producers",
@@ -265,7 +269,7 @@ func TestInterpolateConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers
 
 	// A run set that reports nothing is still a stated run set: the caller has
 	// said this run contains no producers, so the drop is its decision.
-	stated, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(),
+	stated, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()),
 		resources.WithRunProducers(func(string) bool { return false }))
 	require.NoError(t, err)
 	require.Len(t, stated.Infos, 1)
@@ -277,12 +281,12 @@ func TestInterpolateConfigurationEndpointsFailsWhenTheRenderStatesNoRunProducers
 // must resolve, so the value is an error rather than a drop.
 func TestInterpolateConfigurationEndpointsFailsOnAMixedValueNamingARunProducer(t *testing.T) {
 	ctx := context.Background()
-	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" })
+	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "edge/sidecar" })
 	for _, value := range []string{
-		"${endpoint:saas-starter/auth-sidecar/grpc}|${endpoint:infra/temporal/grpc}",
-		"${endpoint:infra/temporal/grpc}|${endpoint:saas-starter/auth-sidecar/grpc}",
+		"${endpoint:edge/sidecar/grpc}|${endpoint:infra/temporal/grpc}",
+		"${endpoint:infra/temporal/grpc}|${endpoint:edge/sidecar/grpc}",
 	} {
-		_, err := resources.InterpolateConfigurationEndpoints(ctx, platformConfiguration("mixed", value), gatewayMappings(), resources.NewNativeNetworkAccess(), inRun)
+		_, err := resources.InterpolateConfigurationEndpoints(ctx, platformConfiguration("mixed", value), gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 		require.Error(t, err, value)
 		assert.Contains(t, err.Error(), "platform/mixed")
 	}
@@ -294,8 +298,8 @@ func TestInterpolateConfigurationEndpointsFailsOnAMixedValueNamingARunProducer(t
 // the producer is demonstrably part of it.
 func TestInterpolateConfigurationEndpointsFailsWhenTheEndpointHasNoInstanceForTheAccess(t *testing.T) {
 	ctx := context.Background()
-	conf := platformConfiguration("gateway-public", "${endpoint:saas-starter/auth-sidecar/http}")
-	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewPublicNetworkAccess())
+	conf := platformConfiguration("gateway-public", "${endpoint:edge/sidecar/http}")
+	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewPublicNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no instance for access=public")
 }
@@ -309,11 +313,11 @@ func TestInterpolateConfigurationEndpointsErrorsOnMalformedReference(t *testing.
 		Infos: []*basev0.ConfigurationInformation{
 			{
 				Name:                "platform",
-				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "gateway", Value: "${endpoint:saas-starter}"}},
+				ConfigurationValues: []*basev0.ConfigurationValue{{Key: "gateway", Value: "${endpoint:edge}"}},
 			},
 		},
 	}
-	_, err := resources.InterpolateConfigurationEndpoints(context.Background(), conf, gatewayMappings(), resources.NewNativeNetworkAccess())
+	_, err := resources.InterpolateConfigurationEndpoints(context.Background(), conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 	require.Error(t, err)
 }
 
@@ -342,7 +346,7 @@ func TestInterpolateRunWideConfigurationEndpointsDropsReferenceAbsentFromConsume
 	// consumer still cannot see the endpoint — which is exactly the case the
 	// run-wide path exists for.
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas/frontend" })
-	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 	require.NoError(t, err)
 
 	dropped, err := resources.GetConfigurationValue(ctx, resolved, "work-context", "authority-jwks-url")
@@ -379,7 +383,7 @@ func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing
 	}
 
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "saas/frontend" })
-	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
+	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, capture.count("omitting run-wide configuration value"),
@@ -387,7 +391,7 @@ func TestInterpolateRunWideConfigurationEndpointsLogsDroppedReference(t *testing
 }
 
 // The run-wide drop is per endpoint reference, not per service. A consumer that
-// depends on saas-starter/auth-sidecar for its http endpoint, given a run-wide
+// depends on edge/sidecar for its http endpoint, given a run-wide
 // value referencing that service's grpc endpoint (which it does not depend on),
 // has the value dropped — not hard-failed. The service-granularity heuristic would
 // have failed this consumer's boot on a config it never consumes.
@@ -399,16 +403,16 @@ func TestInterpolateRunWideConfigurationEndpointsDropsSiblingEndpointOfDependedS
 			{
 				Name: "work-context",
 				ConfigurationValues: []*basev0.ConfigurationValue{
-					{Key: "grpc-url", Value: "${endpoint:saas-starter/auth-sidecar/grpc}"},
-					{Key: "http-url", Value: "${endpoint:saas-starter/auth-sidecar/http}/v1/jwks"},
+					{Key: "grpc-url", Value: "${endpoint:edge/sidecar/grpc}"},
+					{Key: "http-url", Value: "${endpoint:edge/sidecar/http}/v1/jwks"},
 				},
 			},
 		},
 	}
 
-	// gatewayMappings() gives the consumer only the http endpoint of auth-sidecar.
-	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(),
-		resources.WithRunProducers(func(unique string) bool { return unique == "saas-starter/auth-sidecar" }))
+	// gatewayMappings() gives the consumer only the http endpoint of sidecar.
+	resolved, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, gatewayMappings(), resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()),
+		resources.WithRunProducers(func(unique string) bool { return unique == "edge/sidecar" }))
 	require.NoError(t, err)
 
 	// The sibling grpc reference is dropped; the http reference it does depend on
@@ -433,13 +437,13 @@ func TestEndpointReferencesListsEveryReference(t *testing.T) {
 // dials an HTTP listener in authority form (gRPC over h2c).
 func TestInterpolateEndpointAuthority(t *testing.T) {
 	ctx := context.Background()
-	out, err := resources.InterpolateEndpoints(ctx,
-		"${endpoint:saas-starter/auth-sidecar/http|authority}",
-		gatewayMappings(), resources.NewContainerNetworkAccess())
+	out, err := resources.InterpolateEndpointsFor(ctx,
+		"${endpoint:edge/sidecar/http|authority}",
+		gatewayMappings(), resources.NewContainerNetworkAccess(), asGatewayConsumer())
 	require.NoError(t, err)
 	assert.Equal(t, "host.docker.internal:1234", out)
-	require.Equal(t, []string{"saas-starter/auth-sidecar/http"},
-		resources.EndpointReferences("${endpoint:saas-starter/auth-sidecar/http|authority}"))
+	require.Equal(t, []string{"edge/sidecar/http"},
+		resources.EndpointReferences("${endpoint:edge/sidecar/http|authority}"))
 }
 
 // A value whose producer declared an assembly holds its text in the template's
@@ -465,14 +469,14 @@ func TestInterpolateConfigurationEndpointsFailsOnAnInRunProducerNamedOnlyInATemp
 	}
 
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == "mod/store" })
-	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), inRun)
+	_, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), inRun)
 	require.Error(t, err, "the run contains the producer, so the consumer was not handed an address that exists")
 	assert.Contains(t, err.Error(), "db/CONNECTION")
 
 	// And one the run does not contain is still a drop, from the literal as from
 	// a plain value.
 	outside := resources.WithRunProducers(func(string) bool { return false })
-	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), outside)
+	resolved, err := resources.InterpolateConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()), outside)
 	require.NoError(t, err)
 	require.Len(t, resolved.Infos, 1)
 	assert.Empty(t, resolved.Infos[0].ConfigurationValues)
@@ -494,7 +498,7 @@ func TestInterpolateRunWideConfigurationEndpointsFailsWhenTheRenderStatesNoRunPr
 		}},
 	}
 
-	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess())
+	_, err := resources.InterpolateRunWideConfigurationEndpoints(ctx, conf, nil, resources.NewNativeNetworkAccess(), resources.WithConsumer("payments", gatewayDeclared()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "work-context/authority-jwks-url")
 	assert.Contains(t, err.Error(), "stated no run producers")
