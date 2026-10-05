@@ -179,6 +179,14 @@ func (w *Wool) process(l Loglevel, msg string, fs ...*LogField) {
 		log.Fields[index] = &copy
 	}
 
+	// Stamp the active trace onto the record before any sink sees it, so every
+	// sink — console, JSON-to-stderr, gRPC, telemetry — carries the same join
+	// key without each one having to know about tracing.
+	if identity, ok := w.span.(SpanIdentity); ok && identity != nil {
+		log.TraceID = identity.TraceID()
+		log.SpanID = identity.SpanID()
+	}
+
 	// Send to telemetry if enabled
 	if w.span != nil {
 		w.span.AddEvent(LogEvent, log.Fields)

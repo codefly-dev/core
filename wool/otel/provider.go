@@ -160,6 +160,41 @@ func (s *spanAdapter) End() {
 	s.span.End()
 }
 
+// TraceID implements wool.SpanIdentity: the id of the trace this span belongs
+// to, as 32 lowercase hex characters, or "" when there is nothing real to name.
+//
+// The IsValid guard is the whole point. An unset or non-recording span context
+// stringifies to all-zeros, and a log line claiming
+// trace_id=00000000000000000000000000000000 sends a reader looking for a trace
+// that was never recorded. Empty means "no trace", which is true and legible.
+//
+// The nil-receiver check mirrors the typed-nil handling in wool's field
+// rendering: logging must never panic, and an interface holding a nil
+// *spanAdapter is non-nil to a type assertion.
+func (s *spanAdapter) TraceID() string {
+	if s == nil || s.span == nil {
+		return ""
+	}
+	sc := s.span.SpanContext()
+	if !sc.IsValid() {
+		return ""
+	}
+	return sc.TraceID().String()
+}
+
+// SpanID implements wool.SpanIdentity: the id of this one operation within the
+// trace, as 16 lowercase hex characters, under the same rules as TraceID.
+func (s *spanAdapter) SpanID() string {
+	if s == nil || s.span == nil {
+		return ""
+	}
+	sc := s.span.SpanContext()
+	if !sc.IsValid() {
+		return ""
+	}
+	return sc.SpanID().String()
+}
+
 func toAttribute(f *wool.LogField) attribute.KeyValue {
 	switch v := f.Value.(type) {
 	case string:
