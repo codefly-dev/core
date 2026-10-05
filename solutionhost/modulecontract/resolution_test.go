@@ -189,19 +189,19 @@ func TestAProviderThatDeclassifiesANonAudienceSlotFailsTheKit(t *testing.T) {
 // each case here must fail, AND the fixture that fails must belong to the role
 // under test.
 func TestEveryRoleIsProtectedAgainstRecordLoss(t *testing.T) {
-	for _, role := range []string{fieldAudience, fieldResourceKind, fieldBindingKey} {
+	for _, convention := range lossRoles() {
 		for _, lossy := range lossyProviders() {
-			t.Run(role+"/"+lossy.name, func(t *testing.T) {
+			t.Run(convention.label+"/"+lossy.name, func(t *testing.T) {
 				recorder := &recordingT{}
 				RunResolution(recorder, func(group string, records []Record) Values {
-					return recordValues{group: group, records: lossy.apply(records, role)}
+					return recordValues{group: group, records: lossy.apply(records, convention)}
 				})
 				if recorder.failures == 0 {
-					t.Fatalf("a provider that %s for the %s role passed the resolution kit", lossy.name, role)
+					t.Fatalf("a provider that %s for the %s convention passed the resolution kit", lossy.name, convention.label)
 				}
-				if !recorder.failedNaming(role) {
-					t.Fatalf("a provider that %s for the %s role was caught, but by no fixture of that role: %v",
-						lossy.name, role, recorder.messages)
+				if !recorder.failedNaming(convention.label) {
+					t.Fatalf("a provider that %s for the %s convention was caught, but by no fixture of it: %v",
+						lossy.name, convention.label, recorder.messages)
 				}
 			})
 		}
@@ -210,14 +210,14 @@ func TestEveryRoleIsProtectedAgainstRecordLoss(t *testing.T) {
 
 type lossyProvider struct {
 	name  string
-	apply func(records []Record, role string) []Record
+	apply func(records []Record, convention lossRole) []Record
 }
 
 // lossyProviders are the record-losing adapters each role must be protected
 // against. Every one of them received a green kit verdict at some head.
 func lossyProviders() []lossyProvider {
-	keep := func(role string, keyOf func(Record) string, last bool) func([]Record, string) []Record {
-		return func(records []Record, forRole string) []Record {
+	keep := func(keyOf func(Record) string, last bool) func([]Record, lossRole) []Record {
+		return func(records []Record, forRole lossRole) []Record {
 			chosen := map[string]Record{}
 			var order []string
 			for _, record := range records {
@@ -247,19 +247,11 @@ func lossyProviders() []lossyProvider {
 	normalized := func(record Record) string { return normalizeKey(record.Key) }
 	exact := func(record Record) string { return record.Key }
 	return []lossyProvider{
-		{"keeps only the last record per normalized key", func(r []Record, role string) []Record {
-			return keep(role, normalized, true)(r, role)
-		}},
-		{"keeps only the last record per exact spelling", func(r []Record, role string) []Record {
-			return keep(role, exact, true)(r, role)
-		}},
-		{"keeps only the first record per normalized key", func(r []Record, role string) []Record {
-			return keep(role, normalized, false)(r, role)
-		}},
-		{"keeps only the first record per exact spelling", func(r []Record, role string) []Record {
-			return keep(role, exact, false)(r, role)
-		}},
-		{"deduplicates by (key, value), ignoring Secret", func(records []Record, role string) []Record {
+		{"keeps only the last record per normalized key", keep(normalized, true)},
+		{"keeps only the last record per exact spelling", keep(exact, true)},
+		{"keeps only the first record per normalized key", keep(normalized, false)},
+		{"keeps only the first record per exact spelling", keep(exact, false)},
+		{"deduplicates by (key, value), ignoring Secret", func(records []Record, role lossRole) []Record {
 			type pair struct{ key, value string }
 			seen := map[pair]bool{}
 			kept := make([]Record, 0, len(records))
@@ -273,7 +265,40 @@ func lossyProviders() []lossyProvider {
 			}
 			return kept
 		}},
-		{"drops a secret arriving under another spelling", func(records []Record, role string) []Record {
+		{"drops a later UPPER secret after a lower public record", func(records []Record, role lossRole) []Record {
+			first := map[string]string{}
+			kept := make([]Record, 0, len(records))
+			for _, record := range records {
+				norm := normalizeKey(record.Key)
+				prior, seen := first[norm]
+				lowerFirst := seen && prior != norm
+				if belongsTo(record, role) && record.Secret && lowerFirst && record.Key == norm {
+					continue
+				}
+				if !seen {
+					first[norm] = record.Key
+				}
+				kept = append(kept, record)
+			}
+			return kept
+		}},
+		{"drops a later lower secret after an UPPER public record", func(records []Record, role lossRole) []Record {
+			first := map[string]string{}
+			kept := make([]Record, 0, len(records))
+			for _, record := range records {
+				norm := normalizeKey(record.Key)
+				prior, seen := first[norm]
+				if belongsTo(record, role) && record.Secret && seen && prior == norm && record.Key != norm {
+					continue
+				}
+				if !seen {
+					first[norm] = record.Key
+				}
+				kept = append(kept, record)
+			}
+			return kept
+		}},
+		{"drops a secret arriving under another spelling", func(records []Record, role lossRole) []Record {
 			first := map[string]string{}
 			kept := make([]Record, 0, len(records))
 			for _, record := range records {
@@ -295,13 +320,8 @@ func lossyProviders() []lossyProvider {
 // belongsTo is whether a record carries the slot role under test, by its
 // normalized spelling, so a per-role adapter cannot be a no-op that passes for
 // having changed nothing.
-func belongsTo(record Record, role string) bool {
-	marker := map[string]string{
-		fieldAudience:     "AUDIENCE",
-		fieldResourceKind: "RESOURCE_KIND",
-		fieldBindingKey:   "BINDING",
-	}[role]
-	return marker != "" && strings.Contains(normalizeKey(record.Key), marker)
+func belongsTo(record Record, convention lossRole) bool {
+	return normalizeKey(record.Key) == normalizeKey(convention.upper)
 }
 
 // TestTheResolutionKitShipsExactlyTheseFixtures pins the resolution inventory
@@ -475,5 +495,67 @@ func TestTheDocumentedResolutionCountIsTheKit(t *testing.T) {
 	if !strings.Contains(string(document), stated) {
 		t.Fatalf("%s does not state that the resolution kit ships %d configurations (looking for %q)",
 			path, len(AllResolutionFixtures()), stated)
+	}
+}
+
+// TestEveryResolvedFieldIsComparedByTheKit holds the kit's OUTPUT comparison
+// to each field separately.
+//
+// NOT YET COVERED: resource_kind. Every substitute value tried is refused by
+// the resolved-kind grammar before the comparison is reached, so protecting
+// that field needs a value that is a DECLARED kind and action of the
+// contract's own ceiling and still differs from the expected one. Until that
+// exists, `kit-resource-kind-output-unchecked` is unprotected and is not
+// claimed otherwise.
+//
+// The kit asserted the resolved binding whole, but nothing failed when one
+// field's comparison was removed: a provider corrupting just that field kept
+// a green verdict, because every other field still matched. So each field gets
+// a provider that corrupts only it, and each must be caught.
+func TestEveryResolvedFieldIsComparedByTheKit(t *testing.T) {
+	for _, corrupt := range []struct {
+		field, key, from, to string
+	}{
+		{fieldAudience, audienceKey, audienceValue, "assistant/other-audience"},
+		{fieldBindingKey, bindingKey, bindingValue, "other-binding"},
+	} {
+		t.Run(corrupt.field, func(t *testing.T) {
+			changed := 0
+			recorder := &recordingT{}
+			RunResolution(recorder, func(group string, records []Record) Values {
+				kept := make([]Record, 0, len(records))
+				for _, record := range records {
+					if normalizeKey(record.Key) == corrupt.key && record.Value == corrupt.from && !record.Secret {
+						record.Value = corrupt.to
+						changed++
+					}
+					kept = append(kept, record)
+				}
+				return recordValues{group: group, records: kept}
+			})
+			if changed == 0 {
+				t.Fatalf("no record carries %s: the probe changed nothing and proves nothing", corrupt.field)
+			}
+			// The failure must NAME this field. "Something failed" is
+			// satisfied by any other fixture failing, so removing one
+			// field's comparison left the coarse assertion green — which is
+			// how the output comparison went unprotected in the first place.
+			want := "must resolve " + corrupt.field + " to"
+			if !strings.Contains(recorder.messages, want) {
+				t.Fatalf("a provider corrupting only %s (in %d records) was not caught BY THAT FIELD's comparison; the kit reported:\n%s",
+					corrupt.field, changed, recorder.messages)
+			}
+		})
+	}
+}
+
+// TestTheKitRefusesAProviderItCannotBuild keeps the nil-factory guard honest:
+// a factory returning no provider must fail the kit rather than be treated as
+// an empty one, which would certify a consumer that never wired a provider.
+func TestTheKitRefusesAProviderItCannotBuild(t *testing.T) {
+	recorder := &recordingT{}
+	RunResolution(recorder, nil)
+	if recorder.failures == 0 {
+		t.Fatal("a nil provider passed the resolution kit; it would be substituted by the reference provider and certify core against itself")
 	}
 }
