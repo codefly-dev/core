@@ -17,6 +17,14 @@ file once the test suite is green, on exactly the commit that passed.
 
 That is the whole procedure. The rest of this is why the shortcuts are wrong.
 
+One consequence worth knowing before you chase a release that did not appear:
+the tag job cuts a tag **only** from a commit reachable from `main`, and only
+when the green run it reacted to was a push to this repository. A green suite on
+a branch produces no tag, and neither does one on a fork — by refusal, with the
+sha in the log, not by silence. That is deliberate: the credential that creates
+the tag must never run code that has not been merged. See
+[CI credentials](../../../docs/ci-credentials.md).
+
 ## Never tag by hand
 
 Tags used to be cut out of band while nothing bumped the file, and the two

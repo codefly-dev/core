@@ -104,6 +104,13 @@ version bump.
 `pull_request`, and is gated on the test workflow having succeeded, so it
 reports on no pull request at all.
 
+**`Coverage badge` from `go.yml`.** The coverage THRESHOLD is decided in
+`Build`, which is required; this job only pushes the badge `README.md` renders,
+and it is gated to a push of `main` so it reports on no pull request either. It
+is a separate job because it is the one write in that workflow and the job that
+runs the suite must not hold it — see
+[CI credentials](../ci-credentials.md).
+
 **`agent-ci`, `go-service-ci`, `go-service-release`.** `workflow_call` only —
 they run when a service repository dispatches them, never here.
 
@@ -117,6 +124,19 @@ it never pushes to `main`, so it is unaffected by protection as configured here
 and merges through the normal pull request path like anything else. An
 allowlist added later must include that identity, or the weekly dependency
 batch silently stops.
+
+## Also needed: a tag-creation ruleset
+
+Branch protection covers `main`. It says nothing about tags, and
+`version-tag.yml` cuts a permanent, proxy-cached tag — so restrict who may
+create one. The workflow's own guards keep its credential away from unreviewed
+code (see [CI credentials](../ci-credentials.md)), but they cannot speak for any
+other identity with push access.
+
+Apply a ruleset targeting `refs/tags/v*` that restricts creation to the
+Actions identity this workflow runs as, and denies updating and deleting
+outright. Both halves matter: re-pointing a tag is how a commit ends up
+carrying two versions, which `git describe` then reports ambiguously.
 
 ## Before you turn it on
 

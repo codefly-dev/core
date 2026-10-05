@@ -16,6 +16,24 @@ name: version-tag
 #
 # Releasing is therefore: bump version/info.codefly.yaml, merge to main, and
 # this cuts vX.Y.Z once CI is green.
+#
+# A tag is the most permanent thing anything here writes, so this is the
+# workflow that most has to answer for what it runs. Three things, together,
+# keep the tag-cutting credential away from code this repository has not
+# reviewed:
+#
+#   1. the `if:` below states the event and the head repository, because the
+#      `branches:` filter matches only the TRIGGERING run's head branch — a
+#      name the head repository chooses, not a fact about this one;
+#   2. the checkout takes the default branch, never the triggering commit, so
+#      the only code this job can execute is code that is already on `main`;
+#   3. the triggering sha is treated as data: it is used only after it has been
+#      shown to be reachable from the default branch, and a sha that is not is
+#      refused rather than tagged.
+#
+# (1) decides whether the job runs; (2) and (3) decide what it runs when it
+# does, so a mistake in (1) costs a refusal rather than an execution.
+# internal/ciguard/untrusted_code_test.go holds all three.
 
 on:
   workflow_run:
@@ -26,8 +44,10 @@ on:
     types: [completed]
     branches: [main]
 
+# Read by default, so a job added here holds no write credential until someone
+# writes one down. The tag job narrows to exactly the scope it writes.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: core-version-tag-${{ github.event.workflow_run.head_sha }}
@@ -35,15 +55,67 @@ concurrency:
 
 jobs:
   tag:
-    if: github.event.workflow_run.conclusion == 'success'
+    # Each clause closes a different way in: `conclusion` that the suite
+    # actually passed, `event` that the run came from a push rather than from a
+    # pull request's run of the same workflow, and `head_repository` that the
+    # push was to this repository. The branch comparison repeats the
+    # `branches:` filter on purpose — next to the head-repository clause it
+    # reads as the pair it is, and the filter alone never meant "main of this
+    # repository".
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: check out the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Tag exactly the commit that passed CI, not whatever main has moved
-          # on to since.
-          ref: ${{ github.event.workflow_run.head_sha }}
+          # No `ref:`. A workflow_run checkout defaults to the default branch,
+          # which is the only tree this job may run. The triggering commit is
+          # selected below, after it has been shown to be part of that branch's
+          # history.
+          #
+          # fetch-depth 0 for two reasons: the ancestry check needs
+          # refs/remotes/origin/*, which a depth-1 fetch does not populate, and
+          # the release notes read the previous tag's manifest.
           fetch-depth: 0
+          # The tag and the release are created with the step-scoped token
+          # below. Nothing here pushes over git, so the write credential has no
+          # reason to sit in .git/config where a later step could read it.
+          persist-credentials: false
+
+      - name: select the commit that passed CI, or refuse
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          # The same literal as the `branches:` filter and the `if:` above.
+          # internal/ciguard/version_tag_selection_test.go reads this value out
+          # of the workflow and builds its fixture around it, so the script is
+          # exercised against whatever branch is declared here.
+          DEFAULT_BRANCH: main
+        run: |
+          set -euo pipefail
+
+          # Still the default branch's code at this point. A sha that is not a
+          # commit here, or not reachable from the default branch, is not
+          # something this repository has reviewed and merged — so it is not
+          # something to tag, and not something to run.
+          if ! git cat-file -e "${SHA}^{commit}" 2>/dev/null; then
+            echo "::error::${SHA} is not a commit in this repository; refusing to tag it." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$SHA" "origin/${DEFAULT_BRANCH}"; then
+            echo "::error::${SHA} is not reachable from origin/${DEFAULT_BRANCH}; refusing to tag it." >&2
+            exit 1
+          fi
+
+          # Reviewed, merged code. Tag and publish from the exact commit that
+          # passed, not from whatever the default branch has moved on to: the
+          # version file and the contract manifest have to be the ones that ran.
+          git switch --detach "$SHA"
 
       - name: cut the tag declared by version/info.codefly.yaml
         env:

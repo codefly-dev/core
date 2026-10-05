@@ -21,9 +21,11 @@ on:
     - cron: '23 9 * * 1'
   workflow_dispatch:
 
+# Read at workflow scope. The write this performs is declared on the job that
+# performs it, so a job added here later does not inherit it.
+# internal/ciguard/untrusted_code_test.go holds that.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: combine-deps
@@ -34,6 +36,14 @@ jobs:
     name: Combine open Dependabot pull requests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      # Both writes are performed by DEPS_COMBINE_TOKEN, not by this job's
+      # token (see the comment at the top of the file for why GITHUB_TOKEN
+      # cannot do either). They are declared anyway: the grant belongs next to
+      # the job that writes, and the branch push and the pull request are what
+      # this job is for.
+      contents: write
+      pull-requests: write
     steps:
       # The secrets context is not available to `if:`, so this is checked in the
       # step body rather than as a condition.

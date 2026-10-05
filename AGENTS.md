@@ -174,6 +174,10 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   consumers take the build-tag-aware constructor from `code/codeserver.New`
   (`-tags codefly_nosemantic`). See [`docs/cgo.md`](docs/cgo.md).
 - **Companions are ours.** A broken companion gets fixed, not routed around.
+- **CI's write credential is a job of its own.** `permissions:` is job-wide, so
+  a write at workflow scope is one the job running the suite holds too. The
+  write sits on the single job that performs it, gated off pull-request code;
+  reusable workflows declare read. See [`docs/ci-credentials.md`](docs/ci-credentials.md).
 
 ## Procedures
 

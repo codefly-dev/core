@@ -11,6 +11,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      # Reusable: this job runs the CALLING repository's code, at a ref that
+      # repository chooses -- which may be a pull request's head. Declared here
+      # rather than inherited, because an inherited grant is one neither side
+      # can read. See internal/ciguard/untrusted_code_test.go.
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -31,6 +37,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    permissions:
+      # The caller's code again; same reasoning as the job above.
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

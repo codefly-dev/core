@@ -15,6 +15,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      # Reusable: this job runs the CALLING repository's code, at a ref that
+      # repository chooses -- which may be a pull request's head. Declared here
+      # rather than inherited, because an inherited grant is one neither side
+      # can read. See internal/ciguard/untrusted_code_test.go.
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -35,6 +41,12 @@ jobs:
   goreleaser:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      # Read as well. GoReleaser authenticates to the forge with the GH_PAT the
+      # caller passes (see the `env:` on its step), never with this job's
+      # token, so the release needs no write grant here -- and a caller that
+      # grants its release job write does not hand that grant to this one.
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
