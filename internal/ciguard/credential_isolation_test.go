@@ -49,14 +49,105 @@ type isolatedJob struct {
 	Env         map[string]string `yaml:"env"`
 	Secrets     yaml.Node         `yaml:"secrets"`
 	Uses        string            `yaml:"uses"`
-	Steps       []struct {
-		Name string            `yaml:"name"`
-		Uses string            `yaml:"uses"`
-		If   string            `yaml:"if"`
-		Run  string            `yaml:"run"`
-		Env  map[string]string `yaml:"env"`
-		With map[string]any    `yaml:"with"`
-	} `yaml:"steps"`
+	Steps       []isolatedStep    `yaml:"steps"`
+}
+
+// isolatedStep is one step, named rather than anonymous so that the steps of
+// a local composite action can be read into the same shape and judged as
+// steps of the job that calls it -- which is what they are at runtime.
+type isolatedStep struct {
+	Name string            `yaml:"name"`
+	Uses string            `yaml:"uses"`
+	If   string            `yaml:"if"`
+	Run  string            `yaml:"run"`
+	Env  map[string]string `yaml:"env"`
+	With map[string]any    `yaml:"with"`
+}
+
+// localAction is a repository-local action's manifest, as far as these guards
+// need it: what it runs, and the steps it runs when composite.
+type localAction struct {
+	Runs struct {
+		Using string         `yaml:"using"`
+		Steps []isolatedStep `yaml:"steps"`
+	} `yaml:"runs"`
+}
+
+// stepsIncludingLocalActions returns the steps that actually execute in a
+// job: its own, and then -- recursively -- those of every repository-local
+// composite action it uses.
+//
+// A local composite action runs INSIDE the calling job, so its steps are the
+// job's steps for every purpose these guards care about. Reading only the
+// job's own `steps:` left a hole with nothing in the way: a dispatchable
+// credential job could check out `main` itself, pass the secret to a local
+// composite as an input, and the composite's own `actions/checkout` -- with no
+// `ref:`, which defaults to the TRIGGERING ref -- would select the dispatched
+// branch and run its scripts with that credential. The top-level checkout
+// passed; the manifest named no secret, so the secrets scan passed; and the
+// nested checkout was invisible to both.
+//
+// An action whose execution cannot be read is a failure, not a pass: a
+// JavaScript or Docker action is reported so that the caller refuses it
+// rather than silently treating it as stepless.
+func stepsIncludingLocalActions(t *testing.T, job isolatedJob) (steps []isolatedStep, unreadable []string) {
+	t.Helper()
+	return stepsIncludingLocalActionsUnder(repoRoot(t), job)
+}
+
+// stepsIncludingLocalActionsUnder is the same walk rooted at a given
+// directory, so the recursion can be tested against manifests a test writes
+// rather than only against this repository's.
+func stepsIncludingLocalActionsUnder(root string, job isolatedJob) (steps []isolatedStep, unreadable []string) {
+	seen := map[string]bool{}
+
+	var walk func(own []isolatedStep, depth int)
+	walk = func(own []isolatedStep, depth int) {
+		for _, step := range own {
+			steps = append(steps, step)
+			target := strings.TrimSpace(step.Uses)
+			if target == "" || !strings.HasPrefix(target, "./") {
+				continue
+			}
+			if depth >= 8 {
+				unreadable = append(unreadable, target+" (nested deeper than this guard follows)")
+				continue
+			}
+			if seen[target] {
+				continue
+			}
+			seen[target] = true
+
+			var manifest string
+			for _, name := range []string{"action.yml", "action.yaml"} {
+				candidate := filepath.Join(root, strings.TrimPrefix(target, "./"), name)
+				if _, err := os.Stat(candidate); err == nil {
+					manifest = candidate
+				}
+			}
+			if manifest == "" {
+				unreadable = append(unreadable, target+" (no action.yml or action.yaml)")
+				continue
+			}
+			body, err := os.ReadFile(manifest)
+			if err != nil {
+				unreadable = append(unreadable, target+" ("+err.Error()+")")
+				continue
+			}
+			var action localAction
+			if err := yaml.Unmarshal(body, &action); err != nil {
+				unreadable = append(unreadable, target+" (manifest does not parse)")
+				continue
+			}
+			if action.Runs.Using != "composite" {
+				unreadable = append(unreadable, target+" (runs.using is "+action.Runs.Using+", whose execution this guard cannot read)")
+				continue
+			}
+			walk(action.Runs.Steps, depth+1)
+		}
+	}
+	walk(job.Steps, 0)
+	return steps, unreadable
 }
 
 type isolatedWorkflow struct {
@@ -309,7 +400,15 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 	checked := 0
 	for _, path := range paths {
 		wf := workflows[path]
-		if !reachableFromAPullRequest(wf.On) {
+		hostile, unmodelled := hostileScenariosFor(wf.On)
+		require.Empty(t, unmodelled,
+			"%s declares trigger(s) %v that this guard does not model, so no job in it "+
+				"can be proven unreachable from code under review. Add a scenario for "+
+				"each in expression_behaviour_test.go -- binding only what the event "+
+				"itself determines -- or remove the trigger. A trigger with no scenario "+
+				"is not a safe trigger, it is an unanswered question.",
+			filepath.Base(path), unmodelled)
+		if len(hostile) == 0 {
 			continue
 		}
 		checked++
@@ -326,8 +425,8 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 			}
 			sort.Strings(names)
 
-			for _, hostile := range []scenario{pullRequest, mergeGroup} {
-				ok, reason := mustNotRunUnder(t, job.If, hostile)
+			for _, situation := range hostile {
+				ok, reason := mustNotRunUnder(t, job.If, situation)
 				require.True(t, ok,
 					"%s: job %q references %s, and %s. `permissions:` does not govern a "+
 						"repository secret, so narrowing the built-in token leaves this "+
@@ -504,7 +603,11 @@ func commandsOf(t *testing.T, job isolatedJob) string {
 
 	var all strings.Builder
 	pending := []string{}
-	for _, step := range job.Steps {
+	// The steps that actually execute, a local composite action's included:
+	// its `run:` is this job's command, and a guard reading only the job's
+	// own steps would not see it reach for a pull request's ref.
+	executed, _ := stepsIncludingLocalActions(t, job)
+	for _, step := range executed {
 		all.WriteString(step.Run)
 		all.WriteString("\n")
 		pending = append(pending, scriptReference.FindAllString(step.Run, -1)...)
@@ -680,7 +783,15 @@ func TestADispatchableCredentialJobChecksOutTheDefaultBranch(t *testing.T) {
 			if len(secretsIn(t, wf, id)) == 0 {
 				continue
 			}
-			for _, step := range job.Steps {
+			steps, unreadable := stepsIncludingLocalActions(t, job)
+			require.Empty(t, unreadable,
+				"%s: job %q holds a repository secret and uses local action(s) %v whose "+
+					"execution this guard cannot read. A step it cannot see is a step "+
+					"exempt from the checkout rule below -- and a nested `actions/"+
+					"checkout` with no `ref:` takes the DISPATCHED ref. Make the action "+
+					"composite, or move the credential out of this job.",
+				filepath.Base(path), id, unreadable)
+			for _, step := range steps {
 				if !strings.Contains(step.Uses, "actions/checkout@") {
 					continue
 				}
@@ -690,7 +801,8 @@ func TestADispatchableCredentialJobChecksOutTheDefaultBranch(t *testing.T) {
 						"dispatched against any ref, and its checkout takes %q rather "+
 						"than `ref: main`. A dispatch against a feature branch would "+
 						"then run that branch's scripts with the credential. Pin the "+
-						"checkout to the default branch.",
+						"checkout to the default branch. This includes a checkout "+
+						"inside a local composite action, which runs in this job.",
 					filepath.Base(path), id, ref)
 			}
 		}

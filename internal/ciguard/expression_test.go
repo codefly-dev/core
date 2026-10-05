@@ -2,6 +2,7 @@ package ciguard
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -605,37 +606,107 @@ func truthOf(v any) tri {
 
 func truth(v value) tri { return v.t }
 
-// toNumber is GitHub's numeric coercion, used when `==` compares across types.
-// A string that is not a number becomes NaN, which equals nothing.
-func toNumber(v any) (float64, bool) {
+// numberKind is how much is known about a coercion to number.
+//
+// The third case is the important one and it did not exist: a conversion this
+// package does not FAITHFULLY model is neither a number nor NaN, it is
+// unknown — and unknown fails a guard, where NaN made a comparison definitely
+// false and admitted the job. `'0x10' == 16` is TRUE on GitHub, which
+// converts hexadecimal; strconv.ParseFloat refuses "0x10", that refusal was
+// read as NaN, and a secret-bearing job gated on that comparison was
+// certified unreachable. The guard may only be definite over the forms it
+// actually implements.
+type numberKind int
+
+const (
+	numberKnown numberKind = iota
+	// numberNaN is GitHub's NaN: a value it converts and the conversion
+	// yields not-a-number, which equals nothing including itself.
+	numberNaN
+	// numberUnmodelled is a form this package does not implement. The
+	// precision lost here is deliberate: a cross-type comparison against an
+	// exotic spelling reads as unknown rather than as a convenient false.
+	numberUnmodelled
+)
+
+// decimalNumber is the spelling GitHub's conversion accepts as a plain
+// decimal, written out rather than delegated to strconv.ParseFloat, because
+// ParseFloat accepts forms GitHub does not (hexadecimal floats with a binary
+// exponent, digit separators) and that difference is exactly the kind of
+// divergence this file exists to refuse.
+var decimalNumber = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
+
+// hexNumber is the other form the runner converts: "0x" and hexadecimal
+// digits, optionally signed.
+var hexNumber = regexp.MustCompile(`^([+-]?)0[xX]([0-9a-fA-F]+)$`)
+
+// toNumber is GitHub's numeric coercion, used when `==` compares across
+// types. It answers with numberUnmodelled for every spelling it does not
+// implement, so the comparison above it becomes unknown instead of false.
+func toNumber(v any) (float64, numberKind) {
 	switch x := v.(type) {
 	case nil:
-		return 0, true
+		return 0, numberKnown
 	case bool:
 		if x {
-			return 1, true
+			return 1, numberKnown
 		}
-		return 0, true
+		return 0, numberKnown
 	case float64:
-		return x, true
+		return x, numberKnown
 	case string:
 		trimmed := strings.TrimSpace(x)
 		if trimmed == "" {
-			return 0, true
+			return 0, numberKnown
 		}
-		f, err := strconv.ParseFloat(trimmed, 64)
-		if err != nil {
-			return 0, false // NaN
+		switch trimmed {
+		case "Infinity":
+			return math.Inf(1), numberKnown
+		case "-Infinity":
+			return math.Inf(-1), numberKnown
+		case "NaN":
+			return 0, numberNaN
 		}
-		return f, true
+		if groups := hexNumber.FindStringSubmatch(trimmed); groups != nil {
+			digits, err := strconv.ParseUint(groups[2], 16, 64)
+			if err != nil {
+				// Beyond 64 bits. GitHub converts it to some float; this
+				// package does not claim to know which.
+				return 0, numberUnmodelled
+			}
+			value := float64(digits)
+			if groups[1] == "-" {
+				value = -value
+			}
+			return value, numberKnown
+		}
+		if decimalNumber.MatchString(trimmed) {
+			parsed, err := strconv.ParseFloat(trimmed, 64)
+			if err != nil {
+				return 0, numberUnmodelled
+			}
+			return parsed, numberKnown
+		}
+		// A string carrying NO digit at all cannot be a number in any
+		// spelling, GitHub's included, so NaN here is faithful rather than
+		// assumed: `'abc' == 0` is false there and false here.
+		if !strings.ContainsAny(trimmed, "0123456789") {
+			return 0, numberNaN
+		}
+		// It has digits but is not a spelling this package implements --
+		// "1,000", "1_000", "0b101", a non-ASCII digit. GitHub may or may not
+		// convert it, and guessing either way is how a comparison becomes
+		// definite when it has no right to be.
+		return 0, numberUnmodelled
 	}
-	return 0, false
+	return 0, numberUnmodelled
 }
 
 // looseEqual implements GitHub's `==`: same-typed strings compare
 // case-insensitively, and operands of different types are both converted to
 // numbers. `” == 0` is TRUE there, which Go's `==` on `any` reports as false
-// -- a difference a condition can be built out of.
+// -- a difference a condition can be built out of. A conversion this package
+// does not model makes the comparison UNKNOWN, never false.
 func looseEqual(a, b any) tri {
 	if as, ok := a.(string); ok {
 		if bs, ok := b.(string); ok {
@@ -655,10 +726,13 @@ func looseEqual(a, b any) tri {
 	if a == nil && b == nil {
 		return triTrue
 	}
-	an, aok := toNumber(a)
-	bn, bok := toNumber(b)
-	if !aok || !bok {
-		return triFalse // NaN equals nothing
+	an, akind := toNumber(a)
+	bn, bkind := toNumber(b)
+	if akind == numberUnmodelled || bkind == numberUnmodelled {
+		return triUnknown
+	}
+	if akind == numberNaN || bkind == numberNaN {
+		return triFalse // NaN equals nothing, itself included
 	}
 	return triOf(an == bn)
 }

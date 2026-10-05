@@ -1,6 +1,7 @@
 package ciguard
 
 import (
+	"gopkg.in/yaml.v3"
 	"sort"
 	"testing"
 
@@ -59,24 +60,35 @@ var mergeGroup = scenario{
 // stopped by a DIFFERENT condition, so a job guarded on only one of the two
 // still fails against the other.
 //
-// Each pins the fields the triggering party controls to the values that most
-// favour it, so that exactly one condition is left to do the work. Note what is
-// NOT pinned: `head_branch`, which the head repository names freely. Pinning it
-// to "main" once made `head_branch == 'release'` read as definitely-false.
+// Each binds ONE fact: the hostile one. Nothing else -- and in particular
+// nothing the triggering party chooses.
+//
+// Pinning the "favourable" fields so that exactly one condition was left to do
+// the work is what these scenarios did before, and it was unsound twice over.
+// `conclusion` was pinned to "success", so `conclusion == 'failure'` read as
+// definitely-false and a write-token job gated on it was certified -- while an
+// attacker need only make their own upstream run fail. `github.repository` was
+// pinned to this repository, so `github.repository != 'codefly-dev/core'` read
+// as definitely-false for every caller, although a reusable workflow is given
+// the CALLER's context. The pins were never needed for the verdict either:
+// unknown AND false is false, so an unbound favourable field cannot stop the
+// hostile condition from refusing the job. A sample is a regression example,
+// never a universal exclusion.
 var workflowRunFromAPullRequest = scenario{
 	name: "a workflow_run produced by a pull request",
 	fixed: map[string]string{
+		// A workflow_run fires on the repository that OWNS the workflow, so
+		// these two are facts about this repository, not values the
+		// triggering party chooses. `head_repository.full_name ==
+		// github.repository` is a real comparison and it needs both sides.
 		"github.event_name":                      "workflow_run",
 		"github.repository":                      theRepository,
 		"github.event.repository.default_branch": theDefaultBranch,
 	},
 	adversarial: map[string]string{
-		// The hostile fact: the upstream run came from a pull request.
+		// The hostile fact, and the ONLY one: the upstream run came from a
+		// pull request.
 		"github.event.workflow_run.event": "pull_request",
-		// Favourable, so only the event condition can refuse the job: the run
-		// succeeded, in this very repository.
-		"github.event.workflow_run.conclusion":                "success",
-		"github.event.workflow_run.head_repository.full_name": theRepository,
 	},
 	always: map[string]tri{"always": triTrue},
 }
@@ -89,13 +101,116 @@ var workflowRunFromAForkPush = scenario{
 		"github.event.repository.default_branch": theDefaultBranch,
 	},
 	adversarial: map[string]string{
-		// The hostile fact: the head repository is not this one.
+		// The hostile fact, and the ONLY one: the head repository is not
+		// this one. Its exact name is still the attacker's to choose, so
+		// what is bound here is a DOMAIN, not a sample.
 		"github.event.workflow_run.head_repository.full_name": "a-contributor/core",
-		// Favourable, so only the head-repository condition can refuse it.
-		"github.event.workflow_run.event":      "push",
-		"github.event.workflow_run.conclusion": "success",
 	},
 	always: map[string]tri{"always": triTrue},
+}
+
+// A reusable workflow is called by another repository, which supplies its own
+// context: its repository, its ref, its actor -- and its EVENT. The event is
+// the one fact a condition can still use, because `github.event_name` in a
+// called workflow is the caller's triggering event, so
+// `github.event_name == 'push'` is genuinely false when the caller came from
+// a pull request, however little else is knowable. Modelling the caller as
+// "nothing is known" throws that away and fails a correct design; modelling
+// it as this repository's own event (which it is not) is the unsound
+// direction, and is the hole the reviewer named: `github.repository` pinned
+// here read as definitely-equal for every caller, so
+// `github.repository != 'codefly-dev/core'` excluded nobody.
+//
+// So: one scenario per HOSTILE CALLER EVENT, each binding the event and
+// nothing else.
+var calledFromAPullRequest = scenario{
+	name:   "called as a reusable workflow from a pull request",
+	fixed:  map[string]string{"github.event_name": "pull_request"},
+	always: map[string]tri{"always": triTrue},
+}
+
+var calledFromACommentOnAPullRequest = scenario{
+	name:   "called as a reusable workflow from a comment on a pull request",
+	fixed:  map[string]string{"github.event_name": "issue_comment"},
+	always: map[string]tri{"always": triTrue},
+}
+
+var calledFromAMergeQueue = scenario{
+	name:   "called as a reusable workflow from a merge queue candidate",
+	fixed:  map[string]string{"github.event_name": "merge_group"},
+	always: map[string]tri{"always": triTrue},
+}
+
+// commentOnAPullRequest is the trigger the classifier called hostile and the
+// assertion never evaluated. `issue_comment` fires on a comment -- including
+// one on a pull request, where `github.event.issue.number` names that pull
+// request and a checkout can select `refs/pull/<n>/head`, i.e. the author's
+// unreviewed code. A credential-bearing job gated on
+// `github.event_name == 'issue_comment'` was accepted because the only
+// scenarios evaluated were a pull request and a merge queue candidate, under
+// both of which that condition is false.
+var commentOnAPullRequest = scenario{
+	name: "a comment on a pull request",
+	fixed: map[string]string{
+		"github.event_name":                      "issue_comment",
+		"github.repository":                      theRepository,
+		"github.event.repository.default_branch": theDefaultBranch,
+	},
+	always: map[string]tri{"always": triTrue},
+}
+
+// hostileScenariosFor is the set a credential-bearing job in this workflow
+// must be proven unreachable under, DERIVED from the triggers the workflow
+// declares rather than fixed in the assertion.
+//
+// This is the finding that made the derivation necessary: the classifier
+// called `issue_comment` hostile, the assertion evaluated a pull request and
+// a merge queue candidate, and a job gated on `issue_comment` was false under
+// both and therefore accepted. Meanwhile `workflow_run` was exempt HERE
+// because it "has its own stricter guard", and that guard looked only at
+// write-CAPABLE jobs -- so a read-only job holding a repository secret on
+// `workflow_run` was checked by neither.
+//
+// An exemption is only as good as the covering guard's SCOPE, so each one
+// below names its guard and why that guard's scope is enough. A declared
+// trigger with no scenario is not skipped: it comes back as unmodelled and
+// the caller fails on it, because "added by GitHub next year" must mean a
+// failing test rather than a silent pass.
+func hostileScenariosFor(on yaml.Node) (hostile []scenario, unmodelled []string) {
+	for _, trigger := range triggers(on) {
+		switch trigger {
+		case "pull_request", "pull_request_target":
+			hostile = append(hostile, pullRequest)
+		case "merge_group":
+			hostile = append(hostile, mergeGroup)
+		case "issue_comment", "discussion_comment", "pull_request_review", "pull_request_review_comment":
+			hostile = append(hostile, commentOnAPullRequest)
+		case "workflow_run":
+			hostile = append(hostile, workflowRunFromAPullRequest, workflowRunFromAForkPush)
+		case "workflow_call":
+			hostile = append(hostile, calledFromAPullRequest, calledFromACommentOnAPullRequest, calledFromAMergeQueue)
+		case "workflow_dispatch":
+			// Covered by TestADispatchableCredentialJobChecksOutTheDefault-
+			// Branch, whose scope is EVERY job holding a secret in a
+			// workflow declaring this trigger -- not only the write-capable
+			// ones, which is what made workflow_run's exemption unsound. It
+			// requires each checkout, the calling job's and a local action's
+			// after the recursion, to pin the default branch; and a
+			// dispatcher needs write access, which a pull request's author
+			// does not have.
+		case "push", "create", "delete", "release":
+			// Covered by TestATagGatedCredentialJobProvesTheTagIsOnTheDefault-
+			// Branch and by the write-token guard, which read the ref a job
+			// SELECTS rather than trusting the trigger -- a tag or a branch
+			// can be created at any commit, a pull request's head included.
+		case "schedule":
+			// A schedule runs the default branch's workflow at the default
+			// branch, so nothing a contributor writes reaches it.
+		default:
+			unmodelled = append(unmodelled, trigger)
+		}
+	}
+	return hostile, unmodelled
 }
 
 // pushOfATag is not hostile by itself -- it is how a release happens -- but a
@@ -273,14 +388,24 @@ func TestEachWorkflowRunConditionIsObligedSeparately(t *testing.T) {
 		fromPullRequest, forkPush tri
 	}{
 		{
+			// UNKNOWN under the fork's push, not true: the upstream event is
+			// the attacker's to choose and is therefore unbound. Either way
+			// the job is not proven unreachable, which is the verdict that
+			// matters -- but the reason is now "this guard cannot know"
+			// rather than a sample that happened to favour the attacker.
 			name: "the event condition alone", gate: eventOnly,
-			fromPullRequest: triFalse, forkPush: triTrue,
+			fromPullRequest: triFalse, forkPush: triUnknown,
 		},
 		{
 			name: "the head-repository condition alone", gate: repoOnly,
-			fromPullRequest: triTrue, forkPush: triFalse,
+			fromPullRequest: triUnknown, forkPush: triFalse,
 		},
 		{
+			// The property that obliges version-tag.yml, and it survives the
+			// unbinding: false && unknown is false from a pull request,
+			// unknown && false is false from a fork's push. A conjunction is
+			// definitely false as soon as ONE conjunct is, which is why the
+			// favourable pins were never needed to reach this verdict.
 			name: "both, as version-tag carries them", gate: eventOnly + " && " + repoOnly,
 			fromPullRequest: triFalse, forkPush: triFalse,
 		},
