@@ -55,6 +55,9 @@ const explicitNull = "explicit null"
 // overlappingCIDRs is the one message every overlap fixture expects.
 const overlappingCIDRs = "overlapping CIDRs"
 
+// notCanonical is the one message every non-canonical-CIDR fixture expects.
+const notCanonical = "is not canonical"
+
 const notWhole = "is not a whole number"
 
 // selectorKeyRefusal is the one message every selector-key fixture expects.
@@ -85,7 +88,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "consumer-named-twice", file: "consumer-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names consumer "billing/worker" twice`, rule: ruleConsumersOrder},
 		{name: "ingress-to-one-endpoint-twice", file: "ingress-to-one-endpoint-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `ingress to endpoint "rest" twice`, rule: ruleIngressOrder},
 		{name: "ingress-host-named-twice", file: "ingress-host-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names host \"payments.example.com\" twice", rule: ruleIngressHostName},
-		{name: "egress-cidr-not-canonical", file: "egress-cidr-not-canonical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not canonical", rule: ruleEgressCIDR},
+		{name: "egress-cidr-not-canonical", file: "egress-cidr-not-canonical.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDR},
 		{name: "egress-cidrs-overlap", file: "egress-cidrs-overlap.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
 		{name: "spiffe-id-of-another-namespace", file: "spiffe-id-of-another-namespace.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "ns/billing/sa/api", rule: ruleSPIFFEID},
 		{name: "artifact-name-not-a-name", file: "artifact-name-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must name the rendered unit", rule: ruleArtifact},
@@ -94,7 +97,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "init-container-image-repository-malformed", file: "init-container-image-repository-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a canonical image repository", rule: ruleImageRepository},
 		{name: "init-container-named-twice", file: "init-container-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `init container "migrate" twice`, rule: ruleContainerUnique},
 		{name: "egress-cidr-not-canonical-ipv6", file: "egress-cidr-not-canonical-ipv6.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "2001:db8::/32", rule: ruleEgressCIDR},
-		{name: "egress-cidr-mapped-all-addresses", file: "egress-cidr-mapped-all-addresses.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not canonical", rule: ruleEgressCIDR},
+		{name: "egress-cidr-mapped-all-addresses", file: "egress-cidr-mapped-all-addresses.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDR},
 		{name: "host-component-not-a-name", file: "host-component-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "component", rule: ruleHostName},
 		{name: "host-domain-not-a-name", file: "host-domain-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "domain", rule: ruleHostName},
 		{name: "host-coordinate-segment-not-a-name", file: "host-coordinate-segment-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "coordinate", rule: ruleHostName},
@@ -149,6 +152,11 @@ func Fixtures() ([]Fixture, error) {
 		// The control: the same shape with a whole number is ACCEPTED, so the
 		// two above refuse the fraction and not the alias.
 		{name: "endpoint-port-aliased-integer", file: "endpoint-port-aliased-integer.yaml", outcome: OutcomeAccepted},
+		// The two weakenings the confirming round named, each of which changed
+		// NO fixture's outcome: the overlap witnesses were all IPv4, and the
+		// non-canonical witness was the first entry.
+		{name: "egress-cidrs-overlap-ipv6", file: "egress-cidrs-overlap-ipv6.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: overlappingCIDRs, rule: ruleEgressCIDR},
+		{name: "egress-cidr-not-canonical-later", file: "egress-cidr-not-canonical-later.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notCanonical, rule: ruleEgressCIDR},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},

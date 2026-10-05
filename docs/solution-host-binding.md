@@ -925,7 +925,7 @@ are keyed by name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (128) ship
+`modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (130) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (109
