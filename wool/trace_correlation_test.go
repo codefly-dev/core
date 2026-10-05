@@ -21,6 +21,17 @@ import (
 // covering shapes no real backend produces (a span that cannot name itself, a
 // typed-nil span). The defects they pin were found with exactly these shapes.
 
+// only returns the single record the sink received, failing otherwise. Declared
+// here rather than beside capture in log_test.go so this file's additions stay
+// self-contained.
+func (c *capture) only(t *testing.T) *wool.Log {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	require.Len(t, c.logs, 1, "expected exactly one captured log record")
+	return c.logs[0]
+}
+
 // anonymousSpan implements wool.Span only. A backend that cannot name its spans
 // must keep working — that is the reason SpanIdentity is a separate, optional
 // interface rather than two more methods on Span.
@@ -41,6 +52,14 @@ func (s *externalSpan) AddEvent(_ string, _ []*wool.LogField) {}
 func (s *externalSpan) End()                                  {}
 func (s *externalSpan) TraceID() string                       { return s.traceID }
 func (s *externalSpan) SpanID() string                        { return s.spanID }
+
+// endDerefSpan isolates the StartSpan guard: its getters are absent so the
+// identity path cannot be what saves it, and its End dereferences the receiver.
+// Without that guard, StartSpan hands this back as the func every caller defers.
+type endDerefSpan struct{ ended bool }
+
+func (s *endDerefSpan) AddEvent(_ string, _ []*wool.LogField) {}
+func (s *endDerefSpan) End()                                  { s.ended = true }
 
 type tracerOf struct{ span wool.Span }
 
@@ -90,6 +109,66 @@ func TestATypedNilSpanDoesNotMakeTheEndFuncPanic(t *testing.T) {
 	w.Info("handling request")
 
 	require.NotPanics(t, end)
+}
+
+// THE POSITIVE FALLBACK CASE. A backend with no ContextIdentity must still get
+// its ids onto the record through wool's own span. Without this, deleting the
+// entire SpanIdentity fallback left every test in this package green — the
+// review caught exactly that, and no amount of negative cases substitutes for
+// one assertion that the path produces a real id.
+func TestABackendWithoutAContextReaderStillStampsItsSpansIDs(t *testing.T) {
+	w, sink := woolInSpan(t, &externalSpan{
+		traceID: "4bf92f3577b34da6a3ce929d0e0e4736",
+		spanID:  "00f067aa0ba902b7",
+	})
+
+	w.Info("handling request")
+
+	record := sink.only(t)
+	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", record.TraceID,
+		"backendOf implements no ContextIdentity, so this can only have come from the span fallback")
+	require.Equal(t, "00f067aa0ba902b7", record.SpanID)
+}
+
+// The End hazard, isolated. The getters are absent here, so only the StartSpan
+// guard can prevent this.
+func TestTheEndFuncIsNeverATypedNilSpansMethod(t *testing.T) {
+	var disabled *endDerefSpan
+	sink := &capture{}
+	provider := wool.New(context.Background(), &wool.Resource{Kind: "test", Unique: "end-deref"}).
+		WithLogger(sink).
+		WithTelemetry(backendOf{span: disabled})
+
+	_, end := wool.StartSpan(provider.Inject(context.Background()), "Operation")
+
+	require.NotPanics(t, end)
+}
+
+// FORWARD records, exercised through the real emitting methods rather than by
+// populating a Log by hand: the ids belong on the record while the bytes pass
+// through untouched.
+func TestForwardAndWriteEmitVerbatimWhileTheRecordKeepsTheIDs(t *testing.T) {
+	w, sink := woolInSpan(t, &externalSpan{
+		traceID: "4bf92f3577b34da6a3ce929d0e0e4736",
+		spanID:  "00f067aa0ba902b7",
+	})
+
+	w.Forwardf("forwarded %s", "output")
+	_, err := w.Write([]byte("written output"))
+	require.NoError(t, err)
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	require.Len(t, sink.logs, 2)
+	for _, record := range sink.logs {
+		require.Equal(t, wool.FORWARD, record.Level)
+		require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", record.TraceID,
+			"a forwarded line still carries its trace on the record")
+		require.NotContains(t, record.String(), "trace_id",
+			"but the rendered bytes pass through untouched")
+	}
+	require.Equal(t, "forwarded output", sink.logs[0].String())
+	require.Equal(t, "written output", sink.logs[1].String())
 }
 
 // A backend that cannot name its spans keeps working, with no ids.

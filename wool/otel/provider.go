@@ -158,14 +158,27 @@ func (p *Provider) SpanIdentityFromContext(ctx context.Context) (string, string)
 // trace_id=00000000000000000000000000000000 is a well-formed id for a trace that
 // never existed, which a reader cannot tell from a real one.
 func identityOf(span oteltrace.Span) (string, string) {
-	if span == nil {
-		return "", ""
-	}
-	sc := span.SpanContext()
-	if !sc.IsValid() {
+	sc, ok := identityContextOf(span)
+	if !ok {
 		return "", ""
 	}
 	return sc.TraceID().String(), sc.SpanID().String()
+}
+
+// identityContextOf reports a span's context when it has an identity to report.
+// The getters use this rather than identityOf so each one formats only the id it
+// was asked for: a real backend behind a TelemetryProvider that predates
+// ContextIdentity takes the per-getter path, and formatting both ids in each
+// getter made that fallback cost more than it did before ContextIdentity existed.
+func identityContextOf(span oteltrace.Span) (oteltrace.SpanContext, bool) {
+	if span == nil {
+		return oteltrace.SpanContext{}, false
+	}
+	sc := span.SpanContext()
+	if !sc.IsValid() {
+		return oteltrace.SpanContext{}, false
+	}
+	return sc, true
 }
 
 // Shutdown flushes and shuts down the OTEL provider.
@@ -214,8 +227,11 @@ func (s *spanAdapter) TraceID() string {
 	if s == nil {
 		return ""
 	}
-	traceID, _ := identityOf(s.span)
-	return traceID
+	sc, ok := identityContextOf(s.span)
+	if !ok {
+		return ""
+	}
+	return sc.TraceID().String()
 }
 
 // SpanID implements wool.SpanIdentity: the id of this one operation within the
@@ -224,8 +240,11 @@ func (s *spanAdapter) SpanID() string {
 	if s == nil {
 		return ""
 	}
-	_, spanID := identityOf(s.span)
-	return spanID
+	sc, ok := identityContextOf(s.span)
+	if !ok {
+		return ""
+	}
+	return sc.SpanID().String()
 }
 
 func toAttribute(f *wool.LogField) attribute.KeyValue {

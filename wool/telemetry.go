@@ -1,6 +1,9 @@
 package wool
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // Span represents an active trace span. Implementations are provided by
 // telemetry backends (e.g. wool/otel).
@@ -79,20 +82,33 @@ type TelemetryProvider interface {
 
 // --- Global registration (smart import pattern) ---
 
-var globalTelemetry TelemetryProvider
+// globalTelemetry is guarded by globalTelemetryMu. The lock is not ceremony: a
+// Wool with no explicitly bound provider reads this registry on EVERY admitted
+// log line, so an Enable or a re-registration concurrent with a running
+// goroutine's logging is an ordinary data race — one the detector reports. It
+// used to be read only while a Provider was being constructed, which is why an
+// unsynchronized global survived this long.
+var (
+	globalTelemetryMu sync.RWMutex
+	globalTelemetry   TelemetryProvider
+)
 
 // RegisterTelemetry sets the global telemetry provider.
 // Typically called from an init() in a backend package (e.g. wool/otel).
 func RegisterTelemetry(tp TelemetryProvider) {
+	globalTelemetryMu.Lock()
+	defer globalTelemetryMu.Unlock()
 	globalTelemetry = tp
 }
 
 // GetTelemetry returns the registered global telemetry provider, or nil.
 func GetTelemetry() TelemetryProvider {
+	globalTelemetryMu.RLock()
+	defer globalTelemetryMu.RUnlock()
 	return globalTelemetry
 }
 
 // TelemetryEnabled returns true if a telemetry provider has been registered.
 func TelemetryEnabled() bool {
-	return globalTelemetry != nil
+	return GetTelemetry() != nil
 }
