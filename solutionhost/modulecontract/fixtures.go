@@ -52,6 +52,9 @@ const malformedEntry = "ceiling entry is malformed"
 // explicitNull is the one message every null fixture expects.
 const explicitNull = "explicit null"
 
+// notWhole is the one message every fractional-number fixture expects.
+const notWhole = "is not a whole number"
+
 func Fixtures() ([]Fixture, error) {
 	table := []struct {
 		name, file, message, rule string
@@ -98,6 +101,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "operation-delete", file: "operation-delete.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `operation "delete" is not one of`, rule: ruleOperationKnown},
 		{name: "destination-kind-public", file: "destination-kind-public.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `kind "public" is not one of`, rule: ruleDestinationKindKnown},
 		{name: "explicit-scope-action-wildcard", file: "explicit-scope-action-wildcard.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `action "*"`, rule: ruleActionName},
+		{name: "revision-fractional", file: "revision-fractional.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notWhole, rule: ruleWholeNumbers},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/module-contract/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "tenancy", file: "tenancy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "tenancy", rule: ruleKnownFields},

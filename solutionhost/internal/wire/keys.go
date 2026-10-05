@@ -23,6 +23,9 @@ const (
 	NullNode
 	// KeyNotAName is a mapping key that is not a non-empty scalar name.
 	KeyNotAName
+	// FractionalNumber is a number written with a fraction or an exponent,
+	// which neither model ever declares.
+	FractionalNumber
 )
 
 // Defect is what a document-level check found: which rule refuses it, where in
@@ -50,6 +53,14 @@ type Defect struct {
 //     ceiling spelling, which kept an empty one. Neither model gives an
 //     explicit null a meaning: an absent field is absent, and an empty list is
 //     written `[]`.
+//   - A FRACTIONAL NUMBER. yaml.v3 CONVERTS a float to an integer before it
+//     checks overflow, so `revision: 2.9` validated as revision 2 and
+//     `port: 443.9` as port 443 — the fraction discarded before any rule saw
+//     it, and unrecoverable afterwards: the revision goes into the resolved
+//     binding and the ports become policy inputs. Neither model declares a
+//     single non-integer field, so a fractional scalar is refused outright
+//     rather than per numeric field, and an integer field added later is
+//     covered without anyone remembering.
 //   - A KEY THAT IS NOT A NAME. Both models' mappings are keyed by name, so a
 //     sequence or mapping key is a document no reader can act on.
 func Check(node *yaml.Node) Defect {
@@ -62,6 +73,9 @@ func walk(node *yaml.Node, at string) Defect {
 	}
 	if node.Tag == nullTag {
 		return Defect{Kind: NullNode, Path: Where(at)}
+	}
+	if node.Tag == floatTag {
+		return Defect{Kind: FractionalNumber, Path: Where(at), Detail: node.Value}
 	}
 	switch node.Kind {
 	case yaml.DocumentNode:
@@ -102,7 +116,10 @@ func walk(node *yaml.Node, at string) Defect {
 	return Defect{}
 }
 
-const nullTag = "!!null"
+const (
+	nullTag  = "!!null"
+	floatTag = "!!float"
+)
 
 func join(at, name string) string {
 	if at == "" {

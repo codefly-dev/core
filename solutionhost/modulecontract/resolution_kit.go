@@ -374,6 +374,37 @@ func lossFixtures(role, group, key, upper, lower, value string) []ResolutionFixt
 			Slot:    role,
 			Records: []Record{{Key: lower, Value: secretValue, Secret: true}, {Key: upper, Value: value}},
 		},
+		// AGREEING VALUES. Every collision above disagrees on the value, so a
+		// provider deduplicating by (Key, Value) and ignoring Secret kept both
+		// records and was caught by the one-value rule. With the SAME value it
+		// collapsed the pair, discarded the secret occurrence and resolved —
+		// a conformance pass for an adapter that loses the classification
+		// outright. The value agreeing is exactly when only the flag carries
+		// the refusal.
+		{
+			Name: role + ": public then secret, same value, one spelling", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: upper, Value: value}, {Key: upper, Value: value, Secret: true}},
+		},
+		{
+			Name: role + ": secret then public, same value, one spelling", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: upper, Value: value, Secret: true}, {Key: upper, Value: value}},
+		},
+		{
+			Name: role + ": public then secret, same value, two spellings", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: upper, Value: value}, {Key: lower, Value: value, Secret: true}},
+		},
+		{
+			Name: role + ": secret then public, same value, two spellings", Group: group, Key: key,
+			Outcome: OutcomeRefused, Sentinel: ErrSecretSlot, Message: slot, Rule: ruleSecretPrecedence,
+			Slot:    role,
+			Records: []Record{{Key: lower, Value: value, Secret: true}, {Key: upper, Value: value}},
+		},
 	}
 }
 

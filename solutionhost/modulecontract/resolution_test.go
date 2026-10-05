@@ -213,3 +213,29 @@ func TestALastWinsProviderFailsTheKit(t *testing.T) {
 		})
 	}
 }
+
+// TestADeduplicatingProviderFailsTheKit is the executed round's second
+// finding: a provider keeping the first record per (Key, Value) and ignoring
+// Secret preserved every DISAGREEING pair, so the one-value rule caught it —
+// and collapsed an agreeing public/secret pair, discarding the classification
+// and resolving a slot the contract must refuse as secret.
+func TestADeduplicatingProviderFailsTheKit(t *testing.T) {
+	recorder := &recordingT{}
+	RunResolution(recorder, func(group string, records []Record) Values {
+		type pair struct{ key, value string }
+		seen := map[pair]bool{}
+		kept := make([]Record, 0, len(records))
+		for _, record := range records {
+			at := pair{record.Key, record.Value}
+			if seen[at] {
+				continue
+			}
+			seen[at] = true
+			kept = append(kept, record)
+		}
+		return recordValues{group: group, records: kept}
+	})
+	if recorder.failures == 0 {
+		t.Fatal("a provider deduplicating by (key, value) and ignoring Secret passed the resolution kit")
+	}
+}

@@ -48,6 +48,9 @@ type Fixture struct {
 // digestRefusal is the one message every image-digest fixture expects.
 const digestRefusal = "must pin an OCI manifest digest"
 
+// notWhole is the one message every fractional-number fixture expects.
+const notWhole = "is not a whole number"
+
 // selectorKeyRefusal is the one message every selector-key fixture expects.
 const selectorKeyRefusal = "selector label key"
 
@@ -121,6 +124,8 @@ func Fixtures() ([]Fixture, error) {
 		{name: "container-name-too-long", file: "container-name-too-long.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a DNS label", rule: ruleContainerName},
 		{name: "workload-name-too-long", file: "workload-name-too-long.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a DNS subdomain", rule: ruleWorkloadName},
 		{name: "egress-host-port-negative", file: "egress-host-port-negative.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "port -1", rule: ruleEgressHostPort},
+		{name: "endpoint-port-fractional", file: "endpoint-port-fractional.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notWhole, rule: ruleWholeNumbers},
+		{name: "egress-host-port-fractional", file: "egress-host-port-fractional.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: notWhole, rule: ruleWholeNumbers},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},

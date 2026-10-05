@@ -105,7 +105,7 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"operation-without-ceiling", "principal-upper-case",
 		"queue-declared-twice", "queue-not-a-name", "queues-omitted",
 		"resource-kind-from-endpoint-key", "resource-kind-literal",
-		"resource-kind-slot-with-default", "schema-omitted",
+		"resource-kind-slot-with-default", "revision-fractional", "schema-omitted",
 		"scope-ceiling-kind-declared-twice", "scope-ceiling-kind-not-a-name",
 		"scope-ceiling-without-action", "scope-kind-not-a-name", "slot-alias-key",
 		"slot-group-not-a-name", "slot-key-not-a-key", "slot-names-from-twice",
