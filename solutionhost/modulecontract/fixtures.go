@@ -45,6 +45,10 @@ type Fixture struct {
 // each must reach. Every rule the reader enforces is protected by at least
 // one refused fixture here, which the package's own tests prove by deleting
 // each rule in turn.
+// malformedEntry is the one message every malformed-ceiling-entry fixture
+// expects.
+const malformedEntry = "ceiling entry is malformed"
+
 func Fixtures() ([]Fixture, error) {
 	table := []struct {
 		name, file, message, rule string
@@ -62,12 +66,20 @@ func Fixtures() ([]Fixture, error) {
 		{name: "binding-action-not-a-name", file: "binding-action-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding model invoke action "Read"`, rule: ruleActionName},
 		{name: "binding-action-declared-twice", file: "binding-action-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding model invoke action "read" is declared twice`, rule: ruleActionUnique},
 		{name: "slot-reference-tagged", file: "slot-reference-tagged.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "slot reference is malformed", rule: ruleSlotDecodes},
-		{name: "bare-action-tagged", file: "bare-action-tagged.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "ceiling entry is malformed", rule: ruleCeilingEntryShape},
+		{name: "bare-action-tagged", file: "bare-action-tagged.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: malformedEntry, rule: ruleCeilingEntryShape},
 		{name: "slot-alias-key", file: "slot-alias-key.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `unknown slot field "assistant"`, rule: ruleSlotCarriesOnlyFrom},
 		{name: "ceiling-entry-alias-key", file: "ceiling-entry-alias-key.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `unknown scope ceiling field "assistant"`, rule: ruleCeilingEntryFields},
 		{name: "queue-not-a-name", file: "queue-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `queues entry "Jobs"`, rule: ruleListEntryName},
 		{name: "queue-declared-twice", file: "queue-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `queues entry "jobs" is declared twice`, rule: ruleListEntryUnique},
 		{name: "destination-endpoint-not-a-name", file: "destination-endpoint-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `endpoint "HTTP"`, rule: ruleDestinationTargetName},
+		{name: "slot-group-not-a-name", file: "slot-group-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `slot "Assistant/model-audience" is not <group>/<key>`, rule: ruleSlotReference},
+		{name: "slot-key-not-a-key", file: "slot-key-not-a-key.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `slot "assistant/model.audience" is not <group>/<key>`, rule: ruleSlotReference},
+		{name: "resource-kind-literal", file: "resource-kind-literal.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "resource_kind slot is {from: <group>/<key>}", rule: ruleSlotIsAReference},
+		{name: "resource-kind-slot-with-default", file: "resource-kind-slot-with-default.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "resource_kind slot carries the unknown slot field", rule: ruleSlotCarriesOnlyFrom},
+		{name: "binding-key-literal", file: "binding-key-literal.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "binding_key slot is {from: <group>/<key>}", rule: ruleSlotIsAReference},
+		{name: "binding-key-slot-with-default", file: "binding-key-slot-with-default.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "binding_key slot carries the unknown slot field", rule: ruleSlotCarriesOnlyFrom},
+		{name: "action-wildcard", file: "action-wildcard.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `action "*"`, rule: ruleActionName},
+		{name: "ceiling-entry-nested-list", file: "ceiling-entry-nested-list.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: malformedEntry, rule: ruleCeilingEntryShape},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/module-contract/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "tenancy", file: "tenancy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "tenancy", rule: ruleKnownFields},
@@ -102,7 +114,7 @@ func Fixtures() ([]Fixture, error) {
 
 		{name: "ceiling-not-a-list", file: "ceiling-not-a-list.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "a scope ceiling is a list of actions or of {resource_kind, actions} entries", rule: ruleCeilingIsAList},
 		{name: "ceiling-entry-with-own-field", file: "ceiling-entry-with-own-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `unknown scope ceiling field "resource_ids"`, rule: ruleCeilingEntryFields},
-		{name: "ceiling-entry-actions-not-a-list", file: "ceiling-entry-actions-not-a-list.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "ceiling entry is malformed", rule: ruleCeilingEntryShape},
+		{name: "ceiling-entry-actions-not-a-list", file: "ceiling-entry-actions-not-a-list.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: malformedEntry, rule: ruleCeilingEntryShape},
 		{name: "mixed-ceiling", file: "mixed-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "mixes bare actions with {resource_kind, actions} entries", rule: ruleCeilingOneSpelling},
 		{name: "ceiling-for-undeclared-operation", file: "ceiling-for-undeclared-operation.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "does not declare", rule: ruleCeilingForDeclaredOp},
 		{name: "operation-without-ceiling", file: "operation-without-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "no scope ceiling", rule: ruleOperationHasCeiling},

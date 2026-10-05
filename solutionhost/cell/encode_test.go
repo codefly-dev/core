@@ -139,3 +139,31 @@ func TestTheGuardedWriterReadsBackEveryAcceptedFixture(t *testing.T) {
 		t.Fatal("no accepted fixture was exercised")
 	}
 }
+
+// TestTheEncoderIsDeterministic is the property the guard rests on: Encode
+// compares the bytes it wrote with the bytes the re-read model writes, which
+// is only a guard if marshaling the same model twice gives the same bytes. Go
+// map iteration order is not stable, and a cell carries maps (the selector),
+// so this is asserted rather than assumed.
+func TestTheEncoderIsDeterministic(t *testing.T) {
+	file, err := Parse(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.Namespaces[0].Workloads[0].Selector = map[string]string{
+		"zeta": "z", "alpha": "a", "mid": "m", "beta": "b", "omega": "o",
+	}
+	first, err := file.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 200; i++ {
+		again, err := file.Encode()
+		if err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+		if !bytes.Equal(first, again) {
+			t.Fatalf("Encode is not deterministic; run %d differs:\n%s\n---\n%s", i, first, again)
+		}
+	}
+}
