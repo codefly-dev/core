@@ -48,6 +48,12 @@ type ResolutionFixture struct {
 	Message string
 	// Rule names the ONE resolution rule this fixture isolates.
 	Rule string
+	// Slot is the binding slot under test — audience, resource_kind or
+	// binding_key — stated rather than inferred from the key's spelling. It
+	// was inferred, so every secret case landed on the audience and a
+	// provider that declassified only the OTHER two roles passed all sixteen
+	// cases while putting a secret into a scope.
+	Slot string
 }
 
 // The keys the resolution fixtures are written against, named once.
@@ -62,6 +68,10 @@ const (
 	bindingValue   = "model"
 	secretValue    = "hidden"
 	passagesKind   = "documents.passages"
+	notOneLine     = "empty or not a single line"
+	kindKey        = "EVIDENCE_RESOURCE_KIND"
+	kindSlot       = "assistant/evidence-resource-kind"
+	bindingSlot    = "assistant/model-binding"
 )
 
 // companion is the record the slot BESIDE the one under test resolves from, so
@@ -147,11 +157,22 @@ func ResolutionFixtures() []ResolutionFixture {
 		},
 		{
 			Name: "an empty value", Group: group, Key: key, Outcome: OutcomeRefused,
-			Sentinel: ErrAmbiguousSlot, Message: "empty or not a single line", Rule: ruleResolvedName,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
 			Records: []Record{{Key: audienceKey, Value: ""}},
+		},
+		{
+			Name: "an audience carrying a next line", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: audienceKey, Value: "first\u0085second"}},
+		},
+		{
+			Name: "an audience carrying a line separator", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: audienceKey, Value: "first\u2028second"}},
 		},
 	}
 	for index := range fixtures {
+		fixtures[index].Slot = fieldAudience
 		fixtures[index].Records = withCompanion(fixtures[index].Records, companionKind)
 	}
 	return fixtures
@@ -167,21 +188,45 @@ func ResolvedKindFixtures() []ResolutionFixture {
 		return ResolutionFixture{
 			Name: name, Group: group, Key: key, Outcome: OutcomeRefused,
 			Sentinel: ErrAmbiguousSlot, Message: message, Rule: ruleResolvedKind,
-			Records: []Record{{Key: "EVIDENCE_RESOURCE_KIND", Value: value}},
+			Records: []Record{{Key: kindKey, Value: value}},
 		}
 	}
 	fixtures := []ResolutionFixture{
 		{
 			Name: "a resource kind", Group: group, Key: key, Outcome: OutcomeAccepted, Value: passagesKind,
 			Audience: audienceValue, Kind: passagesKind, BindingKey: "", Scopes: []string{"documents.passages:read"},
-			Records: []Record{{Key: "EVIDENCE_RESOURCE_KIND", Value: passagesKind}},
+			Records: []Record{{Key: kindKey, Value: passagesKind}},
 		},
 		refused("a kind carrying a comma and a colon", "documents.passages:delete,documents.passages", "not a lowercase resource kind"),
 		refused("a kind carrying a colon", "documents.passages:delete", "not a lowercase resource kind"),
 		refused("a kind carrying a comma", "documents.passages,documents.other", "not a lowercase resource kind"),
 		refused("an upper-case kind", "Documents.Passages", "not a lowercase resource kind"),
+		{
+			Name: "a kind carrying a line separator", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: kindKey, Value: "documents\u2028passages"}},
+		},
+		{
+			// A provider that declassified only the resource-kind role put a
+			// secret into a scope and passed every case, because every secret
+			// case named the audience.
+			Name: "a secret resource kind", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrSecretSlot, Message: kindSlot, Rule: ruleSecretPrecedence,
+			Records: []Record{{Key: kindKey, Value: secretValue, Secret: true}},
+		},
+		{
+			Name: "a resource kind supplied public and secret", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrSecretSlot, Message: kindSlot, Rule: ruleSecretPrecedence,
+			Records: []Record{{Key: kindKey, Value: passagesKind}, {Key: kindKey, Value: secretValue, Secret: true}},
+		},
+		{
+			Name: "no resource kind at all", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrUnresolvedSlot, Message: kindSlot,
+			Records: []Record{{Key: "OTHER_RESOURCE_KIND", Value: passagesKind}},
+		},
 	}
 	for index := range fixtures {
+		fixtures[index].Slot = fieldResourceKind
 		fixtures[index].Records = withCompanion(fixtures[index].Records, companionAudience)
 	}
 	return fixtures
@@ -206,11 +251,32 @@ func BindingKeyFixtures() []ResolutionFixture {
 		},
 		{
 			Name: "a secret binding key", Group: group, Key: key, Outcome: OutcomeRefused,
-			Sentinel: ErrSecretSlot, Message: "assistant/model-binding", Rule: ruleSecretPrecedence,
+			Sentinel: ErrSecretSlot, Message: bindingSlot, Rule: ruleSecretPrecedence,
 			Records: []Record{{Key: bindingKey, Value: secretValue, Secret: true}},
+		},
+		{
+			Name: "a binding key supplied public and secret", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrSecretSlot, Message: bindingSlot, Rule: ruleSecretPrecedence,
+			Records: []Record{{Key: bindingKey, Value: bindingValue}, {Key: "model-binding", Value: secretValue, Secret: true}},
+		},
+		{
+			Name: "a binding key carrying a paragraph separator", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: bindingKey, Value: "model\u2029other"}},
+		},
+		{
+			Name: "a binding key carrying a newline", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: bindingKey, Value: "model\nother"}},
+		},
+		{
+			Name: "no binding key at all", Group: group, Key: key, Outcome: OutcomeRefused,
+			Sentinel: ErrUnresolvedSlot, Message: bindingSlot,
+			Records: []Record{{Key: "OTHER_BINDING", Value: bindingValue}},
 		},
 	}
 	for index := range fixtures {
+		fixtures[index].Slot = fieldBindingKey
 		fixtures[index].Records = withCompanion(withCompanion(fixtures[index].Records, companionKind), companionAudience)
 	}
 	return fixtures
@@ -250,20 +316,22 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 		t.Fatalf("resolution fixture %q was run with no provider", fixture.Name)
 		return
 	}
-	kind := strings.HasSuffix(normalizeKey(fixture.Key), "_RESOURCE_KIND")
-	bindingKey := strings.HasSuffix(normalizeKey(fixture.Key), "_BINDING")
+	role := fixture.Slot
+	if role == "" {
+		role = fieldAudience
+	}
 	binding := Binding{
 		ID: "model", Operations: []string{OperationInvoke},
 		ScopeCeiling: map[string]Ceiling{OperationInvoke: {Actions: []string{"read"}}},
 		ResourceKind: &Slot{From: "assistant/model-resource-kind"},
 	}
-	switch {
-	case kind:
+	switch role {
+	case fieldResourceKind:
 		// The kind slot is the one under test; the audience beside it
 		// resolves from the fixture's companion record.
 		binding.Audience = Slot{From: audienceSlot}
 		binding.ResourceKind = &Slot{From: fixture.Group + "/" + fixture.Key}
-	case bindingKey:
+	case fieldBindingKey:
 		binding.Audience = Slot{From: audienceSlot}
 		binding.BindingKey = &Slot{From: fixture.Group + "/" + fixture.Key}
 	default:

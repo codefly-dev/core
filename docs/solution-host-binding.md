@@ -889,7 +889,7 @@ their documented meanings.
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (68 documents) / `cell.Fixtures()` (107) ship
+`modulecontract.Fixtures()` (69 documents) / `cell.Fixtures()` (110) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it

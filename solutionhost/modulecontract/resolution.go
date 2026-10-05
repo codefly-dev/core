@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Record is one workspace configuration entry exactly as the composition
@@ -116,8 +117,24 @@ func resolveSlot(records []Record, key string, kind bool, without string) resolu
 	return resolution{value: first.Value, found: true}
 }
 
+// singleLine holds a resolved value to one line, under a UNICODE policy and
+// not an ASCII one. The predicate used to exclude ASCII controls, space and
+// DEL only, and TrimSpace looks at the ends — so NEXT LINE (U+0085), LINE
+// SEPARATOR (U+2028) and PARAGRAPH SEPARATOR (U+2029) passed embedded in an
+// audience or a binding key and survived into the resolved output, which is a
+// line break in a value this contract says is one line. Format characters go
+// with them: an invisible character in a name a receiver matches on is the
+// same defect without the line break.
 func singleLine(value string) bool {
-	return strings.TrimSpace(value) != "" && !strings.ContainsFunc(value, func(r rune) bool { return r <= ' ' || r == 0x7f })
+	if strings.TrimSpace(value) == "" {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) {
+			return false
+		}
+	}
+	return true
 }
 
 func distinct(records []Record, of func(Record) string) []string {

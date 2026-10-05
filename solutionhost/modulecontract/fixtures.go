@@ -83,6 +83,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "ceiling-operation-named-twice", file: "ceiling-operation-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "invoke" twice`, rule: ruleMappingKeysOnce},
 		{name: "operation-admin", file: "operation-admin.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `operation "admin" is not one of`, rule: ruleOperationKnown},
 		{name: "destination-kind-cluster-scoped", file: "destination-kind-cluster-scoped.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `kind "cluster-scoped" is not one of`, rule: ruleDestinationKindKnown},
+		{name: "binding-key-slot-key-malformed", file: "binding-key-slot-key-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `slot "assistant/bad.key-binding" is not <group>/<key>`, rule: ruleSlotReference},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/module-contract/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "tenancy", file: "tenancy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "tenancy", rule: ruleKnownFields},

@@ -149,3 +149,30 @@ func TestAProviderThatCorruptsACompanionValueFailsTheKit(t *testing.T) {
 		t.Fatalf("the kit did not name the corrupted value:\n%s", recorder.messages)
 	}
 }
+
+// TestAProviderThatDeclassifiesANonAudienceSlotFailsTheKit is the executed
+// round's finding: every secret case named the AUDIENCE, so a provider that
+// cleared Secret only for keys ending _RESOURCE_KIND or _BINDING passed all
+// sixteen cases — and put a secret value into a resolved resource kind, and so
+// into a scope string. The slot under test is stated in the fixture now, and
+// every role carries its own secret, collision and missing cases.
+func TestAProviderThatDeclassifiesANonAudienceSlotFailsTheKit(t *testing.T) {
+	for _, suffix := range []string{"_RESOURCE_KIND", "_BINDING", "_AUDIENCE"} {
+		t.Run(suffix, func(t *testing.T) {
+			recorder := &recordingT{}
+			RunResolution(recorder, func(group string, records []Record) Values {
+				declassified := make([]Record, 0, len(records))
+				for _, record := range records {
+					if strings.HasSuffix(normalizeKey(record.Key), suffix) {
+						record.Secret = false
+					}
+					declassified = append(declassified, record)
+				}
+				return recordValues{group: group, records: declassified}
+			})
+			if recorder.failures == 0 {
+				t.Fatalf("a provider that declassifies every %s key passed the resolution kit", suffix)
+			}
+		})
+	}
+}

@@ -99,6 +99,9 @@ func Fixtures() ([]Fixture, error) {
 		// not run by a consumer's conformance call — so the widenings the
 		// review named ship here, where cell.Run sees them.
 		{name: "workload-kind-pod", file: "workload-kind-pod.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `kind "Pod" is not one of`, rule: ruleWorkloadKind},
+		{name: "service-component-malformed", file: "service-component-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "<module>/<service>", rule: ruleServiceQualified},
+		{name: "egress-host-not-a-hostname", file: "egress-host-not-a-hostname.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is not a host name", rule: ruleEgressHostName},
+		{name: "allow-modules-on-a-private-endpoint", file: "allow-modules-on-a-private-endpoint.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "an allow-list is only read for", rule: ruleAllowNeedsInner},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},
