@@ -458,6 +458,55 @@ func secretsReferencedIn(value string) ([]string, error) {
 	return out, nil
 }
 
+// contextReadsUnder returns the paths an expression reads beneath a context
+// prefix -- `contextReadsUnder(ref, "github.event.workflow_run")` answers
+// whether a checkout's ref comes from the triggering run's payload at all,
+// rather than whether it mentions one of a handful of field names somebody
+// thought to list.
+func contextReadsUnder(value, prefix string) ([]string, error) {
+	want := strings.Split(strings.ToLower(prefix), ".")
+	var out []string
+
+	var walk func(n node)
+	walk = func(n node) {
+		switch t := n.(type) {
+		case contextNode:
+			if len(t.path) < len(want) {
+				return
+			}
+			for i, segment := range want {
+				if !strings.EqualFold(t.path[i], segment) {
+					return
+				}
+			}
+			out = append(out, strings.Join(t.path, "."))
+		case indexNode:
+			walk(t.target)
+			if t.key != nil {
+				walk(t.key)
+			}
+		case callNode:
+			for _, arg := range t.args {
+				walk(arg)
+			}
+		case unaryNode:
+			walk(t.operand)
+		case binaryNode:
+			walk(t.l)
+			walk(t.r)
+		}
+	}
+
+	for _, body := range expressionsIn(value, false) {
+		tree, err := parseExpression(body)
+		if err != nil {
+			return nil, fmt.Errorf("cannot parse ${{%s}}: %w", body, err)
+		}
+		walk(tree)
+	}
+	return out, nil
+}
+
 // ------------------------------------------------- three-valued evaluation
 
 type tri int

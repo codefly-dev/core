@@ -334,3 +334,56 @@ func TestTheBackstopDoesNotInventSecrets(t *testing.T) {
 	require.Contains(t, secretsIn(t, wf, "notify"), "SLACK_WEBHOOK_URL",
 		"the one job that does hold a credential must still be reported")
 }
+
+// The checkout-ref guard used to look for three named payload fields. Any read
+// of the triggering run's payload names code this repository did not choose, so
+// these are the forms that list would have missed.
+func TestAnyRefTakenFromTheTriggeringRunIsCaught(t *testing.T) {
+	const anchor = "        with:\n          # No `ref:`. A workflow_run checkout defaults to the default branch,\n"
+
+	for _, ref := range []string{
+		"${{ github.event.workflow_run.head_sha }}",
+		"${{ github.event.workflow_run.head_branch }}",
+		// The fourth field, which the enumeration did not have.
+		"${{ github.event.workflow_run.head_repository.default_branch }}",
+		// Reached through a function rather than read directly.
+		"${{ format('{0}', github.event.workflow_run.head_sha) }}",
+		// Reached by index rather than by property.
+		"${{ github.event.workflow_run['head_sha'] }}",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			text := mutate(t, "version-tag.yml", anchor, anchor+"          ref: "+ref+"\n")
+			wf := parsePermissioned(t, text)
+
+			var checked int
+			for _, id := range jobIDs(wf) {
+				for _, step := range wf.Jobs[id].Steps {
+					value, ok := step.With["ref"].(string)
+					if !ok {
+						continue
+					}
+					require.NotEmpty(t, refsFromTheTriggeringRun(t, value),
+						"a checkout ref of %q takes the triggering run's code and the "+
+							"guard read it as safe", value)
+					checked++
+				}
+			}
+			require.Equal(t, 1, checked, "the mutation must add exactly one ref:")
+		})
+	}
+}
+
+// And a ref that is NOT from the triggering payload must not be flagged, or the
+// guard stops distinguishing and every workflow_run checkout reads as unsafe.
+func TestARefUnrelatedToTheTriggeringRunIsNotFlagged(t *testing.T) {
+	for _, ref := range []string{
+		"main",
+		"${{ github.event.repository.default_branch }}",
+		"${{ github.sha }}",
+		"refs/heads/main",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			require.Empty(t, refsFromTheTriggeringRun(t, ref))
+		})
+	}
+}

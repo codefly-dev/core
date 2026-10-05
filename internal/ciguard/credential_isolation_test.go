@@ -175,7 +175,11 @@ func secretsIn(t *testing.T, wf isolatedWorkflow, id string) map[string][]string
 func reachableFromAPullRequest(on yaml.Node) bool {
 	for _, trigger := range triggers(on) {
 		switch trigger {
-		case "pull_request", "pull_request_target", "workflow_call":
+		case "pull_request", "pull_request_target", "workflow_call", "merge_group":
+			// merge_group belongs here: a merge queue runs the candidate
+			// commits, which are a pull request's code and are not on the
+			// default branch yet. Leaving it out would have exempted a whole
+			// trigger rather than a field.
 			return true
 		}
 	}
@@ -318,10 +322,8 @@ func TestAJobThatSelectsASuppliedCommitProvesItIsOnTheDefaultBranch(t *testing.T
 			selects := false
 			for _, step := range job.Steps {
 				if ref, ok := step.With["ref"].(string); ok {
-					for _, field := range triggeringCommitRefs {
-						if strings.Contains(ref, field) {
-							selects = true
-						}
+					if len(refsFromTheTriggeringRun(t, ref)) > 0 {
+						selects = true
 					}
 				}
 				// A shell checkout reaches the same tree without ever touching

@@ -274,13 +274,22 @@ func TestNoWorkflowRunJobHoldsAWriteTokenReachableFromAnUntrustedRun(t *testing.
 	require.NotZero(t, checked, "no workflow runs on workflow_run, so this guard proves nothing")
 }
 
-// triggeringCommitRefs are the `workflow_run` payload fields that name the
-// triggering run's code. Passing one to a checkout makes that code the tree
-// every later step runs from.
-var triggeringCommitRefs = []string{
-	"workflow_run.head_sha",
-	"workflow_run.head_branch",
-	"workflow_run.head_commit",
+// triggeringRunPayload is the context a `workflow_run` job reads the triggering
+// run from. ANY ref taken from under it names code this repository did not
+// choose -- which is the question, rather than whether the ref mentions one of
+// a few field names someone thought to list. That list was `head_sha`,
+// `head_branch` and `head_commit`; `head_repository.default_branch` is a fourth
+// and there is no reason to believe the enumeration was finished.
+const triggeringRunPayload = "github.event.workflow_run"
+
+// refsFromTheTriggeringRun returns the payload paths a step's `ref:` reads.
+func refsFromTheTriggeringRun(t *testing.T, ref string) []string {
+	t.Helper()
+
+	reads, err := contextReadsUnder(ref, triggeringRunPayload)
+	require.NoError(t, err,
+		"a checkout ref this package cannot parse is one it cannot judge: %q", ref)
+	return reads
 }
 
 // The guards above decide WHETHER a job runs. This decides what it runs when it
@@ -308,15 +317,14 @@ func TestNoWorkflowRunJobChecksOutTheTriggeringCommit(t *testing.T) {
 				if !ok {
 					continue
 				}
-				for _, field := range triggeringCommitRefs {
-					require.NotContains(t, ref, field,
-						"%s: job %q %s checks out %s. A workflow_run job runs with "+
-							"this repository's permissions; checking out the triggering "+
-							"run's code makes that code the tree every later step runs "+
-							"from. Check out the default branch and validate the "+
-							"triggering sha against its history instead.",
-						filepath.Base(path), id, step.describe(), field)
-				}
+				reads := refsFromTheTriggeringRun(t, ref)
+				require.Empty(t, reads,
+					"%s: job %q %s takes its checkout ref from %s. A workflow_run job "+
+						"runs with this repository's permissions; taking the ref from "+
+						"the triggering run's payload makes that run's code the tree "+
+						"every later step runs from. Check out the default branch and "+
+						"validate the triggering sha against its history instead.",
+					filepath.Base(path), id, step.describe(), strings.Join(reads, ", "))
 			}
 		}
 	}
