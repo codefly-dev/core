@@ -876,17 +876,20 @@ count in a cell is a count a reader can trust. A CIDR must be **canonical** —
 comparing declared reach with rendered policy would otherwise canonicalise it
 itself — and the CIDRs of one egress entry must not **overlap**, since a range
 inside another is reach declared twice and the narrower statement grants nothing
-the wider one did not. How BROAD a declared range may be is deliberately NOT
-decided here: `0.0.0.0/0` is canonical and parses, and whether a cell asking for
-it is admitted is the platform's policy, which the cell exists to state
-faithfully rather than to pre-empt. A zero endpoint port (the service declares
+the wider one did not. A range naming **every**
+address (`0.0.0.0/0`, `::/0`) is refused: there is no threshold of breadth core
+could pick without inventing policy, but the unspecified range is not a point on
+that spectrum — it is the absence of a declared reach, and a cell exists to
+carry one for the platform to police. Between those, how broad a range may be
+*is* deliberately the platform's admission decision, which the cell states
+faithfully rather than pre-empts. A zero endpoint port (the service declares
 none) and a repeated `allow_modules` entry (an allow-list is read as a set) keep
 their documented meanings.
 
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (52 documents) / `cell.Fixtures()` (86) ship
+`modulecontract.Fixtures()` (52 documents) / `cell.Fixtures()` (89) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it

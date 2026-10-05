@@ -90,6 +90,7 @@ const (
 	ruleEgressHostName  = "egress-host-name"
 	ruleEgressHostPort  = "egress-host-port"
 	ruleEgressCIDR      = "egress-cidr"
+	ruleEgressCIDRReach = "egress-cidr-names-a-reach"
 	ruleEgressOrder     = "egress-ordered"
 
 	ruleDeliveryKind      = "delivery-kind"
@@ -157,6 +158,7 @@ func rules() []rule {
 		{name: ruleEgressHostName, check: checkEgressHostNames},
 		{name: ruleEgressHostPort, check: checkEgressHostPorts},
 		{name: ruleEgressCIDR, check: checkEgressCIDRs},
+		{name: ruleEgressCIDRReach, check: checkEgressCIDRsNameAReach},
 		{name: ruleEgressOrder, check: checkEgressOrdered},
 		{name: ruleDeliveryKind, check: checkDeliveryKinds},
 		{name: ruleDeliveryAccount, check: checkDeliveryAccounts},
@@ -1029,6 +1031,29 @@ func checkEgressHostPorts(file *File) error {
 		for _, host := range entry.egress.Hosts {
 			if host.Port < 1 || host.Port > 65535 {
 				return fmt.Errorf("%w: namespace %s egress for %s host %s port %d is not a port; the port is always explicit", ErrInvalid, entry.namespace.Name, entry.egress.Service, host.Name, host.Port)
+			}
+		}
+	}
+	return nil
+}
+
+// checkEgressCIDRsNameAReach refuses a range that names EVERY address. How
+// broad a declared range may be is the platform's admission policy and not this
+// format's — there is no threshold core could pick without inventing one — but
+// the unspecified range is not a point on that spectrum: it is the absence of a
+// declaration, and a cell exists to carry one for the platform to police. A
+// service that genuinely reaches arbitrary addresses is a statement for the
+// environment to make explicitly, not a /0 in an inventory of declared reach.
+func checkEgressCIDRsNameAReach(file *File) error {
+	for _, entry := range file.egresses() {
+		for _, cidr := range entry.egress.CIDRs {
+			_, network, err := net.ParseCIDR(cidr)
+			if err != nil {
+				continue // its own rule names this
+			}
+			if ones, _ := network.Mask.Size(); ones == 0 {
+				return fmt.Errorf("%w: namespace %s egress for %s declares CIDR %q, which names every address; that is the absence of a declared reach, not a reach the platform can police",
+					ErrInvalid, entry.namespace.Name, entry.egress.Service, cidr)
 			}
 		}
 	}
