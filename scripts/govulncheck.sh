@@ -76,9 +76,23 @@ if [ -n "$suppressions_file" ]; then
     done <<< "$pairs"
 fi
 
-# Run govulncheck. Don't fail the script on its non-zero exit (3 means
-# vulns found) — we partition + decide ourselves.
-output="$(govulncheck ./... 2>&1 || true)"
+# Run govulncheck. Exit 3 means vulnerabilities were found, which this script
+# partitions and decides itself; exit 0 means none. ANY OTHER status is the
+# scanner failing — the vulnerability database unreachable, a build error —
+# and a gate that answered "no vulnerabilities" on a scanner that never
+# scanned would be green about nothing. It fails here, loudly.
+set +e
+output="$(govulncheck ./... 2>&1)"
+scanner_status=$?
+set -e
+case "$scanner_status" in
+    0|3) ;;
+    *)
+        echo "✗ govulncheck did not complete (exit $scanner_status); no verdict on vulnerabilities:" >&2
+        echo "$output" | tail -n 20 >&2
+        exit 1
+        ;;
+esac
 
 # Each "Vulnerability #N: GO-YYYY-NNNN" intro plus the "Fixed in: X" line
 # below it gives us what we need. Awk pulls (id, fixed) pairs.
