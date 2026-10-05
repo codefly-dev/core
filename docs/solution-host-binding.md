@@ -809,7 +809,14 @@ value is legal, as the API server has it, and an uppercase namespace is not.
 
 An endpoint's `visibility` and `allow_modules` are **declarations the platform
 derives policy from**, so they are held to core's own vocabulary: `private`,
-`internal` or `public`, and an allow-list of module names or `*`. The `module`
+`internal` or `public`, and an allow-list of module names or `*` — the latter
+through [`resources/names`](../resources/names), the shared grammar
+`resources.ValidateEndpointDeclaration` holds a service's own declaration to.
+It is a leaf package importing nothing, so this reader holds a name to the same
+spelling the resource model does without linking core's resource tree; a second
+grammar here accepted `billing.worker` and `billing_worker`, which core refuses
+at the source, so a cell was admitted as a valid policy declaration while
+describing an allow-list that cannot load. The `module`
 and `external` spellings are refused — core's endpoint-selection cutover
 deleted them, so a service declaring either no longer loads
 (`resources.KnownVisibility` reports false and
@@ -826,10 +833,30 @@ accepting the deleted spellings when the cutover landed, and
 `TestTheCellPackageDoesNotLinkResources`).
 Ingress routes are held to endpoint order, as endpoints and egress already are.
 
+**Resolution is core's too, not a provider's.** A contract's slots resolve
+against a composition's workspace configuration, and *which* record answers a
+slot is as much a rule of this contract as any refusal of a document: two
+consumers resolving one composition into two different authority documents is
+the same failure as two readers disagreeing about a file. So `Values` only
+ENUMERATES — a provider reports a group's records as supplied, keeping both
+spellings of a key, a key supplied twice and a key classified two ways — and
+every rule over them lives in `solutionhost/modulecontract`: a key is matched
+in either spelling core accepts, records that are one key must agree on its
+value, a key any occurrence of which is secret IS a secret (so a slot carrying
+it is refused rather than inlined), a resolved value is one non-empty line, and
+a resolved RESOURCE KIND is held to the grammar a literal one is — without
+which a composition supplying `documents.passages:delete,documents.passages`
+turns one declared action into two apparent scopes. `RunResolution` drives a
+consumer's own provider through shipped configurations — competing spellings
+that agree and that disagree, a record supplied twice, a public and a secret
+occurrence, a missing key, a kind carrying a comma or a colon — so a provider
+that collapses two spellings, drops the secret occurrence or deduplicates fails
+by name.
+
 **Every refusal is one named rule.** Each package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (44 documents) / `cell.Fixtures()` (69) ship
+`modulecontract.Fixtures()` (50 documents) / `cell.Fixtures()` (75) ship
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. A consumer passes the function it

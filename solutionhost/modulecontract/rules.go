@@ -52,10 +52,12 @@ const (
 	ruleLookupMethodName      = "lookup-method-name"
 	ruleSlotIsAReference      = "slot-is-a-reference"
 	ruleSlotCarriesOnlyFrom   = "slot-carries-only-from"
+	ruleSlotKeyOnce           = "slot-key-once"
 	ruleSlotReference         = "slot-reference"
 	ruleSlotKeyMeaning        = "slot-key-meaning"
 	ruleCeilingIsAList        = "ceiling-is-a-list"
 	ruleCeilingEntryFields    = "ceiling-entry-fields"
+	ruleCeilingEntryKeyOnce   = "ceiling-entry-key-once"
 	ruleCeilingEntryShape     = "ceiling-entry-shape"
 	ruleCeilingOneSpelling    = "ceiling-one-spelling"
 	ruleCeilingForDeclaredOp  = "ceiling-for-declared-operation"
@@ -96,10 +98,12 @@ func rules() []rule {
 		{name: ruleLookupMethodName, check: checkLookupMethodNames},
 		{name: ruleSlotIsAReference, check: checkSlotsAreReferences},
 		{name: ruleSlotCarriesOnlyFrom, check: checkSlotsCarryOnlyFrom},
+		{name: ruleSlotKeyOnce, check: checkSlotKeysOnce},
 		{name: ruleSlotReference, check: checkSlotReferences},
 		{name: ruleSlotKeyMeaning, check: checkSlotKeyMeanings},
 		{name: ruleCeilingIsAList, check: checkCeilingsAreLists},
 		{name: ruleCeilingEntryFields, check: checkCeilingEntryFields},
+		{name: ruleCeilingEntryKeyOnce, check: checkCeilingEntryKeysOnce},
 		{name: ruleCeilingEntryShape, check: checkCeilingEntryShapes},
 		{name: ruleCeilingOneSpelling, check: checkCeilingsOneSpelling},
 		{name: ruleCeilingForDeclaredOp, check: checkCeilingsForDeclaredOperations},
@@ -409,8 +413,20 @@ func checkSlotsAreReferences(contract *Contract) error {
 
 func checkSlotsCarryOnlyFrom(contract *Contract) error {
 	for _, entry := range contract.slots() {
-		if entry.slot.extra != "" {
+		if entry.slot.hasExtra {
 			return fmt.Errorf("%w: %s slot carries the unknown slot field %q (a slot carries only from)", ErrInvalid, entry.label, entry.slot.extra)
+		}
+	}
+	return nil
+}
+
+// checkSlotKeysOnce: a slot naming a key twice says two things, and a decoder
+// that keeps assigning honours the last one silently — which selects a
+// different audience than the document appears to request.
+func checkSlotKeysOnce(contract *Contract) error {
+	for _, entry := range contract.slots() {
+		if entry.slot.repeated != "" {
+			return fmt.Errorf("%w: %s slot names the field %q twice; a repeated key makes the selected reference depend on decode order", ErrInvalid, entry.label, entry.slot.repeated)
 		}
 	}
 	return nil
@@ -475,8 +491,19 @@ func checkCeilingsAreLists(contract *Contract) error {
 
 func checkCeilingEntryFields(contract *Contract) error {
 	for _, entry := range contract.ceilings() {
-		if entry.ceiling.unknownField != "" {
+		if entry.ceiling.hasUnknownField {
 			return fmt.Errorf("%w: %s ceiling carries the unknown scope ceiling field %q (an entry carries resource_kind and actions)", ErrInvalid, entry.label, entry.ceiling.unknownField)
+		}
+	}
+	return nil
+}
+
+// checkCeilingEntryKeysOnce: as for a slot, a repeated key in a ceiling entry
+// makes the decoded value depend on decode order.
+func checkCeilingEntryKeysOnce(contract *Contract) error {
+	for _, entry := range contract.ceilings() {
+		if entry.ceiling.repeatedField != "" {
+			return fmt.Errorf("%w: %s ceiling entry names the field %q twice; a repeated key makes the decoded entry depend on decode order", ErrInvalid, entry.label, entry.ceiling.repeatedField)
 		}
 	}
 	return nil

@@ -421,12 +421,23 @@ func TestRefusesAKeySuppliedInTwoSpellings(t *testing.T) {
 			t.Fatalf("the slot %s resolved against two spellings of its key: %v", spelling, err)
 		}
 	}
-	// A secret and a public spelling of one key conflict the same way.
+	// A key supplied as both public and secret IS the secret — the stricter
+	// reading of one key, decided here and not by a provider. The executed
+	// review found one consumer's adapter keeping such a key PUBLIC, which is
+	// the same configuration resolving to a value in one renderer and to a
+	// refusal in another; the shipped resolution fixtures hold every provider
+	// to this.
 	split := values()
-	split.Secrets = map[string]map[string]string{"assistant": {"model-audience": "hidden"}}
+	delete(split.Public["assistant"], "MODEL_AUDIENCE")
+	split.Public["assistant"]["model-audience"] = "visible"
+	split.Secrets = map[string]map[string]string{"assistant": {"MODEL_AUDIENCE": "hidden"}}
 	contract.Bindings[0].Audience = Slot{From: "assistant/model-audience"}
-	if _, err = contract.Resolve(split); !errors.Is(err, ErrAmbiguousSlot) {
-		t.Fatalf("a key supplied as a secret and as public was chosen between: %v", err)
+	_, err = contract.Resolve(split)
+	if !errors.Is(err, ErrSecretSlot) {
+		t.Fatalf("a key supplied as a secret and as public did not resolve to the secret: %v", err)
+	}
+	if strings.Contains(err.Error(), "hidden") || strings.Contains(err.Error(), "visible") {
+		t.Fatalf("the refusal quotes a value: %v", err)
 	}
 }
 

@@ -55,6 +55,12 @@ func Fixtures() ([]Fixture, error) {
 		{name: "upper-case-slot-key", file: "upper-case-slot-key.yaml", outcome: OutcomeAccepted},
 
 		{name: "not-yaml", file: "not-yaml.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "yaml", rule: ruleWellFormed},
+		{name: "slot-names-from-twice", file: "slot-names-from-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the field "from" twice`, rule: ruleSlotKeyOnce},
+		{name: "slot-with-empty-field-name", file: "slot-with-empty-field-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `unknown slot field ""`, rule: ruleSlotCarriesOnlyFrom},
+		{name: "ceiling-entry-with-empty-field-name", file: "ceiling-entry-with-empty-field-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `unknown scope ceiling field ""`, rule: ruleCeilingEntryFields},
+		{name: "ceiling-entry-names-a-field-twice", file: "ceiling-entry-names-a-field-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the field "resource_kind" twice`, rule: ruleCeilingEntryKeyOnce},
+		{name: "binding-action-not-a-name", file: "binding-action-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding model invoke action "Read"`, rule: ruleActionName},
+		{name: "binding-action-declared-twice", file: "binding-action-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding model invoke action "read" is declared twice`, rule: ruleActionUnique},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/module-contract/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "tenancy", file: "tenancy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "tenancy", rule: ruleKnownFields},

@@ -240,9 +240,11 @@ type Ceiling struct {
 	// that refuses it rather than refused while decoding, so every refusal is
 	// one named rule the kit protects: a ceiling that is not a list, an entry
 	// carrying a field of its own, an entry that does not decode.
-	notAList     bool
-	unknownField string
-	malformed    error
+	notAList        bool
+	hasUnknownField bool
+	unknownField    string
+	repeatedField   string
+	malformed       error
 }
 
 // CeilingScope is one explicit scope of a ceiling: a resource kind, named
@@ -267,9 +269,15 @@ func (ceiling *Ceiling) UnmarshalYAML(node *yaml.Node) error {
 		case yaml.ScalarNode:
 			ceiling.Actions = append(ceiling.Actions, item.Value)
 		case yaml.MappingNode:
+			seen := make(map[string]bool, len(item.Content)/2)
 			for index := 0; index+1 < len(item.Content); index += 2 {
-				if key := item.Content[index].Value; key != fieldResourceKind && key != fieldActions && ceiling.unknownField == "" {
-					ceiling.unknownField = key
+				key := item.Content[index].Value
+				if seen[key] && ceiling.repeatedField == "" {
+					ceiling.repeatedField = key
+				}
+				seen[key] = true
+				if key != fieldResourceKind && key != fieldActions && !ceiling.hasUnknownField {
+					ceiling.hasUnknownField, ceiling.unknownField = true, key
 				}
 			}
 			var scope CeilingScope
@@ -316,9 +324,13 @@ type Slot struct {
 	From string `yaml:"from"`
 
 	// What the decoder saw where a slot belongs and the rule that refuses it:
-	// a literal, or a mapping carrying a field a slot does not.
-	literal *string
-	extra   string
+	// a literal, or a mapping carrying a field a slot does not, or one that
+	// names a key twice. Presence is a bool and not the name itself: a field
+	// named "" is an unknown field, and a sentinel of "" cannot say so.
+	literal  *string
+	hasExtra bool
+	extra    string
+	repeated string
 }
 
 // SlotGroups lists the workspace configuration groups the contract's slots
@@ -352,15 +364,25 @@ func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
 		slot.literal = &literal
 		return nil
 	}
+	seen := make(map[string]bool, len(node.Content)/2)
 	for index := 0; index+1 < len(node.Content); index += 2 {
-		if key := node.Content[index].Value; key != fieldFrom && slot.extra == "" {
-			slot.extra = key
-		}
-	}
-	for index := 0; index+1 < len(node.Content); index += 2 {
-		if node.Content[index].Value == fieldFrom {
+		key := node.Content[index].Value
+		switch {
+		case seen[key]:
+			// A repeated key means the document says two things and a
+			// decoder that keeps assigning silently honours the last.
+			if slot.repeated == "" {
+				slot.repeated = key
+			}
+			continue
+		case key != fieldFrom:
+			if !slot.hasExtra {
+				slot.hasExtra, slot.extra = true, key
+			}
+		default:
 			slot.From = node.Content[index+1].Value
 		}
+		seen[key] = true
 	}
 	return nil
 }
@@ -458,15 +480,6 @@ func parse(data []byte, without string) (*Contract, error) {
 // its own beyond these but the ones that need the composition's values.
 func (contract *Contract) Validate() error { return contract.validate("") }
 
-// Values is where slots resolve from: the workspace configuration values the
-// composition supplies for one environment. A lookup answers whether the group
-// and key exist and whether the value is secret-classified; the key is matched
-// in either spelling core accepts (model-profile, MODEL_PROFILE), and a group
-// supplying one key in two spellings is an error, never a choice.
-type Values interface {
-	Value(group, key string) (value string, secret bool, found bool, err error)
-}
-
 // Resolved is a contract with every slot resolved to the value the composition
 // supplies, ready to be derived into an authority document.
 type Resolved struct {
@@ -503,6 +516,12 @@ type ResolvedBinding struct {
 // that applies, so a composition is fixed in one pass rather than one slot per
 // render; a secret's value is never part of the message.
 func (contract *Contract) Resolve(values Values) (*Resolved, error) {
+	return contract.resolve(values, "")
+}
+
+// resolve is Resolve with one resolution rule removed, for the kit's
+// completeness self-check.
+func (contract *Contract) resolve(values Values, without string) (*Resolved, error) {
 	if err := contract.Validate(); err != nil {
 		return nil, err
 	}
@@ -514,26 +533,35 @@ func (contract *Contract) Resolve(values Values) (*Resolved, error) {
 		Destinations:  slices.Clone(contract.Destinations),
 	}
 	var unresolved, secret, ambiguous []string
-	resolve := func(label string, slot *Slot) string {
+	// One Records call per group, so a provider is asked for a group's records
+	// once and every slot of that group is resolved from the same answer.
+	groups := map[string][]Record{}
+	resolve := func(label string, slot *Slot, kind bool) string {
 		if slot == nil {
 			return ""
 		}
-		value, isSecret, found, err := values.Value(slot.Group(), slot.Key())
+		records, held := groups[slot.Group()]
+		if !held {
+			supplied, err := values.Records(slot.Group())
+			if err != nil {
+				ambiguous = append(ambiguous, label+" ← "+slot.From+" (the composition's values cannot be read: "+err.Error()+")")
+				return ""
+			}
+			records, groups[slot.Group()] = supplied, supplied
+		}
+		answer := resolveSlot(records, slot.Key(), kind, without)
 		switch {
-		case err != nil:
-			ambiguous = append(ambiguous, label+" ← "+slot.From+" ("+err.Error()+")")
+		case answer.reason != "":
+			ambiguous = append(ambiguous, label+" ← "+slot.From+" "+answer.reason)
 			return ""
-		case !found:
+		case !answer.found:
 			unresolved = append(unresolved, label+" ← "+slot.From)
 			return ""
-		case isSecret:
+		case answer.secret:
 			secret = append(secret, label+" ← "+slot.From)
 			return ""
-		case strings.TrimSpace(value) == "" || strings.ContainsFunc(value, func(r rune) bool { return r <= ' ' || r == 0x7f }):
-			unresolved = append(unresolved, label+" ← "+slot.From+" (the value is empty or not a single-line name)")
-			return ""
 		}
-		return value
+		return answer.value
 	}
 	for _, binding := range contract.Bindings {
 		revision := binding.Revision
@@ -542,16 +570,17 @@ func (contract *Contract) Resolve(values Values) (*Resolved, error) {
 		}
 		entry := ResolvedBinding{
 			ID: binding.ID, Revision: revision, Operations: slices.Clone(binding.Operations), Lookup: binding.Lookup,
-			Audience:     resolve("binding "+binding.ID+" audience", &binding.Audience),
-			ResourceKind: resolve("binding "+binding.ID+" resource_kind", binding.ResourceKind),
-			BindingKey:   resolve("binding "+binding.ID+" binding_key", binding.BindingKey),
+			Audience:     resolve("binding "+binding.ID+" audience", &binding.Audience, false),
+			ResourceKind: resolve("binding "+binding.ID+" resource_kind", binding.ResourceKind, true),
+			BindingKey:   resolve("binding "+binding.ID+" binding_key", binding.BindingKey, false),
 			Scopes:       make(map[string][]string, len(binding.Operations)),
 		}
 		for _, operation := range binding.Operations {
 			ceiling := binding.ScopeCeiling[operation]
 			scopes := make([]string, 0, len(ceiling.Actions)+len(ceiling.Scopes))
 			// Bare actions are qualified by the binding's resolved resource
-			// kind; explicit scopes carry their own.
+			// kind; explicit scopes carry their own, already held to the
+			// grammar by Validate.
 			for _, action := range ceiling.Actions {
 				scopes = append(scopes, entry.ResourceKind+":"+action)
 			}
@@ -592,58 +621,4 @@ func resolutionError(secret, unresolved, ambiguous []string) error {
 		return parts[0]
 	}
 	return errors.Join(parts...)
-}
-
-// MapValues is a Values over nested maps: group → key → value, with the keys
-// of secrets listed separately. Keys match in either spelling core accepts.
-type MapValues struct {
-	Public  map[string]map[string]string
-	Secrets map[string]map[string]string
-}
-
-// Value implements Values. A group supplying the key in two spellings core
-// treats as one — in either map, or one in each — is reported, never chosen
-// between. One spelling held as a secret and as public is the secret: the
-// classification is the stricter reading of one key, not a second spelling.
-func (values MapValues) Value(group, key string) (string, bool, bool, error) {
-	secretValue, secretSpellings := lookupKey(values.Secrets[group], key)
-	publicValue, publicSpellings := lookupKey(values.Public[group], key)
-	spellings := append([]string(nil), secretSpellings...)
-	for _, spelling := range publicSpellings {
-		if !slices.Contains(spellings, spelling) {
-			spellings = append(spellings, spelling)
-		}
-	}
-	if len(spellings) > 1 {
-		sort.Strings(spellings)
-		return "", false, false, fmt.Errorf("group %q supplies it as %s", group, strings.Join(spellings, " and "))
-	}
-	switch {
-	case len(secretSpellings) == 1:
-		return secretValue, true, true, nil
-	case len(publicSpellings) == 1:
-		return publicValue, false, true, nil
-	}
-	return "", false, false, nil
-}
-
-// lookupKey finds key in values in either spelling core accepts: as written, or
-// normalized the way core names a configuration key (upper case, dashes to
-// underscores). It reports every spelling the map holds for it, so a caller
-// sees a conflict rather than a winner.
-func lookupKey(values map[string]string, key string) (string, []string) {
-	normalized := normalizeKey(key)
-	var spellings []string
-	value := ""
-	for candidate, candidateValue := range values {
-		if normalizeKey(candidate) == normalized {
-			spellings = append(spellings, candidate)
-			value = candidateValue
-		}
-	}
-	return value, spellings
-}
-
-func normalizeKey(key string) string {
-	return strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
 }

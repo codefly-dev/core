@@ -2,6 +2,7 @@ package cell
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
@@ -61,4 +62,58 @@ func TestTheCellPackageDoesNotLinkResources(t *testing.T) {
 			t.Fatalf("the cell package imports resources; keep it to the test binary (see TestTheVisibilityVocabularyIsCoreOwn)")
 		}
 	}
+}
+
+// TestTheAllowListGrammarIsCoreOwn drives the SAME entries through both
+// validators: this reader's allow-list rule and the declaration validator a
+// service's YAML is held to. They disagreed — "billing.worker" and
+// "billing_worker" passed the cell's own name pattern while
+// resources.ValidateEndpointDeclaration refuses them — so a cell was accepted
+// as a valid policy declaration while describing an allow-list that cannot
+// load. Both now read resources/names, and this is what holds them together.
+func TestTheAllowListGrammarIsCoreOwn(t *testing.T) {
+	for _, entry := range []struct {
+		value   string
+		legal   bool
+		because string
+	}{
+		{"billing", true, "a module name"},
+		{"billing-ledger", true, "single dashes are a module name"},
+		{"*", true, "the wildcard names every module"},
+		{"billing.worker", false, "a dot is not in a module name"},
+		{"billing_worker", false, "an underscore is not in a module name"},
+		{"billing--worker", false, "a doubled dash would give one name two spellings"},
+		{"Billing", false, "a module name is lowercase"},
+		{"", false, "an entry that names no module grants nobody while making the list non-empty"},
+		{" billing", false, "a padded entry names no module"},
+	} {
+		cell := cellAcceptsAllowEntry(t, entry.value)
+		core := resources.ValidateEndpointDeclaration("api", "grpc", resources.VisibilityInternal, "", []string{entry.value}) == nil
+		if cell != core {
+			t.Errorf("the entry %q: the cell %s it and core %s it — one grammar, two answers",
+				entry.value, accepted(cell), accepted(core))
+		}
+		if cell != entry.legal {
+			t.Errorf("the entry %q must be %s (%s), and the cell %s it", entry.value, accepted(entry.legal), entry.because, accepted(cell))
+		}
+	}
+}
+
+func accepted(yes bool) string {
+	if yes {
+		return "accepts"
+	}
+	return "refuses"
+}
+
+// cellAcceptsAllowEntry runs the cell's own allow-list rule over a cell
+// carrying that one entry — the production path, not the predicate directly.
+func cellAcceptsAllowEntry(t *testing.T, entry string) bool {
+	t.Helper()
+	// Quoted: unquoted, "*" is a YAML alias, "" is an empty list and " x"
+	// loses its padding, so three of these cases would not be the entry they
+	// name.
+	document := strings.Replace(string(fixture(t)), "allow_modules: [billing]", `allow_modules: ["`+entry+`"]`, 1)
+	_, err := Parse([]byte(document))
+	return err == nil
 }

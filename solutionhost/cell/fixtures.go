@@ -56,6 +56,12 @@ func Fixtures() ([]Fixture, error) {
 		{name: "selector-empty-label-value", file: "selector-empty-label-value.yaml", outcome: OutcomeAccepted},
 
 		{name: "not-yaml", file: "not-yaml.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "yaml", rule: ruleWellFormed},
+		{name: "init-container-name-not-a-label", file: "init-container-name-not-a-label.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `init container name "Migrate"`, rule: ruleContainerName},
+		{name: "init-container-image-without-digest", file: "init-container-image-without-digest.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "init container", rule: ruleImageDigest},
+		{name: "image-digest-too-short", file: "image-digest-too-short.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "must pin an OCI manifest digest", rule: ruleImageDigest},
+		{name: "artifact-digest-too-short", file: "artifact-digest-too-short.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "the SHA-256 of its rendered bytes", rule: ruleArtifact},
+		{name: "spiffe-id-of-another-trust-domain", file: "spiffe-id-of-another-trust-domain.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "spiffe://other.example", rule: ruleSPIFFEID},
+		{name: "delivery-selector-label-malformed", file: "delivery-selector-label-malformed.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `delivery selector label codefly.dev/delivery="bad/value"`, rule: ruleSelectorLabelVal},
 		{name: "another-schema", file: "another-schema.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: "codefly/cell/v2", rule: ruleSchema},
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "unknown-field", file: "unknown-field.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "field generation not found", rule: ruleKnownFields},

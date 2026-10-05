@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/distribution/reference"
+
+	"github.com/codefly-dev/core/resources/names"
 )
 
 // A rule is one refusal this reader enforces, named: a conformance fixture
@@ -777,8 +779,8 @@ func checkEndpointPorts(file *File) error {
 var visibilities = []string{"private", "internal", "public"}
 
 const (
-	// allowAllModules is the allow-list wildcard, as resources spells it.
-	allowAllModules = "*"
+	// allowAllModules is the allow-list wildcard, from the shared grammar.
+	allowAllModules = names.AllowAllModules
 	// visibilityInternal is the one visibility whose allow-list is read.
 	visibilityInternal = "internal"
 )
@@ -802,7 +804,12 @@ func checkAllowModules(file *File) error {
 	for _, entry := range file.workloads() {
 		for _, endpoint := range entry.workload.Endpoints {
 			for _, allowed := range endpoint.AllowModules {
-				if allowed == allowAllModules || namePattern.MatchString(allowed) {
+				// The SAME predicate resources holds a service's declaration
+				// to, not a second grammar beside it: this reader accepted
+				// "billing.worker" and "billing_worker", which core refuses at
+				// the source, so a cell was accepted as a valid policy
+				// declaration while describing an allow-list that cannot load.
+				if names.IsAllowModulesEntry(allowed) {
 					continue
 				}
 				return fmt.Errorf("%w: %s endpoint %s allow_modules names %q, which is not a module name or %q", ErrInvalid, entry.label, endpoint.Name, allowed, allowAllModules)

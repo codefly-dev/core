@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/codefly-dev/core/resources/names"
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
@@ -58,8 +58,9 @@ func KnownLocation(location string) bool {
 }
 
 // AllowAllModules is the wildcard allow-list entry that grants every module
-// access to an internal endpoint.
-const AllowAllModules = "*"
+// access to an internal endpoint. Defined in resources/names, which the
+// readers that cannot import this package share.
+const AllowAllModules = names.AllowAllModules
 
 // Endpoint is the fundamental entity that standardize communication between services.
 type Endpoint struct {
@@ -162,16 +163,12 @@ func ValidateEndpointDeclaration(service, name string, visibility Visibility, lo
 	return nil
 }
 
-// allowModulePattern is what one allow-list entry may be: the wildcard, or a
-// module name as the schema spells one. An entry that names no module — empty,
-// whitespace, anything else — would make a list non-empty while granting
-// nobody, so the "exports to no module" refusal would be escaped by a value
-// that still exports to no module.
-var allowModulePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
-
+// An allow-list entry's grammar lives in resources/names, shared with every
+// other reader that must hold a module name to the same spelling — the cell
+// wire model among them, which cannot import this package.
 func validateAllowModules(allowModules []string) error {
 	for _, module := range allowModules {
-		if module == AllowAllModules || (allowModulePattern.MatchString(module) && !strings.Contains(module, "--")) {
+		if names.IsAllowModulesEntry(module) {
 			continue
 		}
 		return fmt.Errorf("allow-modules entry %q names no module (a module name, or %q for every module)", module, AllowAllModules)
