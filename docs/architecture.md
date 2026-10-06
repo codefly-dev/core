@@ -402,6 +402,17 @@ source, version, checkout location. It does not say which modules take part in a
 given run: that is derived by `Workspace.ResolveModuleClosure`, which starts from
 the modules being run and follows the dependencies services already declare.
 
+For a run, callers also pass `WithModuleConfigurationReferences` with the same
+invocation-selected endpoint references used to build the service graph. A
+service's declared workspace configuration groups pull in their pinned producer
+modules, including producers reached transitively through newly loaded modules.
+This happens before narrowing the workspace; adding reference edges afterwards
+cannot recover a producer whose module was already discarded. Root-only groups
+do not expand the run, and configuration references do not expand a build.
+Module participation grants no endpoint access: configuration preflight still
+rejects invalid, absent, ambiguous, private or excluded producers, and the
+service graph still applies exclusions and records endpoint readiness.
+
 The closure is per-`Stage`, because a dependency only pulls a module in for the
 stages its kind constrains: building a service needs its codegen inputs and not
 the endpoints it will later consume, and running it needs the reverse. A

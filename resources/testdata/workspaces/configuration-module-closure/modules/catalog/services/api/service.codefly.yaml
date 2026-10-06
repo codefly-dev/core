@@ -1,0 +1,16 @@
+kind: service
+name: api
+version: 0.0.0
+module: catalog
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.16
+  publisher: codefly.ai
+endpoints:
+  - name: http
+    api: http
+    visibility: public
+service-dependencies:
+  - module: storage
+    name: api

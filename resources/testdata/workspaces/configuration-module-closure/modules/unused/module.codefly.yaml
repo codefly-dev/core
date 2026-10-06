@@ -1,0 +1,4 @@
+kind: module
+name: unused
+services:
+  - name: api
