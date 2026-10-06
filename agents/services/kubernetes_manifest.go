@@ -39,17 +39,10 @@ const AnnotationAPIServerAccess = "codefly.dev/api-server-access"
 const APIServerAccessRequired = "required"
 
 // IsRestrictedOutputProfile reports whether a profile selects the secret-free,
-// digest-pinned, policy-restricted contract. It accepts the transport-neutral
-// RESTRICTED_PORTABLE_V1 profile and its deprecated PROMOTABLE_GITOPS_V1
-// predecessor, which render the identical restricted bundle during migration.
+// digest-pinned, policy-restricted contract: the transport-neutral
+// RESTRICTED_PORTABLE_V1 profile, and only it.
 func IsRestrictedOutputProfile(profile builderv0.KubernetesOutputProfile) bool {
-	switch profile {
-	case builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1:
-		return true
-	default:
-		return false
-	}
+	return profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1
 }
 
 // BuildKubernetesManifestBundle inventories the rendered tree at destination and

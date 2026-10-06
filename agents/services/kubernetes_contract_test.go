@@ -132,7 +132,6 @@ func TestKubernetesRenderingInputsHaveNoDeliverySystemFields(t *testing.T) {
 // contract is a self-contained enum property with no companion transport type.
 func TestRestrictedProfileHasNoDeliverySystemDependencies(t *testing.T) {
 	require.True(t, IsRestrictedOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1))
-	require.True(t, IsRestrictedOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1)) //nolint:staticcheck // migration compatibility
 	require.False(t, IsRestrictedOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1))
 	require.False(t, IsRestrictedOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED))
 }

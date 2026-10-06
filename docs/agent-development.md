@@ -143,12 +143,12 @@ never names how they are later transported, reconciled, or promoted.
   digest-pinned, policy-restricted manifests. It rejects secret-bearing
   configuration input and exposes only identifier-only `secret_references` to
   templates.
-- `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` is **deprecated**. It named a
-  delivery mechanism in a plugin-facing contract; it is retained only so
-  existing callers keep rendering the identical restricted bundle during the
-  migration window. See [Migration and compatibility](#migration-and-compatibility).
 
-An unspecified profile fails before rendering. The profile is selected by the
+An unspecified profile fails before rendering, and so does
+`KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1`, the deleted predecessor of
+`RESTRICTED_PORTABLE_V1`: its enum number and name are reserved, so a request
+naming it is refused by the proto decoder rather than rendered. See
+[Migration and compatibility](#migration-and-compatibility). The profile is selected by the
 CLI, so the standard plugin `Deploy` methods below do not hard-code it.
 
 A plugin renders this bundle deterministically from its inputs alone. It needs
@@ -371,21 +371,25 @@ type. CLI and server consumers read the same contract.
 
 ## Migration and compatibility
 
-Issue #110 made this contract transport-neutral. During the compatibility
-window:
+Issue #110 made this contract transport-neutral, and #715 closed the migration
+window on the profile:
 
-- Prefer `KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1`. The deprecated
-  `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` (enum value `2`) still renders
-  the **identical** restricted bundle — a supported migration path, not a
-  silent reinterpretation. New enum values are added, never repurposed.
+- `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` (enum value `2`) is
+  **deleted**, its number and name reserved. It rendered the identical
+  restricted bundle as `KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1`, every
+  caller has sent the successor since the CLI stopped sending it, and a request
+  naming it is now refused by the proto decoder. A committed render record
+  (`.codefly-render.json`) that still carries the old profile string reads the
+  new one on its next render. Enum values are added, never repurposed.
 - Replace the removed `.GitOps` template field with `.Restricted`. Both selected
   the same behavior; only the name changed.
 - `KubernetesManifestValidation.restricted` supersedes the deprecated
   `promotable` field. Core keeps both populated with the same value; migrate
-  reads to `restricted`.
-- Deprecated identifiers are retained only for this window. Core's contract test
-  enforces that every non-deprecated message, field, and enum value stays free
-  of delivery-system terminology, so no new surface may reintroduce it.
+  reads to `restricted`. It is the one deprecated identifier left in this
+  contract.
+- Core's contract test enforces that every non-deprecated message, field, and
+  enum value stays free of delivery-system terminology, so no new surface may
+  reintroduce it.
 
 ## Runtime
 

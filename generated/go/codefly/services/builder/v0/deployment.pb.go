@@ -78,17 +78,9 @@ const (
 	KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED KubernetesOutputProfile = 0
 	// KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 permits inline Secret data for a local apply.
 	KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 KubernetesOutputProfile = 1
-	// KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 is superseded by
-	// KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1. It names a delivery
-	// mechanism in a plugin-facing contract and is retained only so existing
-	// callers keep rendering the identical restricted bundle during migration.
-	//
-	// Deprecated: Marked as deprecated in codefly/services/builder/v0/deployment.proto.
-	KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 KubernetesOutputProfile = 2
 	// KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1 produces secret-free,
 	// digest-pinned, policy-restricted manifests that carry no dependency on any
-	// delivery mechanism. It is the transport-neutral successor to
-	// KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1.
+	// delivery mechanism.
 	KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1 KubernetesOutputProfile = 3
 )
 
@@ -97,13 +89,11 @@ var (
 	KubernetesOutputProfile_name = map[int32]string{
 		0: "KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED",
 		1: "KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1",
-		2: "KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1",
 		3: "KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1",
 	}
 	KubernetesOutputProfile_value = map[string]int32{
 		"KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED":              0,
 		"KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1": 1,
-		"KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1":     2,
 		"KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1":   3,
 	}
 )
@@ -978,12 +968,11 @@ const file_codefly_services_builder_v0_deployment_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12O\n" +
 	"\x05value\x18\x02 \x01(\v29.codefly.services.builder.v0.KubernetesSecretKeyReferenceR\x05value:\x028\x01*\x1f\n" +
 	"\x0eDeploymentKind\x12\r\n" +
-	"\tKUSTOMIZE\x10\x00*\xea\x01\n" +
+	"\tKUSTOMIZE\x10\x00*\xe8\x01\n" +
 	"\x17KubernetesOutputProfile\x12)\n" +
 	"%KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED\x10\x00\x126\n" +
-	"2KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1\x10\x01\x126\n" +
-	".KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1\x10\x02\x1a\x02\b\x01\x124\n" +
-	"0KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1\x10\x03B\x88\x02\n" +
+	"2KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1\x10\x01\x124\n" +
+	"0KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1\x10\x03\"\x04\b\x02\x10\x02*.KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1B\x88\x02\n" +
 	"\x1fcom.codefly.services.builder.v0B\x0fDeploymentProtoP\x01ZDgithub.com/codefly-dev/core/generated/go/codefly/services/builder/v0\xa2\x02\x04CSBV\xaa\x02\x1bCodefly.Services.Builder.V0\xca\x02\x1bCodefly\\Services\\Builder\\V0\xe2\x02'Codefly\\Services\\Builder\\V0\\GPBMetadata\xea\x02\x1eCodefly::Services::Builder::V0b\x06proto3"
 
 var (

@@ -747,19 +747,6 @@ func TestDeployKustomizeEmitsDeterministicManifestBundle(t *testing.T) {
 	require.Equal(t, bundle.GetDigest(), again.GetBundle().GetDigest())
 }
 
-func TestDeployKustomizeAcceptsDeprecatedPromotableGitOpsProfile(t *testing.T) {
-	ctx := context.Background()
-	//nolint:staticcheck // deprecated profile retained for the migration window
-	deprecated := renderRestricted(ctx, t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1)
-	require.True(t, deprecated.GetValidation().GetRestricted())
-	require.True(t, deprecated.GetValidation().GetPromotable(), "deprecated promotable flag mirrors restricted for existing clients")
-
-	// The deprecated profile renders the identical restricted bundle as its
-	// neutral successor: a supported migration path, not a reinterpretation.
-	neutral := renderRestricted(ctx, t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
-	require.Equal(t, neutral.GetBundle().GetDigest(), deprecated.GetBundle().GetDigest())
-}
-
 func configuration(origin, name, key, value string, secret bool) *basev0.Configuration {
 	return &basev0.Configuration{
 		Origin: origin,

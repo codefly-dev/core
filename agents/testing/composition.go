@@ -96,8 +96,7 @@ func MissingField(field string) string {
 // AssertKustomizeTemplates runs every supported output profile and the shared
 // hostile contract suite against a plugin's embedded deployment templates. The
 // restricted contract is exercised through the transport-neutral
-// RESTRICTED_PORTABLE_V1 profile and, for the migration window, through its
-// deprecated PROMOTABLE_GITOPS_V1 predecessor, which must render identically.
+// RESTRICTED_PORTABLE_V1 profile.
 //
 // The returned directory can be used for plugin-specific assertions:
 //
@@ -131,13 +130,6 @@ func AssertKustomizeTemplatesWithOverlay(t *testing.T, templates fs.FS, paramete
 		parameters,
 		overlay,
 		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-	)
-	assertKustomizeProfile(
-		t,
-		templates,
-		parameters,
-		overlay,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, //nolint:staticcheck // migration compatibility
 	)
 	return ephemeral
 }

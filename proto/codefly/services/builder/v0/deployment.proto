@@ -18,16 +18,16 @@ enum KubernetesOutputProfile {
   KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED = 0;
   // KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 permits inline Secret data for a local apply.
   KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 = 1;
-  // KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 is superseded by
-  // KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1. It names a delivery
-  // mechanism in a plugin-facing contract and is retained only so existing
-  // callers keep rendering the identical restricted bundle during migration.
-  KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1 = 2 [deprecated = true];
   // KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1 produces secret-free,
   // digest-pinned, policy-restricted manifests that carry no dependency on any
-  // delivery mechanism. It is the transport-neutral successor to
-  // KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1.
+  // delivery mechanism.
   KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1 = 3;
+  // Value 2 was KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, which named a
+  // delivery mechanism in a plugin-facing contract and rendered the identical
+  // restricted bundle. It is deleted, not repurposed: a request naming it is
+  // refused by the decoder.
+  reserved 2;
+  reserved "KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1";
 }
 
 // Deployment selects the deployment target and input format.
