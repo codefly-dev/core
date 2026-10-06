@@ -250,5 +250,18 @@ see, and dropping is a judgement about one consumer of a render. A caller that
 states no run set has said nothing, so a reference it cannot resolve is an error
 there rather than an address that quietly leaves the workload.
 
+The run-wide read is also judged per consumer in *which* groups it resolves. A
+consumer that receives only some of the root's groups — a service a root
+credential is withheld from — names them
+(`GetCompositionRootWorkspaceConfigurations(ctx, names...)`), and only those are
+resolved: a reference that is a fault rather than an omission (ambiguous, or
+without an instance for the consumer's access) in a group it does not receive
+cannot refuse it. With no names every root group is resolved and the first
+fault refuses the read, as before; a name the root does not provide run-wide —
+a composed module's group, an ambiguous name, a name nothing loaded — refuses
+the whole read by name (`configurations.ErrNotACompositionRootConfiguration`)
+rather than answering with less than was asked. Zero names is the whole set, so
+a consumer whose received set is empty has nothing to read and does not call.
+
 This changes resource composition only. Deployment declarations and artifact
 acquisition remain CLI responsibilities; no agent protocol changes are needed.
