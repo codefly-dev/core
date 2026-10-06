@@ -394,10 +394,10 @@ window on the profile:
   new one on its next render. Enum values are added, never repurposed.
 - Replace the removed `.GitOps` template field with `.Restricted`. Both selected
   the same behavior; only the name changed.
-- `KubernetesManifestValidation.restricted` supersedes the deprecated
-  `promotable` field. Core keeps both populated with the same value; migrate
-  reads to `restricted`. It is the one deprecated identifier left in this
-  contract.
+- `KubernetesManifestValidation.promotable` is **deleted** with it (field `3`
+  reserved, name reserved). It mirrored `restricted`, which is what consumers
+  read. No deprecated identifier is left in this contract, and none is kept
+  for a migration window.
 - Core's contract test enforces that every non-deprecated message, field, and
   enum value stays free of delivery-system terminology, so no new surface may
   reintroduce it.

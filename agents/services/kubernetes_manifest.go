@@ -296,7 +296,6 @@ func ValidateKubernetesManifestTree(
 		result.StaticValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED &&
 		(!validateServerSide ||
 			result.ServerSideValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED)
-	result.Promotable = result.Restricted
 	return result
 }
 

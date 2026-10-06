@@ -6,7 +6,7 @@ package codefly.services.builder.v0;
 message DockerBuildContext {
   // docker_repository is the image repository used for Docker builds.
   string docker_repository = 1;
-  // image_digest is the immutable sha256 manifest digest used for promotable output.
+  // image_digest is the immutable sha256 manifest digest a restricted, digest-pinned output refers to.
   string image_digest = 2;
   // cache configures optional external layer reuse, never artifact or test reuse.
   BuildCacheOptions cache = 3;

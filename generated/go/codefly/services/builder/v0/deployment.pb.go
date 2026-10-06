@@ -547,12 +547,6 @@ type KubernetesManifestValidation struct {
 	StaticValidation KubernetesManifestValidation_Status `protobuf:"varint,1,opt,name=static_validation,json=staticValidation,proto3,enum=codefly.services.builder.v0.KubernetesManifestValidation_Status" json:"static_validation,omitempty"`
 	// server_side_validation covers Kubernetes schema and admission through dry-run apply.
 	ServerSideValidation KubernetesManifestValidation_Status `protobuf:"varint,2,opt,name=server_side_validation,json=serverSideValidation,proto3,enum=codefly.services.builder.v0.KubernetesManifestValidation_Status" json:"server_side_validation,omitempty"`
-	// promotable is superseded by restricted. It names a delivery decision in a
-	// plugin-facing contract and is retained only for existing consumers during
-	// migration; it always carries the same value as restricted.
-	//
-	// Deprecated: Marked as deprecated in codefly/services/builder/v0/deployment.proto.
-	Promotable bool `protobuf:"varint,3,opt,name=promotable,proto3" json:"promotable,omitempty"`
 	// violations contains stable, human-readable rejection reasons.
 	Violations []string `protobuf:"bytes,4,rep,name=violations,proto3" json:"violations,omitempty"`
 	// validated_context is the exact kubeconfig context used for server-side validation.
@@ -606,14 +600,6 @@ func (x *KubernetesManifestValidation) GetServerSideValidation() KubernetesManif
 		return x.ServerSideValidation
 	}
 	return KubernetesManifestValidation_STATUS_UNSPECIFIED
-}
-
-// Deprecated: Marked as deprecated in codefly/services/builder/v0/deployment.proto.
-func (x *KubernetesManifestValidation) GetPromotable() bool {
-	if x != nil {
-		return x.Promotable
-	}
-	return false
 }
 
 func (x *KubernetesManifestValidation) GetViolations() []string {
@@ -921,13 +907,10 @@ const file_codefly_services_builder_v0_deployment_proto_rawDesc = "" +
 	"\n" +
 	"kubernetes\x18\x02 \x01(\v27.codefly.services.builder.v0.KubernetesDeploymentOutputH\x00R\n" +
 	"kubernetesB\x06\n" +
-	"\x04kind\"\xf2\x03\n" +
+	"\x04kind\"\xe0\x03\n" +
 	"\x1cKubernetesManifestValidation\x12m\n" +
 	"\x11static_validation\x18\x01 \x01(\x0e2@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x10staticValidation\x12v\n" +
-	"\x16server_side_validation\x18\x02 \x01(\x0e2@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x14serverSideValidation\x12\"\n" +
-	"\n" +
-	"promotable\x18\x03 \x01(\bB\x02\x18\x01R\n" +
-	"promotable\x12\x1e\n" +
+	"\x16server_side_validation\x18\x02 \x01(\x0e2@.codefly.services.builder.v0.KubernetesManifestValidation.StatusR\x14serverSideValidation\x12\x1e\n" +
 	"\n" +
 	"violations\x18\x04 \x03(\tR\n" +
 	"violations\x12+\n" +
@@ -939,7 +922,8 @@ const file_codefly_services_builder_v0_deployment_proto_rawDesc = "" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSTATUS_PASSED\x10\x01\x12\x11\n" +
 	"\rSTATUS_FAILED\x10\x02\x12\x12\n" +
-	"\x0eSTATUS_NOT_RUN\x10\x03\"\xaa\x03\n" +
+	"\x0eSTATUS_NOT_RUN\x10\x03J\x04\b\x03\x10\x04R\n" +
+	"promotable\"\xaa\x03\n" +
 	"\x1aKubernetesDeploymentOutput\x12P\n" +
 	"\x04kind\x18\x01 \x01(\x0e2<.codefly.services.builder.v0.KubernetesDeploymentOutput.KindR\x04kind\x12N\n" +
 	"\aprofile\x18\x02 \x01(\x0e24.codefly.services.builder.v0.KubernetesOutputProfileR\aprofile\x12)\n" +

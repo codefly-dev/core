@@ -92,7 +92,7 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	require.Equal(t, builderv0.KubernetesDeploymentOutput_KUSTOMIZE, response.GetDeployment().GetKubernetes().GetKind())
 	require.Equal(t, KubernetesManifestContractVersion, response.GetDeployment().GetKubernetes().GetContractVersion())
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED, response.GetDeployment().GetKubernetes().GetValidation().GetStaticValidation())
-	require.False(t, response.GetDeployment().GetKubernetes().GetValidation().GetPromotable())
+	require.False(t, response.GetDeployment().GetKubernetes().GetValidation().GetRestricted())
 
 	configMapManifest, err := os.ReadFile(filepath.Join(destination, "base", "config-map.yaml"))
 	require.NoError(t, err)
@@ -313,8 +313,6 @@ func TestDeployKustomizeRendersRestrictedSecretFreeTreeWithoutClusterAccess(t *t
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_PASSED, output.GetValidation().GetStaticValidation())
 	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_NOT_RUN, output.GetValidation().GetServerSideValidation())
 	require.True(t, output.GetValidation().GetRestricted())
-	require.Equal(t, output.GetValidation().GetRestricted(), output.GetValidation().GetPromotable(), //nolint:staticcheck // deprecated field must mirror restricted for the migration window
-		"deprecated promotable field must mirror restricted for the neutral profile")
 	_, err = os.Stat(filepath.Join(destination, "base", "secret.yaml"))
 	require.True(t, os.IsNotExist(err), "restricted render must omit the empty secret manifest, not leave an empty stub")
 	deploymentManifest, err := os.ReadFile(filepath.Join(destination, "base", "deployment.yaml"))

@@ -45,10 +45,11 @@ func bannedDeliveryTerm(name string) string {
 	return ""
 }
 
-// TestKubernetesPluginContractHasNoDeliverySystemTerms proves the active
-// plugin-facing deployment contract names no delivery mechanism. Legacy
-// identifiers are permitted only while explicitly marked deprecated, which
-// scopes them to the documented migration window.
+// TestKubernetesPluginContractHasNoDeliverySystemTerms proves the plugin-facing
+// deployment contract names no delivery mechanism — in any message, field or
+// enum value, deprecated or not. There is no migration window: a legacy
+// identifier is deleted, its number and name reserved, never kept beside its
+// successor. The two this contract once carried are pinned below as deletions.
 func TestKubernetesPluginContractHasNoDeliverySystemTerms(t *testing.T) {
 	file := builderv0.File_codefly_services_builder_v0_deployment_proto
 
@@ -60,31 +61,31 @@ func TestKubernetesPluginContractHasNoDeliverySystemTerms(t *testing.T) {
 	for i := 0; i < messages.Len(); i++ {
 		assertMessageNeutral(t, messages.Get(i))
 	}
+
+	// KubernetesManifestValidation.promotable mirrored restricted; it is
+	// deleted, its number and name reserved, and nothing populates it.
+	validation := (&builderv0.KubernetesManifestValidation{}).ProtoReflect().Descriptor()
+	require.Nil(t, validation.Fields().ByName("promotable"))
+	require.Nil(t, validation.Fields().ByNumber(3))
+	require.True(t, validation.ReservedNames().Has("promotable"))
+	require.True(t, validation.ReservedRanges().Has(3))
+	require.NotNil(t, validation.Fields().ByName("restricted"))
+	for i := 0; i < validation.Fields().Len(); i++ {
+		options, ok := validation.Fields().Get(i).Options().(*descriptorpb.FieldOptions)
+		require.False(t, ok && options.GetDeprecated(), "no field of %s is kept deprecated", validation.FullName())
+	}
 }
 
 func assertMessageNeutral(t *testing.T, message protoreflect.MessageDescriptor) {
 	t.Helper()
-	deprecated := false
-	if options, ok := message.Options().(*descriptorpb.MessageOptions); ok {
-		deprecated = options.GetDeprecated()
-	}
-	if !deprecated {
-		if term := bannedDeliveryTerm(string(message.Name())); term != "" {
-			t.Errorf("message %s names delivery mechanism %q in the active contract", message.FullName(), term)
-		}
+	if term := bannedDeliveryTerm(string(message.Name())); term != "" {
+		t.Errorf("message %s names delivery mechanism %q in the contract", message.FullName(), term)
 	}
 	fields := message.Fields()
 	for i := 0; i < fields.Len(); i++ {
 		field := fields.Get(i)
-		fieldDeprecated := deprecated
-		if options, ok := field.Options().(*descriptorpb.FieldOptions); ok && options.GetDeprecated() {
-			fieldDeprecated = true
-		}
-		if fieldDeprecated {
-			continue
-		}
 		if term := bannedDeliveryTerm(string(field.Name())); term != "" {
-			t.Errorf("field %s names delivery mechanism %q in the active contract", field.FullName(), term)
+			t.Errorf("field %s names delivery mechanism %q in the contract", field.FullName(), term)
 		}
 	}
 	nested := message.Messages()
@@ -102,11 +103,8 @@ func assertEnumNeutral(t *testing.T, enum protoreflect.EnumDescriptor) {
 	values := enum.Values()
 	for i := 0; i < values.Len(); i++ {
 		value := values.Get(i)
-		if options, ok := value.Options().(*descriptorpb.EnumValueOptions); ok && options.GetDeprecated() {
-			continue
-		}
 		if term := bannedDeliveryTerm(string(value.Name())); term != "" {
-			t.Errorf("enum value %s.%s names delivery mechanism %q in the active contract", enum.FullName(), value.Name(), term)
+			t.Errorf("enum value %s.%s names delivery mechanism %q in the contract", enum.FullName(), value.Name(), term)
 		}
 	}
 }
