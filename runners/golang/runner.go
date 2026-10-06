@@ -499,20 +499,27 @@ func (r *GoRunnerEnvironment) binaryPath(ctx context.Context) string {
 // there (go.dev/issue/52372), so no package ID moved while the link action
 // did. Enumerating more flags into such a key is the weaker form of this fix.
 //
-// A build that fails leaves nothing to run: targetPath is set by a successful
-// build only, so Runner refuses rather than executing the previous binary.
+// A build that did not complete leaves nothing to run. targetPath is cleared
+// before the first fallible step and set again only once `go build` has
+// exited 0 — the real exit, since runners/base reports a signal as the
+// failure it is — and the executable it was asked to write is there. Module
+// preparation failing, a dry run and an interrupted build all leave Runner
+// refusing rather than serving the previous executable.
 func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	w := wool.Get(ctx).In("buildBinary")
+	r.targetPath = ""
 	if r.withGoModules {
 		if err := r.GoModuleHandling(ctx); err != nil {
 			return w.Wrapf(err, "cannot handle go modules")
 		}
 	}
-	r.targetPath = ""
 	target := r.binaryPath(ctx)
 	w.Trace("building binary", wool.FileField(target))
 
-	args := append([]string{"build"}, r.buildFlags()...)
+	// -n=false pins executing mode: GOFLAGS=-n, inherited or injected, would
+	// make this a dry run that prints its plan, exits 0 and writes nothing.
+	// An explicit flag on the command line overrides GOFLAGS in Go's parser.
+	args := append([]string{"build", "-n=false"}, r.buildFlags()...)
 	args = append(args, "-o", target)
 
 	proc, err := r.Env().NewProcess("go", args...)
@@ -527,6 +534,13 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	}
 	if err := proc.Run(ctx); err != nil {
 		return w.Wrapf(err, "cannot run go build")
+	}
+	built, err := shared.FileExists(ctx, path.Join(r.LocalCacheDir(ctx), binaryName))
+	if err != nil {
+		return w.Wrapf(err, "cannot check the built executable")
+	}
+	if !built {
+		return fmt.Errorf("go build exited 0 but wrote no executable at %s", target)
 	}
 	r.targetPath = target
 	return nil

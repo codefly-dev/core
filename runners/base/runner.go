@@ -40,6 +40,12 @@ type RunnerEnvironment interface {
 // - Docker process: obtained by running in a Docker environment
 type Proc interface {
 	Start(ctx context.Context) error
+
+	// Run starts the process and waits for it. It returns nil only when the
+	// process exited with status 0, or when this Proc's own Stop requested
+	// the termination. A signal from anywhere else — a timeout, a parent
+	// dying, a deploy's SIGTERM — is a failure and is returned: a process
+	// that did not finish did not succeed. A cancelled ctx returns ctx.Err().
 	Run(ctx context.Context) error
 	Stop(ctx context.Context) error
 
