@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
-
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/stretchr/testify/require"
 )
@@ -133,16 +131,6 @@ func TestInterfaceEntryRulesHoldOnTheWire(t *testing.T) {
 			require.ErrorContains(t, err, "authors allow-modules")
 		})
 	}
-	// And bytes a peer sent with the reserved field on them are refused at the
-	// wire, by number — protobuf keeps them as unknown data, so a reader that
-	// projected without judging would carry the list past the model.
-	RunInterfaceEndpointWireKit(t, func(raw []byte) error {
-		entry := &basev0.InterfaceEndpoint{}
-		if err := proto.Unmarshal(raw, entry); err != nil {
-			return err
-		}
-		return ValidateInterfaceEndpointWire(entry)
-	})
 }
 
 func TestLoadModuleFromDirAcceptsValidInterface(t *testing.T) {

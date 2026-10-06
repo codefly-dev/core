@@ -388,7 +388,7 @@ func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 				typed := &basev0.Endpoint{Module: broken.Module, Service: broken.Service, Name: broken.Name, Api: broken.API, Visibility: broken.Visibility, Location: broken.Location, Exposure: broken.Exposure}
 				dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
 				for _, consumer := range []string{"platform", "payments"} {
-					_, err := resources.ConsumedDependencyEndpoints(consumer, dependency, []*basev0.Endpoint{typed})
+					_, err := resources.ConsumedDependencyEndpoints(composition("platform", "payments", "other"), consumer, dependency, []*basev0.Endpoint{typed})
 					require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "wiring for %s", consumer)
 				}
 			}
@@ -416,7 +416,7 @@ func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 // dependency never drops it as though it had been denied.
 func TestAnInvalidDeclarationIsRefusedByEveryWiringPath(t *testing.T) {
 	endpoints := []*basev0.Endpoint{
-		{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic},
+		{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone},
 		{Module: "platform", Service: "api", Name: "broken", Api: "http", Visibility: "pubilc"},
 	}
 	mappings := []*basev0.NetworkMapping{
@@ -426,11 +426,11 @@ func TestAnInvalidDeclarationIsRefusedByEveryWiringPath(t *testing.T) {
 	dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
 	for _, consumer := range []string{"platform", "payments"} {
 		t.Run(consumer, func(t *testing.T) {
-			_, err := resources.ConsumedDependencyEndpoints(consumer, dependency, endpoints)
+			_, err := resources.ConsumedDependencyEndpoints(composition("platform", "payments", "other"), consumer, dependency, endpoints)
 			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "consumed")
-			_, err = resources.PermittedDependencyEndpoints(consumer, dependency, endpoints)
+			_, err = resources.PermittedDependencyEndpoints(composition("platform", "payments", "other"), consumer, dependency, endpoints)
 			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "permitted")
-			_, err = resources.ResolveDependencyNetworkMappings(consumer, []*resources.ServiceDependency{dependency}, mappings)
+			_, err = resources.ResolveDependencyNetworkMappings(composition("platform", "payments", "other"), consumer, []*resources.ServiceDependency{dependency}, mappings)
 			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "network mappings")
 		})
 	}

@@ -25,10 +25,15 @@ const (
 )
 
 func selectionEndpoint(name, api, visibility string) *resources.Endpoint {
-	return &resources.Endpoint{
+	endpoint := &resources.Endpoint{
 		Module: selectionModule, Service: selectionService,
 		Name: name, API: api, Visibility: visibility,
 	}
+	if visibility == resources.VisibilityPublic {
+		// A public endpoint states its exposure; these declare none.
+		endpoint.Exposure = resources.ExposureNone
+	}
+	return endpoint
 }
 
 func selectionMapping(name, api string, instances ...*basev0.NetworkInstance) *basev0.NetworkMapping {
@@ -294,7 +299,7 @@ func TestAnAPIReferenceSeveralEndpointsSatisfyIsRefused(t *testing.T) {
 func TestSelectionIsScopedToTheProducerTheReferenceNames(t *testing.T) {
 	reference := &resources.EndpointInformation{Module: selectionModule, Service: selectionService, Name: "grpc"}
 	selected, err := resources.SelectEndpointForReference("payments", reference, []*resources.Endpoint{
-		{Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"},
+		{Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public", Exposure: "none"},
 		selectionEndpoint("grpc", "grpc", "public"),
 	})
 	require.NoError(t, err)
@@ -306,9 +311,9 @@ func TestSelectionIsScopedToTheProducerTheReferenceNames(t *testing.T) {
 	// of the same service name in another module, each declare an endpoint
 	// with the token and neither may answer.
 	for name, foreign := range map[string]*resources.Endpoint{
-		"same module, another service": {Module: selectionModule, Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"},
-		"another module, same service": {Module: "payments", Service: selectionService, Name: "grpc", API: "grpc", Visibility: "public"},
-		"another module and service":   {Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"},
+		"same module, another service": {Module: selectionModule, Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public", Exposure: "none"},
+		"another module, same service": {Module: "payments", Service: selectionService, Name: "grpc", API: "grpc", Visibility: "public", Exposure: "none"},
+		"another module and service":   {Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public", Exposure: "none"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := resources.SelectEndpointForReference("payments", reference, []*resources.Endpoint{foreign})
@@ -327,7 +332,7 @@ func TestSelectionIsScopedToTheProducerTheReferenceNames(t *testing.T) {
 		case selectionUnique:
 			return []*resources.Endpoint{selectionEndpoint("grpc", "grpc", "public")}, true
 		case "payments/ledger":
-			return []*resources.Endpoint{{Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public"}}, true
+			return []*resources.Endpoint{{Module: "payments", Service: "ledger", Name: "grpc", API: "grpc", Visibility: "public", Exposure: "none"}}, true
 		}
 		return nil, false
 	})

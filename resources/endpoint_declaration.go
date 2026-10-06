@@ -93,8 +93,13 @@ const (
 	ruleVisibilityKnown = "visibility-known"
 	// ruleLocationKnown: a location is "external", or none.
 	ruleLocationKnown = "location-known"
-	// ruleExposureKnown: an exposure is "public", or none.
+	// ruleExposureKnown: an exposure is "public", "none", or omitted.
 	ruleExposureKnown = "exposure-known"
+	// ruleExposureDeclared: a public endpoint states its exposure — "public"
+	// or "none" — rather than omitting it, so a manifest written when
+	// `visibility: public` meant an outward address fails to load instead of
+	// quietly losing it.
+	ruleExposureDeclared = "exposure-declared"
 	// ruleExposureWithinReach: an address reachable from outside the
 	// workspace is declared only on an endpoint reachable from outside it.
 	ruleExposureWithinReach = "exposure-within-reach"
@@ -130,6 +135,9 @@ func endpointDeclarationRules() []endpointRule {
 		{name: ruleExposureKnown, check: checkExposureKnown,
 			witness: EndpointDeclaration{Service: "alpha", Name: "http", Visibility: VisibilityPublic, Exposure: "ingress"},
 			message: `unsupported exposure "ingress"`},
+		{name: ruleExposureDeclared, check: checkExposureDeclared,
+			witness: EndpointDeclaration{Service: "alpha", Name: "http", Visibility: VisibilityPublic},
+			message: `declares visibility "public" but states no exposure`},
 		{name: ruleExposureWithinReach, check: checkExposureWithinReach,
 			witness: EndpointDeclaration{Service: "alpha", Name: "http", Visibility: VisibilityInternal, Exposure: ExposurePublic},
 			message: `exposure "public" with visibility "internal"`},
@@ -286,7 +294,15 @@ func checkExposureKnown(declaration EndpointDeclaration) error {
 	if KnownExposure(declaration.Exposure) {
 		return nil
 	}
-	return fmt.Errorf("declares unsupported exposure %q (only %q, or none)", declaration.Exposure, ExposurePublic)
+	return fmt.Errorf("declares unsupported exposure %q (one of %q, %q, or omitted)", declaration.Exposure, ExposurePublic, ExposureNone)
+}
+
+func checkExposureDeclared(declaration EndpointDeclaration) error {
+	if declaration.Visibility != VisibilityPublic || declaration.Exposure != "" {
+		return nil
+	}
+	return fmt.Errorf("declares visibility %q but states no exposure: write exposure %q for an address reachable from outside the workspace, or %q for none — a public endpoint never omits it, so a manifest written when public meant an address fails here instead of losing it",
+		VisibilityPublic, ExposurePublic, ExposureNone)
 }
 
 func checkExposureWithinReach(declaration EndpointDeclaration) error {

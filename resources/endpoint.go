@@ -44,6 +44,12 @@ const (
 // resource resolved by DNS rather than an allocated port).
 const LocationExternal = "external"
 
+// ExposureNone states that no address reachable from outside the workspace is
+// allocated. A public endpoint states its exposure — "public" or "none" —
+// rather than omitting it, so a manifest written when `visibility: public`
+// meant an outward address fails to load instead of quietly losing it.
+const ExposureNone = "none"
+
 // ExposurePublic marks an endpoint that is allocated an address reachable from
 // outside the workspace — the Public network instance a run generates beside
 // the Native and Container ones, and whatever a deployment renders from it (a
@@ -82,7 +88,7 @@ func KnownLocation(location string) bool {
 
 // KnownExposure reports whether an exposure value is one the model defines.
 func KnownExposure(exposure string) bool {
-	return exposure == "" || exposure == ExposurePublic
+	return exposure == "" || exposure == ExposureNone || exposure == ExposurePublic
 }
 
 // Endpoint is the fundamental entity that standardize communication between services.
@@ -150,17 +156,24 @@ func (endpoint *Endpoint) decodeYAML(node *yaml.Node, deleted string) error {
 // endpoint carries.
 type authoredExport struct {
 	visibility string
+	exposure   string
 }
 
 // exportAs sets the visibility the endpoint carries across module boundaries,
-// keeping the authored value for save. The interface entry is the whole export
+// keeping the authored values for save. The interface entry is the whole export
 // declaration: once the module has spoken, the service's own visibility is not
-// what a consumer is judged against.
+// what a consumer is judged against. An endpoint the module exports public
+// states its exposure like any public endpoint: the service that declared none
+// (it was not public to the service) is exported with none, since the module
+// grants reach and never an address.
 func (endpoint *Endpoint) exportAs(visibility Visibility) {
 	if endpoint.authored == nil {
-		endpoint.authored = &authoredExport{visibility: endpoint.Visibility}
+		endpoint.authored = &authoredExport{visibility: endpoint.Visibility, exposure: endpoint.Exposure}
 	}
 	endpoint.Visibility = visibility
+	if visibility == VisibilityPublic && endpoint.Exposure == "" {
+		endpoint.Exposure = ExposureNone
+	}
 }
 
 func validateEndpointNames(endpoints []*Endpoint) error {
@@ -298,6 +311,7 @@ func IsExposedEndpoint(e *basev0.Endpoint) bool {
 func (endpoint *Endpoint) preSave() {
 	if endpoint.authored != nil {
 		endpoint.Visibility = endpoint.authored.visibility
+		endpoint.Exposure = endpoint.authored.exposure
 	}
 	if endpoint.Visibility == VisibilityPrivate {
 		endpoint.Visibility = ""
@@ -817,11 +831,25 @@ func SelectServiceDependencyEndpoints(service *ServiceDependency, endpoints []*b
 	return resolveServiceDependencyEndpoints(service, endpoints, false)
 }
 
-// dependencyEndpointVerdicts selects the endpoints a dependency consumes and
-// judges each against the consuming module, returning the permitted ones and
-// the reasons the rest were refused. It is the one body behind every "may this
-// consumer depend on this endpoint" answer in the codebase.
-func dependencyEndpointVerdicts(consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, []error, error) {
+// dependencyEndpointVerdicts judges the edge by the provenance of its two ends
+// (JudgeCompositionEdge), then selects the endpoints the dependency consumes
+// and judges each against the consuming module, returning the permitted ones
+// and the reasons the rest were refused. It is the one body behind every "may
+// this consumer depend on this endpoint" answer in the codebase, and the
+// provenance is in its signature so that no reader can ask without it.
+func dependencyEndpointVerdicts(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, []error, error) {
+	if dependency == nil {
+		return nil, nil, fmt.Errorf("service dependency cannot be nil")
+	}
+	if !dependency.interfaceOnly() {
+		producerModule := dependency.Module
+		if producerModule == "" {
+			producerModule = consumerModule
+		}
+		if err := JudgeCompositionEdge(provenance, consumerModule, producerModule, dependency); err != nil {
+			return nil, nil, err
+		}
+	}
 	resolved, err := SelectServiceDependencyEndpoints(dependency, endpoints)
 	if err != nil {
 		return nil, nil, err
@@ -850,8 +878,8 @@ func dependencyEndpointVerdicts(consumerModule string, dependency *ServiceDepend
 // passes no judgement on the edge itself — ConsumedDependencyEndpoints is the
 // same selection with the verdict attached — so a description of a composition
 // that will not run still says what it would have carried.
-func PermittedDependencyEndpoints(consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
-	permitted, _, err := dependencyEndpointVerdicts(consumerModule, dependency, endpoints)
+func PermittedDependencyEndpoints(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	permitted, _, err := dependencyEndpointVerdicts(provenance, consumerModule, dependency, endpoints)
 	return permitted, err
 }
 
@@ -859,7 +887,11 @@ func PermittedDependencyEndpoints(consumerModule string, dependency *ServiceDepe
 // consumes, refusing the edge when the consuming module may not have them. It
 // is the single answer to "may this consumer depend on this endpoint": the
 // static passes and every path that hands a consumer an address resolve through
-// it, so a composition validation refuses can never be one a run resolves.
+// it, with the composition's provenance in the signature, so a composition
+// validation refuses can never be one a run resolves — a solution's route to
+// a module included. A reader that holds no composition does not call this; it
+// selects what a provider that did has already judged
+// (SelectDependencyNetworkMappings).
 //
 // A dependency that names endpoints consumes exactly those, and naming one the
 // producer does not grant is an error naming that endpoint: the consumer's
@@ -871,8 +903,8 @@ func PermittedDependencyEndpoints(consumerModule string, dependency *ServiceDepe
 // still a violation: the edge is declared and the producer's export boundary
 // grants nothing for it, so resolving it to an empty set would leave the
 // consumer silently unwired.
-func ConsumedDependencyEndpoints(consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
-	permitted, denials, err := dependencyEndpointVerdicts(consumerModule, dependency, endpoints)
+func ConsumedDependencyEndpoints(provenance Provenance, consumerModule string, dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+	permitted, denials, err := dependencyEndpointVerdicts(provenance, consumerModule, dependency, endpoints)
 	if err != nil {
 		return nil, err
 	}

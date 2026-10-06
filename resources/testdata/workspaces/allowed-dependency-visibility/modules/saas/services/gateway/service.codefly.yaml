@@ -10,6 +10,7 @@ endpoints:
   - name: public
     api: rest
     visibility: public
+    exposure: none
   - name: internal
     api: grpc
     visibility: internal

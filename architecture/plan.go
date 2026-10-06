@@ -113,7 +113,7 @@ func (closure *Closure) resolveConsumption() (consumption, error) {
 				return nil, fmt.Errorf("%s depends on %s: %w", consumer, producer, err)
 			}
 			module, _ := resources.SplitUnique(consumer)
-			permitted, err := resources.PermittedDependencyEndpoints(module, dependency, declared)
+			permitted, err := resources.PermittedDependencyEndpoints(closure.Workspace, module, dependency, declared)
 			if err != nil {
 				return nil, fmt.Errorf("%s depends on %s: %w", consumer, producer, err)
 			}

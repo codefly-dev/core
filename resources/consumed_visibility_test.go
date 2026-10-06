@@ -17,12 +17,16 @@ func secretsDep(endpoints ...string) []*resources.ServiceDependency {
 }
 
 func mappingOf(name, visibility string) *basev0.NetworkMapping {
-	return &basev0.NetworkMapping{Endpoint: &basev0.Endpoint{
+	endpoint := &basev0.Endpoint{
 		Module:     "vault",
 		Service:    "secrets",
 		Name:       name,
 		Visibility: visibility,
-	}}
+	}
+	if visibility == resources.VisibilityPublic {
+		endpoint.Exposure = resources.ExposureNone
+	}
+	return &basev0.NetworkMapping{Endpoint: endpoint}
 }
 
 func resolvedNames(mappings []*basev0.NetworkMapping) []string {
@@ -39,11 +43,11 @@ func resolvedNames(mappings []*basev0.NetworkMapping) []string {
 func TestResolveDependencyNetworkMappingsEnforcesConsumedEndpoint(t *testing.T) {
 	deps := secretsDep("http")
 
-	if _, err := resources.ResolveDependencyNetworkMappings("web", deps, []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityPrivate)}); err == nil {
+	if _, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", deps, []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityPrivate)}); err == nil {
 		t.Fatal("consuming a private endpoint from another module must fail")
 	}
 	mappings := []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityInternal)}
-	resolved, err := resources.ResolveDependencyNetworkMappings("platform", deps, mappings)
+	resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "platform", deps, mappings)
 	if err != nil {
 		t.Fatalf("an internal endpoint is reachable by whatever composes the workspace: %v", err)
 	}
@@ -62,7 +66,7 @@ func TestResolveDependencyNetworkMappingsIgnoresUnconsumedSiblingEndpoint(t *tes
 		mappingOf("admin", resources.VisibilityPrivate), // sibling the consumer never asked for
 	}
 
-	resolved, err := resources.ResolveDependencyNetworkMappings("web", deps, mappings)
+	resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", deps, mappings)
 	if err != nil {
 		t.Fatalf("an unconsumed sibling endpoint must not fail the run: %v", err)
 	}
@@ -81,7 +85,7 @@ func TestResolveDependencyNetworkMappingsRejectsNamedForbiddenEndpoint(t *testin
 		mappingOf("admin", resources.VisibilityPrivate),
 	}
 
-	_, err := resources.ResolveDependencyNetworkMappings("web", deps, mappings)
+	_, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", deps, mappings)
 	if err == nil {
 		t.Fatal("naming a private endpoint must fail rather than silently drop it")
 	}
@@ -105,7 +109,7 @@ func TestResolveDependencyNetworkMappingsFiltersForbiddenWhenConsumingAll(t *tes
 	// The public and the internal endpoints are permitted to any module of the
 	// composition; only the private one is filtered.
 	for _, consumer := range []string{"web", "platform"} {
-		resolved, err := resources.ResolveDependencyNetworkMappings(consumer, deps, mappings)
+		resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), consumer, deps, mappings)
 		if err != nil {
 			t.Fatalf("a private endpoint the consumer never named must not fail the run for %s: %v", consumer, err)
 		}
@@ -120,7 +124,7 @@ func TestResolveDependencyNetworkMappingsAllowsSameModulePrivateEndpoint(t *test
 	deps := secretsDep("admin")
 	mappings := []*basev0.NetworkMapping{mappingOf("admin", resources.VisibilityPrivate)}
 
-	resolved, err := resources.ResolveDependencyNetworkMappings("vault", deps, mappings)
+	resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "vault", deps, mappings)
 	if err != nil {
 		t.Fatalf("a module may consume its own private endpoint: %v", err)
 	}
@@ -133,7 +137,7 @@ func TestResolveDependencyNetworkMappingsAllowsSameModulePrivateEndpoint(t *test
 // a nil pointer and panicking the runtime.
 func TestResolveDependencyNetworkMappingsRejectsNilEndpoint(t *testing.T) {
 	deps := secretsDep("http")
-	_, err := resources.ResolveDependencyNetworkMappings("platform", deps, []*basev0.NetworkMapping{{Endpoint: nil}})
+	_, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "platform", deps, []*basev0.NetworkMapping{{Endpoint: nil}})
 	if err == nil || !strings.Contains(err.Error(), "missing its endpoint") {
 		t.Fatalf("nil endpoint must be rejected, got %v", err)
 	}
@@ -150,7 +154,7 @@ func TestResolveDependencyNetworkMappingsRejectsConsumingAllWhenNothingIsPermitt
 		mappingOf("ops", resources.VisibilityPrivate),
 	}
 
-	_, err := resources.ResolveDependencyNetworkMappings("web", deps, mappings)
+	_, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", deps, mappings)
 	if err == nil {
 		t.Fatal("a dependency permitted none of the producer's endpoints must fail")
 	}
@@ -167,11 +171,22 @@ func TestResolveDependencyNetworkMappingsRejectsConsumingAllWhenNothingIsPermitt
 func TestResolveDependencyNetworkMappingsAllowsAnEndpointlessProducer(t *testing.T) {
 	deps := secretsDep()
 
-	resolved, err := resources.ResolveDependencyNetworkMappings("web", deps, nil)
+	resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", deps, nil)
 	if err != nil {
 		t.Fatalf("a producer with no endpoint must not fail visibility: %v", err)
 	}
 	if len(resolved) != 0 {
 		t.Fatalf("nothing can resolve, got %v", resolvedNames(resolved))
 	}
+}
+
+// composition is the provenance a test states for the modules it uses: a
+// workspace carrying them all as modules of one owner, which is what every
+// verdict on an edge takes.
+func composition(modules ...string) *resources.Workspace {
+	workspace := &resources.Workspace{Name: "test"}
+	for _, module := range modules {
+		workspace.Modules = append(workspace.Modules, &resources.ModuleReference{Name: module})
+	}
+	return workspace
 }

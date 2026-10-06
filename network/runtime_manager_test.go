@@ -117,7 +117,7 @@ func TestRuntimeManagerAllocatesAndInjectsSameAPIEndpointsIndependently(t *testi
 	manager.WithTemporaryPorts()
 	service := &resources.ServiceIdentity{Module: "saas", Name: "accounts"}
 	endpoints := []*basev0.Endpoint{
-		{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityPublic},
+		{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone},
 		{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC, Visibility: resources.VisibilityInternal},
 	}
 
@@ -279,7 +279,7 @@ func TestPublicInstanceFollowsExposureNotVisibility(t *testing.T) {
 	require.NoError(t, err)
 	manager.WithTemporaryPorts()
 
-	unexposed := &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityPublic}
+	unexposed := &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone}
 	exposed := &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityPublic, Exposure: resources.ExposurePublic}
 	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, []*basev0.Endpoint{unexposed, exposed}, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
@@ -330,6 +330,7 @@ func TestRuntimeNetworkMappingAccessKinds_ExternalDNS(t *testing.T) {
 		Service:    identity.Name,
 		Api:        "tcp",
 		Visibility: resources.VisibilityPublic,
+		Exposure:   resources.ExposureNone,
 		Location:   resources.LocationExternal,
 	}
 
@@ -378,6 +379,7 @@ func TestRuntimeNetworkMappingAccessKinds_FindNative(t *testing.T) {
 		Service:    identity.Name,
 		Api:        "tcp",
 		Visibility: resources.VisibilityPublic,
+		Exposure:   resources.ExposureNone,
 		Location:   resources.LocationExternal,
 	}
 

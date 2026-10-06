@@ -28,6 +28,7 @@ func TestInterfaceOmittedEndpointIsNotConsumable(t *testing.T) {
 
 	consumer := loadService(ctx, t, dir, "platform", "api")
 	_, runtimeErr := resources.ResolveDependencyNetworkMappings(
+		workspace,
 		"platform",
 		consumer.ServiceDependencies,
 		runtimeMappingsFor(ctx, t, dir, "saas", "gateway"),
@@ -49,6 +50,7 @@ func TestInterfaceExportsEndpointThePrivateServiceKeeps(t *testing.T) {
 
 	consumer := loadService(ctx, t, dir, "platform", "api")
 	resolved, err := resources.ResolveDependencyNetworkMappings(
+		workspace,
 		"platform",
 		consumer.ServiceDependencies,
 		runtimeMappingsFor(ctx, t, dir, "saas", "gateway"),

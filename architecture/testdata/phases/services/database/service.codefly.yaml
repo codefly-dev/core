@@ -15,4 +15,5 @@ service-dependencies:
 endpoints:
     - name: postgres
       visibility: public
+      exposure: none
       api: tcp

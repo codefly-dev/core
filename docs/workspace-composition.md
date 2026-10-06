@@ -37,7 +37,13 @@ Every module of the expanded graph carries its provenance — `Workspace.Member`
 reports the role it was declared in (`module` under `modules:` of the product
 or of a composed workspace, `solution` under `solutions:`) and the workspace
 that declared it — because a join over the composition has edges that only
-provenance can judge. **A solution reaches modules only through the host.** A
+provenance can judge. Provenance is inherited through composition: a solution a
+composed workspace declares stays a solution of that workspace in the product
+that composes it, and a module two workspaces down is owned by the workspace
+that declared it, not by the one in between. Every verdict on an edge takes the
+composition as its `resources.Provenance` — the static pass, the address
+hand-out, the architecture passes and the derivation — and refuses to judge
+without one (`ErrUnjudgedProvenance`). **A solution reaches modules only through the host.** A
 solution's service may not declare a run-stage dependency on a module's endpoint
 — of the composed platform or of the product's own `modules:` — however that
 endpoint's visibility reads; `Workspace.JudgeCompositionEdge` refuses the edge

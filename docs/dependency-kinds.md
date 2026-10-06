@@ -94,6 +94,7 @@ endpoints:
     - name: grpc
       api: grpc
       visibility: public
+      exposure: none
 ```
 
 ```yaml
@@ -108,6 +109,7 @@ endpoints:
     - name: postgres
       api: tcp
       visibility: public
+      exposure: none
 ```
 
 A cycle **within** one stage — two services each declaring a `runtime`

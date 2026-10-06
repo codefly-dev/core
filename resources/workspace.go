@@ -509,15 +509,17 @@ func (workspace *Workspace) LoadModules(ctx context.Context) ([]*Module, error) 
 	return modules, nil
 }
 
-// ValidateServiceDependencies checks that no service depends on a private
-// endpoint exported by a different module. It is the static, workspace-wide
-// counterpart to Module.ValidateInterface: the interface guards the producing
-// side, this guards the consuming side. Handing a consumer a dependency's
-// address goes through ResolveDependencyNetworkMappings, which applies the same
-// per-endpoint rule as it selects, so the run, deploy and SDK paths cannot
-// permit what they do not expose or expose what they do not permit. This pass
-// is the wider one: it judges every declared edge whatever stage its kind
-// constrains, including edges that inject no address and so are never resolved.
+// ValidateServiceDependencies checks that no declarer — service, job, runnable
+// or application — depends on an endpoint its module may not have: a private
+// endpoint of another module, or any module's endpoint from a solution. It is
+// the static, workspace-wide counterpart to Module.ValidateInterface: the
+// interface guards the producing side, this guards the consuming side. Handing
+// a consumer a dependency's address goes through
+// ResolveDependencyNetworkMappings, which applies the same verdict with the
+// same provenance as it selects, so the run and deploy paths cannot permit
+// what this refuses or refuse what this permits. This pass is the wider one:
+// it judges every declared edge whatever stage its kind constrains, including
+// edges that inject no address and so are never resolved.
 func (workspace *Workspace) ValidateServiceDependencies(ctx context.Context) error {
 	w := wool.Get(ctx).In("Workspace::ValidateServiceDependencies", wool.NameField(workspace.Name))
 	modules, err := workspace.LoadModules(ctx)
@@ -548,12 +550,12 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 		byName[mod.Name] = mod
 	}
 	for _, mod := range modules {
-		services, err := mod.LoadServices(ctx)
+		declarers, err := mod.LoadDependencyDeclarers(ctx)
 		if err != nil {
 			return w.Wrap(err)
 		}
-		for _, svc := range services {
-			for _, dep := range svc.ServiceDependencies {
+		for _, declarer := range declarers {
+			for _, dep := range declarer.Dependencies {
 				if !admits(dep) {
 					continue
 				}
@@ -577,15 +579,6 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 					}
 					return w.Wrap(err)
 				}
-				// The edge is judged by the provenance of its two ends before the
-				// endpoint is: a solution's route to a module's endpoints is
-				// refused whatever the endpoint grants. A module loaded outside a
-				// composition has no provenance to judge and none to refuse.
-				if mod.workspace != nil {
-					if err := mod.workspace.JudgeCompositionEdge(mod.Name, producerModule, dep); err != nil {
-						return w.Wrap(err)
-					}
-				}
 				producerEndpoints, err := producer.DependencyEndpoints()
 				if err != nil {
 					return w.Wrap(err)
@@ -596,8 +589,11 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 				if err := ValidateDependencyPrerequisite(dep, producerEndpoints); err != nil {
 					return w.Wrap(err)
 				}
-				if _, err := ConsumedDependencyEndpoints(mod.Name, dep, producerEndpoints); err != nil {
-					return w.Wrap(err)
+				// The one verdict, with the composition that carries this module
+				// as the provenance of both ends: a module loaded outside a
+				// composition has none, and the verdict refuses to judge without.
+				if _, err := ConsumedDependencyEndpoints(mod.workspace, mod.Name, dep, producerEndpoints); err != nil {
+					return w.Wrapf(err, "%s %s/%s", declarer.Kind, mod.Name, declarer.Name)
 				}
 			}
 		}

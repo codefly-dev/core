@@ -303,7 +303,9 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 
 func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
 	if len(req.GetDependenciesNetworkMappings()) > 0 && instance.Service != nil && instance.Module != nil {
-		mappings, err := resources.ResolveDependencyNetworkMappings(instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+		// The CLI is the provider of a service's dependency addresses, and it
+		// holds the composition: the hand-out is judged with its provenance.
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
 		if err != nil {
 			return nil, err
 		}
@@ -320,7 +322,7 @@ func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRe
 
 func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
 	if req != nil && instance.Service != nil && instance.Module != nil {
-		mappings, err := resources.ResolveDependencyNetworkMappings(instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
 		if err != nil {
 			return nil, err
 		}
@@ -612,4 +614,18 @@ func acknowledgedContainerRecoveryScope(headers metadata.MD) (string, error) {
 		return "", nil
 	}
 	return values[0], nil
+}
+
+// composition is the provenance the instance's dependency hand-out is judged
+// with: the workspace the instance was built for, or the one that composed
+// its module. An instance with neither is judged with none, which the verdict
+// refuses rather than assuming the module's role.
+func (instance *Instance) composition() resources.Provenance {
+	if instance.Workspace != nil {
+		return instance.Workspace
+	}
+	if instance.Module != nil && instance.Module.Composition() != nil {
+		return instance.Module.Composition()
+	}
+	return nil
 }

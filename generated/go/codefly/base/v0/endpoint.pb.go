@@ -132,10 +132,11 @@ type Endpoint struct {
 	// exposure describes whether the endpoint is allocated an address reachable
 	// from outside the workspace — the Public network instance a run generates
 	// beside the Native and Container ones, and what a deployment renders an
-	// outward address from — independently of who may reach it. "public" is the
-	// one value; none means no outward address. It is declared only on an
-	// endpoint of visibility "public" that is not external: the resource model
-	// refuses the other combinations as declarations that contradict themselves.
+	// outward address from — independently of who may reach it. "public" is an
+	// outward address, "none" is none, and a public endpoint states one of the
+	// two rather than omitting it. "public" is declared only on an endpoint of
+	// visibility "public" that is not external: the resource model refuses the
+	// other combinations as declarations that contradict themselves.
 	Exposure      string `protobuf:"bytes,11,opt,name=exposure,proto3" json:"exposure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -792,7 +793,7 @@ var File_codefly_base_v0_endpoint_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1fcodefly/base/v0/readiness.proto\"\x9d\x04\n" +
+	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1fcodefly/base/v0/readiness.proto\"\xa3\x04\n" +
 	"\bEndpoint\x12)\n" +
 	"\x04name\x18\x01 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\x04name\x128\n" +
 	"\aservice\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\aservice\x126\n" +
@@ -806,9 +807,8 @@ const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"apiDetails\x12-\n" +
 	"\blocation\x18\b \x01(\tB\x11\xbaH\x0er\fR\x00R\bexternalR\blocation\x12/\n" +
 	"\x06health\x18\n" +
-	" \x01(\v2\x17.codefly.base.v0.HealthR\x06health\x12+\n" +
-	"\bexposure\x18\v \x01(\tB\x0f\xbaH\fr\n" +
-	"R\x00R\x06publicR\bexposureJ\x04\b\t\x10\n" +
+	" \x01(\v2\x17.codefly.base.v0.HealthR\x06health\x121\n" +
+	"\bexposure\x18\v \x01(\tB\x15\xbaH\x12r\x10R\x00R\x04noneR\x06publicR\bexposureJ\x04\b\t\x10\n" +
 	"R\rallow_modules\"\xcb\x01\n" +
 	"\x03API\x12+\n" +
 	"\x03tcp\x18\x01 \x01(\v2\x17.codefly.base.v0.TcpAPIH\x00R\x03tcp\x12.\n" +

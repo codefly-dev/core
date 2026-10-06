@@ -30,7 +30,7 @@ func TestRuntimeStartForwardsOnlyDeclaredDependencyMappings(t *testing.T) {
 		Endpoints: []*resources.EndpointReference{{Name: "usage"}},
 	}}}
 	instance := &RuntimeInstance{
-		Instance: &Instance{Module: &resources.Module{Name: "platform"}, Service: service},
+		Instance: &Instance{Workspace: &resources.Workspace{Name: "test", Modules: []*resources.ModuleReference{{Name: "platform"}, {Name: "saas"}}}, Module: &resources.Module{Name: "platform"}, Service: service},
 		Runtime:  &agentservices.RuntimeAgent{RuntimeClient: client},
 	}
 	// The unconsumed sibling is private on purpose: narrowing happens before
@@ -38,7 +38,7 @@ func TestRuntimeStartForwardsOnlyDeclaredDependencyMappings(t *testing.T) {
 	// decide whether it may start.
 	request := &runtimev0.StartRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
 		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc", Visibility: resources.VisibilityPrivate}},
-		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityPublic}},
+		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone}},
 	}}
 
 	_, err := instance.Start(context.Background(), request)
@@ -60,7 +60,7 @@ func TestRuntimeStartRefusesDependencyOnPrivateEndpoint(t *testing.T) {
 		Endpoints: []*resources.EndpointReference{{Name: "grpc"}},
 	}}}
 	instance := &RuntimeInstance{
-		Instance: &Instance{Module: &resources.Module{Name: "platform"}, Service: service},
+		Instance: &Instance{Workspace: &resources.Workspace{Name: "test", Modules: []*resources.ModuleReference{{Name: "platform"}, {Name: "saas"}}}, Module: &resources.Module{Name: "platform"}, Service: service},
 		Runtime:  &agentservices.RuntimeAgent{RuntimeClient: client},
 	}
 	request := &runtimev0.StartRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
@@ -81,7 +81,7 @@ func TestRuntimeStartAllowsDependencyOnAllowListedEndpoint(t *testing.T) {
 		Endpoints: []*resources.EndpointReference{{Name: "grpc"}},
 	}}}
 	instance := &RuntimeInstance{
-		Instance: &Instance{Module: &resources.Module{Name: "platform"}, Service: service},
+		Instance: &Instance{Workspace: &resources.Workspace{Name: "test", Modules: []*resources.ModuleReference{{Name: "platform"}, {Name: "saas"}}}, Module: &resources.Module{Name: "platform"}, Service: service},
 		Runtime:  &agentservices.RuntimeAgent{RuntimeClient: client},
 	}
 	request := &runtimev0.StartRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{

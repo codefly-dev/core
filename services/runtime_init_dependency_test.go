@@ -38,7 +38,7 @@ func TestRuntimeInitDependencyMappingsCrossWireWithVisibilityAndSelection(t *tes
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	instance := &RuntimeInstance{
-		Instance: &Instance{Module: &resources.Module{Name: "consumer"}, Service: &resources.Service{
+		Instance: &Instance{Workspace: &resources.Workspace{Name: "test", Modules: []*resources.ModuleReference{{Name: "consumer"}, {Name: "producer"}}}, Module: &resources.Module{Name: "consumer"}, Service: &resources.Service{
 			ServiceDependencies: []*resources.ServiceDependency{{Module: "producer", Name: "api", Endpoints: []*resources.EndpointReference{{Name: "read"}}}},
 		}},
 		Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtimev0.NewRuntimeClient(conn)},

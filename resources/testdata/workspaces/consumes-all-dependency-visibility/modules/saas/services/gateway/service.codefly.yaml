@@ -10,6 +10,7 @@ endpoints:
   - name: public
     api: http
     visibility: public
+    exposure: none
   - name: admin
     api: grpc
     visibility: private

@@ -9,7 +9,9 @@ agent:
 endpoints:
     - name: admin
       visibility: public
+      exposure: none
       api: grpc
     - name: grpc
       visibility: public
+      exposure: none
       api: grpc

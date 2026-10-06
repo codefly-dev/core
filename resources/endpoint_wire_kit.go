@@ -69,40 +69,6 @@ func EndpointWireFixtures() ([]WireFixture, error) {
 	}, "endpoint")
 }
 
-// InterfaceEndpointWireFixtures is the wire kit for
-// codefly.base.v0.InterfaceEndpoint: a valid internal export, and the same
-// bytes with the reserved allow_modules field (4) carrying a module.
-func InterfaceEndpointWireFixtures() ([]WireFixture, error) {
-	valid := &basev0.InterfaceEndpoint{Service: "accounts", Endpoint: "grpc", Visibility: VisibilityInternal}
-	return wireFixtures(valid, []wireFixtureCase{
-		{name: "valid", outcome: EndpointDeclarationAccepted},
-		{name: "allow-modules-field-4", outcome: EndpointDeclarationRefused, rule: ruleWireFieldsKnown, message: "carries unknown wire fields [4]",
-			appended: protowire.AppendString(protowire.AppendTag(nil, 4, protowire.BytesType), "billing")},
-		{name: "unknown-field-99", outcome: EndpointDeclarationRefused, rule: ruleWireFieldsKnown, message: "carries unknown wire fields [99]",
-			appended: protowire.AppendVarint(protowire.AppendTag(nil, 99, protowire.VarintType), 1)},
-	}, "interface endpoint")
-}
-
-// ValidateInterfaceEndpointWire judges an interface entry read from the wire:
-// it carries only the fields its schema defines — the reserved allow_modules
-// (4) is refused by number — and a reach an export can carry. It is the proto
-// counterpart of InterfaceEndpoint's YAML decoder, for the consumer that reads
-// a published module.
-func ValidateInterfaceEndpointWire(ie *basev0.InterfaceEndpoint) error {
-	if ie == nil {
-		return fmt.Errorf("%w: interface endpoint is nil", ErrInvalidEndpointDeclaration)
-	}
-	if unknown := UnknownWireFields(ie.ProtoReflect().GetUnknown()); len(unknown) > 0 {
-		return fmt.Errorf("%w: interface endpoint %s/%s carries unknown wire fields %v: the schema defines no such field, and allow_modules (4) — an authored allow-list — is reserved, not read",
-			ErrInvalidEndpointDeclaration, ie.GetService(), ie.GetEndpoint(), unknown)
-	}
-	entry := &InterfaceEndpoint{Service: ie.GetService(), Endpoint: ie.GetEndpoint(), Visibility: ie.GetVisibility()}
-	if err := entry.validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidEndpointDeclaration, err)
-	}
-	return nil
-}
-
 // runWireKit drives a reader's proto ingress through every fixture and fails
 // the test on the first outcome that differs.
 func runWireKit(t KitTestingT, kind string, fixtures []WireFixture, read func(raw []byte) error) {
@@ -144,16 +110,4 @@ func RunEndpointWireKit(t KitTestingT, read func(raw []byte) error) {
 		return
 	}
 	runWireKit(t, "endpoint", fixtures, read)
-}
-
-// RunInterfaceEndpointWireKit drives a reader's interface-entry ingress
-// through every wire fixture.
-func RunInterfaceEndpointWireKit(t KitTestingT, read func(raw []byte) error) {
-	t.Helper()
-	fixtures, err := InterfaceEndpointWireFixtures()
-	if err != nil {
-		t.Fatalf("interface endpoint wire conformance: %v", err)
-		return
-	}
-	runWireKit(t, "interface endpoint", fixtures, read)
 }

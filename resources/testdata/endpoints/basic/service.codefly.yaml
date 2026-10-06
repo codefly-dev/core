@@ -11,3 +11,4 @@ endpoints:
   - name: grpc
   - name: rest
     visibility: public
+    exposure: none

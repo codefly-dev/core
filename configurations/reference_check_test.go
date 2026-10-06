@@ -31,8 +31,8 @@ func excludingGroups(groups ...string) resources.RunProfile {
 // resolvable one, an excluded group and a group no consumer declares are not.
 func TestCheckEndpointReferencesListsEveryUnresolvedReference(t *testing.T) {
 	host := referenceCheckService("host", "api", nil,
-		&resources.Endpoint{Name: "http", API: "http", Visibility: resources.VisibilityPublic},
-		&resources.Endpoint{Name: "rpc", API: "grpc", Visibility: resources.VisibilityPublic})
+		&resources.Endpoint{Name: "http", API: "http", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone},
+		&resources.Endpoint{Name: "rpc", API: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone})
 	chat := referenceCheckService("assistant", "chat", []string{"assistant", "excluded"})
 	worker := referenceCheckService("assistant", "worker", []string{"assistant"})
 	plan := map[string]*resources.Service{"host/api": host, "assistant/chat": chat, "assistant/worker": worker}
@@ -212,7 +212,7 @@ func TestCheckEndpointReferencesRefusesAnEndpointTheConsumerModuleMayNotReceive(
 func TestCheckEndpointReferencesLeavesTheRunSetToResolveTime(t *testing.T) {
 	ctx := context.Background()
 	temporal := referenceCheckService("infra", "temporal", nil,
-		&resources.Endpoint{Name: "grpc", API: "grpc", Visibility: resources.VisibilityPublic})
+		&resources.Endpoint{Name: "grpc", API: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone})
 	consumer := referenceCheckService("assistant", "chat", []string{"platform"})
 	plan := map[string]*resources.Service{"infra/temporal": temporal, "assistant/chat": consumer}
 	lookup := func(unique string) (*resources.Service, bool) { service, ok := plan[unique]; return service, ok }
@@ -275,12 +275,12 @@ func TestCheckEndpointReferencesSeesTemplateLiterals(t *testing.T) {
 func TestCheckEndpointReferencesRefusesAPrivateExactNameWhateverTheManifestOrder(t *testing.T) {
 	for name, endpoints := range map[string][]*resources.Endpoint{
 		"public sibling first": {
-			{Name: "admin", API: "grpc", Visibility: resources.VisibilityPublic},
+			{Name: "admin", API: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone},
 			{Name: "grpc", API: "grpc", Visibility: resources.VisibilityPrivate},
 		},
 		"private exact name first": {
 			{Name: "grpc", API: "grpc", Visibility: resources.VisibilityPrivate},
-			{Name: "admin", API: "grpc", Visibility: resources.VisibilityPublic},
+			{Name: "admin", API: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

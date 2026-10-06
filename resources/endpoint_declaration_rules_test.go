@@ -226,8 +226,9 @@ func TestEveryEndpointDeclarationFixtureReachesItsOutcome(t *testing.T) {
 		"allow-modules-camel", "allow-modules-empty", "allow-modules-named",
 		"allow-modules-null", "allow-modules-on-public", "allow-modules-underscore",
 		"allow-modules-wildcard", "endpoint-key-unknown", "exposed-public",
-		"exposure-on-external", "exposure-on-internal", "exposure-on-private",
-		"exposure-unknown", "external-private", "location-unknown", "valid",
+		"exposure-none-on-internal", "exposure-omitted-on-public", "exposure-on-external",
+		"exposure-on-internal", "exposure-on-private", "exposure-unknown",
+		"external-private", "location-unknown", "valid",
 		"visibility-external", "visibility-module", "visibility-unknown",
 	}
 	if !slices.Equal(names, want) {
@@ -253,15 +254,9 @@ func TestEveryEndpointWireFixtureReachesItsOutcome(t *testing.T) {
 		if err := proto.Unmarshal(raw, endpoint); err != nil {
 			return err
 		}
-		_, err := ConsumedDependencyEndpoints("billing", &ServiceDependency{Module: "saas", Name: "accounts"}, []*basev0.Endpoint{endpoint})
+		composition := &Workspace{Name: "test", Modules: []*ModuleReference{{Name: "saas"}, {Name: "billing"}}}
+		_, err := ConsumedDependencyEndpoints(composition, "billing", &ServiceDependency{Module: "saas", Name: "accounts"}, []*basev0.Endpoint{endpoint})
 		return err
-	})
-	RunInterfaceEndpointWireKit(t, func(raw []byte) error {
-		entry := &basev0.InterfaceEndpoint{}
-		if err := proto.Unmarshal(raw, entry); err != nil {
-			return err
-		}
-		return ValidateInterfaceEndpointWire(entry)
 	})
 }
 

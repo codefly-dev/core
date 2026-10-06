@@ -152,13 +152,37 @@ func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, 
 	return nil, w.NewError("no network mapping for endpoint: %s", EndpointFromProto(endpoint).Unique())
 }
 
-// The consumerModule is the module of the service these mappings are for. It
-// decides visibility per endpoint: what this returns is what gets injected as
-// the consumer's environment, and therefore what its SDK exposes, so the
-// permitted set and the exposed set are computed here together and cannot
-// drift. Every path that hands a consumer its dependencies' addresses — the
-// native run, deploy, and the SDK dependency session — resolves through here.
-func ResolveDependencyNetworkMappings(consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
+// ResolveDependencyNetworkMappings hands a consumer the addresses of what its
+// dependencies consume, judged: the provenance is the composition that carries
+// the consumer (the module of the service, job, runnable or application these
+// mappings are for), and the verdict on each edge is the one every reader
+// consults — the edge by the provenance of its two ends, then each endpoint by
+// visibility — so what this returns is what gets injected as the consumer's
+// environment, and therefore what its SDK exposes, and the permitted set and
+// the exposed set cannot drift. Every PROVIDER of a consumer's dependency
+// addresses — the run and the deploy the CLI drives, with the workspace in
+// hand — resolves through here; a reader that holds no composition selects
+// from what a provider judged (SelectDependencyNetworkMappings) and never
+// judges for itself.
+func ResolveDependencyNetworkMappings(provenance Provenance, consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
+	return selectDependencyNetworkMappings(dependencies, mappings, func(dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
+		return ConsumedDependencyEndpoints(provenance, consumerModule, dependency, endpoints)
+	})
+}
+
+// SelectDependencyNetworkMappings is the consumer's side of the hand-out: among
+// the mappings a provider judged and delivered, the ones the declared
+// dependencies consume. It judges nothing — an agent filtering the mappings
+// the CLI handed it, or an SDK session reading them back from the CLI, holds
+// no composition to judge an edge with, and this package does not answer the
+// verdict's question without one. The provider is what refuses: every
+// address here came through ResolveDependencyNetworkMappings with the
+// composition's provenance.
+func SelectDependencyNetworkMappings(dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
+	return selectDependencyNetworkMappings(dependencies, mappings, SelectServiceDependencyEndpoints)
+}
+
+func selectDependencyNetworkMappings(dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping, consumed func(*ServiceDependency, []*basev0.Endpoint) ([]*basev0.Endpoint, error)) ([]*basev0.NetworkMapping, error) {
 	endpoints := make([]*basev0.Endpoint, 0, len(mappings))
 	for _, mapping := range mappings {
 		if mapping == nil || mapping.Endpoint == nil {
@@ -177,11 +201,11 @@ func ResolveDependencyNetworkMappings(consumerModule string, dependencies []*Ser
 		if !dependency.Kind.Participates(StageRun) {
 			continue
 		}
-		consumed, err := ConsumedDependencyEndpoints(consumerModule, dependency, endpoints)
+		selectedEndpoints, err := consumed(dependency, endpoints)
 		if err != nil {
 			return nil, err
 		}
-		for _, endpoint := range consumed {
+		for _, endpoint := range selectedEndpoints {
 			selected[EndpointDestination(endpoint)] = struct{}{}
 		}
 	}

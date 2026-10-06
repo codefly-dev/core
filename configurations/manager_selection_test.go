@@ -23,7 +23,7 @@ func TestAManagerViewResolvesForTheConsumerItNames(t *testing.T) {
 	ctx := context.Background()
 	authority := []*resources.Endpoint{
 		{Module: "platform", Service: "authority", Name: "grpc", API: "grpc", Visibility: "private"},
-		{Module: "platform", Service: "authority", Name: "admin", API: "grpc", Visibility: "public"},
+		{Module: "platform", Service: "authority", Name: "admin", API: "grpc", Visibility: "public", Exposure: "none"},
 	}
 	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) {
 		if unique != "platform/authority" {
@@ -103,7 +103,7 @@ func TestAManagerViewJudgesTheConsumerItNames(t *testing.T) {
 	loader, err := configurations.NewConfigurationLocalReader(ctx, workspace)
 	require.NoError(t, err)
 	authority := []*resources.Endpoint{
-		{Module: "platform", Service: "authority", Name: "admin", API: "grpc", Visibility: "public"},
+		{Module: "platform", Service: "authority", Name: "admin", API: "grpc", Visibility: "public", Exposure: "none"},
 		{Module: "platform", Service: "authority", Name: "grpc", API: "grpc", Visibility: "private"},
 	}
 	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) {
@@ -151,8 +151,8 @@ func TestTheCompositionRootReadRefusesAFaultBehindAnOmission(t *testing.T) {
 	require.NoError(t, err)
 	authority := []*resources.Endpoint{
 		{Module: "platform", Service: "authority", Name: "hidden", API: "grpc", Visibility: "private"},
-		{Module: "platform", Service: "authority", Name: "primary", API: "grpc", Visibility: "public"},
-		{Module: "platform", Service: "authority", Name: "secondary", API: "grpc", Visibility: "public"},
+		{Module: "platform", Service: "authority", Name: "primary", API: "grpc", Visibility: "public", Exposure: "none"},
+		{Module: "platform", Service: "authority", Name: "secondary", API: "grpc", Visibility: "public", Exposure: "none"},
 	}
 	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) { return authority, unique == "platform/authority" })
 	mapping := func(name, address string) *basev0.NetworkMapping {

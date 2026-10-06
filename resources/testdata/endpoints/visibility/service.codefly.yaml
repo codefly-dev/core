@@ -12,6 +12,7 @@ endpoints:
   - name: rest
     api: rest
     visibility: public
+    exposure: none
     location: external
   - name: http
     api: http
@@ -22,6 +23,7 @@ endpoints:
   - name: conn
     api: connect
     visibility: public
+    exposure: none
   - name: web
     api: http
     visibility: public

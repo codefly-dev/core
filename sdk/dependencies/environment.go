@@ -514,7 +514,10 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to get dependencies network mappings")
 	}
-	dependencyMappings, err := resources.ResolveDependencyNetworkMappings(mod.Name, svc.ServiceDependencies, mappings.NetworkMappings)
+	// The session holds no composition to judge an edge with; the CLI that
+	// served these mappings judged them with its provenance. Select what the
+	// declared dependencies consume, and judge nothing.
+	dependencyMappings, err := resources.SelectDependencyNetworkMappings(svc.ServiceDependencies, mappings.NetworkMappings)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to resolve dependencies network mappings")
 	}

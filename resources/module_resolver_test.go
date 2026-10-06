@@ -872,7 +872,7 @@ func writeGatewayService(t *testing.T, moduleDir string) {
 	svcDir := filepath.Join(moduleDir, "services", "gateway")
 	require.NoError(t, os.MkdirAll(svcDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(svcDir, "service.codefly.yaml"),
-		[]byte("kind: service\nname: gateway\nversion: 0.0.0\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: public-api\n    visibility: public\n"), 0o600))
+		[]byte("kind: service\nname: gateway\nversion: 0.0.0\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: public-api\n    visibility: public\n    exposure: none\n"), 0o600))
 }
 
 func writeAPIService(t *testing.T, moduleDir string) {
@@ -918,7 +918,7 @@ func serviceManifest(name, agent, agentVersion string, endpoints ...string) stri
 	if len(endpoints) > 0 {
 		manifest += "endpoints:\n"
 		for _, endpoint := range endpoints {
-			manifest += fmt.Sprintf("  - name: %s\n    visibility: public\n", endpoint)
+			manifest += fmt.Sprintf("  - name: %s\n    visibility: public\n    exposure: none\n", endpoint)
 		}
 	}
 	return manifest

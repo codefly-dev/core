@@ -10,9 +10,11 @@ endpoints:
   - name: public
     api: rest
     visibility: public
+    exposure: none
   - name: restricted
     api: grpc
     visibility: private
   - name: omitted
     api: http
     visibility: public
+    exposure: none

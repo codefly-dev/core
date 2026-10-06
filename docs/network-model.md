@@ -205,7 +205,7 @@ three axes an endpoint declares, each on its own and each read on its own:
 |---|---|---|
 | `visibility` | Who may reach it (**reach**) | `private`, `internal`, `public` |
 | `location` | Where it lives | unset (in-system), `external` |
-| `exposure` | Whether an address reachable from outside the workspace exists (**addressing**) | unset (none), `public` |
+| `exposure` | Whether an address reachable from outside the workspace exists (**addressing**) | `none`, `public` — a public endpoint states one; unset means none on the others |
 
 | Visibility | Who can reach | Names anybody? |
 |---|---|---|
@@ -247,8 +247,10 @@ permitted every module *and* allocated the Public network instance (the address
 outside the workspace, and whatever a deployment renders from it). Those are
 two independent facts, and an endpoint that every module should reach but that
 must not be addressable from outside could not be declared. Addressing is now
-[`exposure`](#exposure), beside the visibility; `visibility: public` alone
-allocates nothing.
+[`exposure`](#exposure), beside the visibility, and **a public endpoint states
+it** — `exposure: public` or `exposure: none` — rather than omitting it, so a
+manifest written when `visibility: public` meant an address fails to load
+(`exposure-declared`) instead of quietly losing it.
 
 ### The allow-list is derived, never authored
 
@@ -297,21 +299,36 @@ producer in the workspace. A list applies to an `internal` endpoint only:
 `public` is open and `private` is closed, and neither carries one. The
 producer's own module appears when one of its services asks.
 
-**The join is over the composition, never over bare services.** Every module of
-a composition carries its provenance (`Workspace.Member`: the role it was
-declared in, `module` or `solution`, and the workspace that declared it), and
-every edge is judged by the provenance of its two ends before the export
-boundary judges the endpoint (`Workspace.JudgeCompositionEdge`): **a solution
-reaches modules only through the host**, so a solution's run-stage edge onto a
-module's endpoint — of the composed platform or of the product's own `modules:`
-— is refused (`resources.ErrSolutionReachesThroughHost`) whatever the endpoint's
-visibility grants, in the derivation and in the static pass by the same rule; a
-`build` or `schema` edge reads the module's contract and is not that route, and
-an edge between two solutions or from a module is judged by visibility alone. An
-end the composition does not carry is unjudged provenance and refused as such.
-A dependency the export boundary refuses — a cross-module ask for a private
-endpoint — is the same refusal the static validation makes: nothing is derived
-for a composition that does not validate.
+**The join is over the composition, never over bare services, and every
+declarer asks.** Every module of a composition carries its provenance
+(`Workspace.Member`: the role it was declared in, `module` or `solution`, and
+the workspace that declared it — inherited through composition, so a composed
+workspace's own solutions stay solutions), and the provenance is **in the
+signature of the one verdict** every reader consults
+(`resources.ConsumedDependencyEndpoints` and what builds on it:
+`PermittedDependencyEndpoints`, `ResolveDependencyNetworkMappings`, the
+workspace and closure static passes, `architecture.VerifyVisibility`,
+`Closure.Verify`, the plan, and the derivation). The verdict judges the edge by
+the provenance of its two ends first (`resources.JudgeCompositionEdge`): **a
+solution reaches modules only through the host**, so a solution's run-stage
+edge onto a module's endpoint — of the composed platform or of the product's
+own `modules:` — is refused (`resources.ErrSolutionReachesThroughHost`)
+whatever the endpoint's visibility grants, on every path alike; a `build` or
+`schema` edge reads the module's contract and is not that route, and an edge
+between two solutions or from a module is judged by visibility alone. No
+provenance, or an end the composition does not carry, is
+`resources.ErrUnjudgedProvenance`: a reader that holds no composition — an
+agent filtering the mappings the CLI handed it, an SDK session — does not ask
+the verdict; it selects what its declared dependencies consume
+(`resources.SelectDependencyNetworkMappings`) from what the provider judged.
+Every declarer of `service-dependencies` is judged and asks alike — a service,
+a job, a runnable, an application (`Module.LoadDependencyDeclarers`) — so a
+module's runnable that calls an internal endpoint gets its entry and a
+solution's runnable gets its refusal. The derivation runs the workspace's own
+static validation first, so nothing is derived for a composition that does not
+validate: a cross-module ask for a private endpoint, a solution's route, a
+dependency on an endpoint the producer does not declare, are refused there
+exactly as the static pass refuses them.
 
 **A static allow-list is reachability, not authorization.** The derived list can
 only answer *may anything in module X reach this endpoint at all* — a
@@ -352,7 +369,8 @@ package's self-check deletes each rule in turn and proves a fixture notices:
 | `wire-fields-known` | the proto, before projection | a field the schema does not define, the reserved `allow_modules` included |
 | `visibility-known` | the declaration | a visibility other than `private`, `internal`, `public` or none |
 | `location-known` | the declaration | a location other than `external` or none |
-| `exposure-known` | the declaration | an exposure other than `public` or none |
+| `exposure-known` | the declaration | an exposure other than `public`, `none` or omitted |
+| `exposure-declared` | the declaration | `visibility: public` with no exposure stated |
 | `exposure-within-reach` | the declaration | `exposure: public` on an endpoint not `visibility: public` |
 | `exposure-in-system` | the declaration | `exposure: public` on a `location: external` endpoint |
 
@@ -367,9 +385,12 @@ data, is refused as an invalid declaration rather than handed an address.
 A module's interface entry is the whole export declaration: it names the reach
 the module grants across its boundary — `public`, or `internal` (the default) —
 and the service's own visibility is not consulted once the module has spoken.
-An entry names nobody; its keys are judged before decoding like an endpoint's,
-and on the wire `resources.ValidateInterfaceEndpointWire` refuses the reserved
-field by number.
+An entry names nobody, and its keys are judged before decoding like an
+endpoint's. An export the endpoint's own declaration contradicts — an endpoint
+declaring `exposure: public` that the interface omits or exports at `internal`
+— is refused at module load, naming the entry in the author's own words. (The
+`InterfaceEndpoint` wire message has no reader in core; `resources.UnknownWireFields`
+is what a reader of published module protos refuses the reserved field with.)
 
 ### Endpoint References
 
@@ -450,7 +471,7 @@ job the word `public` used to do, declared on its own:
 
 | Exposure | Meaning | Network instances generated |
 |---|---|---|
-| (unset) | No outward address | Native + Container |
+| `none` (or unset on a non-public endpoint) | No outward address | Native + Container |
 | `public` | Addressed from outside the workspace | Native + Container + Public |
 
 ```yaml
@@ -462,6 +483,7 @@ endpoints:
   - name: grpc
     api: grpc
     visibility: public    # reachable by anything that can address it — and published nowhere
+    exposure: none        # stated, never omitted on a public endpoint
 ```
 
 `resources.IsExposedEndpoint` is the one condition `network.RuntimeManager`

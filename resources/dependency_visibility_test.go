@@ -30,7 +30,8 @@ func TestValidateEndpointVisibility(t *testing.T) {
 		// workspace, and every module judged here does.
 		{name: "internal cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityInternal},
 		{name: "internal any module allowed", consumer: "web", producer: "saas", visibility: resources.VisibilityInternal},
-		{name: "public cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityPublic},
+		{name: "public cross-module allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityPublic, exposure: resources.ExposureNone},
+		{name: "public with no exposure stated is an invalid declaration", consumer: "platform", producer: "saas", visibility: resources.VisibilityPublic, deny: true, errorText: `declares visibility "public" but states no exposure`},
 		{name: "exposed public allowed", consumer: "platform", producer: "saas", visibility: resources.VisibilityPublic, exposure: resources.ExposurePublic},
 		{name: "the former module spelling is an invalid declaration", consumer: "platform", producer: "saas", visibility: "module", deny: true, errorText: `unsupported visibility "module"`},
 		{name: "the former external spelling is an invalid declaration", consumer: "platform", producer: "saas", visibility: "external", deny: true, errorText: `unsupported visibility "external"`},

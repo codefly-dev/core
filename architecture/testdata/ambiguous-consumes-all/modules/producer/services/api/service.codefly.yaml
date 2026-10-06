@@ -10,6 +10,8 @@ endpoints:
     - name: one
       api: grpc
       visibility: public
+      exposure: none
     - name: two
       api: grpc
       visibility: public
+      exposure: none

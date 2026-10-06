@@ -14,9 +14,9 @@ type AllowList struct {
 	// Visibility is the endpoint's reach, as the composition exports it.
 	Visibility Visibility
 	// Modules is the derived list, sorted, each module once: the modules
-	// whose services declare a run-stage dependency that reaches the
-	// endpoint. Empty for an internal endpoint nobody asks for; nil for a
-	// reach that carries no list.
+	// whose declarers — services, jobs, runnables, applications — declare a
+	// run-stage dependency that reaches the endpoint. Empty for an internal
+	// endpoint nobody asks for; nil for a reach that carries no list.
 	Modules []string
 }
 
@@ -30,7 +30,7 @@ type AllowList struct {
 //
 // What it is and is not:
 //
-//   - It is exactly the set of asks. A module reaching an endpoint it never
+//   - It is exactly the set of asks. A declarer reaching an endpoint it never
 //     declared a dependency on produces no entry, and an entry cannot survive
 //     the dependency being removed — a stronger property than a hand-written
 //     list, which can go stale in either direction.
@@ -40,46 +40,52 @@ type AllowList struct {
 //     scopes — is per-call and runtime: WorkContextV1 carries the audience,
 //     the authority scopes and the seal, and neither substitutes for the
 //     other.
+//   - Every declarer asks: a service, a job, a runnable or an application of
+//     a module (Module.LoadDependencyDeclarers). A runnable's runtime edge is
+//     handed addresses like a service's, so it asks like one.
 //   - Only an edge that REACHES the endpoint derives an entry
 //     (DependencyKind.ReachesEndpoints): a build or schema dependency reads
 //     the producer's contract and never calls it, a completion prerequisite
 //     waits for the producer to finish and consumes no endpoint — its stage
 //     participation is not consumption — and an external capability has no
 //     producer here.
-//   - The producer's own module appears when one of its services declares
+//   - The producer's own module appears when one of its declarers declares
 //     the dependency, like any other ask. What a module may reach inside
 //     itself never depends on this list.
-//   - The join is over the COMPOSITION, never over bare services: each edge
-//     is judged by the provenance of its two ends (Workspace.JudgeCompositionEdge)
-//     before the export boundary judges the endpoint, so a solution's direct
-//     route to a module's endpoints is refused here (ErrSolutionReachesThroughHost),
-//     and so is a dependency the export boundary refuses — a cross-module ask
-//     for a private endpoint — the same refusal the static validation makes
-//     (ConsumedDependencyEndpoints). Nothing is derived for a composition that
-//     does not validate.
+//   - The join is over the COMPOSITION, never over bare services, and it
+//     derives nothing for a composition that does not validate: the
+//     workspace's own static pass (ValidateServiceDependencies) runs first,
+//     and every ask goes through the one verdict with the composition's
+//     provenance (ConsumedDependencyEndpoints), so a solution's direct route
+//     to a module's endpoints, a cross-module ask for a private endpoint and
+//     a dependency on an endpoint the producer does not declare are refused
+//     here exactly as the static pass refuses them.
 type DerivedAllowModules struct {
 	byEndpoint map[string]AllowList
 }
 
 // DeriveAllowModules computes the derived allow-list of every endpoint this
 // composition declares, from the declared service dependencies of every
-// service it carries, each module's endpoints as its interface exports them.
+// declarer it carries, each module's endpoints as its interface exports them.
 // A dependency naming a producer the composition does not carry contributes
-// nothing, as it reaches no endpoint here; whether such a producer should
-// exist is the workspace's own validation's question.
+// nothing, as it reaches no endpoint here.
 func (workspace *Workspace) DeriveAllowModules(ctx context.Context) (DerivedAllowModules, error) {
 	w := wool.Get(ctx).In("Workspace::DeriveAllowModules", wool.NameField(workspace.Name))
+	// Nothing is derived for a composition that does not validate.
+	if err := workspace.ValidateServiceDependencies(ctx); err != nil {
+		return DerivedAllowModules{}, w.Wrap(err)
+	}
 	modules, err := workspace.LoadModules(ctx)
 	if err != nil {
 		return DerivedAllowModules{}, w.Wrap(err)
 	}
-	type consumer struct {
-		module  *Module
-		service *Service
+	type asker struct {
+		module   *Module
+		declarer DependencyDeclarer
 	}
 	derived := DerivedAllowModules{byEndpoint: map[string]AllowList{}}
 	producers := map[string]*Service{}
-	var consumers []consumer
+	var askers []asker
 	for _, mod := range modules {
 		services, err := mod.LoadServices(ctx)
 		if err != nil {
@@ -91,7 +97,6 @@ func (workspace *Workspace) DeriveAllowModules(ctx context.Context) (DerivedAllo
 				return DerivedAllowModules{}, w.Wrap(err)
 			}
 			producers[identity.Unique()] = service
-			consumers = append(consumers, consumer{module: mod, service: service})
 			for _, endpoint := range service.Endpoints {
 				if endpoint == nil {
 					continue
@@ -112,42 +117,38 @@ func (workspace *Workspace) DeriveAllowModules(ctx context.Context) (DerivedAllo
 				derived.byEndpoint[key] = list
 			}
 		}
-	}
-	for _, c := range consumers {
-		identity, err := c.service.Identity()
+		declarers, err := mod.LoadDependencyDeclarers(ctx)
 		if err != nil {
 			return DerivedAllowModules{}, w.Wrap(err)
 		}
-		for _, dependency := range c.service.ServiceDependencies {
+		for _, declarer := range declarers {
+			askers = append(askers, asker{module: mod, declarer: declarer})
+		}
+	}
+	for _, a := range askers {
+		for _, dependency := range a.declarer.Dependencies {
 			if dependency == nil || !dependency.Kind.ReachesEndpoints() {
 				continue
-			}
-			producerModule := dependency.Module
-			if producerModule == "" {
-				producerModule = identity.Module
 			}
 			producer, carried := producers[dependency.Unique()]
 			if !carried {
 				continue
 			}
-			if err := workspace.JudgeCompositionEdge(identity.Module, producerModule, dependency); err != nil {
-				return DerivedAllowModules{}, w.Wrap(err)
-			}
 			endpoints, err := producer.DependencyEndpoints()
 			if err != nil {
 				return DerivedAllowModules{}, w.Wrap(err)
 			}
-			consumed, err := ConsumedDependencyEndpoints(identity.Module, dependency, endpoints)
+			consumed, err := ConsumedDependencyEndpoints(workspace, a.module.Name, dependency, endpoints)
 			if err != nil {
-				return DerivedAllowModules{}, w.Wrapf(err, "service %s", identity.Unique())
+				return DerivedAllowModules{}, w.Wrapf(err, "%s %s/%s", a.declarer.Kind, a.module.Name, a.declarer.Name)
 			}
 			for _, endpoint := range consumed {
 				key := allowModulesKey(endpoint.GetModule(), endpoint.GetService(), endpoint.GetName())
 				list := derived.byEndpoint[key]
-				if list.Visibility != VisibilityInternal || slices.Contains(list.Modules, identity.Module) {
+				if list.Visibility != VisibilityInternal || slices.Contains(list.Modules, a.module.Name) {
 					continue
 				}
-				list.Modules = append(list.Modules, identity.Module)
+				list.Modules = append(list.Modules, a.module.Name)
 				derived.byEndpoint[key] = list
 			}
 		}

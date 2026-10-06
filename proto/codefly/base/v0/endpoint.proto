@@ -59,11 +59,12 @@ message Endpoint {
   // exposure describes whether the endpoint is allocated an address reachable
   // from outside the workspace — the Public network instance a run generates
   // beside the Native and Container ones, and what a deployment renders an
-  // outward address from — independently of who may reach it. "public" is the
-  // one value; none means no outward address. It is declared only on an
-  // endpoint of visibility "public" that is not external: the resource model
-  // refuses the other combinations as declarations that contradict themselves.
-  string exposure = 11 [(buf.validate.field).string.in = "", (buf.validate.field).string.in = "public"];
+  // outward address from — independently of who may reach it. "public" is an
+  // outward address, "none" is none, and a public endpoint states one of the
+  // two rather than omitting it. "public" is declared only on an endpoint of
+  // visibility "public" that is not external: the resource model refuses the
+  // other combinations as declarations that contradict themselves.
+  string exposure = 11 [(buf.validate.field).string.in = "", (buf.validate.field).string.in = "none", (buf.validate.field).string.in = "public"];
 }
 
 // API selects protocol-specific endpoint details.

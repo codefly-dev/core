@@ -18,7 +18,7 @@ import (
 // edge — the same answer Workspace.ValidateServiceDependencies gives, for the
 // same reason. A lint over a whole workspace has no stage to scope to.
 func (d *ServiceDependencies) VerifyVisibility(ctx context.Context) error {
-	return verifyVisibility(ctx, d.uniqueToService, d.admits)
+	return verifyVisibility(ctx, d.Workspace, d.uniqueToService, d.admits)
 }
 
 // admits reports whether a dependency takes part in the stage this view was
@@ -35,10 +35,12 @@ func (d *ServiceDependencies) admits(dep *resources.ServiceDependency) bool {
 // the loaded graph or closure) is skipped: its endpoints are not available to
 // check here.
 //
-// The verdict itself is resources': the same functions the static workspace
-// pass and the run-time resolution call, so what this refuses is exactly what
-// they refuse. Only the set of edges judged is decided here.
-func verifyVisibility(ctx context.Context, services map[string]*resources.Service, admits func(*resources.ServiceDependency) bool) error {
+// The verdict itself is resources': the same function the static workspace
+// pass and the run-time resolution call, with the composition's provenance in
+// its signature, so what this refuses is exactly what they refuse — a
+// solution's route to a module included. Only the set of edges judged is
+// decided here.
+func verifyVisibility(ctx context.Context, provenance resources.Provenance, services map[string]*resources.Service, admits func(*resources.ServiceDependency) bool) error {
 	w := wool.Get(ctx).In("architecture.VerifyVisibility")
 
 	var violations []string
@@ -64,7 +66,7 @@ func verifyVisibility(ctx context.Context, services map[string]*resources.Servic
 					"%s depends on %s: %s", identity.Unique(), dep.Unique(), err))
 				continue
 			}
-			if _, err := resources.ConsumedDependencyEndpoints(identity.Module, dep, endpoints); err != nil {
+			if _, err := resources.ConsumedDependencyEndpoints(provenance, identity.Module, dep, endpoints); err != nil {
 				violations = append(violations, fmt.Sprintf(
 					"%s depends on %s: %s", identity.Unique(), dep.Unique(), err))
 			}

@@ -355,7 +355,7 @@ func TestEndpointProtoRefusesWhatTheModelDoesNotDefine(t *testing.T) {
 		_, err := endpoint.Proto()
 		require.Error(t, err, visibility)
 	}
-	endpoint := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityPublic, Location: "nowhere"}
+	endpoint := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone, Location: "nowhere"}
 	_, err := endpoint.Proto()
 	require.Error(t, err, "location")
 	for name, authored := range map[string][]string{"a module": {"platform"}, "the wildcard": {"*"}, "an empty list": {}, "a blank entry": {""}} {
@@ -373,7 +373,7 @@ func TestEndpointProtoRefusesWhatTheModelDoesNotDefine(t *testing.T) {
 	exposedProto, err := exposed.Proto()
 	require.NoError(t, err)
 	require.True(t, resources.IsExposedEndpoint(exposedProto))
-	require.False(t, resources.IsExposedEndpoint(&basev0.Endpoint{Visibility: resources.VisibilityPublic}), "a visibility never allocates an address")
+	require.False(t, resources.IsExposedEndpoint(&basev0.Endpoint{Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone}), "a visibility never allocates an address")
 	endpoint.Location = resources.LocationExternal
 	proto, err := endpoint.Proto()
 	require.NoError(t, err)
@@ -385,7 +385,7 @@ func TestEndpointAllowsModule(t *testing.T) {
 	require.True(t, private.AllowsModule("vault"))
 	require.False(t, private.AllowsModule("platform"))
 
-	public := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityPublic}
+	public := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone}
 	require.True(t, public.AllowsModule("platform"))
 
 	// Internal names nobody: whatever composes the workspace reaches it.

@@ -523,8 +523,7 @@ func ApplyModuleInterface(ctx context.Context, service *Service) error {
 	if err != nil {
 		return w.Wrap(err)
 	}
-	mod.applyInterface(service)
-	return nil
+	return mod.applyInterface(service)
 }
 
 // ReloadService from directory
@@ -1114,7 +1113,9 @@ func LoadModuleAndServiceUpFrom(ctx context.Context, from string) (*Module, *Ser
 		}
 		if mod != nil {
 			svc.WithModule(mod.Name)
-			mod.applyInterface(svc)
+			if err := mod.applyInterface(svc); err != nil {
+				return nil, nil, err
+			}
 		}
 		if err := bindUpFrom(ctx, svc, from); err != nil {
 			return nil, nil, err

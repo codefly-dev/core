@@ -281,20 +281,20 @@ func TestNetworkMappingsSkipNonRuntimeDependencies(t *testing.T) {
 	}}
 
 	runtime := []*resources.ServiceDependency{{Name: "api", Module: "web", Kind: resources.DependencyKindRuntime}}
-	resolved, err := resources.ResolveDependencyNetworkMappings("web", runtime, mappings)
+	resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", runtime, mappings)
 	require.NoError(t, err)
 	require.Len(t, resolved, 1)
 
 	for _, kind := range []resources.DependencyKind{resources.DependencyKindBuild, resources.DependencyKindSchema, resources.DependencyKindExternal} {
 		deps := []*resources.ServiceDependency{{Name: "api", Module: "web", Kind: kind}}
-		resolved, err := resources.ResolveDependencyNetworkMappings("web", deps, mappings)
+		resolved, err := resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", deps, mappings)
 		require.NoError(t, err, "kind %s", kind)
 		require.Empty(t, resolved, "kind %s must not consume a runtime address", kind)
 	}
 
 	// Legacy keeps consuming mappings exactly as before.
 	legacy := []*resources.ServiceDependency{{Name: "api", Module: "web"}}
-	resolved, err = resources.ResolveDependencyNetworkMappings("web", legacy, mappings)
+	resolved, err = resources.ResolveDependencyNetworkMappings(composition("web", "vault", "platform"), "web", legacy, mappings)
 	require.NoError(t, err)
 	require.Len(t, resolved, 1)
 }
@@ -331,10 +331,10 @@ func TestDependencyKindConsumptionAndReachAreStatedForEveryKind(t *testing.T) {
 	require.True(t, resources.DependencyKindCompletion.Participates(resources.StageRun))
 	completion := &resources.ServiceDependency{Module: "data", Name: "migrator", Kind: resources.DependencyKindCompletion}
 	endpoints := []*basev0.Endpoint{{Module: "data", Service: "migrator", Name: "http", Api: "http", Visibility: resources.VisibilityInternal}}
-	consumed, err := resources.ConsumedDependencyEndpoints("app", completion, endpoints)
+	consumed, err := resources.ConsumedDependencyEndpoints(composition("app", "data"), "app", completion, endpoints)
 	require.NoError(t, err)
 	require.Empty(t, consumed)
-	resolved, err := resources.ResolveDependencyNetworkMappings("app", []*resources.ServiceDependency{completion}, []*basev0.NetworkMapping{{Endpoint: endpoints[0]}})
+	resolved, err := resources.ResolveDependencyNetworkMappings(composition("app", "data"), "app", []*resources.ServiceDependency{completion}, []*basev0.NetworkMapping{{Endpoint: endpoints[0]}})
 	require.NoError(t, err)
 	require.Empty(t, resolved, "a completion consumer is handed no address")
 }

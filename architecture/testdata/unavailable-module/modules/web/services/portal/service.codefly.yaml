@@ -13,3 +13,4 @@ endpoints:
     - name: http
       api: http
       visibility: public
+      exposure: none

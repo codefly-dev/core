@@ -133,7 +133,7 @@ func dependencyMapping(module, service, name, api string, port uint16, visibilit
 	instance := resources.NewNetworkInstance(service, port)
 	instance.Access = resources.NewContainerNetworkAccess()
 	return &basev0.NetworkMapping{
-		Endpoint:  &basev0.Endpoint{Module: module, Service: service, Name: name, Api: api, Visibility: visibility},
+		Endpoint:  &basev0.Endpoint{Module: module, Service: service, Name: name, Api: api, Visibility: visibility, Exposure: exposureFor(visibility)},
 		Instances: []*basev0.NetworkInstance{instance},
 	}
 }
@@ -864,11 +864,14 @@ func configuration(origin, name, key, value string, secret bool) *basev0.Configu
 	}
 }
 
-// A deploy hands the consumer its dependencies' addresses just as a run does,
-// so it must refuse an endpoint the producer keeps private. Nothing on this
-// path used to ask: the workspace failed static validation, failed to run, and
-// still deployed, shipping the private endpoint's address to the cluster.
-func TestDeployKustomizeRefusesDependencyOnPrivateEndpoint(t *testing.T) {
+// A deploy hands the consumer its dependencies' addresses just as a run does.
+// The agent holds no composition to judge an edge with — the verdict takes the
+// composition's provenance, and this process has none — so it SELECTS what its
+// declared dependencies consume among the mappings the CLI handed it, and
+// judges nothing: the CLI is the provider, and it refused what the composition
+// refuses before handing anything over (services.RuntimeInstance, with the
+// workspace in hand). What the dependencies do not name is not wired.
+func TestDeployKustomizeSelectsWhatTheProviderJudged(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
@@ -892,17 +895,19 @@ func TestDeployKustomizeRefusesDependencyOnPrivateEndpoint(t *testing.T) {
 	builder := &BuilderWrapper{Base: base}
 	base.Builder = builder
 
+	destination := t.TempDir()
 	req := &builderv0.DeploymentRequest{
 		Environment: &basev0.Environment{Name: "test", Fixture: "dev-admin"},
 		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
 			Kubernetes: &builderv0.KubernetesDeployment{
 				Namespace:   "codefly",
-				Destination: t.TempDir(),
+				Destination: destination,
 				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 			},
 		}},
 		DependenciesNetworkMappings: []*basev0.NetworkMapping{
-			dependencyMapping("saas", "accounts", "usage", "grpc", 19090, resources.VisibilityPrivate),
+			dependencyMapping("saas", "accounts", "usage", "grpc", 19090, resources.VisibilityInternal),
+			dependencyMapping("saas", "accounts", "admin", "grpc", 19091, resources.VisibilityInternal),
 		},
 	}
 
@@ -912,7 +917,19 @@ func TestDeployKustomizeRefusesDependencyOnPrivateEndpoint(t *testing.T) {
 		Inputs:               DeploymentInputs{DependencyEndpoints: true},
 		Parameters:           struct{ Name string }{Name: "prepared"},
 	})
-	require.NoError(t, err, "the refusal is reported as a failed deployment, not a transport error")
-	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
-	require.Contains(t, response.GetState().GetMessage(), "private to module \"saas\"")
+	require.NoError(t, err)
+	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	configMapManifest, err := os.ReadFile(filepath.Join(destination, "base", "config-map.yaml"))
+	require.NoError(t, err)
+	manifest := string(configMapManifest)
+	require.Contains(t, manifest, `CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC: "accounts:19090"`, "the endpoint the dependency names is wired")
+	require.NotContains(t, manifest, "CODEFLY__ENDPOINT__SAAS__ACCOUNTS__ADMIN__GRPC", "an endpoint the dependency does not name is not wired, whatever the provider handed over")
+}
+
+// exposureFor states the exposure a public endpoint never omits.
+func exposureFor(visibility resources.Visibility) string {
+	if visibility == resources.VisibilityPublic {
+		return resources.ExposureNone
+	}
+	return ""
 }

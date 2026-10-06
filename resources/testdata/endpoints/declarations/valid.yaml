@@ -19,6 +19,7 @@ endpoints:
   - name: rest
     api: rest
     visibility: public
+    exposure: none
   - name: http
     api: http
     visibility: public
@@ -30,4 +31,5 @@ endpoints:
   - name: feed
     api: rest
     visibility: public
+    exposure: none
     location: external

@@ -53,12 +53,14 @@ func EndpointDeclarationFixtures() ([]EndpointDeclarationFixture, error) {
 		{name: "valid", outcome: EndpointDeclarationAccepted},
 		{name: "exposed-public", outcome: EndpointDeclarationAccepted},
 		{name: "external-private", outcome: EndpointDeclarationAccepted},
+		{name: "exposure-none-on-internal", outcome: EndpointDeclarationAccepted},
 
 		{name: "visibility-module", outcome: EndpointDeclarationRefused, message: `unsupported visibility "module"`, rule: ruleVisibilityKnown},
 		{name: "visibility-external", outcome: EndpointDeclarationRefused, message: `unsupported visibility "external"`, rule: ruleVisibilityKnown},
 		{name: "visibility-unknown", outcome: EndpointDeclarationRefused, message: `unsupported visibility "application"`, rule: ruleVisibilityKnown},
 		{name: "location-unknown", outcome: EndpointDeclarationRefused, message: `unsupported location "nowhere"`, rule: ruleLocationKnown},
 		{name: "exposure-unknown", outcome: EndpointDeclarationRefused, message: `unsupported exposure "ingress"`, rule: ruleExposureKnown},
+		{name: "exposure-omitted-on-public", outcome: EndpointDeclarationRefused, message: `declares visibility "public" but states no exposure`, rule: ruleExposureDeclared},
 		{name: "endpoint-key-unknown", outcome: EndpointDeclarationRefused, message: `declares unknown key "visibilty"`, rule: ruleEndpointKeysKnown},
 		// The forbidden key is refused by PRESENCE, before decoding: any value
 		// (a module, the wildcard, an empty list, null) and any spelling.
