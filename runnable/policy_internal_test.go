@@ -19,21 +19,22 @@ import (
 // and a zero there would be indistinguishable from a vocabulary never set.
 func fullSpec() *OperationSpec {
 	return &OperationSpec{
-		Method:         "POST /v1/items",
-		AttemptTimeout: 10 * time.Second,
-		TotalTimeout:   time.Minute,
-		MaxAttempts:    3,
-		Backoff:        time.Second,
-		RetryableCodes: []string{"503"},
-		Codes:          HTTPStatusCodes,
-		Audience:       "acme.items",
-		InvokeScopes:   []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}},
-		LookupScopes:   []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}},
-		LookupMethod:   "/acme.items.v1.Items/Lookup",
-		MaxInputBytes:  1024,
-		MaxOutputBytes: 2048,
-		Completion:     basev0.RunnableExecution_COMPLETION_CALL,
-		Tool:           &runnablev0.ToolExposure{Name: "apply_item", Description: "Apply an item change.", Effect: runnablev0.ToolExposure_EFFECT_MUTATION},
+		Method:             "POST /v1/items",
+		AttemptTimeout:     10 * time.Second,
+		TotalTimeout:       time.Minute,
+		MaxAttempts:        3,
+		Backoff:            time.Second,
+		RetryableCodes:     []string{"503"},
+		Codes:              HTTPStatusCodes,
+		Audience:           "acme.items",
+		InvokeScopes:       []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}},
+		LookupScopes:       []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}},
+		LookupMethod:       "/acme.items.v1.Items/Lookup",
+		MaxInputBytes:      1024,
+		MaxOutputBytes:     2048,
+		Completion:         basev0.RunnableExecution_COMPLETION_CALL,
+		Tool:               &runnablev0.ToolExposure{Name: "apply_item", Description: "Apply an item change.", Effect: runnablev0.ToolExposure_EFFECT_MUTATION},
+		RequiredScopeSlots: []*runnablev0.ScopeSlot{{Name: "model", RequiredActions: []string{"invoke", "read"}, Lookup: true}},
 	}
 }
 
@@ -80,13 +81,31 @@ func TestPolicyRoundTripsEveryField(t *testing.T) {
 		},
 		Policy: policy,
 	}
-	// EncodePrepared validates the delivered policy; a conversion that wrote
-	// something Validate refuses would be refused here, not repaired.
+	// preparedPolicy reads back every field Policy wrote, the slots included —
+	// read directly, because a binding still carrying a slot is refused before
+	// it is ever delivered.
+	read := preparedPolicy(binding, HTTPStatusCodes)
+	require.True(t, proto.Equal(policy, read.Policy()),
+		"preparedPolicy does not read back what Policy wrote:\nwritten %v\nread    %v", policy, read.Policy())
+	_, err := EncodePrepared(binding)
+	require.ErrorIs(t, err, ErrUnresolvedScopeSlots)
+
+	// What a binding delivers is the resolved policy. EncodePrepared validates
+	// it; a conversion that wrote something Validate refuses would be refused
+	// here, not repaired.
+	resolved, err := spec.ResolveScopeSlots([]*runnablev0.ScopeSelection{{
+		Slot:   "model",
+		Invoke: []*basev0.WorkScopeV1{{ResourceKind: "model", Actions: []string{"invoke", "read"}, ResourceIds: []string{"model-a"}}},
+		Lookup: []*basev0.WorkScopeV1{{ResourceKind: "model", Actions: []string{"read"}, ResourceIds: []string{"model-a"}}},
+	}})
+	require.NoError(t, err)
+	policy = resolved.Policy()
+	binding.Policy = policy
 	encoded, err := EncodePrepared(binding)
 	require.NoError(t, err)
 	delivered, err := DecodePrepared(encoded)
 	require.NoError(t, err)
-	read := preparedPolicy(delivered, HTTPStatusCodes)
+	read = preparedPolicy(delivered, HTTPStatusCodes)
 	require.Equal(t, spec.Method, read.Method)
 	require.Equal(t, spec.Codes, read.Codes)
 	require.True(t, proto.Equal(policy, read.Policy()),
@@ -97,7 +116,7 @@ func TestPolicyRoundTripsEveryField(t *testing.T) {
 	policy.Tool.Name = "changed"
 	policy.InvokeScopes[0].Actions[0] = "changed"
 	policy.RetryableCodes[0] = "changed"
-	require.Equal(t, "apply_item", spec.Tool.Name)
-	require.Equal(t, "read", spec.InvokeScopes[0].Actions[0])
-	require.Equal(t, "503", spec.RetryableCodes[0])
+	require.Equal(t, "apply_item", resolved.Tool.Name)
+	require.Equal(t, "read", resolved.InvokeScopes[0].Actions[0])
+	require.Equal(t, "503", resolved.RetryableCodes[0])
 }
