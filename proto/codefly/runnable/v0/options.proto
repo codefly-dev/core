@@ -72,6 +72,34 @@ message Operation {
   // a caller that assumed wrongly either abandons work that is still running or
   // waits for a reply that was never going to come.
   codefly.base.v0.RunnableExecution.Completion completion = 12;
+  // tool explicitly permits discovery as a tool. Absent means not exposed;
+  // presence never grants a caller authority to discover or invoke it. The
+  // host still checks installation, exposure and current caller permissions.
+  ToolExposure tool = 13;
+}
+
+// ToolExposure is an owner's explicit tool contribution. Input and output
+// schemas come from the operation contract, never from a second declaration.
+message ToolExposure {
+  // Effect is the operation's declared effect, independent of its HTTP verb,
+  // method name or scope spelling. Idempotent mutations are still mutations.
+  enum Effect {
+    // EFFECT_UNSPECIFIED is not an admissible exposure: omission is not read-only.
+    EFFECT_UNSPECIFIED = 0;
+    // EFFECT_READ_ONLY observes owner state without changing it.
+    EFFECT_READ_ONLY = 1;
+    // EFFECT_MUTATION may change owner state and requires the caller's effect
+    // authorization and any approval its installation policy requires.
+    EFFECT_MUTATION = 2;
+  }
+  // name is the stable model-facing name, 1..64 ASCII letters, digits, '_' or
+  // '-', beginning with a letter. An admitting tool set rejects collisions.
+  string name = 1;
+  // description is bounded owner-authored text, not authority or instructions
+  // to bypass the caller's policy. It is at most 4096 UTF-8 bytes.
+  string description = 2;
+  // effect must be explicitly declared. No transport or scope implies it.
+  Effect effect = 3;
 }
 
 extend google.protobuf.MethodOptions {

@@ -62,6 +62,7 @@ func OperationFromOpenAPIMarker(marker json.RawMessage, operation string) (*Oper
 		MaxInputBytes:  declared.GetMaxInputBytes(),
 		MaxOutputBytes: declared.GetMaxOutputBytes(),
 		Completion:     declared.GetCompletion(),
+		Tool:           proto.CloneOf(declared.GetTool()),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err

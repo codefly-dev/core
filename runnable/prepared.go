@@ -166,5 +166,6 @@ func preparedPolicy(binding *runnablev0.PreparedBinding, codes CodeVocabulary) *
 		MaxInputBytes:  declared.GetMaxInputBytes(),
 		MaxOutputBytes: declared.GetMaxOutputBytes(),
 		Completion:     declared.GetCompletion(),
+		Tool:           proto.CloneOf(declared.GetTool()),
 	}
 }

@@ -144,6 +144,8 @@ type OperationSpec struct {
 	MaxOutputBytes uint64
 	// Completion is how the operation's answer arrives.
 	Completion basev0.RunnableExecution_Completion
+	// Tool is explicit optional exposure metadata, never a grant. Nil is hidden.
+	Tool *runnablev0.ToolExposure
 }
 
 // ServiceOwner is the published service a derived operation is reached on: the
@@ -220,6 +222,7 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 		MaxInputBytes:  declared.GetMaxInputBytes(),
 		MaxOutputBytes: declared.GetMaxOutputBytes(),
 		Completion:     declared.GetCompletion(),
+		Tool:           proto.CloneOf(declared.GetTool()),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err
@@ -314,6 +317,9 @@ func (s *OperationSpec) Validate() error {
 	if s.Completion != basev0.RunnableExecution_COMPLETION_CALL && s.Completion != basev0.RunnableExecution_COMPLETION_SUBMIT {
 		return fmt.Errorf("%w: %s declares no completion mode; %s and %s are the two, and an operation that did not say is not a synchronous one",
 			ErrInvalid, s.Method, basev0.RunnableExecution_COMPLETION_CALL, basev0.RunnableExecution_COMPLETION_SUBMIT)
+	}
+	if err := ValidateToolExposure(s.Tool); err != nil {
+		return err
 	}
 	return s.authority().validate()
 }

@@ -25,6 +25,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Effect is the operation's declared effect, independent of its HTTP verb,
+// method name or scope spelling. Idempotent mutations are still mutations.
+type ToolExposure_Effect int32
+
+const (
+	// EFFECT_UNSPECIFIED is not an admissible exposure: omission is not read-only.
+	ToolExposure_EFFECT_UNSPECIFIED ToolExposure_Effect = 0
+	// EFFECT_READ_ONLY observes owner state without changing it.
+	ToolExposure_EFFECT_READ_ONLY ToolExposure_Effect = 1
+	// EFFECT_MUTATION may change owner state and requires the caller's effect
+	// authorization and any approval its installation policy requires.
+	ToolExposure_EFFECT_MUTATION ToolExposure_Effect = 2
+)
+
+// Enum value maps for ToolExposure_Effect.
+var (
+	ToolExposure_Effect_name = map[int32]string{
+		0: "EFFECT_UNSPECIFIED",
+		1: "EFFECT_READ_ONLY",
+		2: "EFFECT_MUTATION",
+	}
+	ToolExposure_Effect_value = map[string]int32{
+		"EFFECT_UNSPECIFIED": 0,
+		"EFFECT_READ_ONLY":   1,
+		"EFFECT_MUTATION":    2,
+	}
+)
+
+func (x ToolExposure_Effect) Enum() *ToolExposure_Effect {
+	p := new(ToolExposure_Effect)
+	*p = x
+	return p
+}
+
+func (x ToolExposure_Effect) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ToolExposure_Effect) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_runnable_v0_options_proto_enumTypes[0].Descriptor()
+}
+
+func (ToolExposure_Effect) Type() protoreflect.EnumType {
+	return &file_codefly_runnable_v0_options_proto_enumTypes[0]
+}
+
+func (x ToolExposure_Effect) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ToolExposure_Effect.Descriptor instead.
+func (ToolExposure_Effect) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_runnable_v0_options_proto_rawDescGZIP(), []int{1, 0}
+}
+
 // Operation marks one method as a Runnable operation and declares how it is
 // executed. Policy and authority are installed with the binding, so they are
 // deliberately not part of the package the method derives: the package is the
@@ -74,7 +129,11 @@ type Operation struct {
 	// the policy: an operation that did not say is not a synchronous one, because
 	// a caller that assumed wrongly either abandons work that is still running or
 	// waits for a reply that was never going to come.
-	Completion    v0.RunnableExecution_Completion `protobuf:"varint,12,opt,name=completion,proto3,enum=codefly.base.v0.RunnableExecution_Completion" json:"completion,omitempty"`
+	Completion v0.RunnableExecution_Completion `protobuf:"varint,12,opt,name=completion,proto3,enum=codefly.base.v0.RunnableExecution_Completion" json:"completion,omitempty"`
+	// tool explicitly permits discovery as a tool. Absent means not exposed;
+	// presence never grants a caller authority to discover or invoke it. The
+	// host still checks installation, exposure and current caller permissions.
+	Tool          *ToolExposure `protobuf:"bytes,13,opt,name=tool,proto3" json:"tool,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -193,6 +252,80 @@ func (x *Operation) GetCompletion() v0.RunnableExecution_Completion {
 	return v0.RunnableExecution_Completion(0)
 }
 
+func (x *Operation) GetTool() *ToolExposure {
+	if x != nil {
+		return x.Tool
+	}
+	return nil
+}
+
+// ToolExposure is an owner's explicit tool contribution. Input and output
+// schemas come from the operation contract, never from a second declaration.
+type ToolExposure struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the stable model-facing name, 1..64 ASCII letters, digits, '_' or
+	// '-', beginning with a letter. An admitting tool set rejects collisions.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// description is bounded owner-authored text, not authority or instructions
+	// to bypass the caller's policy. It is at most 4096 UTF-8 bytes.
+	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	// effect must be explicitly declared. No transport or scope implies it.
+	Effect        ToolExposure_Effect `protobuf:"varint,3,opt,name=effect,proto3,enum=codefly.runnable.v0.ToolExposure_Effect" json:"effect,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ToolExposure) Reset() {
+	*x = ToolExposure{}
+	mi := &file_codefly_runnable_v0_options_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ToolExposure) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ToolExposure) ProtoMessage() {}
+
+func (x *ToolExposure) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_runnable_v0_options_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ToolExposure.ProtoReflect.Descriptor instead.
+func (*ToolExposure) Descriptor() ([]byte, []int) {
+	return file_codefly_runnable_v0_options_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ToolExposure) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ToolExposure) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *ToolExposure) GetEffect() ToolExposure_Effect {
+	if x != nil {
+		return x.Effect
+	}
+	return ToolExposure_EFFECT_UNSPECIFIED
+}
+
 var file_codefly_runnable_v0_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
@@ -217,7 +350,7 @@ var File_codefly_runnable_v0_options_proto protoreflect.FileDescriptor
 
 const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\n" +
-	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\x1ecodefly/base/v0/runnable.proto\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\xf8\x04\n" +
+	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\x1ecodefly/base/v0/runnable.proto\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\xaf\x05\n" +
 	"\tOperation\x12B\n" +
 	"\x0fattempt_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0eattemptTimeout\x12>\n" +
 	"\rtotal_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\ftotalTimeout\x12!\n" +
@@ -233,7 +366,16 @@ const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\x10max_output_bytes\x18\v \x01(\x04R\x0emaxOutputBytes\x12M\n" +
 	"\n" +
 	"completion\x18\f \x01(\x0e2-.codefly.base.v0.RunnableExecution.CompletionR\n" +
-	"completion:^\n" +
+	"completion\x125\n" +
+	"\x04tool\x18\r \x01(\v2!.codefly.runnable.v0.ToolExposureR\x04tool\"\xd3\x01\n" +
+	"\fToolExposure\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12@\n" +
+	"\x06effect\x18\x03 \x01(\x0e2(.codefly.runnable.v0.ToolExposure.EffectR\x06effect\"K\n" +
+	"\x06Effect\x12\x16\n" +
+	"\x12EFFECT_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10EFFECT_READ_ONLY\x10\x01\x12\x13\n" +
+	"\x0fEFFECT_MUTATION\x10\x02:^\n" +
 	"\toperation\x12\x1e.google.protobuf.MethodOptions\x18\xbb\x8e\x03 \x01(\v2\x1e.codefly.runnable.v0.OperationR\toperationB\xd3\x01\n" +
 	"\x17com.codefly.runnable.v0B\fOptionsProtoP\x01Z<github.com/codefly-dev/core/generated/go/codefly/runnable/v0\xa2\x02\x03CRV\xaa\x02\x13Codefly.Runnable.V0\xca\x02\x13Codefly\\Runnable\\V0\xe2\x02\x1fCodefly\\Runnable\\V0\\GPBMetadata\xea\x02\x15Codefly::Runnable::V0b\x06proto3"
 
@@ -249,28 +391,33 @@ func file_codefly_runnable_v0_options_proto_rawDescGZIP() []byte {
 	return file_codefly_runnable_v0_options_proto_rawDescData
 }
 
-var file_codefly_runnable_v0_options_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_codefly_runnable_v0_options_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_codefly_runnable_v0_options_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_codefly_runnable_v0_options_proto_goTypes = []any{
-	(*Operation)(nil),                    // 0: codefly.runnable.v0.Operation
-	(*durationpb.Duration)(nil),          // 1: google.protobuf.Duration
-	(*v0.WorkScopeV1)(nil),               // 2: codefly.base.v0.WorkScopeV1
-	(v0.RunnableExecution_Completion)(0), // 3: codefly.base.v0.RunnableExecution.Completion
-	(*descriptorpb.MethodOptions)(nil),   // 4: google.protobuf.MethodOptions
+	(ToolExposure_Effect)(0),             // 0: codefly.runnable.v0.ToolExposure.Effect
+	(*Operation)(nil),                    // 1: codefly.runnable.v0.Operation
+	(*ToolExposure)(nil),                 // 2: codefly.runnable.v0.ToolExposure
+	(*durationpb.Duration)(nil),          // 3: google.protobuf.Duration
+	(*v0.WorkScopeV1)(nil),               // 4: codefly.base.v0.WorkScopeV1
+	(v0.RunnableExecution_Completion)(0), // 5: codefly.base.v0.RunnableExecution.Completion
+	(*descriptorpb.MethodOptions)(nil),   // 6: google.protobuf.MethodOptions
 }
 var file_codefly_runnable_v0_options_proto_depIdxs = []int32{
-	1, // 0: codefly.runnable.v0.Operation.attempt_timeout:type_name -> google.protobuf.Duration
-	1, // 1: codefly.runnable.v0.Operation.total_timeout:type_name -> google.protobuf.Duration
-	1, // 2: codefly.runnable.v0.Operation.backoff:type_name -> google.protobuf.Duration
-	2, // 3: codefly.runnable.v0.Operation.invoke_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	2, // 4: codefly.runnable.v0.Operation.lookup_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	3, // 5: codefly.runnable.v0.Operation.completion:type_name -> codefly.base.v0.RunnableExecution.Completion
-	4, // 6: codefly.runnable.v0.operation:extendee -> google.protobuf.MethodOptions
-	0, // 7: codefly.runnable.v0.operation:type_name -> codefly.runnable.v0.Operation
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	7, // [7:8] is the sub-list for extension type_name
-	6, // [6:7] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3,  // 0: codefly.runnable.v0.Operation.attempt_timeout:type_name -> google.protobuf.Duration
+	3,  // 1: codefly.runnable.v0.Operation.total_timeout:type_name -> google.protobuf.Duration
+	3,  // 2: codefly.runnable.v0.Operation.backoff:type_name -> google.protobuf.Duration
+	4,  // 3: codefly.runnable.v0.Operation.invoke_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	4,  // 4: codefly.runnable.v0.Operation.lookup_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	5,  // 5: codefly.runnable.v0.Operation.completion:type_name -> codefly.base.v0.RunnableExecution.Completion
+	2,  // 6: codefly.runnable.v0.Operation.tool:type_name -> codefly.runnable.v0.ToolExposure
+	0,  // 7: codefly.runnable.v0.ToolExposure.effect:type_name -> codefly.runnable.v0.ToolExposure.Effect
+	6,  // 8: codefly.runnable.v0.operation:extendee -> google.protobuf.MethodOptions
+	1,  // 9: codefly.runnable.v0.operation:type_name -> codefly.runnable.v0.Operation
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	9,  // [9:10] is the sub-list for extension type_name
+	8,  // [8:9] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codefly_runnable_v0_options_proto_init() }
@@ -283,13 +430,14 @@ func file_codefly_runnable_v0_options_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_runnable_v0_options_proto_rawDesc), len(file_codefly_runnable_v0_options_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   1,
+			NumEnums:      1,
+			NumMessages:   2,
 			NumExtensions: 1,
 			NumServices:   0,
 		},
 		GoTypes:           file_codefly_runnable_v0_options_proto_goTypes,
 		DependencyIndexes: file_codefly_runnable_v0_options_proto_depIdxs,
+		EnumInfos:         file_codefly_runnable_v0_options_proto_enumTypes,
 		MessageInfos:      file_codefly_runnable_v0_options_proto_msgTypes,
 		ExtensionInfos:    file_codefly_runnable_v0_options_proto_extTypes,
 	}.Build()

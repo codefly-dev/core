@@ -829,3 +829,29 @@ half core implements, which is what the runtime builds its own half against.
   not the contract.
 - **Orchestration** owns registration, activation, tasks, attempts and
   receipts, translating the binding into its own compute contract.
+
+### Explicit tool exposure
+
+A Runnable is not automatically a discoverable tool. An owner opts in with
+`Operation.tool` in the method option or the same `tool` object in the
+`x-codefly-operation` OpenAPI marker. It declares a stable `name`, bounded
+`description`, and an explicit `effect`: `EFFECT_READ_ONLY` or
+`EFFECT_MUTATION`. Absence keeps the operation hidden; an empty exposure or an
+unspecified effect is invalid. HTTP verbs, scope names, receipt support and
+idempotence never classify a mutation as read-only.
+
+The input/output schema remains the operation's derived `RunnableContract`.
+`OperationSpec.Tool` retains exposure during derivation, and a prepared binding
+carries it in `policy.tool`. Delivery writers must preserve that field when
+converting a spec to policy. `ToolFromPrepared` validates the complete binding
+(including its contract digest) and returns a detached exposure with no route,
+credential or authority scopes. A valid unexposed operation returns
+`ErrNotATool`.
+
+Core validates the declaration, not the publisher's identity or the viewer's
+permissions. The host must authenticate the declaration source and project only
+currently permitted installations/operations. Admission must reject duplicate
+tool names and freeze the exact binding, contract and exposure; the contract
+digest alone covers schemas, **not** policy or tool metadata. Every invocation
+and receipt lookup still needs current, narrowly delegated caller authority.
+A read-only declaration is an owner assertion, never an authorization grant.

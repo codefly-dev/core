@@ -41,13 +41,21 @@ git fetch "$remote" main
 # buf calls it a deletion — a break reported on a branch that touched no .proto.
 baseline="$(git merge-base "$remote/main" HEAD)"
 
+# Materialize only the baseline's schema. Asking buf to clone .git causes a
+# partial-clone worktree's upload-pack to read missing promisor blobs with lazy
+# fetching disabled. git archive runs in this repository, where Git can fetch
+# its own missing objects, and also works when .git is a worktree pointer file.
+baseline_dir="$(mktemp -d)"
+trap 'rm -rf "$baseline_dir"' EXIT
+git archive "$baseline" proto | tar -x -C "$baseline_dir"
+
 findings=""
 status=0
 # buf resolves buf.lock deps from the BSR on every run, so anything other than
 # 0 or 100 is buf failing rather than a verdict on the schema. Retry those.
 for attempt in 1 2 3; do
   set +e
-  findings="$(cd proto && buf breaking --against "../.git#ref=${baseline},subdir=proto" 2>&1)"
+  findings="$(cd proto && buf breaking --against "$baseline_dir/proto" 2>&1)"
   status=$?
   set -e
   if [ "$status" -eq 0 ] || [ "$status" -eq 100 ]; then
