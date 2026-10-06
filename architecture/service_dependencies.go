@@ -302,8 +302,9 @@ func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*Servi
 }
 
 // participatingSubgraph selects the fixed point of ordering prerequisites and
-// configuration producers. Participation is not an ordering edge: reciprocal
-// endpoint references must resolve both services without creating a start cycle.
+// configuration producers. Participation is not an ordering edge: a reciprocal
+// endpoint reference selects both services without creating a start cycle, and
+// promises neither an address before the other has started.
 func (d *ServiceDependencies) participatingSubgraph(unique string) (*DAG, error) {
 	if !d.graph.HasNode(unique) {
 		return nil, fmt.Errorf("service %s is not in the graph", unique)
