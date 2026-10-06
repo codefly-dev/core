@@ -81,12 +81,6 @@ if [ "${#skipped[@]}" -gt 0 ]; then
 fi
 echo "$BASE" > "$OUT/base"
 
-# The combined pull request, if one is already open. Recorded HERE so the
-# publish half decides nothing for itself: it pushes what this job assembled
-# and edits the pull request this job found, rather than re-asking and acting
-# on a different answer.
-gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number // empty' \
-  > "$OUT/existing_pr"
 
 {
   echo "Every open Dependabot pull request, replayed onto one branch by"

@@ -40,9 +40,6 @@ import (
 // jobTemplate is one permitted shape.
 type jobTemplate struct {
 	workflow, job string
-	// digest is the SHA-256 of the job's canonical YAML. It pins every field,
-	// including the ones no rule here would have thought to read.
-	digest string
 	// executedBy is the test that runs this job's own script against real
 	// repositories, where it has one. A template whose behaviour nothing
 	// executes is accepted only for a job that runs no script of its own.
@@ -79,9 +76,9 @@ var permittedCredentialJobs = []jobTemplate{
 	},
 }
 
-// canonicalJobDigest renders a job to canonical YAML and hashes it, so the
-// digest depends on the job's content and not on its formatting.
-func canonicalJobDigest(t *testing.T, node yaml.Node) string {
+// canonicalDigest renders a document to canonical YAML and hashes it, so the
+// digest depends on content and not on formatting.
+func canonicalDigest(t *testing.T, node yaml.Node) string {
 	t.Helper()
 
 	var canonical any
@@ -89,6 +86,35 @@ func canonicalJobDigest(t *testing.T, node yaml.Node) string {
 	rendered, err := yaml.Marshal(canonical)
 	require.NoError(t, err)
 	sum := sha256.Sum256(rendered)
+	return hex.EncodeToString(sum[:])
+}
+
+// canonicalWorkflowDigest hashes the WHOLE workflow document, not the job block.
+//
+// A job does not run in isolation: `defaults: run: shell:` at workflow level
+// chooses the interpreter for every step in it, and workflow-level `env:` is in
+// scope for all of them. Hashing the job alone left both outside the record, so
+// the interpreter a refusal runs under, and the environment it runs in, could
+// be replaced while the job itself and its digest were untouched.
+func canonicalWorkflowDigest(t *testing.T, path string) string {
+	t.Helper()
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var document yaml.Node
+	require.NoError(t, yaml.Unmarshal(raw, &document), path)
+	return canonicalDigest(t, document)
+}
+
+// canonicalFileDigest hashes a file that is not YAML -- a script a registered
+// job runs -- so that what runs from the tree is pinned as firmly as the
+// workflow that runs it.
+func canonicalFileDigest(t *testing.T, path string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
 }
 
@@ -116,15 +142,22 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool
 			"unreviewed code is not a set this package can enumerate"
 	}
 
-	raw, ok := wf.raw[id]
-	require.True(t, ok, "job %q was not captured verbatim", id)
-	digest := canonicalJobDigest(t, raw)
-	if template.digest != "" && template.digest != digest {
-		return false, "its shape has changed. The registered template for " +
-			template.workflow + "/" + template.job + " (" + template.why + ") is " +
-			template.digest[:12] + " and this job is " + digest[:12] + ". Update the " +
-			"template and the test that executes it in the same change, so the new " +
-			"shape is approved rather than assumed"
+	// The comparison. The registry's own field was always empty, so this
+	// previously accepted every registered name whatever its content -- the
+	// check existed and decided nothing. The recorded digest is the authority
+	// and a missing record refuses.
+	recorded, present := recordedDigests[template.workflow]
+	if !present {
+		return false, "no shape is recorded for " + template.workflow +
+			", so nothing pins what this job runs"
+	}
+	actual := canonicalWorkflowDigest(t,
+		filepath.Join(repoRoot(t), ".github", "workflows", template.workflow))
+	if recorded != actual {
+		return false, template.workflow + " has changed shape: recorded " +
+			recorded[:12] + ", actual " + actual[:12] + " (" + template.why +
+			"). Update recordedDigests and the test that executes this job in the " +
+			"same change, so the new shape is approved rather than inherited"
 	}
 	return true, ""
 }
@@ -136,12 +169,20 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool
 // of these jobs changes its digest, and the guard then refuses the job until
 // this line is updated -- which is the review step: somebody has to look at
 // what changed and approve it, rather than the change being inherited.
+// recordedFileDigests pins the content of each repository file a registered job
+// runs. A workflow digest cannot cover a script in the tree, so the script is
+// hashed too -- otherwise one line added to it runs unreviewed code with the
+// job's credential while the workflow is untouched.
+var recordedFileDigests = map[string]string{
+	".github/scripts/combine-deps-plan.sh":    "ade2737c41da8b1cc92966a4feb598c9481a9b09dafc643f271dad3aa155fdc1",
+	".github/scripts/combine-deps-publish.sh": "c2d4bb3c30be1fb8e729f28e2d09ffa9df0ea660187d03d170c436313a929a46",
+}
+
 var recordedDigests = map[string]string{
-	"combine-deps.yml/publish":          "b16775ce2f7483b3a53f9fac309f8fa134dbc1ce9f614fadd2f09dc9d9221544",
-	"go-service-release.yml/goreleaser": "f4e09a91c416c6e8ea1cd214b3742b8ce46627b9dcacfe50584391f6bb32ba03",
-	"go.yml/coverage-badge":             "1930ae41205e021a17e03947d6822a6bbf0a1146190bbaf9dba19c279a1bc510",
-	"go.yml/notify":                     "2c89cd13ad6d21a8affc6cb4612c169d59de8945f4592b5fdc2672dd1e153187",
-	"version-tag.yml/tag":               "d6e0d6228121aaabf1e8359ebdcd4b2a4a8fdf57375548ae41dd3d7b8f933d76",
+	"combine-deps.yml":       "2ddc71ebfde5eff4d8646d53dca254a9b631a4a951589d5ff587962c09e43e50",
+	"go-service-release.yml": "948ce39695f2cdbd2f122718cc9623e227ccf6f44acc454f180ff80642d35a9d",
+	"go.yml":                 "03f297ef163adea42f0e9b9f2038d721429e482f4d402f7c554b09644395d061",
+	"version-tag.yml":        "25972c82482fb3ae6196371328df126843c3e8a1b4aae7b863693bbad5fac641",
 }
 
 // TestEveryPermittedJobMatchesItsRecordedShape is the gate: each permitted job
@@ -167,17 +208,17 @@ func TestEveryPermittedJobMatchesItsRecordedShape(t *testing.T) {
 			raw, ok := wf.raw[template.job]
 			require.True(t, ok, "%s has no job %q", template.workflow, template.job)
 
-			digest := canonicalJobDigest(t, raw)
-			recorded, present := recordedDigests[template.workflow+"/"+template.job]
+			_ = raw
+			digest := canonicalWorkflowDigest(t,
+				filepath.Join(repoRoot(t), ".github", "workflows", template.workflow))
+			recorded, present := recordedDigests[template.workflow]
 			require.True(t, present,
-				"no shape recorded for %s/%s. Add this line to recordedDigests:\n"+
-					"\t%q: %q,", template.workflow, template.job,
-				template.workflow+"/"+template.job, digest)
+				"no shape recorded for %s. Add this line to recordedDigests:\n"+
+					"\t%q: %q,", template.workflow, template.workflow, digest)
 			require.Equal(t, recorded, digest,
-				"%s/%s has changed shape. It is %s (%s). If the change is intended, "+
-					"update recordedDigests and the test that executes this job, so the "+
-					"new shape is approved rather than inherited.",
-				template.workflow, template.job, template.why, digest)
+				"%s has changed shape (%s). If intended, update recordedDigests and "+
+					"the test that executes this job in the same change.",
+				template.workflow, template.why)
 
 			if template.executedBy != "" {
 				require.Contains(t, tests, "func "+template.executedBy+"(",

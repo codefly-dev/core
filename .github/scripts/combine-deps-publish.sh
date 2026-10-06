@@ -25,16 +25,43 @@ fi
 BASE="$(cat "$IN/base")"
 mapfile -t combined < "$IN/combined.tsv"
 
-# Into a ref, not into the working tree. `git fetch` from a bundle writes
-# objects and moves a ref; it runs nothing, checks nothing out, and leaves HEAD
-# where it is.
+# Every number this half will act on must be a bare number of THIS repository.
+# The artifact is written by a job that handles unreviewed code, so a value from
+# it is checked before this token is pointed at anything.
+for row in "${combined[@]}"; do
+  number="${row%%$'\t'*}"
+  if ! printf '%s' "$number" | grep -Eq '^[0-9]+$'; then
+    echo "::error::refusing to act on <${number}>: a pull request is named by a bare number here." >&2
+    exit 1
+  fi
+done
+
+# And the bundle may carry nothing but dependency manifests. The plan replays
+# Dependabot commits; anything else in them is not a dependency bump.
 git fetch --quiet "$IN/combined.bundle" "+refs/heads/${BRANCH}:refs/heads/${BRANCH}"
+mapfile -t touched < <(git diff --name-only "origin/${BASE}...refs/heads/${BRANCH}")
+for path in "${touched[@]}"; do
+  case "$path" in
+    go.mod|go.sum|*/go.mod|*/go.sum|package.json|*/package.json|\
+    pnpm-lock.yaml|*/pnpm-lock.yaml|package-lock.json|*/package-lock.json|\
+    .github/workflows/*.yml|requirements*.txt|*/requirements*.txt|Dockerfile|*/Dockerfile) ;;
+    *)
+      echo "::error::refusing to publish: the combined branch changes ${path}, which is not a dependency manifest." >&2
+      exit 1
+      ;;
+  esac
+done
+
+# The ref is already in place from the inspection above; nothing was checked
+# out. `git fetch` from a bundle writes objects and moves a ref, leaving HEAD
+# where it is.
 git push --quiet --force-with-lease origin "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
 
-# From the plan, not recomputed. Asking again could answer differently from
-# what the plan acted on, and then this half would edit something the other
-# half never saw.
-existing="$(cat "$IN/existing_pr")"
+# Recomputed here, deliberately. Reading it from the artifact meant the
+# unprivileged half chose what this half acts on, and a planted value -- a full
+# URL rather than a number -- would point this organisation's token at a pull
+# request in another repository.
+existing="$(gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number // empty')"
 if [ -n "$existing" ]; then
   gh pr edit "$existing" --body-file "$IN/body.md"
   combined_pr="$existing"

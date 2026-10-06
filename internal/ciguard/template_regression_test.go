@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 // Every construction six review rounds produced, asked of the template rule.
@@ -100,54 +99,78 @@ func TestThePermittedShapesAreStillAccepted(t *testing.T) {
 	}
 }
 
-// A template is pinned by a digest over the job's canonical content, so a
-// change anywhere in it -- including a field no rule here reads -- stops
-// matching.
-func TestAnyChangeToAPermittedShapeStopsItMatching(t *testing.T) {
-	_, workflows := loadIsolatedWorkflows(t)
-	path := filepath.Join(repoRoot(t), ".github", "workflows", "go.yml")
+// The record pins the WHOLE workflow document, so a change anywhere in it --
+// including workflow-level `defaults:` and `env:`, which choose the interpreter
+// and the environment every step in the job runs under -- stops matching.
+func TestAnyChangeToAPermittedWorkflowStopsItMatching(t *testing.T) {
+	path := filepath.Join(repoRoot(t), ".github", "workflows", "go-service-release.yml")
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
-	before := canonicalJobDigest(t, workflows[path].raw["notify"])
+	before := canonicalWorkflowDigest(t, path)
 
 	for _, tc := range []struct{ name, from, to string }{
 		{
-			name: "a step added",
-			from: "      - name: Notify Slack on Failure\n",
-			to:   "      - run: ./probe.sh\n      - name: Notify Slack on Failure\n",
+			name: "a workflow-level shell that neutralises the refusal",
+			from: "jobs:\n",
+			to:   "defaults:\n  run:\n    shell: 'true {0}'\njobs:\n",
 		},
 		{
-			name: "a condition changed",
-			from: "    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'\n",
-			to:   "    if: always()\n",
+			name: "a workflow-level environment that redefines a command",
+			from: "jobs:\n",
+			to:   "env:\n  BASH_ENV: .github/release-env.sh\njobs:\n",
 		},
 		{
-			name: "a field no rule reads",
-			from: "    runs-on: ubuntu-latest\n    # Nothing to read and nothing to write",
-			to:   "    runs-on: windows-latest\n    # Nothing to read and nothing to write",
+			name: "a step added to the registered job",
+			from: "      - name: Run GoReleaser\n",
+			to:   "      - run: ./probe.sh\n      - name: Run GoReleaser\n",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Contains(t, string(raw), tc.from)
-			wf := parseIsolatedDocument(t, strings.Replace(string(raw), tc.from, tc.to, 1), "go.yml")
-			wf.name = "go.yml"
-			require.NotEqual(t, before, canonicalJobDigest(t, wf.raw["notify"]),
-				"the change left the digest unchanged, so the template does not pin it")
+			mutated := filepath.Join(t.TempDir(), "go-service-release.yml")
+			require.NoError(t, os.WriteFile(mutated,
+				[]byte(strings.Replace(string(raw), tc.from, tc.to, 1)), 0o600))
+			require.NotEqual(t, before, canonicalWorkflowDigest(t, mutated),
+				"the change left the digest unchanged, so the record does not pin it")
 		})
 	}
 }
 
-// The digest depends on content, not on formatting: a reflowed job is the same
-// shape, or every whitespace change would read as a new one.
+// The digest depends on content, not on formatting, or every whitespace change
+// would read as a new shape.
 func TestTheDigestIgnoresFormatting(t *testing.T) {
-	compact := parseIsolatedDocument(t,
-		"jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n", "a")
-	spelled := parseIsolatedDocument(t,
-		"jobs:\n  j:\n    runs-on: \"ubuntu-latest\"\n    steps:\n    - run: 'echo hi'\n", "b")
-	require.Equal(t,
-		canonicalJobDigest(t, compact.raw["j"]),
-		canonicalJobDigest(t, spelled.raw["j"]))
+	dir := t.TempDir()
+	compact := filepath.Join(dir, "a.yml")
+	spelled := filepath.Join(dir, "b.yml")
+	require.NoError(t, os.WriteFile(compact,
+		[]byte("on: push\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"), 0o600))
+	require.NoError(t, os.WriteFile(spelled,
+		[]byte("on: push\njobs:\n  j:\n    runs-on: \"ubuntu-latest\"\n    steps:\n    - run: 'echo hi'\n"), 0o600))
+	require.Equal(t, canonicalWorkflowDigest(t, compact), canonicalWorkflowDigest(t, spelled))
 	_ = sortedTemplateNames()
-	var node yaml.Node
-	require.NoError(t, yaml.Unmarshal([]byte("a: 1"), &node))
+}
+
+// A registered job must run no repository file that the record does not pin.
+// The dependency-combining publish job is the case: it is the one registered job
+// that invoked a script from the tree.
+func TestARegisteredJobRunsNoUnpinnedRepositoryFile(t *testing.T) {
+	_, workflows := loadIsolatedWorkflows(t)
+
+	for _, template := range permittedCredentialJobs {
+		t.Run(template.workflow+"/"+template.job, func(t *testing.T) {
+			wf := workflows[filepath.Join(repoRoot(t), ".github", "workflows", template.workflow)]
+			for _, step := range wf.Jobs[template.job].Steps {
+				for _, script := range scriptReference.FindAllString(step.Run, -1) {
+					require.Contains(t, recordedFileDigests, script,
+						"%s/%s runs %s, which the record does not pin. Either inline it "+
+							"into the workflow, so the workflow digest covers it, or "+
+							"record its content digest.",
+						template.workflow, template.job, script)
+					require.Equal(t, recordedFileDigests[script],
+						canonicalFileDigest(t, filepath.Join(repoRoot(t), script)),
+						"%s has changed and the record does not reflect it", script)
+				}
+			}
+		})
+	}
 }

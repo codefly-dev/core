@@ -152,29 +152,7 @@ func TestTheCombinedBranchTravelsAsABundleWithoutBeingCheckedOut(t *testing.T) {
 	require.Equal(t, combinedTip, git(origin, "rev-parse", "refs/heads/deps/combined"))
 }
 
-// The two scripts are one mechanism split in half, so the half that assembles
-// must be the half with no credential, and the half that publishes must not
-// re-acquire the pull-request refs. TestNoCredentialBearingJobFetchesPullRequestRefs
-// asserts that from the workflow's side; this asserts it of the files
-// themselves, so moving a line between them cannot pass unnoticed.
-func TestTheAssemblingScriptIsTheOneThatTouchesPullRequestRefs(t *testing.T) {
-	read := func(script string) string {
-		raw, err := os.ReadFile(filepath.Join(repoRoot(t), script))
-		require.NoError(t, err)
-		return string(raw)
-	}
-
-	require.Contains(t, read(planScript), "refs/pull/",
-		"%s is the half that replays pull requests; if it no longer fetches "+
-			"their heads, the split has been rearranged and the guards above are "+
-			"pointing at the wrong file", planScript)
-
-	publish := read(publishScript)
-	for _, reach := range []string{"refs/pull/", "cherry-pick", "git checkout", "git switch"} {
-		require.NotContains(t, publish, reach,
-			"%s runs with the combining credential and must not %s: the commits "+
-				"reach it as a bundle precisely so that the tree is never "+
-				"assembled or selected beside the token",
-			publishScript, reach)
-	}
-}
+// The split itself is pinned by content rather than by substring: both scripts
+// are recorded in recordedFileDigests, so moving a line from one half to the
+// other changes a digest and refuses. A `strings.Contains` over a script was
+// the scanner's last form, and it could be satisfied by a comment.
