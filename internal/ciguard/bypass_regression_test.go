@@ -1227,3 +1227,136 @@ func TestTaintReachesEverySink(t *testing.T) {
 		})
 	}
 }
+
+// The sinks and laundering routes an ordered taint analysis has to cover, and
+// the two rules that had no witness. Each is a complete job through the same
+// decision the guards use.
+func TestTaintAndDominanceCoverEveryRoute(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		job      string
+		accepted bool
+	}{
+		{
+			name: "a shell checkout that moves the tree off the pinned ref",
+			job: `    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: git checkout topic/one
+      - run: go test ./...`,
+		},
+		{
+			name: "taint laundered through a shell local",
+			job: `    env: {TASK: "${{ github.event.pull_request.body }}", CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: |
+          ALIAS="$TASK"
+          NEXT=$ALIAS
+          echo "NEXT=$NEXT" >> $GITHUB_ENV
+      - run: eval "$NEXT"`,
+		},
+		{
+			name: "a tainted export expanded into a later script",
+			job: `    env: {TASK: "${{ github.event.pull_request.body }}", CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: echo "NEXT=$TASK" >> $GITHUB_ENV
+      - run: echo "${{ env.NEXT }}"`,
+		},
+		{
+			name: "a script loaded into every later shell",
+			job: `    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: echo "BASH_ENV=$RUNNER_TEMP/probe" >> $GITHUB_ENV
+      - run: echo hello`,
+		},
+		{
+			name: "a shell named by the workflow's defaults",
+			job: `    env: {TASK: "${{ github.event.pull_request.body }}", CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: exec(os.environ['TASK'])`,
+			// workflow-level defaults are supplied by the document below.
+		},
+		{
+			name: "inherited taint from the workflow's environment",
+			job: `    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: eval "$INHERITED"`,
+		},
+		{
+			name:     "and a job that launders nothing is accepted",
+			accepted: true,
+			job: `    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: echo "NEXT=go test ./..." >> $GITHUB_ENV
+      - run: eval "$NEXT"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prologue := "on: pull_request_target\n"
+			if strings.Contains(tc.name, "workflow's defaults") {
+				prologue += "defaults:\n  run:\n    shell: python\n"
+			}
+			if strings.Contains(tc.name, "inherited taint") {
+				prologue += "env:\n  INHERITED: \"${{ github.event.pull_request.body }}\"\n"
+			}
+			wf := parseIsolatedDocument(t,
+				prologue+"jobs:\n  probe:\n    runs-on: ubuntu-latest\n"+tc.job+"\n", tc.name)
+			ok, missing := acceptedExecution(t, wf, "probe")
+			require.Equal(t, tc.accepted, ok, "guard said %q", missing)
+		})
+	}
+}
+
+// P15 where it arises: a shell checkout after the real registered refusal, in
+// the workflow that has one. A refusal proves a commit; a script that moves the
+// tree afterwards has selected something the refusal never saw.
+func TestAShellCheckoutAfterTheRealRefusalIsRefused(t *testing.T) {
+	known := verifiedRefusals[1]
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", known.workflow))
+	require.NoError(t, err)
+	anchor := "      - name: Run GoReleaser\n"
+	require.Contains(t, string(raw), anchor)
+
+	for _, tc := range []struct {
+		name     string
+		step     string
+		accepted bool
+	}{
+		{
+			name:     "moving the tree to another branch",
+			step:     "      - run: git checkout topic/one\n",
+			accepted: false,
+		},
+		{
+			name:     "resetting the tree",
+			step:     "      - run: git reset --hard topic/one\n",
+			accepted: false,
+		},
+		{
+			name:     "binding the commit the refusal proved",
+			step:     "      - run: git switch --detach \"$GITHUB_SHA\"\n",
+			accepted: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t,
+				strings.Replace(string(raw), anchor, tc.step+anchor, 1), known.workflow)
+			wf.name = known.workflow
+			ok, missing := acceptedExecution(t, wf, known.job)
+			require.Equal(t, tc.accepted, ok, "guard said %q", missing)
+		})
+	}
+}

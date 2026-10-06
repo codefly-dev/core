@@ -80,15 +80,27 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string, hosti
 // repository has not reviewed.
 var partyChosenContexts = []string{"inputs", "github.event", "matrix", "needs"}
 
-// acceptedExecution reports whether a job proves what it runs, by pinning or by
-// refusing, and says what is missing when it does not.
+// acceptedExecution decides whether a credential-bearing job establishes what
+// it executes.
+//
+// ONE ordered pass over every step the job runs -- its own and those of any
+// local action it invokes -- carrying two things: the set of names whose value
+// the triggering party supplies, and whether a refusal has succeeded. Each step
+// is then checked against every sink a value can become a program through, and
+// anything this pass cannot follow REFUSES rather than being assumed clean.
+//
+// Rules that enumerate command shapes were replaced because each round found a
+// sink the list did not have. The sinks are: a script, every input of every
+// action, $GITHUB_ENV, $GITHUB_PATH, $BASH_ENV, a matrix, an expression alias,
+// and a shell assignment. Dominance is the other half: after a refusal, no step
+// may run unless the refusal succeeded, and no step may change the tree away
+// from the commit the refusal proved.
 func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, string) {
 	t.Helper()
 
 	job := wf.Jobs[id]
 
-	// A job that calls another workflow executes nothing itself. It may only
-	// hand a credential to a workflow this package also reads.
+	// A job that calls another workflow executes nothing itself.
 	if strings.TrimSpace(job.Uses) != "" {
 		if !strings.HasPrefix(strings.TrimSpace(job.Uses), "./") {
 			return false, "it hands a credential to " + job.Uses +
@@ -100,47 +112,15 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 	if reason, ok := executionSurfaceIsPinned(t, wf, id); !ok {
 		return false, reason
 	}
-	// A ref pin constrains the TREE. These constrain what is run from it, and
-	// they apply to both acceptance paths below: an ancestry refusal proves the
-	// commit was merged, not that the program came from it.
-	if reason, ok := executionInputsArePinned(t, wf, wf.Jobs[id]); !ok {
-		return false, reason
-	}
 
-	// (3) A refusal whose behaviour a test establishes, placed before anything
-	// executes. The registry decides, not the script's wording.
-	//
-	// A valid proof does NOT end the question. It establishes that the commit
-	// the job starts from was merged; it says nothing about a checkout later in
-	// the same job, or inside an action it invokes. So this records that the
-	// proof is present and keeps going -- there is no early return.
-	provenByRefusal := false
-	if index, reason, found := verifiedRefusalIndex(wf.name, id, job.Steps); found {
-		if first, executes := firstExecutingStepIndex(job, index); executes && first < index {
-			return false, "its refusal is at step " + job.Steps[index].Name +
-				" but step " + job.Steps[first].Name + " executes repository code before it"
+	// A matrix reaches every step that reads `matrix.*`.
+	if job.Strategy.Kind != 0 {
+		var rendered strings.Builder
+		require.NoError(t, yaml.NewEncoder(&rendered).Encode(job.Strategy))
+		if partyChosen(t, rendered.String()) {
+			return false, "its strategy/matrix is built from a value the triggering " +
+				"party supplies, so every step reading matrix.* reads that value"
 		}
-		// Preceding execution is not enough: execution must be DOMINATED by the
-		// refusal having succeeded. A later step carrying `if: always()` --
-		// or `failure()`, or any condition whose relationship to the refusal
-		// cannot be established -- runs after the refusal has failed, with the
-		// credential and the unmerged tree. So after a refusal, a step carries
-		// no condition.
-		for i := index + 1; i < len(job.Steps); i++ {
-			later := job.Steps[i]
-			if gate := strings.TrimSpace(later.If); gate != "" {
-				return false, "step " + later.Name + " carries `if: " + gate +
-					"` after the refusal, so its execution is not required to follow " +
-					"the refusal having succeeded"
-			}
-			if later.ContinueOnError {
-				return false, "step " + later.Name +
-					" tolerates its own failure after the refusal"
-			}
-		}
-		provenByRefusal = true
-	} else if reason != "" {
-		return false, reason
 	}
 
 	steps, unreadable := stepsIncludingLocalActions(t, job)
@@ -149,61 +129,277 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 			", whose execution this guard cannot read"
 	}
 
-	// Every checkout, including the ones after a refusal and the ones inside a
-	// local action. A refusal covers the commit the job began on; a later
-	// checkout selects a different tree, which nothing has proved anything
-	// about. The ONE checkout a refusal does cover is the bare one it was
-	// written for -- the step before it, which has no `ref:` and whose tree the
-	// refusal then validates.
+	// Where the refusal sits in the FULL list, so dominance covers nested
+	// actions as well as the job's own steps.
+	refusal := -1
+	if _, reason, found := verifiedRefusalIndex(wf.name, id, job.Steps); found {
+		for i, step := range steps {
+			if step.Name != "" && step.Name == job.Steps[indexOfNamed(job.Steps, step.Name)].Name &&
+				isRegisteredRefusal(wf.name, id, step.Name) {
+				refusal = i
+				break
+			}
+		}
+	} else if reason != "" {
+		return false, reason
+	}
+
+	tainted := map[string]bool{}
+	for name, value := range wf.Env {
+		if partyChosen(t, value) {
+			tainted[name] = true
+		}
+	}
+	for name, value := range job.Env {
+		if partyChosen(t, value) {
+			tainted[name] = true
+		}
+	}
+
 	for i, step := range steps {
-		if !strings.Contains(step.Uses, "actions/checkout@") {
-			continue
+		where := "step " + step.Name
+		if step.Name == "" {
+			where = "step `uses: " + step.Uses + "`"
 		}
-		ref, _ := step.With["ref"].(string)
-		if strings.TrimSpace(ref) == theDefaultBranch {
-			continue
+
+		// --- dominance -------------------------------------------------
+		if refusal >= 0 && i > refusal {
+			if gate := strings.TrimSpace(step.If); gate != "" {
+				return false, where + " carries `if: " + gate + "` after the refusal, " +
+					"so its execution does not require the refusal to have succeeded"
+			}
+			if step.ContinueOnError {
+				return false, where + " tolerates its own failure after the refusal"
+			}
 		}
-		if provenByRefusal && i == 0 && strings.TrimSpace(ref) == "" {
-			continue // the tree the refusal validates
+		if refusal >= 0 && i < refusal {
+			if gate := strings.TrimSpace(step.If); gate != "" {
+				return false, where + " carries `if: " + gate + "` before the refusal"
+			}
 		}
-		which := "no ref: at all (which means the triggering ref)"
-		if ref != "" {
-			which = "ref: " + ref
+
+		// --- the tree it changes, wherever it is ----------------------
+		// A shell checkout is a tree change the action-input rule never saw,
+		// and it is a tree change whether or not a refusal precedes it: a job
+		// whose `actions/checkout` names the default branch has still selected
+		// another tree once a script moves it. So every one of these binds the
+		// proved commit or the default branch by name, or refuses.
+		for _, verb := range []string{"git checkout", "git switch", "git reset", "git worktree"} {
+			if !strings.Contains(step.Run, verb) {
+				continue
+			}
+			bound := strings.Contains(step.Run, theDefaultBranch)
+			for _, operand := range selectedCommitOperands {
+				if strings.Contains(step.Run, operand) {
+					bound = true
+				}
+			}
+			if !bound {
+				return false, where + " runs `" + verb +
+					"` without binding the commit a refusal proved or the default branch"
+			}
 		}
-		where := "its checkout"
-		if step.Name != "" {
-			where = "the checkout in step " + step.Name
+
+		// --- the interpreter -------------------------------------------
+		if shell := effectiveShell(wf, job, step); !readableShells[shell] {
+			return false, where + " runs under shell " + shell +
+				", whose execution forms this guard does not read"
 		}
-		return false, where + " has " + which +
-			", which no refusal in this job covers"
+
+		// --- sources ---------------------------------------------------
+		for name, value := range step.Env {
+			if partyChosen(t, value) {
+				tainted[name] = true
+			}
+			for carried := range tainted {
+				if referencesName(value, carried) {
+					tainted[name] = true
+				}
+			}
+		}
+
+		// --- sinks -----------------------------------------------------
+		if reason, ok := sinksAreClean(t, where, step, tainted); !ok {
+			return false, reason
+		}
+
+		// --- propagation ----------------------------------------------
+		if reason, ok := propagate(step.Run, tainted); !ok {
+			return false, where + " " + reason
+		}
+
+		// --- the tree it selects --------------------------------------
+		coveredByRefusal := refusal == i+1
+		if reason, ok := checkoutSelectsAPermittedTree(step, where, coveredByRefusal); !ok {
+			return false, reason
+		}
 	}
 	return true, ""
 }
 
-// everyCheckoutPinsTheDefaultBranch requires each checkout in the list to name
-// the default branch outright. The list includes the steps of any local action
-// the job invokes, because a pinned checkout beside an unpinned nested one is
-// not pinned. An ABSENT ref is not a pin: it means the triggering ref, which
-// for a dispatch, a tag push or a caller is the party's choice.
+// checkoutSelectsAPermittedTree is the checkout rule, called from the one pass
+// above with the FULL step list -- the job's own and every local action's -- so
+// a nested checkout is judged by the same function as a top-level one.
+//
+// coveredByRefusal marks the single checkout a refusal validates: the bare one
+// it immediately follows. An explicit ref is not that checkout, because the
+// refusal proves a commit, not whatever else was named.
+func checkoutSelectsAPermittedTree(step isolatedStep, where string, coveredByRefusal bool) (string, bool) {
+	if !strings.Contains(step.Uses, "actions/checkout@") {
+		return "", true
+	}
+	if repository, ok := step.With["repository"].(string); ok && strings.TrimSpace(repository) != "" {
+		return where + " checks out repository " + repository + " rather than this one", false
+	}
+	ref, _ := step.With["ref"].(string)
+	if strings.TrimSpace(ref) == theDefaultBranch {
+		return "", true
+	}
+	if coveredByRefusal && strings.TrimSpace(ref) == "" {
+		return "", true
+	}
+	which := "no ref: at all (which means the triggering ref)"
+	if ref != "" {
+		which = "ref: " + ref
+	}
+	return where + " has " + which + ", which no refusal in this job covers", false
+}
+
+// everyCheckoutPinsTheDefaultBranch applies that rule to a whole step list,
+// with no refusal in play.
 func everyCheckoutPinsTheDefaultBranch(steps []isolatedStep) (string, bool) {
 	for _, step := range steps {
-		if !strings.Contains(step.Uses, "actions/checkout@") {
-			continue
-		}
-		ref, _ := step.With["ref"].(string)
-		if strings.TrimSpace(ref) == theDefaultBranch {
-			continue
-		}
-		which := "no ref: at all (which means the triggering ref)"
-		if ref != "" {
-			which = "ref: " + ref
-		}
 		where := "its checkout"
 		if step.Name != "" {
 			where = "the checkout in step " + step.Name
 		}
-		return where + " has " + which +
-			", and this job carries no refusal whose behaviour a test establishes", false
+		if reason, ok := checkoutSelectsAPermittedTree(step, where, false); !ok {
+			return reason, false
+		}
+	}
+	return "", true
+}
+
+// selectedCommitOperands are the ways a workflow here names the commit under
+// consideration. A tree change after a refusal must bind one of them.
+var selectedCommitOperands = []string{"$GITHUB_SHA", "${GITHUB_SHA}", "$SHA", "${SHA}"}
+
+// indexOfNamed finds a step by name, or 0.
+func indexOfNamed(steps []isolatedStep, name string) int {
+	for i, step := range steps {
+		if step.Name == name {
+			return i
+		}
+	}
+	return 0
+}
+
+// isRegisteredRefusal reports whether this step name is the registered refusal
+// for this workflow and job.
+func isRegisteredRefusal(workflow, job, step string) bool {
+	for _, known := range verifiedRefusals {
+		if known.workflow == workflow && known.job == job && known.step == step {
+			return true
+		}
+	}
+	return false
+}
+
+// referencesName reports whether text reads a variable, in any of the spellings
+// a workflow uses: a shell expansion or an expression alias.
+func referencesName(text, name string) bool {
+	for _, form := range []string{"$" + name, "${" + name, "env." + name} {
+		if strings.Contains(text, form) {
+			return true
+		}
+	}
+	return false
+}
+
+// sinksAreClean checks every place a value can become a program.
+func sinksAreClean(t *testing.T, where string, step isolatedStep, tainted map[string]bool) (string, bool) {
+	t.Helper()
+
+	sinks := map[string]string{"run:": step.Run}
+	for key, value := range step.With {
+		if text, ok := value.(string); ok {
+			sinks["with."+key] = text
+		}
+	}
+
+	for label, text := range sinks {
+		if partyChosen(t, text) {
+			return where + " passes a triggering-party value to " + label, false
+		}
+		for name := range tainted {
+			// An expression alias renders the value INTO the text, so it is a
+			// flow wherever it appears -- a script included.
+			if strings.Contains(text, "${{ env."+name) || strings.Contains(text, "${{env."+name) {
+				return where + " expands $" + name + " into " + label +
+					", whose value the triggering party supplies", false
+			}
+			if label == "run:" {
+				if scriptExecutesEnvName(text, name) {
+					return where + " runs a program from $" + name +
+						", whose value the triggering party supplies", false
+				}
+				continue
+			}
+			if referencesName(text, name) {
+				return where + " passes $" + name + " to " + label +
+					", whose value the triggering party supplies", false
+			}
+		}
+	}
+
+	// Sinks whose flow cannot be followed at all, whatever they carry.
+	for marker, why := range map[string]string{
+		"GITHUB_PATH": "appends to $GITHUB_PATH, after which a later step runs a " +
+			"program by a name this cannot attribute",
+		"BASH_ENV": "sets $BASH_ENV, which loads a script into every later shell",
+		"chmod +x": "makes a file executable, and what it wrote there cannot be followed here",
+	} {
+		if strings.Contains(step.Run, marker) {
+			return where + " " + why, false
+		}
+	}
+	return "", true
+}
+
+// shellAssignment matches `NAME=value` and `export NAME=value` at the start of
+// a line -- a shell local, which carries a value onward exactly as an env var
+// does.
+var shellAssignment = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$`)
+
+// propagate carries taint through a script: shell assignments and writes to the
+// environment file. A write it cannot attribute refuses.
+func propagate(script string, tainted map[string]bool) (string, bool) {
+	exported, unresolved := environmentExports(script)
+	if unresolved != "" {
+		return "writes " + unresolved + " into $GITHUB_ENV in a form whose " +
+			"provenance this guard cannot establish", false
+	}
+
+	// Shell locals first: `ALIAS="$TASK"` then `NEXT=$ALIAS` must both carry.
+	for pass := 0; pass < 3; pass++ {
+		for _, assignment := range shellAssignment.FindAllStringSubmatch(script, -1) {
+			name, value := assignment[1], assignment[2]
+			if strings.Contains(value, "GITHUB_ENV") {
+				continue
+			}
+			for carried := range tainted {
+				if referencesName(value, carried) {
+					tainted[name] = true
+				}
+			}
+		}
+		for name, sources := range exported {
+			for _, source := range sources {
+				if tainted[source] {
+					tainted[name] = true
+				}
+			}
+		}
 	}
 	return "", true
 }
