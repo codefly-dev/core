@@ -35,7 +35,7 @@ The value is a `codefly.runnable.v0.PreparedBinding`, schema
 | `call` | where one call is sent: the `address` the environment resolves — an HTTP base URL, since both routes are HTTP — and a typed route: `connect` (a procedure POSTed as JSON on the owner's Connect endpoint) or `rest` (the owner's own verb and path with the plain JSON body) |
 | `contract` | the bounded input and output schema, carried whole |
 | `contract_digest` | `sha256:<hex>` over that contract's canonical form (`runnable.ContractDigest`) |
-| `policy` | the `codefly.runnable.v0.Operation` the owner declared — the attempt budget, and the authority: audience, invoke and lookup scopes |
+| `policy` | the `codefly.runnable.v0.Operation` the owner declared — the attempt budget, the authority (audience, invoke and lookup scopes), the completion mode and, when the owner exposed the operation as a tool, that exposure. A writer produces it with `runnable.OperationSpec.Policy` from the derived spec rather than copying fields, so every field the schema declares travels |
 
 `runnable.EncodePrepared` fills the schema and the digest when a writer leaves
 them empty and refuses a stated value that is not the right one, the rule a

@@ -842,11 +842,15 @@ idempotence never classify a mutation as read-only.
 
 The input/output schema remains the operation's derived `RunnableContract`.
 `OperationSpec.Tool` retains exposure during derivation, and a prepared binding
-carries it in `policy.tool`. Delivery writers must preserve that field when
-converting a spec to policy. `ToolFromPrepared` validates the complete binding
-(including its contract digest) and returns a detached exposure with no route,
-credential or authority scopes. A valid unexposed operation returns
-`ErrNotATool`.
+carries it in `policy.tool`. A delivery writer does not copy policy fields by
+hand: `OperationSpec.Policy` is the one conversion from a derived spec to the
+`Operation` a binding delivers, and `TestPolicyRoundTripsEveryField` holds it
+and the read-back side to the schema's field list, so a field a hand-copying
+writer would drop — exposure arrived as exactly such a field — cannot be added
+to the schema without the conversion learning it. `ToolFromPrepared` validates
+the complete binding (including its contract digest) and returns a detached
+exposure with no route, credential or authority scopes. A valid unexposed
+operation returns `ErrNotATool`.
 
 Core validates the declaration, not the publisher's identity or the viewer's
 permissions. The host must authenticate the declaration source and project only
