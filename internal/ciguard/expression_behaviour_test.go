@@ -11,7 +11,7 @@ import (
 // The parser and evaluator in expression_test.go decide every condition and
 // every secret reference the guards assert about, so a shape they read wrongly
 // is an escape hatch for all of them at once. These are the shapes that matter,
-// including each one a review has got through.
+// including each one a review has required.
 
 // theRepository and theDefaultBranch are facts about this repository, not about
 // any event.
@@ -67,7 +67,7 @@ var mergeGroup = scenario{
 // the work is what these scenarios did before, and it was unsound twice over.
 // `conclusion` was pinned to "success", so `conclusion == 'failure'` read as
 // definitely-false and a write-token job gated on it was certified -- while an
-// attacker need only make their own upstream run fail. `github.repository` was
+// triggering party arranges their own upstream run. `github.repository` was
 // pinned to this repository, so `github.repository != 'codefly-dev/core'` read
 // as definitely-false for every caller, although a reusable workflow is given
 // the CALLER's context. The pins were never needed for the verdict either:
@@ -216,11 +216,19 @@ func hostileScenariosFor(on yaml.Node) (hostile []scenario, unmodelled []string)
 // and leaves every other fact unknown.
 func scenariosForTrigger(trigger string) []scenario {
 	switch trigger {
-	case "pull_request", "pull_request_target":
-		// The ref is `refs/pull/<n>/merge` for pull_request and
-		// `refs/pull/<n>/head`-adjacent for pull_request_target; the shared
-		// prefix is what the event fixes either way.
+	case "pull_request":
+		// GitHub forces `refs/pull/<n>/merge`; the number is the author's.
 		return []scenario{eventScenario(trigger, "refs/pull/", nil)}
+
+	case "pull_request_target":
+		// This event runs with the BASE repository's privileges and supplies a
+		// BASE BRANCH ref -- the ref looks entirely trustworthy and says
+		// nothing about the code, which is the pull request's. Giving it a
+		// `refs/pull/` domain certified ordinary branch-ref conditions as
+		// unreachable, so a job holding a secret and checking out the pull
+		// request's head was accepted. The ref is a branch here, and what
+		// protects such a job is the execution check, never the ref.
+		return []scenario{eventScenario(trigger, "refs/heads/", nil)}
 
 	case "merge_group":
 		return []scenario{eventScenario(trigger, "refs/heads/gh-readonly-queue/", nil)}
@@ -247,7 +255,7 @@ func scenariosForTrigger(trigger string) []scenario {
 		// Including `schedule`, `release` and `workflow_dispatch`, which used
 		// to be exempt. A schedule does run the default branch's workflow, and
 		// a dispatcher does need write access -- neither fact constrains the
-		// ref a job then CHECKS OUT, which is what the constructions exploited.
+		// ref a job then CHECKS OUT, which is the only question that matters.
 		return []scenario{eventScenario(trigger, "", []string{})}
 	}
 }
@@ -493,10 +501,10 @@ func TestEachWorkflowRunConditionIsObligedSeparately(t *testing.T) {
 	}{
 		{
 			// UNKNOWN under the fork's push, not true: the upstream event is
-			// the attacker's to choose and is therefore unbound. Either way
+			// the triggering party's to choose and is therefore unbound. Either way
 			// the job is not proven unreachable, which is the verdict that
 			// matters -- but the reason is now "this guard cannot know"
-			// rather than a sample that happened to favour the attacker.
+			// rather than a sample that happened to favour one instance.
 			name: "the event condition alone", gate: eventOnly,
 			fromPullRequest: triFalse, forkPush: triUnknown,
 		},

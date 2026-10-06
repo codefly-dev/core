@@ -38,16 +38,16 @@ func TestEveryKnownCredentialBypassIsRefused(t *testing.T) {
 			why:      "the assertion evaluated a pull request and a merge queue candidate only, under both of which this is false -- while a comment on a pull request reaches it and can check out refs/pull/<n>/head",
 		},
 		{
-			name:     "an attacker-chosen upstream conclusion, sampled as success",
+			name:     "a condition about an upstream run's conclusion",
 			triggers: "workflow_run:\n    workflows: [go]\n    types: [completed]\n",
 			gate:     "github.event.workflow_run.conclusion == 'failure'",
-			why:      "the scenarios pinned conclusion to success, so this read as definitely false; an attacker need only make their own upstream run fail",
+			why:      "an upstream run's conclusion is the triggering party's to arrange, so a condition about it is not refutable",
 		},
 		{
 			name:     "a negated conjunction",
 			triggers: "pull_request:\n",
 			gate:     "!(always() && github.event_name == 'push' && github.ref == 'refs/heads/main')",
-			why:      "a reader that split on && accepted this as requiring push of main, although it is TRUE on a pull request",
+			why:      "a negation around a conjunction is not the conjunction; this condition holds on a pull request",
 		},
 		{
 			name:     "an operand-returning logical operator",
@@ -603,4 +603,245 @@ func TestATagInACallersRepositoryStillDemandsTheProof(t *testing.T) {
 	require.NotEqual(t, triFalse.String(), got.String(),
 		"the tag scenario refuted a condition about owning another repository, so a "+
 			"caller's unmerged tag would skip the ancestry proof")
+}
+
+// A credential keeps its provenance through a derived object: reading a
+// property of a parsed secret is still reading the secret.
+func TestACredentialKeepsItsProvenanceThroughADerivedObject(t *testing.T) {
+	for _, expression := range []string{
+		"${{ fromJSON(secrets.BUNDLED_CONFIG).token }}",
+		"${{ fromJSON(secrets['BUNDLED_CONFIG'])['token'] }}",
+		"${{ fromJSON(toJSON(secrets.BUNDLED_CONFIG)).token }}",
+	} {
+		t.Run(expression, func(t *testing.T) {
+			names, err := secretsReferencedIn(expression)
+			require.NoError(t, err)
+			require.Contains(t, names, "BUNDLED_CONFIG",
+				"a property read off a derived object must still report the credential "+
+					"it came from, or a secret reaches a job unnamed")
+		})
+	}
+}
+
+// The scenarios the guards actually consume must cover every head repository,
+// not one sample -- asserted through the derivation entrypoint rather than the
+// variables, since that is what the guards call.
+func TestTheDerivedScenariosCoverEveryHeadRepository(t *testing.T) {
+	for _, repository := range []string{
+		"a-contributor/core", "another-owner/core", "third-party/fork",
+	} {
+		t.Run(repository, func(t *testing.T) {
+			gate := "github.event.workflow_run.head_repository.full_name == '" + repository +
+				"' && github.event.workflow_run.event == 'push'"
+			unreachable, _ := provablyUnreachable(t, gate, scenariosForTrigger("workflow_run"))
+			require.False(t, unreachable,
+				"the derivation the guards consume judged this unreachable, so a job "+
+					"gated on one named head repository would be accepted")
+		})
+	}
+}
+
+// A refusal has to refuse: it must execute, its failure must stop the job, and
+// it must ask about the commit under consideration.
+func TestANominalRefusalIsNotARefusal(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		step string
+		why  string
+	}{
+		{
+			name: "written only in a comment",
+			step: `      - run: |
+          # git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          echo proceeding`,
+			why: "a comment runs nothing",
+		},
+		{
+			name: "a step that may be skipped",
+			step: `      - if: false
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main`,
+			why: "it proves nothing on the runs where it is skipped",
+		},
+		{
+			name: "a failure that is swallowed",
+			step: `      - run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main || true`,
+			why:  "a tolerated failure is not a refusal",
+		},
+		{
+			name: "a failure the job continues past",
+			step: `      - continue-on-error: true
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main`,
+			why: "same, declared on the step instead of in the shell",
+		},
+		{
+			name: "asking about a different commit",
+			step: `      - run: git merge-base --is-ancestor origin/main origin/main`,
+			why:  "it never mentions the commit under consideration",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t, `on: workflow_call
+jobs:
+  probe:
+    permissions: {contents: read}
+    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+`+tc.step+`
+      - run: go test ./...
+`, tc.name)
+			ok, _ := acceptedExecution(t, wf, "probe")
+			require.False(t, ok, "accepted as a proof, and it is not: %s", tc.why)
+		})
+	}
+}
+
+// A ref pin says which TREE is checked out. It says nothing about the program
+// run from it, the repository it came from, or an image selected elsewhere.
+func TestAPinnedTreeDoesNotPinWhatRunsInIt(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		job  string
+		why  string
+	}{
+		{
+			name: "the program comes from the caller",
+			why:  "the tree is this repository's and the program is the caller's",
+			job: `    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - env: {TASK: "${{ inputs.task }}"}
+        run: eval "$TASK"`,
+		},
+		{
+			name: "the repository comes from the caller",
+			why:  "a pinned ref of somebody else's repository is not this repository",
+			job: `    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main, repository: "${{ inputs.repository }}"}
+      - run: go test ./...`,
+		},
+		{
+			name: "the container is selected through a matrix",
+			why:  "a matrix carries whatever its caller put in it",
+			job: `    strategy:
+      matrix:
+        image: ['${{ inputs.image }}']
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: go test ./...`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t, "on: workflow_call\njobs:\n  probe:\n"+
+				"    permissions: {contents: read}\n"+
+				"    env: {CREDENTIAL: '${{ secrets.BUNDLED_CONFIG }}'}\n"+tc.job+"\n", tc.name)
+			ok, missing := acceptedExecution(t, wf, "probe")
+			require.False(t, ok,
+				"accepted on a ref pin alone: %s (guard said %q)", tc.why, missing)
+		})
+	}
+}
+
+// And the event whose ref is trustworthy while its code is not: the ref is a
+// base branch, so no branch-ref condition may be certified unreachable, and the
+// execution check is what protects such a job.
+func TestTheTargetEventsRefIsABranchAndProvesNothingAboutItsCode(t *testing.T) {
+	for _, gate := range []string{
+		"github.ref == 'refs/heads/main'",
+		"startsWith(github.ref, 'refs/heads/')",
+		"github['ref'] == 'refs/heads/main'",
+	} {
+		t.Run(gate, func(t *testing.T) {
+			unreachable, _ := provablyUnreachable(t, gate, scenariosForTrigger("pull_request_target"))
+			require.False(t, unreachable,
+				"a branch-ref condition was certified unreachable for an event that "+
+					"supplies a branch ref, so a job gated on it would be accepted")
+		})
+	}
+
+	wf := parseIsolatedDocument(t, `on: pull_request_target
+jobs:
+  probe:
+    permissions: {contents: read}
+    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: go test ./...
+`, "pull_request_target")
+	ok, _ := acceptedExecution(t, wf, "probe")
+	require.False(t, ok,
+		"the ref is a trustworthy branch and the code is not; the execution check "+
+			"is what has to catch that")
+}
+
+// Unreachability and execution are two questions, and answering the first does
+// not answer the second. A job that no hostile trigger can start can still, on
+// a legitimate push to the default branch, check out a different branch and run
+// it with the credential — so both halves are required of every
+// credential-bearing job, and this asserts the pair rather than either.
+func TestUnreachabilityDoesNotExcuseWhatAJobExecutes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		job  string
+		// accepted is what the guards decide. Unreachable is true for every
+		// case here, so anything that differs is the execution obligation.
+		bothHold bool
+	}{
+		{
+			name:     "unreachable, and checks out another branch",
+			bothHold: false,
+			job: `    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: a-contributor-branch}
+      - run: go test ./...`,
+		},
+		{
+			name:     "unreachable, and inherits whatever ref triggered it",
+			bothHold: false,
+			job: `    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: go test ./...`,
+		},
+		{
+			name:     "unreachable, and says which tree it wants",
+			bothHold: true,
+			job: `    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: go test ./...`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			document := "on:\n  push:\n  pull_request:\njobs:\n  probe:\n    runs-on: ubuntu-latest\n" + tc.job + "\n"
+			wf := parseIsolatedDocument(t, document, tc.name)
+			permissioned := parsePermissioned(t, document)
+
+			require.True(t,
+				writeCapable(effectivePermissions(permissioned, permissioned.Jobs["probe"])),
+				"this case depends on the job holding a write token")
+
+			hostile, _ := hostileScenariosFor(wf.On)
+			unreachable, _ := provablyUnreachable(t, wf.Jobs["probe"].If, hostile)
+			require.True(t, unreachable,
+				"every case here is unreachable on purpose; that is the point")
+
+			// Asked through the guards' own decision, so a short-circuit on
+			// unreachability cannot hide here.
+			accepted, missing := credentialJobIsAccepted(t, wf, "probe", hostile)
+			require.Equal(t, tc.bothHold, accepted,
+				"the job is unreachable; acceptance must still turn on what it "+
+					"executes (%s)", missing)
+		})
+	}
 }

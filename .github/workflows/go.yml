@@ -383,6 +383,10 @@ jobs:
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Named, not inherited. An absent ref means the triggering ref, and a
+          # trusted trigger is not a statement about which code is checked out;
+          # this job holds a write token, so it says which tree it wants.
+          ref: main
           # The action authenticates with the `git-token:` input below; nothing
           # here pushes over git, so the write credential stays out of
           # .git/config.

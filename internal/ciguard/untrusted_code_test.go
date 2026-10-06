@@ -245,19 +245,13 @@ func TestNoJobRunsPullRequestCodeWithAWriteToken(t *testing.T) {
 			// `cannotRunOnAPullRequest`, which applies the pull-request
 			// scenarios to every workflow -- the wrong question for a
 			// workflow_run one, whose own scenarios are stricter.
-			if unreachable, _ := provablyUnreachable(t, job.If, hostile); unreachable {
-				continue
-			}
-			pinned, missing := acceptedExecution(t, isolated[path], id)
-			require.True(t, pinned,
-				"%s: job %q holds %s, is not provably unreachable under the hostile "+
-					"situations its triggers admit, and does not prove what it "+
-					"executes: %s.\n`permissions:` cannot be narrowed per step, so "+
-					"every step in the job holds that grant. Either make the condition "+
-					"false in every hostile situation, or pin every checkout to %q with "+
-					"no party-chosen execution surface, or put a `git merge-base "+
-					"--is-ancestor` refusal ahead of everything that runs.",
-				filepath.Base(path), id, grant, missing, theDefaultBranch)
+			// The same one decision the credential guard uses: the built-in
+			// write token is a credential too.
+			accepted, missing := credentialJobIsAccepted(t, isolated[path], id, hostile)
+			require.True(t, accepted,
+				"%s: job %q holds %s, and %s.\n`permissions:` cannot be narrowed per "+
+					"step, so every step in the job holds that grant.",
+				filepath.Base(path), id, grant, missing)
 		}
 	}
 	require.NotZero(t, checked, "no workflow was examined, so this guard proves nothing")

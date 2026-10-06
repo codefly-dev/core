@@ -13,9 +13,10 @@ on:
         default: '~> v2'
       default-branch:
         description: >-
-          The branch a release tag must be reachable from. The publishing job
-          refuses a tag that is not, because the credential it holds would
-          otherwise run release hooks from a commit nobody merged.
+          The branch a release tag must be reachable from, DECLARED by the
+          caller and checked against the repository's own default branch. A
+          declaration that disagrees with it refuses, naming both: the caller
+          states the expectation, the repository decides.
         type: string
         default: main
 
@@ -90,18 +91,40 @@ jobs:
 
       - name: require the tag to be on the default branch, or refuse
         env:
-          DEFAULT_BRANCH: ${{ inputs.default-branch }}
+          # What the caller DECLARED. It is checked against the authority
+          # below; it does not decide anything by itself.
+          DECLARED_BRANCH: ${{ inputs.default-branch }}
         run: |
           set -euo pipefail
 
-          git fetch --quiet --no-tags origin \
-            "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          # The authority is the remote's own HEAD. Taking the branch from the
+          # caller's input let the caller choose which history counts as
+          # reviewed: an input naming a side branch admitted a commit that was
+          # never merged. Whoever may approve a release is this repository's
+          # decision, so it is read from the repository.
+          authority=$(git ls-remote --symref origin HEAD \
+            | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2 }')
+          if [ -z "$authority" ]; then
+            echo "::error::cannot read this repository's default branch from origin; refusing to release." >&2
+            exit 1
+          fi
 
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/${DEFAULT_BRANCH}"; then
-            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from origin/${DEFAULT_BRANCH}; refusing to release it." >&2
+          # The declaration must AGREE with the authority. A mismatch is a
+          # contradiction, named on both sides, rather than a preference.
+          if [ "$DECLARED_BRANCH" != "$authority" ]; then
+            echo "::error::default-branch declares <${DECLARED_BRANCH}> but this repository's default branch is <${authority}>; refusing to release." >&2
+            exit 1
+          fi
+
+          git fetch --quiet --no-tags origin \
+            "+refs/heads/${authority}:refs/remotes/origin/${authority}"
+
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/${authority}"; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from origin/${authority}; refusing to release it." >&2
             echo "A release runs this repository's own hooks and configuration with a credential, so the commit has to be one that was merged." >&2
             exit 1
           fi
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod

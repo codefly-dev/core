@@ -8,21 +8,13 @@ import (
 	"unicode"
 )
 
-// Every guard in this package used to ask its question of the TEXT of a
-// workflow expression: does this condition CONTAIN `github.event_name ==
-// 'push'`, does this value MATCH `secrets\.NAME`. Both are answerable without
-// understanding the expression, and both are therefore answerable wrongly:
-//
-//	if: github.event_name == 'push' && github.ref == 'refs/heads/main' || true
-//	if: ${{ !(always() && github.event_name == 'push' && always()) }}
-//	env: { PROBE: "${{ secrets['SLACK_WEBHOOK_URL'] }}" }
-//	env: { PROBE: "${{ toJSON(secrets) }}" }
-//
-// The first two contain every required clause and run on a pull request. The
-// second two reference a secret and match no `secrets.NAME` pattern. A guard
-// that reads text cannot tell any of them from the safe form, so this file
-// reads the expression instead: it tokenises and parses GitHub's expression
-// grammar, then answers two questions of the syntax tree.
+// A workflow expression is PARSED and evaluated here, never matched as text.
+// Text cannot answer either of the questions the guards ask -- whether a
+// condition can be true under a hostile input, and whether a value reads a
+// credential -- because both depend on what the expression MEANS, and an
+// answer that depends on spelling is an answer that can be arranged. So this
+// file tokenises and parses GitHub's expression grammar and answers both
+// questions of the syntax tree.
 //
 // **Can this condition be true when the input is hostile?** Answered by
 // evaluating it in three-valued logic against a scenario that binds the

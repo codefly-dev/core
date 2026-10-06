@@ -56,12 +56,13 @@ type isolatedJob struct {
 // a local composite action can be read into the same shape and judged as
 // steps of the job that calls it -- which is what they are at runtime.
 type isolatedStep struct {
-	Name string            `yaml:"name"`
-	Uses string            `yaml:"uses"`
-	If   string            `yaml:"if"`
-	Run  string            `yaml:"run"`
-	Env  map[string]string `yaml:"env"`
-	With map[string]any    `yaml:"with"`
+	Name            string            `yaml:"name"`
+	Uses            string            `yaml:"uses"`
+	If              string            `yaml:"if"`
+	Run             string            `yaml:"run"`
+	Env             map[string]string `yaml:"env"`
+	With            map[string]any    `yaml:"with"`
+	ContinueOnError bool              `yaml:"continue-on-error"`
 }
 
 // localAction is a repository-local action's manifest, as far as these guards
@@ -397,6 +398,16 @@ func mustNotRunUnder(t *testing.T, gate string, s scenario) (ok bool, reason str
 // not what the job is; the credential is still named in a job whose other
 // steps execute the author's code, and a reader has to reason about step order
 // to see whether it is safe. The split into two jobs is what makes it legible
+// reachabilityNote renders the reachability half of a failure, so a message
+// cannot read as "unreachable, therefore fine".
+func reachabilityNote(unreachable bool, why string) string {
+	if unreachable {
+		return "it is unreachable from every hostile situation, which does not " +
+			"establish what it runs when triggered legitimately"
+	}
+	return "it is not provably unreachable: " + why
+}
+
 // provablyUnreachable reports whether a condition is false in EVERY hostile
 // situation, and names the first one it is not.
 func provablyUnreachable(t *testing.T, gate string, hostile []scenario) (bool, string) {
@@ -427,7 +438,6 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 		checked++
 
 		for _, id := range isolatedJobIDs(wf) {
-			job := wf.Jobs[id]
 			secrets := secretsIn(t, wf, id)
 			if len(secrets) == 0 {
 				continue
@@ -438,27 +448,17 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 			}
 			sort.Strings(names)
 
-			// Either the job cannot run in any hostile situation, or it proves
-			// what it executes. Trigger identity proves neither.
-			unreachable, why := provablyUnreachable(t, job.If, hostile)
-			if unreachable {
-				continue
-			}
-			pinned, missing := acceptedExecution(t, wf, id)
-			require.True(t, pinned,
-				"%s: job %q references %s.\n"+
-					"  It is not provably unreachable: %s.\n"+
-					"  And it does not prove what it executes: %s.\n"+
+			accepted, missing := credentialJobIsAccepted(t, wf, id, hostile)
+			require.True(t, accepted,
+				"%s: job %q references %s, and %s.\n"+
 					"`permissions:` does not govern a repository secret, so narrowing "+
 					"the built-in token leaves this credential exactly as reachable as "+
-					"before. Either make the job's condition false in every hostile "+
-					"situation its triggers admit, or pin every checkout to %q with no "+
-					"party-chosen execution surface, or put a `git merge-base "+
-					"--is-ancestor` refusal ahead of everything that runs. A step-level "+
-					"`if:` is not enough: it gates the step, not the job the credential "+
-					"lives in.",
-				filepath.Base(path), id, strings.Join(names, "; "),
-				why, missing, theDefaultBranch)
+					"before. The job must be unreachable from every hostile situation "+
+					"AND establish what it executes: pin every checkout to %q with no "+
+					"party-chosen execution input, or put a `git merge-base "+
+					"--is-ancestor` refusal ahead of everything that runs.",
+				filepath.Base(path), id, strings.Join(names, "; "), missing,
+				theDefaultBranch)
 		}
 	}
 	require.NotZero(t, checked,
@@ -521,7 +521,7 @@ func TestAJobThatSelectsASuppliedCommitProvesItIsOnTheDefaultBranch(t *testing.T
 
 // secretsIn decides the first assertion, so a place it does not look is a
 // place a credential can sit unnoticed. These are the shapes that carry one,
-// including the two a review got past the earlier pattern-matching version:
+// including the two a review is refused by the earlier pattern-matching version:
 // workflow-level env, which every job inherits, and the index and
 // whole-context forms of reading the secrets context.
 func TestSecretsInFindsEveryPlaceACredentialCanSit(t *testing.T) {

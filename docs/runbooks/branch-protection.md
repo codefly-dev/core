@@ -138,10 +138,19 @@ create one. The workflow's own guards keep its credential away from unreviewed
 code (see [CI credentials](../ci-credentials.md)), but they cannot speak for any
 other identity with push access.
 
+**Status: NOT APPLIED.** A read-only ruleset query returns only the branch
+ruleset `protect main`; no tag ruleset exists. This is an operator action and
+nothing in this repository can perform or verify it, so it stays open until
+someone applies it and records the result here.
+
 Apply a ruleset targeting `refs/tags/v*` that restricts creation to the
 Actions identity this workflow runs as, and denies updating and deleting
 outright. Both halves matter: re-pointing a tag is how a commit ends up
 carrying two versions, which `git describe` then reports ambiguously.
+
+Until it is applied, the protection in place is the workflow's own: the tag job
+refuses a commit that is not reachable from the default branch. That governs
+this workflow's credential and no other identity's.
 
 ## Also needed: who may dispatch
 
