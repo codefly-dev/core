@@ -143,6 +143,10 @@ func assertKustomizeProfile(
 ) string {
 	t.Helper()
 	ctx := context.Background()
+	selected, err := services.ParseOutputProfile(profile)
+	if err != nil {
+		t.Fatalf("not a profile this contract renders: %v", err)
+	}
 	identity := &resources.ServiceIdentity{
 		Workspace: "workspace",
 		Module:    "module",
@@ -154,7 +158,7 @@ func assertKustomizeProfile(
 		Identity:    identity,
 		Information: &services.Information{Service: resources.ToServiceWithCase(identity), Module: resources.ToModuleWithCase(identity)},
 	}
-	if services.IsRestrictedOutputProfile(profile) {
+	if selected.Restricted() {
 		base.SetDockerImage(&resources.DockerImage{
 			Name:   "example/service",
 			Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -185,7 +189,7 @@ func assertKustomizeProfile(
 		Parameters:       parameters,
 		PodOverlay:       overlay,
 	}
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 {
+	if selected.InlineSecrets() {
 		params.SecretMap = services.EnvironmentMap{"CODEFLY_TEST_SECRET": "c2VjcmV0"}
 	}
 	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, templates, params); err != nil {
@@ -196,7 +200,7 @@ func assertKustomizeProfile(
 	if validation.GetStaticValidation() != builderv0.KubernetesManifestValidation_STATUS_PASSED {
 		t.Fatalf("%s static conformance failed:\n%s", profile, strings.Join(validation.GetViolations(), "\n"))
 	}
-	if services.IsRestrictedOutputProfile(profile) {
+	if selected.Restricted() {
 		err := filepath.WalkDir(destination, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr

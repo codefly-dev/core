@@ -144,11 +144,22 @@ never names how they are later transported, reconciled, or promoted.
   configuration input and exposes only identifier-only `secret_references` to
   templates.
 
-An unspecified profile fails before rendering, and so does
-`KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1`, the deleted predecessor of
-`RESTRICTED_PORTABLE_V1`: its enum number and name are reserved, so a request
-naming it is refused by the proto decoder rather than rendered. See
-[Migration and compatibility](#migration-and-compatibility). The profile is selected by the
+Every rendering entrypoint judges the profile first, with one judgement:
+`services.ParseOutputProfile` admits exactly the two profiles above and refuses
+everything else by number — the zero value (`ErrOutputProfileNotSelected`), and
+a number the schema deleted or never defined (`ErrOutputProfileUnknown`) — before
+anything is written. The judgement is the gate, not the decoder: deleting an
+enum value deletes its *name*, not its number, so a request decoded from an
+older schema still carries `2`, the number
+`KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` held, and compared raw it would
+be merely "not restricted" — a render emitting inline Secret data for the
+profile that forbade them. `DeployKustomize`, `KustomizeDeploy`,
+`GenerateGenericKustomize`, `ValidateKubernetesManifestTree` and
+`BuildKubernetesManifestBundle` all refuse it; the write also refuses a
+`DeploymentBase` whose `.Restricted` disagrees with the request's judged
+profile. The only way to ask whether a profile is restricted is
+`OutputProfile.Restricted()` on a judged value; there is no predicate over a
+raw number. See [Migration and compatibility](#migration-and-compatibility). The profile is selected by the
 CLI, so the standard plugin `Deploy` methods below do not hard-code it.
 
 A plugin renders this bundle deterministically from its inputs alone. It needs

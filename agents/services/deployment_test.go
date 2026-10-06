@@ -16,6 +16,8 @@ import (
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:embed testdata/deployment
@@ -561,6 +563,111 @@ func TestDeployKustomizeRequiresExplicitOutputProfile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
 	require.Contains(t, response.GetState().GetMessage(), "output profile is required")
+}
+
+// Deleting the PROMOTABLE_GITOPS_V1 value deleted its name, not its number:
+// a request carrying 2 still decodes, from the wire and from JSON, so the
+// decoder is not the gate. Compared raw, 2 is merely "not restricted", and the
+// public renderer would emit base/secret.yaml with the inline TOKEN for it —
+// the opposite of what the profile meant. Every rendering entrypoint judges the
+// profile first and refuses the number before anything is written.
+func TestARenderRefusesADecodedDeletedProfileBeforeWriting(t *testing.T) {
+	ctx := context.Background()
+	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
+	require.NoError(t, err)
+
+	// The number survives the wire decoder.
+	encoded, err := proto.Marshal(&builderv0.KubernetesDeployment{
+		Namespace: "codefly", Profile: builderv0.KubernetesOutputProfile(2),
+	})
+	require.NoError(t, err)
+	var decoded builderv0.KubernetesDeployment
+	require.NoError(t, proto.Unmarshal(encoded, &decoded))
+	require.Equal(t, builderv0.KubernetesOutputProfile(2), decoded.GetProfile())
+
+	// It survives the JSON decoder too, where only the deleted NAME is refused.
+	var fromJSON builderv0.KubernetesDeployment
+	require.NoError(t, protojson.Unmarshal([]byte(`{"namespace":"codefly","profile":2}`), &fromJSON))
+	require.Equal(t, builderv0.KubernetesOutputProfile(2), fromJSON.GetProfile())
+	require.Error(t, protojson.Unmarshal([]byte(`{"profile":"KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1"}`), &builderv0.KubernetesDeployment{}))
+
+	builder, manager := restrictedDeployBuilder(ctx, t)
+	secrets := DeploymentParameters{
+		ConfigMap: EnvironmentMap{"PLAIN": "value"},
+		SecretMap: EnvironmentMap{"TOKEN": "c2VjcmV0"},
+	}
+	for _, profile := range []builderv0.KubernetesOutputProfile{2, 7} {
+		// The direct renderer: refused by the judgement, nothing written.
+		destination := t.TempDir()
+		decoded.Destination = destination
+		decoded.Profile = profile
+		err = builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, &decoded, templates, secrets)
+		require.ErrorIs(t, err, ErrOutputProfileUnknown, "profile %d", profile)
+		entries, readErr := os.ReadDir(destination)
+		require.NoError(t, readErr)
+		require.Empty(t, entries, "profile %d: the destination must be untouched", profile)
+
+		// The write itself, handed a base that claims an unrestricted render:
+		// refused before the destination is emptied.
+		base, baseErr := builder.CreateKubernetesBase(ctx, &basev0.Environment{Name: "test"}, "codefly", nil)
+		require.NoError(t, baseErr)
+		base.Profile, base.Restricted = profile, false
+		marker := filepath.Join(destination, "untouched")
+		require.NoError(t, os.WriteFile(marker, []byte("x"), 0o600))
+		err = builder.GenerateGenericKustomize(ctx, templates, &decoded, base, secrets)
+		require.ErrorIs(t, err, ErrOutputProfileUnknown, "profile %d", profile)
+		_, statErr := os.Stat(marker)
+		require.NoError(t, statErr, "profile %d: the destination must not have been emptied", profile)
+
+		// The request pre-flight a plugin's own Deploy runs: refused by the
+		// same judgement, before any input is collected.
+		destination = t.TempDir()
+		request := &builderv0.DeploymentRequest{
+			Environment: &basev0.Environment{Name: "test"},
+			Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+				Kubernetes: &builderv0.KubernetesDeployment{Namespace: "codefly", Destination: destination, Profile: profile},
+			}},
+		}
+		_, err = builder.KubernetesDeploymentRequest(ctx, request)
+		require.ErrorIs(t, err, ErrOutputProfileUnknown, "profile %d", profile)
+
+		// The full deployment: an error response naming the refusal, nothing written.
+		response, deployErr := builder.DeployKustomize(ctx, request,
+			KustomizeDeployment{EnvironmentVariables: manager, Templates: templates, Parameters: struct{ Name string }{Name: "deleted"}})
+		require.NoError(t, deployErr)
+		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Contains(t, response.GetState().GetMessage(), "output profile")
+		require.Contains(t, response.GetState().GetMessage(), "not one this contract defines")
+		entries, readErr = os.ReadDir(destination)
+		require.NoError(t, readErr)
+		require.Empty(t, entries, "profile %d: the destination must be untouched", profile)
+	}
+
+	// The judgement of a rendered tree and its bundle refuse the number too,
+	// rather than describing the tree as an unrestricted render.
+	validation := ValidateKubernetesManifestTree(ctx, t.TempDir(), "test", "codefly", builderv0.KubernetesOutputProfile(2), false, "", "")
+	require.Equal(t, builderv0.KubernetesManifestValidation_STATUS_FAILED, validation.GetStaticValidation())
+	require.False(t, validation.GetRestricted())
+	require.Len(t, validation.GetViolations(), 1)
+	require.Contains(t, validation.GetViolations()[0], "unsupported Kubernetes output profile")
+	require.Contains(t, validation.GetViolations()[0], "number 2 names a value the schema deleted")
+	_, err = BuildKubernetesManifestBundle(t.TempDir(), "test", builderv0.KubernetesOutputProfile(2), validation, nil)
+	require.ErrorIs(t, err, ErrOutputProfileUnknown)
+
+	// A base that disagrees with a VALID request's profile is refused the same
+	// way: the write holds the judgement, not the caller's assembly.
+	destination := t.TempDir()
+	valid := &builderv0.KubernetesDeployment{Namespace: "codefly", Destination: destination,
+		Profile: builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1}
+	base, err := builder.CreateKubernetesBase(ctx, &basev0.Environment{Name: "test"}, "codefly", nil)
+	require.NoError(t, err)
+	base.Profile, base.Restricted = valid.GetProfile(), false
+	err = builder.GenerateGenericKustomize(ctx, templates, valid, base, secrets)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not carry the request's judged profile")
+	entries, err := os.ReadDir(destination)
+	require.NoError(t, err)
+	require.Empty(t, entries)
 }
 
 func TestDeployKustomizeReturnsValidationEvidenceOnFailure(t *testing.T) {

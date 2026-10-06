@@ -38,13 +38,6 @@ const AnnotationAPIServerAccess = "codefly.dev/api-server-access"
 // is a silent guess about whether a workload meant to reach the API server.
 const APIServerAccessRequired = "required"
 
-// IsRestrictedOutputProfile reports whether a profile selects the secret-free,
-// digest-pinned, policy-restricted contract: the transport-neutral
-// RESTRICTED_PORTABLE_V1 profile, and only it.
-func IsRestrictedOutputProfile(profile builderv0.KubernetesOutputProfile) bool {
-	return profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1
-}
-
 // BuildKubernetesManifestBundle inventories the rendered tree at destination and
 // returns a mechanism-neutral manifest-bundle description: the applied entry
 // point, the canonical sorted file inventory with per-file sha256 digests, and
@@ -56,13 +49,17 @@ func BuildKubernetesManifestBundle(
 	validation *builderv0.KubernetesManifestValidation,
 	secretReferences map[string]*builderv0.KubernetesSecretKeyReference,
 ) (*builderv0.KubernetesManifestBundle, error) {
+	selected, err := ParseOutputProfile(profile)
+	if err != nil {
+		return nil, fmt.Errorf("describe rendered tree: %w", err)
+	}
 	files, err := inventoryManifestFiles(destination)
 	if err != nil {
 		return nil, fmt.Errorf("inventory rendered tree: %w", err)
 	}
 	return &builderv0.KubernetesManifestBundle{
 		Format:           builderv0.KubernetesDeploymentOutput_KUSTOMIZE,
-		Profile:          profile,
+		Profile:          selected.Proto(),
 		ContractVersion:  KubernetesManifestContractVersion,
 		EntryPoints:      []string{path.Join("overlays", environment)},
 		Files:            files,
@@ -262,16 +259,16 @@ func ValidateKubernetesManifestTree(
 		StaticValidation:     builderv0.KubernetesManifestValidation_STATUS_PASSED,
 		ServerSideValidation: builderv0.KubernetesManifestValidation_STATUS_NOT_RUN,
 	}
-	if profile != builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 &&
-		!IsRestrictedOutputProfile(profile) {
+	selected, err := ParseOutputProfile(profile)
+	if err != nil {
 		result.StaticValidation = builderv0.KubernetesManifestValidation_STATUS_FAILED
-		result.Violations = []string{"unsupported Kubernetes output profile"}
+		result.Violations = []string{fmt.Sprintf("unsupported Kubernetes output profile: %v", err)}
 		return result
 	}
 
-	manifest, violations := buildKustomizeManifest(destination, environment, profile)
+	manifest, violations := buildKustomizeManifest(destination, environment, selected)
 	if len(violations) == 0 {
-		violations = validateKubernetesManifest(manifest, namespace, profile)
+		violations = validateKubernetesManifest(manifest, namespace, selected)
 	}
 	if len(violations) > 0 {
 		result.StaticValidation = builderv0.KubernetesManifestValidation_STATUS_FAILED
@@ -295,7 +292,7 @@ func ValidateKubernetesManifestTree(
 		result.ValidatedContext = validationContext
 	}
 
-	result.Restricted = IsRestrictedOutputProfile(profile) &&
+	result.Restricted = selected.Restricted() &&
 		result.StaticValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED &&
 		(!validateServerSide ||
 			result.ServerSideValidation == builderv0.KubernetesManifestValidation_STATUS_PASSED)
@@ -306,7 +303,7 @@ func ValidateKubernetesManifestTree(
 func buildKustomizeManifest(
 	destination string,
 	environment string,
-	profile builderv0.KubernetesOutputProfile,
+	profile OutputProfile,
 ) ([]byte, []string) {
 	var violations []string
 	err := filepath.WalkDir(destination, func(path string, entry os.DirEntry, walkErr error) error {
@@ -328,7 +325,7 @@ func buildKustomizeManifest(
 			}
 			violations = append(violations, fmt.Sprintf("%s contains an unresolved placeholder", relative))
 		}
-		if IsRestrictedOutputProfile(profile) {
+		if profile.Restricted() {
 			decoder := yaml.NewDecoder(bytes.NewReader(content))
 			for {
 				var value map[string]any
@@ -384,7 +381,7 @@ func buildKustomizeManifest(
 	return manifest, nil
 }
 
-func validateKubernetesManifest(manifest []byte, namespace string, profile builderv0.KubernetesOutputProfile) []string {
+func validateKubernetesManifest(manifest []byte, namespace string, profile OutputProfile) []string {
 	var violations []string
 	decoder := yaml.NewDecoder(bytes.NewReader(manifest))
 	for document := 1; ; document++ {
@@ -438,7 +435,7 @@ func newKubernetesManifestObject(value map[string]any, document int) (*kubernete
 	}, nil
 }
 
-func (object *kubernetesManifestObject) validate(namespace string, profile builderv0.KubernetesOutputProfile) []string {
+func (object *kubernetesManifestObject) validate(namespace string, profile OutputProfile) []string {
 	var violations []string
 	ref := object.reference()
 
@@ -460,7 +457,7 @@ func (object *kubernetesManifestObject) validate(namespace string, profile build
 	if strings.Contains(strings.ToLower(object.kind), "secret") {
 		violations = append(violations, object.validateSecretContract(profile)...)
 	}
-	if IsRestrictedOutputProfile(profile) && object.kind == "ConfigMap" {
+	if profile.Restricted() && object.kind == "ConfigMap" {
 		violations = append(violations, object.validateConfigMap()...)
 	}
 	if object.apiVersion == "rbac.authorization.k8s.io/v1" {
@@ -488,8 +485,8 @@ func (object *kubernetesManifestObject) isCodeflyOwned() bool {
 	return strings.EqualFold(managedBy, "codefly")
 }
 
-func (object *kubernetesManifestObject) validateSecretContract(profile builderv0.KubernetesOutputProfile) []string {
-	if !IsRestrictedOutputProfile(profile) {
+func (object *kubernetesManifestObject) validateSecretContract(profile OutputProfile) []string {
+	if !profile.Restricted() {
 		return nil
 	}
 	ref := object.reference()
@@ -768,7 +765,7 @@ func (object *kubernetesManifestObject) validatePodAnnotations() []string {
 func (object *kubernetesManifestObject) validatePodSpec(
 	podSpec map[string]any,
 	longRunning bool,
-	profile builderv0.KubernetesOutputProfile,
+	profile OutputProfile,
 ) []string {
 	ref := object.reference()
 	var violations []string
@@ -855,7 +852,7 @@ func (object *kubernetesManifestObject) validateContainer(
 	index int,
 	init bool,
 	requireProbes bool,
-	profile builderv0.KubernetesOutputProfile,
+	profile OutputProfile,
 ) []string {
 	collection := "containers"
 	if init {
@@ -866,13 +863,13 @@ func (object *kubernetesManifestObject) validateContainer(
 	image := stringValue(container, "image")
 	if image == "" {
 		violations = append(violations, fmt.Sprintf("%s has no image", ref))
-	} else if IsRestrictedOutputProfile(profile) && !pinnedImage.MatchString(image) {
+	} else if profile.Restricted() && !pinnedImage.MatchString(image) {
 		violations = append(violations, fmt.Sprintf("%s image %q is not pinned by sha256 digest", ref, image))
 	}
 	violations = append(violations, validateContainerSecurity(container, ref)...)
 	violations = append(violations, validateContainerResources(container, ref)...)
 	violations = append(violations, validateContainerPorts(container, ref)...)
-	if IsRestrictedOutputProfile(profile) {
+	if profile.Restricted() {
 		violations = append(violations, validateContainerSecretReferences(container, ref)...)
 	}
 	violations = append(violations, validateContainerHealth(container, ref, requireProbes)...)
