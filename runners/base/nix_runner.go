@@ -672,18 +672,8 @@ func (proc *NixProc) Run(ctx context.Context) error {
 	// undefined per os/exec docs, dropped exit errors silently.
 	select {
 	case <-proc.exitCh:
-		err := proc.exitErr
-		if err != nil {
-			var exitError *exec.ExitError
-			if errors.As(err, &exitError) {
-				if strings.Contains(exitError.String(), "signal: terminated") {
-					return nil
-				}
-				return exitError
-			} else if strings.Contains(err.Error(), "signal: terminated") {
-				return nil
-			}
-			return w.Wrapf(err, "nix process failed")
+		if err := proc.exitErr; err != nil {
+			return proc.exitFailure(ctx, err)
 		}
 	case <-proc.stopped:
 		w.Trace("nix process was killed")
@@ -693,6 +683,31 @@ func (proc *NixProc) Run(ctx context.Context) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+// exitFailure is NativeProc's contract for a process that did not exit 0: nil
+// only for a termination this Proc's own Stop requested; a signal from
+// anywhere else is the failure it is; a cancelled ctx is reported as such.
+func (proc *NixProc) exitFailure(ctx context.Context, err error) error {
+	w := wool.Get(ctx).In("NixProc.Run")
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if proc.wasStopRequested() {
+		w.Trace("nix process ended by a requested stop", wool.ErrField(err))
+		return nil
+	}
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
+		return exitError
+	}
+	return w.Wrapf(err, "nix process failed")
+}
+
+func (proc *NixProc) wasStopRequested() bool {
+	proc.lifecycleMu.Lock()
+	defer proc.lifecycleMu.Unlock()
+	return proc.stopRequested
 }
 
 func (proc *NixProc) Start(ctx context.Context) error {

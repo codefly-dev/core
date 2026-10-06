@@ -261,18 +261,8 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 	// to proc.exitCh. Read from there — never call cmd.Wait twice.
 	select {
 	case <-proc.exitCh:
-		err := proc.exitErr
-		if err != nil {
-			var exitError *exec.ExitError
-			if errors.As(err, &exitError) {
-				if strings.Contains(exitError.String(), "signal: terminated") {
-					return nil
-				}
-				return exitError
-			} else if strings.Contains(err.Error(), "signal: terminated") {
-				return nil
-			}
-			return w.Wrapf(err, "cannot wait for process")
+		if err := proc.exitErr; err != nil {
+			return proc.exitFailure(ctx, err)
 		}
 	case <-proc.stopped:
 		w.Trace("process was killed")
@@ -283,6 +273,35 @@ func (proc *NativeProc) Run(ctx context.Context) error {
 	}
 	w.Trace("done")
 	return nil
+}
+
+// exitFailure classifies a process that did not exit 0. The one termination
+// that is not a failure is the one this Proc's own Stop requested: a service
+// stopped on purpose. A signal from anywhere else — a timeout, a parent dying,
+// a deploy's SIGTERM, a build killed mid-link — means the process did not
+// finish, and that is what the caller hears; it used to be read as success
+// whenever the signal was SIGTERM, which published half-built work. A
+// cancelled ctx is reported as such, whichever select arm observed it.
+func (proc *NativeProc) exitFailure(ctx context.Context, err error) error {
+	w := wool.Get(ctx).In("NativeProc.Run")
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if proc.wasStopRequested() {
+		w.Trace("process ended by a requested stop", wool.ErrField(err))
+		return nil
+	}
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
+		return exitError
+	}
+	return w.Wrapf(err, "cannot wait for process")
+}
+
+func (proc *NativeProc) wasStopRequested() bool {
+	proc.lifecycleMu.Lock()
+	defer proc.lifecycleMu.Unlock()
+	return proc.stopRequested
 }
 
 func (proc *NativeProc) Start(ctx context.Context) error {
