@@ -52,8 +52,9 @@ type Dependencies struct {
 	attached       bool
 	inherited      bool
 
-	// dir anchors the session: identity is resolved from it rather than from
-	// the process working directory, which a caller may change at any time.
+	// dir anchors the CLI to its composing workspace for a named service, or
+	// to the requested service directory. Named identity is captured separately
+	// so an external checkout cannot replace the caller's composition.
 	dir string
 
 	// controlAddress is the CLI control channel this session spawned a server
@@ -264,6 +265,8 @@ func WithDirectory(dir string) OptionFunc {
 // "<module>/<service>", resolved through the workspace found up from the
 // working directory. The module half is required: a bare service name is
 // refused rather than guessed at across modules.
+// The CLI runs from that workspace with the explicit selector, even when the
+// selected service lives in a separate checkout.
 //
 // It is the option for a caller that sits outside any service — a
 // solution-level test package, which owns no service.codefly.yaml of its own —
@@ -328,7 +331,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 			dir:            dir,
 		}, nil
 	}
-	dir, err := sessionDirectory(ctx, opt)
+	dir, identity, err := sessionAnchor(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +360,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 	args := dependencyCommandArguments(opt, channel.scope)
 
 	if opt.KeepRunning {
-		if deps, err := attachDependencies(ctx, channel, dir, opt, unlockSetup); err == nil {
+		if deps, err := attachDependencies(ctx, channel, dir, identity, opt, unlockSetup); err == nil {
 			success = true
 			return deps, nil
 		} else {
@@ -393,6 +396,7 @@ func WithDependencies(ctx context.Context, opts ...OptionFunc) (*Dependencies, e
 		runtimeContext: resources.RuntimeContextFromEnv(),
 		keepRunning:    opt.KeepRunning,
 		dir:            dir,
+		identity:       identity,
 		controlAddress: channel.target,
 		startDone:      ctx.Done(),
 	}
@@ -592,34 +596,58 @@ func sessionDirectory(ctx context.Context, opt *Option) (string, error) {
 	return os.Getwd()
 }
 
-// serviceDirectory resolves "<module>/<service>" through the workspace owning
-// the working directory. Only the workspace is found by walking up, so a caller
-// that owns no service — which is the whole point of naming one — resolves the
-// same identity from anywhere inside the workspace.
-func serviceDirectory(ctx context.Context, unique string) (string, error) {
+// sessionAnchor keeps a named service in the composition that resolved it.
+// The source checkout can be outside that workspace (and can own another one),
+// so neither CLI startup nor environment resolution may rediscover it there.
+func sessionAnchor(ctx context.Context, opt *Option) (string, *resolvedIdentity, error) {
+	if opt.Service == "" {
+		dir, err := sessionDirectory(ctx, opt)
+		return dir, nil, err
+	}
+	from, err := os.Getwd()
+	if err != nil {
+		return "", nil, err
+	}
+	return namedServiceAnchor(ctx, from, opt.Service)
+}
+
+func namedServiceAnchor(ctx context.Context, from, unique string) (string, *resolvedIdentity, error) {
 	reference, err := resources.ParseServiceWithOptionalModule(unique)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if reference.Module == "" {
-		return "", fmt.Errorf("service %q must name its module, as <module>/<service>", unique)
+		return "", nil, fmt.Errorf("service %q must name its module, as <module>/<service>", unique)
 	}
+	workspace, err := resources.FindWorkspaceUpFrom(ctx, from)
+	if err != nil {
+		return "", nil, err
+	}
+	if workspace == nil {
+		return "", nil, fmt.Errorf("no Codefly workspace found from %s, so the service %s cannot be resolved", from, unique)
+	}
+	module, err := workspace.LoadModuleFromName(ctx, reference.Module)
+	if err != nil {
+		return "", nil, fmt.Errorf("cannot resolve module for service %s in workspace %s: %w", unique, workspace.Name, err)
+	}
+	service, err := module.LoadServiceFromName(ctx, reference.Name)
+	if err != nil {
+		return "", nil, fmt.Errorf("cannot resolve service %s in workspace %s: %w", unique, workspace.Name, err)
+	}
+	return workspace.Dir(), &resolvedIdentity{module: module, service: service}, nil
+}
+
+// serviceDirectory is used only for borrowed sessions, which spawn no CLI.
+func serviceDirectory(ctx context.Context, unique string) (string, error) {
 	from, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	workspace, err := resources.FindWorkspaceUpFrom(ctx, from)
+	_, identity, err := namedServiceAnchor(ctx, from, unique)
 	if err != nil {
 		return "", err
 	}
-	if workspace == nil {
-		return "", fmt.Errorf("no Codefly workspace found from %s, so the service %s cannot be resolved", from, unique)
-	}
-	service, err := workspace.LoadService(ctx, reference)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve service %s in workspace %s: %w", unique, workspace.Name, err)
-	}
-	return service.Dir(), nil
+	return identity.service.Dir(), nil
 }
 
 // inheritedDirectory anchors a borrowed session. It spawns nothing, so the
@@ -680,6 +708,9 @@ func hasInvocationConfigurationOverrides(opt *Option) bool {
 
 func dependencyCommandArguments(opt *Option, scope string) []string {
 	args := []string{"run", "service"}
+	if opt.Service != "" {
+		args = append(args, opt.Service)
+	}
 	if opt.Debug {
 		args = append(args, "-d")
 	}
@@ -947,6 +978,8 @@ func reuseFingerprint(ctx context.Context, dir string, opt *Option) string {
 	parts := []string{
 		"codefly-session-v" + fmt.Sprint(session.ProtocolVersion),
 		workspaceName(ctx, dir),
+		filepath.Clean(dir),
+		opt.Service,
 		opt.NamingScope,
 		opt.Fixture,
 		opt.RunProfile,
@@ -957,7 +990,13 @@ func reuseFingerprint(ctx context.Context, dir string, opt *Option) string {
 	// to. Reading it from the process working directory would fingerprint a
 	// different service than the one this session runs, and two sessions on
 	// different services would then share — or wrongly refuse — a warm stack.
-	if identity, err := resolveSessionIdentity(ctx, dir); err == nil && identity != nil {
+	var identity *resolvedIdentity
+	if opt.Service != "" {
+		_, identity, _ = namedServiceAnchor(ctx, dir, opt.Service)
+	} else {
+		identity, _ = resolveSessionIdentity(ctx, dir)
+	}
+	if identity != nil {
 		svc := identity.service
 		parts = append(parts, svc.Reference().String())
 		for _, dep := range svc.ServiceDependencies {
@@ -1131,7 +1170,7 @@ func codeflyBinary(opt *Option) string {
 // hands back the setup lock: everything after that point is this session's own
 // work, and holding the lock through it would serialize every waiter's
 // readiness wait behind the one in front of it.
-func attachDependencies(ctx context.Context, channel *controlChannel, dir string, opt *Option, attached func()) (*Dependencies, error) {
+func attachDependencies(ctx context.Context, channel *controlChannel, dir string, identity *resolvedIdentity, opt *Option, attached func()) (*Dependencies, error) {
 	owner, err := warmSessionOwner(channel)
 	if err != nil {
 		return nil, err
@@ -1168,6 +1207,7 @@ func attachDependencies(ctx context.Context, channel *controlChannel, dir string
 		keepRunning:    true,
 		attached:       true,
 		dir:            dir,
+		identity:       identity,
 	}
 	if !opt.CommandScopedEnvironment {
 		if err := claimGlobalEnvironment(l); err != nil {
