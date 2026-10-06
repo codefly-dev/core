@@ -822,3 +822,173 @@ func TestTheRefusalsNameTheRemoteTrackingRefInFull(t *testing.T) {
 		})
 	}
 }
+
+// A registry entry says a test executes the SCRIPT. These say nothing about the
+// script and everything about whether the step runs: a condition on it, or a
+// tolerated failure, and the job proceeds past an unmerged commit with the
+// credential while the script and its test are untouched. So a step control on
+// a registered refusal is itself a refusal of the witness.
+func TestAControlOnARegisteredRefusalIsNotAWitness(t *testing.T) {
+	for _, control := range []string{
+		"        if: github.event_name != 'push'\n",
+		"        if: ${{ success() }}\n",
+		"        continue-on-error: true\n",
+	} {
+		t.Run(strings.TrimSpace(control), func(t *testing.T) {
+			known := verifiedRefusals[1] // the release refusal
+			path := filepath.Join(repoRoot(t), ".github", "workflows", known.workflow)
+			raw, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			anchor := "      - name: " + known.step + "\n"
+			require.Contains(t, string(raw), anchor)
+			wf := parseIsolatedDocument(t,
+				strings.Replace(string(raw), anchor, anchor+control, 1), known.workflow)
+			wf.name = known.workflow
+
+			ok, missing := acceptedExecution(t, wf, known.job)
+			require.False(t, ok,
+				"the registered refusal carries %q and was still accepted as a "+
+					"witness (guard said %q)", strings.TrimSpace(control), missing)
+			require.Contains(t, missing, "not a witness")
+		})
+	}
+}
+
+// A refusal establishes the commit the job began on. It establishes nothing
+// about a tree selected later in the same job, or inside an action it invokes.
+func TestARefusalDoesNotCoverACheckoutThatFollowsIt(t *testing.T) {
+	known := verifiedRefusals[1]
+	path := filepath.Join(repoRoot(t), ".github", "workflows", known.workflow)
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name  string
+		added string
+	}{
+		{
+			name: "a later checkout of another branch",
+			added: `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: topic/one}
+      - run: go test ./...
+`,
+		},
+		{
+			name: "a later checkout inheriting the triggering ref",
+			added: `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: go test ./...
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			anchor := "      - name: Run GoReleaser\n"
+			require.Contains(t, string(raw), anchor)
+			wf := parseIsolatedDocument(t,
+				strings.Replace(string(raw), anchor, tc.added+anchor, 1), known.workflow)
+			wf.name = known.workflow
+
+			ok, missing := acceptedExecution(t, wf, known.job)
+			require.False(t, ok,
+				"a checkout after the refusal was accepted (guard said %q)", missing)
+			require.Contains(t, missing, "no refusal in this job covers")
+		})
+	}
+}
+
+// The interpreter is `step.shell`, and which constructs run a string is a
+// property of the interpreter. A shell this guard does not read refuses.
+func TestTheEffectiveShellDecidesAndAnUnreadOneRefuses(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		job      string
+		accepted bool
+	}{
+		{
+			name:     "a shell whose execution forms are not read",
+			accepted: false,
+			job: `    env: {TASK: "${{ github.event.pull_request.body }}", CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - shell: python
+        run: exec(os.environ['TASK'])`,
+		},
+		{
+			name:     "the same selected through the job's defaults",
+			accepted: false,
+			job: `    defaults:
+      run:
+        shell: python
+    env: {TASK: "${{ github.event.pull_request.body }}", CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: exec(os.environ['TASK'])`,
+		},
+		{
+			name:     "bash, which is read",
+			accepted: true,
+			job: `    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - shell: bash
+        run: go test ./...`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t,
+				"on: pull_request_target\njobs:\n  probe:\n    runs-on: ubuntu-latest\n"+tc.job+"\n",
+				tc.name)
+			ok, missing := acceptedExecution(t, wf, "probe")
+			require.Equal(t, tc.accepted, ok, "guard said %q", missing)
+		})
+	}
+}
+
+// Provenance travels: a party-chosen value written into $GITHUB_ENV under a
+// fresh name is still that value when a later step executes the new name.
+func TestProvenanceTravelsBetweenSteps(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		steps    string
+		accepted bool
+	}{
+		{
+			name:     "renamed through the environment file, then executed",
+			accepted: false,
+			steps: `      - env: {TASK: "${{ github.event.pull_request.body }}"}
+        run: echo "NEXT=$TASK" >> $GITHUB_ENV
+      - run: eval "$NEXT"`,
+		},
+		{
+			name:     "written in a form whose provenance cannot be read",
+			accepted: false,
+			steps: `      - env: {TASK: "${{ github.event.pull_request.body }}"}
+        run: |
+          { echo "NEXT<<EOF"; echo "$TASK"; echo EOF; } >> "$GITHUB_ENV"
+      - run: eval "$NEXT"`,
+		},
+		{
+			name:     "a value with no party-chosen provenance",
+			accepted: true,
+			steps: `      - run: echo "NEXT=go test ./..." >> $GITHUB_ENV
+      - run: eval "$NEXT"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t, `on: pull_request_target
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+`+tc.steps+"\n", tc.name)
+			ok, missing := acceptedExecution(t, wf, "probe")
+			require.Equal(t, tc.accepted, ok, "guard said %q", missing)
+		})
+	}
+}

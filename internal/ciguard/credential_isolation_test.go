@@ -50,19 +50,30 @@ type isolatedJob struct {
 	Secrets     yaml.Node         `yaml:"secrets"`
 	Uses        string            `yaml:"uses"`
 	Steps       []isolatedStep    `yaml:"steps"`
+	Defaults    isolatedDefaults  `yaml:"defaults"`
 }
 
 // isolatedStep is one step, named rather than anonymous so that the steps of
 // a local composite action can be read into the same shape and judged as
 // steps of the job that calls it -- which is what they are at runtime.
+// isolatedDefaults carries `defaults.run.shell`, which selects the interpreter
+// for every step that does not name one.
+type isolatedDefaults struct {
+	Run struct {
+		Shell string `yaml:"shell"`
+	} `yaml:"run"`
+}
+
 type isolatedStep struct {
-	Name            string            `yaml:"name"`
-	Uses            string            `yaml:"uses"`
-	If              string            `yaml:"if"`
-	Run             string            `yaml:"run"`
-	Env             map[string]string `yaml:"env"`
-	With            map[string]any    `yaml:"with"`
-	ContinueOnError bool              `yaml:"continue-on-error"`
+	Name             string            `yaml:"name"`
+	Uses             string            `yaml:"uses"`
+	If               string            `yaml:"if"`
+	Run              string            `yaml:"run"`
+	Env              map[string]string `yaml:"env"`
+	With             map[string]any    `yaml:"with"`
+	ContinueOnError  bool              `yaml:"continue-on-error"`
+	Shell            string            `yaml:"shell"`
+	WorkingDirectory string            `yaml:"working-directory"`
 }
 
 // localAction is a repository-local action's manifest, as far as these guards
@@ -161,8 +172,9 @@ type isolatedWorkflow struct {
 	// secret in the job running the suite. Omitting it from the model is the
 	// same as exempting it, and a model that cannot see a credential cannot
 	// report one.
-	Env  map[string]string      `yaml:"env"`
-	Jobs map[string]isolatedJob `yaml:"jobs"`
+	Env      map[string]string      `yaml:"env"`
+	Defaults isolatedDefaults       `yaml:"defaults"`
+	Jobs     map[string]isolatedJob `yaml:"jobs"`
 	// raw is each job as written, filled by a second decode. The typed model
 	// above names the fields a credential is USUALLY in; a job can also carry
 	// one in `with:`, `strategy.matrix`, `services`, `container`, `outputs`,

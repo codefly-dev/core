@@ -1,6 +1,7 @@
 package ciguard
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -94,26 +95,55 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 
 	// (3) A refusal whose behaviour a test establishes, placed before anything
 	// executes. The registry decides, not the script's wording.
-	if index, found := verifiedRefusalIndex(wf.name, id, job.Steps); found {
+	//
+	// A valid proof does NOT end the question. It establishes that the commit
+	// the job starts from was merged; it says nothing about a checkout later in
+	// the same job, or inside an action it invokes. So this records that the
+	// proof is present and keeps going -- there is no early return.
+	provenByRefusal := false
+	if index, reason, found := verifiedRefusalIndex(wf.name, id, job.Steps); found {
 		if first, executes := firstExecutingStepIndex(job, index); executes && first < index {
-			return false, "its ancestry proof is at step " + job.Steps[index].Name +
+			return false, "its refusal is at step " + job.Steps[index].Name +
 				" but step " + job.Steps[first].Name + " executes repository code before it"
 		}
-		return true, ""
+		provenByRefusal = true
+	} else if reason != "" {
+		return false, reason
 	}
 
-	// (2) Otherwise EVERY checkout must name the default branch outright,
-	// including the ones inside a local action this job invokes. A pinned
-	// checkout beside an unpinned nested one is not pinned. An ABSENT ref is
-	// not a pin: it means the triggering ref, which for a dispatch, a tag push
-	// or a caller is the party's choice.
 	steps, unreadable := stepsIncludingLocalActions(t, job)
 	if len(unreadable) > 0 {
 		return false, "it invokes " + strings.Join(unreadable, ", ") +
 			", whose execution this guard cannot read"
 	}
-	if reason, ok := everyCheckoutPinsTheDefaultBranch(steps); !ok {
-		return false, reason
+
+	// Every checkout, including the ones after a refusal and the ones inside a
+	// local action. A refusal covers the commit the job began on; a later
+	// checkout selects a different tree, which nothing has proved anything
+	// about. The ONE checkout a refusal does cover is the bare one it was
+	// written for -- the step before it, which has no `ref:` and whose tree the
+	// refusal then validates.
+	for i, step := range steps {
+		if !strings.Contains(step.Uses, "actions/checkout@") {
+			continue
+		}
+		ref, _ := step.With["ref"].(string)
+		if strings.TrimSpace(ref) == theDefaultBranch {
+			continue
+		}
+		if provenByRefusal && i == 0 && strings.TrimSpace(ref) == "" {
+			continue // the tree the refusal validates
+		}
+		which := "no ref: at all (which means the triggering ref)"
+		if ref != "" {
+			which = "ref: " + ref
+		}
+		where := "its checkout"
+		if step.Name != "" {
+			where = "the checkout in step " + step.Name
+		}
+		return false, where + " has " + which +
+			", which no refusal in this job covers"
 	}
 	return true, ""
 }
@@ -229,20 +259,42 @@ var verifiedRefusals = []verifiedRefusal{
 	},
 }
 
+// refusalIsUnconditionalAndFatal reports whether a registered refusal will
+// actually run and actually stop the job.
+//
+// Being in the registry says a test executes the SCRIPT. It says nothing about
+// whether the step runs: a `if:` on it, or `continue-on-error: true`, and the
+// job proceeds past an unmerged commit with the credential while the script
+// itself is unchanged and its test still passes. So any step control that can
+// skip it or tolerate its failure is itself a refusal of the witness.
+func refusalIsUnconditionalAndFatal(step isolatedStep) (string, bool) {
+	if gate := strings.TrimSpace(step.If); gate != "" {
+		return "it carries `if: " + gate + "`, so it does not run unconditionally", false
+	}
+	if step.ContinueOnError {
+		return "it carries `continue-on-error: true`, so its failure does not stop the job", false
+	}
+	return "", true
+}
+
 // verifiedRefusalIndex returns the index of a step whose refusal is established
-// by an executed test, for this workflow and job.
-func verifiedRefusalIndex(workflow, job string, steps []isolatedStep) (int, bool) {
+// by an executed test AND will run fatally, for this workflow and job.
+func verifiedRefusalIndex(workflow, job string, steps []isolatedStep) (int, string, bool) {
 	for _, known := range verifiedRefusals {
 		if known.workflow != workflow || known.job != job {
 			continue
 		}
 		for i, step := range steps {
-			if step.Name == known.step {
-				return i, true
+			if step.Name != known.step {
+				continue
 			}
+			if reason, ok := refusalIsUnconditionalAndFatal(step); !ok {
+				return 0, "its registered refusal is not a witness: " + reason, false
+			}
+			return i, "", true
 		}
 	}
-	return 0, false
+	return 0, "", false
 }
 
 // firstExecutingStepIndex finds the first step that could run repository code:
@@ -290,6 +342,16 @@ func executionInputsArePinned(t *testing.T, wf isolatedWorkflow, job isolatedJob
 		inherited[name] = value
 	}
 
+	// Provenance travels. A step can write a party-chosen value into
+	// $GITHUB_ENV under a fresh name, and the next step executes that name --
+	// so taint is carried forward across steps rather than rebuilt per step.
+	tainted := map[string]bool{}
+	for name, value := range inherited {
+		if partyChosen(t, value) {
+			tainted[name] = true
+		}
+	}
+
 	for _, step := range steps {
 		where := "step " + step.Name
 		if step.Name == "" {
@@ -301,12 +363,42 @@ func executionInputsArePinned(t *testing.T, wf isolatedWorkflow, job isolatedJob
 		}
 		for name, value := range step.Env {
 			scoped[name] = value
+			if partyChosen(t, value) {
+				tainted[name] = true
+			}
 		}
 
-		// A shell this guard does not read cannot be checked for execution
-		// positions, so it refuses rather than guessing.
-		if shell, ok := step.With["shell"].(string); ok && strings.TrimSpace(shell) != "" {
-			return where + " selects shell " + shell +
+		// Anything this step already carries forward.
+		for name := range tainted {
+			if scriptExecutesEnvName(step.Run, name) {
+				return where + " runs a program from $" + name +
+					", whose value the triggering party supplies", false
+			}
+		}
+
+		// And what it writes onward. A write this guard cannot attribute is a
+		// refusal rather than an assumption.
+		exported, unresolved := environmentExports(step.Run)
+		if unresolved != "" {
+			return where + " writes " + unresolved +
+				" into $GITHUB_ENV in a form whose provenance this guard cannot " +
+				"establish", false
+		}
+		for name, from := range exported {
+			for _, source := range from {
+				if tainted[source] {
+					tainted[name] = true
+				}
+			}
+		}
+
+		// The EFFECTIVE shell: the step's own `shell:`, else the job's
+		// `defaults.run.shell`, else the workflow's, else the platform
+		// default. It was read from `with.shell`, which is not where it
+		// lives -- so `shell: python` with a script that executes an
+		// environment variable was read as if it were bash and accepted.
+		if shell := effectiveShell(wf, job, step); !readableShells[shell] {
+			return where + " runs under shell " + shell +
 				", whose execution forms this guard does not read", false
 		}
 
@@ -388,4 +480,68 @@ func scriptExecutesEnvName(script, name string) bool {
 		}
 	}
 	return false
+}
+
+// readableShells are the interpreters whose execution forms this guard reads.
+// Anything else -- python, pwsh, node, a custom `shell:` command -- refuses,
+// because "which constructs run a string" is a property of the interpreter.
+var readableShells = map[string]bool{"bash": true, "sh": true}
+
+// effectiveShell resolves the interpreter a step actually runs under: its own
+// `shell:`, else the job's `defaults.run.shell`, else the workflow's, else the
+// platform default, which on the runners this repository uses is bash.
+func effectiveShell(wf isolatedWorkflow, job isolatedJob, step isolatedStep) string {
+	for _, candidate := range []string{
+		step.Shell, job.Defaults.Run.Shell, wf.Defaults.Run.Shell,
+	} {
+		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
+			return trimmed
+		}
+	}
+	return "bash"
+}
+
+// partyChosen reports whether a value reads from a context the triggering party
+// supplies.
+func partyChosen(t *testing.T, value string) bool {
+	t.Helper()
+	for _, root := range partyChosenContexts {
+		reads, err := contextReadsUnder(value, root)
+		require.NoError(t, err)
+		if len(reads) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// githubEnvWrite matches the shapes a script uses to export a variable for
+// later steps: `NAME=value >> $GITHUB_ENV` and the `echo "NAME=value"` form.
+var githubEnvWrite = regexp.MustCompile(`(?m)^\s*(?:echo|printf)?\s*"?([A-Za-z_][A-Za-z0-9_]*)=([^"\n]*)"?\s*>>\s*"?\$\{?GITHUB_ENV`)
+
+// environmentExports returns, for each name a script writes into $GITHUB_ENV,
+// the variable names its value was built from -- and names any write whose
+// provenance cannot be read, so that refuses instead of being assumed clean.
+func environmentExports(script string) (map[string][]string, string) {
+	exported := map[string][]string{}
+	for _, line := range strings.Split(script, "\n") {
+		if !strings.Contains(line, "GITHUB_ENV") {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		groups := githubEnvWrite.FindStringSubmatch(line)
+		if groups == nil {
+			// It writes to the environment file in a shape this cannot
+			// attribute -- a heredoc, a loop, a tool call.
+			return nil, "a value"
+		}
+		var sources []string
+		for _, reference := range regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)`).FindAllStringSubmatch(groups[2], -1) {
+			sources = append(sources, reference[1])
+		}
+		exported[groups[1]] = sources
+	}
+	return exported, ""
 }
