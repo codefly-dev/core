@@ -78,17 +78,37 @@ func realBackend(t *testing.T, name string) *wooltel.Provider {
 	return backend
 }
 
-// The fixture's own contract: after cleanup, an ordinary provider must not be
-// handed a shut-down backend. Asserting the OBSERVABLE consequence rather than
-// pointer equality, because OTEL's global starts as a delegating provider and
-// comparing pointers is not its lifecycle contract.
-func TestTheFixtureLeavesNoBackendBehind(t *testing.T) {
-	require.Nil(t, wool.GetTelemetry(), "a prior test must not have left telemetry registered")
+// The fixture's own contract, asserted on BOTH registries it replaces.
+//
+// A live SDK provider is installed first on purpose. OTEL's global starts as a
+// delegating provider whose spans are invalid and non-recording — exactly what a
+// SHUT-DOWN backend also produces — so with no live prior provider the leak is
+// unobservable and deleting the restore from realBackend leaves this suite green.
+// Only a provider that was working beforehand makes "left wedged" distinguishable
+// from "restored". These tests stay serial: the state is process-wide.
+func TestTheFixtureRestoresBothGlobals(t *testing.T) {
+	live := sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(tracetest.NewInMemoryExporter())),
+	)
+	previousTracerProvider := otel.GetTracerProvider()
+	previousTelemetry := wool.GetTelemetry()
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previousTracerProvider)
+		wool.RegisterTelemetry(previousTelemetry)
+		_ = live.Shutdown(context.Background())
+	})
+	otel.SetTracerProvider(live)
+	wool.RegisterTelemetry(nil)
 
 	t.Run("inner", func(t *testing.T) { realBackend(t, "inner") })
 
-	require.Nil(t, wool.GetTelemetry(),
-		"cleanup must restore wool's registry, or a later wool.New starts spans on a dead backend")
+	_, span := otel.Tracer("after-cleanup").Start(context.Background(), "after-cleanup")
+	defer span.End()
+	require.True(t, span.SpanContext().IsValid(),
+		"OTEL's global was left pointing at the inner fixture's shut-down backend")
+	require.True(t, span.IsRecording(),
+		"a shut-down provider still answers, with spans that record nothing")
+	require.Nil(t, wool.GetTelemetry(), "wool's registry must be restored too")
 	require.False(t, wool.TelemetryEnabled())
 }
 
@@ -251,11 +271,13 @@ func TestAClearedBackendContextDoesNotResurrectTheParentSpan(t *testing.T) {
 // MAJOR 2 (round 2). A providerless handle reads the global registry on every
 // line, so registration concurrent with logging must not race. Run under -race.
 func TestRegisteringTelemetryWhileLoggingDoesNotRace(t *testing.T) {
-	previous := wool.GetTelemetry()
-	t.Cleanup(func() { wool.RegisterTelemetry(previous) })
-
-	// Built BEFORE any registration, so every line takes the global branch.
+	// Providerless and built before any registration, so every line takes the
+	// global-registry branch.
 	handle := wool.Get(context.Background()).WithLogger(&capture{})
+	// Through the common fixture. This test used to call Enable in its worker and
+	// restore only wool's registry, leaving OTEL's global pointing at its own
+	// shut-down backend — the very leak the fixture exists to prevent.
+	backend := realBackend(t, "racing")
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -267,13 +289,10 @@ func TestRegisteringTelemetryWhileLoggingDoesNotRace(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		backend, err := wooltel.Enable(wooltel.WithStdout(), wooltel.WithServiceName("racing"))
-		require.NoError(t, err)
 		for i := 0; i < 500; i++ {
 			wool.RegisterTelemetry(backend)
 			wool.RegisterTelemetry(nil)
 		}
-		_ = backend.Shutdown(context.Background())
 	}()
 	wg.Wait()
 }
