@@ -29,6 +29,13 @@ import (
 // being the root's.
 func namedRootGroupsManager(t *testing.T) *configurations.Manager {
 	t.Helper()
+	return rootGroupsManager(t, "${endpoint:platform/authority/grpc}")
+}
+
+// rootGroupsManager is namedRootGroupsManager with the vault credential's
+// reference chosen by the test: ambiguous for the consumer, or one it resolves.
+func rootGroupsManager(t *testing.T, vaultReference string) *configurations.Manager {
+	t.Helper()
 	ctx := context.Background()
 	root := t.TempDir()
 
@@ -43,7 +50,7 @@ modules:
 	writeConfigurationFile(t, root, "solution/configurations/local/work-context.env",
 		"authority-url=${endpoint:platform/authority/primary}/v1\n")
 	writeConfigurationFile(t, root, "solution/configurations/local/vault.secret.env",
-		"token-endpoint=${endpoint:platform/authority/grpc}\n")
+		"token-endpoint="+vaultReference+"\n")
 	for _, host := range []string{"host-a", "host-b"} {
 		writeConfigurationFile(t, root, host+"/module.codefly.yaml", "kind: module\nname: "+host+"\nservices: []\n")
 		writeConfigurationFile(t, root, host+"/configurations/local/observability.env", "OBSERVABILITY_URL="+host+"-observability\n")
@@ -106,23 +113,53 @@ func TestTheCompositionRootReadResolvesOnlyTheNamedGroups(t *testing.T) {
 	require.Len(t, confs, 1)
 }
 
-// With no names the read is what it was: every root group, and the first fault
-// refuses it, naming the group and key. Narrowing the named read did not
-// loosen the unnamed one.
+// With no names the read is what it was, and "what it was" is pinned from
+// both sides. Zero names is the WHOLE root set — every group, resolved, the
+// same answer as naming every group — not none of it and not some of it. And
+// the first fault still refuses that whole read, naming the group and key:
+// narrowing the named read did not loosen the unnamed one.
 func TestTheCompositionRootReadWithoutNamesStillRefusesTheFirstFault(t *testing.T) {
 	ctx := context.Background()
-	manager := namedRootGroupsManager(t)
 
-	confs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx)
+	// No fault anywhere: zero names delivers every root group, resolved, and
+	// is exactly what naming every root group delivers.
+	whole := rootGroupsManager(t, "${endpoint:platform/authority/secondary}")
+	unnamed, err := whole.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{
+		"vault/token-endpoint":       "http://localhost:3",
+		"work-context/authority-url": "http://localhost:2/v1",
+	}, rootValues(t, unnamed), "zero names is the whole set, resolved")
+	named, err := whole.GetCompositionRootWorkspaceConfigurations(ctx, "work-context", "vault")
+	require.NoError(t, err)
+	require.Equal(t, rootValues(t, unnamed), rootValues(t, named), "zero names and every name are one read")
+
+	// One fault: the whole read refuses, with the group and key.
+	faulty := namedRootGroupsManager(t)
+	confs, err := faulty.GetCompositionRootWorkspaceConfigurations(ctx)
 	require.ErrorIs(t, err, resources.ErrAmbiguousEndpointReference)
 	require.Contains(t, err.Error(), "vault/token-endpoint")
 	require.Nil(t, confs)
 
 	// Naming the faulty group reaches the same refusal: naming narrows which
 	// groups are judged, never how.
-	_, err = manager.GetCompositionRootWorkspaceConfigurations(ctx, "vault", "work-context")
+	_, err = faulty.GetCompositionRootWorkspaceConfigurations(ctx, "vault", "work-context")
 	require.ErrorIs(t, err, resources.ErrAmbiguousEndpointReference)
 	require.Contains(t, err.Error(), "vault/token-endpoint")
+}
+
+// rootValues flattens delivered configurations to group/key → value.
+func rootValues(t *testing.T, confs []*basev0.Configuration) map[string]string {
+	t.Helper()
+	values := make(map[string]string)
+	for _, conf := range confs {
+		for _, info := range conf.GetInfos() {
+			for _, value := range info.GetConfigurationValues() {
+				values[info.GetName()+"/"+value.GetKey()] = value.GetValue()
+			}
+		}
+	}
+	return values
 }
 
 // A name the composition root does not provide run-wide refuses the read by

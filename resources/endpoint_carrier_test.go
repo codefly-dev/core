@@ -3,6 +3,7 @@ package resources_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
@@ -28,8 +29,12 @@ func declaredCarrierEndpoints() []*resources.Endpoint {
 	}
 }
 
+// Acceptance is BECAUSE of the declarations, not a pass-through: the same
+// carriers are refused the moment the declaration they match is withdrawn,
+// naming exactly that carrier and nothing else — so an environment of valid
+// carriers is accepted by a judgement, not by a validator that judges nothing.
 func TestEndpointCarriersOfDeclaredEndpointsAreAccepted(t *testing.T) {
-	require.NoError(t, resources.ValidateEndpointCarriers([]string{
+	carriers := []string{
 		"PATH=/usr/bin",
 		"CODEFLY__ENVIRONMENT=local",
 		"CODEFLY__ENDPOINT__PRODUCER__RECORDS__REST__REST=localhost:8080",
@@ -38,7 +43,32 @@ func TestEndpointCarriersOfDeclaredEndpointsAreAccepted(t *testing.T) {
 		// The advertised-address carrier is another contract, read by its own
 		// key; it is not an endpoint carrier and is not judged as one.
 		"CODEFLY__SELF_ENDPOINT__PRODUCER__RECORDS__REST__REST=http://records.producer.svc.cluster.local:8080",
-	}, declaredCarrierEndpoints()))
+	}
+	require.NoError(t, resources.ValidateEndpointCarriers(carriers, declaredCarrierEndpoints()))
+
+	// Withdraw each declaration in turn: exactly its carrier is refused, the
+	// rest still accepted — every acceptance above rests on one declaration.
+	for withdrawn, endpoint := range declaredCarrierEndpoints() {
+		remaining := make([]*resources.Endpoint, 0, 2)
+		for i, declared := range declaredCarrierEndpoints() {
+			if i != withdrawn {
+				remaining = append(remaining, declared)
+			}
+		}
+		err := resources.ValidateEndpointCarriers(carriers, remaining)
+		require.ErrorIs(t, err, resources.ErrInvalidEndpointCarrier, "withdrawn %s", endpoint.Name)
+		key := resources.EndpointAsEnvironmentVariableKey(&resources.EndpointInformation{Module: endpoint.Module, Service: endpoint.Service, Name: endpoint.Name, API: endpoint.API})
+		require.Contains(t, err.Error(), key+" names no declared endpoint", "withdrawn %s", endpoint.Name)
+		require.Equal(t, 1, strings.Count(err.Error(), "names no declared endpoint"), "only the withdrawn declaration's carrier is refused")
+	}
+
+	// The self carrier is accepted for what it is, not because it was
+	// declared: spelled as an endpoint carrier it would be refused.
+	err := resources.ValidateEndpointCarriers([]string{
+		"CODEFLY__ENDPOINT__PRODUCER__RECORDS__ADMIN__REST=http://records.producer.svc.cluster.local:8080",
+	}, declaredCarrierEndpoints())
+	require.ErrorIs(t, err, resources.ErrInvalidEndpointCarrier)
+
 	// An environment carrying no endpoint carrier has nothing to refuse.
 	require.NoError(t, resources.ValidateEndpointCarriers([]string{"PATH=/usr/bin"}, declaredCarrierEndpoints()))
 	require.NoError(t, resources.ValidateEndpointCarriers(nil, nil))
