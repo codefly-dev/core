@@ -183,3 +183,19 @@ would silently remove all ordering.
 Restricting a graph — by stage or to a single service — keeps the edge kinds and
 drops the service lookup entries for nodes it removed, so a service that is not
 in the restricted graph cannot be resolved through it.
+
+
+### Reciprocal configuration references
+
+A configuration reference retains its producer in the run even when the reverse
+startup dependency already exists. A module callback and its consumer therefore
+both receive resolved endpoint mappings in a single-root run. Selection computes
+the fixed point of referenced producers and their declared dependencies; it does
+not add extra roots or ignore excluded services. This participation applies to
+runtime selection, not build-only selection, and survives graph restriction.
+
+Startup ordering remains acyclic. A reference that would close a startup cycle
+does not add a pre-start health wait for the service waiting on that consumer.
+The callback owner still starts in the selected flow and undergoes the ordinary
+service readiness checks. Configuration references do not make a declared
+startup cycle valid or prove either application's request-time readiness.
