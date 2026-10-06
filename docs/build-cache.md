@@ -187,3 +187,26 @@ func (*Builder) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesR
 Recipe responses need no executor acknowledgement because the CLI executes the
 plan itself. The Docker execution and registry-cache helpers remain available
 for the CLI executor; service agents must not call them to build images.
+
+## Go runner binary reuse
+
+The shared Go runner checks the toolchain's compiled package build IDs before
+reusing a binary. It runs `go list -deps -export` in the same native, Nix or
+companion environment, with the same race/debug/CGO/workspace settings as the
+build. Go's own incremental package cache makes unchanged discovery reusable.
+These IDs extend the source/module hash, so changing an embedded YAML file (or
+a transitive package's embedded content) invalidates the binary even when no
+`.go` file or dependency manifest changes. The caller need not remove `.cache`.
+
+A failed input compilation or a missing embed refuses reuse of the previous
+binary. The runner does not emulate Go's embed patterns, discover container
+inputs using the host's toolchain, or interpret `gomod.hash` as a source digest;
+that file tracks dependency-download state only. This applies to all agents
+using `GoRunnerEnvironment.BuildBinary`, including Go specializations. Image
+builds still use the CLI/BuildKit path described above.
+
+`TestNativeBuildInvalidatesCacheOnEmbeddedYAMLChange` builds and executes a real
+nested-main fixture, changes only a dependency package's same-length YAML,
+checks changed output and subsequent cache reuse, restores the original bytes,
+and proves deleting the embed cannot return the old binary. The default Go
+runner suite also covers imported package and local replacement changes.

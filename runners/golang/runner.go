@@ -3,6 +3,7 @@ package golang
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -527,6 +528,15 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 		return w.Wrapf(err, "cannot get hash")
 	}
 
+	// The Go toolchain knows the complete compiled input set, including embeds,
+	// C/assembly inputs and transitive packages. A *.go walk alone cannot tell
+	// whether a cached binary still contains the selected configuration bytes.
+	identity, err := r.packageBuildIdentity(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot resolve compiled Go inputs")
+	}
+	hash = fmt.Sprintf("%x", sha256.Sum256([]byte(hash+"\n"+identity)))
+
 	r.targetPath = r.BuildTargetPath(ctx, hash)
 
 	cached := r.LocalTargetPath(ctx, hash)
@@ -548,13 +558,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	}
 	w.Trace("building binary", wool.FileField(r.targetPath))
 
-	args := []string{"build"}
-	if r.withDebugSymbol {
-		args = append(args, "-gcflags", "all=-N -l")
-	}
-	if r.withRaceConditionDetection {
-		args = append(args, "-race")
-	}
+	args := append([]string{"build"}, r.buildFlags()...)
 	args = append(args, "-o", r.targetPath)
 
 	proc, err := r.Env().NewProcess("go", args...)
@@ -564,6 +568,55 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	if r.out != nil {
 		proc.WithOutput(r.out)
 	}
+	if err := r.configureBuildProcess(ctx, proc); err != nil {
+		return err
+	}
+
+	err = proc.Run(ctx)
+	if err != nil {
+		return w.Wrapf(err, "cannot run go build")
+	}
+	return nil
+}
+
+func (r *GoRunnerEnvironment) buildFlags() []string {
+	var flags []string
+	if r.withDebugSymbol {
+		flags = append(flags, "-gcflags", "all=-N -l")
+	}
+	if r.withRaceConditionDetection {
+		flags = append(flags, "-race")
+	}
+	return flags
+}
+
+// packageBuildIdentity runs in the SAME native/Nix/companion environment and
+// with the same flags as build. Go's incremental package cache supplies build
+// IDs; no host-side parser reimplements //go:embed matching or container paths.
+// Do not use -e: a missing input must fail before considering an old binary.
+func (r *GoRunnerEnvironment) packageBuildIdentity(ctx context.Context) (string, error) {
+	args := append([]string{"list", "-deps", "-export"}, r.buildFlags()...)
+	args = append(args, "-f", "{{if .BuildID}}{{.ImportPath}} {{.BuildID}}{{end}}", ".")
+	proc, err := r.Env().NewProcess("go", args...)
+	if err != nil {
+		return "", err
+	}
+	if err := r.configureBuildProcess(ctx, proc); err != nil {
+		return "", err
+	}
+	out := shared.NewSliceWriter()
+	proc.WithOutput(out)
+	if err := proc.Run(ctx); err != nil {
+		return "", fmt.Errorf("go list compiled inputs: %w: %s", err, strings.Join(out.Snapshot(), "\n"))
+	}
+	identity := strings.TrimSpace(strings.Join(out.Snapshot(), "\n"))
+	if identity == "" {
+		return "", fmt.Errorf("go list returned no compiled package identities")
+	}
+	return identity, nil
+}
+
+func (r *GoRunnerEnvironment) configureBuildProcess(ctx context.Context, proc runners.Proc) error {
 	proc.WithDir(r.sourceDir)
 	if r.withCGO {
 		// A native build uses the host toolchain, so fail early when its C
@@ -572,7 +625,7 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 		// tools (including go itself) and breaks reproducibility.
 		if r.local != nil {
 			if _, err := exec.LookPath("cc"); err != nil {
-				return w.Wrapf(err, "cannot find cc")
+				return fmt.Errorf("cannot find cc: %w", err)
 			}
 		}
 		proc.WithEnvironmentVariables(ctx, resources.Env("CC", "cc"))
@@ -582,10 +635,6 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 		proc.WithEnvironmentVariables(ctx, resources.Env("GOWORK", "off"))
 	}
 
-	err = proc.Run(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot run go build")
-	}
 	return nil
 }
 
