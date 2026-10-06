@@ -52,11 +52,9 @@ func testGo(t *testing.T, ctx context.Context, env *golang.GoRunnerEnvironment) 
 	// Check that the binary is there
 	require.False(t, shared.Must(shared.CheckEmptyDirectory(ctx, cacheDir)))
 
-	require.False(t, env.UsedCache())
-
+	// A second build is the toolchain's own up-to-date check on that binary.
 	err = env.BuildBinary(ctx)
 	require.NoError(t, err)
-	require.True(t, env.UsedCache())
 
 	// Run and stop
 	proc, err := env.Runner()
@@ -182,18 +180,14 @@ func TestNativeRunWithMod(t *testing.T) {
 	testGo(t, ctx, env)
 }
 
-func TestNativeRunWithNestedMainInvalidatesCacheOnImportedPackageChange(t *testing.T) {
+// A package the main imports is a compiled input: changing it rebuilds the
+// executable, read from the toolchain's own trace and from the executable's
+// output, never from a flag the runner sets.
+func TestNativeRunRebuildsOnImportedPackageChange(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	cacheDir := t.TempDir()
-
-	write := func(name string, contents string) {
-		t.Helper()
-		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755))
-		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(contents), 0644))
-	}
-	write("go.mod", "module example.com/cachetest\n\ngo 1.21\n")
-	write("cmd/server/main.go", `package main
+	writeFile(t, root, "go.mod", "module example.com/cachetest\n\ngo 1.21\n")
+	writeFile(t, root, "cmd/server/main.go", `package main
 
 import (
 	"fmt"
@@ -205,34 +199,19 @@ func main() {
 	fmt.Println(answer.Value())
 }
 `)
-	write("pkg/answer/answer.go", `package answer
+	answer := func(value string) {
+		writeFile(t, root, "pkg/answer/answer.go", "package answer\n\nfunc Value() string { return \""+value+"\" }\n")
+	}
+	answer("one")
+	env := newNativeRunner(t, ctx, root, "cmd/server", "-x")
 
-func Value() string {
-	return "one"
-}
-`)
+	require.True(t, buildWithEvidence(t, ctx, env).link)
+	require.Equal(t, "one", runOutput(t, ctx, env))
+	require.Equal(t, reused, buildWithEvidence(t, ctx, env), "nothing changed")
 
-	env, err := golang.NewNativeGoRunner(ctx, root, "cmd/server")
-	require.NoError(t, err)
-	env.WithLocalCacheDir(cacheDir)
-	defer func() {
-		require.NoError(t, env.Shutdown(ctx))
-	}()
-
-	require.NoError(t, env.Init(ctx))
-	require.NoError(t, env.BuildBinary(ctx))
-	require.False(t, env.UsedCache())
-	require.NoError(t, env.BuildBinary(ctx))
-	require.True(t, env.UsedCache())
-
-	write("pkg/answer/answer.go", `package answer
-
-func Value() string {
-	return "two"
-}
-`)
-	require.NoError(t, env.BuildBinary(ctx))
-	require.False(t, env.UsedCache())
+	answer("two")
+	require.True(t, buildWithEvidence(t, ctx, env).link, "the changed package relinks the executable")
+	require.Equal(t, "two", runOutput(t, ctx, env))
 }
 
 func TestNativeRunWithModAndCGO(t *testing.T) {
@@ -327,34 +306,27 @@ func TestDockerRunWithModAndCGO(t *testing.T) {
 }
 
 // A service whose go.mod replaces a module with a local directory compiles that
-// directory into its binary: a change there must invalidate the cached binary,
-// or the service runs code older than its sources.
-func TestNativeRunInvalidatesCacheOnLocallyReplacedModuleChange(t *testing.T) {
+// directory into its binary: a change there must rebuild, or the service runs
+// code older than its sources. The toolchain sees the replacement as it sees
+// any other compiled input; the runner parses no go.mod to find it.
+func TestNativeRunRebuildsOnLocallyReplacedModuleChange(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	cacheDir := t.TempDir()
-	write := func(name string, contents string) {
-		t.Helper()
-		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755))
-		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(contents), 0644))
+	writeFile(t, root, "lib/go.mod", "module example.com/lib\n\ngo 1.21\n")
+	answer := func(value string) {
+		writeFile(t, root, "lib/answer/answer.go", "package answer\n\nfunc Value() string { return \""+value+"\" }\n")
 	}
-	write("lib/go.mod", "module example.com/lib\n\ngo 1.21\n")
-	write("lib/answer/answer.go", "package answer\n\nfunc Value() string { return \"one\" }\n")
-	write("service/go.mod", "module example.com/service\n\ngo 1.21\n\nrequire example.com/lib v0.0.0\n\nreplace example.com/lib => ../lib\n")
-	write("service/main.go", "package main\n\nimport (\n\t\"fmt\"\n\n\t\"example.com/lib/answer\"\n)\n\nfunc main() { fmt.Println(answer.Value()) }\n")
+	answer("one")
+	writeFile(t, root, "service/go.mod", "module example.com/service\n\ngo 1.21\n\nrequire example.com/lib v0.0.0\n\nreplace example.com/lib => ../lib\n")
+	writeFile(t, root, "service/main.go", "package main\n\nimport (\n\t\"fmt\"\n\n\t\"example.com/lib/answer\"\n)\n\nfunc main() { fmt.Println(answer.Value()) }\n")
 
-	env, err := golang.NewNativeGoRunner(ctx, filepath.Join(root, "service"), ".")
-	require.NoError(t, err)
-	env.WithLocalCacheDir(cacheDir)
-	defer func() { require.NoError(t, env.Shutdown(ctx)) }()
+	env := newNativeRunner(t, ctx, filepath.Join(root, "service"), ".", "-x")
 
-	require.NoError(t, env.Init(ctx))
-	require.NoError(t, env.BuildBinary(ctx))
-	require.False(t, env.UsedCache())
-	require.NoError(t, env.BuildBinary(ctx))
-	require.True(t, env.UsedCache(), "nothing changed")
+	require.True(t, buildWithEvidence(t, ctx, env).link)
+	require.Equal(t, "one", runOutput(t, ctx, env))
+	require.Equal(t, reused, buildWithEvidence(t, ctx, env), "nothing changed")
 
-	write("lib/answer/answer.go", "package answer\n\nfunc Value() string { return \"two\" }\n")
-	require.NoError(t, env.BuildBinary(ctx))
-	require.False(t, env.UsedCache(), "the replaced module changed, so the cached binary is stale")
+	answer("two")
+	require.True(t, buildWithEvidence(t, ctx, env).link, "the replaced module changed, so the executable is relinked")
+	require.Equal(t, "two", runOutput(t, ctx, env))
 }

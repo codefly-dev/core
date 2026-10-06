@@ -190,23 +190,46 @@ for the CLI executor; service agents must not call them to build images.
 
 ## Go runner binary reuse
 
-The shared Go runner checks the toolchain's compiled package build IDs before
-reusing a binary. It runs `go list -deps -export` in the same native, Nix or
-companion environment, with the same race/debug/CGO/workspace settings as the
-build. Go's own incremental package cache makes unchanged discovery reusable.
-These IDs extend the source/module hash, so changing an embedded YAML file (or
-a transitive package's embedded content) invalidates the binary even when no
-`.go` file or dependency manifest changes. The caller need not remove `.cache`.
+The shared Go runner keeps no executable cache of its own. Every
+`GoRunnerEnvironment.BuildBinary` runs `go build -o` on the one executable the
+runner keeps per environment (`<cache>/{native,nix,container}/main`), in the
+same native, Nix or companion environment and with the same race/debug/CGO/
+workspace settings every time. The Go toolchain decides what that build redoes:
+it identifies the complete action graph — every compiled input (sources,
+embedded files, cgo and assembly inputs, transitive and locally replaced
+packages) and the link action with its linker flags — reads the build ID the
+existing executable carries, and leaves it in place when that graph still
+produces it. Nothing changed means no compile and no link; a changed embedded
+YAML recompiles its package and relinks; a changed `-ldflags` relinks.
 
-A failed input compilation or a missing embed refuses reuse of the previous
-binary. The runner does not emulate Go's embed patterns, discover container
-inputs using the host's toolchain, or interpret `gomod.hash` as a source digest;
-that file tracks dependency-download state only. This applies to all agents
-using `GoRunnerEnvironment.BuildBinary`, including Go specializations. Image
-builds still use the CLI/BuildKit path described above.
+A key of the runner's own cannot do this. The previous one — compiled package
+build IDs from `go list -deps -export` plus a hash of `*.go` and module files —
+missed a changed `-ldflags` under `-trimpath`: Go records no linker flags in
+package metadata there ([go.dev/issue/52372](https://go.dev/issue/52372)), so
+every package ID stayed the same while the link action changed, and the runner
+returned the executable that still carried the old value. Enumerating more
+flags into such a key is the weaker form; the toolchain's own check is the only
+one that covers the whole graph, and it is the same check whether the build
+runs natively, in Nix or in a companion.
 
-`TestNativeBuildInvalidatesCacheOnEmbeddedYAMLChange` builds and executes a real
-nested-main fixture, changes only a dependency package's same-length YAML,
-checks changed output and subsequent cache reuse, restores the original bytes,
-and proves deleting the embed cannot return the old binary. The default Go
-runner suite also covers imported package and local replacement changes.
+A failed build leaves nothing to run: `Runner` refuses until a build succeeds
+rather than executing the previous binary. The runner does not emulate Go's
+embed patterns, parse `go.mod` for local replacements, discover container
+inputs with the host's toolchain, or read `gomod.hash` as a source digest; that
+file tracks dependency-download state only. `UsedCache` went with the cache it
+reported on: an agent that logged it reports the build's elapsed time instead.
+A binary built by an earlier Core keeps its hash name beside the new one until
+the cache directory is removed. This applies to all agents using
+`GoRunnerEnvironment.BuildBinary`, including Go specializations. Image builds
+still use the CLI/BuildKit path described above.
+
+`runners/golang/binary_reuse_test.go` reads the toolchain's decision from the
+commands `go build -x` prints, never from a flag the runner sets.
+`TestNativeBuildRelinksWhenOnlyLinkerFlagsChange` builds a real main under
+`GOFLAGS="-trimpath -ldflags=-X=main.policy=first"`, changes only `first` to
+`other`, and proves the executable is relinked with no package recompiled and
+prints the new value; with nothing changed, neither a compile nor a link runs.
+`TestNativeBuildRecompilesWhenOnlyEmbeddedYAMLChanges` does the same for a
+dependency package's same-length embedded YAML and proves a missing embed fails
+the build with nothing stale offered to run. The default Go runner suite covers
+imported package and local replacement changes the same way.

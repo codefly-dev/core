@@ -3,7 +3,6 @@ package golang
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -40,9 +39,6 @@ type GoRunnerEnvironment struct {
 
 	localCacheDir string
 
-	// Used to cache the binary
-	requirements *builders.Dependencies
-
 	// CGO or not
 	withCGO bool
 
@@ -62,10 +58,9 @@ type GoRunnerEnvironment struct {
 	withDebugSymbol            bool
 	withRaceConditionDetection bool
 
+	// targetPath is the executable of the last successful BuildBinary, and
+	// empty until one succeeds: a failed build leaves nothing to run.
 	targetPath string
-
-	// For testing mostly
-	usedCache bool
 
 	out io.Writer
 
@@ -474,24 +469,38 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 	return nil
 }
 
-func (r *GoRunnerEnvironment) BinName(hash string) string {
-	if r.withDebugSymbol {
-		return fmt.Sprintf("%s-debug", hash)
-	}
-	return hash
-}
+// binaryName is the one executable the runner keeps per build environment.
+// Its name is fixed on purpose: `go build -o` reads the build ID the existing
+// executable carries and relinks only when the action graph no longer
+// produces it. A name derived from a key of the runner's own would be that
+// key again.
+const binaryName = "main"
 
-func (r *GoRunnerEnvironment) LocalTargetPath(ctx context.Context, hash string) string {
-	return path.Join(r.LocalCacheDir(ctx), r.BinName(hash))
-}
-
-func (r *GoRunnerEnvironment) BuildTargetPath(ctx context.Context, hash string) string {
+// binaryPath is the executable's path as the build environment sees it. A
+// Docker companion mounts the host cache directory at /build; native and Nix
+// builds write the host path.
+func (r *GoRunnerEnvironment) binaryPath(ctx context.Context) string {
 	if r.companion != nil && r.companion.Backend() == companion.BackendDocker {
-		return path.Join("/build", r.BinName(hash))
+		return path.Join("/build", binaryName)
 	}
-	return path.Join(r.LocalCacheDir(ctx), r.BinName(hash))
+	return path.Join(r.LocalCacheDir(ctx), binaryName)
 }
 
+// BuildBinary runs `go build -o` on the runner's executable, every time. The
+// Go toolchain owns reuse: it identifies the complete action graph — every
+// compiled input (sources, embedded files, cgo and assembly inputs, transitive
+// and locally replaced packages) and the link action with its linker flags —
+// and leaves the executable in place when the build ID it carries is the one
+// that graph produces. Nothing changed costs one `go build` that does nothing.
+//
+// The runner keeps no key of its own. One built from compiled package build
+// IDs plus a source hash served a stale executable when only `-ldflags`
+// changed under `-trimpath`: Go records no linker flags in package metadata
+// there (go.dev/issue/52372), so no package ID moved while the link action
+// did. Enumerating more flags into such a key is the weaker form of this fix.
+//
+// A build that fails leaves nothing to run: targetPath is set by a successful
+// build only, so Runner refuses rather than executing the previous binary.
 func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	w := wool.Get(ctx).In("buildBinary")
 	if r.withGoModules {
@@ -499,67 +508,12 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 			return w.Wrapf(err, "cannot handle go modules")
 		}
 	}
-
-	// Setup the requirements
-	hashDir := r.sourceDir
-	if r.withGoModules && r.moduleDir != "" {
-		hashDir = r.moduleDir
-	}
-	components := []*builders.Dependency{
-		builders.NewDependency(hashDir).WithPathSelect(shared.NewSelect("*.go")),
-	}
-	if r.withGoModules {
-		components = append(components, builders.NewDependency("go.mod", "go.sum").Localize(hashDir))
-		// A module replaced with a local directory is compiled into the
-		// binary, so its sources are part of the cache key too.
-		for _, dir := range localReplaceModuleDirs(hashDir) {
-			components = append(components,
-				builders.NewDependency(dir).WithPathSelect(shared.NewSelect("*.go")),
-				builders.NewDependency("go.mod", "go.sum").Localize(dir))
-		}
-	}
-	r.requirements = builders.NewDependencies("go", components...)
-
-	w.Trace("start building")
-	r.usedCache = false
-
-	hash, err := r.requirements.Hash(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot get hash")
-	}
-
-	// The Go toolchain knows the complete compiled input set, including embeds,
-	// C/assembly inputs and transitive packages. A *.go walk alone cannot tell
-	// whether a cached binary still contains the selected configuration bytes.
-	identity, err := r.packageBuildIdentity(ctx)
-	if err != nil {
-		return w.Wrapf(err, "cannot resolve compiled Go inputs")
-	}
-	hash = fmt.Sprintf("%x", sha256.Sum256([]byte(hash+"\n"+identity)))
-
-	r.targetPath = r.BuildTargetPath(ctx, hash)
-
-	cached := r.LocalTargetPath(ctx, hash)
-	w.Trace("checking local cache", wool.FileField(cached))
-
-	exists, err := shared.FileExists(ctx, cached)
-	if err != nil {
-		return w.Wrapf(err, "cannot check local cache")
-	}
-	if exists {
-		w.Trace("found a cache binary: don't work until we have to!", wool.FileField(cached))
-		r.usedCache = true
-		return nil
-	}
-	// clean cache
-	err = shared.EmptyDir(ctx, r.LocalCacheDir(ctx))
-	if err != nil {
-		return w.Wrapf(err, "cannot clean cache")
-	}
-	w.Trace("building binary", wool.FileField(r.targetPath))
+	r.targetPath = ""
+	target := r.binaryPath(ctx)
+	w.Trace("building binary", wool.FileField(target))
 
 	args := append([]string{"build"}, r.buildFlags()...)
-	args = append(args, "-o", r.targetPath)
+	args = append(args, "-o", target)
 
 	proc, err := r.Env().NewProcess("go", args...)
 	if err != nil {
@@ -571,11 +525,10 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	if err := r.configureBuildProcess(ctx, proc); err != nil {
 		return err
 	}
-
-	err = proc.Run(ctx)
-	if err != nil {
+	if err := proc.Run(ctx); err != nil {
 		return w.Wrapf(err, "cannot run go build")
 	}
+	r.targetPath = target
 	return nil
 }
 
@@ -588,32 +541,6 @@ func (r *GoRunnerEnvironment) buildFlags() []string {
 		flags = append(flags, "-race")
 	}
 	return flags
-}
-
-// packageBuildIdentity runs in the SAME native/Nix/companion environment and
-// with the same flags as build. Go's incremental package cache supplies build
-// IDs; no host-side parser reimplements //go:embed matching or container paths.
-// Do not use -e: a missing input must fail before considering an old binary.
-func (r *GoRunnerEnvironment) packageBuildIdentity(ctx context.Context) (string, error) {
-	args := append([]string{"list", "-deps", "-export"}, r.buildFlags()...)
-	args = append(args, "-f", "{{if .BuildID}}{{.ImportPath}} {{.BuildID}}{{end}}", ".")
-	proc, err := r.Env().NewProcess("go", args...)
-	if err != nil {
-		return "", err
-	}
-	if err := r.configureBuildProcess(ctx, proc); err != nil {
-		return "", err
-	}
-	out := shared.NewSliceWriter()
-	proc.WithOutput(out)
-	if err := proc.Run(ctx); err != nil {
-		return "", fmt.Errorf("go list compiled inputs: %w: %s", err, strings.Join(out.Snapshot(), "\n"))
-	}
-	identity := strings.TrimSpace(strings.Join(out.Snapshot(), "\n"))
-	if identity == "" {
-		return "", fmt.Errorf("go list returned no compiled package identities")
-	}
-	return identity, nil
 }
 
 func (r *GoRunnerEnvironment) configureBuildProcess(ctx context.Context, proc runners.Proc) error {
@@ -654,17 +581,17 @@ func (r *GoRunnerEnvironment) WithLocalCacheDir(dir string) {
 	r.localCacheDir = dir
 }
 
+// Runner is a process for the executable of the last successful BuildBinary.
 func (r *GoRunnerEnvironment) Runner(args ...string) (runners.Proc, error) {
+	if r.targetPath == "" {
+		return nil, fmt.Errorf("no executable to run: BuildBinary has not succeeded")
+	}
 	proc, err := r.Env().NewProcess(r.targetPath, args...)
 	if err != nil {
 		return nil, err
 	}
 	proc.WithDir(r.sourceDir)
 	return proc, nil
-}
-
-func (r *GoRunnerEnvironment) UsedCache() bool {
-	return r.usedCache
 }
 
 func (r *GoRunnerEnvironment) WithRaceConditionDetection(b bool) {
