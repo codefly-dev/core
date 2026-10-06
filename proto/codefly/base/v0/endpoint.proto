@@ -8,22 +8,28 @@ import "codefly/base/v0/readiness.proto";
 
 Endpoints are the fundamental building block of communication between services or modules.
 
-Important:
+Three axes, each declared on its own and read on its own:
 
-Only public endpoint can be accessed across modules
+  visibility  who may reach it (private / internal / public) — REACH only
+  location    where it lives (in-system, or external)
+  exposure    whether an address reachable from outside the workspace exists
+
+An endpoint carries no allow-list: which modules reach it is derived by the
+composition from the consumers' declared service dependencies, never written
+on the endpoint, so the former allow_modules field is reserved.
 
 */
 
 
 // Endpoint is a logical API exposed by a service and later resolved into network mappings.
 message Endpoint {
-  // An allow-list is only read for visibility "internal": one on any other
-  // visibility is a grant nothing enforces, refused here as the model refuses it.
-  option (buf.validate.message).cel = {
-    id: "endpoint.allow_modules.internal_only"
-    message: "allow_modules is only read for visibility \"internal\""
-    expression: "this.visibility == 'internal' || this.allow_modules.size() == 0"
-  };
+  // allow_modules was the authored allow-list of an internal endpoint. It is
+  // derived now (resources.DeriveAllowModules), from the consumers' declared
+  // service dependencies, and a declaration carrying one is refused: the
+  // number and the name are reserved so no reader can carry a grant past the
+  // model again.
+  reserved 9;
+  reserved "allow_modules";
   // name is the endpoint identifier, often matching the API type such as http, grpc, or tcp.
   string name = 1 [(buf.validate.field).string.hostname = true,  (buf.validate.field).string.pattern = "^[a-z]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 20];
   // service is the service that owns this endpoint.
@@ -32,9 +38,11 @@ message Endpoint {
   string module = 3  [(buf.validate.field).string.hostname = true,  (buf.validate.field).string.pattern = "^[a-z0-9-]+$", (buf.validate.field).string.not_contains = "--", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 25];
   // description explains what this endpoint is used for.
   string description = 4;
-  // visibility controls who may reach this endpoint: private (same module),
-  // internal (allow-listed modules), or public (outside the workspace). Where
-  // the endpoint lives is location, never a visibility value.
+  // visibility is who may reach this endpoint, and nothing else: private (the
+  // same module), internal (across modules, from within the workspace) or
+  // public (from outside the workspace). Where the endpoint lives is location
+  // and whether it is addressed from outside is exposure, never a visibility
+  // value; and a visibility names no module.
   string visibility = 5 [(buf.validate.field).string.in = "public", (buf.validate.field).string.in = "private", (buf.validate.field).string.in = "internal"];
   // api describes the protocol exposed by the endpoint.
   string api = 6 [(buf.validate.field).string.in = "http", (buf.validate.field).string.in = "grpc", (buf.validate.field).string.in = "tcp", (buf.validate.field).string.in = "rest", (buf.validate.field).string.in = "connect"];
@@ -44,13 +52,18 @@ message Endpoint {
   // may reach it. "external" marks a managed resource outside the system,
   // resolved by DNS rather than an allocated port.
   string location = 8 [(buf.validate.field).string.in = "", (buf.validate.field).string.in = "external"];
-  // allow_modules is the explicit allow-list of modules permitted to reach an
-  // internal endpoint. The single entry "*" permits every module.
-  repeated string allow_modules = 9 [(buf.validate.field).repeated.items.string.pattern = "^(\\*|[a-z0-9-]+)$", (buf.validate.field).repeated.items.string.not_contains = "--"];
   // health declares what "healthy" means for this endpoint. Absence keeps the
   // legacy transport-only semantics: consumers may assume nothing beyond a
   // reachable address.
   Health health = 10;
+  // exposure describes whether the endpoint is allocated an address reachable
+  // from outside the workspace — the Public network instance a run generates
+  // beside the Native and Container ones, and what a deployment renders an
+  // outward address from — independently of who may reach it. "public" is the
+  // one value; none means no outward address. It is declared only on an
+  // endpoint of visibility "public" that is not external: the resource model
+  // refuses the other combinations as declarations that contradict themselves.
+  string exposure = 11 [(buf.validate.field).string.in = "", (buf.validate.field).string.in = "public"];
 }
 
 // API selects protocol-specific endpoint details.

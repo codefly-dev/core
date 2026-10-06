@@ -248,11 +248,15 @@ func LocalizeNetworkMapping(mappings []*basev0.NetworkMapping, hostname string) 
 
 }
 
+// SplitPublicNetworkMappings separates the mappings addressed from outside the
+// workspace — an exposed endpoint, or an external one, which lives there — from
+// the rest. It is an ADDRESSING split, keyed on exposure and location; a
+// visibility says who may call and never where an address is.
 func SplitPublicNetworkMappings(ctx context.Context, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, []*basev0.NetworkMapping, error) {
 	var public []*basev0.NetworkMapping
 	var nonPublic []*basev0.NetworkMapping
 	for _, mapping := range mappings {
-		if mapping.Endpoint.Visibility == VisibilityPublic || IsExternalEndpoint(mapping.Endpoint) {
+		if IsExposedEndpoint(mapping.Endpoint) || IsExternalEndpoint(mapping.Endpoint) {
 			public = append(public, mapping)
 		} else {
 			nonPublic = append(nonPublic, mapping)

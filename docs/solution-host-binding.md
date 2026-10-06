@@ -811,22 +811,23 @@ derives policy from**, so they are held to core's own vocabulary: `private`,
 `internal` or `public`, **written out and never omitted** — the resource model
 admits an omission and resolves it to `private` before a render writes a cell,
 so a cell carrying none would put that default in a second place for the
-platform to re-derive — and an allow-list of module names or `*` — the latter
-through [`resources/names`](../resources/names), the shared grammar
-`resources.ValidateEndpointDeclaration` holds a service's own declaration to.
-It is a leaf package importing nothing, so this reader holds a name to the same
-spelling the resource model does without linking core's resource tree; a second
-grammar here accepted `billing.worker` and `billing_worker`, which core refuses
-at the source, so a cell was admitted as a valid policy declaration while
-describing an allow-list that cannot load. The `module`
-and `external` spellings are refused — core's endpoint-selection cutover
-deleted them, so a service declaring either no longer loads
+platform to re-derive — and an allow-list of module names, each held to
+[`resources/names`](../resources/names), the shared grammar. The `allow_modules`
+a rendered inventory carries is **derived, never authored**: the composition
+computes it from the consumers' declared service dependencies with
+`resources.DeriveAllowModules` — the ask lives with the asker, never with the
+target — and a service or module manifest that writes one is refused at the
+source (`resources.ValidateEndpointDeclaration`, rule `allow-modules-derived`),
+so no cell can carry a list a module wrote about its own consumers. That list
+is reachability for mesh policy and NetworkPolicy, never per-call
+authorization, which is the Work Context's
+([network-model.md](network-model.md#the-allow-list-is-derived-never-authored)).
+The `module` and `external` spellings are refused — core's endpoint-selection
+cutover deleted them, so a service declaring either no longer loads
 (`resources.KnownVisibility` reports false and
 `resources.ValidateEndpointDeclaration` refuses it), and a cell carrying one
-describes a service that cannot exist. An allow-list is refused anywhere but
-`internal`, which is the one visibility that reads it, for the same reason:
-core refuses that declaration at the source. What a visibility PERMITS is still
-not decided here; `resources.ValidateEndpointVisibility` and the workspace's own
+describes a service that cannot exist. What a visibility PERMITS is still not
+decided here; `resources.ValidateEndpointVisibility` and the workspace's own
 validation own that. The vocabulary is a literal in `rules.go` and `resources`
 is imported by this package's TESTS only, so the platform's loader never links
 core's resource tree to read a cell; two tests hold that line

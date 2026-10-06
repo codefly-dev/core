@@ -207,7 +207,9 @@ func visibilityOf(consumerModule string, info *EndpointInformation, endpoint *En
 	if service == "" {
 		service = "the producer"
 	}
-	err := ValidateEndpointVisibility(consumerModule, module, service, endpoint.Name, Visibility(endpoint.Visibility), endpoint.Location, endpoint.AllowModules)
+	declaration := endpoint.Declaration()
+	declaration.Service = service
+	err := ValidateEndpointVisibility(consumerModule, module, declaration)
 	if err == nil {
 		return nil
 	}

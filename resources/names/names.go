@@ -9,10 +9,6 @@ import (
 	"strings"
 )
 
-// AllowAllModules is the allow-list wildcard entry that grants every module
-// access to an internal endpoint.
-const AllowAllModules = "*"
-
 // modulePattern is what a module name may be, as the schema spells one.
 var modulePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
@@ -20,12 +16,4 @@ var modulePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 // single dashes. A doubled dash is refused, so one name has one spelling.
 func IsModule(value string) bool {
 	return modulePattern.MatchString(value) && !strings.Contains(value, "--")
-}
-
-// IsAllowModulesEntry reports whether value is a legal allow-list entry: a
-// module name, or the wildcard that names every module. An entry that names
-// no module would make a list non-empty while granting nobody, which is the
-// refusal an "exports to no module" check exists to raise.
-func IsAllowModulesEntry(value string) bool {
-	return value == AllowAllModules || IsModule(value)
 }

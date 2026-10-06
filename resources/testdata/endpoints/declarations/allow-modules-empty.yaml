@@ -1,15 +1,13 @@
 kind: service
-name: auth-gateway
-version: 0.0.0
+name: alpha
+version: 0.0.1
 agent:
   kind: runtime::service
   name: go-grpc
   version: 0.0.1
   publisher: codefly.ai
 endpoints:
-  - name: rest
+  - name: grpc
+    api: grpc
     visibility: internal
-service-dependencies:
-  - name: accounts
-    endpoints:
-      - name: grpc
+    allow-modules: []

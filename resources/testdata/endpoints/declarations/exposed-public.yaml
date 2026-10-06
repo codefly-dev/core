@@ -1,15 +1,13 @@
 kind: service
-name: gateway
-version: 0.0.0
+name: alpha
+version: 0.0.1
 agent:
   kind: runtime::service
   name: go-grpc
   version: 0.0.1
   publisher: codefly.ai
 endpoints:
-  - name: public
-    api: rest
+  - name: http
+    api: http
     visibility: public
-  - name: internal
-    api: grpc
-    visibility: internal
+    exposure: public

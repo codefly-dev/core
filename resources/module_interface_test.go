@@ -49,17 +49,20 @@ interface:
 }
 
 // An interface entry is the whole export declaration, so it is judged on its
-// own: an internal entry names the modules it exports to or is refused (it
-// would export to nobody), a public one lists none (nothing reads it), and an
-// undecorated entry is internal — it never silently grants every module.
+// own: it names the reach the module grants — internal (the default) or public
+// — and it names nobody. An entry that authors an allow-list is refused by
+// name, the wildcard and the empty list included: the list is derived from the
+// consumers' declared dependencies, and a module writing it would be naming
+// its own consumers.
 func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 	ctx := context.Background()
 	for name, tc := range map[string]struct{ entry, says string }{
-		"internal to nobody":        {"          visibility: internal\n", "to no module"},
-		"an entry naming no module": {"          visibility: internal\n          allow-modules: [\"\"]\n", "names no module"},
-		"undecorated":               {"", "to no module"},
-		"public with an allow-list": {"          visibility: public\n          allow-modules: [platform]\n", `allow-modules with visibility "public"`},
-		// The schema refuses these before the interface validator sees them.
+		"an internal allow-list":     {"          visibility: internal\n          allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
+		"a wildcard":                 {"          visibility: internal\n          allow-modules: [\"*\"]\n", `authors allow-modules ["*"]`},
+		"an empty list":              {"          visibility: internal\n          allow-modules: []\n", `authors allow-modules []`},
+		"an entry naming no module":  {"          visibility: internal\n          allow-modules: [\"\"]\n", `authors allow-modules [""]`},
+		"public with an allow-list":  {"          visibility: public\n          allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
+		"an undecorated allow-list":  {"          allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
 		"the former module spelling": {"          visibility: module\n", "visibility"},
 		"a private export":           {"          visibility: private\n", "visibility"},
 	} {
@@ -73,47 +76,55 @@ func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 		ie := &InterfaceEndpoint{Service: "accounts", Endpoint: "grpc", Visibility: spelling}
 		require.ErrorContains(t, ie.validate(), "invalid visibility", "the validator refuses the spelling on its own, whatever the schema does first")
 	}
-	dir := writeInterfaceFixture(t, "kind: module\nname: billing\nservices:\n    - name: accounts\ninterface:\n    endpoints:\n        - service: accounts\n          endpoint: grpc\n          allow-modules: [platform]\n")
-	mod, err := LoadModuleFromDir(ctx, dir)
-	require.NoError(t, err)
-	service, err := mod.LoadServiceFromName(ctx, "accounts")
-	require.NoError(t, err)
-	require.Equal(t, VisibilityInternal, service.Endpoints[0].Visibility, "an undecorated entry exports at internal")
-	require.Equal(t, []string{"platform"}, service.Endpoints[0].AllowModules)
-	proto, err := mod.Proto(ctx)
-	require.NoError(t, err)
-	require.Equal(t, VisibilityInternal, proto.GetInterface().GetEndpoints()[0].GetVisibility())
-	require.Equal(t, []string{"platform"}, proto.GetInterface().GetEndpoints()[0].GetAllowModules())
-	require.NoError(t, service.Save(ctx))
-	saved, err := os.ReadFile(filepath.Join(dir, "services", "accounts", "service.codefly.yaml"))
-	require.NoError(t, err)
-	require.NotContains(t, string(saved), "allow-modules", "the entry's list is the module's, never written into the service")
-}
-
-// The wire carries the same rule as the loader: a raw InterfaceEndpoint proto
-// with an allow-list its visibility never reads, or an internal export to
-// nobody, fails schema validation; and a Module built in memory cannot publish
-// such an entry through Proto().
-func TestInterfaceEntryRulesHoldOnTheWire(t *testing.T) {
-	ctx := context.Background()
-	for name, entry := range map[string]*basev0.InterfaceEndpoint{
-		"public with an allow-list": {Service: "api", Endpoint: "grpc", Visibility: VisibilityPublic, AllowModules: []string{"payments"}},
-		"internal to nobody":        {Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal},
-		"a private export":          {Service: "api", Endpoint: "grpc", Visibility: VisibilityPrivate, AllowModules: []string{"payments"}},
-		"an entry naming no module": {Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal, AllowModules: []string{""}},
-	} {
+	// An export to the composition names nobody: an undecorated entry and an
+	// explicit internal one both load, export at internal, and publish so.
+	for name, entry := range map[string]string{"undecorated": "", "internal": "          visibility: internal\n"} {
 		t.Run(name, func(t *testing.T) {
-			require.Error(t, Validate(&basev0.Module{Name: "billing", Interface: &basev0.ModuleInterface{Endpoints: []*basev0.InterfaceEndpoint{entry}}}), "schema")
-			mod := &Module{Name: "billing", Interface: &ModuleInterface{Endpoints: []*InterfaceEndpoint{{Service: entry.Service, Endpoint: entry.Endpoint, Visibility: entry.Visibility, AllowModules: entry.AllowModules}}}}
-			_, err := mod.Proto(ctx)
-			require.Error(t, err, "conversion")
+			dir := writeInterfaceFixture(t, "kind: module\nname: billing\nservices:\n    - name: accounts\ninterface:\n    endpoints:\n        - service: accounts\n          endpoint: grpc\n"+entry)
+			mod, err := LoadModuleFromDir(ctx, dir)
+			require.NoError(t, err)
+			service, err := mod.LoadServiceFromName(ctx, "accounts")
+			require.NoError(t, err)
+			require.Equal(t, VisibilityInternal, service.Endpoints[0].Visibility, "the entry exports at internal")
+			require.True(t, service.Endpoints[0].AllowsModule("anything"), "internal is reachable by whatever composes the workspace")
+			proto, err := mod.Proto(ctx)
+			require.NoError(t, err)
+			require.Equal(t, VisibilityInternal, proto.GetInterface().GetEndpoints()[0].GetVisibility())
+			require.NoError(t, service.Save(ctx))
+			saved, err := os.ReadFile(filepath.Join(dir, "services", "accounts", "service.codefly.yaml"))
+			require.NoError(t, err)
+			require.NotContains(t, string(saved), "allow-modules", "nothing ever writes an allow-list into a service")
+			require.NotContains(t, string(saved), "visibility: internal", "the exported visibility is the module's, never written into the service")
 		})
 	}
+}
+
+// The wire carries the same rule as the loader: an InterfaceEndpoint proto has
+// no allow_modules field at all (the number and the name are reserved), a
+// private export fails schema validation, an internal export to nobody is
+// valid, and a Module built in memory cannot publish an entry that authored a
+// list through Proto().
+func TestInterfaceEntryRulesHoldOnTheWire(t *testing.T) {
+	ctx := context.Background()
+	require.Error(t, Validate(&basev0.Module{Name: "billing", Interface: &basev0.ModuleInterface{Endpoints: []*basev0.InterfaceEndpoint{
+		{Service: "api", Endpoint: "grpc", Visibility: VisibilityPrivate},
+	}}}), "a private export is refused by the schema")
 	for _, entry := range []*basev0.InterfaceEndpoint{
 		{Service: "api", Endpoint: "grpc", Visibility: VisibilityPublic},
-		{Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal, AllowModules: []string{"payments"}},
+		{Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal},
 	} {
 		require.NoError(t, Validate(&basev0.Module{Name: "billing", Interface: &basev0.ModuleInterface{Endpoints: []*basev0.InterfaceEndpoint{entry}}}))
+	}
+	descriptor := (&basev0.InterfaceEndpoint{}).ProtoReflect().Descriptor()
+	require.Nil(t, descriptor.Fields().ByName("allow_modules"), "the wire model carries no allow-list")
+	require.True(t, descriptor.ReservedNames().Has("allow_modules"), "the name is reserved")
+	require.True(t, descriptor.ReservedRanges().Has(4), "the number is reserved")
+	for name, authored := range map[string][]string{"a module": {"payments"}, "the wildcard": {"*"}, "an empty list": {}} {
+		t.Run(name, func(t *testing.T) {
+			mod := &Module{Name: "billing", Interface: &ModuleInterface{Endpoints: []*InterfaceEndpoint{{Service: "api", Endpoint: "grpc", Visibility: VisibilityInternal, AllowModules: authored}}}}
+			_, err := mod.Proto(ctx)
+			require.ErrorContains(t, err, "authors allow-modules")
+		})
 	}
 }
 

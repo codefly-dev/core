@@ -16,13 +16,12 @@ func secretsDep(endpoints ...string) []*resources.ServiceDependency {
 	return []*resources.ServiceDependency{dep}
 }
 
-func mappingOf(name, visibility string, allow ...string) *basev0.NetworkMapping {
+func mappingOf(name, visibility string) *basev0.NetworkMapping {
 	return &basev0.NetworkMapping{Endpoint: &basev0.Endpoint{
-		Module:       "vault",
-		Service:      "secrets",
-		Name:         name,
-		Visibility:   visibility,
-		AllowModules: allow,
+		Module:     "vault",
+		Service:    "secrets",
+		Name:       name,
+		Visibility: visibility,
 	}}
 }
 
@@ -34,18 +33,19 @@ func resolvedNames(mappings []*basev0.NetworkMapping) []string {
 	return names
 }
 
-// A consumed endpoint whose visibility forbids the consuming module is rejected;
-// the same endpoint that names the module in its allow-list is accepted.
+// A consumed endpoint whose visibility forbids the consuming module is rejected
+// — private stops at the owning module — and an internal one, which names
+// nobody, is accepted for whatever composes the workspace.
 func TestResolveDependencyNetworkMappingsEnforcesConsumedEndpoint(t *testing.T) {
 	deps := secretsDep("http")
-	mappings := []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityInternal, "platform")}
 
-	if _, err := resources.ResolveDependencyNetworkMappings("web", deps, mappings); err == nil {
-		t.Fatal("consuming an internal endpoint that does not permit the module must fail")
+	if _, err := resources.ResolveDependencyNetworkMappings("web", deps, []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityPrivate)}); err == nil {
+		t.Fatal("consuming a private endpoint from another module must fail")
 	}
+	mappings := []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityInternal)}
 	resolved, err := resources.ResolveDependencyNetworkMappings("platform", deps, mappings)
 	if err != nil {
-		t.Fatalf("allow-listed module must be permitted: %v", err)
+		t.Fatalf("an internal endpoint is reachable by whatever composes the workspace: %v", err)
 	}
 	if len(resolved) != 1 {
 		t.Fatalf("the permitted endpoint must be resolved, got %v", resolvedNames(resolved))
@@ -99,25 +99,19 @@ func TestResolveDependencyNetworkMappingsFiltersForbiddenWhenConsumingAll(t *tes
 	mappings := []*basev0.NetworkMapping{
 		mappingOf("http", resources.VisibilityPublic),
 		mappingOf("admin", resources.VisibilityPrivate),
-		mappingOf("ops", resources.VisibilityInternal, "platform"),
+		mappingOf("ops", resources.VisibilityInternal),
 	}
 
-	resolved, err := resources.ResolveDependencyNetworkMappings("web", deps, mappings)
-	if err != nil {
-		t.Fatalf("a private endpoint the consumer never named must not fail the run: %v", err)
-	}
-	if got := resolvedNames(resolved); len(got) != 1 || got[0] != "http" {
-		t.Fatalf("the exposed set must be exactly the permitted set, got %v", got)
-	}
-
-	// The same producer, seen by a module its internal endpoint allows.
-	resolved, err = resources.ResolveDependencyNetworkMappings("platform", deps, mappings)
-	if err != nil {
-		t.Fatalf("allow-listed module must resolve its permitted endpoints: %v", err)
-	}
-	got := resolvedNames(resolved)
-	if len(got) != 2 || got[0] != "http" || got[1] != "ops" {
-		t.Fatalf("both permitted endpoints must be exposed, got %v", got)
+	// The public and the internal endpoints are permitted to any module of the
+	// composition; only the private one is filtered.
+	for _, consumer := range []string{"web", "platform"} {
+		resolved, err := resources.ResolveDependencyNetworkMappings(consumer, deps, mappings)
+		if err != nil {
+			t.Fatalf("a private endpoint the consumer never named must not fail the run for %s: %v", consumer, err)
+		}
+		if got := resolvedNames(resolved); len(got) != 2 || got[0] != "http" || got[1] != "ops" {
+			t.Fatalf("the exposed set must be exactly the permitted set for %s, got %v", consumer, got)
+		}
 	}
 }
 
@@ -153,7 +147,7 @@ func TestResolveDependencyNetworkMappingsRejectsConsumingAllWhenNothingIsPermitt
 	deps := secretsDep() // no endpoint names -> consumes them all
 	mappings := []*basev0.NetworkMapping{
 		mappingOf("admin", resources.VisibilityPrivate),
-		mappingOf("ops", resources.VisibilityInternal, "platform"),
+		mappingOf("ops", resources.VisibilityPrivate),
 	}
 
 	_, err := resources.ResolveDependencyNetworkMappings("web", deps, mappings)

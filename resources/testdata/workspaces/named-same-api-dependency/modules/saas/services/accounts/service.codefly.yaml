@@ -13,4 +13,3 @@ endpoints:
   - name: usage
     api: grpc
     visibility: internal
-    allow-modules: [platform]

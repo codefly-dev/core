@@ -27,13 +27,15 @@ const (
 type InterfaceEndpoint struct {
 	Service  string `yaml:"service"`
 	Endpoint string `yaml:"endpoint"`
-	// Visibility is what the module grants across its boundary for this
-	// endpoint: "public", or "internal" to the modules AllowModules names. It
-	// defaults to "internal", and an internal entry must name its modules.
+	// Visibility is the reach the module grants across its boundary for this
+	// endpoint: "public", or "internal" — reachable from within the
+	// composition, by whatever declares a dependency on it. It defaults to
+	// "internal". An entry names nobody: which modules reach the endpoint is
+	// derived from their declared dependencies (DeriveAllowModules).
 	Visibility string `yaml:"visibility,omitempty"`
-	// AllowModules names the modules an "internal" export may be reached from
-	// ("*" for every module). It is the entry's own list: the module decides who
-	// crosses its boundary, not the service behind it.
+	// AllowModules is never a grant and is decoded only to be refused by name:
+	// an interface entry that listed its consumers would be the module naming
+	// what composes it, which the boundary rules forbid.
 	AllowModules []string `yaml:"allow-modules,omitempty"`
 	// Implements lists the published interface versions the endpoint serves,
 	// each <publisher>/<name>@<version>. One endpoint can serve several: a
@@ -51,10 +53,9 @@ type InterfaceCapabilityExport struct {
 	Implements []string `yaml:"implements"`
 }
 
-// exportedVisibility is the visibility this entry grants across module
-// boundaries. An entry that names none exports at "internal", to the modules
-// it lists; ValidateInterface has already refused an internal entry that lists
-// none, so an undecorated entry never silently grants every module.
+// exportedVisibility is the reach this entry grants across module boundaries.
+// An entry that names none exports at "internal": reachable from within the
+// composition and from nowhere outside it.
 func (ie *InterfaceEndpoint) exportedVisibility() Visibility {
 	if ie.Visibility == "" {
 		return VisibilityInternal
@@ -63,25 +64,21 @@ func (ie *InterfaceEndpoint) exportedVisibility() Visibility {
 }
 
 // validate judges the entry on its own: a visibility an export can carry, and
-// an allow-list exactly when the visibility reads one.
+// no allow-list — an export names nobody, whatever its reach. An authored
+// allow-list is refused by name, the wildcard included, for the reason
+// ValidateEndpointDeclaration refuses one on the endpoint: the list is derived
+// from the consumers' declared dependencies, and a module that wrote it would
+// be naming its own consumers.
 func (ie *InterfaceEndpoint) validate() error {
 	switch ie.exportedVisibility() {
-	case VisibilityInternal:
-		if len(ie.AllowModules) == 0 {
-			return fmt.Errorf("interface endpoint %s/%s exports at %q to no module: name the modules in allow-modules (%q for every module), or export at %q",
-				ie.Service, ie.Endpoint, VisibilityInternal, AllowAllModules, VisibilityPublic)
-		}
-		if err := validateAllowModules(ie.AllowModules); err != nil {
-			return fmt.Errorf("interface endpoint %s/%s: %w", ie.Service, ie.Endpoint, err)
-		}
-	case VisibilityPublic:
-		if len(ie.AllowModules) > 0 {
-			return fmt.Errorf("interface endpoint %s/%s lists allow-modules with visibility %q; an allow-list is only read for %q",
-				ie.Service, ie.Endpoint, VisibilityPublic, VisibilityInternal)
-		}
+	case VisibilityInternal, VisibilityPublic:
 	default:
 		return fmt.Errorf("interface endpoint %s/%s has invalid visibility %q (must be %q or %q)",
 			ie.Service, ie.Endpoint, ie.Visibility, VisibilityInternal, VisibilityPublic)
+	}
+	if ie.AllowModules != nil {
+		return fmt.Errorf("interface endpoint %s/%s authors allow-modules %q: an allow-list is derived from the consumers' declared service dependencies, never written by the module it would grant — a module asks for what it consumes, and the target names nobody",
+			ie.Service, ie.Endpoint, ie.AllowModules)
 	}
 	return nil
 }
@@ -165,10 +162,9 @@ func (mod *Module) Proto(_ context.Context) (*basev0.Module, error) {
 				return nil, err
 			}
 			protoInterface.Endpoints = append(protoInterface.Endpoints, &basev0.InterfaceEndpoint{
-				Service:      ie.Service,
-				Endpoint:     ie.Endpoint,
-				Visibility:   ie.exportedVisibility(),
-				AllowModules: ie.AllowModules,
+				Service:    ie.Service,
+				Endpoint:   ie.Endpoint,
+				Visibility: ie.exportedVisibility(),
 			})
 		}
 		proto.Interface = protoInterface
@@ -634,17 +630,18 @@ func (mod *Module) applyInterface(service *Service) {
 		return
 	}
 	for _, endpoint := range service.Endpoints {
-		// Where the endpoint lives is its Location, which the interface never
-		// touches: an external endpoint is exported or kept like any other, and
-		// keeps resolving from DNS either way.
-		exported, allowModules := VisibilityPrivate, []string(nil)
+		// Where the endpoint lives is its Location and whether it is addressed
+		// from outside is its Exposure, which the interface never touches: an
+		// external endpoint is exported or kept like any other, and keeps
+		// resolving from DNS either way.
+		exported := VisibilityPrivate
 		for _, ie := range mod.Interface.Endpoints {
 			if ReferenceMatch(ie.Service, service.Name) && ie.Endpoint == endpoint.Name {
-				exported, allowModules = ie.exportedVisibility(), ie.AllowModules
+				exported = ie.exportedVisibility()
 				break
 			}
 		}
-		endpoint.exportAs(exported, allowModules)
+		endpoint.exportAs(exported)
 	}
 }
 
@@ -703,17 +700,24 @@ func (mod *Module) DeleteService(ctx context.Context, name string) error {
 	return nil
 }
 
-func (mod *Module) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
-	w := wool.Get(ctx).In("Module::PublicEndpoints", wool.ThisField(mod))
-	var publicEndpoints []*basev0.Endpoint
-	// InitAndWait services
+// ExportedEndpoints returns the endpoints that cross this module's boundary: the
+// ones its interface declares when it has one, else every endpoint whose own
+// visibility is not private. Reach is the question — internal and public both
+// cross module lines — never whether an outward address exists, which is
+// exposure.
+func (mod *Module) ExportedEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
+	if mod.HasInterface() {
+		return mod.InterfaceEndpoints(ctx)
+	}
+	w := wool.Get(ctx).In("Module::ExportedEndpoints", wool.ThisField(mod))
+	var exported []*basev0.Endpoint
 	services, err := mod.LoadServices(ctx)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot load services")
 	}
 	for _, service := range services {
 		for _, endpoint := range service.Endpoints {
-			if endpoint.Visibility != VisibilityPublic {
+			if endpoint.Visibility != VisibilityInternal && endpoint.Visibility != VisibilityPublic {
 				continue
 			}
 			endpoint.Module = mod.Name
@@ -721,16 +725,16 @@ func (mod *Module) PublicEndpoints(ctx context.Context) ([]*basev0.Endpoint, err
 			if err != nil {
 				return nil, w.Wrapf(err, "cannot create info")
 			}
-			publicEndpoints = append(publicEndpoints, proto)
+			exported = append(exported, proto)
 		}
 	}
-	return publicEndpoints, nil
+	return exported, nil
 }
 
-// ExposedEndpoints returns the endpoints declared in the module interface.
-// Unlike PublicEndpoints which scans all services, this only returns formally declared exports.
-func (mod *Module) ExposedEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
-	w := wool.Get(ctx).In("Module::ExposedEndpoints", wool.ThisField(mod))
+// InterfaceEndpoints returns the endpoints declared in the module interface:
+// the formally declared exports, and nothing a service merely declares.
+func (mod *Module) InterfaceEndpoints(ctx context.Context) ([]*basev0.Endpoint, error) {
+	w := wool.Get(ctx).In("Module::InterfaceEndpoints", wool.ThisField(mod))
 	if mod.Interface == nil || len(mod.Interface.Endpoints) == 0 {
 		return nil, nil
 	}
@@ -762,7 +766,7 @@ func (mod *Module) ExposedEndpoints(ctx context.Context) ([]*basev0.Endpoint, er
 }
 
 // ExportedEndpointsForPackage returns the interface endpoints to export as API
-// contracts. It is ExposedEndpoints guarded by a declared interface: a module
+// contracts. It is InterfaceEndpoints guarded by a declared interface: a module
 // without one cannot publish contracts by accident. A module whose interface
 // declares only capabilities has declared one, and exports no endpoint.
 func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.Endpoint, error) {
@@ -770,7 +774,7 @@ func (mod *Module) ExportedEndpointsForPackage(ctx context.Context) ([]*basev0.E
 		return nil, wool.Get(ctx).In("Module::ExportedEndpointsForPackage", wool.ThisField(mod)).
 			NewError("module %s declares no interface; an interface is required to export API contracts", mod.Name)
 	}
-	return mod.ExposedEndpoints(ctx)
+	return mod.InterfaceEndpoints(ctx)
 }
 
 // ValidateInterface checks that all interface endpoints reference valid services
@@ -970,32 +974,30 @@ func (mod *Module) HasInterface() bool {
 }
 
 // ValidateEndpointVisibility reports whether a service in consumerModule may
-// depend on the named producer endpoint. The declaration is judged first
-// (ValidateEndpointDeclaration — a visibility or location the model does not
-// define, or an allow-list nothing reads, is ErrInvalidEndpointDeclaration
-// before any consumer is considered, the owning module included); then
-// private endpoints remain inside their owning module, internal endpoints
-// require a matching allow-list, and public endpoints permit the dependency.
+// depend on the producer endpoint declared. The declaration is judged first
+// (ValidateEndpointDeclaration — a visibility, location or exposure the model
+// does not define, an authored allow-list, or a contradiction between the axes
+// is ErrInvalidEndpointDeclaration before any consumer is considered, the
+// owning module included); then a private endpoint remains inside its owning
+// module, and an internal or public one permits the dependency — internal
+// stops at the workspace boundary, and every module judged here is inside it.
 // This is the consuming-side counterpart to ValidateInterface, which guards
 // the producing side.
-func ValidateEndpointVisibility(consumerModule, producerModule, producerService, endpoint string, visibility Visibility, location string, allowModules []string) error {
-	if err := ValidateEndpointDeclaration(producerService, endpoint, visibility, location, allowModules); err != nil {
+func ValidateEndpointVisibility(consumerModule, producerModule string, declaration EndpointDeclaration) error {
+	if err := ValidateEndpointDeclaration(declaration); err != nil {
 		return err
 	}
 	if consumerModule == producerModule {
 		return nil
 	}
-	producer := &Endpoint{Module: producerModule, Visibility: visibility, AllowModules: allowModules}
+	producer := &Endpoint{Module: producerModule, Visibility: declaration.Visibility}
 	if producer.AllowsModule(consumerModule) {
 		return nil
-	}
-	if visibility == VisibilityInternal {
-		return fmt.Errorf("endpoint %s/%s does not permit module %q", producerService, endpoint, consumerModule)
 	}
 	// ValidateEndpointDeclaration and AllowsModule leave exactly private (or
 	// unset) here.
 	return fmt.Errorf("endpoint %s/%s is private to module %q; module %q may not depend on it",
-		producerService, endpoint, producerModule, consumerModule)
+		declaration.Service, declaration.Name, producerModule, consumerModule)
 }
 
 func (mod *Module) DeleteServiceDependencies(ctx context.Context, ref *ServiceReference) error {

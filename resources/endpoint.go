@@ -10,7 +10,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/codefly-dev/core/resources/names"
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
 
@@ -19,19 +18,42 @@ import (
 
 type Visibility = string
 
+// Visibility is REACH, and nothing else: who may call the endpoint. It has no
+// addressing consequence — whether an address reachable from outside the
+// workspace is allocated is Exposure, declared beside it — and it names
+// nobody: which modules actually reach an endpoint is derived from the
+// consumers' declared service dependencies (DeriveAllowModules), never
+// written on the endpoint.
 const (
-	// VisibilityPublic represents an endpoint accessible from outside the workspace.
-	VisibilityPublic Visibility = "public"
-	// VisibilityInternal represents an endpoint reachable from an explicit
-	// allow-list of other modules (see Endpoint.AllowModules).
-	VisibilityInternal Visibility = "internal"
-	// VisibilityPrivate represents an endpoint that is only accessible within the module
+	// VisibilityPrivate is reachable from the same module only.
 	VisibilityPrivate Visibility = "private"
+	// VisibilityInternal is reachable across modules, from within the
+	// workspace: any module of the composition may declare a dependency on
+	// it, and nothing outside the composition may reach it. It is the whole
+	// of what a host can honestly say about itself — "reachable by whatever
+	// composes me" — without naming its composers.
+	VisibilityInternal Visibility = "internal"
+	// VisibilityPublic is reachable from outside the workspace. It says
+	// nothing about an address: a public endpoint with no exposure is
+	// reachable by anything that can address it and published nowhere.
+	VisibilityPublic Visibility = "public"
 )
 
 // LocationExternal marks an endpoint that lives outside the system (a managed
 // resource resolved by DNS rather than an allocated port).
 const LocationExternal = "external"
+
+// ExposurePublic marks an endpoint that is allocated an address reachable from
+// outside the workspace — the Public network instance a run generates beside
+// the Native and Container ones, and whatever a deployment renders from it (a
+// load balancer, a route). Exposure is ADDRESSING, the second job the word
+// "public" used to do: it is declared on its own, beside the visibility, so an
+// endpoint reachable by every module but addressable from nowhere outside is
+// `visibility: public` with no exposure, and one that must be addressed from
+// outside says so. Internet exposure — a route with hostnames — is still the
+// deployment's ingress, declared there; exposure is what gives it an endpoint
+// to route to.
+const ExposurePublic = "public"
 
 // KnownVisibility reports whether a visibility value is one the model defines.
 // It is the ONE list of them: ValidateEndpointDeclaration judges every
@@ -39,11 +61,11 @@ const LocationExternal = "external"
 // value the model does not know is refused as an invalid declaration everywhere
 // rather than read as "private" by one path and "denied" by another;
 // AllowsModule, which only ever runs on a declaration already judged, reads
-// the permission of a known value. The former
-// spellings "module" and "external" are not known: "module" was a permission
-// granted to every module, now written as "internal" with an explicit
-// allow-list, and "external" was a location written as a permission, now
-// written as "location: external" beside the visibility that applies.
+// the permission of a known value. The former spellings "module" and
+// "external" are not known: "module" was reach written as a permission to
+// every module, now written as "internal" (which names nobody), and "external"
+// was a location written as a permission, now written as "location: external"
+// beside the visibility that applies.
 func KnownVisibility(visibility Visibility) bool {
 	switch visibility {
 	case "", VisibilityPrivate, VisibilityInternal, VisibilityPublic:
@@ -57,10 +79,10 @@ func KnownLocation(location string) bool {
 	return location == "" || location == LocationExternal
 }
 
-// AllowAllModules is the wildcard allow-list entry that grants every module
-// access to an internal endpoint. Defined in resources/names, which the
-// readers that cannot import this package share.
-const AllowAllModules = names.AllowAllModules
+// KnownExposure reports whether an exposure value is one the model defines.
+func KnownExposure(exposure string) bool {
+	return exposure == "" || exposure == ExposurePublic
+}
 
 // Endpoint is the fundamental entity that standardize communication between services.
 type Endpoint struct {
@@ -68,20 +90,31 @@ type Endpoint struct {
 	Service     string `yaml:"service,omitempty"`
 	Module      string `yaml:"module,omitempty"`
 	Description string `yaml:"description,omitempty"`
-	Visibility  string `yaml:"visibility,omitempty"`
-	API         string `yaml:"api,omitempty"`
-	Secured     bool   `yaml:"secured,omitempty"`
+	// Visibility is who may reach the endpoint: private, internal or public.
+	// It is reach only; see Exposure for addressing.
+	Visibility string `yaml:"visibility,omitempty"`
+	API        string `yaml:"api,omitempty"`
+	Secured    bool   `yaml:"secured,omitempty"`
 	// Location describes where the endpoint lives, independently of visibility.
 	Location string `yaml:"location,omitempty"`
-	// AllowModules lists the modules permitted to reach an internal endpoint.
+	// Exposure describes whether the endpoint is allocated an address reachable
+	// from outside the workspace, independently of visibility.
+	Exposure string `yaml:"exposure,omitempty"`
+	// AllowModules is never a grant. The allow-list of an endpoint is DERIVED
+	// from the declared service dependencies of the composition's consumers
+	// (DeriveAllowModules): a module asks for what it consumes, in its own
+	// declaration, and the composition joins the asks. A list written here
+	// would be the target naming its own consumers, which no module may do, so
+	// the key is decoded for one purpose only — to be refused by name, the
+	// wildcard included (ValidateEndpointDeclaration). Nothing reads it.
 	AllowModules []string `yaml:"allow-modules,omitempty"`
 	// Health declares what "healthy" means for this endpoint. Absence keeps the
 	// legacy transport-only semantics.
 	Health *Health `yaml:"health,omitempty"`
 
 	// authored retains what the YAML declared when a module's interface decides
-	// what the endpoint exports instead, so a save writes the author's values
-	// back rather than the exported ones.
+	// what the endpoint exports instead, so a save writes the author's value
+	// back rather than the exported one.
 	authored *authoredExport
 }
 
@@ -89,21 +122,18 @@ type Endpoint struct {
 // wrote it, kept aside while the module's interface entry is what the loaded
 // endpoint carries.
 type authoredExport struct {
-	visibility   string
-	allowModules []string
+	visibility string
 }
 
-// exportAs sets the visibility and the allow-list the endpoint carries across
-// module boundaries, keeping the authored values for save. The interface entry
-// is the whole export declaration: an entry exporting at "internal" names the
-// modules that may reach the endpoint itself, so the service's own allow-list
-// is never what a consumer is judged against once the module has spoken.
-func (endpoint *Endpoint) exportAs(visibility Visibility, allowModules []string) {
+// exportAs sets the visibility the endpoint carries across module boundaries,
+// keeping the authored value for save. The interface entry is the whole export
+// declaration: once the module has spoken, the service's own visibility is not
+// what a consumer is judged against.
+func (endpoint *Endpoint) exportAs(visibility Visibility) {
 	if endpoint.authored == nil {
-		endpoint.authored = &authoredExport{visibility: endpoint.Visibility, allowModules: endpoint.AllowModules}
+		endpoint.authored = &authoredExport{visibility: endpoint.Visibility}
 	}
 	endpoint.Visibility = visibility
-	endpoint.AllowModules = slices.Clone(allowModules)
 }
 
 func validateEndpointNames(endpoints []*Endpoint) error {
@@ -121,13 +151,18 @@ func validateEndpointNames(endpoints []*Endpoint) error {
 }
 
 // postLoad completes a declaration the loader read and refuses one the model
-// cannot judge. A visibility or a location the model does not define is
-// ErrInvalidEndpointDeclaration here, at the source, so that no later path has
-// to decide whether "application" means private, denied or dropped; and an
-// allow-list on an endpoint whose visibility never reads it is refused too,
-// because a grant that nothing enforces is a manifest saying something false.
+// cannot judge, with every rule of ValidateEndpointDeclaration, here at the
+// source, so that no later path has to decide what "application" means or
+// whether an authored allow-list grants anything.
 func (endpoint *Endpoint) postLoad() error {
-	if err := ValidateEndpointDeclaration(endpoint.Service, endpoint.Name, endpoint.Visibility, endpoint.Location, endpoint.AllowModules); err != nil {
+	return endpoint.postLoadWithout("")
+}
+
+// postLoadWithout is postLoad with one declaration rule deleted; "" deletes
+// none. It exists for the kit's self-check, which proves every rule is one a
+// shipped fixture would miss.
+func (endpoint *Endpoint) postLoadWithout(deleted string) error {
+	if err := validateEndpointDeclaration(endpoint.Declaration(), deleted); err != nil {
 		return err
 	}
 	if endpoint.Visibility == "" {
@@ -139,41 +174,30 @@ func (endpoint *Endpoint) postLoad() error {
 	return nil
 }
 
-// ValidateEndpointDeclaration judges the export-relevant part of an endpoint's
-// declaration on its own, before any consumer is: the visibility and the
-// location must be ones the model defines, and an allow-list is only read for
-// "internal", so it is refused anywhere else. Every error wraps
-// ErrInvalidEndpointDeclaration.
-func ValidateEndpointDeclaration(service, name string, visibility Visibility, location string, allowModules []string) error {
-	if !KnownVisibility(visibility) {
-		return fmt.Errorf("%w: endpoint %s/%s declares unsupported visibility %q (one of %q, %q, %q)",
-			ErrInvalidEndpointDeclaration, service, name, visibility, VisibilityPrivate, VisibilityInternal, VisibilityPublic)
+// Declaration is the export-relevant part of this endpoint, as
+// ValidateEndpointDeclaration judges it.
+func (endpoint *Endpoint) Declaration() EndpointDeclaration {
+	return EndpointDeclaration{
+		Service:      endpoint.Service,
+		Name:         endpoint.Name,
+		Visibility:   endpoint.Visibility,
+		Location:     endpoint.Location,
+		Exposure:     endpoint.Exposure,
+		AllowModules: endpoint.AllowModules,
 	}
-	if !KnownLocation(location) {
-		return fmt.Errorf("%w: endpoint %s/%s declares unsupported location %q (only %q, or none)",
-			ErrInvalidEndpointDeclaration, service, name, location, LocationExternal)
-	}
-	if len(allowModules) > 0 && visibility != VisibilityInternal {
-		return fmt.Errorf("%w: endpoint %s/%s lists allow-modules with visibility %q; an allow-list is only read for %q",
-			ErrInvalidEndpointDeclaration, service, name, visibility, VisibilityInternal)
-	}
-	if err := validateAllowModules(allowModules); err != nil {
-		return fmt.Errorf("%w: endpoint %s/%s: %w", ErrInvalidEndpointDeclaration, service, name, err)
-	}
-	return nil
 }
 
-// An allow-list entry's grammar lives in resources/names, shared with every
-// other reader that must hold a module name to the same spelling — the cell
-// wire model among them, which cannot import this package.
-func validateAllowModules(allowModules []string) error {
-	for _, module := range allowModules {
-		if names.IsAllowModulesEntry(module) {
-			continue
-		}
-		return fmt.Errorf("allow-modules entry %q names no module (a module name, or %q for every module)", module, AllowAllModules)
+// EndpointDeclarationOf is the export-relevant part of a proto endpoint, as
+// ValidateEndpointDeclaration judges it. The wire model carries no allow-list:
+// a grant is not something an endpoint can say about itself.
+func EndpointDeclarationOf(e *basev0.Endpoint) EndpointDeclaration {
+	return EndpointDeclaration{
+		Service:    e.GetService(),
+		Name:       e.GetName(),
+		Visibility: e.GetVisibility(),
+		Location:   e.GetLocation(),
+		Exposure:   e.GetExposure(),
 	}
-	return nil
 }
 
 // External reports whether the endpoint lives outside the system. Location is
@@ -183,23 +207,27 @@ func (endpoint *Endpoint) External() bool {
 	return endpoint.Location == LocationExternal
 }
 
+// Exposed reports whether the endpoint is allocated an address reachable from
+// outside the workspace. Exposure is the one record of it: a visibility never
+// says whether an address exists, only who may call.
+func (endpoint *Endpoint) Exposed() bool {
+	return endpoint.Exposure == ExposurePublic
+}
+
 // AllowsModule reports whether a service in the given module may reach this
 // endpoint. Access is always granted within the owning module; across modules
-// it follows the visibility: public is open, internal consults AllowModules
-// (with "*" as a wildcard), and everything else is denied.
+// it follows the visibility: public and internal are reachable from any
+// module of the composition — internal stops at the workspace boundary, which
+// no module is on the far side of — and private is denied. Which modules DO
+// reach an endpoint is the derived allow-list (DeriveAllowModules), a record
+// of declared asks, never an input to this answer.
 func (endpoint *Endpoint) AllowsModule(module string) bool {
 	if module == endpoint.Module {
 		return true
 	}
 	switch endpoint.Visibility {
-	case VisibilityPublic:
+	case VisibilityPublic, VisibilityInternal:
 		return true
-	case VisibilityInternal:
-		for _, allowed := range endpoint.AllowModules {
-			if allowed == AllowAllModules || allowed == module {
-				return true
-			}
-		}
 	}
 	return false
 }
@@ -225,10 +253,17 @@ func IsExternalEndpoint(e *basev0.Endpoint) bool {
 	return e.GetLocation() == LocationExternal
 }
 
+// IsExposedEndpoint reports whether a proto endpoint is allocated an address
+// reachable from outside the workspace. It is the condition the runtime
+// manager emits a Public network instance on, and the one a deployment renders
+// an outward address from; a visibility is never that condition.
+func IsExposedEndpoint(e *basev0.Endpoint) bool {
+	return e.GetExposure() == ExposurePublic
+}
+
 func (endpoint *Endpoint) preSave() {
 	if endpoint.authored != nil {
 		endpoint.Visibility = endpoint.authored.visibility
-		endpoint.AllowModules = endpoint.authored.allowModules
 	}
 	if endpoint.Visibility == VisibilityPrivate {
 		endpoint.Visibility = ""
@@ -324,7 +359,7 @@ func (endpoint *Endpoint) AsReference() *EndpointReference {
 }
 
 func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
-	if err := ValidateEndpointDeclaration(endpoint.Service, endpoint.Name, endpoint.Visibility, endpoint.Location, endpoint.AllowModules); err != nil {
+	if err := ValidateEndpointDeclaration(endpoint.Declaration()); err != nil {
 		return nil, err
 	}
 	if endpoint.API == "" && standards.IsSupportedAPI(endpoint.Name) == nil {
@@ -341,15 +376,15 @@ func (endpoint *Endpoint) Proto() (*basev0.Endpoint, error) {
 		return nil, fmt.Errorf("endpoint %q health: %w", endpoint.Name, err)
 	}
 	e := &basev0.Endpoint{
-		Name:         endpoint.Name,
-		Module:       endpoint.Module,
-		Service:      endpoint.Service,
-		Api:          endpoint.API,
-		Visibility:   endpoint.Visibility,
-		Description:  endpoint.Description,
-		Location:     endpoint.Location,
-		AllowModules: endpoint.AllowModules,
-		Health:       health,
+		Name:        endpoint.Name,
+		Module:      endpoint.Module,
+		Service:     endpoint.Service,
+		Api:         endpoint.API,
+		Visibility:  endpoint.Visibility,
+		Description: endpoint.Description,
+		Location:    endpoint.Location,
+		Exposure:    endpoint.Exposure,
+		Health:      health,
 	}
 	switch endpoint.API {
 	case standards.REST:
@@ -379,16 +414,16 @@ func (endpoint *Endpoint) Information() *EndpointInformation {
 
 func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 	return &Endpoint{
-		Name:         e.Name,
-		Module:       e.Module,
-		Service:      e.Service,
-		Visibility:   e.Visibility,
-		Description:  e.Description,
-		API:          e.Api,
-		Secured:      EndpointSecured(e),
-		Location:     e.Location,
-		AllowModules: e.AllowModules,
-		Health:       HealthFromProto(e.Health),
+		Name:        e.Name,
+		Module:      e.Module,
+		Service:     e.Service,
+		Visibility:  e.Visibility,
+		Description: e.Description,
+		API:         e.Api,
+		Secured:     EndpointSecured(e),
+		Location:    e.Location,
+		Exposure:    e.Exposure,
+		Health:      HealthFromProto(e.Health),
 	}
 }
 
@@ -405,14 +440,14 @@ func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 
 func Light(e *basev0.Endpoint) *basev0.Endpoint {
 	return &basev0.Endpoint{
-		Name:         e.Name,
-		Visibility:   e.Visibility,
-		Description:  e.Description,
-		Api:          e.Api,
-		ApiDetails:   LightAPI(e.ApiDetails),
-		Location:     e.Location,
-		AllowModules: e.AllowModules,
-		Health:       e.Health,
+		Name:        e.Name,
+		Visibility:  e.Visibility,
+		Description: e.Description,
+		Api:         e.Api,
+		ApiDetails:  LightAPI(e.ApiDetails),
+		Location:    e.Location,
+		Exposure:    e.Exposure,
+		Health:      e.Health,
 	}
 }
 
@@ -521,7 +556,7 @@ func endpointHash(_ context.Context, endpoint *basev0.Endpoint) (string, error) 
 	buf.WriteString(endpoint.Name)
 	buf.WriteString(endpoint.Visibility)
 	buf.WriteString(endpoint.Location)
-	buf.WriteString(strings.Join(endpoint.AllowModules, ","))
+	buf.WriteString(endpoint.Exposure)
 	buf.WriteString(endpoint.Api)
 	buf.WriteString(endpoint.ApiDetails.String())
 	if endpoint.Health != nil {
@@ -747,7 +782,7 @@ func dependencyEndpointVerdicts(consumerModule string, dependency *ServiceDepend
 	var permitted []*basev0.Endpoint
 	var denials []error
 	for _, endpoint := range resolved {
-		if err := ValidateEndpointVisibility(consumerModule, endpoint.Module, dependency.Name, endpoint.Name, endpoint.Visibility, endpoint.Location, endpoint.AllowModules); err != nil {
+		if err := ValidateEndpointVisibility(consumerModule, endpoint.Module, EndpointDeclarationOf(endpoint)); err != nil {
 			// A declaration the model cannot judge is a fault of the producer's
 			// manifest, not a verdict on this consumer: filing it as a denial
 			// would let "consumes all" drop the endpoint with nothing said —
@@ -903,9 +938,12 @@ func FindTCPEndpointWithName(ctx context.Context, name string, endpoints []*base
 	return FindEndpoint(ctx, name, standards.TCP, endpoints)
 }
 
-func HasPublicEndpoints(endpoints []*basev0.Endpoint) bool {
+// HasExposedEndpoints reports whether any endpoint is allocated an address
+// reachable from outside the workspace. It answers an ADDRESSING question — does
+// a deployment have something to route to — never who may call.
+func HasExposedEndpoints(endpoints []*basev0.Endpoint) bool {
 	for _, endpoint := range endpoints {
-		if endpoint.Visibility == VisibilityPublic {
+		if IsExposedEndpoint(endpoint) {
 			return true
 		}
 	}

@@ -62,9 +62,9 @@ func TestInterfaceExportsEndpointThePrivateServiceKeeps(t *testing.T) {
 		"the exported set is what the interface lists, not what the services declare")
 }
 
-// The visibility on the interface entry is the one enforced, so an endpoint
-// exported at "internal" answers to the allow-list rather than to the service's
-// own value.
+// The visibility on the interface entry is the one enforced: an endpoint
+// exported at "internal" is reachable by whatever composes the workspace,
+// whatever the service's own value says.
 func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 	ctx := context.Background()
 	const dir = "testdata/workspaces/interface-boundary-visibility"
@@ -74,7 +74,7 @@ func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 	mod, err := workspace.LoadModuleFromName(ctx, "saas")
 	require.NoError(t, err)
 
-	exposed, err := mod.ExposedEndpoints(ctx)
+	exposed, err := mod.InterfaceEndpoints(ctx)
 	require.NoError(t, err)
 	visibility := make(map[string]string, len(exposed))
 	for _, endpoint := range exposed {
@@ -88,17 +88,6 @@ func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 		// entry never touches.
 		"listed": resources.VisibilityInternal,
 	}, visibility)
-	allowed := make(map[string][]string, len(exposed))
-	for _, endpoint := range exposed {
-		allowed[endpoint.GetName()] = endpoint.GetAllowModules()
-	}
-	require.Equal(t, map[string][]string{
-		"grpc":       {resources.AllowAllModules},
-		"public":     nil,
-		"restricted": {"platform"},
-		"listed":     {resources.AllowAllModules},
-	}, allowed, "the allow-list a consumer is judged against is the interface entry's own")
-
 	gateway, err := mod.LoadServiceFromName(ctx, "gateway")
 	require.NoError(t, err)
 	byName := make(map[string]*resources.Endpoint, len(gateway.Endpoints))
@@ -106,9 +95,10 @@ func TestInterfaceVisibilityIsWhatEndpointsCarry(t *testing.T) {
 		byName[endpoint.Name] = endpoint
 	}
 	// "restricted" is private to its service and exported at internal by the
-	// module, so only the entry's allow-list reaches it.
+	// module, so every module of the composition reaches it — the entry names
+	// nobody.
 	require.True(t, byName["restricted"].AllowsModule("platform"))
-	require.False(t, byName["restricted"].AllowsModule("other"))
+	require.True(t, byName["restricted"].AllowsModule("other"))
 	// "omitted" is public on the service and exported by nothing.
 	require.False(t, byName["omitted"].AllowsModule("platform"))
 	// Visibility never restricts reachability inside the owning module.
@@ -206,27 +196,26 @@ func TestReloadServiceKeepsModuleAndBoundary(t *testing.T) {
 	}
 }
 
-// Saving writes the authored values to the file and must hand the LIVE ones
-// back: the visibility and the allow-list the interface exported. A save that
-// restored one and not the other would leave the service's own list — here the
-// wildcard — judging consumers the module granted to one module only, and a
-// reference from anywhere else would resolve.
-func TestSavingRestoresTheExportedAllowList(t *testing.T) {
+// Saving writes the authored value to the file and must hand the LIVE one
+// back: the visibility the interface exported. A save that left the authored
+// value live would narrow what the module exported — here from internal back
+// to private — and a reference from another module would stop resolving.
+func TestSavingRestoresTheExportedVisibility(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "module.codefly.yaml"), []byte(
-		"kind: module\nname: saas\nservices:\n    - name: accounts\ninterface:\n    endpoints:\n        - service: accounts\n          endpoint: grpc\n          visibility: internal\n          allow-modules: [payments]\n"), 0o644))
+		"kind: module\nname: saas\nservices:\n    - name: accounts\ninterface:\n    endpoints:\n        - service: accounts\n          endpoint: grpc\n          visibility: internal\n"), 0o644))
 	svcDir := filepath.Join(dir, "services", "accounts")
 	require.NoError(t, os.MkdirAll(svcDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(svcDir, "service.codefly.yaml"), []byte(
-		"kind: service\nname: accounts\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: grpc\n    api: grpc\n    visibility: internal\n    allow-modules: [\"*\"]\n"), 0o644))
+		"kind: service\nname: accounts\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: grpc\n    api: grpc\n"), 0o644))
 
 	mod, err := resources.LoadModuleFromDir(ctx, dir)
 	require.NoError(t, err)
 	service, err := mod.LoadServiceFromName(ctx, "accounts")
 	require.NoError(t, err)
 	grpc := service.Endpoints[0]
-	require.Equal(t, []string{"payments"}, grpc.AllowModules)
+	require.Equal(t, resources.VisibilityInternal, grpc.Visibility)
 
 	judge := func(consumer string) error {
 		info := &resources.EndpointInformation{Module: "saas", Service: "accounts", Name: "grpc"}
@@ -234,18 +223,16 @@ func TestSavingRestoresTheExportedAllowList(t *testing.T) {
 		return err
 	}
 	require.NoError(t, judge("payments"))
-	require.ErrorIs(t, judge("other"), resources.ErrEndpointNotReachable)
+	require.NoError(t, judge("other"), "internal names nobody: whatever composes the workspace reaches it")
 
 	require.NoError(t, service.Save(ctx))
-	require.Equal(t, resources.VisibilityInternal, grpc.Visibility, "the live visibility after a save")
-	require.Equal(t, []string{"payments"}, grpc.AllowModules, "the live allow-list after a save is the interface's, not the file's")
-	require.ErrorIs(t, judge("other"), resources.ErrEndpointNotReachable, "a save must not widen what the module exported")
-	require.NoError(t, judge("payments"))
+	require.Equal(t, resources.VisibilityInternal, grpc.Visibility, "the live visibility after a save is the interface's, not the file's")
+	require.NoError(t, judge("other"), "a save must not narrow what the module exported")
 
 	saved, err := os.ReadFile(filepath.Join(svcDir, "service.codefly.yaml"))
 	require.NoError(t, err)
-	require.Contains(t, string(saved), "- '*'", "the file keeps what the author wrote")
-	require.NotContains(t, string(saved), "payments")
+	require.NotContains(t, string(saved), "visibility", "the file keeps what the author wrote: nothing, which is private")
+	require.NotContains(t, string(saved), "allow-modules")
 }
 
 // Applying the boundary must not rewrite what the author wrote: the exported
@@ -278,7 +265,7 @@ func TestInterfaceBoundaryDoesNotRewriteAuthoredVisibility(t *testing.T) {
 	for _, endpoint := range declaration.Endpoints {
 		authored[endpoint.Name] = endpoint.Visibility
 	}
-	// "restricted" was authored private and exported at internal to platform,
+	// "restricted" was authored private and exported at internal,
 	// "omitted" authored public and not exported at all: both save as written,
 	// and the entry's allow-list is never written into the service.
 	require.Equal(t, map[string]string{

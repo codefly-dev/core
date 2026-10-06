@@ -74,7 +74,7 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 // It does NOT apply to external endpoints, whose address comes from a DNS
 // record resolved at runtime rather than the port hash — callers must
 // special-case them with resources.IsExternalEndpoint (external is a location,
-// expressible either as location: external or the deprecated visibility).
+// written as location: external beside the visibility that applies).
 func NativeFor(ctx context.Context, workspace, module, service, namingScope string, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
 	name := endpoint.Name
 	if namingScope != "" {
@@ -244,7 +244,10 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 			Container(endpoint, port),
 			Native(endpoint, port),
 		}
-		if endpoint.Visibility == resources.VisibilityPublic {
+		// The Public instance is an ADDRESS reachable from outside the workspace,
+		// and whether one exists is the endpoint's exposure — never its
+		// visibility, which says who may call and nothing about addresses.
+		if resources.IsExposedEndpoint(endpoint) {
 			nm.Instances = append(nm.Instances, PublicDefault(endpoint, port))
 		}
 		out = append(out, nm)

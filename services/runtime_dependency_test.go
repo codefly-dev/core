@@ -87,7 +87,7 @@ func TestRuntimeStartAllowsDependencyOnAllowListedEndpoint(t *testing.T) {
 	request := &runtimev0.StartRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
 		{Endpoint: &basev0.Endpoint{
 			Module: "saas", Service: "accounts", Name: "grpc", Api: "grpc",
-			Visibility: resources.VisibilityInternal, AllowModules: []string{"platform"},
+			Visibility: resources.VisibilityInternal,
 		}},
 	}}
 

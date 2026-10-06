@@ -572,17 +572,29 @@ func (s *Service) postLoad(ctx context.Context) error {
 	if err := validateServiceDependencyNames(s.ServiceDependencies); err != nil {
 		return w.Wrap(err)
 	}
-	for _, endpoint := range s.Endpoints {
-		endpoint.Service = s.Name
-		endpoint.Module = s.module
-		if err := endpoint.postLoad(); err != nil {
-			return w.Wrap(err)
-		}
+	if err := s.postLoadEndpoints(""); err != nil {
+		return w.Wrap(err)
 	}
 	// After endpoint.postLoad, so an endpoint that infers its API from its name
 	// is validated against the API it actually ends up with.
 	if err := validateEndpointHealth(s.Endpoints); err != nil {
 		return w.Wrap(err)
+	}
+	return nil
+}
+
+// postLoadEndpoints stamps each endpoint with its owner and completes its
+// declaration, refusing one the model cannot judge. deleted names one rule of
+// ValidateEndpointDeclaration to skip and is "" on every load path; the kit's
+// self-check is its only caller with a name, so that the reader it proves a
+// rule against is this one and not a copy of it.
+func (s *Service) postLoadEndpoints(deleted string) error {
+	for _, endpoint := range s.Endpoints {
+		endpoint.Service = s.Name
+		endpoint.Module = s.module
+		if err := endpoint.postLoadWithout(deleted); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -621,7 +633,6 @@ func (s *Service) preSave() func() {
 		ep              *Endpoint
 		module, svc     string
 		visibility, api string
-		allowModules    []string
 	}
 	type depSnap struct {
 		dep          *ServiceDependency
@@ -661,12 +672,11 @@ func (s *Service) preSave() func() {
 		}
 	}
 	for _, endpoint := range s.Endpoints {
-		// The visibility and the allow-list are the endpoint's LIVE authorization
-		// state — what the module's interface exported — and preSave writes the
-		// authored ones over them for the file. Both come back, or a save
-		// would leave the service's own list judging consumers the module
-		// never granted.
-		eps = append(eps, epSnap{ep: endpoint, module: endpoint.Module, svc: endpoint.Service, visibility: endpoint.Visibility, api: endpoint.API, allowModules: endpoint.AllowModules})
+		// The visibility is the endpoint's LIVE reach — what the module's
+		// interface exported — and preSave writes the authored one over it for
+		// the file. It comes back, or a save would leave the service's own
+		// declaration judging consumers the module never granted.
+		eps = append(eps, epSnap{ep: endpoint, module: endpoint.Module, svc: endpoint.Service, visibility: endpoint.Visibility, api: endpoint.API})
 		endpoint.Module = ""
 		endpoint.Service = ""
 		endpoint.preSave()
@@ -687,7 +697,6 @@ func (s *Service) preSave() func() {
 			e.ep.Service = e.svc
 			e.ep.Visibility = e.visibility
 			e.ep.API = e.api
-			e.ep.AllowModules = e.allowModules
 		}
 	}
 }
@@ -721,12 +730,13 @@ func (s *Service) DependencyEndpoints() ([]*basev0.Endpoint, error) {
 	out := make([]*basev0.Endpoint, 0, len(s.Endpoints))
 	for _, endpoint := range s.Endpoints {
 		out = append(out, &basev0.Endpoint{
-			Module:       identity.Module,
-			Service:      s.Name,
-			Name:         endpoint.Name,
-			Api:          endpoint.API,
-			Visibility:   endpoint.Visibility,
-			AllowModules: endpoint.AllowModules,
+			Module:     identity.Module,
+			Service:    s.Name,
+			Name:       endpoint.Name,
+			Api:        endpoint.API,
+			Visibility: endpoint.Visibility,
+			Location:   endpoint.Location,
+			Exposure:   endpoint.Exposure,
 		})
 	}
 	return out, nil

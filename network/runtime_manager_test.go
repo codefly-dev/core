@@ -116,7 +116,7 @@ func TestRuntimeManagerAllocatesAndInjectsSameAPIEndpointsIndependently(t *testi
 	service := &resources.ServiceIdentity{Module: "saas", Name: "accounts"}
 	endpoints := []*basev0.Endpoint{
 		{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityPublic},
-		{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}},
+		{Module: "saas", Service: "accounts", Name: "usage", Api: standards.GRPC, Visibility: resources.VisibilityInternal},
 	}
 
 	mappings, err := manager.GenerateNetworkMappings(
@@ -164,8 +164,8 @@ func TestRuntimeManagerPinsOverriddenEndpointAndHashesTheRest(t *testing.T) {
 	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
 	require.NoError(t, err)
 	service := &resources.ServiceIdentity{Module: "app", Name: "subject"}
-	pinned := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
-	free := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
+	pinned := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal}
+	free := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal}
 
 	const overridePort = uint16(45678)
 	manager.WithPortOverrides(map[string]uint16{resources.EndpointDestination(pinned): overridePort})
@@ -196,8 +196,8 @@ func TestRuntimeManagerRejectsTwoEndpointsPinnedToSamePort(t *testing.T) {
 	manager, err := network.NewRuntimeManager(ctx, testDnsManager{})
 	require.NoError(t, err)
 	service := &resources.ServiceIdentity{Module: "app", Name: "subject"}
-	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
-	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
+	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal}
+	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal}
 
 	manager.WithPortOverrides(map[string]uint16{
 		resources.EndpointDestination(first):  40000,
@@ -218,7 +218,8 @@ func TestRuntimeManagerRejectsTwoEndpointsPinnedToSamePort(t *testing.T) {
 
 // TestRuntimeNetworkMappingAccessKinds_NoDNS asserts that the named-port
 // branch produces one Container instance, one Native instance, plus one
-// Public instance iff the endpoint is public-visibility.
+// Public instance iff the endpoint is EXPOSED — never because its visibility
+// is public, which says who may call and nothing about addresses.
 //
 // This is the path non-external endpoints (e.g. grpc, rest on regular
 // services) take. It's the happy path — every agent lookup (Container,
@@ -244,18 +245,54 @@ func TestRuntimeNetworkMappingAccessKinds_NoDNS(t *testing.T) {
 
 	// Basic testdata service.codefly.yaml declares:
 	//   grpc   (default visibility)
-	//   rest   visibility: public
+	//   rest   visibility: public, exposure: public
 	for _, mapping := range mappings {
 		kinds := accessKindsOf(mapping)
 		require.Contains(t, kinds, resources.NetworkAccessContainer,
 			"mapping %s missing container access", mapping.Endpoint.Name)
 		require.Contains(t, kinds, resources.NetworkAccessNative,
 			"mapping %s missing native access", mapping.Endpoint.Name)
-		if mapping.Endpoint.Visibility == resources.VisibilityPublic {
+		if resources.IsExposedEndpoint(mapping.Endpoint) {
 			require.Contains(t, kinds, resources.NetworkAccessPublic,
-				"public endpoint %s missing public access", mapping.Endpoint.Name)
+				"exposed endpoint %s missing public access", mapping.Endpoint.Name)
+		} else {
+			require.NotContains(t, kinds, resources.NetworkAccessPublic,
+				"unexposed endpoint %s given a public access instance", mapping.Endpoint.Name)
 		}
 	}
+	require.True(t, resources.HasExposedEndpoints(endpoints))
+}
+
+// Visibility is reach and exposure is addressing: a public endpoint with no
+// exposure is reachable by anything and published nowhere, so it is given no
+// Public instance; the same endpoint declaring exposure is.
+func TestPublicInstanceFollowsExposureNotVisibility(t *testing.T) {
+	ctx := context.Background()
+	workspace := &resources.Workspace{Name: "test-workspace"}
+	identity := &resources.ServiceIdentity{Name: "accounts", Module: "saas", Version: "0.0.0"}
+	manager, err := network.NewRuntimeManager(ctx, &testDnsManager{})
+	require.NoError(t, err)
+	manager.WithTemporaryPorts()
+
+	unexposed := &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityPublic}
+	exposed := &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityPublic, Exposure: resources.ExposurePublic}
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, []*basev0.Endpoint{unexposed, exposed}, resources.NewRuntimeContextNative())
+	require.NoError(t, err)
+	require.Len(t, mappings, 2)
+	byName := map[string][]string{}
+	for _, mapping := range mappings {
+		byName[mapping.Endpoint.Name] = accessKindsOf(mapping)
+	}
+	require.NotContains(t, byName["grpc"], resources.NetworkAccessPublic, "visibility: public allocates no address")
+	require.Contains(t, byName["rest"], resources.NetworkAccessPublic, "exposure: public allocates the Public instance")
+	require.False(t, resources.HasExposedEndpoints([]*basev0.Endpoint{unexposed}))
+	require.True(t, resources.HasExposedEndpoints([]*basev0.Endpoint{exposed}))
+
+	exposedOnly, rest, err := resources.SplitPublicNetworkMappings(ctx, mappings)
+	require.NoError(t, err)
+	require.Len(t, exposedOnly, 1)
+	require.Equal(t, "rest", exposedOnly[0].Endpoint.Name, "the public split is keyed on exposure")
+	require.Len(t, rest, 1)
 }
 
 // TestRuntimeNetworkMappingAccessKinds_ExternalDNS regression-tests the
@@ -500,11 +537,11 @@ func TestGenerateNetworkMappingsReleasesReservationsOnFailure(t *testing.T) {
 
 	const contended = uint16(40100)
 	failing := &resources.ServiceIdentity{Module: "app", Name: "subject"}
-	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
-	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
+	first := &basev0.Endpoint{Module: "app", Service: "subject", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal}
+	second := &basev0.Endpoint{Module: "app", Service: "subject", Name: "rest", Api: standards.REST, Visibility: resources.VisibilityInternal}
 
 	later := &resources.ServiceIdentity{Module: "app", Name: "successor"}
-	successor := &basev0.Endpoint{Module: "app", Service: "successor", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
+	successor := &basev0.Endpoint{Module: "app", Service: "successor", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal}
 
 	manager.WithPortOverrides(map[string]uint16{
 		resources.EndpointDestination(first):     contended,

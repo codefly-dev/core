@@ -113,7 +113,6 @@ func TestLoadEndpointsAllowsNamedSameAPIEndpoints(t *testing.T) {
 	require.Equal(t, resources.VisibilityPublic, endpoints[0].Visibility)
 	require.Equal(t, "usage", endpoints[1].Name)
 	require.Equal(t, resources.VisibilityInternal, endpoints[1].Visibility)
-	require.Equal(t, []string{"platform"}, endpoints[1].AllowModules)
 	for _, endpoint := range endpoints {
 		require.Equal(t, standards.GRPC, endpoint.Api)
 		require.Equal(t, "accounts.v1", resources.IsGRPC(context.Background(), endpoint).Package)
@@ -229,12 +228,13 @@ func TestEndpointVisibilityInterpretation(t *testing.T) {
 	service, err := resources.LoadServiceFromDir(ctx, "testdata/endpoints/visibility")
 	require.NoError(t, err)
 
-	// Every module, said so: internal with the wildcard allow-list.
+	// Internal names nobody: whatever composes the workspace reaches it.
 	grpc := endpointByName(service.Endpoints, "grpc")
 	require.Equal(t, resources.VisibilityInternal, grpc.Visibility)
-	require.Equal(t, []string{resources.AllowAllModules}, grpc.AllowModules)
+	require.Nil(t, grpc.AllowModules)
 	require.True(t, grpc.AllowsModule("anything"))
 	require.False(t, grpc.External())
+	require.False(t, grpc.Exposed())
 
 	// Where an endpoint lives is its location; who may reach it is its
 	// visibility. The two axes are read separately.
@@ -243,29 +243,48 @@ func TestEndpointVisibilityInterpretation(t *testing.T) {
 	require.Equal(t, resources.LocationExternal, rest.Location)
 	require.True(t, rest.External())
 	require.True(t, rest.AllowsModule("anything"))
+	require.False(t, rest.Exposed(), "an external endpoint is addressed where it lives")
 
-	// Explicit internal keeps its allow-list and is enforced.
+	// Internal, declared with no list, reaches every module like the first.
 	http := endpointByName(service.Endpoints, "http")
 	require.Equal(t, resources.VisibilityInternal, http.Visibility)
-	require.Equal(t, []string{"platform"}, http.AllowModules)
 	require.True(t, http.AllowsModule("platform"))
-	require.False(t, http.AllowsModule("web"))
+	require.True(t, http.AllowsModule("web"))
 
 	// Unset stays private.
 	tcp := endpointByName(service.Endpoints, "tcp")
 	require.Equal(t, resources.VisibilityPrivate, tcp.Visibility)
 	require.False(t, tcp.External())
+	require.False(t, tcp.AllowsModule("platform"))
+
+	// Public is reach: anything outside the workspace may call. It allocates
+	// no address by itself.
+	conn := endpointByName(service.Endpoints, "conn")
+	require.Equal(t, resources.VisibilityPublic, conn.Visibility)
+	require.True(t, conn.AllowsModule("anything"))
+	require.False(t, conn.Exposed(), "visibility: public alone is published nowhere")
+
+	// Exposure is addressing, declared beside the visibility.
+	web := endpointByName(service.Endpoints, "web")
+	web.Module = "infra"
+	require.Equal(t, resources.VisibilityPublic, web.Visibility)
+	require.Equal(t, resources.ExposurePublic, web.Exposure)
+	require.True(t, web.Exposed())
+	proto, err := web.Proto()
+	require.NoError(t, err)
+	require.True(t, resources.IsExposedEndpoint(proto))
+	require.Equal(t, resources.ExposurePublic, resources.EndpointFromProto(proto).Exposure, "exposure crosses the wire")
 }
 
 // TestEndpointVisibilityRoundTrip guards against a save rewriting what the
-// author declared: the visibility, the allow-list and the location come back
+// author declared: the visibility, the location and the exposure come back
 // exactly as written.
 func TestEndpointVisibilityRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	svcDir := filepath.Join(dir, "vault")
 	require.NoError(t, os.MkdirAll(svcDir, 0o755))
-	yaml := "kind: service\nname: vault\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: http\n    api: http\n    visibility: internal\n    allow-modules:\n      - platform\n  - name: tcp\n    api: tcp\n    location: external\n"
+	yaml := "kind: service\nname: vault\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: http\n    api: http\n    visibility: internal\n  - name: tcp\n    api: tcp\n    location: external\n  - name: web\n    api: http\n    visibility: public\n    exposure: public\n"
 	require.NoError(t, os.WriteFile(filepath.Join(svcDir, "service.codefly.yaml"), []byte(yaml), 0o644))
 
 	service, err := resources.LoadServiceFromDir(ctx, svcDir)
@@ -275,9 +294,10 @@ func TestEndpointVisibilityRoundTrip(t *testing.T) {
 	saved, err := os.ReadFile(filepath.Join(svcDir, "service.codefly.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(saved), "visibility: internal")
-	require.Contains(t, string(saved), "- platform")
 	require.Contains(t, string(saved), "location: external")
+	require.Contains(t, string(saved), "exposure: public")
 	require.NotContains(t, string(saved), "visibility: private")
+	require.NotContains(t, string(saved), "allow-modules")
 }
 
 // A declaration the model cannot judge is refused when it is read, with the
@@ -292,10 +312,13 @@ func TestLoadingRefusesADeclarationTheModelDoesNotDefine(t *testing.T) {
 		"the former module spelling":     {"    visibility: module\n", `unsupported visibility "module"`},
 		"the former external spelling":   {"    visibility: external\n", `unsupported visibility "external"`},
 		"an unknown location":            {"    location: nowhere\n", `unsupported location "nowhere"`},
-		"an allow-list nothing reads":    {"    visibility: public\n    allow-modules: [platform]\n", `allow-modules with visibility "public"`},
-		"an allow-list on a private one": {"    allow-modules: [platform]\n", `allow-modules with visibility ""`},
-		"an entry naming no module":      {"    visibility: internal\n    allow-modules: [\"\"]\n", `allow-modules entry "" names no module`},
-		"a whitespace entry":             {"    visibility: internal\n    allow-modules: [\" \"]\n", `allow-modules entry " " names no module`},
+		"an authored allow-list":         {"    visibility: internal\n    allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
+		"the wildcard":                   {"    visibility: internal\n    allow-modules: [\"*\"]\n", `authors allow-modules ["*"]`},
+		"an allow-list on a public one":  {"    visibility: public\n    allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
+		"an allow-list on a private one": {"    allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
+		"an unknown exposure":            {"    visibility: public\n    exposure: ingress\n", `unsupported exposure "ingress"`},
+		"exposure on an internal one":    {"    visibility: internal\n    exposure: public\n", `exposure "public" with visibility "internal"`},
+		"exposure on an external one":    {"    visibility: public\n    location: external\n    exposure: public\n", `exposure "public" with location "external"`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -330,15 +353,22 @@ func TestEndpointProtoRefusesWhatTheModelDoesNotDefine(t *testing.T) {
 	endpoint := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityPublic, Location: "nowhere"}
 	_, err := endpoint.Proto()
 	require.Error(t, err, "location")
-	for _, entry := range []string{"", " ", "Platform", "a--b"} {
-		blank := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityInternal, AllowModules: []string{entry}}
-		_, err := blank.Proto()
-		require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "conversion refuses an entry %q", entry)
-		require.Error(t, resources.Validate(&basev0.Endpoint{Name: "http", Service: "vault", Module: "infra", Api: "http", Visibility: resources.VisibilityInternal, AllowModules: []string{entry}}), "the schema refuses an entry %q", entry)
+	for name, authored := range map[string][]string{"a module": {"platform"}, "the wildcard": {"*"}, "an empty list": {}, "a blank entry": {""}} {
+		listed := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityInternal, AllowModules: authored}
+		_, err := listed.Proto()
+		require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "conversion refuses %s", name)
+		require.ErrorContains(t, err, "authors allow-modules")
 	}
-	wildcard := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules, "platform"}}
-	_, err = wildcard.Proto()
+	descriptor := (&basev0.Endpoint{}).ProtoReflect().Descriptor()
+	require.Nil(t, descriptor.Fields().ByName("allow_modules"), "the wire model carries no allow-list")
+	require.True(t, descriptor.ReservedNames().Has("allow_modules"), "the name is reserved")
+	require.True(t, descriptor.ReservedRanges().Has(9), "the number is reserved")
+	require.Error(t, resources.Validate(&basev0.Endpoint{Name: "http", Service: "vault", Module: "infra", Api: "http", Visibility: resources.VisibilityPublic, Exposure: "ingress"}), "the schema refuses an exposure outside the model's list")
+	exposed := &resources.Endpoint{Name: "http", Service: "vault", Module: "infra", API: "http", Visibility: resources.VisibilityPublic, Exposure: resources.ExposurePublic}
+	exposedProto, err := exposed.Proto()
 	require.NoError(t, err)
+	require.True(t, resources.IsExposedEndpoint(exposedProto))
+	require.False(t, resources.IsExposedEndpoint(&basev0.Endpoint{Visibility: resources.VisibilityPublic}), "a visibility never allocates an address")
 	endpoint.Location = resources.LocationExternal
 	proto, err := endpoint.Proto()
 	require.NoError(t, err)
@@ -353,14 +383,14 @@ func TestEndpointAllowsModule(t *testing.T) {
 	public := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityPublic}
 	require.True(t, public.AllowsModule("platform"))
 
-	internal := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityInternal, AllowModules: []string{"platform"}}
+	// Internal names nobody: whatever composes the workspace reaches it.
+	internal := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityInternal}
 	require.True(t, internal.AllowsModule("vault"))
 	require.True(t, internal.AllowsModule("platform"))
-	require.False(t, internal.AllowsModule("web"))
+	require.True(t, internal.AllowsModule("web"))
 
-	wildcard := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityInternal, AllowModules: []string{resources.AllowAllModules}}
-	require.True(t, wildcard.AllowsModule("web"))
-
-	empty := &resources.Endpoint{Module: "vault", Visibility: resources.VisibilityInternal}
-	require.False(t, empty.AllowsModule("platform"))
+	// Unset is private.
+	unset := &resources.Endpoint{Module: "vault"}
+	require.True(t, unset.AllowsModule("vault"))
+	require.False(t, unset.AllowsModule("platform"))
 }

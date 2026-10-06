@@ -162,11 +162,13 @@ func TestCheckEndpointReferencesReportsAMalformedMarker(t *testing.T) {
 
 // A reference is subject to the producer's export boundary: declaring the group
 // instead of the dependency must not be a way around endpoint visibility. The
-// same endpoint is fine for a consumer in the producer's own module.
+// same endpoint is fine for a consumer in the producer's own module, and an
+// internal endpoint — which names nobody — is fine for whatever composes the
+// workspace.
 func TestCheckEndpointReferencesRefusesAnEndpointTheConsumerModuleMayNotReceive(t *testing.T) {
 	private := referenceCheckService("host", "api", nil, &resources.Endpoint{Name: "grpc", API: "grpc"})
 	internal := referenceCheckService("host", "gate", nil,
-		&resources.Endpoint{Name: "grpc", API: "grpc", Visibility: resources.VisibilityInternal, AllowModules: []string{"billing"}})
+		&resources.Endpoint{Name: "grpc", API: "grpc", Visibility: resources.VisibilityInternal})
 	outsider := referenceCheckService("assistant", "chat", []string{"platform"})
 	sibling := referenceCheckService("host", "worker", []string{"platform"})
 	allowed := referenceCheckService("billing", "ledger", []string{"platform"})
@@ -185,11 +187,9 @@ func TestCheckEndpointReferencesRefusesAnEndpointTheConsumerModuleMayNotReceive(
 	err := configurations.CheckEndpointReferences(provided, []*resources.Service{outsider}, resources.RunProfile{}, lookup)
 	var unresolved *configurations.UnresolvedReferencesError
 	require.True(t, errors.As(err, &unresolved), "got %v", err)
-	require.Len(t, unresolved.References, 2)
-	// Ordered by key: gate-endpoint (internal, not allowing assistant) then
-	// host-endpoint (private to host).
-	require.Contains(t, unresolved.References[0].Reason, `does not permit module "assistant"`)
-	require.Contains(t, unresolved.References[1].Reason, `is private to module "host"`)
+	require.Len(t, unresolved.References, 1, "the internal gate resolves for the outsider; only the private api is refused")
+	require.Equal(t, "host-endpoint", unresolved.References[0].Key)
+	require.Contains(t, unresolved.References[0].Reason, `is private to module "host"`)
 
 	require.NoError(t, configurations.CheckEndpointReferences(provided, []*resources.Service{sibling}, resources.RunProfile{}, lookup),
 		"a consumer in the producer's own module receives both")
@@ -198,8 +198,10 @@ func TestCheckEndpointReferencesRefusesAnEndpointTheConsumerModuleMayNotReceive(
 			{Key: "gate-endpoint", Value: "${endpoint:host/gate/grpc}"},
 		}},
 	}
-	require.NoError(t, configurations.CheckEndpointReferences(gateOnly, []*resources.Service{allowed}, resources.RunProfile{}, lookup),
-		"an allow-modules entry is honored")
+	for _, consumer := range []*resources.Service{allowed, outsider} {
+		require.NoError(t, configurations.CheckEndpointReferences(gateOnly, []*resources.Service{consumer}, resources.RunProfile{}, lookup),
+			"an internal endpoint is reachable by whatever composes the workspace")
+	}
 }
 
 // The two halves of the contract do not subsume one another, and the plan-time

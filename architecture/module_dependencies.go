@@ -3,16 +3,17 @@ package architecture
 import (
 	"context"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 )
 
-// LoadPublicModuleGraph builds the cross-module endpoint graph. A module's
-// declared interface is its export boundary: when one is present only its
-// exposed endpoints are graphed and any other endpoint, however public, is
-// invisible to other modules. A module without an interface falls back to all
-// its public endpoints.
+// LoadPublicModuleGraph builds the cross-module endpoint graph: the endpoints
+// that cross each module's boundary, by REACH. A module's declared interface is
+// its export boundary: when one is present only the endpoints it declares are
+// graphed and any other endpoint, however it declares itself, is invisible to
+// other modules. A module without an interface graphs every endpoint whose own
+// visibility crosses module lines (internal or public). Whether an endpoint is
+// addressed from outside the workspace is exposure, and no part of this graph.
 func LoadPublicModuleGraph(ctx context.Context, workspace *resources.Workspace) ([]*DAG, error) {
 	w := wool.Get(ctx).In("LoadModuleGraph")
 	var gs []*DAG
@@ -21,14 +22,9 @@ func LoadPublicModuleGraph(ctx context.Context, workspace *resources.Workspace) 
 		if err != nil {
 			return nil, w.With(wool.NameField(modRef.Name)).Wrapf(err, "cannot load module")
 		}
-		var endpoints []*basev0.Endpoint
-		if mod.HasInterface() {
-			endpoints, err = mod.ExposedEndpoints(ctx)
-		} else {
-			endpoints, err = mod.PublicEndpoints(ctx)
-		}
+		endpoints, err := mod.ExportedEndpoints(ctx)
 		if err != nil {
-			return nil, w.With(wool.NameField(modRef.Name)).Wrapf(err, "cannot load public endpoints")
+			return nil, w.With(wool.NameField(modRef.Name)).Wrapf(err, "cannot load exported endpoints")
 		}
 		if len(endpoints) == 0 {
 			continue

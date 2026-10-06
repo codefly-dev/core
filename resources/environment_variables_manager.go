@@ -439,9 +439,12 @@ func WithNonPublicEnvironmentVariablePrefix(prefix string) EnvironmentVariableOp
 	}
 }
 
+// prefix picks the public prefix for a mapping whose endpoint is addressed from
+// outside the workspace (exposed): the prefix classifies an ADDRESS, so it
+// follows exposure and never visibility.
 func prefix(nm *basev0.NetworkMapping, opt *EnvironmentVariableOptions) string {
 	// Nil-safe: a mapping without an endpoint is treated as non-public, never a panic.
-	if nm != nil && nm.Endpoint != nil && nm.Endpoint.Visibility == VisibilityPublic {
+	if nm != nil && IsExposedEndpoint(nm.Endpoint) {
 		return opt.publicPrefix
 	}
 	return opt.nonPublicPrefix
