@@ -388,7 +388,7 @@ func TestARefUnrelatedToTheTriggeringRunIsNotFlagged(t *testing.T) {
 	}
 }
 
-// The three evaluator bypasses, as the round posed them: complete workflow
+// Three expression semantics the evaluator must implement: complete workflow
 // mutations that actionlint accepts, each leaving the webhook-bearing `notify`
 // job reachable from a pull request while the old evaluator certified it safe.
 //

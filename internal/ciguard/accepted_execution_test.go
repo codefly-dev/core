@@ -8,15 +8,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Trigger identity cannot establish which code a job executes, and every
-// exemption written in those terms had a concrete accepted construction: a
-// secret-bearing job on `release: published` with a tag at unmerged code; one
-// on `push` to a branch named `unmerged`; one on `schedule` checking out the
-// literal `refs/pull/8/head`; a dispatch job whose only credential was the
-// built-in write token. Each was waved through by a comment naming a guard
-// whose scope did not reach it.
-//
-// So there are no exemptions. A job holding a credential is accepted only if
+// Trigger identity cannot establish which code a job executes, so no trigger
+// exempts a job here. A job holding a credential is accepted only if
 // one of three things is PROVED about it:
 //
 //  1. its condition is false under every hostile scenario its workflow's
@@ -95,12 +88,13 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 	// A ref pin constrains the TREE. These constrain what is run from it, and
 	// they apply to both acceptance paths below: an ancestry refusal proves the
 	// commit was merged, not that the program came from it.
-	if reason, ok := executionInputsArePinned(t, wf.Jobs[id]); !ok {
+	if reason, ok := executionInputsArePinned(t, wf, wf.Jobs[id]); !ok {
 		return false, reason
 	}
 
-	// (3) An ancestry refusal before anything executes.
-	if index, found := ancestryProofIndex(job); found {
+	// (3) A refusal whose behaviour a test establishes, placed before anything
+	// executes. The registry decides, not the script's wording.
+	if index, found := verifiedRefusalIndex(wf.name, id, job.Steps); found {
 		if first, executes := firstExecutingStepIndex(job, index); executes && first < index {
 			return false, "its ancestry proof is at step " + job.Steps[index].Name +
 				" but step " + job.Steps[first].Name + " executes repository code before it"
@@ -108,24 +102,48 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 		return true, ""
 	}
 
-	// (2) Otherwise every checkout must name the default branch outright. An
-	// ABSENT ref is not pinned: it means the triggering ref, which for a
-	// dispatch, a tag push or a caller is the party's choice.
-	for _, step := range job.Steps {
+	// (2) Otherwise EVERY checkout must name the default branch outright,
+	// including the ones inside a local action this job invokes. A pinned
+	// checkout beside an unpinned nested one is not pinned. An ABSENT ref is
+	// not a pin: it means the triggering ref, which for a dispatch, a tag push
+	// or a caller is the party's choice.
+	steps, unreadable := stepsIncludingLocalActions(t, job)
+	if len(unreadable) > 0 {
+		return false, "it invokes " + strings.Join(unreadable, ", ") +
+			", whose execution this guard cannot read"
+	}
+	if reason, ok := everyCheckoutPinsTheDefaultBranch(steps); !ok {
+		return false, reason
+	}
+	return true, ""
+}
+
+// everyCheckoutPinsTheDefaultBranch requires each checkout in the list to name
+// the default branch outright. The list includes the steps of any local action
+// the job invokes, because a pinned checkout beside an unpinned nested one is
+// not pinned. An ABSENT ref is not a pin: it means the triggering ref, which
+// for a dispatch, a tag push or a caller is the party's choice.
+func everyCheckoutPinsTheDefaultBranch(steps []isolatedStep) (string, bool) {
+	for _, step := range steps {
 		if !strings.Contains(step.Uses, "actions/checkout@") {
 			continue
 		}
 		ref, _ := step.With["ref"].(string)
-		if strings.TrimSpace(ref) != theDefaultBranch {
-			which := "no ref: at all (which means the triggering ref)"
-			if ref != "" {
-				which = "ref: " + ref
-			}
-			return false, "its checkout has " + which +
-				", and it carries no `git merge-base --is-ancestor` refusal either"
+		if strings.TrimSpace(ref) == theDefaultBranch {
+			continue
 		}
+		which := "no ref: at all (which means the triggering ref)"
+		if ref != "" {
+			which = "ref: " + ref
+		}
+		where := "its checkout"
+		if step.Name != "" {
+			where = "the checkout in step " + step.Name
+		}
+		return where + " has " + which +
+			", and this job carries no refusal whose behaviour a test establishes", false
 	}
-	return true, ""
+	return "", true
 }
 
 // executionSurfaceIsPinned checks the places a job runs code from that are not
@@ -171,73 +189,60 @@ func executionSurfaceIsPinned(t *testing.T, wf isolatedWorkflow, id string) (str
 	return "", true
 }
 
-// ancestryProofIndex finds a step that actually REFUSES on unmerged code.
+// verifiedRefusal names a refusal step whose behaviour a test in this package
+// ESTABLISHES by running it against real repositories.
+type verifiedRefusal struct {
+	workflow, job, step string
+	// verifiedBy is the test that lifts this script out of the workflow and
+	// executes it. It is named so the registry cannot claim coverage that does
+	// not exist: TestEveryVerifiedRefusalIsReallyVerified requires the step to
+	// exist and the test to be present in this package.
+	verifiedBy string
+}
+
+// verifiedRefusals is the whole set of refusals a credential-bearing job may
+// rest on.
 //
-// It used to search for the command's text. A substring establishes none of
-// the things that make a refusal a refusal, and every one of these was
-// accepted: the command inside a comment, the step carrying `if: false`, the
-// command followed by `|| true`, the step carrying `continue-on-error: true`,
-// and a command comparing two branches rather than the selected commit. So the
-// shape is read instead -- the step must run, its failure must stop the job,
-// and its operands must be the commit under consideration and a remote branch.
+// Reading a script cannot establish what it does. A check that recognises the
+// command's shape -- that it is not commented out, not skipped, not followed by
+// `|| true` -- is still reading text, and text can satisfy any list of shapes
+// without the commit being reachable. So shapes are not recognised at all: the
+// only refusals that count are the ones a test EXECUTES, and the acceptance
+// path consults this registry rather than the script.
 //
-// This is a structural check, and it is deliberately not the only one: the
-// release and tag refusals are also executed against real repositories, in
-// version_tag_selection_test.go and release_admission_test.go. A guard that
-// reads a script cannot establish what the script does.
-func ancestryProofIndex(job isolatedJob) (int, bool) {
-	for i, step := range job.Steps {
-		if stepRefusesUnmergedCommits(step) {
-			return i, true
+// That makes the obligation concrete. A new credential-bearing job cannot be
+// accepted on a hand-written proof; it is accepted once its refusal is executed
+// by a test here, against repositories where the commit genuinely is or is not
+// reachable.
+var verifiedRefusals = []verifiedRefusal{
+	{
+		workflow:   "version-tag.yml",
+		job:        "tag",
+		step:       "select the commit that passed CI, or refuse",
+		verifiedBy: "TestTagSelectionAcceptsOnlyCommitsOnTheDefaultBranch",
+	},
+	{
+		workflow:   "go-service-release.yml",
+		job:        "goreleaser",
+		step:       "require the tag to be on the default branch, or refuse",
+		verifiedBy: "TestAReleaseIsAdmittedOnlyFromTheRepositorysOwnDefaultBranch",
+	},
+}
+
+// verifiedRefusalIndex returns the index of a step whose refusal is established
+// by an executed test, for this workflow and job.
+func verifiedRefusalIndex(workflow, job string, steps []isolatedStep) (int, bool) {
+	for _, known := range verifiedRefusals {
+		if known.workflow != workflow || known.job != job {
+			continue
+		}
+		for i, step := range steps {
+			if step.Name == known.step {
+				return i, true
+			}
 		}
 	}
 	return 0, false
-}
-
-// selectedCommitOperands are the ways a workflow here names the commit it is
-// deciding about. A refusal that names none of them is comparing something
-// else.
-var selectedCommitOperands = []string{"$GITHUB_SHA", "${GITHUB_SHA}", "$SHA", "${SHA}"}
-
-// stepRefusesUnmergedCommits reports whether this step is a refusal that runs,
-// stops the job, and asks about the right commit.
-func stepRefusesUnmergedCommits(step isolatedStep) bool {
-	command := ""
-	for _, line := range strings.Split(step.Run, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			continue // a comment runs nothing
-		}
-		if strings.Contains(trimmed, "merge-base --is-ancestor") {
-			command = trimmed
-			break
-		}
-	}
-	if command == "" {
-		return false
-	}
-	// A step that may be skipped proves nothing on the runs where it is.
-	if strings.TrimSpace(step.If) != "" {
-		return false
-	}
-	// A failure that is tolerated is not a refusal.
-	if step.ContinueOnError {
-		return false
-	}
-	for _, swallow := range []string{"|| true", "|| :", "|| exit 0", "continue-on-error"} {
-		if strings.Contains(command, swallow) {
-			return false
-		}
-	}
-	// It has to be asking about the commit under consideration, against a
-	// branch from the remote rather than a local name anything could move.
-	named := false
-	for _, operand := range selectedCommitOperands {
-		if strings.Contains(command, operand) {
-			named = true
-		}
-	}
-	return named && strings.Contains(command, "origin/")
 }
 
 // firstExecutingStepIndex finds the first step that could run repository code:
@@ -265,7 +270,7 @@ func firstExecutingStepIndex(job isolatedJob, proof int) (int, bool) {
 //
 // A pinned checkout beside `run: eval "$TASK"` with `TASK` from an input is not
 // pinned -- the tree is this repository's and the program is the caller's.
-func executionInputsArePinned(t *testing.T, job isolatedJob) (string, bool) {
+func executionInputsArePinned(t *testing.T, wf isolatedWorkflow, job isolatedJob) (string, bool) {
 	t.Helper()
 
 	steps, unreadable := stepsIncludingLocalActions(t, job)
@@ -274,10 +279,35 @@ func executionInputsArePinned(t *testing.T, job isolatedJob) (string, bool) {
 			", whose execution this guard cannot read", false
 	}
 
+	// Inherited environment counts: a party-chosen value set at workflow or job
+	// level is in scope for every script in the job, and reads as if it were
+	// the step's own.
+	inherited := map[string]string{}
+	for name, value := range wf.Env {
+		inherited[name] = value
+	}
+	for name, value := range job.Env {
+		inherited[name] = value
+	}
+
 	for _, step := range steps {
 		where := "step " + step.Name
 		if step.Name == "" {
 			where = "step `uses: " + step.Uses + "`"
+		}
+		scoped := map[string]string{}
+		for name, value := range inherited {
+			scoped[name] = value
+		}
+		for name, value := range step.Env {
+			scoped[name] = value
+		}
+
+		// A shell this guard does not read cannot be checked for execution
+		// positions, so it refuses rather than guessing.
+		if shell, ok := step.With["shell"].(string); ok && strings.TrimSpace(shell) != "" {
+			return where + " selects shell " + shell +
+				", whose execution forms this guard does not read", false
 		}
 
 		// The program a step runs.
@@ -288,7 +318,7 @@ func executionInputsArePinned(t *testing.T, job isolatedJob) (string, bool) {
 				return where + " runs a program built from " + strings.Join(reads, ", ") +
 					", which the triggering party supplies", false
 			}
-			for key, text := range step.Env {
+			for key, text := range scoped {
 				reads, err := contextReadsUnder(text, root)
 				require.NoError(t, err, where)
 				if len(reads) > 0 && scriptExecutesEnvName(step.Run, key) {
@@ -322,7 +352,10 @@ func executionInputsArePinned(t *testing.T, job isolatedJob) (string, bool) {
 // listed here would not be seen, and the covering protection in that case is
 // that a credential-bearing job must also pin its tree or carry a refusal --
 // not this check alone.
-var executionPositions = []string{"eval", "sh -c", "bash -c", "source ", ". $", ". \"$"}
+var executionPositions = []string{
+	"eval", "sh -c", "bash -c", "zsh -c", "python -c", "python3 -c", "node -e",
+	"source ", ". $", ". \"$", "xargs", "| sh", "| bash",
+}
 
 // scriptExecutesEnvName reports whether a script runs the value of an
 // environment variable as a program, rather than reading it as data.

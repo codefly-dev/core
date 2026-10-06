@@ -116,11 +116,13 @@ jobs:
             exit 1
           fi
 
-          git fetch --quiet --no-tags origin \
+          git fetch --quiet --no-tags --force origin \
             "+refs/heads/${authority}:refs/remotes/origin/${authority}"
 
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/${authority}"; then
-            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from origin/${authority}; refusing to release it." >&2
+          # Fully qualified: a bare `origin/<branch>` is an ambiguous rev that a tag
+          # of the same name can win.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${authority}"; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from refs/remotes/origin/${authority}; refusing to release it." >&2
             echo "A release runs this repository's own hooks and configuration with a credential, so the commit has to be one that was merged." >&2
             exit 1
           fi

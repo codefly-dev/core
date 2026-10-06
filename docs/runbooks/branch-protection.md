@@ -138,7 +138,9 @@ create one. The workflow's own guards keep its credential away from unreviewed
 code (see [CI credentials](../ci-credentials.md)), but they cannot speak for any
 other identity with push access.
 
-**Status: NOT APPLIED.** A read-only ruleset query returns only the branch
+**Status: NOT APPLIED — OPERATOR ACTION, OWNER-OWNED.** Nothing in this
+repository can apply or verify it, so no change here closes it and its absence
+is not a code defect. A read-only ruleset query returns only the branch
 ruleset `protect main`; no tag ruleset exists. This is an operator action and
 nothing in this repository can perform or verify it, so it stays open until
 someone applies it and records the result here.

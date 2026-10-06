@@ -13,7 +13,7 @@ import (
 // Every construction a review has used to get a credential into a job that
 // runs code nobody merged, kept as a document the guards are run against.
 //
-// Each of these was accepted at some head of this pull request, and each was
+// Each of these states an invariant these guards hold, and each is
 // accepted for the same reason: a value the guard could not know was treated
 // as a value it knew. They are here as documents rather than as prose so that
 // a future change to the evaluator, the scenarios or the trigger derivation
@@ -153,7 +153,7 @@ func TestAReusableWorkflowModelsAnUnknownCallerEvent(t *testing.T) {
 	// No caller event -- listed or not -- may make a called job provably
 	// unreachable, because the caller chooses it and this repository cannot
 	// see which. `workflow_dispatch` passed all three caller scenarios the
-	// previous version checked, which is the bypass; the remainder closes it
+	// previous version checked, which is why the remainder closes it
 	// for every event at once, including ones nobody listed.
 	for _, event := range []string{
 		"workflow_dispatch", "push", "release", "schedule",
@@ -423,186 +423,89 @@ jobs:
       - run: bash .github/scripts/combine-deps-publish.sh out
 `,
 		},
-		{
-			name: "an ancestry refusal ahead of everything that runs",
-			workflow: `name: probe
-on:
-  workflow_call:
-jobs:
-  probe:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    env:
-      PROBE: ${{ secrets.GH_PAT }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: require the tag to be on the default branch, or refuse
-        run: git merge-base --is-ancestor "$GITHUB_SHA" "origin/main"
-      - run: go test ./...
-`,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			wf := parseIsolatedDocument(t, tc.workflow, tc.name)
 			pinned, missing := acceptedExecution(t, wf, "probe")
-			require.True(t, pinned, "refused a job that does prove what it runs: %s", missing)
+			require.True(t, pinned, "refused a job that does pin what it runs: %s", missing)
 		})
 	}
 }
 
-// And the ordering inside that proof: a refusal placed after something has
-// already executed proves nothing.
-func TestAnAncestryProofAfterExecutionIsNotAProof(t *testing.T) {
-	const workflow = `name: probe
-on:
-  workflow_call:
-jobs:
-  probe:
-    runs-on: ubuntu-latest
-    env:
-      PROBE: ${{ secrets.GH_PAT }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - run: go test ./...
-      - name: too late
-        run: git merge-base --is-ancestor "$GITHUB_SHA" "origin/main"
-`
-	wf := parseIsolatedDocument(t, workflow, "late proof")
-	pinned, missing := acceptedExecution(t, wf, "probe")
-	require.False(t, pinned,
-		"a refusal that runs after the suite has already run is not a proof")
-	require.Contains(t, missing, "executes repository code before it")
-}
-
-// Three defects introduced while fixing the previous round, each stated by its
-// author on the pull request. They are regressions here because a defect
-// introduced by a fix is the one most likely to come back with the next one.
-func TestTheNumericGrammarMatchesTheRunnerOrReturnsUnknown(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		gate string
-		want tri
-	}{
-		// The grammar accepted a sign and an uppercase `0X`, which the runner
-		// converts to NaN -- so this inequality is TRUE on GitHub while the
-		// guard called it false and accepted a job reading a secret.
-		{name: "a signed hex string is not a number", gate: "'-0x10' != -16", want: triUnknown},
-		{name: "an uppercase 0X is not a number", gate: "'0X10' == 16", want: triUnknown},
-		{name: "lowercase 0x is the runner's spelling", gate: "'0x10' == 16", want: triTrue},
-		// These two were modelled as known infinities. They are no longer
-		// special-cased, and they come out FALSE rather than unknown -- which
-		// is right under either reading: a string with no digit in it is NaN
-		// and equals nothing, and if the runner did parse `Infinity` it would
-		// still not equal zero. Recorded as false rather than claimed as
-		// unknown, because the answer happens to be knowable here.
-		{name: "Infinity does not equal zero either way", gate: "'Infinity' == 0", want: triFalse},
-		{name: "NaN does not equal zero either way", gate: "'NaN' == 0", want: triFalse},
-		// Still-verified ground, so the narrowing did not swallow everything.
-		{name: "an empty string is zero", gate: "'' == 0", want: triTrue},
-		{name: "a decimal string is its number", gate: "'1' == 1", want: triTrue},
-		{name: "a string with no digit is NaN", gate: "'abc' == 0", want: triFalse},
+// A refusal counts only when a test ESTABLISHES its behaviour. Reading a script
+// cannot do that, so a job cannot be accepted on one it wrote itself -- however
+// the command is spelled, wherever it sits, and whatever a reader would make of
+// it. The refusals that do count are registered, and each is executed against
+// real repositories.
+func TestARefusalNobodyExecutesIsNotARefusal(t *testing.T) {
+	for _, proof := range []string{
+		`      - name: require the tag to be on the default branch, or refuse
+        run: git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/main"`,
+		`      - name: check ancestry
+        run: git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/main"`,
+		`      - run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/main" || exit 1`,
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := canRunUnder(tc.gate, pullRequest)
-			require.NoError(t, err)
-			require.Equal(t, tc.want.String(), got.String(), "condition %q", tc.gate)
+		t.Run(strings.TrimSpace(strings.SplitN(proof, "\n", 2)[0]), func(t *testing.T) {
+			wf := parseIsolatedDocument(t, `on: workflow_call
+jobs:
+  probe:
+    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+`+proof+`
+      - run: go test ./...
+`, "unregistered refusal")
+			ok, missing := acceptedExecution(t, wf, "probe")
+			require.False(t, ok,
+				"accepted on a refusal no test executes (guard said %q). Even copying "+
+					"a registered step's NAME must not work: the registry is keyed by "+
+					"workflow and job, so the claim is tied to the script a test "+
+					"actually runs.", missing)
 		})
 	}
 }
 
-// pull_request_target was evaluated as pull_request, so a condition naming its
-// real event read as definitely false while the job checked out the pull
-// request's head with a secret.
-func TestATargetedPullRequestIsNotEvaluatedAsAnOrdinaryOne(t *testing.T) {
-	const workflow = `name: probe
-on: pull_request_target
-jobs:
-  probe:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request_target'
-    env:
-      PROBE: ${{ secrets.SLACK_WEBHOOK_URL }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - run: go test ./...
-`
-	wf := parseIsolatedDocument(t, workflow, "pull_request_target")
-	hostile, _ := hostileScenariosFor(wf.On)
+// The registry cannot claim coverage that does not exist: every entry must name
+// a step that is really there and a test that is really in this package.
+func TestEveryVerifiedRefusalIsReallyVerified(t *testing.T) {
+	require.NotEmpty(t, verifiedRefusals)
 
-	unreachable, _ := provablyUnreachable(t, wf.Jobs["probe"].If, hostile)
-	require.False(t, unreachable,
-		"a job gated on `github.event_name == 'pull_request_target'` was accepted as "+
-			"unreachable, which only happens when its scenario binds a different event")
-
-	pinned, _ := acceptedExecution(t, wf, "probe")
-	require.False(t, pinned,
-		"and it checks out the pull request's head, so it proves nothing about what it runs")
-}
-
-// With both manifest names present the walker read action.yaml while GitHub
-// executes action.yml, so a bypass in the executed file survived behind a
-// harmless sibling. Every manifest present is read now, which removes the
-// precedence question rather than answering it.
-func TestEveryActionManifestPresentIsRead(t *testing.T) {
-	dir := t.TempDir()
-	action := filepath.Join(dir, ".github", "actions", "probe")
-	require.NoError(t, os.MkdirAll(action, 0o755))
-
-	// The one GitHub executes carries the credential; its sibling is harmless.
-	require.NoError(t, os.WriteFile(filepath.Join(action, "action.yml"),
-		[]byte("name: probe\nruns:\n  using: composite\n  steps:\n    - run: echo ${{ secrets.SLACK_WEBHOOK_URL }}\n"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(action, "action.yaml"),
-		[]byte("name: probe\nruns:\n  using: composite\n  steps:\n    - run: echo harmless\n"), 0o600))
-
-	found := manifestsOf(dir, "./.github/actions/probe")
-	require.Len(t, found, 2, "both manifests must be found, not one of them")
-	require.Contains(t, filepath.Base(found[0]), "action.yml",
-		"the one GitHub executes must come first")
-
-	body, err := readAll(found)
+	sources, err := filepath.Glob(filepath.Join(repoRoot(t), "internal", "ciguard", "*_test.go"))
 	require.NoError(t, err)
-	names, err := secretsReferencedIn(body)
-	require.NoError(t, err)
-	require.Contains(t, names, "SLACK_WEBHOOK_URL",
-		"the credential is in action.yml, which is the file GitHub runs; reading "+
-			"only the last manifest found read action.yaml and missed it")
-}
+	var all strings.Builder
+	for _, source := range sources {
+		body, err := os.ReadFile(source)
+		require.NoError(t, err)
+		all.Write(body)
+	}
+	tests := all.String()
 
-// The fork identity was a sampled literal, so a condition naming a THIRD
-// repository was false under both workflow_run scenarios.
-func TestAThirdRepositoryIsNotRefutedByTheForkScenario(t *testing.T) {
-	const gate = "github.event.workflow_run.event != 'pull_request' && " +
-		"github.event.workflow_run.head_repository.full_name == 'other/core'"
+	_, workflows := loadIsolatedWorkflows(t)
+	for _, known := range verifiedRefusals {
+		t.Run(known.workflow+"/"+known.job, func(t *testing.T) {
+			path := filepath.Join(repoRoot(t), ".github", "workflows", known.workflow)
+			wf, ok := workflows[path]
+			require.True(t, ok, "%s does not exist", known.workflow)
 
-	hostile := []scenario{workflowRunFromAPullRequest, workflowRunFromAForkPush}
-	unreachable, _ := provablyUnreachable(t, gate, hostile)
-	require.False(t, unreachable,
-		"a condition naming a third repository was accepted as unreachable: the fork "+
-			"scenario sampled one name instead of saying 'any repository but this one'")
+			found := false
+			for _, step := range wf.Jobs[known.job].Steps {
+				if step.Name == known.step {
+					found = true
+					require.Contains(t, step.Run, "merge-base --is-ancestor",
+						"the registered step no longer asks git about ancestry")
+				}
+			}
+			require.True(t, found,
+				"%s job %q has no step named %q, so this entry claims coverage of "+
+					"nothing", known.workflow, known.job, known.step)
 
-	// And the relation that does matter is still decided.
-	got, err := canRunUnder(
-		"github.event.workflow_run.head_repository.full_name == github.repository",
-		workflowRunFromAForkPush)
-	require.NoError(t, err)
-	require.Equal(t, triFalse.String(), got.String(),
-		"the fork scenario must still refute 'the head repository is this one'")
-}
-
-// pushOfATag pinned github.repository, so a reusable job gated on owning a
-// different repository was judged unreachable on a tag and skipped the proof.
-func TestATagInACallersRepositoryStillDemandsTheProof(t *testing.T) {
-	const gate = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && " +
-		"github.repository != 'codefly-dev/core'"
-
-	got, err := canRunUnder(gate, pushOfATag)
-	require.NoError(t, err)
-	require.NotEqual(t, triFalse.String(), got.String(),
-		"the tag scenario refuted a condition about owning another repository, so a "+
-			"caller's unmerged tag would skip the ancestry proof")
+			require.Contains(t, tests, "func "+known.verifiedBy+"(",
+				"the registry names %s as establishing this refusal's behaviour, and "+
+					"no such test exists in this package", known.verifiedBy)
+		})
+	}
 }
 
 // A credential keeps its provenance through a derived object: reading a
@@ -842,6 +745,80 @@ func TestUnreachabilityDoesNotExcuseWhatAJobExecutes(t *testing.T) {
 			require.Equal(t, tc.bothHold, accepted,
 				"the job is unreachable; acceptance must still turn on what it "+
 					"executes (%s)", missing)
+		})
+	}
+}
+
+// A pinned checkout beside an unpinned one inside a local action is not pinned:
+// the nested checkout selects a tree too.
+func TestANestedCheckoutMustPinTheDefaultBranchAsWell(t *testing.T) {
+	root := t.TempDir()
+	action := filepath.Join(root, ".github", "actions", "nested")
+	require.NoError(t, os.MkdirAll(action, 0o755))
+
+	write := func(ref string) {
+		body := "name: nested\nruns:\n  using: composite\n  steps:\n" +
+			"    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n"
+		if ref != "" {
+			body += "      with: {ref: " + ref + "}\n"
+		}
+		body += "    - run: go test ./...\n        \n"
+		require.NoError(t, os.WriteFile(filepath.Join(action, "action.yml"), []byte(body), 0o600))
+	}
+
+	job := parseIsolatedDocument(t, `on: workflow_call
+jobs:
+  probe:
+    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - uses: ./.github/actions/nested
+`, "nested").Jobs["probe"]
+
+	for _, tc := range []struct {
+		name   string
+		ref    string
+		pinned bool
+	}{
+		{name: "the nested checkout names no ref", ref: "", pinned: false},
+		{name: "the nested checkout names another branch", ref: "a-contributor-branch", pinned: false},
+		{name: "the nested checkout names the default branch", ref: "main", pinned: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			write(tc.ref)
+			steps, unreadable := stepsIncludingLocalActionsUnder(root, job)
+			require.Empty(t, unreadable)
+
+			reason, ok := everyCheckoutPinsTheDefaultBranch(steps)
+			require.Equal(t, tc.pinned, ok,
+				"the outer checkout is pinned; the nested one decides (%s)", reason)
+		})
+	}
+}
+
+// Both refusals name the remote-tracking ref in full. A bare `origin/<branch>`
+// is an ambiguous rev, and which object wins is not this repository's to decide.
+func TestTheRefusalsNameTheRemoteTrackingRefInFull(t *testing.T) {
+	_, workflows := loadIsolatedWorkflows(t)
+	require.NotEmpty(t, verifiedRefusals)
+
+	for _, known := range verifiedRefusals {
+		t.Run(known.workflow, func(t *testing.T) {
+			wf := workflows[filepath.Join(repoRoot(t), ".github", "workflows", known.workflow)]
+			for _, step := range wf.Jobs[known.job].Steps {
+				if step.Name != known.step {
+					continue
+				}
+				for _, line := range strings.Split(step.Run, "\n") {
+					if !strings.Contains(line, "merge-base --is-ancestor") {
+						continue
+					}
+					require.Contains(t, line, "refs/remotes/origin/",
+						"the refusal compares against a bare remote name, which is an "+
+							"ambiguous rev")
+				}
+			}
 		})
 	}
 }

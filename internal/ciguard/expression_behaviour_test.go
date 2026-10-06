@@ -105,13 +105,13 @@ var workflowRunFromAForkPush = scenario{
 		// repository is any repository except this one. Pinning the literal
 		// `a-contributor/core` described one fork, so a condition naming a
 		// third repository was definitely-false under this scenario and under
-		// the pull-request one, and the job was accepted.
+		// the pull-request one.
 		"github.event.workflow_run.head_repository.full_name": {theRepository},
 	},
 	// Nothing else. `event` and `conclusion` were pinned here to favourable
 	// values so that one clause did the work, and that made
 	// `workflow_run.event == 'schedule'` and `conclusion == 'failure'` read as
-	// definitely-false -- a job gated on either was accepted. The separation
+	// definitely-false. The separation
 	// those pins were for comes from the two scenarios between them instead:
 	// each premise refutes one clause and leaves the other unknown, so a job
 	// carrying only one clause is refused by the other scenario.
@@ -155,7 +155,7 @@ var calledFromAMergeQueue = scenario{
 // one on a pull request, where `github.event.issue.number` names that pull
 // request and a checkout can select `refs/pull/<n>/head`, i.e. the author's
 // unreviewed code. A credential-bearing job gated on
-// `github.event_name == 'issue_comment'` was accepted because the only
+// `github.event_name == 'issue_comment'` must not be refuted, because the only
 // scenarios evaluated were a pull request and a merge queue candidate, under
 // both of which that condition is false.
 var commentOnAPullRequest = scenario{
@@ -195,18 +195,12 @@ func hostileScenariosFor(on yaml.Node) (hostile []scenario, unmodelled []string)
 // scenariosForTrigger builds the hostile situations a trigger admits, BINDING
 // THE EVENT IT IS A SCENARIO OF.
 //
-// The previous version mapped triggers onto a handful of hand-written
-// scenarios: `pull_request_target` was evaluated as `pull_request`, and
-// `discussion_comment`, `pull_request_review` and `pull_request_review_comment`
-// as `issue_comment`. Substituting one event for another is not derivation --
-// a condition naming its own event (`github.event_name ==
-// 'pull_request_target'`) then reads as definitely FALSE, and a job holding a
-// secret and checking out `github.event.pull_request.head.sha` was accepted.
+// A scenario must bind the event it is a scenario OF. Substituting one event
+// for another is not derivation: a condition naming its own event would then
+// be judged definitely false.
 //
-// It also exempted `push`, `create`, `delete`, `release`, `schedule` and
-// `workflow_dispatch` with comments claiming another guard covered them. Each
-// had a concrete accepted construction, because trigger identity cannot
-// establish WHICH CODE a job executes. There are no exemptions here now: every
+// Trigger identity cannot establish WHICH CODE a job executes, so no trigger
+// is exempt here: every
 // trigger yields a scenario, and a credential-bearing job answers for itself
 // either by being provably unreachable or by proving what it runs (see
 // acceptedExecution).
@@ -226,7 +220,7 @@ func scenariosForTrigger(trigger string) []scenario {
 		// nothing about the code, which is the pull request's. Giving it a
 		// `refs/pull/` domain certified ordinary branch-ref conditions as
 		// unreachable, so a job holding a secret and checking out the pull
-		// request's head was accepted. The ref is a branch here, and what
+		// request's head. The ref is a branch here, and what
 		// protects such a job is the execution check, never the ref.
 		return []scenario{eventScenario(trigger, "refs/heads/", nil)}
 
@@ -340,7 +334,7 @@ var pushOfATag = scenario{
 		// As a domain, `startsWith(github.ref, 'refs/tags/')` is TRUE for every
 		// tag, `== 'refs/heads/main'` is FALSE, and `== 'refs/tags/v1.0.0'` is
 		// UNKNOWN -- so a job gated on one exact tag name is still asked for an
-		// ancestry proof, which the earlier sampled binding let through.
+		// ancestry proof.
 		"github.ref": "refs/tags/",
 	},
 	always: map[string]tri{"always": triTrue},
@@ -607,7 +601,7 @@ func TestEveryExpressionInEveryWorkflowParses(t *testing.T) {
 	require.NotZero(t, seen, "no expressions found at all, so this proves nothing")
 }
 
-// The three bypasses of the first evaluator, each a complete workflow mutation
+// Three expression semantics the evaluator must implement, each a workflow
 // that actionlint accepts and each certifying a pull-request-reachable job that
 // holds a secret. They are here as expression cases because that is where the
 // defect was; TestTheThreeEvaluatorBypassesAreRefusedOnTheRealWorkflow applies

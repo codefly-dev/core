@@ -127,7 +127,7 @@ func stepsIncludingLocalActionsUnder(root string, job isolatedJob) (steps []isol
 			// EVERY manifest present, each on its own. GitHub executes
 			// `action.yml` when both names exist, and a loop keeping the LAST
 			// match read `action.yaml` while the runner ran `action.yml` -- so
-			// a bypass could sit in the executed file behind a harmless one.
+			// the executed file is the one that must be read.
 			// Walking both removes the precedence question rather than
 			// answering it, and a manifest that will not parse or whose
 			// `runs.using` this cannot read is reported unreadable even when
@@ -170,6 +170,9 @@ type isolatedWorkflow struct {
 	// every field it does not name. This is the backstop that turns such a
 	// field into a loud failure instead of a silent gap.
 	raw map[string]yaml.Node
+	// name is the workflow's file name, so a registry keyed by workflow can be
+	// consulted without threading the path through every call.
+	name string
 }
 
 // secretsIn returns every non-built-in secret the job can reach, and where
@@ -345,6 +348,7 @@ func parseIsolatedDocument(t *testing.T, text, where string) isolatedWorkflow {
 	}
 	require.NoError(t, yaml.Unmarshal([]byte(text), &verbatim), where)
 	wf.raw = verbatim.Jobs
+	wf.name = filepath.Base(where)
 	return wf
 }
 

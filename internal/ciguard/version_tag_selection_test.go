@@ -197,7 +197,7 @@ func TestTagSelectionAcceptsOnlyCommitsOnTheDefaultBranch(t *testing.T) {
 		fixture := newSelectionFixture(t, branch)
 		ok, out := fixture.run(t, script, fixture.dangling)
 		require.False(t, ok, "a commit on no branch was accepted:\n%s", out)
-		require.Contains(t, out, "is not reachable from origin/"+branch)
+		require.Contains(t, out, "is not reachable from refs/remotes/origin/"+branch)
 		require.Equal(t, fixture.tip, fixture.head(t))
 	})
 
