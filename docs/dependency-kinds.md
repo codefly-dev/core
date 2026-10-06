@@ -183,3 +183,31 @@ would silently remove all ordering.
 Restricting a graph — by stage or to a single service — keeps the edge kinds and
 drops the service lookup entries for nodes it removed, so a service that is not
 in the restricted graph cannot be resolved through it.
+
+### Reciprocal configuration references
+
+A configuration reference retains its producer in the run even when the reverse
+startup dependency already exists: a service whose configuration names a
+callback owner that itself depends on the service gets that owner selected,
+started and ordered as a member of the same single-root run. Selection computes
+the fixed point of referenced producers and their declared dependencies; it does
+not add extra roots or ignore excluded services. This participation applies to
+runtime selection, not build-only selection, and survives graph restriction.
+
+Participation is membership, not a resolved address. Startup ordering remains
+acyclic, so the consumer may initialize before the callback owner has published
+where it listens, and whether the consumer's reference resolves at that moment
+is the orchestrator's to answer. It can when the owner's address is a function
+of its identity — deterministic named ports, a deployed in-cluster address — and
+it cannot when addresses are allocated per run at initialization (the CLI's
+`--temporary-ports`). In that case the orchestrator owns the verdict: drop the
+value for this consumer as it did while the owner was outside the run, or
+allocate addresses before any service initializes. It must not ask the consumer
+to order or declare the owner, which is the cycle this edge was dropped to
+avoid. Core states who takes part; it does not promise the consumer a mapping.
+
+A reference that would close a startup cycle adds no pre-start health wait for
+the service waiting on that consumer. The callback owner still starts in the
+selected flow and undergoes the ordinary service readiness checks.
+Configuration references do not make a declared startup cycle valid or prove
+either application's request-time readiness.

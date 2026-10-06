@@ -829,3 +829,89 @@ half core implements, which is what the runtime builds its own half against.
   not the contract.
 - **Orchestration** owns registration, activation, tasks, attempts and
   receipts, translating the binding into its own compute contract.
+
+### Explicit tool exposure
+
+A Runnable is not automatically a discoverable tool. An owner opts in with
+`Operation.tool` in the method option or the same `tool` object in the
+`x-codefly-operation` OpenAPI marker. It declares a stable `name`, bounded
+`description`, and an explicit `effect`: `EFFECT_READ_ONLY` or
+`EFFECT_MUTATION`. Absence keeps the operation hidden; an empty exposure or an
+unspecified effect is invalid. HTTP verbs, scope names, receipt support and
+idempotence never classify a mutation as read-only.
+
+The input/output schema remains the operation's derived `RunnableContract`.
+`OperationSpec.Tool` retains exposure during derivation, and a prepared binding
+carries it in `policy.tool`. A delivery writer does not copy policy fields by
+hand: `OperationSpec.Policy` is the one conversion from a derived spec to the
+`Operation` a binding delivers, and `TestPolicyRoundTripsEveryField` holds it
+and the read-back side to the schema's field list, so a field a hand-copying
+writer would drop — exposure arrived as exactly such a field — cannot be added
+to the schema without the conversion learning it. `ToolFromPrepared` validates
+the complete binding (including its contract digest) and returns a detached
+exposure with no route, credential or authority scopes. A valid unexposed
+operation returns `ErrNotATool`.
+
+Core validates the declaration, not the publisher's identity or the viewer's
+permissions. The host must authenticate the declaration source and project only
+currently permitted installations/operations. Admission must reject duplicate
+tool names and freeze the exact binding, contract and exposure; the contract
+digest alone covers schemas, **not** policy or tool metadata. Every invocation
+and receipt lookup still needs current, narrowly delegated caller authority.
+A read-only declaration is an owner assertion, never an authorization grant.
+
+### Required scope slots
+
+An owner cannot always spell its authority alone. A generic model operation
+acts on a resource kind another module defines; a generic tool callback
+forwards whatever resource kinds and actions the installed tool owners use;
+and a fixed `invoke_scopes` entry can name those neither exactly (the owner
+does not know them) nor by omission (an empty `resource_ids` is every resource
+of the kind, which is the wildcard this seam exists to refuse).
+`Operation.required_scope_slots` is the owner's explicit slot for that
+authority. A `ScopeSlot` names the slot and states only what the owner needs
+of whatever fills it: `required_actions` every selected invoke scope must
+carry, and `lookup`, whether a read-only lookup scope over the same exact ids
+must come with each invoke scope so a receipt can be read back. The resource
+kinds, the actions and the exact ids are the composition's: it answers each
+slot with a `ScopeSelection` carrying the `invoke` scopes it forwards and the
+read-only `lookup` scopes that go with them.
+
+`OperationSpec.ResolveScopeSlots` is the one resolution to a concrete policy.
+It validates the declaration it was handed before it resolves anything, then
+refuses a selection naming no declared slot, a slot left unselected or
+selected twice, a selection with no invoke scope, and any kind, action or id
+that is empty, blank or a wildcard; a selected kind a fixed invoke scope or
+another slot already binds; an invoke scope missing an action the owner
+requires; a lookup scope that is not the one read-only action, names a kind no
+invoke scope of the selection names, or names ids its invoke scope does not
+cover; and, where the slot asks for lookup, an invoke scope without a lookup
+scope over the same exact ids. It reads its inputs and never writes them. Its
+result is the spec with the selected scopes appended to the owner's fixed
+scopes, in declaration then selection order, no slots left, validated as any
+policy is — so the owner's fixed scopes are never widened by a selection, and
+the installed authority keeps the owner's and the composition's contributions
+distinguishable by kind. The lookup rule is unchanged: a lookup scope is
+exactly `read`, a subset of an invoke scope. A tool kind whose vocabulary has
+no `read` therefore resolves invoke-only, and its receipts are read under the
+owner's fixed read scopes; such a kind cannot fill a slot that asks for lookup.
+
+A prepared binding carries concrete scopes only. `VerifyPrepared` refuses a
+policy whose slots are unresolved (`runnable.ErrUnresolvedScopeSlots`, wrapping
+`ErrInvalid`), so no writer delivers a hole. Readers fail closed on the schema
+they do not know: `DecodePrepared` and `DecodeOperation` refuse a document
+carrying a field they have no name for, and `OperationFromMethod` refuses a
+method option carrying policy bytes this core does not know, because a reader
+that dropped the field would emit a package and a binding with the requirement
+erased and nothing downstream could tell them from complete ones. A derived
+catalog's operation document is therefore decoded with `DecodeOperation`, not
+a lenient JSON decoder, and a catalog that carries slots is written under an
+index schema a reader without `DecodeOperation` rejects. The contract digest
+is unchanged and covers input and output only — the runtime pins the installed
+selection by digesting the prepared binding it admitted. A delivery writer
+resolves once and hands that one concrete policy to both halves of the
+installation: the prepared binding, and the resolved policy receipt
+(`ResolvedPolicy`, `docs/runnable-binding-delivery.md`) the host binds its
+audience and scopes from. `BindingMatchesResolvedPolicy` holds the two to each
+other by operation, value and `PolicyDigest`; that gate, not the runtime's own
+equality check, is what proves one resolution produced both.

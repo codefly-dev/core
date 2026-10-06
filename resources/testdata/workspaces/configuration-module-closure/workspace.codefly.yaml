@@ -1,0 +1,8 @@
+name: example
+layout: modules
+modules:
+  - name: app
+  - name: provider
+  - name: catalog
+  - name: storage
+  - name: unused

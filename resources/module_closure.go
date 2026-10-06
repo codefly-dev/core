@@ -39,6 +39,25 @@ type ModuleClosure struct {
 	stage Stage
 }
 
+type moduleClosureOptions struct {
+	configurationReferences map[string][]string
+}
+
+// ModuleClosureOption supplies composition inputs to module participation.
+type ModuleClosureOption func(*moduleClosureOptions)
+
+// WithModuleConfigurationReferences includes the producers referenced by each
+// service's declared workspace configuration groups in the run-stage closure.
+// Pass the same invocation-selected references to architecture's dependency
+// graph. Root-only groups do not pull producers into a run. Endpoint validity,
+// visibility and excluded producers still require configuration preflight;
+// including a module grants no access to any endpoint it declares.
+func WithModuleConfigurationReferences(referencesByGroup map[string][]string) ModuleClosureOption {
+	return func(options *moduleClosureOptions) {
+		options.configurationReferences = referencesByGroup
+	}
+}
+
 // admits reports whether a dependency takes part in the stage this closure was
 // resolved for.
 func (closure *ModuleClosure) admits(dep *ServiceDependency) bool {
@@ -103,10 +122,14 @@ func (demand moduleDemand) unpinned(workspace *Workspace) error {
 // does not cover is an error naming the declaring service — that is the drift
 // the hand-maintained list used to hide until the run came up with no
 // endpoints.
-func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, stage Stage, seeds []string) (*ModuleClosure, error) {
+func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, stage Stage, seeds []string, opts ...ModuleClosureOption) (*ModuleClosure, error) {
 	w := wool.Get(ctx).In("Workspace::ResolveModuleClosure", wool.NameField(workspace.Name))
 	if err := stage.Validate(); err != nil {
 		return nil, w.Wrap(err)
+	}
+	options := &moduleClosureOptions{}
+	for _, opt := range opts {
+		opt(options)
 	}
 	closure := &ModuleClosure{stage: stage}
 	seen := make(map[string]bool, len(seeds))
@@ -139,7 +162,23 @@ func (workspace *Workspace) ResolveModuleClosure(ctx context.Context, stage Stag
 			return nil, w.Wrapf(err, "cannot load services of module <%s>", mod.Name)
 		}
 		for _, svc := range services {
-			for _, dep := range svc.ServiceDependencies {
+			dependencies := slices.Clone(svc.ServiceDependencies)
+			if stage == StageRun {
+				for _, group := range svc.WorkspaceConfigurationDependencies {
+					for _, reference := range options.configurationReferences[group] {
+						endpoint, err := ParseEndpoint(reference)
+						if err != nil || endpoint.Module == "" || endpoint.Service == "" || workspace.moduleReference(endpoint.Module) == nil {
+							// Invalid/unpinned references are refused by configuration
+							// preflight using group/key/position, never value text.
+							continue
+						}
+						dependencies = append(dependencies, &ServiceDependency{
+							Module: endpoint.Module, Name: endpoint.Service, Kind: DependencyKindRuntime,
+						})
+					}
+				}
+			}
+			for _, dep := range dependencies {
 				if !dep.Kind.Participates(stage) {
 					continue
 				}

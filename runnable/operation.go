@@ -144,6 +144,13 @@ type OperationSpec struct {
 	MaxOutputBytes uint64
 	// Completion is how the operation's answer arrives.
 	Completion basev0.RunnableExecution_Completion
+	// Tool is explicit optional exposure metadata, never a grant. Nil is hidden.
+	Tool *runnablev0.ToolExposure
+	// RequiredScopeSlots are the owner's holes in its authority: resource kinds
+	// and actions whose exact resource ids only the installing composition
+	// knows. A spec carrying one is not yet a policy a binding may deliver;
+	// ResolveScopeSlots is the one way to a concrete one.
+	RequiredScopeSlots []*runnablev0.ScopeSlot
 }
 
 // ServiceOwner is the published service a derived operation is reached on: the
@@ -177,6 +184,14 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 	}
 	declared, _ := proto.GetExtension(options, runnablev0.E_Operation).(*runnablev0.Operation)
 	full := FullMethodName(method)
+	// A policy field this core has no name for is a requirement it cannot
+	// honour, not one it may drop: a reader that derived past it would emit a
+	// package and a binding with that requirement erased, and nothing
+	// downstream could tell them from complete ones. The marker path refuses
+	// the same way through protojson; this is the descriptor path's refusal.
+	if unknown := declared.ProtoReflect().GetUnknown(); len(unknown) > 0 {
+		return nil, fmt.Errorf("%w: %s declares %d bytes of operation policy this core does not know; derive it with the core that defines every field it uses", ErrInvalid, full, len(unknown))
+	}
 	if method.IsStreamingClient() || method.IsStreamingServer() {
 		return nil, fmt.Errorf("%w: %s streams, and a Runnable operation is one finite call with one input and one output", ErrInvalid, full)
 	}
@@ -207,19 +222,21 @@ func OperationFromMethod(method protoreflect.MethodDescriptor) (*OperationSpec, 
 		return nil, err
 	}
 	spec := &OperationSpec{
-		Method:         full,
-		AttemptTimeout: declared.GetAttemptTimeout().AsDuration(),
-		TotalTimeout:   declared.GetTotalTimeout().AsDuration(),
-		MaxAttempts:    declared.GetMaxAttempts(),
-		Backoff:        declared.GetBackoff().AsDuration(),
-		RetryableCodes: slices.Clone(declared.GetRetryableCodes()),
-		Audience:       declared.GetAudience(),
-		InvokeScopes:   clonedScopes(declared.GetInvokeScopes()),
-		LookupScopes:   clonedScopes(declared.GetLookupScopes()),
-		LookupMethod:   declared.GetLookupMethod(),
-		MaxInputBytes:  declared.GetMaxInputBytes(),
-		MaxOutputBytes: declared.GetMaxOutputBytes(),
-		Completion:     declared.GetCompletion(),
+		Method:             full,
+		AttemptTimeout:     declared.GetAttemptTimeout().AsDuration(),
+		TotalTimeout:       declared.GetTotalTimeout().AsDuration(),
+		MaxAttempts:        declared.GetMaxAttempts(),
+		Backoff:            declared.GetBackoff().AsDuration(),
+		RetryableCodes:     slices.Clone(declared.GetRetryableCodes()),
+		Audience:           declared.GetAudience(),
+		InvokeScopes:       clonedScopes(declared.GetInvokeScopes()),
+		LookupScopes:       clonedScopes(declared.GetLookupScopes()),
+		LookupMethod:       declared.GetLookupMethod(),
+		MaxInputBytes:      declared.GetMaxInputBytes(),
+		MaxOutputBytes:     declared.GetMaxOutputBytes(),
+		Completion:         declared.GetCompletion(),
+		Tool:               proto.CloneOf(declared.GetTool()),
+		RequiredScopeSlots: clonedSlots(declared.GetRequiredScopeSlots()),
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, err
@@ -314,6 +331,12 @@ func (s *OperationSpec) Validate() error {
 	if s.Completion != basev0.RunnableExecution_COMPLETION_CALL && s.Completion != basev0.RunnableExecution_COMPLETION_SUBMIT {
 		return fmt.Errorf("%w: %s declares no completion mode; %s and %s are the two, and an operation that did not say is not a synchronous one",
 			ErrInvalid, s.Method, basev0.RunnableExecution_COMPLETION_CALL, basev0.RunnableExecution_COMPLETION_SUBMIT)
+	}
+	if err := ValidateToolExposure(s.Tool); err != nil {
+		return err
+	}
+	if err := validateScopeSlots(s.Method, s.RequiredScopeSlots); err != nil {
+		return err
 	}
 	return s.authority().validate()
 }

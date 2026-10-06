@@ -25,14 +25,69 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Effect is the operation's declared effect, independent of its HTTP verb,
+// method name or scope spelling. Idempotent mutations are still mutations.
+type ToolExposure_Effect int32
+
+const (
+	// EFFECT_UNSPECIFIED is not an admissible exposure: omission is not read-only.
+	ToolExposure_EFFECT_UNSPECIFIED ToolExposure_Effect = 0
+	// EFFECT_READ_ONLY observes owner state without changing it.
+	ToolExposure_EFFECT_READ_ONLY ToolExposure_Effect = 1
+	// EFFECT_MUTATION may change owner state and requires the caller's effect
+	// authorization and any approval its installation policy requires.
+	ToolExposure_EFFECT_MUTATION ToolExposure_Effect = 2
+)
+
+// Enum value maps for ToolExposure_Effect.
+var (
+	ToolExposure_Effect_name = map[int32]string{
+		0: "EFFECT_UNSPECIFIED",
+		1: "EFFECT_READ_ONLY",
+		2: "EFFECT_MUTATION",
+	}
+	ToolExposure_Effect_value = map[string]int32{
+		"EFFECT_UNSPECIFIED": 0,
+		"EFFECT_READ_ONLY":   1,
+		"EFFECT_MUTATION":    2,
+	}
+)
+
+func (x ToolExposure_Effect) Enum() *ToolExposure_Effect {
+	p := new(ToolExposure_Effect)
+	*p = x
+	return p
+}
+
+func (x ToolExposure_Effect) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ToolExposure_Effect) Descriptor() protoreflect.EnumDescriptor {
+	return file_codefly_runnable_v0_options_proto_enumTypes[0].Descriptor()
+}
+
+func (ToolExposure_Effect) Type() protoreflect.EnumType {
+	return &file_codefly_runnable_v0_options_proto_enumTypes[0]
+}
+
+func (x ToolExposure_Effect) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ToolExposure_Effect.Descriptor instead.
+func (ToolExposure_Effect) EnumDescriptor() ([]byte, []int) {
+	return file_codefly_runnable_v0_options_proto_rawDescGZIP(), []int{1, 0}
+}
+
 // Operation marks one method as a Runnable operation and declares how it is
 // executed. Policy and authority are installed with the binding, so they are
 // deliberately not part of the package the method derives: the package is the
 // contract, and two installations of it may run under different policies.
 //
 // The option's presence is the marking; every field below except
-// lookup_method, max_input_bytes and max_output_bytes is required, completion
-// included. An attempt
+// lookup_method, max_input_bytes, max_output_bytes, tool and
+// required_scope_slots is required, completion included. An attempt
 // budget and an authority nobody chose are not defaults core may invent on an
 // owner's behalf, so an empty option is rejected rather than filled in.
 type Operation struct {
@@ -74,9 +129,25 @@ type Operation struct {
 	// the policy: an operation that did not say is not a synchronous one, because
 	// a caller that assumed wrongly either abandons work that is still running or
 	// waits for a reply that was never going to come.
-	Completion    v0.RunnableExecution_Completion `protobuf:"varint,12,opt,name=completion,proto3,enum=codefly.base.v0.RunnableExecution_Completion" json:"completion,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Completion v0.RunnableExecution_Completion `protobuf:"varint,12,opt,name=completion,proto3,enum=codefly.base.v0.RunnableExecution_Completion" json:"completion,omitempty"`
+	// tool explicitly permits discovery as a tool. Absent means not exposed;
+	// presence never grants a caller authority to discover or invoke it. The
+	// host still checks installation, exposure and current caller permissions.
+	Tool *ToolExposure `protobuf:"bytes,13,opt,name=tool,proto3" json:"tool,omitempty"`
+	// required_scope_slots are authority the owner cannot spell alone: a model
+	// whose resource kind another module defines, a tool whose kinds and actions
+	// only the installed tool owner knows. The owner names each slot and states
+	// what it needs of whatever fills it; the composition that installs the
+	// operation selects the exact scopes (ScopeSelection). Every slot is
+	// required — a prepared binding delivered with a slot unresolved is refused
+	// — and never a wildcard. A selected kind coincides neither with a fixed
+	// invoke scope's kind nor with another slot's, so what the owner fixed and
+	// what the composition selected stay distinguishable.
+	// runnable.OperationSpec.ResolveScopeSlots is the one resolution to a
+	// concrete policy.
+	RequiredScopeSlots []*ScopeSlot `protobuf:"bytes,14,rep,name=required_scope_slots,json=requiredScopeSlots,proto3" json:"required_scope_slots,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Operation) Reset() {
@@ -193,6 +264,235 @@ func (x *Operation) GetCompletion() v0.RunnableExecution_Completion {
 	return v0.RunnableExecution_Completion(0)
 }
 
+func (x *Operation) GetTool() *ToolExposure {
+	if x != nil {
+		return x.Tool
+	}
+	return nil
+}
+
+func (x *Operation) GetRequiredScopeSlots() []*ScopeSlot {
+	if x != nil {
+		return x.RequiredScopeSlots
+	}
+	return nil
+}
+
+// ToolExposure is an owner's explicit tool contribution. Input and output
+// schemas come from the operation contract, never from a second declaration.
+type ToolExposure struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the stable model-facing name, 1..64 ASCII letters, digits, '_' or
+	// '-', beginning with a letter. An admitting tool set rejects collisions.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// description is bounded owner-authored text, not authority or instructions
+	// to bypass the caller's policy. It is at most 4096 UTF-8 bytes.
+	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	// effect must be explicitly declared. No transport or scope implies it.
+	Effect        ToolExposure_Effect `protobuf:"varint,3,opt,name=effect,proto3,enum=codefly.runnable.v0.ToolExposure_Effect" json:"effect,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ToolExposure) Reset() {
+	*x = ToolExposure{}
+	mi := &file_codefly_runnable_v0_options_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ToolExposure) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ToolExposure) ProtoMessage() {}
+
+func (x *ToolExposure) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_runnable_v0_options_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ToolExposure.ProtoReflect.Descriptor instead.
+func (*ToolExposure) Descriptor() ([]byte, []int) {
+	return file_codefly_runnable_v0_options_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ToolExposure) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ToolExposure) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *ToolExposure) GetEffect() ToolExposure_Effect {
+	if x != nil {
+		return x.Effect
+	}
+	return ToolExposure_EFFECT_UNSPECIFIED
+}
+
+// ScopeSlot is one owner-declared hole in an operation's authority, filled at
+// installation by the composition with the exact scopes it forwards. The owner
+// cannot spell the resource kinds, actions or ids and does not try to; it says
+// what it will need of them.
+type ScopeSlot struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name identifies the slot to a composition's selection: 1..64 ASCII
+	// letters, digits or '_', beginning with a letter, unique among the
+	// operation's slots.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// required_actions are actions every invoke scope selected into the slot
+	// must carry — what the owner will do with the resource, spelled in the
+	// kind's own vocabulary. Empty constrains nothing.
+	RequiredActions []string `protobuf:"bytes,2,rep,name=required_actions,json=requiredActions,proto3" json:"required_actions,omitempty"`
+	// lookup requires the selection to bind, for every invoke scope it selects,
+	// a read-only lookup scope over the same kind and the same exact ids, so the
+	// receipt of an effect on the resource can be read back. A selection may
+	// bind lookup scopes unasked; it may not omit them when asked. A kind whose
+	// vocabulary has no read-only action cannot fill a slot that asks for
+	// lookup: a lookup scope is the one read-only action and nothing else.
+	Lookup        bool `protobuf:"varint,3,opt,name=lookup,proto3" json:"lookup,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScopeSlot) Reset() {
+	*x = ScopeSlot{}
+	mi := &file_codefly_runnable_v0_options_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScopeSlot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScopeSlot) ProtoMessage() {}
+
+func (x *ScopeSlot) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_runnable_v0_options_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScopeSlot.ProtoReflect.Descriptor instead.
+func (*ScopeSlot) Descriptor() ([]byte, []int) {
+	return file_codefly_runnable_v0_options_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ScopeSlot) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ScopeSlot) GetRequiredActions() []string {
+	if x != nil {
+		return x.RequiredActions
+	}
+	return nil
+}
+
+func (x *ScopeSlot) GetLookup() bool {
+	if x != nil {
+		return x.Lookup
+	}
+	return false
+}
+
+// ScopeSelection is a composition's answer to one ScopeSlot: the exact scopes
+// it forwards into it. It is authored where the composition is — never derived
+// from a transport, a name or a generated document — and one selection answers
+// one slot.
+type ScopeSelection struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// slot names the ScopeSlot this selection fills.
+	Slot string `protobuf:"bytes,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	// invoke are the scopes bound for the call: resource kind, actions and
+	// explicit resource ids, each bounded as any scope and never a wildcard (an
+	// empty resource_ids would be every resource of the kind, and is refused).
+	// At least one is required.
+	Invoke []*v0.WorkScopeV1 `protobuf:"bytes,2,rep,name=invoke,proto3" json:"invoke,omitempty"`
+	// lookup are the read-only lookup scopes bound to read a receipt: each
+	// carries the one read-only action over a kind an invoke scope of this
+	// selection names and ids that invoke scope covers.
+	Lookup        []*v0.WorkScopeV1 `protobuf:"bytes,3,rep,name=lookup,proto3" json:"lookup,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScopeSelection) Reset() {
+	*x = ScopeSelection{}
+	mi := &file_codefly_runnable_v0_options_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScopeSelection) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScopeSelection) ProtoMessage() {}
+
+func (x *ScopeSelection) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_runnable_v0_options_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScopeSelection.ProtoReflect.Descriptor instead.
+func (*ScopeSelection) Descriptor() ([]byte, []int) {
+	return file_codefly_runnable_v0_options_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ScopeSelection) GetSlot() string {
+	if x != nil {
+		return x.Slot
+	}
+	return ""
+}
+
+func (x *ScopeSelection) GetInvoke() []*v0.WorkScopeV1 {
+	if x != nil {
+		return x.Invoke
+	}
+	return nil
+}
+
+func (x *ScopeSelection) GetLookup() []*v0.WorkScopeV1 {
+	if x != nil {
+		return x.Lookup
+	}
+	return nil
+}
+
 var file_codefly_runnable_v0_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
@@ -217,7 +517,7 @@ var File_codefly_runnable_v0_options_proto protoreflect.FileDescriptor
 
 const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\n" +
-	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\x1ecodefly/base/v0/runnable.proto\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\xf8\x04\n" +
+	"!codefly/runnable/v0/options.proto\x12\x13codefly.runnable.v0\x1a\x1ecodefly/base/v0/runnable.proto\x1a\"codefly/base/v0/work_context.proto\x1a google/protobuf/descriptor.proto\x1a\x1egoogle/protobuf/duration.proto\"\x81\x06\n" +
 	"\tOperation\x12B\n" +
 	"\x0fattempt_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0eattemptTimeout\x12>\n" +
 	"\rtotal_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\ftotalTimeout\x12!\n" +
@@ -233,7 +533,25 @@ const file_codefly_runnable_v0_options_proto_rawDesc = "" +
 	"\x10max_output_bytes\x18\v \x01(\x04R\x0emaxOutputBytes\x12M\n" +
 	"\n" +
 	"completion\x18\f \x01(\x0e2-.codefly.base.v0.RunnableExecution.CompletionR\n" +
-	"completion:^\n" +
+	"completion\x125\n" +
+	"\x04tool\x18\r \x01(\v2!.codefly.runnable.v0.ToolExposureR\x04tool\x12P\n" +
+	"\x14required_scope_slots\x18\x0e \x03(\v2\x1e.codefly.runnable.v0.ScopeSlotR\x12requiredScopeSlots\"\xd3\x01\n" +
+	"\fToolExposure\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12@\n" +
+	"\x06effect\x18\x03 \x01(\x0e2(.codefly.runnable.v0.ToolExposure.EffectR\x06effect\"K\n" +
+	"\x06Effect\x12\x16\n" +
+	"\x12EFFECT_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10EFFECT_READ_ONLY\x10\x01\x12\x13\n" +
+	"\x0fEFFECT_MUTATION\x10\x02\"b\n" +
+	"\tScopeSlot\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
+	"\x10required_actions\x18\x02 \x03(\tR\x0frequiredActions\x12\x16\n" +
+	"\x06lookup\x18\x03 \x01(\bR\x06lookup\"\x90\x01\n" +
+	"\x0eScopeSelection\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\tR\x04slot\x124\n" +
+	"\x06invoke\x18\x02 \x03(\v2\x1c.codefly.base.v0.WorkScopeV1R\x06invoke\x124\n" +
+	"\x06lookup\x18\x03 \x03(\v2\x1c.codefly.base.v0.WorkScopeV1R\x06lookup:^\n" +
 	"\toperation\x12\x1e.google.protobuf.MethodOptions\x18\xbb\x8e\x03 \x01(\v2\x1e.codefly.runnable.v0.OperationR\toperationB\xd3\x01\n" +
 	"\x17com.codefly.runnable.v0B\fOptionsProtoP\x01Z<github.com/codefly-dev/core/generated/go/codefly/runnable/v0\xa2\x02\x03CRV\xaa\x02\x13Codefly.Runnable.V0\xca\x02\x13Codefly\\Runnable\\V0\xe2\x02\x1fCodefly\\Runnable\\V0\\GPBMetadata\xea\x02\x15Codefly::Runnable::V0b\x06proto3"
 
@@ -249,28 +567,38 @@ func file_codefly_runnable_v0_options_proto_rawDescGZIP() []byte {
 	return file_codefly_runnable_v0_options_proto_rawDescData
 }
 
-var file_codefly_runnable_v0_options_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_codefly_runnable_v0_options_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_codefly_runnable_v0_options_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_codefly_runnable_v0_options_proto_goTypes = []any{
-	(*Operation)(nil),                    // 0: codefly.runnable.v0.Operation
-	(*durationpb.Duration)(nil),          // 1: google.protobuf.Duration
-	(*v0.WorkScopeV1)(nil),               // 2: codefly.base.v0.WorkScopeV1
-	(v0.RunnableExecution_Completion)(0), // 3: codefly.base.v0.RunnableExecution.Completion
-	(*descriptorpb.MethodOptions)(nil),   // 4: google.protobuf.MethodOptions
+	(ToolExposure_Effect)(0),             // 0: codefly.runnable.v0.ToolExposure.Effect
+	(*Operation)(nil),                    // 1: codefly.runnable.v0.Operation
+	(*ToolExposure)(nil),                 // 2: codefly.runnable.v0.ToolExposure
+	(*ScopeSlot)(nil),                    // 3: codefly.runnable.v0.ScopeSlot
+	(*ScopeSelection)(nil),               // 4: codefly.runnable.v0.ScopeSelection
+	(*durationpb.Duration)(nil),          // 5: google.protobuf.Duration
+	(*v0.WorkScopeV1)(nil),               // 6: codefly.base.v0.WorkScopeV1
+	(v0.RunnableExecution_Completion)(0), // 7: codefly.base.v0.RunnableExecution.Completion
+	(*descriptorpb.MethodOptions)(nil),   // 8: google.protobuf.MethodOptions
 }
 var file_codefly_runnable_v0_options_proto_depIdxs = []int32{
-	1, // 0: codefly.runnable.v0.Operation.attempt_timeout:type_name -> google.protobuf.Duration
-	1, // 1: codefly.runnable.v0.Operation.total_timeout:type_name -> google.protobuf.Duration
-	1, // 2: codefly.runnable.v0.Operation.backoff:type_name -> google.protobuf.Duration
-	2, // 3: codefly.runnable.v0.Operation.invoke_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	2, // 4: codefly.runnable.v0.Operation.lookup_scopes:type_name -> codefly.base.v0.WorkScopeV1
-	3, // 5: codefly.runnable.v0.Operation.completion:type_name -> codefly.base.v0.RunnableExecution.Completion
-	4, // 6: codefly.runnable.v0.operation:extendee -> google.protobuf.MethodOptions
-	0, // 7: codefly.runnable.v0.operation:type_name -> codefly.runnable.v0.Operation
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	7, // [7:8] is the sub-list for extension type_name
-	6, // [6:7] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	5,  // 0: codefly.runnable.v0.Operation.attempt_timeout:type_name -> google.protobuf.Duration
+	5,  // 1: codefly.runnable.v0.Operation.total_timeout:type_name -> google.protobuf.Duration
+	5,  // 2: codefly.runnable.v0.Operation.backoff:type_name -> google.protobuf.Duration
+	6,  // 3: codefly.runnable.v0.Operation.invoke_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	6,  // 4: codefly.runnable.v0.Operation.lookup_scopes:type_name -> codefly.base.v0.WorkScopeV1
+	7,  // 5: codefly.runnable.v0.Operation.completion:type_name -> codefly.base.v0.RunnableExecution.Completion
+	2,  // 6: codefly.runnable.v0.Operation.tool:type_name -> codefly.runnable.v0.ToolExposure
+	3,  // 7: codefly.runnable.v0.Operation.required_scope_slots:type_name -> codefly.runnable.v0.ScopeSlot
+	0,  // 8: codefly.runnable.v0.ToolExposure.effect:type_name -> codefly.runnable.v0.ToolExposure.Effect
+	6,  // 9: codefly.runnable.v0.ScopeSelection.invoke:type_name -> codefly.base.v0.WorkScopeV1
+	6,  // 10: codefly.runnable.v0.ScopeSelection.lookup:type_name -> codefly.base.v0.WorkScopeV1
+	8,  // 11: codefly.runnable.v0.operation:extendee -> google.protobuf.MethodOptions
+	1,  // 12: codefly.runnable.v0.operation:type_name -> codefly.runnable.v0.Operation
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	12, // [12:13] is the sub-list for extension type_name
+	11, // [11:12] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_codefly_runnable_v0_options_proto_init() }
@@ -283,13 +611,14 @@ func file_codefly_runnable_v0_options_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_runnable_v0_options_proto_rawDesc), len(file_codefly_runnable_v0_options_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   1,
+			NumEnums:      1,
+			NumMessages:   4,
 			NumExtensions: 1,
 			NumServices:   0,
 		},
 		GoTypes:           file_codefly_runnable_v0_options_proto_goTypes,
 		DependencyIndexes: file_codefly_runnable_v0_options_proto_depIdxs,
+		EnumInfos:         file_codefly_runnable_v0_options_proto_enumTypes,
 		MessageInfos:      file_codefly_runnable_v0_options_proto_msgTypes,
 		ExtensionInfos:    file_codefly_runnable_v0_options_proto_extTypes,
 	}.Build()

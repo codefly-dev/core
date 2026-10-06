@@ -117,3 +117,29 @@ message PreparedBinding {
   // scopes are the authority; the rest is the attempt budget.
   Operation policy = 6 [(buf.validate.field).required = true];
 }
+
+// ResolvedPolicy is the receipt of one resolution of an operation's authority:
+// the operation it is for, the concrete policy a composition resolved for it —
+// every required scope slot answered, no slot left — and the digest an
+// installation holds the delivered binding to. It is the one document both
+// halves of an installation read from: the host binds the audience and scopes
+// it grants from `policy`, and the prepared binding delivered to the caller
+// must carry this exact policy, which runnable.BindingMatchesResolvedPolicy
+// checks. Neither half names the other's schema, and neither restates the
+// scopes: a selection became the installed authority because the one policy
+// resolved from it is what both received.
+message ResolvedPolicy {
+  // schema is the receipt schema, "codefly.runnable-resolved-policy/v1". A
+  // reader accepts exactly this one.
+  string schema = 1 [(buf.validate.field).string.const = "codefly.runnable-resolved-policy/v1"];
+  // operation names the operation the policy was resolved for.
+  PreparedOperation operation = 2 [(buf.validate.field).required = true];
+  // policy is the concrete policy: the owner's declaration with every required
+  // scope slot resolved to the exact scopes the composition selected.
+  Operation policy = 3 [(buf.validate.field).required = true];
+  // policy_digest is "sha256:<hex>" over the canonical policy above
+  // (runnable.PolicyDigest). It is what an installation compares: a prepared
+  // binding whose policy derives another digest was not resolved from this
+  // receipt, whatever it claims.
+  string policy_digest = 4 [(buf.validate.field).string.pattern = "^sha256:[0-9a-f]{64}$"];
+}

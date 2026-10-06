@@ -422,6 +422,93 @@ func (x *PreparedBinding) GetPolicy() *Operation {
 	return nil
 }
 
+// ResolvedPolicy is the receipt of one resolution of an operation's authority:
+// the operation it is for, the concrete policy a composition resolved for it —
+// every required scope slot answered, no slot left — and the digest an
+// installation holds the delivered binding to. It is the one document both
+// halves of an installation read from: the host binds the audience and scopes
+// it grants from `policy`, and the prepared binding delivered to the caller
+// must carry this exact policy, which runnable.BindingMatchesResolvedPolicy
+// checks. Neither half names the other's schema, and neither restates the
+// scopes: a selection became the installed authority because the one policy
+// resolved from it is what both received.
+type ResolvedPolicy struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// schema is the receipt schema, "codefly.runnable-resolved-policy/v1". A
+	// reader accepts exactly this one.
+	Schema string `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
+	// operation names the operation the policy was resolved for.
+	Operation *PreparedOperation `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
+	// policy is the concrete policy: the owner's declaration with every required
+	// scope slot resolved to the exact scopes the composition selected.
+	Policy *Operation `protobuf:"bytes,3,opt,name=policy,proto3" json:"policy,omitempty"`
+	// policy_digest is "sha256:<hex>" over the canonical policy above
+	// (runnable.PolicyDigest). It is what an installation compares: a prepared
+	// binding whose policy derives another digest was not resolved from this
+	// receipt, whatever it claims.
+	PolicyDigest  string `protobuf:"bytes,4,opt,name=policy_digest,json=policyDigest,proto3" json:"policy_digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolvedPolicy) Reset() {
+	*x = ResolvedPolicy{}
+	mi := &file_codefly_runnable_v0_prepared_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolvedPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolvedPolicy) ProtoMessage() {}
+
+func (x *ResolvedPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_runnable_v0_prepared_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolvedPolicy.ProtoReflect.Descriptor instead.
+func (*ResolvedPolicy) Descriptor() ([]byte, []int) {
+	return file_codefly_runnable_v0_prepared_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ResolvedPolicy) GetSchema() string {
+	if x != nil {
+		return x.Schema
+	}
+	return ""
+}
+
+func (x *ResolvedPolicy) GetOperation() *PreparedOperation {
+	if x != nil {
+		return x.Operation
+	}
+	return nil
+}
+
+func (x *ResolvedPolicy) GetPolicy() *Operation {
+	if x != nil {
+		return x.Policy
+	}
+	return nil
+}
+
+func (x *ResolvedPolicy) GetPolicyDigest() string {
+	if x != nil {
+		return x.PolicyDigest
+	}
+	return ""
+}
+
 var File_codefly_runnable_v0_prepared_proto protoreflect.FileDescriptor
 
 const file_codefly_runnable_v0_prepared_proto_rawDesc = "" +
@@ -451,7 +538,13 @@ const file_codefly_runnable_v0_prepared_proto_rawDesc = "" +
 	"\x04call\x18\x03 \x01(\v2!.codefly.runnable.v0.PreparedCallB\x06\xbaH\x03\xc8\x01\x01R\x04call\x12E\n" +
 	"\bcontract\x18\x04 \x01(\v2!.codefly.base.v0.RunnableContractB\x06\xbaH\x03\xc8\x01\x01R\bcontract\x12E\n" +
 	"\x0fcontract_digest\x18\x05 \x01(\tB\x1c\xbaH\x19r\x172\x15^sha256:[0-9a-f]{64}$R\x0econtractDigest\x12>\n" +
-	"\x06policy\x18\x06 \x01(\v2\x1e.codefly.runnable.v0.OperationB\x06\xbaH\x03\xc8\x01\x01R\x06policyB\xd4\x01\n" +
+	"\x06policy\x18\x06 \x01(\v2\x1e.codefly.runnable.v0.OperationB\x06\xbaH\x03\xc8\x01\x01R\x06policy\"\xa5\x02\n" +
+	"\x0eResolvedPolicy\x12B\n" +
+	"\x06schema\x18\x01 \x01(\tB*\xbaH'r%\n" +
+	"#codefly.runnable-resolved-policy/v1R\x06schema\x12L\n" +
+	"\toperation\x18\x02 \x01(\v2&.codefly.runnable.v0.PreparedOperationB\x06\xbaH\x03\xc8\x01\x01R\toperation\x12>\n" +
+	"\x06policy\x18\x03 \x01(\v2\x1e.codefly.runnable.v0.OperationB\x06\xbaH\x03\xc8\x01\x01R\x06policy\x12A\n" +
+	"\rpolicy_digest\x18\x04 \x01(\tB\x1c\xbaH\x19r\x172\x15^sha256:[0-9a-f]{64}$R\fpolicyDigestB\xd4\x01\n" +
 	"\x17com.codefly.runnable.v0B\rPreparedProtoP\x01Z<github.com/codefly-dev/core/generated/go/codefly/runnable/v0\xa2\x02\x03CRV\xaa\x02\x13Codefly.Runnable.V0\xca\x02\x13Codefly\\Runnable\\V0\xe2\x02\x1fCodefly\\Runnable\\V0\\GPBMetadata\xea\x02\x15Codefly::Runnable::V0b\x06proto3"
 
 var (
@@ -466,28 +559,31 @@ func file_codefly_runnable_v0_prepared_proto_rawDescGZIP() []byte {
 	return file_codefly_runnable_v0_prepared_proto_rawDescData
 }
 
-var file_codefly_runnable_v0_prepared_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_codefly_runnable_v0_prepared_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_codefly_runnable_v0_prepared_proto_goTypes = []any{
 	(*PreparedOperation)(nil),   // 0: codefly.runnable.v0.PreparedOperation
 	(*ConnectProcedure)(nil),    // 1: codefly.runnable.v0.ConnectProcedure
 	(*HTTPRoute)(nil),           // 2: codefly.runnable.v0.HTTPRoute
 	(*PreparedCall)(nil),        // 3: codefly.runnable.v0.PreparedCall
 	(*PreparedBinding)(nil),     // 4: codefly.runnable.v0.PreparedBinding
-	(*v0.RunnableContract)(nil), // 5: codefly.base.v0.RunnableContract
-	(*Operation)(nil),           // 6: codefly.runnable.v0.Operation
+	(*ResolvedPolicy)(nil),      // 5: codefly.runnable.v0.ResolvedPolicy
+	(*v0.RunnableContract)(nil), // 6: codefly.base.v0.RunnableContract
+	(*Operation)(nil),           // 7: codefly.runnable.v0.Operation
 }
 var file_codefly_runnable_v0_prepared_proto_depIdxs = []int32{
 	1, // 0: codefly.runnable.v0.PreparedCall.connect:type_name -> codefly.runnable.v0.ConnectProcedure
 	2, // 1: codefly.runnable.v0.PreparedCall.rest:type_name -> codefly.runnable.v0.HTTPRoute
 	0, // 2: codefly.runnable.v0.PreparedBinding.operation:type_name -> codefly.runnable.v0.PreparedOperation
 	3, // 3: codefly.runnable.v0.PreparedBinding.call:type_name -> codefly.runnable.v0.PreparedCall
-	5, // 4: codefly.runnable.v0.PreparedBinding.contract:type_name -> codefly.base.v0.RunnableContract
-	6, // 5: codefly.runnable.v0.PreparedBinding.policy:type_name -> codefly.runnable.v0.Operation
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	6, // 4: codefly.runnable.v0.PreparedBinding.contract:type_name -> codefly.base.v0.RunnableContract
+	7, // 5: codefly.runnable.v0.PreparedBinding.policy:type_name -> codefly.runnable.v0.Operation
+	0, // 6: codefly.runnable.v0.ResolvedPolicy.operation:type_name -> codefly.runnable.v0.PreparedOperation
+	7, // 7: codefly.runnable.v0.ResolvedPolicy.policy:type_name -> codefly.runnable.v0.Operation
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codefly_runnable_v0_prepared_proto_init() }
@@ -506,7 +602,7 @@ func file_codefly_runnable_v0_prepared_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_runnable_v0_prepared_proto_rawDesc), len(file_codefly_runnable_v0_prepared_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

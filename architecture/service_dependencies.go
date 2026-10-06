@@ -29,6 +29,10 @@ type ServiceDependencies struct {
 	// ConfigurationReferenceDependencies.
 	referenceDependencies map[string][]*resources.ServiceDependency
 
+	// Participation survives a reciprocal reference even when startup ordering
+	// must omit that edge to keep the run graph acyclic.
+	referenceParticipants map[string][]string
+
 	// stage is the stage this view was restricted to, empty when it was not.
 	// It is what keeps a restricted view self-consistent: the same predicate
 	// that decided which edges order the stage decides which are judged.
@@ -92,8 +96,8 @@ func ExcludeServices(services ...string) DependencyOption {
 // two. Each such reference to a service of the workspace becomes a runtime edge
 // from the producer to every service declaring the group, so a run includes,
 // starts and orders the producer as for a declared dependency. A service's own
-// endpoint, an excluded producer, and an edge that would close a cycle are
-// skipped; a declared dependency that already orders the run is never
+// endpoint and an excluded producer are skipped. A reciprocal reference keeps
+// its producer in the run but adds no cyclic startup ordering edge; a declared dependency that already orders the run is never
 // duplicated.
 //
 // A declaration that orders nothing — `kind: external`, which names the producer
@@ -211,20 +215,20 @@ func (d *ServiceDependencies) Dependencies() []ServiceDependency {
 // OrderTo returns the list of services "required" to end up with the service identified by unique.
 func (d *ServiceDependencies) OrderTo(ctx context.Context, unique string) ([]Service, error) {
 	w := wool.Get(ctx).In("OrderTo")
-	sub, err := d.graph.SubGraphTo(unique)
+	sub, err := d.participatingSubgraph(unique)
 	if err != nil {
 		return nil, fmt.Errorf("cannot topologically sort to <%s>: %w", unique, err)
 	}
 	w.Trace("service dependencies", wool.Field("graph", d.graph.PrintAsDot()))
 	w.Trace("service dependencies", wool.Field("subgraph", sub.PrintAsDot()))
-	order, err := sub.TopologicalSortTo(unique)
+	order, err := sub.TopologicalSort()
 	if err != nil {
 		return nil, fmt.Errorf("cannot topologically sort to <%s>: %w", unique, err)
 	}
 	w.Trace("service dependencies", wool.Field("order", order))
 	var out []Service
 	for _, u := range order {
-		if u.Type != resources.SERVICE {
+		if u.Type != resources.SERVICE || u.ID == unique {
 			continue
 		}
 		out = append(out, Service{
@@ -290,11 +294,53 @@ func (d *ServiceDependencies) DirectDependents(ctx context.Context, unique strin
 // that the restricted graph dropped.
 func (d *ServiceDependencies) Restrict(_ context.Context, unique string) (*ServiceDependencies, error) {
 	// B is required by A if A <- ... <- B
-	sub, err := d.graph.SubGraphTo(unique)
+	sub, err := d.participatingSubgraph(unique)
 	if err != nil {
 		return nil, fmt.Errorf("cannot restrict to <%s>: %w", unique, err)
 	}
 	return d.withGraph(sub), nil
+}
+
+// participatingSubgraph selects the fixed point of ordering prerequisites and
+// configuration producers. Participation is not an ordering edge: a reciprocal
+// endpoint reference selects both services without creating a start cycle, and
+// promises neither an address before the other has started.
+func (d *ServiceDependencies) participatingSubgraph(unique string) (*DAG, error) {
+	if !d.graph.HasNode(unique) {
+		return nil, fmt.Errorf("service %s is not in the graph", unique)
+	}
+	selected := map[string]bool{}
+	pending := []string{unique}
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if selected[current] {
+			continue
+		}
+		selected[current] = true
+		for _, parent := range d.graph.Parents(current) {
+			pending = append(pending, parent.ID)
+		}
+		if d.stage != resources.StageBuild {
+			for _, producer := range d.referenceParticipants[current] {
+				if d.graph.HasNode(producer) {
+					pending = append(pending, producer)
+				}
+			}
+		}
+	}
+	out := NewDAG(d.graph.Name)
+	out.verb = d.graph.verb
+	for node := range selected {
+		out.AddNode(node).WithType(d.graph.nodeTypes[node])
+	}
+	for _, edge := range d.graph.Edges() {
+		if selected[edge.From] && selected[edge.To] {
+			out.AddEdge(edge.From, edge.To)
+			out.inheritEdgeKinds(d.graph, edge)
+		}
+	}
+	return out, nil
 }
 
 // ForStage restricts the dependencies to the edges that constrain the given
@@ -360,6 +406,17 @@ func (d *ServiceDependencies) withGraph(g *DAG) *ServiceDependencies {
 			references[consumer] = slices.Clone(dependencies)
 		}
 	}
+	participants := make(map[string][]string)
+	for consumer, producers := range d.referenceParticipants {
+		if !g.HasNode(consumer) {
+			continue
+		}
+		for _, producer := range producers {
+			if g.HasNode(producer) {
+				participants[consumer] = append(participants[consumer], producer)
+			}
+		}
+	}
 	return &ServiceDependencies{
 		Workspace:             d.Workspace,
 		graph:                 g,
@@ -367,6 +424,7 @@ func (d *ServiceDependencies) withGraph(g *DAG) *ServiceDependencies {
 		options:               d.options.clone(),
 		stage:                 d.stage,
 		referenceDependencies: references,
+		referenceParticipants: participants,
 	}
 }
 
@@ -507,6 +565,12 @@ func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context
 				if _, inWorkspace := d.uniqueToService[producer]; !inWorkspace {
 					continue
 				}
+				if d.referenceParticipants == nil {
+					d.referenceParticipants = make(map[string][]string)
+				}
+				if !slices.Contains(d.referenceParticipants[consumer], producer) {
+					d.referenceParticipants[consumer] = append(d.referenceParticipants[consumer], producer)
+				}
 				if graph.edgeConstrains(producer, consumer, resources.StageRun) {
 					// A declared dependency already orders the run. It may name
 					// other endpoints of the producer than the referenced one, so
@@ -518,7 +582,8 @@ func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context
 				if graph.reachesInStage(consumer, producer, resources.StageRun) {
 					w.Debug("skipping a configuration reference that would close a cycle",
 						wool.Field("consumer", consumer), wool.Field("producer", producer), wool.Field("group", group))
-					// Nothing is recorded either: the consumer cannot wait for a
+					// Participation is recorded above, but no start-time health
+					// dependency is added: the consumer cannot wait for a
 					// producer that is already waiting for it, and a readiness
 					// requirement here would be the deadlock this edge was dropped
 					// to avoid.

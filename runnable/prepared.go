@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -118,7 +119,27 @@ func VerifyPrepared(binding *runnablev0.PreparedBinding) error {
 	if err != nil {
 		return err
 	}
-	return preparedPolicy(binding, codes).Validate()
+	policy := preparedPolicy(binding, codes)
+	if err := policy.Validate(); err != nil {
+		return err
+	}
+	return refuseUnresolvedSlots("prepared binding", policy)
+}
+
+// refuseUnresolvedSlots is the one refusal of a delivered policy with a hole
+// in it. A slot is a question the owner asked the composition; a binding or a
+// receipt is the composition's answer, and one delivered with the question
+// still open was written before anyone answered. No installation may admit it.
+func refuseUnresolvedSlots(what string, policy *OperationSpec) error {
+	if len(policy.RequiredScopeSlots) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(policy.RequiredScopeSlots))
+	for _, slot := range policy.RequiredScopeSlots {
+		names = append(names, slot.GetName())
+	}
+	return fmt.Errorf("%w: %w: %s for %q leaves scope slots %s unresolved; a composition resolves them with OperationSpec.ResolveScopeSlots before delivery",
+		ErrInvalid, ErrUnresolvedScopeSlots, what, policy.Method, strings.Join(names, ", "))
 }
 
 // verifyPreparedRoute holds the dial target to the operation the binding names,
@@ -150,21 +171,30 @@ func verifyPreparedRoute(binding *runnablev0.PreparedBinding) (CodeVocabulary, e
 // in OperationSpec.Validate and are applied to what was delivered rather than
 // trusted because a generator once checked them.
 func preparedPolicy(binding *runnablev0.PreparedBinding, codes CodeVocabulary) *OperationSpec {
-	declared := binding.GetPolicy()
+	return policySpec(binding.GetOperation().GetSpelling(), binding.GetPolicy(), codes)
+}
+
+// policySpec reads a delivered policy back as the spec core validates, for the
+// operation spelling it was delivered for and the vocabulary its codes are
+// spelled in. It is the one reader of a delivered Operation, as Policy is the
+// one writer; TestPolicyRoundTripsEveryField holds the pair to the schema.
+func policySpec(spelling string, declared *runnablev0.Operation, codes CodeVocabulary) *OperationSpec {
 	return &OperationSpec{
-		Method:         binding.GetOperation().GetSpelling(),
-		AttemptTimeout: declared.GetAttemptTimeout().AsDuration(),
-		TotalTimeout:   declared.GetTotalTimeout().AsDuration(),
-		MaxAttempts:    declared.GetMaxAttempts(),
-		Backoff:        declared.GetBackoff().AsDuration(),
-		RetryableCodes: declared.GetRetryableCodes(),
-		Codes:          codes,
-		Audience:       declared.GetAudience(),
-		InvokeScopes:   declared.GetInvokeScopes(),
-		LookupScopes:   declared.GetLookupScopes(),
-		LookupMethod:   declared.GetLookupMethod(),
-		MaxInputBytes:  declared.GetMaxInputBytes(),
-		MaxOutputBytes: declared.GetMaxOutputBytes(),
-		Completion:     declared.GetCompletion(),
+		Method:             spelling,
+		AttemptTimeout:     declared.GetAttemptTimeout().AsDuration(),
+		TotalTimeout:       declared.GetTotalTimeout().AsDuration(),
+		MaxAttempts:        declared.GetMaxAttempts(),
+		Backoff:            declared.GetBackoff().AsDuration(),
+		RetryableCodes:     declared.GetRetryableCodes(),
+		Codes:              codes,
+		Audience:           declared.GetAudience(),
+		InvokeScopes:       declared.GetInvokeScopes(),
+		LookupScopes:       declared.GetLookupScopes(),
+		LookupMethod:       declared.GetLookupMethod(),
+		MaxInputBytes:      declared.GetMaxInputBytes(),
+		MaxOutputBytes:     declared.GetMaxOutputBytes(),
+		Completion:         declared.GetCompletion(),
+		Tool:               proto.CloneOf(declared.GetTool()),
+		RequiredScopeSlots: clonedSlots(declared.GetRequiredScopeSlots()),
 	}
 }
