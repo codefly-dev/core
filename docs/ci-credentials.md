@@ -81,67 +81,25 @@ recognise, a job that cannot be re-encoded for the backstop, a repository-local
 action with no loadable manifest. Each fails the guard that asked instead of
 reporting "nothing found".
 
-## The rules
+## The rule
 
-1. **No workflow grants a write at workflow scope.** A workflow-scope grant is
-   inherited by every job in the file, including the one added next year. The
-   write is declared on the job that performs it.
-2. **No job that can run a pull request's code holds a write.** A
-   `pull_request` run checks out that pull request's head; every step after the
-   checkout is running code its author wrote. A write-capable job in such a
-   workflow must be gated `if: github.event_name == 'push' && github.ref ==
-   'refs/heads/main'`.
-3. **A `workflow_run` job states its event and its head repository.** The
-   `branches:` filter matches the *triggering* run's head branch, which is a
-   name the head repository chooses — it never meant "main of this repository".
-4. **A `workflow_run` job checks out the default branch, not the triggering
-   commit.** The triggering sha is data, validated against the default branch's
-   history before use.
-5. **A reusable (`workflow_call`) workflow declares read on every job.** It runs
-   the *calling* repository's code, at a ref that repository chooses. A
-   declaration here can only narrow what the caller granted, so it settles the
-   built-in token from this side for every caller at once. It does **not**
-   settle a secret the caller passes — see rule 6.
-6. **No job that can run code under review names a secret.** Not gated by a
-   step `if:` — a step condition decides whether a step runs, not what the job
-   is. A job holding a secret runs on a merged ref:
-   `github.event_name == 'push'` together with either
-   `github.ref == 'refs/heads/main'` or `startsWith(github.ref, 'refs/tags/')`.
-   A `workflow_call` workflow counts as reachable from a pull request, because
-   a caller may dispatch it from one and nothing here can see that it did.
+**A job that receives a credential must be one of the shapes this repository
+runs, recorded exactly, or it is refused.**
 
-   **No trigger is exempt, and the rule is positive.** Every trigger yields a
-   hostile scenario binding *its own* event name. A credential-bearing job is
-   accepted only when one of three things is proved about it:
+There is one list, in `internal/ciguard/job_templates_test.go`: the five jobs
+that hold a secret or a write token, each pinned by a digest over the job's
+canonical content and each named alongside the test that executes it. A job
+that is not on the list is refused. A job on the list that has changed in any
+respect — a step added, an input changed, a field no rule reads — no longer
+matches its digest and is refused until someone updates the record, which is
+the review step.
 
-   1. its condition is false in every hostile situation its triggers admit, or
-   2. it pins what it runs — every checkout names the default branch outright,
-      no execution surface (a service or container image) is built from a
-      context the triggering party supplies, and it hands no secret to a
-      workflow these guards cannot read, or
-   3. it proves what it runs — a refusal whose behaviour a test establishes by
-      executing it, which every path to repository execution depends on having
-      succeeded.
+Nothing is analysed. Six rounds of asking what a job *does* — which contexts
+are a source, which fields a sink, which commands execute a value — each closed
+the routes it had found and left the ones it had not, because the set of things
+a workflow can do is not a set a guard can finish. Asking whether a job *is* a
+known shape has no such set.
 
-   Alongside all three: the workflow's own file must come from a ref only a
-   writer can set, the interpreter each step runs under must be one these
-   guards read, and no value the triggering party supplies may reach a sink
-   that becomes a program — a script, an action input, a generated executable,
-   `$GITHUB_PATH`, or a matrix. A flow that cannot be established is refused.
-
-   No trigger exempts a job, because trigger identity says nothing about which
-   code a job executes — and that is the only question here.
-
-Rules 2, 3, 6, 7 and 9 decide *whether* a job runs; rules 4, 5 and 8 decide
-*what* it runs when it does. Both halves are needed: with only the first, a
-mistake in an expression is an execution, and with only the second, there is
-nothing to say which runs were wanted.
-
-Rule 6's "runs on a merged ref" is decided by evaluating the condition, so any
-spelling that is provably false on a pull request satisfies it and no list of
-blessed clauses is needed. The two hostile `workflow_run` shapes are asserted
-separately because each is refused by a *different* condition — a job carrying
-only the event condition is still reachable from a fork's push, and vice versa.
 
 ## The writes, and why each one is safe
 

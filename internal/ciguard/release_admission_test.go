@@ -177,11 +177,9 @@ func TestTheReleaseRefusalTakesNoCallerSuppliedInput(t *testing.T) {
 			continue
 		}
 		found = true
-		for name, value := range step.Env {
-			require.False(t, partyChosen(t, value),
-				"the refusal receives %s=%s, so the caller can influence the "+
-					"authority it checks against", name, value)
-		}
+		require.Empty(t, step.Env,
+			"the refusal receives %v. It must take nothing from the caller, so the "+
+				"authority it checks against cannot be influenced.", step.Env)
 		require.NotContains(t, step.Run, "DECLARED_BRANCH",
 			"the refusal still reads a declaration; the authority has one source")
 	}

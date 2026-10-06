@@ -247,7 +247,7 @@ func TestNoJobRunsPullRequestCodeWithAWriteToken(t *testing.T) {
 			// workflow_run one, whose own scenarios are stricter.
 			// The same one decision the credential guard uses: the built-in
 			// write token is a credential too.
-			accepted, missing := credentialJobIsAccepted(t, isolated[path], id, hostile)
+			accepted, missing := credentialJobIsAccepted(t, isolated[path], id)
 			require.True(t, accepted,
 				"%s: job %q holds %s, and %s.\n`permissions:` cannot be narrowed per "+
 					"step, so every step in the job holds that grant.",

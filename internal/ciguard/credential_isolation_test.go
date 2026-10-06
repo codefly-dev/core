@@ -467,7 +467,7 @@ func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 			}
 			sort.Strings(names)
 
-			accepted, missing := credentialJobIsAccepted(t, wf, id, hostile)
+			accepted, missing := credentialJobIsAccepted(t, wf, id)
 			require.True(t, accepted,
 				"%s: job %q references %s, and %s.\n"+
 					"`permissions:` does not govern a repository secret, so narrowing "+

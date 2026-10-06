@@ -158,9 +158,9 @@ this workflow's credential and no other identity's.
 
 `combine-deps.yml` is dispatchable, and `workflow_dispatch` is not restricted
 to the default branch: a dispatch names a ref, and both the repository content
-*and the workflow file itself* come from it. The workflow pins its checkouts to
-`ref: main` so a dispatch against a feature branch cannot select that branch's
-scripts, but a branch that edits the workflow file is outside what anything in
+*and the workflow file itself* come from it. The dispatch trigger has since been removed from that workflow, so this
+concerns any dispatchable workflow added later: a branch that edits the
+workflow file is outside what anything in
 the file on `main` can constrain.
 
 That is a permissions question, not a YAML one. Restrict who can dispatch

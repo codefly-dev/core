@@ -31,7 +31,10 @@ mapfile -t combined < "$IN/combined.tsv"
 git fetch --quiet "$IN/combined.bundle" "+refs/heads/${BRANCH}:refs/heads/${BRANCH}"
 git push --quiet --force-with-lease origin "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
 
-existing="$(gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number // empty')"
+# From the plan, not recomputed. Asking again could answer differently from
+# what the plan acted on, and then this half would edit something the other
+# half never saw.
+existing="$(cat "$IN/existing_pr")"
 if [ -n "$existing" ]; then
   gh pr edit "$existing" --body-file "$IN/body.md"
   combined_pr="$existing"

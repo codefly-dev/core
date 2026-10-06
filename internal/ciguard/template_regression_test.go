@@ -1,0 +1,153 @@
+package ciguard
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
+)
+
+// Every construction six review rounds produced, asked of the template rule.
+//
+// Under the old rules each of these needed its own answer, and each round found
+// routes the answers did not cover: a source outside the context list, a sink
+// outside the field list, a verb outside the command list. The template rule
+// does not answer them individually. None of them is a registered shape, so all
+// of them are refused -- and so is the next one, which is the property six
+// rounds of lists could not provide.
+//
+// They are kept as fixtures rather than deleted, because a rule that refuses
+// everything is worthless: TestThePermittedShapesAreStillAccepted is the other
+// half, and the two together say the rule discriminates.
+func TestNoConstructionMatchesAPermittedShape(t *testing.T) {
+	for _, construction := range []struct{ name, job string }{
+		// Sources outside any context list.
+		{"a step output", `    steps:
+      - run: echo "task=$(cat payload)" >> $GITHUB_OUTPUT
+        id: s
+      - run: eval "${{ steps.s.outputs.task }}"`},
+		{"the event payload on disk", `    steps:
+      - run: eval "$(jq -r .x "$GITHUB_EVENT_PATH")"`},
+		{"the head ref", `    steps:
+      - run: eval "${{ github.head_ref }}"`},
+		{"the whole github context", `    steps:
+      - run: eval "${{ toJSON(github) }}"`},
+
+		// Sinks outside any field list.
+		{"github-script reading the environment", `    steps:
+      - uses: actions/github-script@v7
+        with: {script: "eval(process.env.TASK)"}`},
+		{"a value written to a file and run", `    steps:
+      - run: |
+          printf '%s' "$TASK" > f
+          bash f`},
+		{"a binary on PATH overwritten", `    steps:
+      - run: printf '%s' "$TASK" > /usr/local/bin/go
+      - run: go test ./...`},
+		{"a node preload", `    steps:
+      - run: echo "NODE_OPTIONS=--require ./p.js" >> $GITHUB_ENV
+      - run: node -e ""`},
+		{"a working directory from an input", `    steps:
+      - run: go test ./...
+        working-directory: ${{ inputs.dir }}`},
+
+		// Verbs outside any command list.
+		{"a checkout through -C", `    steps:
+      - run: git -C . checkout FETCH_HEAD`},
+		{"one file restored from a fetched ref", `    steps:
+      - run: git restore --source=FETCH_HEAD -- .goreleaser.yaml`},
+		{"a patch applied", `    steps:
+      - run: git diff HEAD origin/topic | git apply`},
+		{"an archive unpacked over the tree", `    steps:
+      - run: git archive FETCH_HEAD | tar -x`},
+
+		// And the shape-level one: a nested composite step reusing the
+		// refusal's name.
+		{"a step borrowing the refusal's name", `    steps:
+      - name: require the tag to be on the default branch, or refuse
+        run: echo not the refusal
+      - run: go test ./...`},
+	} {
+		t.Run(construction.name, func(t *testing.T) {
+			document := "on: pull_request_target\njobs:\n  probe:\n    runs-on: ubuntu-latest\n" +
+				"    env: {CREDENTIAL: \"${{ secrets.BUNDLED_CONFIG }}\"}\n" + construction.job + "\n"
+			wf := parseIsolatedDocument(t, document, construction.name)
+
+			require.NotEmpty(t, secretsIn(t, wf, "probe"),
+				"this fixture depends on the job holding a credential")
+			accepted, missing := credentialJobIsAccepted(t, wf, "probe")
+			require.False(t, accepted,
+				"a construction was accepted, which under the template rule can only "+
+					"mean it matched a registered shape (guard said %q)", missing)
+		})
+	}
+}
+
+// The other half: the shapes this repository does run are accepted, so the rule
+// distinguishes rather than simply refusing.
+func TestThePermittedShapesAreStillAccepted(t *testing.T) {
+	_, workflows := loadIsolatedWorkflows(t)
+
+	for _, template := range permittedCredentialJobs {
+		t.Run(template.workflow+"/"+template.job, func(t *testing.T) {
+			wf := workflows[filepath.Join(repoRoot(t), ".github", "workflows", template.workflow)]
+			accepted, missing := credentialJobIsAccepted(t, wf, template.job)
+			require.True(t, accepted, "a permitted shape was refused: %s", missing)
+		})
+	}
+}
+
+// A template is pinned by a digest over the job's canonical content, so a
+// change anywhere in it -- including a field no rule here reads -- stops
+// matching.
+func TestAnyChangeToAPermittedShapeStopsItMatching(t *testing.T) {
+	_, workflows := loadIsolatedWorkflows(t)
+	path := filepath.Join(repoRoot(t), ".github", "workflows", "go.yml")
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	before := canonicalJobDigest(t, workflows[path].raw["notify"])
+
+	for _, tc := range []struct{ name, from, to string }{
+		{
+			name: "a step added",
+			from: "      - name: Notify Slack on Failure\n",
+			to:   "      - run: ./probe.sh\n      - name: Notify Slack on Failure\n",
+		},
+		{
+			name: "a condition changed",
+			from: "    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'\n",
+			to:   "    if: always()\n",
+		},
+		{
+			name: "a field no rule reads",
+			from: "    runs-on: ubuntu-latest\n    # Nothing to read and nothing to write",
+			to:   "    runs-on: windows-latest\n    # Nothing to read and nothing to write",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Contains(t, string(raw), tc.from)
+			wf := parseIsolatedDocument(t, strings.Replace(string(raw), tc.from, tc.to, 1), "go.yml")
+			wf.name = "go.yml"
+			require.NotEqual(t, before, canonicalJobDigest(t, wf.raw["notify"]),
+				"the change left the digest unchanged, so the template does not pin it")
+		})
+	}
+}
+
+// The digest depends on content, not on formatting: a reflowed job is the same
+// shape, or every whitespace change would read as a new one.
+func TestTheDigestIgnoresFormatting(t *testing.T) {
+	compact := parseIsolatedDocument(t,
+		"jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n", "a")
+	spelled := parseIsolatedDocument(t,
+		"jobs:\n  j:\n    runs-on: \"ubuntu-latest\"\n    steps:\n    - run: 'echo hi'\n", "b")
+	require.Equal(t,
+		canonicalJobDigest(t, compact.raw["j"]),
+		canonicalJobDigest(t, spelled.raw["j"]))
+	_ = sortedTemplateNames()
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("a: 1"), &node))
+}
