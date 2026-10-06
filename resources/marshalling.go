@@ -77,11 +77,14 @@ func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
 	return LoadFromBytes[C](content)
 }
 
+// LoadFromBytes decodes one configuration document. A refusal the decoder makes
+// — an endpoint declaration refused by its keys, for one — is wrapped, not
+// flattened, so a caller can still tell it by its sentinel.
 func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 	var config C
 	err := yaml.Unmarshal(content, &config)
 	if err != nil {
-		return nil, fmt.Errorf("cannot unmarshal service configuration: %s", err)
+		return nil, fmt.Errorf("cannot unmarshal service configuration: %w", err)
 	}
 	return &config, nil
 }

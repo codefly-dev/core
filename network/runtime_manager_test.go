@@ -5,6 +5,8 @@ import (
 	"net"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -93,7 +95,7 @@ func TestRuntimeNetworkMappingGenerationNoDNS(t *testing.T) {
 
 	endpoints, err := service.LoadEndpoints(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 2, len(endpoints))
+	require.Equal(t, 3, len(endpoints))
 
 	// Generate runtime mapping
 	dnsManager := &testDnsManager{}
@@ -105,7 +107,7 @@ func TestRuntimeNetworkMappingGenerationNoDNS(t *testing.T) {
 	require.NoError(t, err)
 	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, endpoints, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
-	require.Equal(t, 2, len(mappings))
+	require.Equal(t, 3, len(mappings))
 }
 
 func TestRuntimeManagerAllocatesAndInjectsSameAPIEndpointsIndependently(t *testing.T) {
@@ -241,11 +243,14 @@ func TestRuntimeNetworkMappingAccessKinds_NoDNS(t *testing.T) {
 	require.NoError(t, err)
 	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, endpoints, resources.NewRuntimeContextNative())
 	require.NoError(t, err)
-	require.Equal(t, 2, len(mappings))
+	require.Equal(t, 3, len(mappings))
 
 	// Basic testdata service.codefly.yaml declares:
 	//   grpc   (default visibility)
-	//   rest   visibility: public, exposure: public
+	//   rest   visibility: public — reach only, no exposure, so NO Public instance
+	//   web    visibility: public, exposure: public — the one that gets it
+	// The old predicate (visibility == public) would give rest an instance
+	// too, and fails below.
 	for _, mapping := range mappings {
 		kinds := accessKindsOf(mapping)
 		require.Contains(t, kinds, resources.NetworkAccessContainer,
@@ -565,4 +570,39 @@ func TestGenerateNetworkMappingsReleasesReservationsOnFailure(t *testing.T) {
 	instance := resources.FilterNetworkInstance(ctx, mappings[0].Instances, resources.NewNativeNetworkAccess())
 	require.NotNil(t, instance)
 	require.Equal(t, uint32(contended), instance.Port)
+}
+
+// A proto endpoint whose exposure its reach contradicts passes the schema's
+// per-field checks; the allocator judges the declaration whole before it
+// hands out anything, so the contradiction is refused as an invalid
+// declaration and no port is reserved — never a Public instance on a private
+// endpoint, and never a condition that silently drops the instance and keeps
+// the input.
+func TestGenerateNetworkMappingsRefusesAContradictoryProtoDeclaration(t *testing.T) {
+	ctx := context.Background()
+	workspace := &resources.Workspace{Name: "test-workspace"}
+	identity := &resources.ServiceIdentity{Name: "accounts", Module: "saas", Version: "0.0.0"}
+	manager, err := network.NewRuntimeManager(ctx, &testDnsManager{})
+	require.NoError(t, err)
+	manager.WithTemporaryPorts()
+
+	contradictory := &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "http", Api: standards.HTTP, Visibility: resources.VisibilityPrivate, Exposure: resources.ExposurePublic}
+	require.NoError(t, resources.Validate(contradictory), "the schema's per-field checks accept it")
+	sibling := &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "grpc", Api: standards.GRPC, Visibility: resources.VisibilityInternal}
+	mappings, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, []*basev0.Endpoint{sibling, contradictory}, resources.NewRuntimeContextNative())
+	require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration)
+	require.ErrorContains(t, err, `exposure "public" with visibility "private"`)
+	require.Nil(t, mappings)
+
+	// The same judgement, driven by the shipped wire kit through this
+	// allocator: bytes carrying the reserved allow_modules field, or a field
+	// no schema defines, are refused before any instance exists.
+	resources.RunEndpointWireKit(t, func(raw []byte) error {
+		endpoint := &basev0.Endpoint{}
+		if err := proto.Unmarshal(raw, endpoint); err != nil {
+			return err
+		}
+		_, err := manager.GenerateNetworkMappings(ctx, resources.LocalEnvironment(), workspace, identity, []*basev0.Endpoint{endpoint}, resources.NewRuntimeContextNative())
+		return err
+	})
 }

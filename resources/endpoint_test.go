@@ -308,14 +308,19 @@ func TestLoadingRefusesADeclarationTheModelDoesNotDefine(t *testing.T) {
 	ctx := context.Background()
 	const head = "kind: service\nname: vault\nagent:\n  kind: runtime::service\n  name: go-grpc\n  version: 0.0.1\n  publisher: codefly.ai\nendpoints:\n  - name: http\n    api: http\n"
 	cases := map[string]struct{ endpoint, says string }{
-		"a typo":                         {"    visibility: application\n", `unsupported visibility "application"`},
-		"the former module spelling":     {"    visibility: module\n", `unsupported visibility "module"`},
-		"the former external spelling":   {"    visibility: external\n", `unsupported visibility "external"`},
-		"an unknown location":            {"    location: nowhere\n", `unsupported location "nowhere"`},
-		"an authored allow-list":         {"    visibility: internal\n    allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
-		"the wildcard":                   {"    visibility: internal\n    allow-modules: [\"*\"]\n", `authors allow-modules ["*"]`},
-		"an allow-list on a public one":  {"    visibility: public\n    allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
-		"an allow-list on a private one": {"    allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
+		"a typo":                       {"    visibility: application\n", `unsupported visibility "application"`},
+		"the former module spelling":   {"    visibility: module\n", `unsupported visibility "module"`},
+		"the former external spelling": {"    visibility: external\n", `unsupported visibility "external"`},
+		"an unknown location":          {"    location: nowhere\n", `unsupported location "nowhere"`},
+		// The forbidden key is refused by presence, before decoding: any value,
+		// any spelling.
+		"an authored allow-list":         {"    visibility: internal\n    allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
+		"the wildcard":                   {"    visibility: internal\n    allow-modules: [\"*\"]\n", `authors allow-modules (key "allow-modules")`},
+		"null":                           {"    visibility: internal\n    allow-modules: null\n", `authors allow-modules (key "allow-modules")`},
+		"the underscore spelling":        {"    visibility: internal\n    allow_modules: [platform]\n", `authors allow-modules (key "allow_modules")`},
+		"an allow-list on a public one":  {"    visibility: public\n    allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
+		"an allow-list on a private one": {"    allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
+		"an unknown key":                 {"    visibilty: public\n", `declares unknown key "visibilty"`},
 		"an unknown exposure":            {"    visibility: public\n    exposure: ingress\n", `unsupported exposure "ingress"`},
 		"exposure on an internal one":    {"    visibility: internal\n    exposure: public\n", `exposure "public" with visibility "internal"`},
 		"exposure on an external one":    {"    visibility: public\n    location: external\n    exposure: public\n", `exposure "public" with location "external"`},

@@ -87,6 +87,8 @@ func (workspace *Workspace) composeWorkspaces(ctx context.Context) error {
 	}
 	workspace.derivedModules = make(map[string]bool)
 	workspace.moduleDeclarationDirs = make(map[string]string)
+	workspace.memberRoles = make(map[string]MemberRole)
+	workspace.memberOwners = make(map[string]string)
 	seen := make(map[string]bool)
 	for _, ref := range workspace.Modules {
 		if seen[ref.Name] {
@@ -94,7 +96,7 @@ func (workspace *Workspace) composeWorkspaces(ctx context.Context) error {
 		}
 		seen[ref.Name] = true
 	}
-	add := func(ref *ModuleReference, owner *Workspace) error {
+	add := func(ref *ModuleReference, owner *Workspace, role MemberRole) error {
 		if seen[ref.Name] {
 			return fmt.Errorf("composed module %q conflicts with another declaration; change its owner rather than repinning it", ref.Name)
 		}
@@ -107,6 +109,8 @@ func (workspace *Workspace) composeWorkspaces(ctx context.Context) error {
 		workspace.Modules = append(workspace.Modules, &copy)
 		workspace.derivedModules[ref.Name] = true
 		workspace.moduleDeclarationDirs[ref.Name] = owner.ModuleDeclarationDir(ref.Name)
+		workspace.memberRoles[ref.Name] = role
+		workspace.memberOwners[ref.Name] = owner.Name
 		return nil
 	}
 	workspaceNames := make(map[string]bool)
@@ -143,13 +147,13 @@ func (workspace *Workspace) composeWorkspaces(ctx context.Context) error {
 		}
 		workspace.composedWorkspaces = append(workspace.composedWorkspaces, child)
 		for _, mod := range child.Modules {
-			if err := add(mod, child); err != nil {
+			if err := add(mod, child, MemberRoleModule); err != nil {
 				return err
 			}
 		}
 	}
 	for _, solution := range workspace.Solutions {
-		if err := add(solution, workspace); err != nil {
+		if err := add(solution, workspace, MemberRoleSolution); err != nil {
 			return err
 		}
 	}

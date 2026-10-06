@@ -39,10 +39,12 @@ type EndpointDeclarationFixture struct {
 }
 
 // EndpointDeclarationFixtures is the kit: every accepted and refused service
-// manifest, with the verdict each must reach. Every rule
-// ValidateEndpointDeclaration enforces is protected by at least one refused
-// fixture here, which the package's own tests prove by deleting each rule in
-// turn.
+// manifest, with the verdict each must reach. Every rule the endpoint model
+// enforces on a manifest — the decoder rules on its keys, the declaration
+// rules on its values — is protected by at least one refused fixture here,
+// which the package's own tests prove by deleting each rule in turn; the one
+// rule a manifest cannot reach (wire-fields-known) is protected by the wire
+// kit (EndpointWireFixtures).
 func EndpointDeclarationFixtures() ([]EndpointDeclarationFixture, error) {
 	table := []struct {
 		name, message, rule string
@@ -57,10 +59,16 @@ func EndpointDeclarationFixtures() ([]EndpointDeclarationFixture, error) {
 		{name: "visibility-unknown", outcome: EndpointDeclarationRefused, message: `unsupported visibility "application"`, rule: ruleVisibilityKnown},
 		{name: "location-unknown", outcome: EndpointDeclarationRefused, message: `unsupported location "nowhere"`, rule: ruleLocationKnown},
 		{name: "exposure-unknown", outcome: EndpointDeclarationRefused, message: `unsupported exposure "ingress"`, rule: ruleExposureKnown},
-		{name: "allow-modules-named", outcome: EndpointDeclarationRefused, message: `authors allow-modules ["billing"]`, rule: ruleAllowModulesDerived},
-		{name: "allow-modules-wildcard", outcome: EndpointDeclarationRefused, message: `authors allow-modules ["*"]`, rule: ruleAllowModulesDerived},
-		{name: "allow-modules-on-public", outcome: EndpointDeclarationRefused, message: `authors allow-modules ["billing"]`, rule: ruleAllowModulesDerived},
-		{name: "allow-modules-empty", outcome: EndpointDeclarationRefused, message: `authors allow-modules []`, rule: ruleAllowModulesDerived},
+		{name: "endpoint-key-unknown", outcome: EndpointDeclarationRefused, message: `declares unknown key "visibilty"`, rule: ruleEndpointKeysKnown},
+		// The forbidden key is refused by PRESENCE, before decoding: any value
+		// (a module, the wildcard, an empty list, null) and any spelling.
+		{name: "allow-modules-named", outcome: EndpointDeclarationRefused, message: `authors allow-modules (key "allow-modules")`, rule: ruleAllowModulesDerived},
+		{name: "allow-modules-wildcard", outcome: EndpointDeclarationRefused, message: `authors allow-modules (key "allow-modules")`, rule: ruleAllowModulesDerived},
+		{name: "allow-modules-on-public", outcome: EndpointDeclarationRefused, message: `authors allow-modules (key "allow-modules")`, rule: ruleAllowModulesDerived},
+		{name: "allow-modules-empty", outcome: EndpointDeclarationRefused, message: `authors allow-modules (key "allow-modules")`, rule: ruleAllowModulesDerived},
+		{name: "allow-modules-null", outcome: EndpointDeclarationRefused, message: `authors allow-modules (key "allow-modules")`, rule: ruleAllowModulesDerived},
+		{name: "allow-modules-underscore", outcome: EndpointDeclarationRefused, message: `authors allow-modules (key "allow_modules")`, rule: ruleAllowModulesDerived},
+		{name: "allow-modules-camel", outcome: EndpointDeclarationRefused, message: `authors allow-modules (key "allowModules")`, rule: ruleAllowModulesDerived},
 		{name: "exposure-on-internal", outcome: EndpointDeclarationRefused, message: `exposure "public" with visibility "internal"`, rule: ruleExposureWithinReach},
 		{name: "exposure-on-private", outcome: EndpointDeclarationRefused, message: `exposure "public" with visibility ""`, rule: ruleExposureWithinReach},
 		{name: "exposure-on-external", outcome: EndpointDeclarationRefused, message: `exposure "public" with location "external"`, rule: ruleExposureInSystem},

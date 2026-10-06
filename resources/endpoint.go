@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/proto"
+	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/wool"
@@ -102,12 +103,14 @@ type Endpoint struct {
 	Exposure string `yaml:"exposure,omitempty"`
 	// AllowModules is never a grant. The allow-list of an endpoint is DERIVED
 	// from the declared service dependencies of the composition's consumers
-	// (DeriveAllowModules): a module asks for what it consumes, in its own
-	// declaration, and the composition joins the asks. A list written here
-	// would be the target naming its own consumers, which no module may do, so
-	// the key is decoded for one purpose only — to be refused by name, the
-	// wildcard included (ValidateEndpointDeclaration). Nothing reads it.
-	AllowModules []string `yaml:"allow-modules,omitempty"`
+	// (Workspace.DeriveAllowModules): a module asks for what it consumes, in
+	// its own declaration, and the composition joins the asks. A list written
+	// on the endpoint would be the target naming its own consumers, which no
+	// module may do, so the YAML key is refused by presence before decoding
+	// (any spelling, any value, null and [] included), the wire field by number
+	// before projection, and a value set here in memory by
+	// ValidateEndpointDeclaration. Nothing reads it; nothing writes it.
+	AllowModules []string `yaml:"-"`
 	// Health declares what "healthy" means for this endpoint. Absence keeps the
 	// legacy transport-only semantics.
 	Health *Health `yaml:"health,omitempty"`
@@ -116,6 +119,30 @@ type Endpoint struct {
 	// what the endpoint exports instead, so a save writes the author's value
 	// back rather than the exported one.
 	authored *authoredExport
+}
+
+// UnmarshalYAML decodes an endpoint mapping after judging its keys: an unknown
+// key and the forbidden allow-modules key, in any spelling, are refused by
+// presence, BEFORE decoding loses them — a non-strict decoder would drop the
+// one and read null as absence for the other.
+func (endpoint *Endpoint) UnmarshalYAML(node *yaml.Node) error {
+	return endpoint.decodeYAML(node, "")
+}
+
+// decodeYAML is the one endpoint decoder, with one decoder rule deleted; "" is
+// every real path, and the kit's self-check is its only caller with a name.
+func (endpoint *Endpoint) decodeYAML(node *yaml.Node, deleted string) error {
+	keys, name := mappingKeys(node)
+	if err := validateEndpointKeys(name, keys, deleted); err != nil {
+		return err
+	}
+	type plain Endpoint
+	var decoded plain
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	*endpoint = Endpoint(decoded)
+	return nil
 }
 
 // authoredExport is the export-relevant part of an endpoint as its service
@@ -188,16 +215,23 @@ func (endpoint *Endpoint) Declaration() EndpointDeclaration {
 }
 
 // EndpointDeclarationOf is the export-relevant part of a proto endpoint, as
-// ValidateEndpointDeclaration judges it. The wire model carries no allow-list:
-// a grant is not something an endpoint can say about itself.
+// ValidateEndpointDeclaration judges it. The wire model defines no allow-list
+// — a grant is not something an endpoint can say about itself — and bytes for
+// a field the schema does not define, the reserved allow_modules among them,
+// are carried here as unknown field numbers for the rule to refuse, never
+// dropped by the projection.
 func EndpointDeclarationOf(e *basev0.Endpoint) EndpointDeclaration {
-	return EndpointDeclaration{
+	declaration := EndpointDeclaration{
 		Service:    e.GetService(),
 		Name:       e.GetName(),
 		Visibility: e.GetVisibility(),
 		Location:   e.GetLocation(),
 		Exposure:   e.GetExposure(),
 	}
+	if e != nil {
+		declaration.UnknownWireFields = UnknownWireFields(e.ProtoReflect().GetUnknown())
+	}
+	return declaration
 }
 
 // External reports whether the endpoint lives outside the system. Location is
@@ -427,9 +461,16 @@ func EndpointFromProto(e *basev0.Endpoint) *Endpoint {
 	}
 }
 
+// FromProtoEndpoints projects proto endpoints into the resource model, judging
+// each declaration whole first — the wire's unknown fields included — so a
+// proto that passed per-field schema validation is still refused here when
+// its declaration contradicts itself or carries a reserved field.
 func FromProtoEndpoints(es ...*basev0.Endpoint) ([]*Endpoint, error) {
 	var endpoints []*Endpoint
 	for _, e := range es {
+		if err := ValidateEndpointDeclaration(EndpointDeclarationOf(e)); err != nil {
+			return nil, err
+		}
 		if err := ValidateEndpointHealth(e); err != nil {
 			return nil, err
 		}
@@ -721,6 +762,12 @@ func resolveServiceDependencyEndpoints(service *ServiceDependency, endpoints []*
 	candidates, err := serviceDependencyCandidates(service, endpoints)
 	if err != nil {
 		return nil, err
+	}
+	// An edge that consumes no endpoint — a completion prerequisite, an
+	// external capability — selects none: stage participation is not
+	// consumption, and an omitted list on such an edge is not "all".
+	if !service.Kind.ConsumesEndpoints() {
+		return nil, nil
 	}
 	if len(service.Endpoints) == 0 {
 		return candidates, nil

@@ -815,7 +815,7 @@ platform to re-derive — and an allow-list of module names, each held to
 [`resources/names`](../resources/names), the shared grammar. The `allow_modules`
 a rendered inventory carries is **derived, never authored**: the composition
 computes it from the consumers' declared service dependencies with
-`resources.DeriveAllowModules` — the ask lives with the asker, never with the
+`resources.Workspace.DeriveAllowModules` — the ask lives with the asker, never with the
 target — and a service or module manifest that writes one is refused at the
 source (`resources.ValidateEndpointDeclaration`, rule `allow-modules-derived`),
 so no cell can carry a list a module wrote about its own consumers. That list

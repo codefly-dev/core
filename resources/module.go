@@ -7,6 +7,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	actionsv0 "github.com/codefly-dev/core/generated/go/codefly/actions/v0"
 
@@ -33,16 +37,45 @@ type InterfaceEndpoint struct {
 	// "internal". An entry names nobody: which modules reach the endpoint is
 	// derived from their declared dependencies (DeriveAllowModules).
 	Visibility string `yaml:"visibility,omitempty"`
-	// AllowModules is never a grant and is decoded only to be refused by name:
-	// an interface entry that listed its consumers would be the module naming
+	// AllowModules is never a grant. The YAML key is refused by presence before
+	// decoding (UnmarshalYAML) and a value set here in memory by validate: an
+	// interface entry that listed its consumers would be the module naming
 	// what composes it, which the boundary rules forbid.
-	AllowModules []string `yaml:"allow-modules,omitempty"`
+	AllowModules []string `yaml:"-"`
 	// Implements lists the published interface versions the endpoint serves,
 	// each <publisher>/<name>@<version>. One endpoint can serve several: a
 	// gRPC port carries several protobuf services, and often two major
 	// versions of one side by side. It is what lets a consumer depend on an
 	// interface instead of on this service.
 	Implements []string `yaml:"implements,omitempty"`
+}
+
+// interfaceEndpointKeys are the keys an interface entry may carry, read from
+// the type.
+var interfaceEndpointKeys = yamlKeysOf(InterfaceEndpoint{})
+
+// UnmarshalYAML decodes an interface entry after judging its keys: an unknown
+// key and the forbidden allow-modules key, in any spelling with any value, are
+// refused by presence BEFORE decoding loses them — the same two refusals an
+// endpoint mapping meets, for the same reason: a module that listed its
+// consumers would be naming what composes it.
+func (ie *InterfaceEndpoint) UnmarshalYAML(node *yaml.Node) error {
+	keys, _ := mappingKeys(node)
+	for _, key := range keys {
+		if canonicalKey(key) == allowModulesKeyCanonical {
+			return fmt.Errorf("interface endpoint authors allow-modules (key %q): an allow-list is derived from the consumers' declared service dependencies, never written by the module it would grant — a module asks for what it consumes, and the target names nobody", key)
+		}
+		if !slices.Contains(interfaceEndpointKeys, key) {
+			return fmt.Errorf("interface endpoint declares unknown key %q (an entry declares %s)", key, strings.Join(interfaceEndpointKeys, ", "))
+		}
+	}
+	type plain InterfaceEndpoint
+	var decoded plain
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	*ie = InterfaceEndpoint(decoded)
+	return nil
 }
 
 // InterfaceCapabilityExport declares the capability interfaces a service

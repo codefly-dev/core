@@ -12,4 +12,7 @@ endpoints:
   - name: grpc
   - name: rest
     visibility: public
+  - name: web
+    api: http
+    visibility: public
     exposure: public

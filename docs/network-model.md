@@ -254,21 +254,28 @@ allocates nothing.
 
 Which modules actually reach an endpoint is **derived by the composition** from
 the consumers' declared `service-dependencies`, by the one implementation in
-core, `resources.DeriveAllowModules`. A service declares what it requires, in
-its own repository, as part of its own declaration; the composition that performs
-the join (the CLI, at render — the only component holding both the declarations
-and the environment) calls the derivation for the allow-list it writes into the
-rendered artifact, and that derived list is what the platform enforces.
+core, `resources.Workspace.DeriveAllowModules`. A service declares what it
+requires, in its own repository, as part of its own declaration; the
+composition that performs the join (the CLI, at render — the only component
+holding both the declarations and the environment) calls the derivation for the
+allow-list it writes into the rendered artifact, and that derived list is what
+the platform enforces.
 
 The ask lives with the asker, never with the target. An `allow-modules` list
 written on an endpoint, or on a module interface entry, is the target naming its
 own consumers — a list that is unmaintainable at that layer (every new consumer
 is an edit to the host's repository), inverted (the consumed names its
 consumers), and forbidden by the boundary rules — so **a hand-authored
-`allow-modules` is refused by name when the manifest is read**, the wildcard
-`["*"]` included, as an invalid declaration
-(`resources.ValidateEndpointDeclaration`, rule `allow-modules-derived`). The
-former `module` visibility is written as `visibility: internal` and nothing else.
+`allow-modules` is refused by presence when the manifest is read**: any spelling
+(`allow-modules`, `allow_modules`, `allowModules`), any value (a module, the
+wildcard `["*"]`, `[]`, `null`), judged on the mapping's keys before decoding,
+because a decoder that has already run cannot tell `null` from absence and drops
+a spelling it does not know. On the wire the reserved field numbers
+(`Endpoint.allow_modules = 9`, `InterfaceEndpoint.allow_modules = 4`) are
+refused by number before projection: protobuf keeps bytes for a field the
+schema does not define as unknown data rather than refusing them, so every proto
+ingress judges the declaration whole, unknown fields included. The former
+`module` visibility is written as `visibility: internal` and nothing else.
 
 What the derivation buys, beyond fixing the boundary:
 
@@ -279,11 +286,32 @@ What the derivation buys, beyond fixing the boundary:
 - Adding a consumer is a change in the consumer, and no edit crosses a
   repository boundary.
 
-Only run-stage edges reach anything (a `build` or `schema` dependency reads the
-producer's contract and never calls it), the producer's own module appears when
-one of its services declares the dependency, and a dependency the export
-boundary refuses is the same refusal the static validation makes — nothing is
-derived for a composition that does not validate.
+**What derives an entry is what the dependency model says, not stage
+participation.** Only an edge that *reaches* the producer's endpoints at run
+time derives one (`DependencyKind.ReachesEndpoints`: untyped and `runtime`); a
+`build` or `schema` edge reads the producer's contract and never calls it, a
+`completion` prerequisite waits for the producer to finish and consumes no
+endpoint — it is a run-stage edge, and that is not consumption, so an omitted
+endpoint list on it never reads as "all" — and an `external` edge has no
+producer in the workspace. A list applies to an `internal` endpoint only:
+`public` is open and `private` is closed, and neither carries one. The
+producer's own module appears when one of its services asks.
+
+**The join is over the composition, never over bare services.** Every module of
+a composition carries its provenance (`Workspace.Member`: the role it was
+declared in, `module` or `solution`, and the workspace that declared it), and
+every edge is judged by the provenance of its two ends before the export
+boundary judges the endpoint (`Workspace.JudgeCompositionEdge`): **a solution
+reaches modules only through the host**, so a solution's run-stage edge onto a
+module's endpoint — of the composed platform or of the product's own `modules:`
+— is refused (`resources.ErrSolutionReachesThroughHost`) whatever the endpoint's
+visibility grants, in the derivation and in the static pass by the same rule; a
+`build` or `schema` edge reads the module's contract and is not that route, and
+an edge between two solutions or from a module is judged by visibility alone. An
+end the composition does not carry is unjudged provenance and refused as such.
+A dependency the export boundary refuses — a cross-module ask for a private
+endpoint — is the same refusal the static validation makes: nothing is derived
+for a composition that does not validate.
 
 **A static allow-list is reachability, not authorization.** The derived list can
 only answer *may anything in module X reach this endpoint at all* — a
@@ -307,26 +335,41 @@ declaration, never read as private by one path and denied by another. `module`
 is written as `visibility: internal`; `external` is written as
 `location: external` (see below) beside the visibility that applies.
 
-Every refusal `resources.ValidateEndpointDeclaration` makes is one named rule,
-run in a fixed order, and each rule is protected by a fixture in the shipped
-kit (`resources.EndpointDeclarationFixtures`, driven through a consumer's own
-loader by `resources.RunEndpointDeclarationKit`); the package's self-check
-deletes each rule in turn and proves a fixture notices:
+Every refusal the endpoint model makes is one named rule, run in a fixed order,
+each carrying its own witness in the table beside its check; each is protected
+by a fixture in a shipped kit — the manifest kit
+(`resources.EndpointDeclarationFixtures`, driven through a consumer's own loader
+by `resources.RunEndpointDeclarationKit`) for the rules a manifest reaches, the
+wire kit (`resources.EndpointWireFixtures`, `resources.RunEndpointWireKit`,
+and `resources.InterfaceEndpointWireFixtures` with
+`resources.RunInterfaceEndpointWireKit`) for the rule only bytes reach — and the
+package's self-check deletes each rule in turn and proves a fixture notices:
 
-| Rule | Refuses |
-|---|---|
-| `visibility-known` | a visibility other than `private`, `internal`, `public` or none |
-| `location-known` | a location other than `external` or none |
-| `exposure-known` | an exposure other than `public` or none |
-| `allow-modules-derived` | any authored `allow-modules`, the wildcard and the empty list included |
-| `exposure-within-reach` | `exposure: public` on an endpoint not `visibility: public` |
-| `exposure-in-system` | `exposure: public` on a `location: external` endpoint |
+| Rule | Judged on | Refuses |
+|---|---|---|
+| `endpoint-keys-known` | the mapping's keys, before decoding | a key the endpoint model does not define (a misspelt one would otherwise decode to nothing) |
+| `allow-modules-derived` | the keys, before decoding; the value, in memory | any authored `allow-modules`, in any spelling, with any value |
+| `wire-fields-known` | the proto, before projection | a field the schema does not define, the reserved `allow_modules` included |
+| `visibility-known` | the declaration | a visibility other than `private`, `internal`, `public` or none |
+| `location-known` | the declaration | a location other than `external` or none |
+| `exposure-known` | the declaration | an exposure other than `public` or none |
+| `exposure-within-reach` | the declaration | `exposure: public` on an endpoint not `visibility: public` |
+| `exposure-in-system` | the declaration | `exposure: public` on a `location: external` endpoint |
+
+Every proto ingress judges the declaration whole — the projection into the
+resource model (`resources.FromProtoEndpoints`), the dependency verdict, the
+public split, the environment-variable prefix and the network allocation
+(`network.RuntimeManager.GenerateNetworkMappings`, before any instance is
+allocated) — so a proto that passes the schema's per-field checks with
+`visibility: private, exposure: public`, or with reserved bytes kept as unknown
+data, is refused as an invalid declaration rather than handed an address.
 
 A module's interface entry is the whole export declaration: it names the reach
 the module grants across its boundary — `public`, or `internal` (the default) —
 and the service's own visibility is not consulted once the module has spoken.
-An entry names nobody, and one that authors `allow-modules` is refused like the
-endpoint's.
+An entry names nobody; its keys are judged before decoding like an endpoint's,
+and on the wire `resources.ValidateInterfaceEndpointWire` refuses the reserved
+field by number.
 
 ### Endpoint References
 

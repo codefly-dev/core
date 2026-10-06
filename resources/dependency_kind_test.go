@@ -298,3 +298,43 @@ func TestNetworkMappingsSkipNonRuntimeDependencies(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resolved, 1)
 }
+
+// Consumption and reach are the kind's, stated for every kind the model
+// defines: an edge consumes the producer's endpoints (calls them, or reads
+// their contract) or it does not, and an edge reaches them at run time or it
+// does not. A completion prerequisite participates in the run stage and
+// consumes nothing; a build edge consumes the contract and reaches nothing.
+func TestDependencyKindConsumptionAndReachAreStatedForEveryKind(t *testing.T) {
+	want := map[resources.DependencyKind]struct{ consumes, reaches bool }{
+		resources.DependencyKindLegacy:     {true, true},
+		resources.DependencyKindBuild:      {true, false},
+		resources.DependencyKindSchema:     {true, false},
+		resources.DependencyKindRuntime:    {true, true},
+		resources.DependencyKindCompletion: {false, false},
+		resources.DependencyKindExternal:   {false, false},
+	}
+	kinds := append([]resources.DependencyKind{resources.DependencyKindLegacy}, resources.DeclarableDependencyKinds()...)
+	require.Len(t, want, len(kinds), "every kind is stated")
+	for _, kind := range kinds {
+		expected, stated := want[kind]
+		require.True(t, stated, string(kind))
+		require.Equal(t, expected.consumes, kind.ConsumesEndpoints(), "%s consumes", kind)
+		require.Equal(t, expected.reaches, kind.ReachesEndpoints(), "%s reaches", kind)
+		if expected.reaches {
+			require.True(t, expected.consumes, "%s: reaching is consuming", kind)
+			require.True(t, kind.Participates(resources.StageRun), "%s: reaching is a run-stage edge", kind)
+		}
+	}
+	// Stage participation is not consumption: a completion edge is a run
+	// edge that consumes no endpoint, so an omitted endpoint list on it
+	// selects none — the consumer is handed no address and asks for none.
+	require.True(t, resources.DependencyKindCompletion.Participates(resources.StageRun))
+	completion := &resources.ServiceDependency{Module: "data", Name: "migrator", Kind: resources.DependencyKindCompletion}
+	endpoints := []*basev0.Endpoint{{Module: "data", Service: "migrator", Name: "http", Api: "http", Visibility: resources.VisibilityInternal}}
+	consumed, err := resources.ConsumedDependencyEndpoints("app", completion, endpoints)
+	require.NoError(t, err)
+	require.Empty(t, consumed)
+	resolved, err := resources.ResolveDependencyNetworkMappings("app", []*resources.ServiceDependency{completion}, []*basev0.NetworkMapping{{Endpoint: endpoints[0]}})
+	require.NoError(t, err)
+	require.Empty(t, resolved, "a completion consumer is handed no address")
+}

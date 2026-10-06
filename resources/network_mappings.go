@@ -256,6 +256,11 @@ func SplitPublicNetworkMappings(ctx context.Context, mappings []*basev0.NetworkM
 	var public []*basev0.NetworkMapping
 	var nonPublic []*basev0.NetworkMapping
 	for _, mapping := range mappings {
+		// A mapping is handed out by its declaration, so the declaration is
+		// judged whole here as on every proto ingress.
+		if err := ValidateEndpointDeclaration(EndpointDeclarationOf(mapping.GetEndpoint())); err != nil {
+			return nil, nil, err
+		}
 		if IsExposedEndpoint(mapping.Endpoint) || IsExternalEndpoint(mapping.Endpoint) {
 			public = append(public, mapping)
 		} else {

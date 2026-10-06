@@ -148,6 +148,41 @@ var dependencyKindStages = map[DependencyKind][]Stage{
 	DependencyKindExternal:   nil,
 }
 
+// dependencyKindConsumption is what an edge of each kind does with the
+// producer's endpoints — a distinction the stage table does not carry: a
+// completion edge participates in the run stage (the consumer waits for the
+// producer to finish) and consumes no endpoint, while a build edge reads the
+// producer's contract at build time and never calls it. Consumption is what
+// the export boundary judges and what a consumer is handed; reach — calling
+// the endpoint at run time — is what derives an allow-list entry.
+var dependencyKindConsumption = map[DependencyKind]struct{ consumes, reaches bool }{
+	DependencyKindLegacy:     {consumes: true, reaches: true},
+	DependencyKindBuild:      {consumes: true},
+	DependencyKindSchema:     {consumes: true},
+	DependencyKindRuntime:    {consumes: true, reaches: true},
+	DependencyKindCompletion: {},
+	DependencyKindExternal:   {},
+}
+
+// ConsumesEndpoints reports whether an edge of this kind consumes the
+// producer's endpoints at all — calls them, or reads their contract. A
+// completion prerequisite waits for the producer to finish and consumes none;
+// an external capability has no producer in the workspace. An edge that
+// consumes nothing selects no endpoint, whatever it names or omits, so an
+// omitted endpoint list on it never reads as "all".
+func (k DependencyKind) ConsumesEndpoints() bool {
+	return dependencyKindConsumption[k].consumes
+}
+
+// ReachesEndpoints reports whether an edge of this kind reaches the producer's
+// endpoints at run time — the consumer calls them — as opposed to reading
+// their contract at build time (build, schema), waiting for the producer to
+// finish (completion) or naming something outside the workspace (external).
+// Only a reaching edge derives an allow-list entry: a grant is for calling.
+func (k DependencyKind) ReachesEndpoints() bool {
+	return dependencyKindConsumption[k].reaches
+}
+
 // DeclarableDependencyKinds returns the kinds that can be written in YAML,
 // omitting the legacy (absent) kind. Callers use it to enumerate the vocabulary
 // exhaustively — a mapping keyed on dependency kinds is only complete if it

@@ -77,6 +77,11 @@ type Workspace struct {
 	composedWorkspaces    []*Workspace
 	derivedModules        map[string]bool
 	moduleDeclarationDirs map[string]string
+	// memberRoles and memberOwners are the provenance of every composed
+	// module (see Member): the role it was declared in and the workspace that
+	// declared it. A module absent from both is the product's own.
+	memberRoles  map[string]MemberRole
+	memberOwners map[string]string
 }
 
 func (workspace Workspace) MarshalYAML() (any, error) {
@@ -571,6 +576,15 @@ func validateModuleDependencyVisibility(ctx context.Context, modules []*Module, 
 						continue
 					}
 					return w.Wrap(err)
+				}
+				// The edge is judged by the provenance of its two ends before the
+				// endpoint is: a solution's route to a module's endpoints is
+				// refused whatever the endpoint grants. A module loaded outside a
+				// composition has no provenance to judge and none to refuse.
+				if mod.workspace != nil {
+					if err := mod.workspace.JudgeCompositionEdge(mod.Name, producerModule, dep); err != nil {
+						return w.Wrap(err)
+					}
 				}
 				producerEndpoints, err := producer.DependencyEndpoints()
 				if err != nil {

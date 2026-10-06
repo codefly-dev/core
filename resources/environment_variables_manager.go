@@ -465,6 +465,11 @@ func (holder *EnvironmentVariableManager) AddEndpoints(ctx context.Context, mapp
 		if mp == nil {
 			continue
 		}
+		// The prefix is chosen by the declaration, so the declaration is judged
+		// whole here as on every proto ingress.
+		if err := ValidateEndpointDeclaration(EndpointDeclarationOf(mp.GetEndpoint())); err != nil {
+			return w.Wrap(err)
+		}
 		for _, instance := range mp.Instances {
 			if accessKindMatches(instance, networkAccess) {
 				holder.endpoints = append(holder.endpoints, &EndpointAccess{

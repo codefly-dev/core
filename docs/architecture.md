@@ -79,7 +79,7 @@ or `internal` (the default): reachable by whatever composes the module, naming
 nobody — and an endpoint no entry names does not cross them at all, however the
 service declares it; `visibility:` on the endpoint governs the module's own
 inside. Neither names a consumer: which modules reach an endpoint is derived
-from their declared dependencies (`resources.DeriveAllowModules`), an authored
+from their declared dependencies (`resources.Workspace.DeriveAllowModules`), an authored
 `allow-modules` is refused, and the derived list is reachability for mesh
 policy, never per-call authorization (that is the Work Context) — see
 [network-model.md](network-model.md#the-allow-list-is-derived-never-authored). The boundary

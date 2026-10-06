@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/stretchr/testify/require"
 )
@@ -57,12 +59,17 @@ interface:
 func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 	ctx := context.Background()
 	for name, tc := range map[string]struct{ entry, says string }{
-		"an internal allow-list":     {"          visibility: internal\n          allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
-		"a wildcard":                 {"          visibility: internal\n          allow-modules: [\"*\"]\n", `authors allow-modules ["*"]`},
-		"an empty list":              {"          visibility: internal\n          allow-modules: []\n", `authors allow-modules []`},
-		"an entry naming no module":  {"          visibility: internal\n          allow-modules: [\"\"]\n", `authors allow-modules [""]`},
-		"public with an allow-list":  {"          visibility: public\n          allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
-		"an undecorated allow-list":  {"          allow-modules: [platform]\n", `authors allow-modules ["platform"]`},
+		// The forbidden key is refused by PRESENCE, before decoding: any value
+		// and any spelling.
+		"an internal allow-list":     {"          visibility: internal\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
+		"a wildcard":                 {"          visibility: internal\n          allow-modules: [\"*\"]\n", `authors allow-modules (key "allow-modules")`},
+		"an empty list":              {"          visibility: internal\n          allow-modules: []\n", `authors allow-modules (key "allow-modules")`},
+		"null":                       {"          visibility: internal\n          allow-modules: null\n", `authors allow-modules (key "allow-modules")`},
+		"the underscore spelling":    {"          visibility: internal\n          allow_modules: [platform]\n", `authors allow-modules (key "allow_modules")`},
+		"the camel spelling":         {"          visibility: internal\n          allowModules: [platform]\n", `authors allow-modules (key "allowModules")`},
+		"public with an allow-list":  {"          visibility: public\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
+		"an undecorated allow-list":  {"          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
+		"an unknown key":             {"          visibilty: public\n", `declares unknown key "visibilty"`},
 		"the former module spelling": {"          visibility: module\n", "visibility"},
 		"a private export":           {"          visibility: private\n", "visibility"},
 	} {
@@ -126,6 +133,16 @@ func TestInterfaceEntryRulesHoldOnTheWire(t *testing.T) {
 			require.ErrorContains(t, err, "authors allow-modules")
 		})
 	}
+	// And bytes a peer sent with the reserved field on them are refused at the
+	// wire, by number — protobuf keeps them as unknown data, so a reader that
+	// projected without judging would carry the list past the model.
+	RunInterfaceEndpointWireKit(t, func(raw []byte) error {
+		entry := &basev0.InterfaceEndpoint{}
+		if err := proto.Unmarshal(raw, entry); err != nil {
+			return err
+		}
+		return ValidateInterfaceEndpointWire(entry)
+	})
 }
 
 func TestLoadModuleFromDirAcceptsValidInterface(t *testing.T) {
