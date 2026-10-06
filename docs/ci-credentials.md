@@ -30,13 +30,12 @@ Both decide their questions from a **parsed expression**, not from its text
 (`expression_test.go`). That is not fussiness — a guard that reads text answers
 wrongly in both directions:
 
-| Looks safe, is not | Why text cannot tell |
-| --- | --- |
-| `if: <safe condition> \|\| true` | contains every required clause; runs on a pull request |
-| `if: ${{ !(always() && <safe condition>) }}` | contains every required clause, negated |
-| `env: { X: "${{ secrets['NAME'] }}" }` | reads a secret; matches no `secrets.NAME` pattern |
-| `env: { X: "${{ toJSON(secrets) }}" }` | reads *every* secret; names none |
-| workflow-level `env:` | inherited by every job while appearing in none of them |
+Both questions turn on what an expression MEANS, not on how it is spelled, and
+a credential may be read without the word `secrets` followed by a name. So an
+expression is parsed, a condition is evaluated, and a secret reference is found
+by walking the syntax tree for any read of the `secrets` context — in whichever
+form GitHub resolves it. Workflow-level `env:` is part of the model, because
+every job inherits it.
 
 So a condition is **evaluated** in three-valued logic against scenarios that
 bind the hostile facts — a pull request, a merge-queue candidate, a
@@ -69,8 +68,8 @@ Some facts sit in between, and a sample is wrong for those too: the event fixes
 for a tag push, while the number and the name are chosen. Those are bound as a
 **domain** — the prefix the event fixes — so a comparison outside it is false
 (`github.ref == 'refs/heads/main'` cannot hold on a pull request) and one inside
-it is unknown (`github.ref == 'refs/pull/8/merge'` is true on pull request 8).
-Sampling one ref made that second case definitely-false and accepted the job.
+it is unknown, since the event fixes only the prefix. Sampling a single ref
+would answer for one instance and not for the event.
 
 Where a scenario pins a party-chosen value on purpose, to oblige one particular
 condition, it goes in a separate `adversarial` map with its reason, and a test
@@ -120,25 +119,18 @@ reporting "nothing found".
       no execution surface (a service or container image) is built from a
       context the triggering party supplies, and it hands no secret to a
       workflow these guards cannot read, or
-   3. it proves what it runs — a `git merge-base --is-ancestor` refusal that
-      precedes every step executing repository code.
+   3. it proves what it runs — a refusal whose behaviour a test establishes by
+      executing it, which every path to repository execution depends on having
+      succeeded.
 
-   Exemptions written in terms of the trigger each had a concrete accepted
-   construction: a secret-bearing job on `release: published` with a tag at
-   unmerged code; one on `push` to a branch named `unmerged`; one on `schedule`
-   checking out `refs/pull/8/head`; a dispatch job whose only credential was
-   the built-in write token. Trigger identity says nothing about which code a
-   job executes, which is the only question that matters.
-7. **A tag is not a statement about review.** A tag can be pushed to any
-   commit, so a credential-bearing job gated on one must prove the commit is
-   reachable from the default branch with `git merge-base --is-ancestor`.
-8. **A credential-bearing job never reaches for `refs/pull/`.** A pull
-   request's head is whatever was last pushed to that branch; filtering by
-   pull-request author establishes who opened it, not who wrote the commits on
-   it. Assembling such a tree is legitimate work — it belongs in a job with no
-   secret, which passes the result on as an artifact.
-9. **A credential-bearing job in a dispatchable workflow checks out `main`
-   explicitly.** `workflow_dispatch` is not restricted to the default branch.
+   Alongside all three: the workflow's own file must come from a ref only a
+   writer can set, the interpreter each step runs under must be one these
+   guards read, and no value the triggering party supplies may reach a sink
+   that becomes a program — a script, an action input, a generated executable,
+   `$GITHUB_PATH`, or a matrix. A flow that cannot be established is refused.
+
+   No trigger exempts a job, because trigger identity says nothing about which
+   code a job executes — and that is the only question here.
 
 Rules 2, 3, 6, 7 and 9 decide *whether* a job runs; rules 4, 5 and 8 decide
 *what* it runs when it does. Both halves are needed: with only the first, a

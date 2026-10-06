@@ -7,10 +7,6 @@ on:
         description: Optional shell command run before the test suite (e.g. docker pull of a test dependency).
         type: string
         default: ''
-      goreleaser-version:
-        description: Version constraint passed to goreleaser-action.
-        type: string
-        default: '~> v2'
 
 jobs:
   test:
@@ -126,7 +122,9 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: ${{ inputs.goreleaser-version }}
+          # Pinned here, not supplied: the version selects which GoReleaser
+          # binary runs, so a caller-chosen value is a caller-chosen program.
+          version: '~> v2'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}

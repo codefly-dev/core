@@ -120,6 +120,24 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 			return false, "its refusal is at step " + job.Steps[index].Name +
 				" but step " + job.Steps[first].Name + " executes repository code before it"
 		}
+		// Preceding execution is not enough: execution must be DOMINATED by the
+		// refusal having succeeded. A later step carrying `if: always()` --
+		// or `failure()`, or any condition whose relationship to the refusal
+		// cannot be established -- runs after the refusal has failed, with the
+		// credential and the unmerged tree. So after a refusal, a step carries
+		// no condition.
+		for i := index + 1; i < len(job.Steps); i++ {
+			later := job.Steps[i]
+			if gate := strings.TrimSpace(later.If); gate != "" {
+				return false, "step " + later.Name + " carries `if: " + gate +
+					"` after the refusal, so its execution is not required to follow " +
+					"the refusal having succeeded"
+			}
+			if later.ContinueOnError {
+				return false, "step " + later.Name +
+					" tolerates its own failure after the refusal"
+			}
+		}
 		provenByRefusal = true
 	} else if reason != "" {
 		return false, reason
@@ -356,6 +374,18 @@ func executionInputsArePinned(t *testing.T, wf isolatedWorkflow, job isolatedJob
 		inherited[name] = value
 	}
 
+	// A matrix is a sink too: its values reach every step that reads
+	// `matrix.*`, and a matrix built from a party-chosen context supplies all
+	// of them.
+	if job.Strategy.Kind != 0 {
+		var rendered strings.Builder
+		require.NoError(t, yaml.NewEncoder(&rendered).Encode(job.Strategy))
+		if partyChosen(t, rendered.String()) {
+			return "its strategy/matrix is built from a value the triggering party " +
+				"supplies, so every step reading matrix.* reads that value", false
+		}
+	}
+
 	// Provenance travels. A step can write a party-chosen value into
 	// $GITHUB_ENV under a fresh name, and the next step executes that name --
 	// so taint is carried forward across steps rather than rebuilt per step.
@@ -382,11 +412,50 @@ func executionInputsArePinned(t *testing.T, wf isolatedWorkflow, job isolatedJob
 			}
 		}
 
-		// Anything this step already carries forward.
-		for name := range tainted {
-			if scriptExecutesEnvName(step.Run, name) {
-				return where + " runs a program from $" + name +
-					", whose value the triggering party supplies", false
+		// ONE analysis over every sink a step has. Command-string patterns
+		// cannot enumerate them: an action input (`with: script:`), a file
+		// written and made executable, a directory appended to $GITHUB_PATH
+		// and then invoked by name, and a matrix value are each a way for a
+		// value to become a program. So each sink is checked for a
+		// party-chosen context or a tainted name, and a flow this cannot
+		// follow refuses.
+		sinks := map[string]string{"run:": step.Run}
+		for key, value := range step.With {
+			if text, ok := value.(string); ok {
+				sinks["with."+key] = text
+			}
+		}
+		for label, text := range sinks {
+			if partyChosen(t, text) {
+				return where + " passes a triggering-party value to " + label, false
+			}
+			for name := range tainted {
+				if label == "run:" {
+					if scriptExecutesEnvName(text, name) {
+						return where + " runs a program from $" + name +
+							", whose value the triggering party supplies", false
+					}
+					continue
+				}
+				// An action input is consumed by the action, not by a shell,
+				// so any mention of a tainted value is a flow into it.
+				if strings.Contains(text, "$"+name) || strings.Contains(text, "${"+name) ||
+					strings.Contains(text, "env."+name) {
+					return where + " passes $" + name + " to " + label +
+						", whose value the triggering party supplies", false
+				}
+			}
+		}
+
+		// Sinks whose flow cannot be followed at all.
+		for marker, why := range map[string]string{
+			"GITHUB_PATH": "appends a directory to $GITHUB_PATH, after which a later " +
+				"step runs a program by name that this cannot attribute",
+			"chmod +x": "makes a file executable, and what it wrote into that file " +
+				"cannot be followed here",
+		} {
+			if strings.Contains(step.Run, marker) {
+				return where + " " + why, false
 			}
 		}
 
@@ -512,7 +581,40 @@ func effectiveShell(wf isolatedWorkflow, job isolatedJob, step isolatedStep) str
 			return trimmed
 		}
 	}
-	return "bash"
+	// No shell named: the RUNNER decides, so the runner has to be read. A
+	// windows runner defaults to PowerShell, where `Invoke-Expression
+	// $env:TASK` runs a value -- read as bash, that construct is invisible.
+	// A runner this does not recognise yields an unreadable shell, which
+	// refuses.
+	return platformShell(job)
+}
+
+// linuxRunners are the labels whose default shell is bash. Anything else --
+// windows, macos, a self-hosted label, a matrix expression -- is not assumed.
+var linuxRunners = map[string]bool{
+	"ubuntu-latest": true, "ubuntu-24.04": true, "ubuntu-22.04": true, "ubuntu-20.04": true,
+}
+
+// platformShell returns the runner's default interpreter, or a name no readable
+// shell matches when the runner cannot be identified.
+func platformShell(job isolatedJob) string {
+	if job.Container.Kind != 0 {
+		return "bash" // a linux container image; its default is sh/bash
+	}
+	switch job.RunsOn.Kind {
+	case yaml.ScalarNode:
+		if linuxRunners[strings.TrimSpace(job.RunsOn.Value)] {
+			return "bash"
+		}
+		return "the default shell of runner " + job.RunsOn.Value
+	case yaml.SequenceNode:
+		for _, entry := range job.RunsOn.Content {
+			if linuxRunners[strings.TrimSpace(entry.Value)] {
+				return "bash"
+			}
+		}
+	}
+	return "an unidentified runner's default shell"
 }
 
 // partyChosen reports whether a value reads from a context the triggering party

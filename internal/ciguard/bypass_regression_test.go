@@ -451,6 +451,7 @@ func TestARefusalNobodyExecutesIsNotARefusal(t *testing.T) {
 			wf := parseIsolatedDocument(t, `on: workflow_call
 jobs:
   probe:
+    runs-on: ubuntu-latest
     env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -586,6 +587,7 @@ func TestANominalRefusalIsNotARefusal(t *testing.T) {
 			wf := parseIsolatedDocument(t, `on: workflow_call
 jobs:
   probe:
+    runs-on: ubuntu-latest
     permissions: {contents: read}
     env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
     steps:
@@ -638,7 +640,7 @@ func TestAPinnedTreeDoesNotPinWhatRunsInIt(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			wf := parseIsolatedDocument(t, "on: workflow_call\njobs:\n  probe:\n"+
+			wf := parseIsolatedDocument(t, "on: workflow_call\njobs:\n  probe:\n    runs-on: ubuntu-latest\n"+
 				"    permissions: {contents: read}\n"+
 				"    env: {CREDENTIAL: '${{ secrets.BUNDLED_CONFIG }}'}\n"+tc.job+"\n", tc.name)
 			ok, missing := acceptedExecution(t, wf, "probe")
@@ -668,6 +670,7 @@ func TestTheTargetEventsRefIsABranchAndProvesNothingAboutItsCode(t *testing.T) {
 	wf := parseIsolatedDocument(t, `on: pull_request_target
 jobs:
   probe:
+    runs-on: ubuntu-latest
     permissions: {contents: read}
     env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
     steps:
@@ -769,6 +772,7 @@ func TestANestedCheckoutMustPinTheDefaultBranchAsWell(t *testing.T) {
 	job := parseIsolatedDocument(t, `on: workflow_call
 jobs:
   probe:
+    runs-on: ubuntu-latest
     env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1054,6 +1058,7 @@ func TestEachExecutionProtectionHasItsOwnWitness(t *testing.T) {
 		return parseIsolatedDocument(t, `on: workflow_call
 jobs:
   probe:
+    runs-on: ubuntu-latest
     env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1094,4 +1099,131 @@ jobs:
 		ok, missing := acceptedExecution(t, wf, "probe")
 		require.True(t, ok, "refused a job that pins what it runs: %s", missing)
 	})
+}
+
+// A refusal that EXISTS is not a refusal that execution DEPENDS ON. A later
+// step carrying a condition runs whatever the refusal concluded, so execution
+// must be dominated by the refusal having succeeded.
+func TestExecutionMustBeDominatedByASuccessfulRefusal(t *testing.T) {
+	known := verifiedRefusals[1]
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", known.workflow))
+	require.NoError(t, err)
+	anchor := "      - name: Run GoReleaser\n"
+	require.Contains(t, string(raw), anchor)
+
+	for _, tc := range []struct{ name, step string }{
+		{
+			name: "a step that runs regardless of the refusal",
+			step: `      - name: probe
+        if: ${{ always() }}
+        env: {PROBE: "${{ secrets.GH_PAT }}"}
+        run: ./release-probe.sh
+`,
+		},
+		{
+			name: "a step that runs only when something failed",
+			step: `      - name: probe
+        if: failure()
+        env: {PROBE: "${{ secrets.GH_PAT }}"}
+        run: ./release-probe.sh
+`,
+		},
+		{
+			name: "a step that tolerates its own failure",
+			step: `      - name: probe
+        continue-on-error: true
+        run: ./release-probe.sh
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t,
+				strings.Replace(string(raw), anchor, tc.step+anchor, 1), known.workflow)
+			wf.name = known.workflow
+			ok, missing := acceptedExecution(t, wf, known.job)
+			require.False(t, ok,
+				"a step after the refusal escapes it and was accepted (guard said %q)",
+				missing)
+		})
+	}
+}
+
+// The interpreter is the RUNNER's when no shell is named, so the runner has to
+// be read. On a windows runner `Invoke-Expression $env:TASK` runs a value, and
+// that construct is invisible to a reader assuming bash.
+func TestTheRunnerDecidesTheInterpreterWhenNoShellIsNamed(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		runsOn   string
+		accepted bool
+	}{
+		{name: "a windows runner", runsOn: "windows-latest", accepted: false},
+		{name: "a macos runner", runsOn: "macos-latest", accepted: false},
+		{name: "a self-hosted label", runsOn: "self-hosted", accepted: false},
+		{name: "a linux runner", runsOn: "ubuntu-latest", accepted: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t, `on: pull_request_target
+jobs:
+  probe:
+    runs-on: `+tc.runsOn+`
+    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: go test ./...
+`, tc.name)
+			ok, missing := acceptedExecution(t, wf, "probe")
+			require.Equal(t, tc.accepted, ok, "guard said %q", missing)
+		})
+	}
+}
+
+// One analysis, every sink. A value becomes a program through an action input,
+// a file made executable, a directory on $GITHUB_PATH, or a matrix — not only
+// through a shell construct.
+func TestTaintReachesEverySink(t *testing.T) {
+	for _, tc := range []struct{ name, job string }{
+		{
+			name: "an action input, by way of the environment file",
+			job: `    env: {TASK: "${{ github.event.pull_request.body }}", CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: echo "NEXT=$TASK" >> $GITHUB_ENV
+      - uses: actions/github-script@v7
+        with: {script: "${{ env.NEXT }}"}`,
+		},
+		{
+			name: "a generated executable reached through PATH",
+			job: `    env: {TASK: "${{ github.event.pull_request.body }}", CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: |
+          printf '%s' "$TASK" > "$RUNNER_TEMP/probe"
+          chmod +x "$RUNNER_TEMP/probe"
+          echo "$RUNNER_TEMP" >> $GITHUB_PATH
+      - run: probe`,
+		},
+		{
+			name: "a matrix built from a triggering-party value",
+			job: `    strategy:
+      matrix: ${{ fromJSON(github.event.pull_request.body) }}
+    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - uses: actions/github-script@v7
+        with: {script: "${{ matrix.program }}"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseIsolatedDocument(t,
+				"on: pull_request_target\njobs:\n  probe:\n    runs-on: ubuntu-latest\n"+tc.job+"\n",
+				tc.name)
+			ok, missing := acceptedExecution(t, wf, "probe")
+			require.False(t, ok, "the flow reached a sink and was accepted (guard said %q)", missing)
+		})
+	}
 }

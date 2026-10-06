@@ -51,6 +51,9 @@ type isolatedJob struct {
 	Uses        string            `yaml:"uses"`
 	Steps       []isolatedStep    `yaml:"steps"`
 	Defaults    isolatedDefaults  `yaml:"defaults"`
+	RunsOn      yaml.Node         `yaml:"runs-on"`
+	Strategy    yaml.Node         `yaml:"strategy"`
+	Container   yaml.Node         `yaml:"container"`
 }
 
 // isolatedStep is one step, named rather than anonymous so that the steps of
