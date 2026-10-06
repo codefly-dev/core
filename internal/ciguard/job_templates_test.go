@@ -151,8 +151,7 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool
 		return false, "no shape is recorded for " + template.workflow +
 			", so nothing pins what this job runs"
 	}
-	actual := canonicalWorkflowDigest(t,
-		filepath.Join(repoRoot(t), ".github", "workflows", template.workflow))
+	actual := canonicalDigest(t, wf.document)
 	if recorded != actual {
 		return false, template.workflow + " has changed shape: recorded " +
 			recorded[:12] + ", actual " + actual[:12] + " (" + template.why +

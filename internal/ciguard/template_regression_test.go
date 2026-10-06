@@ -174,3 +174,36 @@ func TestARegisteredJobRunsNoUnpinnedRepositoryFile(t *testing.T) {
 		})
 	}
 }
+
+// The decision's own comparison, witnessed: a changed workflow handed to it is
+// refused. Before this, the digest was recorded by one test and the decision
+// compared a field nobody set, so the decision accepted every registered name
+// whatever its content.
+func TestTheDecisionRefusesAChangedWorkflow(t *testing.T) {
+	path := filepath.Join(repoRoot(t), ".github", "workflows", "go-service-release.yml")
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	unchanged := parseIsolatedDocument(t, string(raw), "go-service-release.yml")
+	unchanged.name = "go-service-release.yml"
+	accepted, missing := credentialJobIsAccepted(t, unchanged, "goreleaser")
+	require.True(t, accepted, "the unchanged workflow was refused: %s", missing)
+
+	for _, tc := range []struct{ name, from, to string }{
+		{"a neutralising workflow shell", "jobs:\n", "defaults:\n  run:\n    shell: 'true {0}'\njobs:\n"},
+		{"a workflow environment that redefines a command", "jobs:\n", "env:\n  BASH_ENV: .github/release-env.sh\njobs:\n"},
+		{"a step added before the publisher", "      - name: Run GoReleaser\n", "      - run: ./probe.sh\n      - name: Run GoReleaser\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Contains(t, string(raw), tc.from)
+			changed := parseIsolatedDocument(t,
+				strings.Replace(string(raw), tc.from, tc.to, 1), "go-service-release.yml")
+			changed.name = "go-service-release.yml"
+			accepted, missing := credentialJobIsAccepted(t, changed, "goreleaser")
+			require.False(t, accepted,
+				"a changed workflow was accepted, so the decision is not comparing "+
+					"what it was handed (guard said %q)", missing)
+			require.Contains(t, missing, "has changed shape")
+		})
+	}
+}

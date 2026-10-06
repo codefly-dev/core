@@ -188,6 +188,11 @@ type isolatedWorkflow struct {
 	// name is the workflow's file name, so a registry keyed by workflow can be
 	// consulted without threading the path through every call.
 	name string
+	// document is the whole workflow as parsed. The template digest is taken
+	// from this rather than re-read from disk, so a caller can hand over a
+	// changed workflow and see it refused -- which is what makes the
+	// comparison testable at all.
+	document yaml.Node
 }
 
 // secretsIn returns every non-built-in secret the job can reach, and where
@@ -364,6 +369,7 @@ func parseIsolatedDocument(t *testing.T, text, where string) isolatedWorkflow {
 	require.NoError(t, yaml.Unmarshal([]byte(text), &verbatim), where)
 	wf.raw = verbatim.Jobs
 	wf.name = filepath.Base(where)
+	require.NoError(t, yaml.Unmarshal([]byte(text), &wf.document), where)
 	return wf
 }
 
