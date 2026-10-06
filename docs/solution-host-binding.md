@@ -762,7 +762,7 @@ the runtimes that publish contracts, the platform's loader that derives policy
 from cells), and a second implementation in any of them is where the next
 disagreement about what a file means appears.
 
-**`solutionhost/modulecontract`** is `codefly/module-contract/v1`, the
+**`contracts/module`** is `codefly/module-contract/v1`, the
 request a module publishes beside its manifest as
 `module.contract.codefly.yaml`: the principal its credentials are issued to,
 the operation bindings it redeems (each with a scope ceiling per operation in
@@ -842,7 +842,7 @@ consumers resolving one composition into two different authority documents is
 the same failure as two readers disagreeing about a file. So `Values` only
 ENUMERATES — a provider reports a group's records as supplied, keeping both
 spellings of a key, a key supplied twice and a key classified two ways — and
-every rule over them lives in `solutionhost/modulecontract`: a key is matched
+every rule over them lives in `contracts/module`: a key is matched
 in either spelling core accepts, records that are one key must agree on its
 value (**two spellings that agree are one value and resolve** — it is the
 disagreement that has no answer), a key any occurrence of which is secret IS a
