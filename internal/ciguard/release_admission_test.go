@@ -86,7 +86,7 @@ func newReleaseFixture(t *testing.T) releaseFixture {
 }
 
 // run executes the refusal with a declared branch and a selected commit.
-func (f releaseFixture) run(t *testing.T, script, declared, sha string) (bool, string) {
+func (f releaseFixture) run(t *testing.T, script, _ignoredDeclaration, sha string) (bool, string) {
 	t.Helper()
 
 	out, err := testgit.Run(context.Background(), f.dir, nil, "checkout", "--detach", sha)
@@ -96,7 +96,6 @@ func (f releaseFixture) run(t *testing.T, script, declared, sha string) (bool, s
 	command.Dir = f.dir
 	command.Env = append(os.Environ(),
 		"GIT_CONFIG_NOSYSTEM=1",
-		"DECLARED_BRANCH="+declared,
 		"GITHUB_SHA="+sha,
 		"GITHUB_REF_NAME=v1.2.3",
 	)
@@ -122,13 +121,8 @@ func TestAReleaseIsAdmittedOnlyFromTheRepositorysOwnDefaultBranch(t *testing.T) 
 		// branch is -- the commit genuinely is reachable from `topic/one`, and
 		// `topic/one` is genuinely a branch. It is simply not this
 		// repository's default branch.
-		{name: "a branch the caller nominates", declared: "topic/one", commit: "unmerged", admit: false},
-		{name: "another branch the caller nominates", declared: "release-next", commit: "unmerged", admit: false},
-
-		// A declaration that cannot be checked refuses by name rather than
-		// being treated as absent.
-		{name: "no declaration at all", declared: "", commit: "tip", admit: false},
-		{name: "a branch that does not exist", declared: "missing", commit: "tip", admit: false},
+		// There is no declaration to nominate, omit or misspell: the input was
+		// removed, so the authority has exactly one source.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := newReleaseFixture(t)
@@ -138,7 +132,7 @@ func TestAReleaseIsAdmittedOnlyFromTheRepositorysOwnDefaultBranch(t *testing.T) 
 
 			admitted, output := fixture.run(t, script, tc.declared, sha)
 			require.Equal(t, tc.admit, admitted,
-				"declared %q, commit %s:\n%s", tc.declared, tc.commit, output)
+				"commit %s:\n%s", tc.commit, output)
 			if !tc.admit {
 				require.Contains(t, output, "refusing to release",
 					"a refusal must say so, with the reason")
@@ -165,4 +159,37 @@ func TestNeutralisingTheReleaseRefusalIsVisible(t *testing.T) {
 		"with every refusal turned into a success the unmerged commit is still "+
 			"rejected, which means something other than the refusal decided it and "+
 			"the test above proves nothing")
+}
+
+// R707-10's other half: the shell is only as trustworthy as the environment the
+// YAML renders into it. A test that supplies that environment by hand proves
+// nothing about the wiring, so the wiring is asserted directly -- the refusal
+// step must take NO caller-supplied input at all, now that the authority has a
+// single source.
+func TestTheReleaseRefusalTakesNoCallerSuppliedInput(t *testing.T) {
+	_, workflows := loadIsolatedWorkflows(t)
+	path := filepath.Join(repoRoot(t), ".github", "workflows", "go-service-release.yml")
+	wf := workflows[path]
+
+	var found bool
+	for _, step := range wf.Jobs["goreleaser"].Steps {
+		if step.Name != releaseRefusalStep {
+			continue
+		}
+		found = true
+		for name, value := range step.Env {
+			require.False(t, partyChosen(t, value),
+				"the refusal receives %s=%s, so the caller can influence the "+
+					"authority it checks against", name, value)
+		}
+		require.NotContains(t, step.Run, "DECLARED_BRANCH",
+			"the refusal still reads a declaration; the authority has one source")
+	}
+	require.True(t, found, "no step named %q", releaseRefusalStep)
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "default-branch",
+		"the workflow still declares a default-branch input, which can be "+
+			"omitted, defaulted or disagreed with")
 }

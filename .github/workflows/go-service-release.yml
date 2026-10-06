@@ -11,14 +11,6 @@ on:
         description: Version constraint passed to goreleaser-action.
         type: string
         default: '~> v2'
-      default-branch:
-        description: >-
-          The branch a release tag must be reachable from, DECLARED by the
-          caller and checked against the repository's own default branch. A
-          declaration that disagrees with it refuses, naming both: the caller
-          states the expectation, the repository decides.
-        type: string
-        default: main
 
 jobs:
   test:
@@ -90,18 +82,15 @@ jobs:
           # token -- not the PAT, which is only ever a step `env:`.
 
       - name: require the tag to be on the default branch, or refuse
-        env:
-          # What the caller DECLARED. It is checked against the authority
-          # below; it does not decide anything by itself.
-          DECLARED_BRANCH: ${{ inputs.default-branch }}
         run: |
           set -euo pipefail
 
-          # The authority is the remote's own HEAD. Taking the branch from the
-          # caller's input let the caller choose which history counts as
-          # reviewed: an input naming a side branch admitted a commit that was
-          # never merged. Whoever may approve a release is this repository's
-          # decision, so it is read from the repository.
+          # The authority is the remote's own HEAD, and there is no input that
+          # can name it. A declaration the caller supplies could be omitted,
+          # defaulted or disagreed with, and each of those is a way for the
+          # caller to choose which history counts as reviewed. Whoever may
+          # approve a release is this repository's decision, so the only source
+          # is the repository.
           authority=$(git ls-remote --symref origin HEAD \
             | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2 }')
           if [ -z "$authority" ]; then
@@ -109,12 +98,6 @@ jobs:
             exit 1
           fi
 
-          # The declaration must AGREE with the authority. A mismatch is a
-          # contradiction, named on both sides, rather than a preference.
-          if [ "$DECLARED_BRANCH" != "$authority" ]; then
-            echo "::error::default-branch declares <${DECLARED_BRANCH}> but this repository's default branch is <${authority}>; refusing to release." >&2
-            exit 1
-          fi
 
           git fetch --quiet --no-tags --force origin \
             "+refs/heads/${authority}:refs/remotes/origin/${authority}"

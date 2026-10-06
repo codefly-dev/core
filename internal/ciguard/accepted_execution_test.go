@@ -47,6 +47,20 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string, hosti
 
 	established, missing := acceptedExecution(t, wf, id)
 	if established {
+		// Execution is established. The remaining question is the provenance
+		// of the PROGRAM -- the workflow file itself, which GitHub takes from
+		// the triggering ref. A pinned checkout says nothing about it: an
+		// unrestricted `push` runs the file from the branch that was pushed,
+		// so an inline `run:` in it is the pusher's program however carefully
+		// the checkout names the default branch.
+		if trusted, untrusted := workflowSourceIsTrusted(t, wf.On); !trusted {
+			if unreachable, _ := provablyUnreachable(t, wf.Jobs[id].If, hostile); !unreachable {
+				return false, "this workflow's own file comes from a ref the " +
+					"triggering party influences (" + strings.Join(untrusted, ", ") +
+					"), so its inline program has no established provenance, and the " +
+					"job is not provably unreachable from those situations either"
+			}
+		}
 		return true, ""
 	}
 
@@ -544,4 +558,46 @@ func environmentExports(script string) (map[string][]string, string) {
 		exported[groups[1]] = sources
 	}
 	return exported, ""
+}
+
+// trustedWorkflowSources: the triggers for which GitHub takes the WORKFLOW FILE
+// from a ref only a writer of this repository can set.
+//
+// This is a provenance separate from the checkout's, and pinning the checkout
+// does not supply it.
+//
+//   - `push` qualifies only when its filter admits the default branch alone.
+//   - `workflow_run` and `schedule` take the file from the default branch.
+//   - `workflow_call` takes it from a ref of THIS repository, which only a
+//     writer can create.
+//
+// Everything else -- `pull_request` and its relatives, `workflow_dispatch`,
+// `release`, `create`, `delete` -- takes the file from a ref the triggering
+// party influences.
+func workflowSourceIsTrusted(t *testing.T, on yaml.Node) (bool, []string) {
+	t.Helper()
+
+	var untrusted []string
+	for _, trigger := range triggers(on) {
+		switch trigger {
+		case "workflow_run", "schedule", "workflow_call":
+			continue
+		case "push":
+			node, ok := triggerNode(on, "push")
+			if !ok || node.Kind != yaml.MappingNode {
+				untrusted = append(untrusted, "push (every branch and tag)")
+				continue
+			}
+			var filter pullRequestTrigger
+			require.NoError(t, node.Decode(&filter))
+			if len(filter.Branches) == 1 && filter.Branches[0] == theDefaultBranch &&
+				len(filter.Tags) == 0 {
+				continue
+			}
+			untrusted = append(untrusted, "push (not confined to "+theDefaultBranch+")")
+		default:
+			untrusted = append(untrusted, trigger)
+		}
+	}
+	return len(untrusted) == 0, untrusted
 }

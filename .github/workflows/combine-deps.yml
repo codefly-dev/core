@@ -27,13 +27,13 @@
 # are moved into a ref with `git fetch` and `git push`, while the working tree
 # stays on the default branch.
 #
-# Both checkouts name `ref: main` explicitly. `workflow_dispatch` is not
-# restricted to the default branch — a dispatch names a ref and the content
-# comes from it — so without that, dispatching against a feature branch would
-# run that branch's scripts. One limit this file cannot fix: a dispatch also
-# takes the WORKFLOW from that ref, so a branch that edits this file is outside
-# what any assertion about the file on main can reach. Restricting who may
-# dispatch is a repository setting; see docs/runbooks/branch-protection.md.
+# Both checkouts name `ref: main` explicitly, and the workflow is scheduled
+# only. A dispatch names a ref and takes BOTH the repository content and this
+# workflow file from it, so a job holding a credential in a dispatchable
+# workflow cannot establish the provenance of its own program — no assertion
+# about the file on the default branch reaches the copy that would run. The
+# trigger is therefore gone rather than guarded; a scheduled run can be
+# re-executed from the Actions UI, which uses the default branch's file.
 #
 # internal/ciguard/credential_isolation_test.go holds all of the above.
 name: combine-deps
@@ -43,7 +43,6 @@ on:
     # Mondays, a few hours after Dependabot's weekly pass has opened its pull
     # requests. Off the hour: :00 is the busiest minute on the shared runners.
     - cron: '23 9 * * 1'
-  workflow_dispatch:
 
 # Read at workflow scope. The writes this performs are declared on the one job
 # that performs them, so a job added here later does not inherit them.

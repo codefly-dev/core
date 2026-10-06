@@ -992,3 +992,106 @@ jobs:
 		})
 	}
 }
+
+// R707-11: the workflow FILE comes from the triggering ref, so a pinned
+// checkout cannot vouch for the inline program beside it.
+func TestAnUntrustedWorkflowSourceIsNotExcusedByAPinnedCheckout(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		triggers string
+		accepted bool
+	}{
+		{
+			name:     "an unrestricted push",
+			triggers: "on:\n  push:\n",
+			accepted: false,
+		},
+		{
+			name:     "a push that also admits tags",
+			triggers: "on:\n  push:\n    branches: [main]\n    tags: ['v*']\n",
+			accepted: false,
+		},
+		{
+			name:     "a dispatch",
+			triggers: "on:\n  workflow_dispatch:\n",
+			accepted: false,
+		},
+		{
+			name:     "a push confined to the default branch",
+			triggers: "on:\n  push:\n    branches: [main]\n",
+			accepted: true,
+		},
+		{
+			name:     "a scheduled run",
+			triggers: "on:\n  schedule:\n    - cron: '0 0 * * *'\n",
+			accepted: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			document := tc.triggers + `jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+      - run: go test ./...
+`
+			wf := parseIsolatedDocument(t, document, tc.name)
+			hostile, _ := hostileScenariosFor(wf.On)
+			accepted, missing := credentialJobIsAccepted(t, wf, "probe", hostile)
+			require.Equal(t, tc.accepted, accepted,
+				"the checkout is pinned either way; the workflow file's own "+
+					"provenance decides (%s)", missing)
+		})
+	}
+}
+
+// R707-12: each protection added across these rounds, asserted so that removing
+// it turns a test red rather than leaving the suite green.
+func TestEachExecutionProtectionHasItsOwnWitness(t *testing.T) {
+	base := func(steps string) isolatedWorkflow {
+		return parseIsolatedDocument(t, `on: workflow_call
+jobs:
+  probe:
+    env: {CREDENTIAL: "${{ secrets.BUNDLED_CONFIG }}"}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main}
+`+steps+"\n", "protection")
+	}
+
+	t.Run("a non-eval execution form", func(t *testing.T) {
+		wf := base(`      - env: {TASK: "${{ inputs.task }}"}
+        run: printf '%s' "$TASK" | bash`)
+		ok, _ := acceptedExecution(t, wf, "probe")
+		require.False(t, ok, "piping a party-chosen value into a shell runs it")
+	})
+
+	t.Run("the needs context", func(t *testing.T) {
+		wf := base(`      - env: {TASK: "${{ needs.earlier.outputs.task }}"}
+        run: eval "$TASK"`)
+		ok, _ := acceptedExecution(t, wf, "probe")
+		require.False(t, ok, "a value carried through needs is still carried")
+	})
+
+	t.Run("an unreadable local action", func(t *testing.T) {
+		wf := base("      - uses: ./.github/actions/absent")
+		ok, missing := acceptedExecution(t, wf, "probe")
+		require.False(t, ok, "an action with no loadable manifest must refuse")
+		require.Contains(t, missing, "cannot read")
+	})
+
+	t.Run("a variable in command position", func(t *testing.T) {
+		wf := base(`      - env: {TASK: "${{ inputs.task }}"}
+        run: $TASK --flag`)
+		ok, _ := acceptedExecution(t, wf, "probe")
+		require.False(t, ok, "a variable as the command runs it")
+	})
+
+	t.Run("and a program with no party-chosen provenance is accepted", func(t *testing.T) {
+		wf := base("      - run: go test ./...")
+		ok, missing := acceptedExecution(t, wf, "probe")
+		require.True(t, ok, "refused a job that pins what it runs: %s", missing)
+	})
+}
