@@ -752,3 +752,237 @@ is pinned by test against the shipped fixtures, so it cannot move by accident.
 ## Fixtures
 
 See [`solutionhost/testdata/README.md`](../solutionhost/testdata/README.md).
+
+## The module contract and the cell
+
+Two more wire contracts of this lifecycle live here, each with one
+implementation and a shipped kit, for the reason the presence and authority
+documents do: three repositories read them (the CLI's renderer and publisher,
+the runtimes that publish contracts, the platform's loader that derives policy
+from cells), and a second implementation in any of them is where the next
+disagreement about what a file means appears.
+
+**`contracts/module`** is `codefly/module-contract/v1`, the
+request a module publishes beside its manifest as
+`module.contract.codefly.yaml`: the principal its credentials are issued to,
+the operation bindings it redeems (each with a scope ceiling per operation in
+one of two spellings — bare actions qualified by the binding's resource-kind
+slot, or `{resource_kind, actions}` entries naming the kind literally, never
+mixed, never a mapping), the queues and namespaces it declares, its own scope
+ceilings and the destinations it exposes. Audience, resource kind and binding
+key are **slots** into the composition's workspace configuration
+(`{from: <group>/<key>}`), whose key name carries its meaning, and a literal
+where a slot belongs is a schema error. `Parse` decodes strictly (an unknown
+field — a tenancy, a build digest, an identity — is refused, never ignored),
+`Validate` holds every rule — a ceiling in both spellings included, whether
+written or constructed, since `Resolve` would mint scopes from both — and
+`Resolve` resolves the slots against the values a composition supplies,
+reporting every unresolved, secret-classified and ambiguous slot in one error
+under its own sentinel (a secret's value never in the message). Records that
+are one key to core (`MODEL_AUDIENCE` and `model-audience`) must AGREE on its
+value: agreeing spellings are one value and resolve, and it is the disagreement
+that has no answer — see the resolution rules below. A publisher writes through
+`Encode`, never by marshaling the model.
+
+**`solutionhost/cell`** is `codefly/cell/v1`, the inventory of one
+environment's cell that a publish writes to the delivery repository and the
+platform derives its mesh policy, admission set and RBAC from: per module
+namespace, every pod-producing workload with its exact selector, the
+module-qualified service it runs, the account and SPIFFE identity it runs
+as, the one authenticating container named, every container's pinned image,
+the rendered artifact's digest, its release, endpoints with their container
+ports and declared consumers, ingress routes, cell bindings and cloud
+identity; the delivery Job declared by its labels; and the external reach the
+environment grants. `Parse` decodes strictly and `Validate` holds the host
+header to all-or-nothing, every identity to the cell's trust domain, every
+edge to an endpoint the cell carries, every egress entry to the namespace's
+own module (a grant located under a namespace is that module's, never
+another's — a local workload is not required, since a managed replacement
+runs none), every image to a **canonical repository** (registry and path as
+the distribution reference grammar reads them, ports kept, no tag, no
+digest — the digest is the field beside it) and an OCI digest, and every
+Kubernetes name and label to **Kubernetes' own grammar**: namespaces and
+container names are DNS labels, workload and account names DNS subdomains,
+selector keys qualified names and selector values label values — an empty
+value is legal, as the API server has it, and an uppercase namespace is not.
+
+An endpoint's `visibility` and `allow_modules` are **declarations the platform
+derives policy from**, so they are held to core's own vocabulary: `private`,
+`internal` or `public`, **written out and never omitted** — the resource model
+admits an omission and resolves it to `private` before a render writes a cell,
+so a cell carrying none would put that default in a second place for the
+platform to re-derive — and an allow-list of module names or `*` — the latter
+through [`resources/names`](../resources/names), the shared grammar
+`resources.ValidateEndpointDeclaration` holds a service's own declaration to.
+It is a leaf package importing nothing, so this reader holds a name to the same
+spelling the resource model does without linking core's resource tree; a second
+grammar here accepted `billing.worker` and `billing_worker`, which core refuses
+at the source, so a cell was admitted as a valid policy declaration while
+describing an allow-list that cannot load. The `module`
+and `external` spellings are refused — core's endpoint-selection cutover
+deleted them, so a service declaring either no longer loads
+(`resources.KnownVisibility` reports false and
+`resources.ValidateEndpointDeclaration` refuses it), and a cell carrying one
+describes a service that cannot exist. An allow-list is refused anywhere but
+`internal`, which is the one visibility that reads it, for the same reason:
+core refuses that declaration at the source. What a visibility PERMITS is still
+not decided here; `resources.ValidateEndpointVisibility` and the workspace's own
+validation own that. The vocabulary is a literal in `rules.go` and `resources`
+is imported by this package's TESTS only, so the platform's loader never links
+core's resource tree to read a cell; two tests hold that line
+(`TestTheVisibilityVocabularyIsCoreOwn`, which is what caught the cell still
+accepting the deleted spellings when the cutover landed, and
+`TestTheCellPackageDoesNotLinkResources`).
+Ingress routes are held to endpoint order, as endpoints and egress already are.
+
+**Resolution is core's too, not a provider's.** A contract's slots resolve
+against a composition's workspace configuration, and *which* record answers a
+slot is as much a rule of this contract as any refusal of a document: two
+consumers resolving one composition into two different authority documents is
+the same failure as two readers disagreeing about a file. So `Values` only
+ENUMERATES — a provider reports a group's records as supplied, keeping both
+spellings of a key, a key supplied twice and a key classified two ways — and
+every rule over them lives in `contracts/module`: a key is matched
+in either spelling core accepts, records that are one key must agree on its
+value (**two spellings that agree are one value and resolve** — it is the
+disagreement that has no answer), a key any occurrence of which is secret IS a
+secret (so a slot carrying it is refused rather than inlined), a resolved value
+is one non-empty line, and
+a resolved RESOURCE KIND is held to the grammar a literal one is — without
+which a composition supplying `documents.passages:delete,documents.passages`
+turns one declared action into two apparent scopes. `RunResolution` drives a
+consumer's own provider through shipped configurations — competing spellings
+that agree and that disagree, a record supplied twice, a public and a secret
+occurrence, a missing key, a kind carrying a comma or a colon — so a provider
+that collapses two spellings, drops the secret occurrence or deduplicates fails
+by name.
+
+**A writer gets bytes or an error.** `Contract.Encode` and `File.Encode` are
+the only way to write either document: each validates, marshals, and reads the
+bytes back through its own reader, returning them only when what comes back is
+what went in. Marshaling the model directly let a publisher emit a document its
+reader refuses — a principal of `INVALID PRINCIPAL`, an image digest of the
+wrong length — with the failure surfacing at whoever READ the file, or at
+admission rather than at publish; and, worse, one that parses to something else,
+which no reader refuses at all. Writing through `Encode` rather than marshaling
+the model is a REQUIREMENT on each consumer, which the adoption table carries
+and which this repository cannot establish for them.
+
+**The duplicate and network-range decisions, since the platform must not make
+them.** One declared edge is one entry: a consumer named twice, two ingress
+routes to one endpoint, a host named twice in one route are each refused, so a
+count in a cell is a count a reader can trust. A CIDR must be **canonical** —
+`10.20.1.7/16` and `10.20.0.0/16` are one range written two ways, and a platform
+comparing declared reach with rendered policy would otherwise canonicalise it
+itself — and the CIDRs of one egress entry must not **overlap**, since a range
+inside another is reach declared twice and the narrower statement grants nothing
+the wider one did not. A range naming **every**
+address (`0.0.0.0/0`, `::/0`) is refused: there is no threshold of breadth core
+could pick without inventing policy, but the unspecified range is not a point on
+that spectrum — it is the absence of a declared reach, and a cell exists to
+carry one for the platform to police. Between those, how broad a range may be
+*is* deliberately the platform's admission decision, which the cell states
+faithfully rather than pre-empts. A zero endpoint port (the service declares
+none) and a repeated `allow_modules` entry (an allow-list is read as a set) keep
+their documented meanings.
+
+**Every refusal CONDITION is protected by construction**, and the
+construction is two properties that hold together rather than one scan.
+
+*A rule holds exactly one condition.* A rule is a function in `rules.go`, and
+`TestEveryRuleHoldsExactlyOneCondition` enumerates the refusals in each from
+the package's own source: a second `fmt.Errorf` added inside an existing rule
+fails at that function, and a refusal written in a function that is no rule's
+check fails too, because nothing could be required to protect it.
+
+*Every rule is falsified by a fixture.* `TestEveryRuleIsProtectedByAFixture`
+deletes each rule in turn and requires a shipped fixture to notice — and to
+notice by its own message, so a refusal arriving from a later rule does not
+count. A new rule therefore cannot exist without a witness.
+
+Together they leave no third place to put a condition: inside a rule it is
+caught by the first, as a new rule it is caught by the second. That matters
+because the earlier mechanism — enumerate the refusal sites, require each to
+be *reached* by some fixture — proved a rule was reached and said nothing
+about a condition sharing a rule with another. Nine rounds of review found
+that difference five times, and twice at the end inside one CIDR rule: an
+overlap predicate gated on the parsed range being IPv4, and a
+canonical-spelling check run only while no range had been seen yet each accepted an invalid
+document while every fixture went on refusing, because a sibling condition
+reached the same refusal site. The egress CIDR rule is now three rules, with
+an IPv6 overlap and a later non-canonical entry as their witnesses; endpoint
+visibility, consumer uniqueness, ingress host uniqueness and one-route-per-
+endpoint were split the same way.
+
+The reachability scan remains beside them
+(`TestEveryRefusalConditionIsReachedByAFixture`), covering the refusals that
+live outside the rule table — the parser's and the writer's. A condition no
+document can reach is declared with its reason and asserted to be genuinely
+unreached, so the one open guard is written down rather than silent.
+
+The enumeration itself is now tested
+(`solutionhost/internal/conditions`), because it is what decides whether a
+condition is protected and two of its own defects had read as "everything is
+protected": the enclosing function was tracked on a stack popped at every
+node rather than at every declaration, and a format string written as a
+concatenation was not read at all — so a refusal spelled across two lines was
+invisible to the check for witnesses. One such refusal existed here and was
+found by the rule-to-condition pairing, not by review.
+
+**One strict decoding path.** A type with its own `UnmarshalYAML` does not get
+yaml's `KnownFields`, so each custom decoder re-implemented the same
+strictness and each was fixed separately, a round apart. Mappings are now read
+through `wire.ReadMapping` — key decoded with its type, unknown field
+reported, malformed value kept — and a decoder that handles a mapping without
+it fails `TestEveryCustomDecoderReadsMappingsThroughTheOnePath`.
+
+**Three refusals are properties of the DOCUMENT, not of a typed decoder**, and
+live once in `solutionhost/internal/wire` because one guard per decoder is how a
+dynamic map came to have none. One mapping names one key once, with aliases
+RESOLVED — yaml compares raw key nodes first, so an alias key silently replaced
+a per-operation ceiling and a selector label. An ALIAS is its target, resolved under a
+bound: an anchored fraction declared as a key and used as a port
+(`{&fraction 443.9: api}` with `port: *fraction`) reached an integer field as
+443, because keys and alias targets were examined by neither check. A key now
+gets every check a value gets, through the same function. An explicit **null**
+is refused
+anywhere: decoding null into a string returns false rather than an error, so a
+typed decoder skips the key *and its value* and omits the sequence element —
+`null: {tenancy: dedicated}` discarded a subtree past a boundary advertised as
+strict. And a mapping key must be a non-empty name, because both models' maps
+are keyed by name. An absent field is absent; an empty list is written `[]`.
+
+**Every refusal is one named rule.** Each package holds its rules in a table
+(`rules.go`), applied in a fixed order, so a document is refused for one
+reason, named — the same reason whichever reader refused it. **The kits.**
+`modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (130) ship
+every accepted and refused document with the sentinel and the message a
+refusal must carry and the rule it protects, and `Run(t, read)` drives a
+reader's own entrypoint through them. `AllResolutionFixtures()` (117
+configurations) does the same for resolution, driven by `RunResolution(t,
+provider)`. **All three counts are pinned by a test**, and the resolution kit
+is pinned by NAME and by cases-per-role as well: a documented count written by
+hand was never checked at all, so deleting five of a role's cases tripped
+nothing, and the sentence you are reading claimed a guarantee that did not
+exist. A consumer passes the function it
+actually reads the file with — the renderer's load, the publisher's merge,
+the loader's parse — never this package's `Parse`, which proves nothing about
+the consumer. Each package's self-check (`TestEveryRuleIsProtectedByAFixture`)
+proves the kit protects every rule: every rule is named by at least one
+refused fixture, and the kit is run with each rule deleted in turn and must
+fail on a fixture naming it — a rule that could be dropped silently is a rule
+the kit does not protect.
+
+**Adoption is a requirement, not yet a fact.** Nothing in this repository
+drives a consumer through either kit, and until each consumer's own commit
+lands, the second copies of these models still exist. What each one owes:
+
+| Consumer | What it does, and where it stands |
+| --- | --- |
+| `codefly-dev/cli` | delete `pkg/modulecontract`, the cell model in `pkg/gitops/cell.go`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every cell through `cell.Parse` and every contract through `modulecontract.Load`; replace its `Values` adapter with a **duplicate-preserving** `Records(group) ([]Record, error)` provider that keeps repeated records, original key spellings and every secret classification; write through `Encode` rather than marshaling the model; and run **all three** kits — both document kits and `RunResolution` — through the render's and the publisher's own entrypoints, never a test-only wrapper. The deletions are done at `b77f5806`, which PREDATES the `Records` API and the resolution kit, so that commit does not establish adoption of this head; the tested consumer commit is still to be named. |
+| infra-base | read cells through `cell.Parse` and run `cell.Run` against the loader's own entrypoint. Its rules beyond the wire stay its own — a non-empty `cidrs` refused until it renders address-based egress, the closed admission set, RBAC derivation — on top of a document this package has already held to its shape. Not started. |
+| the runtimes that publish contracts | run `modulecontract.Run` against the publisher's output, so a contract they emit is one this reader accepts. Not started. |
+
+The platform's loader has not run against the cell fixtures, and the cell's
+valid fixture is assembled to the shape the CLI's writer emits rather than
+captured from a real publish.

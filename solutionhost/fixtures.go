@@ -94,6 +94,10 @@ type Fixture struct {
 // solution, and the one FixtureHost has already applied.
 const FixtureBindingID = "alpha-region-a-01"
 
+// fixtureOperationsAudience is the audience the fixture bindings are issued
+// for, once, so the fixtures cannot drift apart on it.
+const fixtureOperationsAudience = "https://prod.region-a.example/operations"
+
 // FixtureModuleBindingID is the binding the accepted module presence fixture
 // declares. FixtureHost has nothing applied for it, which is what makes it a
 // first generation.
@@ -158,24 +162,24 @@ func FixtureEnvelope() Envelope {
 				Principal: "principal:operator",
 				Binding: AuthorityBinding{
 					ID: "binding:alpha:reconcile", Revision: 3,
-					Audience: "https://prod.region-a.example/operations",
-					Scope:    "reconcile", Queue: "reconcile.default", Namespace: "alpha-region-a-01",
+					Audience: fixtureOperationsAudience,
+					Scope:    "reconcile", Queue: "reconcile.default", Namespace: FixtureBindingID,
 				},
 			},
 			{
 				Principal: "principal:operator",
 				Binding: AuthorityBinding{
 					ID: "binding:alpha:read", Revision: 1,
-					Audience: "https://prod.region-a.example/operations",
-					Scope:    "read", Queue: "read.default", Namespace: "alpha-region-a-01",
+					Audience: fixtureOperationsAudience,
+					Scope:    "read", Queue: "read.default", Namespace: FixtureBindingID,
 				},
 			},
 			{
 				Principal: "principal:reporter",
 				Binding: AuthorityBinding{
 					ID: "binding:alpha:report", Revision: 2,
-					Audience: "https://prod.region-a.example/operations",
-					Scope:    "report", Queue: "report.batch", Namespace: "alpha-region-a-01",
+					Audience: fixtureOperationsAudience,
+					Scope:    "report", Queue: "report.batch", Namespace: FixtureBindingID,
 				},
 			},
 		},
@@ -289,11 +293,11 @@ func Fixtures() []Fixture {
 			Reason: "it is approved for a build the valid presence fixture does not name, so the tuple does not activate",
 		},
 		{
-			Name: "presence", Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
+			Name: string(DocumentTypePresence), Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
 			Reason: "the valid presence document as its canonical bytes, carried with a bundle; PresenceFromVerified accepts it",
 		},
 		{
-			Name: "authority", Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
+			Name: string(DocumentTypeAuthority), Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
 			Reason: "the valid authority document as its canonical bytes, carried with a bundle",
 		},
 		{

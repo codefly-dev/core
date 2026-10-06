@@ -1078,8 +1078,8 @@ func checkAppliedRecords(applied AppliedAuthority, appliedPresence Applied, pres
 		given  bool
 		stated bool
 	}{
-		{"authority", applied.Authority != "", firstAuthority},
-		{"presence", appliedPresence.Binding != "", firstPresence},
+		{string(DocumentTypeAuthority), applied.Authority != "", firstAuthority},
+		{string(DocumentTypePresence), appliedPresence.Binding != "", firstPresence},
 	} {
 		if half.given && half.stated {
 			return fmt.Errorf("%w: the %s half is declared to have no applied record for binding %q, and a record was given",

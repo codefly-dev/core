@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 
 	"golang.org/x/term"
 )
@@ -41,8 +42,13 @@ type Provider struct {
 	identifier *Identifier
 	logger     LogProcessor
 	tracer     Tracer // nil when telemetry is not enabled
-	ctx        context.Context
-	shutdown   func(context.Context) error
+	// telemetry is the backend itself, kept so a Wool can ask it what the
+	// BACKEND's active span in a context is — see ContextIdentity. Retaining
+	// only its Tracer was the reason correlation missed every span wool did not
+	// start itself.
+	telemetry TelemetryProvider
+	ctx       context.Context
+	shutdown  func(context.Context) error
 }
 
 // New creates a new Provider for the given resource.
@@ -61,6 +67,7 @@ func New(ctx context.Context, r *Resource) *Provider {
 	if tp := GetTelemetry(); tp != nil {
 		p.tracer = tp.NewTracer(r.Unique)
 		p.shutdown = tp.Shutdown
+		p.telemetry = tp
 	}
 
 	return p
@@ -82,6 +89,7 @@ func (p *Provider) WithLogger(l LogProcessor) *Provider {
 func (p *Provider) WithTelemetry(tp TelemetryProvider) *Provider {
 	p.tracer = tp.NewTracer(p.identifier.Unique)
 	p.shutdown = tp.Shutdown
+	p.telemetry = tp
 	return p
 }
 
@@ -191,11 +199,36 @@ type spanContextKey struct{}
 
 // activeSpan returns the span started by the nearest enclosing Span() call, or
 // nil when none is active.
+//
+// A span whose dynamic value is nil is normalized away here rather than carried.
+// An interface holding a typed-nil pointer is NOT nil to a comma-ok assertion or
+// to an `!= nil` check, so carrying one meant every later call through it —
+// AddEvent, End, and the identity getters — dereferenced a nil receiver in
+// whatever implementation supplied it. Normalizing at the single binding point
+// makes the whole span path safe at once, instead of asking each implementation
+// to guard its own receiver.
 func activeSpan(ctx context.Context) Span {
-	if s, ok := ctx.Value(spanContextKey{}).(Span); ok {
-		return s
+	s, ok := ctx.Value(spanContextKey{}).(Span)
+	if !ok || nilValue(s) {
+		return nil
 	}
-	return nil
+	return s
+}
+
+// nilValue reports whether v is nil, or a non-nil interface holding a nil
+// pointer, map, slice, channel or func. This is the check an `== nil` comparison
+// on an interface cannot make.
+func nilValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice,
+		reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 // StartSpan starts a named tracing span and returns a Wool bound to it plus an
@@ -213,6 +246,13 @@ func StartSpan(ctx context.Context, name string) (*Wool, func()) {
 		return Get(ctx), func() {}
 	}
 	spanCtx, span := provider.tracer.Start(ctx, name)
+	if nilValue(span) {
+		// A tracer that answers with a typed-nil span (a disabled-span sentinel,
+		// say) would otherwise have its End deferred by every caller and
+		// dereferenced on return. The context the tracer produced is still
+		// honoured — the backend may carry its own span there.
+		return Get(spanCtx), func() {}
+	}
 	spanCtx = context.WithValue(spanCtx, spanContextKey{}, span)
 	return Get(spanCtx), span.End
 }
