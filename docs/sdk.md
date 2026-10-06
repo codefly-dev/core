@@ -333,6 +333,12 @@ It is the option for a caller that owns no `service.codefly.yaml` of its own —
 solution-level test package sits outside every service, and would otherwise have
 to compute the on-disk path of the service it drives. Only the workspace is
 found by walking up, so the name resolves the same from anywhere inside it. The
+CLI starts from that composing workspace with the explicit service selector,
+even when a local override or imported module places the service in another
+checkout. The session retains the module and service resolved by that
+composition; it does not adopt a workspace found above the source checkout.
+Reusable stacks include the composing workspace path and service in their
+fingerprint, so two compositions sharing a checkout do not share a stack. The
 module half is required: a bare service name is refused rather than guessed at
 across modules. `WithService` and `WithDirectory` both anchor the session, so
 passing both is rejected rather than resolved by precedence. A session that

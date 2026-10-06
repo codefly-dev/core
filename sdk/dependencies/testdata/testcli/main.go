@@ -8,9 +8,9 @@
 // `go vet ./...`, the coverage denominator or the CGO-free guard. The session
 // tests compile it explicitly, which is what keeps it from rotting.
 //
-// Everything it serves is derived from its working directory: the SDK runs it
-// in the directory the session is anchored to, so two concurrent sessions get
-// two distinct identities and two distinct endpoints without any shared state.
+// Everything it serves is derived from its working directory and optional
+// service selector, so a named service uses the caller's composition even when
+// its source checkout sits outside that workspace.
 package main
 
 import (
@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	v0 "github.com/codefly-dev/core/generated/go/codefly/cli/v0"
@@ -63,6 +64,21 @@ func run() error {
 		return err
 	}
 	mod, svc, err := resources.LoadModuleAndServiceUpFrom(ctx, dir)
+	if len(os.Args) > 3 && os.Args[1] == "run" && os.Args[2] == "service" && !strings.HasPrefix(os.Args[3], "-") {
+		var ws *resources.Workspace
+		ws, err = resources.FindWorkspaceUpFrom(ctx, dir)
+		if err != nil || ws == nil {
+			return fmt.Errorf("cannot find composing workspace from %s: %v", dir, err)
+		}
+		ref, parseErr := resources.ParseServiceWithOptionalModule(os.Args[3])
+		if parseErr != nil {
+			return parseErr
+		}
+		mod, err = ws.LoadModuleFromName(ctx, ref.Module)
+		if err == nil {
+			svc, err = mod.LoadServiceFromName(ctx, ref.Name)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -89,7 +105,12 @@ func run() error {
 		return err
 	}
 	server := grpc.NewServer()
+	workspace, err := resources.FindWorkspaceUpFrom(ctx, dir)
+	if err != nil || workspace == nil {
+		return fmt.Errorf("no workspace from %s: %v", dir, err)
+	}
 	v0.RegisterCLIServer(server, &cli{
+		workspace:  workspace.Name,
 		identity:   identity,
 		dependency: dependency,
 		address:    endpoint.Addr().String(),
@@ -153,6 +174,7 @@ func greet(listener net.Listener, identity string) {
 
 type cli struct {
 	v0.UnimplementedCLIServer
+	workspace  string
 	identity   string
 	dependency *resources.ServiceDependency
 	address    string
@@ -230,6 +252,7 @@ func (c *cli) GetConfiguration(_ context.Context, _ *v0.GetConfigurationRequest)
 		},
 		ProcessVariables: []*basev0.ConfigurationValue{
 			{Key: processVariableKey, Value: c.identity},
+			{Key: "CODEFLY__TESTCLI_WORKSPACE", Value: c.workspace},
 		},
 	}, nil
 }

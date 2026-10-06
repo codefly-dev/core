@@ -14,7 +14,7 @@ import (
 )
 
 // resolvedIdentity is the module/service pair a dependency session resolved
-// once from an absolute directory captured when the session was created.
+// once from its composing workspace or absolute service directory.
 // Resolution never reads the process working directory, so a later chdir cannot
 // move the identity of a live session.
 type resolvedIdentity struct {

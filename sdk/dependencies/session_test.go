@@ -236,6 +236,67 @@ func TestNamedServiceAnchorsASessionFromTheWorkspaceRoot(t *testing.T) {
 	}
 }
 
+// The same external checkout can participate in several compositions. Its
+// enclosing workspace must never replace the workspace the caller selected.
+func TestNamedExternalServiceKeepsTheComposingWorkspace(t *testing.T) {
+	binary := testCLI(t)
+	composition := externalServiceWorkspace(t)
+	t.Chdir(composition)
+	ctx := t.Context()
+	deps, err := WithDependencies(ctx, WithService("shop/web"),
+		WithCodeflyBinary(binary), WithCommandScopedEnvironment(),
+		WithTimeout(60*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = deps.Destroy(context.Background()) }()
+	if got := deps.EnvironmentVariables()["CODEFLY__TESTCLI_WORKSPACE"]; got != "composed-session" {
+		t.Fatalf("CLI used workspace %q, want composed-session", got)
+	}
+	// Changing cwd after startup cannot change the captured identity.
+	t.Chdir(fixtureDir(t, "beta"))
+	svc, err := deps.Service(ctx)
+	if err != nil || svc.Name != "web" {
+		t.Fatalf("session service = %v, %v, want shop/web", svc, err)
+	}
+	mod, err := deps.Module(ctx)
+	if err != nil || mod.Name != "shop" {
+		t.Fatalf("session module = %v, %v, want shop", mod, err)
+	}
+	address := deps.EnvironmentVariables()[endpointKey("shop", "store")]
+	if got := dependencyIdentity(t, address); got != "shop/web" {
+		t.Fatalf("dependency belongs to %q, want shop/web", got)
+	}
+}
+
+func externalServiceWorkspace(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string]string{
+		"workspace.codefly.yaml": "name: composed-session\nlayout: modules\nmodules:\n  - name: shop\n",
+		"codefly.local.yaml": fmt.Sprintf("resolve:\n  shop:\n    path: %q\n",
+			fixtureDir(t, "alpha", "modules", "shop")),
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestNamedServiceReuseSeparatesCompositionsAndServices(t *testing.T) {
+	first, second := externalServiceWorkspace(t), externalServiceWorkspace(t)
+	opt := &Option{Service: "shop/web"}
+	base := reuseFingerprint(t.Context(), first, opt)
+	if base == reuseFingerprint(t.Context(), second, opt) {
+		t.Fatal("two compositions sharing a name and checkout share a reusable stack")
+	}
+	if base == reuseFingerprint(t.Context(), first, &Option{Service: "shop/store"}) {
+		t.Fatal("two services in a composition share a reusable stack")
+	}
+}
+
 // A session that fails while resolving configuration leaves the process
 // environment byte-for-byte as it found it — the endpoints it had already
 // resolved are not injected on the way out.
