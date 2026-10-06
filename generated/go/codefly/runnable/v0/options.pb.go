@@ -86,8 +86,8 @@ func (ToolExposure_Effect) EnumDescriptor() ([]byte, []int) {
 // contract, and two installations of it may run under different policies.
 //
 // The option's presence is the marking; every field below except
-// lookup_method, max_input_bytes and max_output_bytes is required, completion
-// included. An attempt
+// lookup_method, max_input_bytes, max_output_bytes and tool is required,
+// completion included. An attempt
 // budget and an authority nobody chose are not defaults core may invent on an
 // owner's behalf, so an empty option is rejected rather than filled in.
 type Operation struct {
