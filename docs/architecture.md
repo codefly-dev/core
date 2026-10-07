@@ -199,7 +199,8 @@ layout: modules     # or "flat"
 
 # module.codefly.yaml — inside each module directory; decoded STRICTLY: a key
 # the model does not declare fails the load, naming it, and so do a merge key,
-# an explicit null and a repeated key. Two keys an earlier
+# an explicit null, a repeated key, a fractional number and a key that is not
+# a name — those five by resources.ErrInvalidManifestWireForm. Two keys an earlier
 # layout wrote and nothing read, `project` and `domain`, are refused with their
 # remedy (delete them) — a manifest carrying them loaded before core v0.13.0
 kind: module         # a `composed-module` here is a composition descriptor, read by composition.LoadDescriptor
