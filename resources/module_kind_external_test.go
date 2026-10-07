@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codefly-dev/core/composition"
+	corecomposition "github.com/codefly-dev/core/composition"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -17,12 +17,12 @@ import (
 // resources), so the two spellings are held together here, from outside both.
 func TestTheDescriptorKindIsCompositions(t *testing.T) {
 	dir := t.TempDir()
-	content := "kind: " + composition.DescriptorKind + "\nname: example\n"
+	content := "kind: " + corecomposition.DescriptorKind + "\nname: example\n"
 	if err := os.WriteFile(filepath.Join(dir, resources.ModuleConfigurationName), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := resources.LoadModuleFromDir(context.Background(), dir)
 	if err == nil || !strings.Contains(err.Error(), "composition.LoadDescriptor") {
-		t.Fatalf("the module loader does not recognise composition's descriptor kind %q: %v", composition.DescriptorKind, err)
+		t.Fatalf("the module loader does not recognise composition's descriptor kind %q: %v", corecomposition.DescriptorKind, err)
 	}
 }

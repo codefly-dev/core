@@ -59,10 +59,12 @@ func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 	for name, tc := range map[string]struct{ entry, says string }{
 		// The forbidden key is refused by PRESENCE, before decoding: any value
 		// and any spelling.
-		"an internal allow-list":     {"          visibility: internal\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
-		"a wildcard":                 {"          visibility: internal\n          allow-modules: [\"*\"]\n", `authors allow-modules (key "allow-modules")`},
-		"an empty list":              {"          visibility: internal\n          allow-modules: []\n", `authors allow-modules (key "allow-modules")`},
-		"null":                       {"          visibility: internal\n          allow-modules: null\n", `authors allow-modules (key "allow-modules")`},
+		"an internal allow-list": {"          visibility: internal\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
+		"a wildcard":             {"          visibility: internal\n          allow-modules: [\"*\"]\n", `authors allow-modules (key "allow-modules")`},
+		"an empty list":          {"          visibility: internal\n          allow-modules: []\n", `authors allow-modules (key "allow-modules")`},
+		// A null is refused by the manifest's shared node check before the
+		// entry's own judgement is reached: no field of a manifest takes one.
+		"null":                       {"          visibility: internal\n          allow-modules: null\n", "explicit null at interface.endpoints[0].allow-modules"},
 		"the underscore spelling":    {"          visibility: internal\n          allow_modules: [platform]\n", `authors allow-modules (key "allow_modules")`},
 		"the camel spelling":         {"          visibility: internal\n          allowModules: [platform]\n", `authors allow-modules (key "allowModules")`},
 		"public with an allow-list":  {"          visibility: public\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},

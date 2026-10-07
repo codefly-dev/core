@@ -285,23 +285,29 @@ func checkManifestNodes[C Configuration](content []byte) error {
 	// field: a composition descriptor shares this file name and carries keys
 	// the module model does not declare, so a strict decode would refuse it
 	// for its first unknown key and never say what it is. Named here first.
+	// Key AND value are RESOLVED through the one wire helper, so what is
+	// dispatched is what the typed decoder will read: a kind written as an
+	// alias to a string anchored elsewhere (`description: &k composed-module`,
+	// `kind: *k`) is the descriptor's kind, and a kind that resolves to
+	// anything but a plain string is no kind at all.
 	var found []string
 	seen := map[string]bool{}
 	for index := 0; index+1 < len(mapping.Content); index += 2 {
-		key := mapping.Content[index]
-		if key.Kind != yaml.ScalarNode {
-			continue
+		key := wire.Resolve(mapping.Content[index])
+		if key == nil || key.Kind != yaml.ScalarNode {
+			continue // wire.Check has already refused a key that is not a name
 		}
 		if key.Value == "kind" {
-			value := mapping.Content[index+1]
-			if value.Kind == yaml.ScalarNode {
-				switch value.Value {
-				case "", ModuleKind:
-				case compositionDescriptorKind:
-					return fmt.Errorf("cannot unmarshal %s configuration: %s is a composition descriptor (kind %q), not a module manifest; read it with composition.LoadDescriptor", label, ModuleConfigurationName, value.Value)
-				default:
-					return fmt.Errorf("cannot unmarshal %s configuration: %s declares kind %q; a module manifest declares kind %q", label, ModuleConfigurationName, value.Value, ModuleKind)
-				}
+			value := wire.Resolve(mapping.Content[index+1])
+			if value == nil || value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+				return fmt.Errorf("cannot unmarshal %s configuration: %s declares a kind that is not a plain string; a module manifest declares kind %q", label, ModuleConfigurationName, ModuleKind)
+			}
+			switch value.Value {
+			case "", ModuleKind:
+			case compositionDescriptorKind:
+				return fmt.Errorf("cannot unmarshal %s configuration: %s is a composition descriptor (kind %q), not a module manifest; read it with composition.LoadDescriptor", label, ModuleConfigurationName, value.Value)
+			default:
+				return fmt.Errorf("cannot unmarshal %s configuration: %s declares kind %q; a module manifest declares kind %q", label, ModuleConfigurationName, value.Value, ModuleKind)
 			}
 		}
 		if slices.Contains(vestigialModuleKeys, key.Value) && !seen[key.Value] {

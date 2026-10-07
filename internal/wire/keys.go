@@ -85,8 +85,9 @@ func Check(node *yaml.Node) Defect {
 }
 
 // maxAliasDepth bounds alias resolution. An anchor may name another anchor, so
-// following them is recursion over a graph the document controls; a cycle or a
-// deep chain must end in a refusal rather than a stack overflow.
+// following them is recursion over a chain the document controls, and a chain
+// deeper than this must end in a refusal rather than a stack overflow. A cycle
+// is yaml.v3's to refuse, and it does, as it parses.
 const maxAliasDepth = 100
 
 // A walker visits each node of the document ONCE. The checks are context-free
@@ -109,9 +110,10 @@ func (w *walker) walk(node *yaml.Node, at string, depth int) Defect {
 	// anchored a fraction, `port: *fraction` used it, and the fraction reached
 	// an integer field as 443 — a port no declaration states. The target is
 	// walked once: at its anchor, which precedes every alias to it in the
-	// document, or here if it somehow did not. The depth bound stays for a
-	// target still in progress, so a cycle ends in AliasTooDeep rather than
-	// in the stack.
+	// document, or here if it somehow did not. A cycle never reaches this
+	// walk: yaml.v3 refuses a self-containing anchor as it parses the
+	// document. The depth bound is for a chain of anchors naming one another
+	// more deeply than this reader follows.
 	if node.Kind == yaml.AliasNode {
 		if depth >= maxAliasDepth {
 			return Defect{Kind: AliasTooDeep, Path: Where(at)}
@@ -215,6 +217,21 @@ func scalarDefect(node *yaml.Node, at string) Defect {
 func isMergeKey(node *yaml.Node) bool {
 	return node.Kind == yaml.ScalarNode && node.Value == "<<" &&
 		(node.Tag == "" || node.Tag == "!" || node.Tag == "!!merge")
+}
+
+// Resolve follows an alias to the node it names, bounded as the walk bounds
+// it, and returns nil when the chain is deeper than this package follows. It
+// is THE way a reader that looks a key or a value up in the tree before typed
+// decoding sees what the typed decoder will see: a reader that read a node's
+// written text and skipped aliases let `description: &k composed-module` and
+// `kind: *k` load as a module of kind composed-module — the written kind was
+// an alias, the resolved one the name the dispatch refuses.
+func Resolve(node *yaml.Node) *yaml.Node {
+	resolved, defect := resolve(node, "", 0)
+	if defect.Kind != NoDefect {
+		return nil
+	}
+	return resolved
 }
 
 // resolve follows an alias to the node it names, bounded.

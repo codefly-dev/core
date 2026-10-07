@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/codefly-dev/core/internal/wire"
 	"github.com/codefly-dev/core/resources/names"
 )
 
@@ -296,9 +297,9 @@ func (size *BuildSize) Validate() error {
 // buildSizeNode finds the build_size value of the document's top-level
 // mapping, aliases resolved, or nil when the document carries none.
 func buildSizeNode(tree *yaml.Node) *yaml.Node {
-	root := resolveAlias(tree)
+	root := wire.Resolve(tree)
 	if root != nil && root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
-		root = resolveAlias(root.Content[0])
+		root = wire.Resolve(root.Content[0])
 	}
 	return mappingValue(root, "build_size")
 }
@@ -310,27 +311,17 @@ func buildSizeNode(tree *yaml.Node) *yaml.Node {
 // !!str: a `!!binary` spelling of build_size decodes to the same name in the
 // typed decoder and would otherwise hide the section from every rule here.
 func mappingValue(node *yaml.Node, key string) *yaml.Node {
-	node = resolveAlias(node)
+	node = wire.Resolve(node)
 	if node == nil || node.Kind != yaml.MappingNode {
 		return nil
 	}
 	for index := 0; index+1 < len(node.Content); index += 2 {
-		name := resolveAlias(node.Content[index])
+		name := wire.Resolve(node.Content[index])
 		if name != nil && name.Kind == yaml.ScalarNode && name.Value == key {
-			return resolveAlias(node.Content[index+1])
+			return wire.Resolve(node.Content[index+1])
 		}
 	}
 	return nil
-}
-
-// resolveAlias follows an alias to the node it names. wire.Check has already
-// refused a chain deeper than it follows, so this terminates; the bound is
-// kept so a caller reaching here another way cannot loop.
-func resolveAlias(node *yaml.Node) *yaml.Node {
-	for depth := 0; node != nil && node.Kind == yaml.AliasNode && depth < 100; depth++ {
-		node = node.Alias
-	}
-	return node
 }
 
 // countField is one count the section declares, by the path a refusal names
@@ -348,12 +339,12 @@ func buildSizeFields(section *yaml.Node) (counts, others []countField) {
 	for _, name := range []string{"backend", "frontend", "total"} {
 		counts = append(counts, countField{path: "build_size." + name, node: mappingValue(section, name)})
 	}
-	rows := resolveAlias(mappingValue(section, "languages"))
+	rows := wire.Resolve(mappingValue(section, "languages"))
 	if rows == nil || rows.Kind != yaml.SequenceNode {
 		return counts, others
 	}
 	for index, row := range rows.Content {
-		row = resolveAlias(row)
+		row = wire.Resolve(row)
 		if row == nil || row.Kind != yaml.MappingNode {
 			continue
 		}
@@ -385,7 +376,7 @@ func checkBuildSizeFieldsDeclared(section *yaml.Node) error {
 // ten, so a count written that way would be validated as a number nobody
 // wrote.
 func isDecimalCount(node *yaml.Node) bool {
-	node = resolveAlias(node)
+	node = wire.Resolve(node)
 	if node == nil || node.Kind != yaml.ScalarNode || node.Tag != "!!int" || node.Value == "" {
 		return false
 	}
@@ -399,7 +390,7 @@ func checkBuildSizeCountsDecimal(section *yaml.Node) error {
 	counts, _ := buildSizeFields(section)
 	for _, field := range counts {
 		if field.node != nil && !isDecimalCount(field.node) {
-			return fmt.Errorf("%w: %s is %q, not a whole number written in decimal digits; a count has one spelling, and yaml would otherwise read a sign, a base prefix, a leading zero or a string into a number nobody wrote", ErrInvalid, field.path, resolveAlias(field.node).Value)
+			return fmt.Errorf("%w: %s is %q, not a whole number written in decimal digits; a count has one spelling, and yaml would otherwise read a sign, a base prefix, a leading zero or a string into a number nobody wrote", ErrInvalid, field.path, wire.Resolve(field.node).Value)
 		}
 	}
 	return nil
@@ -411,8 +402,8 @@ func checkBuildSizeCountsFit(section *yaml.Node) error {
 		if field.node == nil || !isDecimalCount(field.node) {
 			continue
 		}
-		if _, err := strconv.ParseUint(resolveAlias(field.node).Value, 10, 64); err != nil {
-			return fmt.Errorf("%w: %s is %s, more than a count can hold; yaml would otherwise saturate it to the largest count silently", ErrInvalid, field.path, resolveAlias(field.node).Value)
+		if _, err := strconv.ParseUint(wire.Resolve(field.node).Value, 10, 64); err != nil {
+			return fmt.Errorf("%w: %s is %s, more than a count can hold; yaml would otherwise saturate it to the largest count silently", ErrInvalid, field.path, wire.Resolve(field.node).Value)
 		}
 	}
 	return nil

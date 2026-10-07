@@ -271,8 +271,12 @@ The walk visits each node once: an alias target is walked at its anchor and
 not again at each alias, because following every alias made a 579-byte
 document of fan-ten aliases take two minutes in the loader the CLI runs on
 every manifest, where yaml.v3's own aliasing guard, which runs only in the
-typed decoder after this walk, had answered at once; a cycle still ends in a
-refusal by the depth bound. They exist because yaml.v3 REPAIRS what it cannot
+typed decoder after this walk, had answered at once; a cycle is yaml.v3's to
+refuse, as it parses, and the depth bound is for a chain of anchors deeper
+than the reader follows. Every reader that looks a key or a value up in the
+tree before typed decoding resolves both through the one wire helper, so what
+it dispatches on is what the typed decoder will read — a `kind` written as an
+alias is the string it names. They exist because yaml.v3 REPAIRS what it cannot
 represent and reports nothing: `1.9` into a count is 1, `null` and an absent
 field are 0, a plain integer past uint64 saturates to the largest one (yaml
 tags it a float, which is what the whole-number rule refuses), `012` is octal

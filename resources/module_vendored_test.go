@@ -281,3 +281,41 @@ func TestAnAliasBombIsAnsweredAtOnce(t *testing.T) {
 		t.Fatalf("the loader took %s; an alias target is walked once", elapsed)
 	}
 }
+
+// The kind is dispatched on its RESOLVED value: a kind written as an alias to
+// a string anchored elsewhere is the string, as the typed decoder would read
+// it. A reader that matched the written text let `kind: *k` load a composition
+// descriptor as a module of kind composed-module. Witnessed through both
+// loaders, and a kind that resolves to anything but a plain string is refused.
+func TestTheKindIsDispatchedOnItsResolvedValue(t *testing.T) {
+	ctx := context.Background()
+	aliased := "description: &k composed-module\nkind: *k\nname: example\n"
+	_, err := LoadFromBytes[Module]([]byte(aliased))
+	if err == nil || !strings.Contains(err.Error(), "composition.LoadDescriptor") {
+		t.Fatalf("LoadFromBytes must refuse the aliased descriptor kind by name: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ModuleConfigurationName), []byte(aliased), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = LoadModuleFromDir(ctx, dir)
+	if err == nil || !strings.Contains(err.Error(), "composition.LoadDescriptor") {
+		t.Fatalf("LoadModuleFromDir must refuse the aliased descriptor kind by name: %v", err)
+	}
+	// An alias to the module kind loads, as it names the module kind.
+	loaded, err := LoadFromBytes[Module]([]byte("description: &k module\nkind: *k\nname: example\nservices:\n  - name: api\n"))
+	if err != nil || loaded.Kind != ModuleKind {
+		t.Fatalf("an aliased module kind is the module kind: %v", err)
+	}
+	for name, content := range map[string]string{
+		"a mapping":  "kind: {a: b}\nname: example\n",
+		"an integer": "kind: 1\nname: example\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadFromBytes[Module]([]byte(content))
+			if err == nil || !strings.Contains(err.Error(), "kind that is not a plain string") {
+				t.Fatalf("a kind that is not a plain string must be refused as such: %v", err)
+			}
+		})
+	}
+}
