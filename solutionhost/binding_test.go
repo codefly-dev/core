@@ -307,7 +307,8 @@ func TestUnknownFieldIsRejectedSoANewFieldIsAVersionStep(t *testing.T) {
 func TestSecondYAMLDocumentIsRejected(t *testing.T) {
 	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV2+"\n")...)
 	_, err := solutionhost.Parse(data)
-	require.ErrorContains(t, err, "multiple YAML documents")
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.ErrorContains(t, err, "holds more than one document")
 }
 
 func TestValidationRejectsEachWayTheDocumentCanLie(t *testing.T) {

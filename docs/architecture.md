@@ -197,8 +197,15 @@ Every resource is a YAML file:
 name: my-platform
 layout: modules     # or "flat"
 
-# module.codefly.yaml — inside each module directory
+# module.codefly.yaml — inside each module directory; decoded STRICTLY: a key
+# the model does not declare fails the load, naming it, and so do a merge key,
+# an explicit null and a repeated key. Two keys an earlier
+# layout wrote and nothing read, `project` and `domain`, are refused with their
+# remedy (delete them) — a manifest carrying them loaded before core v0.13.0
+kind: module         # a `composed-module` here is a composition descriptor, read by composition.LoadDescriptor
 name: backend
+vendored:            # path prefixes this module vendors rather than authors (client kits);
+  - web/src/clients  # the build's size excludes them and records the list, see docs/solution-host-binding.md
 
 # service.codefly.yaml — inside each service directory
 name: api-server

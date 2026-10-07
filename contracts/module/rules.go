@@ -32,6 +32,7 @@ const (
 	ruleKnownFields     = "known-fields"
 	ruleOneDocument     = "one-document"
 	ruleMappingKeysOnce = "mapping-keys-once"
+	ruleNoMergeKeys     = "no-merge-keys"
 	ruleNoNulls         = "no-explicit-nulls"
 	ruleKeyIsAName      = "key-is-a-name"
 	ruleWholeNumbers    = "numbers-are-whole"
@@ -86,6 +87,7 @@ func rules() []rule {
 		{name: ruleKnownFields, check: func(*Contract) error { return nil }},
 		{name: ruleOneDocument, check: func(*Contract) error { return nil }},
 		{name: ruleMappingKeysOnce, check: func(*Contract) error { return nil }},
+		{name: ruleNoMergeKeys, check: func(*Contract) error { return nil }},
 		{name: ruleNoNulls, check: func(*Contract) error { return nil }},
 		{name: ruleKeyIsAName, check: func(*Contract) error { return nil }},
 		{name: ruleWholeNumbers, check: func(*Contract) error { return nil }},

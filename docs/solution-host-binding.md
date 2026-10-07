@@ -126,12 +126,192 @@ modules:
   - {module: alpha, package: example/alpha-core, version: 1.4.0}
 endpoints:                         # named, never addressed
   - {name: api, service: alpha, module: alpha, api: grpc, visibility: internal}
+build_size:                        # OPTIONAL: the build's size, counted by the producer and signed with the digest
+  languages:                       # one row per language with a counted line, both sides on the row
+    - {language: go, backend: 12416, frontend: 0}
+    - {language: typescript, backend: 0, frontend: 8102}
+  backend: 12416                   # the sums, carried so a catalogue need not add
+  frontend: 8102
+  total: 20518
+  vendored: [web/src/clients]      # the manifest's declaration, as applied; `[]` when it declares none
 ```
 
 A tombstone is the same document with `removed: true`, a higher generation, and
-no routes, artifacts, workloads, modules or endpoints. It still names the
-release it removes **and the ownership domain it was applied under**, which is
-what makes the removal attributable.
+no routes, artifacts, workloads, modules, endpoints or build size. It still
+names the release it removes **and the ownership domain it was applied under**,
+which is what makes the removal attributable.
+
+### The build's size is a build fact
+
+`build_size` is how big the build is: lines of code per language, each line
+counted **backend** or **frontend**, the two totals and their sum, and the
+paths the module manifest declared **vendored**, which the producer excluded
+and lists so a reader can see what was left out. An operator reads it in the
+catalogue beside the release digest and the running incarnation, release to
+release.
+
+It is a **build fact**, and three things follow. It is computed by the
+producer when it renders the generation, over the same tree it digests as
+the release — the CLI's `releaseDigest` walk over the module checkout — so
+the size describes exactly the build the digest pins. It travels inside the
+signed canonical bytes, so a host that verified the carrier has verified the
+size. And a host never counts: it has no source, and a number computed later
+would describe something other than the build it sits beside.
+
+**Core defines the count once, so two producers cannot disagree about what a
+line is.** `solutionhost.Counter` is fed one file at a time — a producer calls
+`Add` for each file as its digest walk hashes it, with the file's slash path,
+the side the service it belongs to puts it on, and its content — and
+`Result` is a section `Validate` accepts — provided every declared vendored
+prefix covered at least one path offered to the counter. **An exclusion that
+excluded nothing is refused by name**, never signed: the document says the
+list was excluded, and a typo, a directory renamed or stored under another
+Unicode spelling, or a link where a directory was expected would otherwise be
+signed as applied while its lines sat in the totals, with no reader able to
+tell. Coverage is earned through `Skips` or `Add` — so the producer offers
+EVERY path it digests, files in no known language included — or through the
+directory `MeasureDir` declines to enter. A path fed twice is refused: a walk
+that reaches a file twice describes a build that does not exist. The counter
+cannot see the digest, so it does not prove the producer fed it the digested
+bytes — that proof is the producer's own test over its renderer — but it holds
+what it can: a path is counted once, in one spelling, under one of two sides,
+and every exclusion it signs excluded something.
+`solutionhost.MeasureDir` wraps the same counter around a walk of a directory
+opened as an `os.Root`, for a producer holding a tree and no walk of its own:
+every file is opened through the root's descriptor and never as a path the
+operating system resolves from scratch, so a directory swapped for a symbolic
+link to somewhere outside the tree while the walk runs is refused rather than
+followed, an entry that has become a link is refused rather than read, a file
+swapped for another between being looked at and being opened is refused
+(`os.SameFile` across `Lstat` and the opened descriptor), and the count cannot
+be led outside the package. A counted line is a line of a file
+whose extension names a `solutionhost.Language` (`LanguageOf`) holding at
+least one byte that is not ASCII whitespace: comments count, blank lines do
+not, and nothing strips comments, because that needs a grammar per language
+and the one place core has those is its cgo surface, which a presence
+document's readers must not link. The number is one a reader can reproduce
+with nothing but this package, and it moves only when the code does.
+
+**Two closed vocabularies, read from core and never copied.** The language set
+is the five languages codefly services are written in, spelled as the
+`languages` package spells them (`solutionhost.Languages`), and a reader
+refuses a name it does not know rather than displaying a number under it. The
+sides are `backend` and `frontend` — the artifact surfaces of the same names,
+and only those two, because that is what the catalogue shows and what a
+manifest's author can say about a path; a client artifact's source is counted
+under whichever side its producer attributes it to. Both sets are asserted
+whole by test, since a widened set is what no refusal fixture can catch.
+
+**The exclusion list is the manifest's.** `resources.Module.Vendored` declares
+the path prefixes a module vendors rather than authors — the client kits a
+module copies in today — and the document repeats the declaration as applied.
+When a module stops vendoring, the declaration goes and the number follows,
+with no change to any producer. Both ends hold an entry to one grammar,
+`names.IsPathPrefix` — valid UTF-8 in normalization form C, slash-separated,
+relative to the module directory, in `path.Clean`'s spelling, so
+`web/src/clients/` and `./web/src/clients` cannot read as two exclusions of
+one directory and `clienté` has one spelling rather than a composed and a
+decomposed one — and to the same two list rules: no entry twice, no entry
+under another, since a path inside an excluded one excludes nothing more. A
+walked path in another normalization form is refused where it is read rather
+than silently unmatched. Valid UTF-8 is in the grammar
+because the signed bytes are JSON, and `encoding/json` rewrites a byte that is
+not UTF-8 as U+FFFD: a YAML document can carry such a byte (`!!binary`), a
+counter comparing bytes would exclude the path as written, and the signed
+document would then name a different path than the one excluded, with YAML's
+own read-back preserving the bytes and noticing nothing. A path the signing
+encoding cannot carry byte-for-byte is not a path; a test holds that every
+exclusion the document accepts comes back from the signed bytes unchanged.
+
+**The module manifest's decoder is strict**, so a declaration the loader does
+not understand is refused rather than dropped: `vendorred:` fails the load
+naming the key, where a lenient loader read it as no declaration, the counter
+then included the kit, and the document truthfully reported that nothing was
+excluded. The manifest's tree is held to the node-level checks the wire
+documents share before the typed decoder reads a field — a null vendored list
+would otherwise read as "no declaration", and a merge key would carry a second
+list in after every check had run — and its `kind` is dispatched from the node
+first, so a composition descriptor is refused by name rather than for its
+first unknown key. This is a **breaking change for manifests on disk** that
+carry a key no model declares: they loaded before and do not now. The two such keys found
+in practice, `project` and `domain` — written by an earlier workspace layout,
+declared by no version of the model and read by nothing — are refused with
+their remedy in one line (delete them), the way the descriptor's kind is
+refused by name; any other unknown key is named by the decoder with its line. `module.codefly.yaml` is shared by one other document, the
+composition descriptor (`kind: composed-module`, `composition.Descriptor`, read
+strictly by `composition.LoadDescriptor`); the two are told apart by `kind`,
+and the module loader refuses the descriptor's kind by name and points at its
+reader rather than loading it as a module with nothing in it. The loader also
+refuses a declaration that breaks any of the three path rules, through the
+same chain the CLI loads a module by.
+
+**The section is optional in v2, and that is not the v1 case.** A document
+without it is an older producer's and is accepted; one that carries it is held
+to every build-size rule. The schema step from v1 to v2 exists because a
+document that omits the build a workload must be running is a document a host
+cannot verify anything against, and reading it as a weaker shape would make
+that shape permanently available. The size weakens no verification — a
+catalogue reads it, no host holds a container to it — so its absence is
+"this producer did not count", and refusing every pre-existing document to
+say so would buy nothing. It is written with `omitempty` for the same reason
+the canonical encoding sorts its keys: every digest a host stored before the
+section existed still holds.
+
+**Every refusal is one named rule, protected by a fixture, and the rules
+start before the typed decoder.** The table (`buildsize.go`) holds three kinds
+of rule, applied in a fixed order so a document is refused for one reason,
+named. *Decoding rules* are enforced where the bytes are read, through the one
+node-level path the wire contracts share (`internal/wire`), over the whole
+document: one key once per mapping with aliases resolved, no merge key, no
+explicit null, no fractional number, every key a name — a non-empty string
+written as one, tagged `!!str`, since a `!!binary` spelling of `build_size`
+decodes to the same name in the typed decoder while a rule looking for the key
+by its written text never sees it — no unknown field, one document per file.
+The walk visits each node once: an alias target is walked at its anchor and
+not again at each alias, because following every alias made a 579-byte
+document of fan-ten aliases take two minutes in the loader the CLI runs on
+every manifest, where yaml.v3's own aliasing guard, which runs only in the
+typed decoder after this walk, had answered at once; a cycle still ends in a
+refusal by the depth bound. They exist because yaml.v3 REPAIRS what it cannot
+represent and reports nothing: `1.9` into a count is 1, `null` and an absent
+field are 0, a plain integer past uint64 saturates to the largest one (yaml
+tags it a float, which is what the whole-number rule refuses), `012` is octal
+ten, a key written through an alias hides a duplicate, and a mapping carried
+in through the merge key `<<` is applied inside the typed decoder AFTER every
+check over the tree has run — so a count spelled in octal under
+`<<: {languages: …}` was repaired exactly where a direct one is refused. The
+merge-key refusal lives in `internal/wire`, so the module contract and the
+authority document inherit it with a witness each. A count repaired before validation is a
+total that agrees with rows the file never wrote, so `Parse` accepted a
+document with `backend: 1.9` in a row and `1.1` in the total. *Node rules* run
+over the `build_size` node of the tree before it is typed: every count and
+every row's language is declared, every count is a whole number written in
+decimal digits — an integer scalar, plain or tagged `!!int`, with no sign, no
+base prefix and no leading zero; a string is not a number — and every count
+fits. *Model rules* run over the decoded section: the lists'
+presence, their entries, then the totals — each side's rows summing to a
+number that fits, then equalling the stated total, then the two totals'
+sum fitting and equalling the overall total; a sum that does not fit is a rule
+of its own, refused before the comparison that a wrapped sum could satisfy by
+accident. A tombstone declaring a size is a rule of the table too. Each node
+and model rule is a function holding exactly one condition, enumerated from
+the source by `internal/conditions`; every refusal this change added — in the
+table and in the decoder — is reached by a shipped fixture; and the package's
+self-check deletes each rule in turn, in the decoder, before typing or in
+validation as its kind requires, and requires a fixture naming it to notice by
+its own message — for the repairs, to be accepted outright, which is the hole
+each rule closes. The refusal the issue names — totals that do not equal the
+sum of their parts — is three of those rules, one per total, each with its
+witness. The presence document's older rules are not in the table; they
+predate it, and moving them is a change to a package whose digests are pinned.
+
+**A writer gets bytes or an error.** `solutionhost.Marshal` now validates,
+marshals, and reads the bytes back through `Parse`, returning them only when
+writing the re-read document reproduces them — the guard the module contract's
+`Encode` holds, brought to the presence document the day it grew a section
+with two declared-empty lists. A producer that marshals the model by hand can
+write `vendored: null` for a list it meant as empty, and the failure then
+surfaces at whoever reads the file, or at admission, rather than at publish.
 
 ### Three digests, and why they are three types
 
@@ -644,6 +824,13 @@ payload that survives a round trip through it.
 | A host accepts only the domains it declares, and a binding keeps the domain it was applied under | `Host.Admit`, `ErrWrongDomain` |
 | One delivery speaks for one ownership domain | `OneDelivery`, `ErrWrongDomain` — a renderer's check, never a host's |
 | Removal is a generation, never an absence | `Validate`; an empty set is "nothing declared" |
+| One key once per mapping, no explicit null, no fractional number, every key a name, no unknown field, one document per file — over the whole document, before any typed field exists | `Parse` / `ParseAuthority` through `internal/wire`, `ErrInvalid`; each a named rule with its fixture |
+| A build size's counts are declared, whole numbers in decimal digits that fit, judged on the YAML node before the typed decoder can repair them; no mapping arrives through a merge key | `Parse` → the node rules and `no-merge-keys`, `ErrInvalid` |
+| Every vendored prefix a producer signs covered a path it offered | `Counter.Result`, refused by name |
+| A build size, when present, counts known languages once each with at least one line, excludes canonical UTF-8 paths, distinct and non-nested, and states totals whose parts fit and sum to them | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
+| A tombstone declares no build size | `Validate` → the rule table, `ErrInvalid` |
+| A module manifest carries only keys it declares, is held to the shared node checks, and a composition descriptor is not one | `resources.LoadModuleFromDir`, the node checks and the kind dispatched from the node before strict decoding |
+| A presence document is written through `Marshal`, which reads back what it wrote | `Marshal`, `ErrInvalid` |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
 | Each (principal, binding) pair is inside the caller's envelope, by exact inclusion | `ValidateAgainst`, `ErrOutsideEnvelope` |
 | An unverified document cannot reach `Admit` or `Activate` | distinct `Delivered` types, produced only through a caller's `BundleVerifier` |
@@ -694,6 +881,15 @@ for it.
 
 The set may span every host the product delivers to. Route aliases are unique
 within **one** host, so they are compared per `host.coordinate`.
+
+A renderer that writes the build's size feeds `solutionhost.NewCounter` with
+the module's `Vendored` declaration, calls `Add` for every file its release
+digest hashes — the path, the side the file's service puts it on, the content
+— and sets `Result` on the document before writing it through
+`solutionhost.Marshal`. Fed from the digest walk, the size and the digest
+describe one tree because they were read in one pass; the counter refuses a
+path fed twice, and the renderer's own test is what proves the walk fed it
+every digested file exactly once.
 
 A **host** verifies first and admits second, and the ordering is now enforced
 rather than described: `VerifyDelivered` takes the carrier and the host's own
@@ -748,21 +944,34 @@ every collection, and sorts `non_authenticating`, whose delivered order a
 renderer emitting it from a Go map would otherwise randomize per process,
 turning every reconcile pass into an intermittent `ErrRewrittenGeneration`. It
 is pinned by test against the shipped fixtures, so it cannot move by accident.
+The build-size section sorts its two collections the same way and keeps an
+empty one an empty list, and a document without the section encodes exactly as
+it did before the section existed, so the pins of the older fixtures did not
+move when it was added; the `build-size` fixture carries its own pin.
 
 ## Fixtures
 
 See [`solutionhost/testdata/README.md`](../solutionhost/testdata/README.md).
 
-## The module contract and the cell
+## The module contract
 
-Two more wire contracts of this lifecycle live here, each with one
+One more wire contract of this lifecycle lives in this repository, with one
 implementation and a shipped kit, for the reason the presence and authority
-documents do: three repositories read them (the CLI's renderer and publisher,
-the runtimes that publish contracts, the platform's loader that derives policy
-from cells), and a second implementation in any of them is where the next
-disagreement about what a file means appears.
+documents do: three repositories read it (the CLI's renderer and publisher,
+the runtimes that publish contracts, the platform's loader), and a second
+implementation in any of them is where the next disagreement about what a
+file means appears.
 
-**`contracts/module`** is `codefly/module-contract/v1`, the
+The **cell** (`codefly/cell/v1`, the inventory of an environment's cell that a
+publish writes and the platform derives its mesh policy, admission set and
+RBAC from) has **no implementation in core on `main`**. #701's branch carried
+one beside the module contract; the merge did not, and no open PR brings it.
+Nothing in this document describes a cell package, and the consumers that read
+cells still own their own cell models until core ships one.
+
+**`contracts/module`** — Go package `module`, imported as `modulecontract` by
+its consumers and in the examples below, so the identifier says what it is —
+is `codefly/module-contract/v1`, the
 request a module publishes beside its manifest as
 `module.contract.codefly.yaml`: the principal its credentials are issued to,
 the operation bindings it redeems (each with a scope ceiling per operation in
@@ -783,58 +992,6 @@ are one key to core (`MODEL_AUDIENCE` and `model-audience`) must AGREE on its
 value: agreeing spellings are one value and resolve, and it is the disagreement
 that has no answer — see the resolution rules below. A publisher writes through
 `Encode`, never by marshaling the model.
-
-**`solutionhost/cell`** is `codefly/cell/v1`, the inventory of one
-environment's cell that a publish writes to the delivery repository and the
-platform derives its mesh policy, admission set and RBAC from: per module
-namespace, every pod-producing workload with its exact selector, the
-module-qualified service it runs, the account and SPIFFE identity it runs
-as, the one authenticating container named, every container's pinned image,
-the rendered artifact's digest, its release, endpoints with their container
-ports and declared consumers, ingress routes, cell bindings and cloud
-identity; the delivery Job declared by its labels; and the external reach the
-environment grants. `Parse` decodes strictly and `Validate` holds the host
-header to all-or-nothing, every identity to the cell's trust domain, every
-edge to an endpoint the cell carries, every egress entry to the namespace's
-own module (a grant located under a namespace is that module's, never
-another's — a local workload is not required, since a managed replacement
-runs none), every image to a **canonical repository** (registry and path as
-the distribution reference grammar reads them, ports kept, no tag, no
-digest — the digest is the field beside it) and an OCI digest, and every
-Kubernetes name and label to **Kubernetes' own grammar**: namespaces and
-container names are DNS labels, workload and account names DNS subdomains,
-selector keys qualified names and selector values label values — an empty
-value is legal, as the API server has it, and an uppercase namespace is not.
-
-An endpoint's `visibility` and `allow_modules` are **declarations the platform
-derives policy from**, so they are held to core's own vocabulary: `private`,
-`internal` or `public`, **written out and never omitted** — the resource model
-admits an omission and resolves it to `private` before a render writes a cell,
-so a cell carrying none would put that default in a second place for the
-platform to re-derive — and an allow-list of module names, each held to
-[`resources/names`](../resources/names), the shared grammar. The `allow_modules`
-a rendered inventory carries is **derived, never authored**: the composition
-computes it from the consumers' declared service dependencies with
-`resources.Workspace.DeriveAllowModules` — the ask lives with the asker, never with the
-target — and a service or module manifest that writes one is refused at the
-source (`resources.ValidateEndpointDeclaration`, rule `allow-modules-derived`),
-so no cell can carry a list a module wrote about its own consumers. That list
-is reachability for mesh policy and NetworkPolicy, never per-call
-authorization, which is the Work Context's
-([network-model.md](network-model.md#the-allow-list-is-derived-never-authored)).
-The `module` and `external` spellings are refused — core's endpoint-selection
-cutover deleted them, so a service declaring either no longer loads
-(`resources.KnownVisibility` reports false and
-`resources.ValidateEndpointDeclaration` refuses it), and a cell carrying one
-describes a service that cannot exist. What a visibility PERMITS is still not
-decided here; `resources.ValidateEndpointVisibility` and the workspace's own
-validation own that. The vocabulary is a literal in `rules.go` and `resources`
-is imported by this package's TESTS only, so the platform's loader never links
-core's resource tree to read a cell; two tests hold that line
-(`TestTheVisibilityVocabularyIsCoreOwn`, which is what caught the cell still
-accepting the deleted spellings when the cutover landed, and
-`TestTheCellPackageDoesNotLinkResources`).
-Ingress routes are held to endpoint order, as endpoints and egress already are.
 
 **Resolution is core's too, not a provider's.** A contract's slots resolve
 against a composition's workspace configuration, and *which* record answers a
@@ -858,34 +1015,15 @@ occurrence, a missing key, a kind carrying a comma or a colon — so a provider
 that collapses two spellings, drops the secret occurrence or deduplicates fails
 by name.
 
-**A writer gets bytes or an error.** `Contract.Encode` and `File.Encode` are
-the only way to write either document: each validates, marshals, and reads the
-bytes back through its own reader, returning them only when what comes back is
-what went in. Marshaling the model directly let a publisher emit a document its
-reader refuses — a principal of `INVALID PRINCIPAL`, an image digest of the
-wrong length — with the failure surfacing at whoever READ the file, or at
-admission rather than at publish; and, worse, one that parses to something else,
-which no reader refuses at all. Writing through `Encode` rather than marshaling
+**A writer gets bytes or an error.** `Contract.Encode` is the only way to
+write a contract: it validates, marshals, and reads the bytes back through its
+own reader, returning them only when what comes back is what went in.
+Marshaling the model directly let a publisher emit a document its reader
+refuses — a principal of `INVALID PRINCIPAL` — with the failure surfacing at
+whoever READ the file, or at admission rather than at publish; and, worse, one
+that parses to something else, which no reader refuses at all. Writing through `Encode` rather than marshaling
 the model is a REQUIREMENT on each consumer, which the adoption table carries
 and which this repository cannot establish for them.
-
-**The duplicate and network-range decisions, since the platform must not make
-them.** One declared edge is one entry: a consumer named twice, two ingress
-routes to one endpoint, a host named twice in one route are each refused, so a
-count in a cell is a count a reader can trust. A CIDR must be **canonical** —
-`10.20.1.7/16` and `10.20.0.0/16` are one range written two ways, and a platform
-comparing declared reach with rendered policy would otherwise canonicalise it
-itself — and the CIDRs of one egress entry must not **overlap**, since a range
-inside another is reach declared twice and the narrower statement grants nothing
-the wider one did not. A range naming **every**
-address (`0.0.0.0/0`, `::/0`) is refused: there is no threshold of breadth core
-could pick without inventing policy, but the unspecified range is not a point on
-that spectrum — it is the absence of a declared reach, and a cell exists to
-carry one for the platform to police. Between those, how broad a range may be
-*is* deliberately the platform's admission decision, which the cell states
-faithfully rather than pre-empts. A zero endpoint port (the service declares
-none) and a repeated `allow_modules` entry (an allow-list is read as a set) keep
-their documented meanings.
 
 **Every refusal CONDITION is protected by construction**, and the
 construction is two properties that hold together rather than one scan.
@@ -905,15 +1043,11 @@ Together they leave no third place to put a condition: inside a rule it is
 caught by the first, as a new rule it is caught by the second. That matters
 because the earlier mechanism — enumerate the refusal sites, require each to
 be *reached* by some fixture — proved a rule was reached and said nothing
-about a condition sharing a rule with another. Nine rounds of review found
-that difference five times, and twice at the end inside one CIDR rule: an
-overlap predicate gated on the parsed range being IPv4, and a
-canonical-spelling check run only while no range had been seen yet each accepted an invalid
-document while every fixture went on refusing, because a sibling condition
-reached the same refusal site. The egress CIDR rule is now three rules, with
-an IPv6 overlap and a later non-canonical entry as their witnesses; endpoint
-visibility, consumer uniqueness, ingress host uniqueness and one-route-per-
-endpoint were split the same way.
+about a condition sharing a rule with another. Nine rounds of review on #701
+found that difference five times, each a weakened predicate that accepted an
+invalid document while every fixture went on refusing, because a sibling
+condition in the same rule reached the same refusal site. Each such rule was
+split into one rule per condition, each with its own witness.
 
 The reachability scan remains beside them
 (`TestEveryRefusalConditionIsReachedByAFixture`), covering the refusals that
@@ -922,7 +1056,7 @@ document can reach is declared with its reason and asserted to be genuinely
 unreached, so the one open guard is written down rather than silent.
 
 The enumeration itself is now tested
-(`solutionhost/internal/conditions`), because it is what decides whether a
+(`internal/conditions`), because it is what decides whether a
 condition is protected and two of its own defects had read as "everything is
 protected": the enclosing function was tracked on a stack popped at every
 node rather than at every declaration, and a format string written as a
@@ -938,37 +1072,36 @@ reported, malformed value kept — and a decoder that handles a mapping without
 it fails `TestEveryCustomDecoderReadsMappingsThroughTheOnePath`.
 
 **Three refusals are properties of the DOCUMENT, not of a typed decoder**, and
-live once in `solutionhost/internal/wire` because one guard per decoder is how a
+live once in `internal/wire` because one guard per decoder is how a
 dynamic map came to have none. One mapping names one key once, with aliases
 RESOLVED — yaml compares raw key nodes first, so an alias key silently replaced
-a per-operation ceiling and a selector label. An ALIAS is its target, resolved under a
-bound: an anchored fraction declared as a key and used as a port
-(`{&fraction 443.9: api}` with `port: *fraction`) reached an integer field as
-443, because keys and alias targets were examined by neither check. A key now
-gets every check a value gets, through the same function. An explicit **null**
-is refused
-anywhere: decoding null into a string returns false rather than an error, so a
-typed decoder skips the key *and its value* and omits the sequence element —
-`null: {tenancy: dedicated}` discarded a subtree past a boundary advertised as
-strict. And a mapping key must be a non-empty name, because both models' maps
-are keyed by name. An absent field is absent; an empty list is written `[]`.
+a per-operation ceiling. An ALIAS is its target, resolved under a bound: an
+anchored fraction declared as a key and used where a whole number belongs
+reached an integer field truncated, because keys and alias targets were
+examined by neither check. A key now gets every check a value gets, through
+the same function. An explicit **null** is refused anywhere: decoding null
+into a string returns false rather than an error, so a typed decoder skips the
+key *and its value* and omits the sequence element — `null: {tenancy:
+dedicated}` discarded a subtree past a boundary advertised as strict. And a
+mapping key must be a non-empty name, because the model's maps are keyed by
+name. An absent field is absent; an empty list is written `[]`.
 
-**Every refusal is one named rule.** Each package holds its rules in a table
+**Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (78 documents) / `cell.Fixtures()` (130) ship
+`modulecontract.Fixtures()` (79 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (117
 configurations) does the same for resolution, driven by `RunResolution(t,
-provider)`. **All three counts are pinned by a test**, and the resolution kit
+provider)`. **Both counts are pinned by a test**, and the resolution kit
 is pinned by NAME and by cases-per-role as well: a documented count written by
 hand was never checked at all, so deleting five of a role's cases tripped
 nothing, and the sentence you are reading claimed a guarantee that did not
 exist. A consumer passes the function it
 actually reads the file with — the renderer's load, the publisher's merge,
 the loader's parse — never this package's `Parse`, which proves nothing about
-the consumer. Each package's self-check (`TestEveryRuleIsProtectedByAFixture`)
+the consumer. The package's self-check (`TestEveryRuleIsProtectedByAFixture`)
 proves the kit protects every rule: every rule is named by at least one
 refused fixture, and the kit is run with each rule deleted in turn and must
 fail on a fixture naming it — a rule that could be dropped silently is a rule
@@ -976,14 +1109,9 @@ the kit does not protect.
 
 **Adoption is a requirement, not yet a fact.** Nothing in this repository
 drives a consumer through either kit, and until each consumer's own commit
-lands, the second copies of these models still exist. What each one owes:
+lands, the second copies of this model still exist. What each one owes:
 
 | Consumer | What it does, and where it stands |
 | --- | --- |
-| `codefly-dev/cli` | delete `pkg/modulecontract`, the cell model in `pkg/gitops/cell.go`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every cell through `cell.Parse` and every contract through `modulecontract.Load`; replace its `Values` adapter with a **duplicate-preserving** `Records(group) ([]Record, error)` provider that keeps repeated records, original key spellings and every secret classification; write through `Encode` rather than marshaling the model; and run **all three** kits — both document kits and `RunResolution` — through the render's and the publisher's own entrypoints, never a test-only wrapper. The deletions are done at `b77f5806`, which PREDATES the `Records` API and the resolution kit, so that commit does not establish adoption of this head; the tested consumer commit is still to be named. |
-| infra-base | read cells through `cell.Parse` and run `cell.Run` against the loader's own entrypoint. Its rules beyond the wire stay its own — a non-empty `cidrs` refused until it renders address-based egress, the closed admission set, RBAC derivation — on top of a document this package has already held to its shape. Not started. |
+| `codefly-dev/cli` | delete `pkg/modulecontract`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every contract through `modulecontract.Load`; replace its `Values` adapter with a **duplicate-preserving** `Records(group) ([]Record, error)` provider that keeps repeated records, original key spellings and every secret classification; write through `Encode` rather than marshaling the model; and run **both** kits — the document kit and `RunResolution` — through the render's and the publisher's own entrypoints, never a test-only wrapper. The deletions are done at `b77f5806`, which PREDATES the `Records` API and the resolution kit, so that commit does not establish adoption of this head; the tested consumer commit is still to be named. Its cell model stays its own until core ships one. |
 | the runtimes that publish contracts | run `modulecontract.Run` against the publisher's output, so a contract they emit is one this reader accepts. Not started. |
-
-The platform's loader has not run against the cell fixtures, and the cell's
-valid fixture is assembled to the shape the CLI's writer emits rather than
-captured from a real publish.

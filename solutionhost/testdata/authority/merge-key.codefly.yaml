@@ -1,0 +1,50 @@
+# REJECTED. The valid authority document with a merge key at its top level. The
+# authority reader shares the presence reader's node checks, so the refusal of
+# a merge key — a mapping the typed decoder would apply after every rule had
+# run — is inherited here rather than implemented twice.
+# ACCEPTED. A complete authority document: what two principals hold on one
+# host, within the ceiling FixtureEnvelope describes, effective for one exact
+# build and from one presence generation onwards.
+#
+# It grants nothing on its own. Activate pairs it with the "valid" presence
+# fixture and the build both name; either document alone activates nothing,
+# which is the whole point of there being two.
+#
+# The approved build is the image digest the presence fixture's workload
+# declares. That is the tie: authority is held for the build that was reviewed,
+# so shipping a new build does not carry the old build's authority forward.
+schema: codefly/solution-authority/v1
+<<: {}
+authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
+generation: 2
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+ownership_domain: alpha
+envelope_revision: 7
+approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+effective_from: 4
+principals:
+  - principal: principal:operator
+    bindings:
+      - id: binding:alpha:reconcile
+        revision: 3
+        audience: https://prod.region-a.example/operations
+        scope: reconcile
+        queue: reconcile.default
+        namespace: alpha-region-a-01
+      - id: binding:alpha:read
+        revision: 1
+        audience: https://prod.region-a.example/operations
+        scope: read
+        queue: read.default
+        namespace: alpha-region-a-01
+  - principal: principal:reporter
+    bindings:
+      - id: binding:alpha:report
+        revision: 2
+        audience: https://prod.region-a.example/operations
+        scope: report
+        queue: report.batch
+        namespace: alpha-region-a-01

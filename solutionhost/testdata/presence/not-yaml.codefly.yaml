@@ -1,0 +1,5 @@
+# REJECTED. Not a YAML document at all: the bracket is never closed. Refused
+# before any rule of this package, because syntax is a precondition of reading
+# anything; listed with the rules so the kit covers it. It names the fixture
+# host's coordinate (example/prod/region-a) like every fixture, inside the text.
+not yaml: [example/prod/region-a

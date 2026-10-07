@@ -106,6 +106,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "schema-omitted", file: "schema-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrSchema, message: `"" (this reader reads`, rule: ruleSchema},
 		{name: "tenancy", file: "tenancy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "tenancy", rule: ruleKnownFields},
 		{name: "two-documents", file: "two-documents.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "more than one document", rule: ruleOneDocument},
+		{name: "merge-key", file: "merge-key.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "uses the merge key", rule: ruleNoMergeKeys},
 
 		{name: "principal-upper-case", file: "principal-upper-case.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `principal "Assistant" is not a lowercase name`, rule: rulePrincipal},
 		{name: "namespaces-omitted", file: "namespaces-omitted.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "namespaces must be declared", rule: ruleListsDeclared},

@@ -20,6 +20,13 @@ import (
 	"github.com/codefly-dev/core/wool"
 )
 
+// compositionDescriptorKind is the `kind` of the one other document that is
+// written to ModuleConfigurationName: the composition descriptor,
+// composition.DescriptorKind. It is spelled here because composition imports
+// this package, so this package cannot import it; TestTheDescriptorKindIsCompositions
+// holds the two spellings together.
+const compositionDescriptorKind = "composed-module"
+
 // ModuleKind is the `kind` a module manifest declares; ModuleConfigurationName
 // is the file that carries it.
 const (
@@ -148,6 +155,20 @@ type Module struct {
 	JobReferences         []*JobReference         `yaml:"jobs,omitempty"`
 	RunnableReferences    []*RunnableReference    `yaml:"runnables,omitempty"`
 	ApplicationReferences []*ApplicationReference `yaml:"applications,omitempty"`
+
+	// Vendored are the path prefixes, relative to the module directory, that
+	// hold code this module vendors rather than authors — the client kits a
+	// module copies in from the modules it talks to. A build fact that counts
+	// the module's size excludes them and records the list it excluded
+	// (solutionhost.BuildSize), so the exclusion is the manifest's: when a
+	// module stops vendoring, the declaration goes and the number follows.
+	//
+	// Each entry is held to names.IsPathPrefix — slash-separated, relative,
+	// in path.Clean's spelling — so one directory has one spelling here and
+	// in the presence document that repeats it. An entry may not appear
+	// twice and may not lie under another: a path inside an excluded one
+	// excludes nothing more.
+	Vendored []string `yaml:"vendored,omitempty"`
 
 	// internal
 	dir string
@@ -463,6 +484,9 @@ func (mod *Module) adoptWorkspaceName(name string) {
 }
 
 func (mod *Module) postLoad(ctx context.Context) error {
+	// The manifest's kind is dispatched from the YAML node before the typed
+	// decoder reads a field (checkManifestNodes in marshalling.go), in one
+	// place: a copy here was unreachable behind it.
 	if err := mod.validatePaths(); err != nil {
 		return err
 	}

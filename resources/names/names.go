@@ -1,7 +1,9 @@
-// Package names holds the name grammars core's models share, so a reader in
-// one package and a validator in another cannot disagree about what a name is.
-// It imports nothing: a wire model that must not link core's resource tree can
-// still hold a value to the same grammar the resource model holds it to.
+// Package names holds the name and path grammars core's models share, so a
+// reader in one package and a validator in another cannot disagree about what
+// a name is. It imports nothing of core — only the standard library and the
+// Unicode normalization tables — so a wire model that must not link core's
+// resource tree can still hold a value to the same grammar the resource model
+// holds it to.
 package names
 
 import (

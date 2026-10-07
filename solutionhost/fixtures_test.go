@@ -51,6 +51,19 @@ func TestEveryShippedFileIsADescribedFixture(t *testing.T) {
 		} else {
 			require.Emptyf(t, shipped.Decision, "%s/%s reaches no admission decision", shipped.Type, shipped.Name)
 		}
+		// A rejection says what its refusal carries, so a consumer asserts
+		// the reason and not only the outcome; an acceptance carries none,
+		// and only a rejected presence document can protect a build-size
+		// rule.
+		if shipped.Outcome == solutionhost.OutcomeRejected {
+			require.NotEmptyf(t, shipped.Message, "%s/%s is rejected and says nothing about why", shipped.Type, shipped.Name)
+		} else {
+			require.Emptyf(t, shipped.Message, "%s/%s is accepted and carries a refusal message", shipped.Type, shipped.Name)
+			require.Emptyf(t, shipped.Rule, "%s/%s is accepted and names a rule", shipped.Type, shipped.Name)
+		}
+		if shipped.Rule != "" {
+			require.Equalf(t, solutionhost.DocumentTypePresence, shipped.Type, "%s names a build-size rule", shipped.Name)
+		}
 	}
 	require.Equal(t, onDisk, described)
 }

@@ -88,6 +88,19 @@ type Fixture struct {
 	// Decision is what Host.Admit must return for an accepted presence
 	// fixture, and is empty for every other type and every rejection.
 	Decision Decision
+
+	// Message is text the refusal of a rejected fixture must carry, whichever
+	// entrypoint refused it — Parse, Host.Admit, ValidateAgainst, Activate or
+	// verification — so a consumer asserts the reason and not only the
+	// outcome. Empty for an accepted fixture.
+	Message string
+
+	// Rule names the table rule a rejected fixture protects (the decoding
+	// rules every field shares and the build-size rules; see BuildSize): the
+	// one a reader cannot drop without this fixture noticing, which the
+	// package's self-check proves by deleting each rule in turn. Empty for an
+	// accepted fixture and for a refusal the table does not hold.
+	Rule string
 }
 
 // FixtureBindingID is the binding the accepted presence fixtures declare for a
@@ -245,36 +258,218 @@ func Fixtures() []Fixture {
 		},
 		{
 			Name: "tombstone-foreign-domain", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Reason: "a withdrawal from a delivery that speaks for another ownership domain; the generation is newer, and ownership is what refuses it",
+			Reason:  "a withdrawal from a delivery that speaks for another ownership domain; the generation is newer, and ownership is what refuses it",
+			Message: `which host "example/prod/region-a" does not accept`,
 		},
 		{
 			Name: "stale-generation", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Reason: "the document declares a generation older than the applied one; it is rejected, not merged",
+			Reason:  "the document declares a generation older than the applied one; it is rejected, not merged",
+			Message: "declares generation 3, applied is 4",
 		},
 		{
 			Name: "mixed-release", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Reason: "one generation names artifacts rendered from two releases; a partial rollout is not declarable",
+			Reason:  "one generation names artifacts rendered from two releases; a partial rollout is not declarable",
+			Message: `was rendered from "example/beta@1.9.0", not "example/beta@2.0.0"`,
 		},
 		{
 			Name: "duplicate-route-alias", Type: DocumentTypePresence, Outcome: OutcomeRejected,
 			Reason: "a second binding claims the route alias " + FixtureBindingID + " already holds; " +
 				"route aliases are unique within a host and the collision is refused before the generation applies",
+			Message: `route "alpha" is claimed by both`,
 		},
 		{
 			Name: "wrong-kind", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Reason: "the kind is neither solution nor module; admission refuses a presence entry whose kind is absent or unknown rather than guessing",
+			Reason:  "the kind is neither solution nor module; admission refuses a presence entry whose kind is absent or unknown rather than guessing",
+			Message: `kind "service" is not one of`,
 		},
 		{
 			Name: "missing-identity", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Reason: "the workload names no SPIFFE ID, so there is nothing a host could verify the destination's SVID against",
+			Reason:  "the workload names no SPIFFE ID, so there is nothing a host could verify the destination's SVID against",
+			Message: "requires a SPIFFE ID for the SVID it must present",
 		},
 		{
 			Name: "digest-confusion", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Reason: "an image digest and a rendered digest are the same string; two digests of different kinds are never equal by chance",
+			Reason:  "an image digest and a rendered digest are the same string; two digests of different kinds are never equal by chance",
+			Message: "are the same digest",
 		},
 		{
 			Name: "superseded-schema", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Reason: "a v1 presence document; there is no v1 reader, and the refusal is a version skew rather than an invalid document",
+			Rule:    ruleSchema,
+			Reason:  "a v1 presence document; there is no v1 reader, and the refusal is a version skew rather than an invalid document",
+			Message: `"codefly/solution-host-binding/v1" (this Core reads`,
+		},
+		{
+			Name: "build-size", Type: DocumentTypePresence,
+			Outcome: OutcomeAccepted, Decision: DecisionApply,
+			Reason: "the valid document at the next generation, carrying the build's size: lines per language, backend and frontend, " +
+				"the totals, and the vendored paths the manifest declared and the producer excluded; the section is optional in v2 " +
+				"and held to the build-size rules when present",
+		},
+		{
+			Name: "build-size-languages-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeLanguagesDeclared, Message: "build_size.languages must be declared",
+			Reason: "the section declares no languages list; an absent list and \"no file in a known language was counted\" must not look the same",
+		},
+		{
+			Name: "build-size-unknown-language", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeLanguageKnown, Message: `build_size language "cobol" is not one of`,
+			Reason: "a row names a language this Core does not know; the set is closed and read from core, never guessed at",
+		},
+		{
+			Name: "build-size-language-twice", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeLanguageUnique, Message: `build_size language "go" is declared twice`,
+			Reason: "one language is one row carrying both its backend and its frontend lines; two rows make the figure depend on which a reader took",
+		},
+		{
+			Name: "build-size-empty-language", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeLanguageCounts, Message: `build_size language "rust" counts no line`,
+			Reason: "a row counts no line on either side; a language that was not found is not written",
+		},
+		{
+			Name: "build-size-vendored-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeVendoredDeclared, Message: "build_size.vendored must be declared",
+			Reason: "the section declares no vendored list; \"nothing was excluded\" is a fact the manifest stated and the document repeats as an empty list",
+		},
+		{
+			Name: "build-size-vendored-trailing-slash", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeVendoredCanonical, Message: `build_size vendored path "web/src/clients/" is not a canonical relative path`,
+			Reason: "an excluded path spelled with a trailing slash; one prefix has one spelling, path.Clean's, in the manifest and in the document that repeats it",
+		},
+		{
+			Name: "build-size-vendored-twice", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeVendoredUnique, Message: `build_size vendored path "web/src/clients" is declared twice`,
+			Reason: "the same excluded path declared twice",
+		},
+		{
+			Name: "build-size-vendored-nested", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeVendoredDisjoint, Message: `build_size vendored paths "web/src/clients" and "web/src/clients/go" overlap`,
+			Reason: "one excluded path lies under another; a path inside an excluded one excludes nothing more, so the outer one is declared alone",
+		},
+		{
+			Name: "build-size-backend-total-disagrees", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeBackendTotal, Message: "build_size.backend is 12000 and its languages' backend lines sum to 12416",
+			Reason: "the backend total is not the sum of the rows' backend lines; a document whose totals do not equal the sum of its parts states two sizes",
+		},
+		{
+			Name: "build-size-frontend-total-disagrees", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeFrontendTotal, Message: "build_size.frontend is 8000 and its languages' frontend lines sum to 8102",
+			Reason: "the frontend total is not the sum of the rows' frontend lines",
+		},
+		{
+			Name: "build-size-total-disagrees", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeTotal, Message: "build_size.total is 20000 and backend plus frontend is 20518",
+			Reason: "the overall total is not backend plus frontend while both of those agree with their rows",
+		},
+		{
+			Name: "tombstone-with-build-size", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule:    ruleBuildSizeAbsentWhenRemoved,
+			Message: "a removed generation declares no build_size",
+			Reason:  "a tombstone carrying a build size; a removed generation declares no build, so it declares no size of one",
+		},
+		{
+			Name: "not-yaml", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleWellFormed, Message: "not a YAML document",
+			Reason: "not YAML at all; syntax is a precondition of reading anything, listed with the rules so the kit covers it",
+		},
+		{
+			Name: "two-documents", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleOneDocument, Message: "holds more than one document",
+			Reason: "a second YAML document in the file; a reader that took the first and ignored the rest would sign something other than the file",
+		},
+		{
+			Name: "build-size-unknown-field", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleKnownFields, Message: "field vendorred not found",
+			Reason: "the exclusion list spelled vendorred; an unknown field is refused, never dropped, or the count would include the kit while the document said nothing was excluded",
+		},
+		{
+			Name: "build-size-field-twice", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleMappingKeysOnce, Message: `names the key "backend" twice`,
+			Reason: "backend named twice in the section; a repeated key makes the decoded document depend on which the reader kept",
+		},
+		{
+			Name: "build-size-count-null", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleNoNulls, Message: "explicit null at build_size.total",
+			Reason: "the total written as null; yaml decodes a null count as zero and reports nothing",
+		},
+		{
+			Name: "build-size-count-fractional", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleWholeNumbers, Message: "is not a whole number",
+			Reason: "a row's backend lines written as 12416.9; yaml truncates the fraction before any rule sees it, and the totals then agree with a row the file never wrote",
+		},
+		{
+			Name: "build-size-empty-key", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleKeyIsAName, Message: "a key that is not a name",
+			Reason: "a nameless key in the section; its mappings are keyed by name",
+		},
+		{
+			Name: "build-size-total-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeFieldsDeclared, Message: "build_size.total must be declared",
+			Reason: "no total; an absent count decodes as zero, and a zero nobody wrote is a total that agrees with nothing",
+		},
+		{
+			Name: "build-size-row-frontend-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeFieldsDeclared, Message: "build_size.languages[0].frontend must be declared",
+			Reason: "a row without its frontend count; the missing count would decode as zero and every total would agree",
+		},
+		{
+			Name: "build-size-count-hex", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeCountsDecimal, Message: `build_size.backend is "0x3080", not a whole number written in decimal digits`,
+			Reason: "a total written in hexadecimal; a count has one spelling, decimal digits, as this package writes it",
+		},
+		{
+			Name: "build-size-count-leading-zero", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeCountsDecimal, Message: `build_size.languages[0].backend is "012416", not a whole number written in decimal digits`,
+			Reason: "a row's count with a leading zero; yaml reads it as octal, so the document would be validated on a number nobody wrote and accepted",
+		},
+		{
+			Name: "build-size-count-negative", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeCountsDecimal, Message: `build_size.frontend is "-8102", not a whole number written in decimal digits`,
+			Reason: "a total written negative; a count is unsigned, and the refusal is the node rule's, by name, rather than whatever the typed decoder says about a sign",
+		},
+		{
+			Name: "build-size-count-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeCountsFit, Message: "is 18446744073709551616, more than a count can hold",
+			Reason: "a row's count tagged an integer and one past uint64; a plain one yaml tags a float and the whole-number rule refuses, so this is the explicit spelling that reaches the count",
+		},
+		{
+			Name: "build-size-backend-sum-overflows", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeBackendSumFits, Message: "backend lines sum to more than a count can hold",
+			Reason: "two rows whose backend lines sum past uint64, with the wrapped sum as the stated total; the sum fitting is refused before the comparison that would agree by accident",
+		},
+		{
+			Name: "build-size-frontend-sum-overflows", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeFrontendSumFits, Message: "frontend lines sum to more than a count can hold",
+			Reason: "two rows whose frontend lines sum past uint64, with the wrapped sum as the stated total",
+		},
+		{
+			Name: "build-size-total-overflows", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeTotalFits, Message: "backend plus frontend is more than a count can hold",
+			Reason: "side totals that agree with their rows but sum past uint64, with the wrapped sum as the stated total",
+		},
+		{
+			Name: "build-size-vendored-not-utf8", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleBuildSizeVendoredCanonical, Message: `vendored path "vendor/\xff" is not a canonical relative path`,
+			Reason: "an excluded path written as bytes that are not UTF-8; the signing encoding would rewrite it, so the signed document would name a path the counter never excluded",
+		},
+		{
+			Name: "build-size-merge-key", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleNoMergeKeys, Message: "the mapping at build_size uses the merge key",
+			Reason: "the section's languages arrive through a merge key; yaml applies a merge after every node rule has run, so the octal count it carries would be repaired unseen",
+		},
+		{
+			Name: "merge-key-at-top-level", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleNoMergeKeys, Message: "the mapping at the document's top level uses the merge key",
+			Reason: "the whole section arrives through a top-level merge key, so no node rule finds it; a signed count and an omitted count would be repaired unseen",
+		},
+		{
+			Name: "merge-key", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Message: "uses the merge key",
+			Reason:  "the authority reader shares the presence reader's node checks and refuses a merge key the same way, rather than implementing the refusal twice",
+		},
+		{
+			Name: "build-size-binary-key", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleKeyIsAName, Message: `a key that is not a name ("!!binary`,
+			Reason: "the section's key spelled !!binary; the typed decoder resolves it to build_size while a rule looking for the key by its written text never sees it, so the octal count it hides would be repaired and signed",
 		},
 		{
 			Name: "valid", Type: DocumentTypeAuthority, Outcome: OutcomeAccepted,
@@ -286,11 +481,13 @@ func Fixtures() []Fixture {
 		},
 		{
 			Name: "outside-envelope", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
-			Reason: "it grants a binding FixtureEnvelope does not hold; containment is exact element inclusion, never subsumption",
+			Reason:  "it grants a binding FixtureEnvelope does not hold; containment is exact element inclusion, never subsumption",
+			Message: "binding:alpha:administer",
 		},
 		{
 			Name: "other-build", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
-			Reason: "it is approved for a build the valid presence fixture does not name, so the tuple does not activate",
+			Reason:  "it is approved for a build the valid presence fixture does not name, so the tuple does not activate",
+			Message: "is approved for build",
 		},
 		{
 			Name: string(DocumentTypePresence), Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
@@ -304,27 +501,32 @@ func Fixtures() []Fixture {
 			Name: "nominates-key", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
 			Reason: "the carrier ships a public key beside its bundle; strict decoding refuses it, so a delivery document " +
 				"can never hand a verifier the material it is checked with",
+			Message: `unknown field "public_key"`,
 		},
 		{
 			Name: "no-bundle", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
 			Reason: "a carrier with no signature bundle is a document, not a signed one; letting it through would make " +
 				"\"signed\" a shape rather than a claim",
+			Message: "the carrier holds no signature bundle",
 		},
 		{
 			Name: "bundle-not-an-object", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
 			Reason: "the bundle is a base64 string rather than the object a bundle is; one wire form, because two " +
 				"accepted shapes is two code paths in every consumer",
+			Message: "the signature bundle must be a JSON object",
 		},
 		{
 			Name: "cross-type", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
 			Reason: "an authority payload presented where a presence document was asked for; the schema is inside the " +
 				"signed bytes, so the document type is attested rather than asserted by the carrier",
+			Message: `"codefly/solution-authority/v1" (this Core reads`,
 		},
 		{
 			Name: "non-canonical", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
 			Reason: "bytes that are not the canonical encoding of the document they decode to; refused even when the " +
 				"attestation over them is genuine, because a signer and a host that disagree about which bytes are " +
 				"the document disagree about what was approved",
+			Message: "not its canonical encoding",
 		},
 	}
 	for index := range all {

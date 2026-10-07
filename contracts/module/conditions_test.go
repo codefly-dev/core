@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codefly-dev/core/contracts/internal/conditions"
+	"github.com/codefly-dev/core/internal/conditions"
 )
 
 // TestEveryRefusalConditionIsReachedByAFixture holds the kit to the SOURCE

@@ -1,5 +1,5 @@
-// Package wire holds the document-level checks the two wire contracts of this
-// directory share, so a property of every YAML node is implemented once rather
+// Package wire holds the document-level checks the wire contracts of this
+// repository share, so a property of every YAML node is implemented once rather
 // than once per typed decoder — and once per decoder is how a dynamic map came
 // to have no guard at all, and how a null crossed a boundary advertised as
 // strict.
@@ -27,8 +27,13 @@ const (
 	// a cycle also produces.
 	AliasTooDeep
 	// FractionalNumber is a number written with a fraction or an exponent,
-	// which neither model ever declares.
+	// which no model here ever declares.
 	FractionalNumber
+	// MergeKey is a YAML merge key (`<<`) in a mapping. The typed decoder
+	// applies a merge AFTER every node-level check has run, so a mapping
+	// carried in through one is a mapping no node rule saw; no model here
+	// declares merge semantics.
+	MergeKey
 )
 
 // Defect is what a document-level check found: which rule refuses it, where in
@@ -64,10 +69,19 @@ type Defect struct {
 //     single non-integer field, so a fractional scalar is refused outright
 //     rather than per numeric field, and an integer field added later is
 //     covered without anyone remembering.
-//   - A KEY THAT IS NOT A NAME. Both models' mappings are keyed by name, so a
-//     sequence or mapping key is a document no reader can act on.
+//   - A KEY THAT IS NOT A NAME. The models' mappings are keyed by name, so a
+//     sequence or mapping key is a document no reader can act on — and so is
+//     a key written under any tag but !!str, since the typed decoder resolves
+//     `!!binary YnVpbGRfc2l6ZQ==` to build_size while a rule looking for the
+//     key by its written text never sees it.
+//   - A MERGE KEY. yaml.v3 applies `<<` inside its typed decoder, after this
+//     walk and after any check a reader runs over the tree, so a mapping
+//     merged in is one that reached a typed field unseen: a count spelled in
+//     octal under `<<: {languages: …}` was repaired exactly as a direct one
+//     is refused. A merge is also a second way to spell every key, which is
+//     one spelling too many for a document whose keys are compared by name.
 func Check(node *yaml.Node) Defect {
-	return walk(node, "", 0)
+	return (&walker{walked: map[*yaml.Node]bool{}}).walk(node, "", 0)
 }
 
 // maxAliasDepth bounds alias resolution. An anchor may name another anchor, so
@@ -75,27 +89,49 @@ func Check(node *yaml.Node) Defect {
 // deep chain must end in a refusal rather than a stack overflow.
 const maxAliasDepth = 100
 
-func walk(node *yaml.Node, at string, depth int) Defect {
+// A walker visits each node of the document ONCE. The checks are context-free
+// — a defect in a node is a defect wherever the node is reached — so an alias
+// target that has already been walked carries nothing new, and re-walking it
+// is what made the walk exponential: `x0: &a0 [lol]` and then `xN: &aN [*aN-1
+// ×10]` for N levels is a 579-byte document that took 132 seconds at nine
+// levels, in the loader the CLI runs on every manifest, where yaml.v3's typed
+// decoder (whose own aliasing guard this walk runs before) answered at once.
+type walker struct {
+	walked map[*yaml.Node]bool
+}
+
+func (w *walker) walk(node *yaml.Node, at string, depth int) Defect {
 	if node == nil {
 		return Defect{}
 	}
 	// An ALIAS is its target. The decoder follows it, so a check that does not
 	// is a check the document can step around: `{&fraction 443.9: api}`
 	// anchored a fraction, `port: *fraction` used it, and the fraction reached
-	// an integer field as 443 — a port no declaration states.
+	// an integer field as 443 — a port no declaration states. The target is
+	// walked once: at its anchor, which precedes every alias to it in the
+	// document, or here if it somehow did not. The depth bound stays for a
+	// target still in progress, so a cycle ends in AliasTooDeep rather than
+	// in the stack.
 	if node.Kind == yaml.AliasNode {
 		if depth >= maxAliasDepth {
 			return Defect{Kind: AliasTooDeep, Path: Where(at)}
 		}
-		return walk(node.Alias, at, depth+1)
+		if w.walked[node.Alias] {
+			return Defect{}
+		}
+		return w.walk(node.Alias, at, depth+1)
 	}
+	if w.walked[node] {
+		return Defect{}
+	}
+	w.walked[node] = true
 	if defect := scalarDefect(node, at); defect.Kind != NoDefect {
 		return defect
 	}
 	switch node.Kind {
 	case yaml.DocumentNode:
 		for _, child := range node.Content {
-			if found := walk(child, at, depth); found.Kind != NoDefect {
+			if found := w.walk(child, at, depth); found.Kind != NoDefect {
 				return found
 			}
 		}
@@ -111,6 +147,9 @@ func walk(node *yaml.Node, at string, depth int) Defect {
 			if defect.Kind != NoDefect {
 				return defect
 			}
+			if isMergeKey(resolved) {
+				return Defect{Kind: MergeKey, Path: Where(at)}
+			}
 			if defect := scalarDefect(resolved, at); defect.Kind != NoDefect {
 				if defect.Kind == NullNode {
 					defect.Detail = "as a key"
@@ -121,6 +160,16 @@ func walk(node *yaml.Node, at string, depth int) Defect {
 			if key.Kind != yaml.ScalarNode {
 				return Defect{Kind: KeyNotAName, Path: Where(at)}
 			}
+			// A name is a STRING, written as one: the key's tag is !!str,
+			// plain or quoted. Any other spelling of a key is refused, because
+			// the typed decoder resolves it to a string a reader matching keys
+			// by their written text does not see — `!!binary YnVpbGRfc2l6ZQ==`
+			// decodes to build_size and hid a whole section from every rule
+			// that looked for the key by name; an integer, boolean or binary
+			// key is a key no model here declares.
+			if key.Tag != "!!str" {
+				return Defect{Kind: KeyNotAName, Path: Where(at), Detail: key.Tag + " " + key.Value}
+			}
 			var name string
 			if err := key.Decode(&name); err != nil || name == "" {
 				return Defect{Kind: KeyNotAName, Path: Where(at), Detail: key.Value}
@@ -129,13 +178,13 @@ func walk(node *yaml.Node, at string, depth int) Defect {
 				return Defect{Kind: DuplicateKey, Path: Where(at), Detail: name}
 			}
 			seen[name] = true
-			if found := walk(node.Content[index+1], join(at, name), depth); found.Kind != NoDefect {
+			if found := w.walk(node.Content[index+1], join(at, name), depth); found.Kind != NoDefect {
 				return found
 			}
 		}
 	case yaml.SequenceNode:
 		for index, child := range node.Content {
-			if found := walk(child, fmt.Sprintf("%s[%d]", at, index), depth); found.Kind != NoDefect {
+			if found := w.walk(child, fmt.Sprintf("%s[%d]", at, index), depth); found.Kind != NoDefect {
 				return found
 			}
 		}
@@ -158,6 +207,14 @@ func scalarDefect(node *yaml.Node, at string) Defect {
 		return Defect{Kind: FractionalNumber, Path: Where(at), Detail: node.Value}
 	}
 	return Defect{}
+}
+
+// isMergeKey is yaml.v3's own test for a merge key, spelled the way its
+// decoder spells it (decode.go, isMerge): a plain `<<` scalar with no tag, the
+// non-specific tag, or the merge tag.
+func isMergeKey(node *yaml.Node) bool {
+	return node.Kind == yaml.ScalarNode && node.Value == "<<" &&
+		(node.Tag == "" || node.Tag == "!" || node.Tag == "!!merge")
 }
 
 // resolve follows an alias to the node it names, bounded.
