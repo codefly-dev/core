@@ -2,6 +2,7 @@ package workcontext
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
@@ -28,7 +29,27 @@ type Authority struct {
 	KeyID string
 
 	// Key signs. Ed25519 is the only algorithm a v1 capability declares.
+	//
+	// It holds the key MATERIAL, which is only possible when the issuer is
+	// allowed to have it. An issuer whose key lives in a key-management service
+	// that never exports it injects Signer instead; exactly one of the two is
+	// set.
 	Key ed25519.PrivateKey
+
+	// Signer signs without the key material being here.
+	//
+	// It exists because "the issuer holds an ed25519.PrivateKey" is an
+	// assumption about custody, not about the capability: a host whose signing
+	// key lives in a cloud key-management service can reach it only through
+	// that service, and taking the material as a constructor argument makes
+	// that host unable to mint at all. Injecting the signing capability instead
+	// leaves the algorithm and the wire format exactly where they were — this
+	// is still Ed25519 over the deterministic protobuf encoding — and moves
+	// only the question of who holds the key.
+	//
+	// Its Public() must be an Ed25519 key, because that is what a v1 capability
+	// declares and what every verifier checks.
+	Signer crypto.Signer
 
 	// Revisions answers the issuer's current authorization revision. Minting
 	// against a stale one produces a capability every verifier rejects, so
@@ -247,8 +268,9 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 // Recheck's: holding a *Verified is not the same question as "is this good
 // under what we trust now".
 func (a *Authority) requireTrustedParent(parent *Verified) error {
-	if len(a.Key) != ed25519.PrivateKeySize {
-		return fmt.Errorf("work context: authority has no signing key, so it can derive nothing")
+	signer, err := a.signingKey()
+	if err != nil {
+		return fmt.Errorf("work context: authority has no signing key, so it can derive nothing: %w", err)
 	}
 	claims := parent.claims()
 	if claims.GetKeyId() != a.KeyID {
@@ -262,7 +284,7 @@ func (a *Authority) requireTrustedParent(parent *Verified) error {
 	// Under THIS issuer's own key, as it holds it now. A rotated key refuses
 	// the derivation rather than producing a child signed with new material
 	// from a parent the new material never signed.
-	public, ok := a.Key.Public().(ed25519.PublicKey)
+	public, ok := signer.Public().(ed25519.PublicKey)
 	if !ok {
 		return fmt.Errorf("work context: this issuer's signing key is not an ed25519 key")
 	}
@@ -598,6 +620,31 @@ func cloneApprovers(approvers []Approver) []*basev0.WorkApproverV1 {
 	return out
 }
 
+// signingKey resolves the one signing capability this authority was given.
+//
+// Exactly one of Key and Signer may be set. Accepting both and preferring one
+// would make a caller that set the wrong field sign with a key it did not mean
+// to, and the capability would verify — so the ambiguity is refused instead.
+func (a *Authority) signingKey() (crypto.Signer, error) {
+	hasKey := len(a.Key) > 0
+	switch {
+	case hasKey && a.Signer != nil:
+		return nil, fmt.Errorf("both Key and Signer are set; an authority has one signing capability")
+	case a.Signer != nil:
+		if _, ok := a.Signer.Public().(ed25519.PublicKey); !ok {
+			return nil, fmt.Errorf("the injected signer's public key is not an ed25519 key")
+		}
+		return a.Signer, nil
+	case hasKey:
+		if len(a.Key) != ed25519.PrivateKeySize {
+			return nil, fmt.Errorf("the signing key is %d bytes, want %d", len(a.Key), ed25519.PrivateKeySize)
+		}
+		return a.Key, nil
+	default:
+		return nil, fmt.Errorf("neither Key nor Signer is set")
+	}
+}
+
 // seal validates the assembled claims against the schema and signs them. A
 // capability that would not verify is never handed out.
 func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV1, error) {
@@ -605,8 +652,9 @@ func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV
 	// the wrong length, so an Authority assembled without one crashed the
 	// caller at the last step of a mint instead of saying what was missing —
 	// and every other missing input here names itself.
-	if len(a.Key) != ed25519.PrivateKeySize {
-		return "", nil, fmt.Errorf("work context: authority has no signing key, so it can mint nothing")
+	signer, err := a.signingKey()
+	if err != nil {
+		return "", nil, fmt.Errorf("work context: authority has no signing key, so it can mint nothing: %w", err)
 	}
 	if err := protovalidate.Validate(wc); err != nil {
 		return "", nil, fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -622,7 +670,16 @@ func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV
 	if err != nil {
 		return "", nil, fmt.Errorf("work context: marshal: %w", err)
 	}
-	signature := ed25519.Sign(a.Key, payload)
+	// opts is crypto.Hash(0): Ed25519 signs the message itself, never a digest,
+	// and a signer handed a hash would produce something no verifier accepts.
+	signature, err := signer.Sign(nil, payload, crypto.Hash(0))
+	if err != nil {
+		return "", nil, fmt.Errorf("work context: sign: %w", err)
+	}
+	if len(signature) != ed25519.SignatureSize {
+		return "", nil, fmt.Errorf("work context: the signer returned a %d-byte signature, want %d",
+			len(signature), ed25519.SignatureSize)
+	}
 	encoded := base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(signature)
 	// The SIZE, bounded by the minter and not only by the reader.
 	//
