@@ -354,19 +354,12 @@ var ErrNotACompositionRootConfiguration = errors.New("not a workspace configurat
 // WorkspaceValue(name, key) resolves a root-provided value it never had to
 // redeclare.
 //
-// With no names, every root-provided group is resolved, and the first refusal
-// is the read's. With names, ONLY the named groups are resolved: a consumer
-// that receives a subset of the root's groups — a service a withheld credential
-// never reaches — is judged on what it receives, so a reference that is a fault
-// in a group it does not receive (ambiguous, or without an instance for its
-// access) no longer refuses it. The consumer names what it receives; the
-// configurations stay core's. Each name must be a root-provided group that was
-// loaded, or the whole read is refused with ErrNotACompositionRootConfiguration
-// naming every such name — never answered with the groups that were known.
-// Either way the result is sorted by name with each group once, so the order a
-// caller lists names in does not change what it reads. Zero names is the whole
-// set, so a consumer whose received set is empty does not call: it has nothing
-// to read.
+// This is the WHOLE set: every root-provided group is resolved, and the first
+// refusal is the read's. A consumer that receives only some of the root's
+// groups reads them by name with GetNamedCompositionRootWorkspaceConfigurations,
+// which is a different method on purpose: a named read never means "all", so
+// an empty received set spread into a call cannot deliver every group, a
+// withheld credential included.
 //
 // This set and the per-dependency composed-module set are disjoint by name: a
 // name the composition root also declares is resolved to the root at load
@@ -385,15 +378,51 @@ var ErrNotACompositionRootConfiguration = errors.New("not a workspace configurat
 // does not declare or an invalid declaration is refused here, naming the
 // configuration and key, whichever consumer meets it. Unresolvable secrets
 // still fail the run (they are universal, not consumer-specific).
-func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context, names ...string) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
-	w := wool.Get(ctx).In("Manager.GetCompositionRootWorkspaceConfigurations")
+	return manager.readCompositionRootConfigurations(ctx, manager.loadedCompositionRootConfigurations())
+}
+
+// ErrNoCompositionRootConfigurationNamed refuses a named composition-root read
+// that named nothing. A named read resolves exactly the groups a consumer
+// receives, and "none" is an answer the consumer gives by not reading; it is
+// never a request for every group. The whole set is
+// GetCompositionRootWorkspaceConfigurations.
+var ErrNoCompositionRootConfigurationNamed = errors.New("a named composition-root read names at least one workspace configuration")
+
+// GetNamedCompositionRootWorkspaceConfigurations resolves exactly the named
+// root-provided groups: a consumer that receives a subset of the root's groups
+// — a service a withheld credential never reaches — is judged on what it
+// receives, so a reference that is a fault in a group it does not receive
+// (ambiguous, or without an instance for its access) cannot refuse it. The
+// consumer names what it receives; the configurations stay core's.
+//
+// Each name must be a root-provided group that was loaded, or the whole read
+// is refused with ErrNotACompositionRootConfiguration naming every such name —
+// never answered with the groups that were known. No name at all is refused
+// with ErrNoCompositionRootConfigurationNamed: a named read never means the
+// whole set, which GetCompositionRootWorkspaceConfigurations is. The result is
+// sorted by name with each group once, so the order a caller lists names in
+// does not change what it reads. A nil manager refuses too, rather than
+// answering a named read with nothing.
+func (manager *Manager) GetNamedCompositionRootWorkspaceConfigurations(ctx context.Context, names ...string) ([]*basev0.Configuration, error) {
+	w := wool.Get(ctx).In("Manager.GetNamedCompositionRootWorkspaceConfigurations")
+	if manager == nil {
+		return nil, w.NewError("configurations.Manager: receiver is nil — a named read of %s was attempted before Manager initialization", strings.Join(names, ", "))
+	}
 	selected, err := manager.selectCompositionRootConfigurations(names)
 	if err != nil {
 		return nil, w.Wrapf(err, "cannot read the composition root's workspace configurations")
 	}
+	return manager.readCompositionRootConfigurations(ctx, selected)
+}
+
+// readCompositionRootConfigurations resolves the selected root-provided groups,
+// in order, refusing on the first fault.
+func (manager *Manager) readCompositionRootConfigurations(ctx context.Context, selected []string) ([]*basev0.Configuration, error) {
+	w := wool.Get(ctx).In("Manager.GetCompositionRootWorkspaceConfigurations")
 	out := make([]*basev0.Configuration, 0, len(selected))
 	for _, name := range selected {
 		conf := manager.worspaceConfigurations[name]
@@ -411,13 +440,13 @@ func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Co
 	return out, nil
 }
 
-// selectCompositionRootConfigurations is the set a composition-root read
-// resolves: every root-provided group that was loaded when no name is given,
-// otherwise exactly the named ones, each of which must be such a group. Sorted,
-// each name once.
+// selectCompositionRootConfigurations is the set a named composition-root read
+// resolves: exactly the named groups, each of which must be a root-provided
+// group that was loaded. Sorted, each name once. No name is refused: a named
+// read is never the whole set.
 func (manager *Manager) selectCompositionRootConfigurations(names []string) ([]string, error) {
 	if len(names) == 0 {
-		return manager.loadedCompositionRootConfigurations(), nil
+		return nil, ErrNoCompositionRootConfigurationNamed
 	}
 	selected := slices.Clone(names)
 	slices.Sort(selected)
