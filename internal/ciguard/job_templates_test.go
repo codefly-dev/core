@@ -179,8 +179,8 @@ var recordedFileDigests = map[string]string{
 
 var recordedDigests = map[string]string{
 	"combine-deps.yml":       "2ddc71ebfde5eff4d8646d53dca254a9b631a4a951589d5ff587962c09e43e50",
-	"go-service-release.yml": "948ce39695f2cdbd2f122718cc9623e227ccf6f44acc454f180ff80642d35a9d",
-	"go.yml":                 "03f297ef163adea42f0e9b9f2038d721429e482f4d402f7c554b09644395d061",
+	"go-service-release.yml": "b96f9dcb767f9a307b4120797007a30bad8b76bb8bd7b461247a555102a54708",
+	"go.yml":                 "976805bc7040504a3c395f7cf0fcca29c3cd485fed06af5b256cad6d74ea563e",
 	"version-tag.yml":        "25972c82482fb3ae6196371328df126843c3e8a1b4aae7b863693bbad5fac641",
 }
 

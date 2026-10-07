@@ -174,11 +174,8 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   consumers take the build-tag-aware constructor from `code/codeserver.New`
   (`-tags codefly_nosemantic`). See [`docs/cgo.md`](docs/cgo.md).
 - **Companions are ours.** A broken companion gets fixed, not routed around.
-- **A CI credential is a job of its own.** `permissions:` is job-wide and says
-  nothing about a secret, so a write — or a PAT, or a webhook — anywhere near
-  the job running the suite is held by that code. It sits on one job gated to a
-  merged ref that checks out nothing from the pull request. A step `if:` is not
-  a boundary. See [`docs/ci-credentials.md`](docs/ci-credentials.md).
+- **A CI credential is a job of its own**, gated to a merged ref that checks out
+  nothing under review. See [`docs/ci-credentials.md`](docs/ci-credentials.md).
 
 ## Procedures
 
