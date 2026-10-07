@@ -98,7 +98,7 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"explicit-scope-action-not-a-name", "explicit-scope-action-wildcard",
 		"kind-named-twice", "kind-with-no-action", "literal-audience",
 		"lookup-method-not-a-name", "lookup-method-without-lookup",
-		"mixed-ceiling", "namespace-declared-twice", "namespace-not-a-name",
+		"merge-key", "mixed-ceiling", "namespace-declared-twice", "namespace-not-a-name",
 		"namespaces-omitted", "not-yaml", "null-in-a-bare-ceiling-action",
 		"null-in-an-explicit-scope-action", "null-key-hiding-a-subtree",
 		"operation-admin", "operation-declared-twice", "operation-delete",

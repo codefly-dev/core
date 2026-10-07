@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codefly-dev/core/contracts/internal/conditions"
+	"github.com/codefly-dev/core/internal/conditions"
 )
 
 // checkFunc is the name of the function a rule row runs, as the binary

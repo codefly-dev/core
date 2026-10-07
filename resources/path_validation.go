@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/codefly-dev/core/resources/names"
 )
 
 // validateResourcePathComponent validates a logical resource name before it is
@@ -176,6 +178,9 @@ func (mod *Module) validatePaths() error {
 	if err := validateResourcePathComponent("module", mod.Name); err != nil {
 		return err
 	}
+	if err := mod.validateVendored(); err != nil {
+		return err
+	}
 	// A module loaded via out-of-repo composition legitimately carries the
 	// consuming workspace's escaping ModuleReference path, so its own override
 	// is validated with the same relaxed rule the reference uses (see
@@ -274,6 +279,28 @@ func validateResolvedPathWithin(root, target string) error {
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("route path %q is not a directory", target)
+	}
+	return nil
+}
+
+// validateVendored holds the module's vendored-path declaration to the grammar
+// the presence document holds the excluded list to (names.IsPathPrefix), so a
+// declaration the manifest accepts is one the build fact can repeat verbatim.
+// The same three rules apply at both ends: canonical spelling, no entry twice,
+// no entry under another.
+func (mod *Module) validateVendored() error {
+	for index, entry := range mod.Vendored {
+		if !names.IsPathPrefix(entry) {
+			return fmt.Errorf("module %q vendored path %q is not a canonical relative path: write it slash-separated, relative to the module directory, with no leading ./ or /, no .. and no trailing slash", mod.Name, entry)
+		}
+		for _, earlier := range mod.Vendored[:index] {
+			if earlier == entry {
+				return fmt.Errorf("module %q declares vendored path %q twice", mod.Name, entry)
+			}
+			if names.PathWithin(earlier, entry) || names.PathWithin(entry, earlier) {
+				return fmt.Errorf("module %q vendored paths %q and %q overlap; a path inside an excluded one excludes nothing more, so declare the outer one alone", mod.Name, earlier, entry)
+			}
+		}
 	}
 	return nil
 }

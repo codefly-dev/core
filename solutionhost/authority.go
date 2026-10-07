@@ -255,7 +255,7 @@ type EnvelopeGrant struct {
 // document cannot smuggle a key, a certificate or an envelope of its own past a
 // verifier that would otherwise ignore it.
 func ParseAuthority(data []byte) (*AuthorityDocument, error) {
-	document, err := decodeStrict[AuthorityDocument](data, "solution authority", SchemaAuthorityV1)
+	document, err := decodeStrict[AuthorityDocument](data, "solution authority", SchemaAuthorityV1, "", nil)
 	if err != nil {
 		return nil, err
 	}

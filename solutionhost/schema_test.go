@@ -128,4 +128,4 @@ func TestShippedFixtureBytesArePinned(t *testing.T) {
 
 // shippedFixtureDigest covers every document under testdata, by path and
 // content. See TestShippedFixtureBytesArePinned.
-const shippedFixtureDigest = "sha256:cefc310b8ffa2cc364c3ec1f8736cfe9618244bfcf8c126fbd63581ec18a4ecd"
+const shippedFixtureDigest = "sha256:f411bf41209f5202cbbd7475b502251935f6b88870d14da1eb0dee2c8da9dca4"

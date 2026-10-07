@@ -1,0 +1,31 @@
+# REJECTED. A tombstone that still carries a build size. A removed generation
+# declares no artifacts, no workloads and no size: a size describes a build,
+# and this generation declares that there is none.
+schema: codefly/solution-host-binding/v2
+kind: solution
+binding: alpha-region-a-01
+generation: 5
+ownership_domain: alpha
+envelope_revision: 7
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+release:
+  publisher: example
+  name: alpha
+  version: 1.4.0
+  digest: sha256:5b1cbf059fa244a163e6f443417e5259db2392b95ae25a9d3aa03496c180eaef
+removed: true
+build_size:
+  languages:
+    - language: go
+      backend: 12416
+      frontend: 0
+    - language: typescript
+      backend: 0
+      frontend: 8102
+  backend: 12416
+  frontend: 8102
+  total: 20518
+  vendored:
+    - web/src/clients

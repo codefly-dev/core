@@ -1,4 +1,4 @@
-// Package modulecontract is the ONE implementation of the module contract —
+// Package module is the ONE implementation of the module contract —
 // codefly/module-contract/v1, the file a module publishes beside its manifest
 // as module.contract.codefly.yaml: its Go model, its strict decoder, every
 // refusal rule, and the resolution of its slots against a composition. The
@@ -7,12 +7,13 @@
 // fixtures it ships (Fixtures) are what each of them is driven through, so a
 // decoder that started accepting an invalid ceiling would fail here first and
 // everywhere at once. Nothing outside this package may parse or validate a
-// module contract.
+// module contract. Consumers import it as modulecontract, so the identifier
+// says what it is; the docs spell it that way too.
 //
-// It lives under solutionhost because the contract is the request the
-// authority document grants: the envelope bounds it, the authority document
-// the CLI derives from it is signed and delivered to the host, and the host
-// activates it — the same lifecycle this directory owns.
+// It belongs to the lifecycle solutionhost owns, because the contract is the
+// request the authority document grants: the envelope bounds it, the authority
+// document the CLI derives from it is signed and delivered to the host, and
+// the host activates it.
 //
 // The contract is a REQUEST, not a grant. It says what the module asks to be
 // able to do on a host: the principal its credentials are issued to, the
@@ -92,7 +93,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/codefly-dev/core/contracts/internal/wire"
+	"github.com/codefly-dev/core/internal/wire"
 )
 
 const (
@@ -476,15 +477,15 @@ func parse(data []byte, without string) (*Contract, error) {
 	case defect.Kind == wire.DuplicateKey && without != ruleMappingKeysOnce:
 		return nil, fmt.Errorf("%w: the mapping at %s names the key %q twice; a repeated key — including one written through an alias — makes the decoded document depend on order",
 			ErrInvalid, defect.Path, defect.Detail)
+	case defect.Kind == wire.MergeKey && without != ruleNoMergeKeys:
+		return nil, fmt.Errorf("%w: the mapping at %s uses the merge key <<; yaml applies a merge inside its typed decoder, after every rule over the tree has run, so a field carried in through one reaches the contract unseen — no field of a module contract is declared by merging",
+			ErrInvalid, defect.Path)
 	case defect.Kind == wire.NullNode && without != ruleNoNulls:
 		return nil, fmt.Errorf("%w: the document carries an explicit null at %s %s; a null decodes as neither a value nor an error, so a typed decoder DISCARDS it — an absent field is absent, and an empty list is written []",
 			ErrInvalid, defect.Path, defect.Detail)
 	case defect.Kind == wire.FractionalNumber && without != ruleWholeNumbers:
 		return nil, fmt.Errorf("%w: the number %s at %s is not a whole number; yaml CONVERTS a fraction to an integer before any rule sees it, so this would have been validated as %s truncated — no field of a module contract takes a fraction",
 			ErrInvalid, defect.Detail, defect.Path, defect.Detail)
-	case defect.Kind == wire.AliasTooDeep:
-		return nil, fmt.Errorf("%w: the anchors at %s name one another more deeply than this reader follows; an anchor chain that long, or a cycle, has no meaning to resolve",
-			ErrInvalid, defect.Path)
 	case defect.Kind == wire.KeyNotAName && without != ruleKeyIsAName:
 		return nil, fmt.Errorf("%w: the mapping at %s carries a key that is not a name (%q); these mappings are keyed by name",
 			ErrInvalid, defect.Path, defect.Detail)

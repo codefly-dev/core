@@ -110,7 +110,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 11)
+	require.Len(t, fixtures, 44)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -151,6 +151,42 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"missing-identity":  solutionhost.ErrInvalid,
 		"digest-confusion":  solutionhost.ErrDigestConfusion,
 		"superseded-schema": solutionhost.ErrSchema,
+		// The build-size section's refusals, each one named rule; see
+		// TestEveryBuildSizeRuleIsProtectedByAFixture for the rule each
+		// protects, and TestEachRejectedPresenceFixtureIsRefusedNamingItsMessage
+		// for the text each carries.
+		"build-size-languages-omitted":        solutionhost.ErrInvalid,
+		"build-size-unknown-language":         solutionhost.ErrInvalid,
+		"build-size-language-twice":           solutionhost.ErrInvalid,
+		"build-size-empty-language":           solutionhost.ErrInvalid,
+		"build-size-vendored-omitted":         solutionhost.ErrInvalid,
+		"build-size-vendored-trailing-slash":  solutionhost.ErrInvalid,
+		"build-size-vendored-twice":           solutionhost.ErrInvalid,
+		"build-size-vendored-nested":          solutionhost.ErrInvalid,
+		"build-size-backend-total-disagrees":  solutionhost.ErrInvalid,
+		"build-size-frontend-total-disagrees": solutionhost.ErrInvalid,
+		"build-size-total-disagrees":          solutionhost.ErrInvalid,
+		"tombstone-with-build-size":           solutionhost.ErrInvalid,
+		"not-yaml":                            solutionhost.ErrInvalid,
+		"two-documents":                       solutionhost.ErrInvalid,
+		"build-size-unknown-field":            solutionhost.ErrInvalid,
+		"build-size-field-twice":              solutionhost.ErrInvalid,
+		"build-size-count-null":               solutionhost.ErrInvalid,
+		"build-size-count-fractional":         solutionhost.ErrInvalid,
+		"build-size-empty-key":                solutionhost.ErrInvalid,
+		"build-size-total-omitted":            solutionhost.ErrInvalid,
+		"build-size-row-frontend-omitted":     solutionhost.ErrInvalid,
+		"build-size-count-hex":                solutionhost.ErrInvalid,
+		"build-size-count-leading-zero":       solutionhost.ErrInvalid,
+		"build-size-count-negative":           solutionhost.ErrInvalid,
+		"build-size-count-too-large":          solutionhost.ErrInvalid,
+		"build-size-backend-sum-overflows":    solutionhost.ErrInvalid,
+		"build-size-frontend-sum-overflows":   solutionhost.ErrInvalid,
+		"build-size-total-overflows":          solutionhost.ErrInvalid,
+		"build-size-vendored-not-utf8":        solutionhost.ErrInvalid,
+		"build-size-merge-key":                solutionhost.ErrInvalid,
+		"merge-key-at-top-level":              solutionhost.ErrInvalid,
+		"build-size-binary-key":               solutionhost.ErrInvalid,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := solutionhost.Parse(presence(t, name))

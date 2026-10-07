@@ -81,6 +81,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
+
+	"github.com/codefly-dev/core/internal/wire"
 )
 
 const (
@@ -271,6 +273,14 @@ type SolutionHostBinding struct {
 	// declarations, not addresses: the host resolves where each one lives.
 	Endpoints []Endpoint `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
 
+	// BuildSize is the build's size — lines of code per language, backend and
+	// frontend, with the manifest's vendored paths excluded — counted by the
+	// producer over the tree it digested as the release, and signed with it.
+	// Optional: a document without it is an older producer's and is accepted.
+	// One that carries it is held to the build-size rules; see BuildSize. A
+	// tombstone declares none.
+	BuildSize *BuildSize `yaml:"build_size,omitempty" json:"build_size,omitempty"`
+
 	// Removed marks this generation a tombstone: the binding is declared absent.
 	// Removal is a generation, never the disappearance of a document, so that a
 	// lost or unreadable mount can never be read as "remove everything".
@@ -424,12 +434,16 @@ type WorkloadIdentity struct {
 // document that tries to nominate its own verification key fail here rather
 // than be quietly dropped. YAML is a superset of JSON, so a JSON-rendered
 // document parses here too.
-func Parse(data []byte) (*SolutionHostBinding, error) {
-	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV2)
+func Parse(data []byte) (*SolutionHostBinding, error) { return parse(data, "") }
+
+// parse is Parse with one named rule deleted, for the self-check that proves
+// each rule is protected by a fixture; "" deletes none.
+func parse(data []byte, without string) (*SolutionHostBinding, error) {
+	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV2, without, checkBuildSizeNodes)
 	if err != nil {
 		return nil, err
 	}
-	if err := document.Validate(); err != nil {
+	if err := document.validate(without); err != nil {
 		return nil, err
 	}
 	return document, nil
@@ -445,39 +459,106 @@ func Parse(data []byte) (*SolutionHostBinding, error) {
 // field and the caller would be told its document is malformed. It is not
 // malformed — it is older than the reader, and the only useful answer is
 // ErrSchema, which says so and says what this Core reads.
-func decodeStrict[T any](data []byte, label, schema string) (*T, error) {
+//
+// Then the TREE is checked before any typed field exists, through the one
+// node-level path the wire contracts share (internal/wire): one key once per
+// mapping with aliases resolved, no explicit null, no fractional number, every
+// key a name. These are refused here because the typed decoder REPAIRS them —
+// a null and an absent field decode to zero, a fraction is truncated, an alias
+// key hides a duplicate — and a value repaired before validation is one no
+// rule can see. nodes, when given, is the document type's own node check over
+// the fields whose repair the typed decoder would not report at all: the
+// presence document's build_size counts.
+//
+// without names one rule to leave unenforced, for the self-check; "" is the
+// reader every caller gets.
+func decodeStrict[T any](data []byte, label, schema, without string, nodes func(tree *yaml.Node, without string) error) (*T, error) {
 	var header struct {
 		Schema string `yaml:"schema"`
 	}
 	if err := yaml.Unmarshal(data, &header); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", label, err)
+		return nil, fmt.Errorf("%w: decode %s: not a YAML document: %v", ErrInvalid, label, err)
 	}
-	if header.Schema != schema {
+	if header.Schema != schema && without != ruleSchema {
 		return nil, fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, header.Schema, schema)
 	}
+	var tree yaml.Node
+	if err := yaml.Unmarshal(data, &tree); err != nil {
+		return nil, fmt.Errorf("%w: decode %s: not a YAML document: %v", ErrInvalid, label, err)
+	}
+	switch defect := wire.Check(&tree); {
+	case defect.Kind == wire.DuplicateKey && without != ruleMappingKeysOnce:
+		return nil, fmt.Errorf("%w: the mapping at %s names the key %q twice; a repeated key — including one written through an alias — makes the decoded document depend on order",
+			ErrInvalid, defect.Path, defect.Detail)
+	case defect.Kind == wire.MergeKey && without != ruleNoMergeKeys:
+		return nil, fmt.Errorf("%w: the mapping at %s uses the merge key <<; yaml applies a merge inside its typed decoder, after every rule over the tree has run, so a field carried in through one — a count spelled in octal, an omitted count — is repaired unseen; no document here declares merge semantics",
+			ErrInvalid, defect.Path)
+	case defect.Kind == wire.NullNode && without != ruleNoNulls:
+		return nil, fmt.Errorf("%w: the document carries an explicit null at %s %s; a null decodes as neither a value nor an error, so a typed decoder reads it as zero or skips it — an absent field is absent, and an empty list is written []",
+			ErrInvalid, defect.Path, defect.Detail)
+	case defect.Kind == wire.FractionalNumber && without != ruleWholeNumbers:
+		return nil, fmt.Errorf("%w: the number %s at %s is not a whole number; yaml converts a fraction to an integer before any rule sees it, so this would have been validated as %s truncated — no field of this document takes a fraction",
+			ErrInvalid, defect.Detail, defect.Path, defect.Detail)
+	case defect.Kind == wire.KeyNotAName && without != ruleKeyIsAName:
+		return nil, fmt.Errorf("%w: the mapping at %s carries a key that is not a name (%q); these mappings are keyed by name",
+			ErrInvalid, defect.Path, defect.Detail)
+	}
+	if nodes != nil {
+		if err := nodes(&tree, without); err != nil {
+			return nil, err
+		}
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
+	decoder.KnownFields(without != ruleKnownFields)
 	var value T
 	if err := decoder.Decode(&value); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", label, err)
+		return nil, fmt.Errorf("%w: decode %s: a field no %s declares, or a value of the wrong shape: %v", ErrInvalid, label, label, err)
 	}
 	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) && without != ruleOneDocument {
 		if err == nil {
-			return nil, fmt.Errorf("decode %s: multiple YAML documents are not allowed", label)
+			return nil, fmt.Errorf("%w: decode %s: the file holds more than one document", ErrInvalid, label)
 		}
-		return nil, fmt.Errorf("decode %s: %w", label, err)
+		return nil, fmt.Errorf("%w: decode %s: trailing input after the document: %v", ErrInvalid, label, err)
 	}
 	return &value, nil
 }
 
-// Marshal renders a validated presence document. A renderer marshals through
-// here so an invalid document is never written to a delivery repository.
+// Marshal is the ONE way to write a presence document: validate, marshal, and
+// read the bytes back through Parse, returning them only when what comes back
+// is what went in. A renderer writes through here so an invalid document is
+// never written to a delivery repository — and so a document that would parse
+// to something ELSE is never written either, which is the worse case because no
+// reader refuses it. The read-back is compared by wire meaning, as the module
+// contract's writer compares it: writing the re-read document must produce the
+// same bytes.
 func Marshal(document *SolutionHostBinding) ([]byte, error) {
+	return marshalWith(document, yaml.Marshal)
+}
+
+// marshalWith is Marshal over an injectable encoder, so the guard can be
+// witnessed: a test hands it an encoder whose output does not read back and
+// proves the guard refuses, which the real encoder never lets a document do.
+func marshalWith(document *SolutionHostBinding, encode func(any) ([]byte, error)) ([]byte, error) {
 	if err := document.Validate(); err != nil {
 		return nil, err
 	}
-	return yaml.Marshal(document)
+	encoded, err := encode(document)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the document cannot be encoded: %v", ErrInvalid, err)
+	}
+	again, err := Parse(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the encoded document is refused by its own reader, so it is not written: %v", ErrInvalid, err)
+	}
+	rewritten, err := encode(again)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the re-read document cannot be encoded: %v", ErrInvalid, err)
+	}
+	if !bytes.Equal(encoded, rewritten) {
+		return nil, fmt.Errorf("%w: the encoded document reads back as a different document, so it is not written", ErrInvalid)
+	}
+	return encoded, nil
 }
 
 // Validate checks everything one presence document can be checked against on
@@ -487,10 +568,17 @@ func Marshal(document *SolutionHostBinding) ([]byte, error) {
 // are free, and whether it reaches outside its ownership domain are properties
 // of a host — see Host.Admit.
 func (document *SolutionHostBinding) Validate() error {
+	return document.validate("")
+}
+
+// validate is Validate with one named rule deleted, for the self-check that
+// proves each rule is protected by a fixture; "" deletes none. The checks
+// outside the rule table are not deletable this way.
+func (document *SolutionHostBinding) validate(without string) error {
 	if document == nil {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
-	if document.Schema != SchemaPresenceV2 {
+	if document.Schema != SchemaPresenceV2 && without != ruleSchema {
 		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaPresenceV2)
 	}
 	if !slices.Contains(kinds, document.Kind) {
@@ -544,7 +632,9 @@ func (document *SolutionHostBinding) Validate() error {
 				return fmt.Errorf("%w: a removed generation declares no %s", ErrInvalid, declared.label)
 			}
 		}
-		return nil
+		// And no build size, which is a rule of the table so a fixture
+		// protects it by name; see checkBuildSizeAbsentWhenRemoved.
+		return document.validateBuildSize(without)
 	}
 	if err := document.validateArtifacts(); err != nil {
 		return err
@@ -559,6 +649,11 @@ func (document *SolutionHostBinding) Validate() error {
 		return err
 	}
 	if err := document.validateEndpoints(); err != nil {
+		return err
+	}
+	// The build's size, when the producer wrote one. Optional, for the reason
+	// BuildSize gives; held to every model rule of the table when present.
+	if err := document.validateBuildSize(without); err != nil {
 		return err
 	}
 	if err := document.validateDigestKinds(); err != nil {
@@ -951,6 +1046,14 @@ func (document *SolutionHostBinding) CanonicalBytes() ([]byte, error) {
 		}
 		return left.Name < right.Name
 	})
+	// The build's size sorts its own two collections, and keeps an empty one
+	// an empty list, for the reason the non-authenticating list does above. A
+	// document without the section stays without it: omitempty writes nothing
+	// for a nil pointer, so every digest computed before the section existed
+	// still holds.
+	if document.BuildSize != nil {
+		normalized.BuildSize = document.BuildSize.canonical()
+	}
 	return canonicalJSON(normalized)
 }
 

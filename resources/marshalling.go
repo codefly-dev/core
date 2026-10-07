@@ -1,11 +1,16 @@
 package resources
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"github.com/codefly-dev/core/internal/wire"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/codefly-dev/core/shared"
@@ -82,11 +87,61 @@ func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
 // flattened, so a caller can still tell it by its sentinel.
 func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 	var config C
-	err := yaml.Unmarshal(content, &config)
-	if err != nil {
-		return nil, fmt.Errorf("cannot unmarshal service configuration: %w", err)
+	if !closedSchema[C]() {
+		if err := yaml.Unmarshal(content, &config); err != nil {
+			return nil, fmt.Errorf("cannot unmarshal service configuration: %w", err)
+		}
+		return &config, nil
+	}
+	// A closed schema: every key the file carries is one the type declares,
+	// or the load fails naming it. The TREE is held to the node-level checks
+	// the wire documents share first (internal/wire), because the typed
+	// decoder repairs what those refuse — a null reads as "no declaration", a
+	// merge key carries a mapping in after every check — then the kind is
+	// dispatched and the keys an older layout wrote are named with their
+	// remedy, and only then does yaml's own KnownFields read the fields; a key
+	// it does not know is never dropped on the way to the model.
+	if err := checkManifestNodes[C](content); err != nil {
+		return nil, err
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&config); err != nil {
+		return nil, fmt.Errorf("cannot unmarshal %s configuration: a key no %s manifest declares, or a value of the wrong shape: %w", TypeName[C](), TypeName[C](), err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, fmt.Errorf("cannot unmarshal %s configuration: the file holds more than one document", TypeName[C]())
+		}
+		return nil, fmt.Errorf("cannot unmarshal %s configuration: %w", TypeName[C](), err)
 	}
 	return &config, nil
+}
+
+// closedSchema reports whether a configuration type admits only the keys it
+// declares, so that a key the loader does not know is refused rather than
+// dropped.
+//
+// Module is closed. Its manifest declares `vendored:`, the input to a build
+// fact the presence document signs (solutionhost.BuildSize): a declaration a
+// lenient loader dropped — `vendorred:`, a tab for a space — would make the
+// count include the kit while the document truthfully said nothing was
+// excluded, and nothing would say so. The one other document that shares the
+// file name, the composition descriptor (`kind: composed-module`,
+// composition.Descriptor), has its own strict loader and is told apart by its
+// kind, which postLoad refuses here by name.
+//
+// The other types stay as they are: Workspace, Service and Environment carry
+// an inline extension map by design, and the rest are not this change's to
+// survey.
+func closedSchema[C Configuration]() bool {
+	var c C
+	switch any(c).(type) {
+	case Module:
+		return true
+	}
+	return false
 }
 
 func SaveToDir[C Configuration](ctx context.Context, c *C, dir string) error {
@@ -179,4 +234,88 @@ func FindUpFrom[C Configuration](ctx context.Context, dir string) (*string, erro
 			atRoot = true
 		}
 	}
+}
+
+// vestigialModuleKeys are top-level keys that module manifests on disk carry
+// and that no module manifest has ever declared: an earlier workspace layout
+// wrote them, nothing read them, and the lenient loader dropped them without
+// a word. The strict loader refuses them like any unknown key, but names them
+// here with the remedy, because a workspace that loaded yesterday and does
+// not today deserves to be told why in one line and what to do about it.
+var vestigialModuleKeys = []string{"domain", "project"}
+
+// checkManifestNodes holds a closed-schema manifest's YAML tree to the checks
+// that must run before the typed decoder reads it: the node-level rules every
+// wire document shares, the manifest's kind, and the vestigial keys. Only the
+// module manifest is closed today; the others return at once.
+func checkManifestNodes[C Configuration](content []byte) error {
+	var c C
+	if _, isModule := any(c).(Module); !isModule {
+		return nil
+	}
+	var tree yaml.Node
+	if err := yaml.Unmarshal(content, &tree); err != nil {
+		return nil // the typed decoder reports what is wrong with the document
+	}
+	label := TypeName[C]()
+	switch defect := wire.Check(&tree); defect.Kind {
+	case wire.DuplicateKey:
+		return fmt.Errorf("cannot unmarshal %s configuration: the mapping at %s names the key %q twice; a repeated key — including one written through an alias — makes the loaded manifest depend on order", label, defect.Path, defect.Detail)
+	case wire.MergeKey:
+		return fmt.Errorf("cannot unmarshal %s configuration: the mapping at %s uses the merge key <<; yaml applies a merge inside its typed decoder, after every check over the tree, so a declaration carried in through one — a vendored list, a service — would shadow or be shadowed unseen; no field of a module manifest is declared by merging", label, defect.Path)
+	case wire.NullNode:
+		consequence := "a null reads as \"nothing declared\" to the typed decoder"
+		if strings.HasPrefix(defect.Path, "vendored") {
+			consequence += ", so a vendored list written as null would count the kit while the manifest said it was excluded"
+		}
+		return fmt.Errorf("cannot unmarshal %s configuration: the manifest carries an explicit null at %s %s; %s — an absent key is absent, and an empty list is written []", label, defect.Path, defect.Detail, consequence)
+	case wire.FractionalNumber:
+		return fmt.Errorf("cannot unmarshal %s configuration: the number %s at %s is not a whole number; no field of a module manifest takes a fraction", label, defect.Detail, defect.Path)
+	case wire.KeyNotAName:
+		return fmt.Errorf("cannot unmarshal %s configuration: the mapping at %s carries a key that is not a name (%q)", label, defect.Path, defect.Detail)
+	}
+	root := tree.Content
+	if tree.Kind != yaml.DocumentNode || len(root) == 0 || root[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	mapping := root[0]
+	// The kind, dispatched from the node before the typed decoder reads a
+	// field: a composition descriptor shares this file name and carries keys
+	// the module model does not declare, so a strict decode would refuse it
+	// for its first unknown key and never say what it is. Named here first.
+	// Key AND value are RESOLVED through the one wire helper, so what is
+	// dispatched is what the typed decoder will read: a kind written as an
+	// alias to a string anchored elsewhere (`description: &k composed-module`,
+	// `kind: *k`) is the descriptor's kind, and a kind that resolves to
+	// anything but a plain string is no kind at all.
+	var found []string
+	seen := map[string]bool{}
+	for index := 0; index+1 < len(mapping.Content); index += 2 {
+		key := wire.Resolve(mapping.Content[index])
+		if key == nil || key.Kind != yaml.ScalarNode {
+			continue // wire.Check has already refused a key that is not a name
+		}
+		if key.Value == "kind" {
+			value := wire.Resolve(mapping.Content[index+1])
+			if value == nil || value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+				return fmt.Errorf("cannot unmarshal %s configuration: %s declares a kind that is not a plain string; a module manifest declares kind %q", label, ModuleConfigurationName, ModuleKind)
+			}
+			switch value.Value {
+			case "", ModuleKind:
+			case compositionDescriptorKind:
+				return fmt.Errorf("cannot unmarshal %s configuration: %s is a composition descriptor (kind %q), not a module manifest; read it with composition.LoadDescriptor", label, ModuleConfigurationName, value.Value)
+			default:
+				return fmt.Errorf("cannot unmarshal %s configuration: %s declares kind %q; a module manifest declares kind %q", label, ModuleConfigurationName, value.Value, ModuleKind)
+			}
+		}
+		if slices.Contains(vestigialModuleKeys, key.Value) && !seen[key.Value] {
+			seen[key.Value] = true
+			found = append(found, fmt.Sprintf("%s (line %d)", key.Value, key.Line))
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	return fmt.Errorf("cannot unmarshal %s configuration: %s carries %s, keys an earlier workspace layout wrote that no module manifest declares and nothing reads; this loader no longer drops a key it does not know, so delete them and the manifest loads as before",
+		label, ModuleConfigurationName, strings.Join(found, " and "))
 }

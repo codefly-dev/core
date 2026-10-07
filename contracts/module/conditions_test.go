@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codefly-dev/core/contracts/internal/conditions"
+	"github.com/codefly-dev/core/internal/conditions"
 )
 
 // TestEveryRefusalConditionIsReachedByAFixture holds the kit to the SOURCE
@@ -42,7 +42,6 @@ func TestEveryRefusalConditionIsReachedByAFixture(t *testing.T) {
 	// left as an unexplained gap, and the list is asserted to be exactly the
 	// unreached set: one that starts being reached, or stops being, fails.
 	defensive := map[string]string{
-		"name one another more deeply than this reader follows; an anchor chain that long, or a cycle, has no meaning to resolve": "the bound exists so a cycle or a long chain terminates instead of overflowing the stack; an anchor chain deep enough to reach it is representable in yaml.v3's node graph, and I did NOT succeed in writing one as a document fixture — the attempt was a malformed document, not a refusal, so this is unfixtured rather than unreachable",
 		"the contract cannot be encoded:":                                               "yaml.Marshal fails on a model Validate accepted; forced in TestTheWriterRefusesWhatItCannotWrite",
 		"the encoded contract is refused by its own reader, so it is not written:":      "the writer emits a document its own reader refuses; forced in TestTheWriterRefusesWhatItCannotWrite",
 		"the re-read contract cannot be encoded:":                                       "the re-read model fails to marshal; unreachable while Marshal is deterministic over a parsed model",
