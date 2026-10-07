@@ -1,7 +1,7 @@
 # REJECTED. The Go row declares no frontend lines. The row's missing count would
 # decode as zero and every total would agree, so with this rule gone the document
 # is accepted on a figure the producer never stated.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -63,6 +63,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

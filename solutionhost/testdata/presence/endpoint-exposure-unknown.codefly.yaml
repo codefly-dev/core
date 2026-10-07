@@ -1,10 +1,16 @@
-# REJECTED. The accepted build-size document followed by a second YAML
-# document in the same file. A delivery document is one document; a reader that
-# took the first and ignored the rest would sign something other than the file.
+# REJECTED, ErrInvalid. A v3 document whose endpoint declares an exposure the
+# resource model does not define.
+#
+# Addressing has one vocabulary — an address was allocated, or none was — and
+# "ingress" is a deployment concern: a route with hostnames is the ingress's to
+# declare, and exposure is only what gives it an endpoint to route to. A
+# spelling no service can declare would describe an endpoint the model cannot
+# produce, with the refusal arriving from the platform that reads the document
+# rather than the renderer that wrote it.
 schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
-generation: 5
+generation: 4
 ownership_domain: alpha
 envelope_revision: 7
 host:
@@ -63,19 +69,4 @@ endpoints:
     module: alpha
     api: http
     visibility: public
-    exposure: public
-build_size:
-  languages:
-    - language: go
-      backend: 12416
-      frontend: 0
-    - language: typescript
-      backend: 0
-      frontend: 8102
-  backend: 12416
-  frontend: 8102
-  total: 20518
-  vendored:
-    - web/src/clients
----
-extra: 1
+    exposure: ingress

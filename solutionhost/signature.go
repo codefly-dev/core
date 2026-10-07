@@ -163,7 +163,7 @@ func (signed *Signed) validate() error {
 //     about what was approved — and the digest the host stores would not match
 //     the bytes that were attested.
 func PresenceFromVerified(payload []byte) (*SolutionHostBinding, error) {
-	return fromVerified(payload, Parse, SchemaPresenceV2, func(document *SolutionHostBinding) ([]byte, error) {
+	return fromVerified(payload, Parse, SchemaPresenceV3, func(document *SolutionHostBinding) ([]byte, error) {
 		return document.CanonicalBytes()
 	})
 }

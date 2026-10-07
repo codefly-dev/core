@@ -21,14 +21,15 @@ import (
 // fields moved the "valid" digest and the whole suite stayed green.
 //
 // Changing any constant is therefore a deliberate act with a migration behind
-// it, never a side effect of an edit. The presence values moved once, with the
-// v1 → v2 schema step: the document itself changed, so every stored digest is
-// stale by construction and a host treats it as stale rather than as evidence
-// of a rewrite. That is the migration, and it is the only reason these may
-// move.
+// it, never a side effect of an edit. The presence values have moved twice,
+// both times with a schema step — v1 → v2, then v2 → v3 for an endpoint's
+// exposure: the document itself changed, so every stored digest is stale by
+// construction and a host treats it as stale rather than as evidence of a
+// rewrite. That is the migration, and a schema step is the only reason these
+// may move.
 const (
-	validFixtureDigest     = "sha256:7a61119691f9a9e7cb7af9b1bcb0996a4583aafcf0f75c75bd0a16606f538b09"
-	tombstoneFixtureDigest = "sha256:08ddceb70944c4bd18c9771843891a4d3af7a828f2d328b89777f61b6d352354"
+	validFixtureDigest     = "sha256:5ec3c028513b1f96010167e70aefab4a374b32220f5dcfdd2761f1f8b95257bb"
+	tombstoneFixtureDigest = "sha256:ebafaa8931c370fcbba139c7a40994892ff8395f62f9065627538595b990d9aa"
 )
 
 func TestCanonicalEncodingIsPinnedAgainstTheShippedFixtures(t *testing.T) {

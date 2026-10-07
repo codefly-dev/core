@@ -36,27 +36,48 @@ An `Envelope` is therefore always **supplied by the caller** and never read out
 of a document. An envelope a document carried would be a document declaring its
 own ceiling.
 
-## One schema, and no v1 to fall back to
+## One schema, and no older one to fall back to
 
 Each document declares exactly one schema this package reads:
-`codefly/solution-host-binding/v2`, `codefly/solution-authority/v1`,
+`codefly/solution-host-binding/v3`, `codefly/solution-authority/v1`,
 `codefly/solution-host-signed/v1`.
 
-The presence schema moved from v1 to v2 and **v1 is not accepted**. A document
-that omits the build a workload must be running, the identity it must present,
-and the domain its delivery speaks for is a document a host can verify nothing
-against; keeping a reader for it would leave that weaker shape permanently
-available to anything that can write a delivery document. A v1 document fails
-with `ErrSchema` — a loud version skew, in the one place that can fix it — and
-`superseded-schema` is shipped as a fixture so both consumers pin the refusal
-rather than discover it.
+The presence schema has stepped twice and **neither older shape is accepted**.
+v1 omitted the build a workload must be running, the identity it must present,
+and the domain its delivery speaks for: a document a host can verify nothing
+against. v2 carried all three and could not say whether an address reachable
+from outside the workspace was allocated for an endpoint — the fact a platform
+standing up a route reads, and the one a reader would otherwise answer from the
+reach, rebuilding the conflation the two axes were split to remove (see [an
+endpoint's reach and its addressing](#an-endpoints-reach-and-its-addressing-and-why-this-document-holds-both-to-cores-vocabulary)).
+Keeping a reader for either would leave the weaker shape permanently available
+to anything that can write a delivery document. Both fail with `ErrSchema` — a
+loud version skew, in the one place that can fix it — and `superseded-schema`
+(v1) and `superseded-schema-v2` are shipped as fixtures so both consumers pin
+each refusal rather than discover it.
+
+**A new field is a version step, and that is not the same rule as "any
+change".** Strict decoding means a document carrying a field the reader does
+not know is refused as malformed rather than read with the field dropped, so a
+field added under an unchanged schema string makes two Cores read that string
+differently — a skew nothing can detect, because the string is what the fleet
+pins. `build_size` is the one addition that did not step, and it is the
+boundary rather than a counter-example: it is **optional**, so no document that
+was valid stopped being valid and no digest a host had stored moved.
+`exposure` is required wherever it carries information, which is exactly the
+change that cannot hide behind a fixed schema string: a v2 document with a
+public endpoint is sound on its own terms and incomplete against v3. Refusing
+it as `ErrInvalid` would tell its writer the document is malformed, when it is
+older than its reader and a re-render is the fix.
 
 The schema is checked **before** the strict decode, and that order is
-load-bearing: an older document has fields this one does not, so a strict decode
-would refuse it for an unknown field and tell the caller its document is
+load-bearing: an older document's fields are not this one's — v1 carried a
+`workload` mapping v3 does not define, and v2 omits the `exposure` v3 requires
+— so decoding first would refuse it for an unknown field, or validate it
+against rules it was never written to, and tell the caller its document is
 malformed. It is not malformed; it is older than the reader.
 
-Two consequences of the schema step, both deliberate:
+Two consequences of the v1 → v2 step, both deliberate:
 
 - `SchemaV1` is gone as a constant. Pinning it was the contract; so is its
   removal.
@@ -88,10 +109,25 @@ Two consequences of the schema step, both deliberate:
   keeps that separately and must not discard it. Core's `Applied` is a
   reconciliation input, not the host's audit log.
 
+The v2 → v3 step is the same cutover, narrower:
+
+- **Delivery re-renders.** `exposure` is a fact the renderer already holds —
+  the resource model resolves it on every public endpoint it loads — so a
+  re-render carries it and nothing has to be reconstructed. A renderer that
+  reads the tree it replaces, as the CLI does to settle the next generation,
+  reads a v2 document there and gets `ErrSchema`: it is the signal to render
+  fresh rather than to compare against a shape this Core cannot digest, and
+  the reason that refusal is not `ErrInvalid`.
+- **A host discards its applied records** and re-admits the delivered set, for
+  the reason the v1 → v2 cutover gives: the schema string is itself inside the
+  canonical bytes, so every stored digest is stale by construction whether or
+  not the binding has a public endpoint, and a v2 document is refused outright,
+  so there is no older generation discarding could let back in.
+
 ## The presence document
 
 ```yaml
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v3
 kind: solution                     # or module — declared, never inferred
 binding: alpha-region-a-01          # stable ID of one deployment instance
 generation: 4                      # strictly monotonic per binding ID
@@ -124,8 +160,9 @@ workloads:                         # what the host runs, and what must be true o
     non_authenticating: [envoy, migrate]   # must never be accepted as the authenticator
 modules:
   - {module: alpha, package: example/alpha-core, version: 1.4.0}
-endpoints:                         # named, never addressed; reach written out
+endpoints:                         # named, never addressed; reach written out, addressing stated where it can differ
   - {name: api, service: alpha, module: alpha, api: grpc, visibility: internal}
+  - {name: web, service: alpha, module: alpha, api: http, visibility: public, exposure: public}
 build_size:                        # OPTIONAL: the build's size, counted by the producer and signed with the digest
   languages:                       # one row per language with a counted line, both sides on the row
     - {language: go, backend: 12416, frontend: 0}
@@ -253,12 +290,12 @@ reader rather than loading it as a module with nothing in it. The loader also
 refuses a declaration that breaks any of the three path rules, through the
 same chain the CLI loads a module by.
 
-**The section is optional in v2, and that is not the v1 case.** A document
-without it is an older producer's and is accepted; one that carries it is held
-to every build-size rule. The schema step from v1 to v2 exists because a
-document that omits the build a workload must be running is a document a host
-cannot verify anything against, and reading it as a weaker shape would make
-that shape permanently available. The size weakens no verification — a
+**The section is optional, and that is not the superseded-schema case.** A
+document without it is a producer that did not count, and is accepted; one that
+carries it is held to every build-size rule. The step from v1 to v2 exists
+because a document that omits the build a workload must be running is a
+document a host cannot verify anything against, and reading it as a weaker
+shape would make that shape permanently available. The size weakens no verification — a
 catalogue reads it, no host holds a container to it — so its absence is
 "this producer did not count", and refusing every pre-existing document to
 say so would buy nothing. It is written with `omitempty` for the same reason
@@ -325,17 +362,45 @@ with two declared-empty lists. A producer that marshals the model by hand can
 write `vendored: null` for a list it meant as empty, and the failure then
 surfaces at whoever reads the file, or at admission, rather than at publish.
 
-### An endpoint's reach, and why this document holds it to core's vocabulary
+### An endpoint's reach and its addressing, and why this document holds both to core's vocabulary
 
 An endpoint here is **named, never addressed**: a declared address would be a
 resolution result frozen into a delivery document, true on one cluster for as
-long as nothing moved. What it does carry is `visibility`, which is **reach and
-nothing else** — who may call the endpoint. It has no addressing consequence,
-and it names nobody: which modules actually reach an endpoint is derived by the
-composition that joins the consumers' declared dependencies
+long as nothing moved. What it carries is two declarations about one — reach
+and addressing — and neither is an address.
+
+`visibility` is **reach and nothing else**: who may call the endpoint. It has
+no addressing consequence, and it names nobody: which modules actually reach an
+endpoint is derived by the composition that joins the consumers' declared
+dependencies
 ([network-model.md](network-model.md#the-allow-list-is-derived-never-authored)),
 never written on the target, so a host never carries a list of its own
 consumers.
+
+`exposure` is **addressing and nothing else**: whether an address reachable
+from outside the workspace is asked for. Before the axes were split,
+`visibility: public` was both statements at once and a host could read `public`
+and know an address existed. It no longer means that, so a v2 document said
+anything outside the workspace may call the endpoint and nothing at all about
+whether it was addressed — the information did not move elsewhere in the
+document, it was absent, and the two readings a reader was left with were a
+conflation and a blank. `Route` does not cover it: a route is `{alias,
+surface}`, one per surface, not one per endpoint.
+
+**It is the declaration, never an instruction, and a host must not read it as
+one.** This document carries what the module declared so that a reader
+reconstructs the author's statement whole; a document that keeps one axis and
+drops the other is a lossy copy, and the loss is silent. What it does not do is
+resolve anything: the allocation is
+[`resources.IsExposedEndpoint`](../resources/endpoint.go)'s, where a run emits
+the Public network instance beside the Native and Container ones, and the
+hostnames an outward address is published under are the environment's
+`ingress:`, declared there
+([network-model.md](network-model.md#exposure)). That is the same reason an
+endpoint here is named and never addressed — and it is why the field is worth
+having even though a host that derives its routes from the delivered declared
+record is already reading this document: what it reads has to be the whole
+declaration, not half of one.
 
 `Validate` holds the value to the resource model's own vocabulary —
 `private`, `internal` or `public` — by calling `resources.KnownVisibility`
@@ -354,10 +419,39 @@ an omission and resolves it to `private`; a rendered document gets no such
 resolution, so one carrying none would leave that default for every reader to
 derive a second time.
 
-The vocabulary is read from `resources` instead of copied because this package
-already links that tree — `host.go` takes `composition.ValidateCollisions` for
-the route-alias check, and `composition` imports `resources` — so a literal
-here would be a second list to keep in step for no gain.
+The exposure is held the same way, to `resources.KnownExposure` — `public` or
+`none` — and to two of the model's three cross-field rules, which are the two
+that have something to bind to here:
+
+| rule | the document's refusal |
+| --- | --- |
+| a public endpoint states its exposure | `endpoint "web" declares visibility "public" and states no exposure` |
+| an outward address only within the reach | `endpoint "api" states exposure "public" with visibility "internal"` |
+
+The third, which refuses an address allocated for an endpoint that lives
+outside the system, has nothing to bind to: this document carries no
+`location`, and such an endpoint is refused at its source, where the location
+is declared.
+
+**Required on a public endpoint, and not required elsewhere** — which is not
+the reach's rule, deliberately. Reach from outside the workspace admits both
+answers, so the fact has to be written or it is lost. A reach that stops at the
+workspace entails no outward address, so `none` is the only thing that could be
+true of it: a renderer may write it or leave it out, and neither spelling makes
+the document say something the model did not. Refusing it there would be
+stricter than the model this document projects, and a renderer would have to
+normalize a declaration the model accepted — which is where a fact gets lost.
+`exposure` is written with `omitempty` for that reason, and the sorted
+canonical encoding does the rest.
+
+Both vocabularies are read from `resources` instead of copied because this
+package already links that tree — `host.go` takes
+`composition.ValidateCollisions` for the route-alias check, and `composition`
+imports `resources` — so a literal here would be a second list to keep in step
+for no gain. The agreement is held as a test over every reach-and-exposure
+pair, driven against `resources.ValidateEndpointDeclaration` itself, so a
+widened model cannot leave the document behind and a widened document cannot
+admit what no service can declare.
 
 ### Three digests, and why they are three types
 

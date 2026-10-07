@@ -252,6 +252,12 @@ it** — `exposure: public` or `exposure: none` — rather than omitting it, so 
 manifest written when `visibility: public` meant an address fails to load
 (`exposure-declared`) instead of quietly losing it.
 
+Both axes travel into delivery: the presence document carries `visibility` and
+`exposure` per endpoint, judged by the same rules, so a platform standing up a
+route reads the addressing from the document rather than inferring it from the
+reach — see
+[solution-host-binding.md](solution-host-binding.md#an-endpoints-reach-and-its-addressing-and-why-this-document-holds-both-to-cores-vocabulary).
+
 ### The allow-list is derived, never authored
 
 Which modules actually reach an endpoint is **derived by the composition** from

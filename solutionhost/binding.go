@@ -90,16 +90,18 @@ const (
 	// FileName is the conventional name of a rendered presence document.
 	FileName = "solution-host-binding.codefly.yaml"
 
-	// SchemaPresenceV2 is the only presence schema this package accepts. It
+	// SchemaPresenceV3 is the only presence schema this package accepts. It
 	// requires the kind, the ownership domain, the envelope revision, the
 	// release digest, and — for a generation that renders anything the host
 	// runs — the workloads, their image digests and their workload identities.
+	// An endpoint reachable from outside the workspace also states whether an
+	// address was allocated for it, which v2 had no field for.
 	//
 	// The schema string is also what binds a signature to a document TYPE:
 	// it is part of the canonical encoding that is signed, so a presence
 	// document cannot be presented as an authority document under a signature
 	// that verifies. See PresenceFromVerified.
-	SchemaPresenceV2 = "codefly/solution-host-binding/v2"
+	SchemaPresenceV3 = "codefly/solution-host-binding/v3"
 )
 
 // Kind is what a presence document declares the presence of. A module and a
@@ -423,6 +425,29 @@ type Endpoint struct {
 	// get that resolution, so one carrying none would leave that default for
 	// every reader to derive a second time.
 	Visibility string `yaml:"visibility" json:"visibility"`
+
+	// Exposure is what the module DECLARED about addressing: whether an address
+	// reachable from outside the workspace is asked for. It is the second axis
+	// of one declaration, carried for the same reason the first is — a document
+	// that keeps one and drops the other is a lossy copy of what its author
+	// said, and the loss is silent — and v2 had no field for it.
+	//
+	// It is NOT an instruction to allocate anything, and a host must not read
+	// it as one. The allocation is resources.IsExposedEndpoint's, where a run
+	// emits the Public network instance; the hostnames an outward address is
+	// published under are the environment's ingress, declared there. This
+	// document states the declaration and resolves nothing, which is the same
+	// reason an endpoint here is named and never addressed.
+	//
+	// A public endpoint states it, "public" or "none", because reach from
+	// outside the workspace admits both answers and a reader that took the
+	// reach for the answer would rebuild the conflation the two axes exist to
+	// remove. A reach that stops at the workspace entails no outward address,
+	// so an endpoint that is not public may state "none" and need not state
+	// anything; "public" on one is refused. That is the resource model's own
+	// judgment, unchanged, so a renderer projects a declaration the model
+	// admitted without normalizing it first.
+	Exposure string `yaml:"exposure,omitempty" json:"exposure,omitempty"`
 }
 
 // WorkloadIdentity is the identity the host expects a workload's authenticating
@@ -452,7 +477,7 @@ func Parse(data []byte) (*SolutionHostBinding, error) { return parse(data, "") }
 // parse is Parse with one named rule deleted, for the self-check that proves
 // each rule is protected by a fixture; "" deletes none.
 func parse(data []byte, without string) (*SolutionHostBinding, error) {
-	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV2, without, checkBuildSizeNodes)
+	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV3, without, checkBuildSizeNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -591,8 +616,8 @@ func (document *SolutionHostBinding) validate(without string) error {
 	if document == nil {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
-	if document.Schema != SchemaPresenceV2 && without != ruleSchema {
-		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaPresenceV2)
+	if document.Schema != SchemaPresenceV3 && without != ruleSchema {
+		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaPresenceV3)
 	}
 	if !slices.Contains(kinds, document.Kind) {
 		return fmt.Errorf("%w: kind %q is not one of %v", ErrInvalid, document.Kind, kinds)
@@ -959,6 +984,18 @@ func (document *SolutionHostBinding) validateEndpoints() error {
 			return fmt.Errorf("%w: endpoint %q visibility %q is none of %q, %q or %q: a spelling the resource model deleted describes an endpoint no service can declare",
 				ErrInvalid, endpoint.Name, endpoint.Visibility,
 				resources.VisibilityPrivate, resources.VisibilityInternal, resources.VisibilityPublic)
+		}
+		if !resources.KnownExposure(endpoint.Exposure) {
+			return fmt.Errorf("%w: endpoint %q exposure %q is neither %q nor %q: addressing has one vocabulary, and an ingress or a hostname is the deployment's to declare, not this document's",
+				ErrInvalid, endpoint.Name, endpoint.Exposure, resources.ExposurePublic, resources.ExposureNone)
+		}
+		if endpoint.Visibility == resources.VisibilityPublic && endpoint.Exposure == "" {
+			return fmt.Errorf("%w: endpoint %q declares visibility %q and states no exposure (%q or %q): reach is not addressing, so a reader has no field left to tell whether an address was allocated",
+				ErrInvalid, endpoint.Name, resources.VisibilityPublic, resources.ExposurePublic, resources.ExposureNone)
+		}
+		if endpoint.Exposure == resources.ExposurePublic && endpoint.Visibility != resources.VisibilityPublic {
+			return fmt.Errorf("%w: endpoint %q states exposure %q with visibility %q: an address reachable from outside the workspace is declared only on an endpoint reachable from outside it",
+				ErrInvalid, endpoint.Name, resources.ExposurePublic, endpoint.Visibility)
 		}
 		key := endpoint.Module + "\x00" + endpoint.Service + "\x00" + endpoint.Name
 		if _, exists := seen[key]; exists {

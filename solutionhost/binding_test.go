@@ -34,7 +34,7 @@ func authority(t *testing.T, name string) []byte {
 func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	document := valid(t)
 
-	require.Equal(t, solutionhost.SchemaPresenceV2, document.Schema)
+	require.Equal(t, solutionhost.SchemaPresenceV3, document.Schema)
 	require.Equal(t, solutionhost.KindSolution, document.Kind)
 	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
 	require.Equal(t, uint64(4), document.Generation)
@@ -47,7 +47,15 @@ func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	require.False(t, document.Removed)
 	require.Equal(t, []string{"alpha"}, document.Aliases())
 	require.Len(t, document.Modules, 2)
-	require.Len(t, document.Endpoints, 2)
+
+	// An endpoint is named and never addressed, and declares two things about
+	// one: who may call it, and whether an address reachable from outside the
+	// workspace was allocated for it. The second is stated where it can
+	// differ, which is on the endpoint reachable from outside.
+	require.Equal(t, []solutionhost.Endpoint{
+		{Name: "api", Service: "alpha", Module: "alpha", API: "grpc", Visibility: "internal"},
+		{Name: "web", Service: "alpha", Module: "alpha", API: "http", Visibility: "public", Exposure: "public"},
+	}, document.Endpoints)
 
 	// Every rendered artifact is pinned.
 	surfaces := map[solutionhost.Surface]solutionhost.RenderedDigest{}
@@ -283,17 +291,28 @@ func mustParse(t *testing.T, data []byte) *solutionhost.SolutionHostBinding {
 	return document
 }
 
-// There is no v1 reader. The refusal is a version skew and not an invalid
-// document, because the two call for different responses: a v1 document is not
-// malformed, it is older than the reader, and the fix is a re-render.
-func TestV1IsRefusedAsVersionSkew(t *testing.T) {
-	_, err := solutionhost.Parse(presence(t, "superseded-schema"))
-	require.ErrorIs(t, err, solutionhost.ErrSchema)
-	require.NotErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV2)
+// There is no reader for a superseded schema. The refusal is a version skew and
+// not an invalid document, because the two call for different responses: an
+// older document is not malformed, it is older than the reader, and the fix is
+// a re-render by whoever wrote it.
+//
+// v2 is the one that matters now: it is the shape delivery repositories hold,
+// and it is sound on its own terms — what it cannot do is say whether an
+// address was allocated for a public endpoint. A reader that answered that
+// from the reach would rebuild the conflation the two axes were split to
+// remove, so the document is refused rather than read with the fact guessed.
+func TestASupersededSchemaIsRefusedAsVersionSkew(t *testing.T) {
+	for _, fixture := range []string{"superseded-schema", "superseded-schema-v2"} {
+		t.Run(fixture, func(t *testing.T) {
+			_, err := solutionhost.Parse(presence(t, fixture))
+			require.ErrorIs(t, err, solutionhost.ErrSchema)
+			require.NotErrorIs(t, err, solutionhost.ErrInvalid)
+			require.Contains(t, err.Error(), solutionhost.SchemaPresenceV3)
+		})
+	}
 
 	document := valid(t)
-	for _, schema := range []string{"", "codefly/solution-host-binding/v1", "codefly/solution-host-binding/v3", solutionhost.SchemaAuthorityV1} {
+	for _, schema := range []string{"", "codefly/solution-host-binding/v1", "codefly/solution-host-binding/v2", "codefly/solution-host-binding/v4", solutionhost.SchemaAuthorityV1} {
 		document.Schema = schema
 		require.ErrorIsf(t, document.Validate(), solutionhost.ErrSchema, "schema %q", schema)
 	}
@@ -306,7 +325,7 @@ func TestUnknownFieldIsRejectedSoANewFieldIsAVersionStep(t *testing.T) {
 }
 
 func TestSecondYAMLDocumentIsRejected(t *testing.T) {
-	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV2+"\n")...)
+	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV3+"\n")...)
 	_, err := solutionhost.Parse(data)
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.ErrorContains(t, err, "holds more than one document")
@@ -408,23 +427,114 @@ func TestEndpointReachIsHeldToTheModelsVocabulary(t *testing.T) {
 		t.Run(known, func(t *testing.T) {
 			document := valid(t)
 			document.Endpoints[0].Visibility = known
+			if known == "public" {
+				document.Endpoints[0].Exposure = "none"
+			}
 			require.NoError(t, document.Validate())
 		})
 	}
 }
 
-// The vocabulary is read from the resource model rather than copied here: this
-// package already links resources through composition, so a literal would be a
-// second list to keep in step for no gain. This holds the two together at the
-// document's own loader, so a widened model cannot leave the document behind
-// and a widened document cannot admit what no service can declare.
-func TestTheReachVocabularyIsTheModelsAndNotACopy(t *testing.T) {
-	for _, visibility := range []string{"private", "internal", "public", "module", "external", "everyone", ""} {
+// Addressing is the endpoint's second axis, and the one v2 could not state: a
+// public endpoint says whether an address reachable from outside the workspace
+// was allocated for it, since reach admits both answers and a reader that took
+// the reach for the answer is exactly the conflation the split removed.
+//
+// Each refusal is asserted by its own message rather than by ErrInvalid alone:
+// every later rule in validateEndpoints returns the same sentinel, so an
+// assertion on it passes with the exposure checks gone and the duplicate-key
+// check refusing instead.
+func TestAPublicEndpointStatesWhetherAnAddressWasAllocated(t *testing.T) {
+	t.Run("omitted", func(t *testing.T) {
 		document := valid(t)
-		document.Endpoints[0].Visibility = visibility
-		accepted := document.Validate() == nil
-		require.Equalf(t, resources.KnownVisibility(visibility) && visibility != "", accepted,
-			"the document and the resource model disagree about %q", visibility)
+		document.Endpoints[1].Exposure = ""
+		err := document.Validate()
+		require.ErrorIs(t, err, solutionhost.ErrInvalid)
+		require.ErrorContains(t, err, `endpoint "web" declares visibility "public" and states no exposure`)
+		require.ErrorContains(t, err, "no field left to tell whether an address was allocated")
+	})
+
+	for _, stated := range []string{"public", "none"} {
+		t.Run(stated, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[1].Exposure = stated
+			require.NoError(t, document.Validate())
+		})
+	}
+
+	for _, refused := range []string{"ingress", "route", "internet", "pubilc", "PUBLIC"} {
+		t.Run("unknown "+refused, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[1].Exposure = refused
+			err := document.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.ErrorContains(t, err, `endpoint "web" exposure "`+refused+`" is neither "public" nor "none"`)
+		})
+	}
+}
+
+// An address reachable from outside the workspace is declared only on an
+// endpoint reachable from outside it. The axes are read on their own, which is
+// not the same as being independent: addressing past the reach describes an
+// address whose every holder the endpoint would refuse.
+//
+// "none" is admitted on a reach that stops at the workspace, and that is the
+// resource model's judgment rather than a gap here: nothing else is true of
+// such an endpoint, so a renderer may write it or leave it out, and neither
+// spelling makes the document say something the model did not.
+func TestAnOutwardAddressIsDeclaredOnlyWithinTheReach(t *testing.T) {
+	for _, visibility := range []string{"private", "internal"} {
+		t.Run(visibility, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[0].Visibility = visibility
+			document.Endpoints[0].Exposure = "public"
+			err := document.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.ErrorContains(t, err, `endpoint "api" states exposure "public" with visibility "`+visibility+`"`)
+
+			document.Endpoints[0].Exposure = "none"
+			require.NoError(t, document.Validate())
+			document.Endpoints[0].Exposure = ""
+			require.NoError(t, document.Validate())
+		})
+	}
+}
+
+// Both vocabularies and both cross-field rules are the resource model's,
+// read from it rather than copied here: this package already links resources
+// through composition, so a literal would be a second list to keep in step for
+// no gain. Holding the two together at the document's own loader is what makes
+// a widened model unable to leave the document behind, and a widened document
+// unable to admit what no service can declare.
+//
+// It also means a renderer projects a declaration the model admitted straight
+// through, without normalizing it first — and a normalizing renderer is where
+// the fact would be lost. The one difference is the reach itself, which the
+// model resolves from an omission and a rendered document states (see
+// TestEndpointReachIsHeldToTheModelsVocabulary).
+//
+// The model's third exposure rule has nothing to bind to here: it refuses an
+// address allocated for an endpoint that lives outside the system, and this
+// document carries no location. Such an endpoint is refused at its source,
+// where the location is declared.
+func TestTheEndpointAxesAreJudgedAsTheModelJudgesThem(t *testing.T) {
+	for _, visibility := range []string{"private", "internal", "public", "module", "external", "everyone", ""} {
+		for _, exposure := range []string{"", "none", "public", "ingress"} {
+			document := valid(t)
+			document.Endpoints[0].Visibility = visibility
+			document.Endpoints[0].Exposure = exposure
+			accepted := document.Validate() == nil
+
+			declaration := resources.EndpointDeclaration{
+				Service:    document.Endpoints[0].Service,
+				Name:       document.Endpoints[0].Name,
+				Visibility: visibility,
+				Exposure:   exposure,
+			}
+			byTheModel := resources.ValidateEndpointDeclaration(declaration) == nil && visibility != ""
+			require.Equalf(t, byTheModel, accepted,
+				"the document and the resource model disagree about visibility %q with exposure %q", visibility, exposure)
+		}
 	}
 }
 

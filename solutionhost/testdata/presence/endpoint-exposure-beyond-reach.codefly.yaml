@@ -1,10 +1,15 @@
-# REJECTED. The accepted build-size document followed by a second YAML
-# document in the same file. A delivery document is one document; a reader that
-# took the first and ignored the rest would sign something other than the file.
+# REJECTED, ErrInvalid. A v3 document that allocates an outward address for an
+# endpoint nothing outside the workspace may call.
+#
+# "api" is reachable across the workspace and no further, so an address
+# reachable from outside it addresses an endpoint that would refuse every
+# caller holding it. The two axes are read on their own, which is not the same
+# as being independent: addressing beyond the reach is a contradiction, and it
+# is the resource model's own refusal, made here where the document is read.
 schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
-generation: 5
+generation: 4
 ownership_domain: alpha
 envelope_revision: 7
 host:
@@ -58,24 +63,10 @@ endpoints:
     module: alpha
     api: grpc
     visibility: internal
+    exposure: public
   - name: web
     service: alpha
     module: alpha
     api: http
     visibility: public
     exposure: public
-build_size:
-  languages:
-    - language: go
-      backend: 12416
-      frontend: 0
-    - language: typescript
-      backend: 0
-      frontend: 8102
-  backend: 12416
-  frontend: 8102
-  total: 20518
-  vendored:
-    - web/src/clients
----
-extra: 1

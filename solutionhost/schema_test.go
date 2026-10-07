@@ -68,10 +68,11 @@ func TestEveryFieldIsTaggedForBothEncodings(t *testing.T) {
 	walk(t, reflect.TypeOf(solutionhost.SolutionHostBinding{}), "SolutionHostBinding", map[reflect.Type]bool{})
 }
 
-// v1 is the only schema this Core reads, and the constant is the contract three
-// repositories pin to. Changing it is a version step, never an edit.
+// Each constant is the one schema this Core reads for its document, and the
+// contract three repositories pin to. Changing one is a version step, never an
+// edit.
 func TestSchemaConstantIsTheVersionedName(t *testing.T) {
-	require.Equal(t, "codefly/solution-host-binding/v2", solutionhost.SchemaPresenceV2)
+	require.Equal(t, "codefly/solution-host-binding/v3", solutionhost.SchemaPresenceV3)
 	require.Equal(t, "codefly/solution-authority/v1", solutionhost.SchemaAuthorityV1)
 	require.Equal(t, "codefly/solution-host-signed/v1", solutionhost.SchemaSignedV1)
 	require.Equal(t, "solution-host-binding.codefly.yaml", solutionhost.FileName)
@@ -128,4 +129,4 @@ func TestShippedFixtureBytesArePinned(t *testing.T) {
 
 // shippedFixtureDigest covers every document under testdata, by path and
 // content. See TestShippedFixtureBytesArePinned.
-const shippedFixtureDigest = "sha256:f411bf41209f5202cbbd7475b502251935f6b88870d14da1eb0dee2c8da9dca4"
+const shippedFixtureDigest = "sha256:4e93c282c09f07816acb099f5c9c50f67a7a2baf3dbd06b1d17c47797372187b"

@@ -1,7 +1,7 @@
 # REJECTED. The overall total is not backend plus frontend, while both of those
 # agree with their rows: the one named refusal the issue asks for — a document
 # whose totals do not equal the sum of its parts.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -63,6 +63,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

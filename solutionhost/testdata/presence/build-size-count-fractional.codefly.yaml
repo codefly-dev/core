@@ -2,7 +2,7 @@
 # 12416.9 to 12416 before any rule sees it, so with this rule gone the document
 # is ACCEPTED with totals that agree with a row the file never wrote — which is
 # exactly the repair this rule exists to refuse.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -64,6 +64,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go
