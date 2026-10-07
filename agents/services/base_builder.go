@@ -849,12 +849,24 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	}
 	if deployment.Inputs.DependencyEndpoints {
 		dependencyMappings := req.GetDependenciesNetworkMappings()
-		if s.Service != nil {
-			// The agent holds no composition to judge an edge with; the CLI-side
-			// wrapper that handed these mappings (services.BuilderInstance.Deploy)
-			// judged them with the composition's provenance. Select what the
-			// declared dependencies consume, and judge nothing.
-			dependencyMappings, err = resources.SelectDependencyNetworkMappings(s.Service.ServiceDependencies, dependencyMappings)
+		if len(dependencyMappings) > 0 {
+			// The agent judges the addresses it was handed with the composition
+			// its service was loaded from — the workspace above the service
+			// directory — exactly as the CLI-side wrapper that handed them did
+			// (services.BuilderInstance.Deploy). An agent with no service, or
+			// one loaded outside any workspace, has nothing to judge with and
+			// refuses the addresses as unjudged rather than wiring them.
+			if s.Service == nil {
+				return fail(fmt.Errorf("%w: dependency addresses were handed to an agent with no service to judge them for", resources.ErrUnjudgedProvenance))
+			}
+			workspace, err := resources.FindWorkspaceUpFrom(ctx, s.Location)
+			if err != nil {
+				return fail(err)
+			}
+			if workspace == nil {
+				return fail(fmt.Errorf("%w: service %s at %s is loaded outside any workspace, so the dependency addresses it was handed cannot be judged", resources.ErrUnjudgedProvenance, s.Identity.Name, s.Location))
+			}
+			dependencyMappings, err = resources.ResolveDependencyNetworkMappings(workspace, s.Identity.Module, s.Service.ServiceDependencies, dependencyMappings)
 			if err != nil {
 				return fail(err)
 			}

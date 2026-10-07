@@ -70,10 +70,10 @@ func (ie *InterfaceEndpoint) UnmarshalYAML(node *yaml.Node) error {
 	keys, _ := mappingKeys(node)
 	for _, key := range keys {
 		if canonicalKey(key) == allowModulesKeyCanonical {
-			return fmt.Errorf("interface endpoint authors allow-modules (key %q): an allow-list is derived from the consumers' declared service dependencies, never written by the module it would grant — a module asks for what it consumes, and the target names nobody", key)
+			return fmt.Errorf("%w: interface endpoint authors allow-modules (key %q): an allow-list is derived from the consumers' declared service dependencies, never written by the module it would grant — a module asks for what it consumes, and the target names nobody", ErrInvalidEndpointDeclaration, key)
 		}
 		if !slices.Contains(interfaceEndpointKeys, key) {
-			return fmt.Errorf("interface endpoint declares unknown key %q (an entry declares %s)", key, strings.Join(interfaceEndpointKeys, ", "))
+			return fmt.Errorf("%w: interface endpoint declares unknown key %q (an entry declares %s)", ErrInvalidEndpointDeclaration, key, strings.Join(interfaceEndpointKeys, ", "))
 		}
 	}
 	type plain InterfaceEndpoint
@@ -113,12 +113,12 @@ func (ie *InterfaceEndpoint) validate() error {
 	switch ie.exportedVisibility() {
 	case VisibilityInternal, VisibilityPublic:
 	default:
-		return fmt.Errorf("interface endpoint %s/%s has invalid visibility %q (must be %q or %q)",
-			ie.Service, ie.Endpoint, ie.Visibility, VisibilityInternal, VisibilityPublic)
+		return fmt.Errorf("%w: interface endpoint %s/%s has invalid visibility %q (must be %q or %q)",
+			ErrInvalidEndpointDeclaration, ie.Service, ie.Endpoint, ie.Visibility, VisibilityInternal, VisibilityPublic)
 	}
 	if ie.AllowModules != nil {
-		return fmt.Errorf("interface endpoint %s/%s authors allow-modules %q: an allow-list is derived from the consumers' declared service dependencies, never written by the module it would grant — a module asks for what it consumes, and the target names nobody",
-			ie.Service, ie.Endpoint, ie.AllowModules)
+		return fmt.Errorf("%w: interface endpoint %s/%s authors allow-modules %q: an allow-list is derived from the consumers' declared service dependencies, never written by the module it would grant — a module asks for what it consumes, and the target names nobody",
+			ErrInvalidEndpointDeclaration, ie.Service, ie.Endpoint, ie.AllowModules)
 	}
 	return nil
 }

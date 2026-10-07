@@ -77,11 +77,14 @@ func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 			dir := writeInterfaceFixture(t, "kind: module\nname: billing\nservices:\n    - name: accounts\ninterface:\n    endpoints:\n        - service: accounts\n          endpoint: grpc\n"+tc.entry)
 			_, err := LoadModuleFromDir(ctx, dir)
 			require.ErrorContains(t, err, tc.says)
+			require.ErrorIs(t, err, ErrInvalidEndpointDeclaration, "an interface entry the model refuses is an invalid declaration, by the one sentinel")
 		})
 	}
 	for _, spelling := range []string{"module", "private", "external"} {
 		ie := &InterfaceEndpoint{Service: "accounts", Endpoint: "grpc", Visibility: spelling}
-		require.ErrorContains(t, ie.validate(), "invalid visibility", "the validator refuses the spelling on its own, whatever the schema does first")
+		err := ie.validate()
+		require.ErrorContains(t, err, "invalid visibility", "the validator refuses the spelling on its own, whatever the schema does first")
+		require.ErrorIs(t, err, ErrInvalidEndpointDeclaration)
 	}
 	// An export to the composition names nobody: an undecorated entry and an
 	// explicit internal one both load, export at internal, and publish so.
