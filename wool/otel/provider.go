@@ -9,9 +9,14 @@
 //	otel.Enable(otel.WithEndpoint("localhost:4317"), otel.WithServiceName("my-svc"))
 //
 // To export over TLS, give the collector as a URL and let its scheme decide
-// the transport — "https" is TLS with the system roots, "http" is plaintext:
+// the transport — "https" is TLS with the system roots, "http" is plaintext.
+// The URL names a host and a port; see WithEndpointURL for the rules it is held
+// to and for the one environment that overrules a scheme:
 //
 //	otel.Enable(otel.WithEndpointURL("https://collector.example.com:4317"))
+//
+// OTEL_EXPORTER_OTLP_ENDPOINT is a URL by specification and takes the same path,
+// so a collector configured entirely by environment can also be reached over TLS.
 package otel
 
 import (
@@ -48,6 +53,10 @@ type config struct {
 	// URL is refused rather than read as "not given".
 	endpointURL    string
 	endpointURLSet bool
+	// endpointURLFromEnvironment distinguishes a URL this process was configured
+	// with from one a caller wrote at the call site, because only the second is
+	// judged when the URL will not be dialled. See Enable.
+	endpointURLFromEnvironment bool
 }
 
 // WithEndpoint sets the OTLP collector endpoint (e.g. "localhost:4317").
@@ -58,25 +67,37 @@ func WithEndpoint(endpoint string) Option {
 	return func(c *config) {
 		c.endpoint = endpoint
 		c.endpointURLSet = false
+		c.endpointURLFromEnvironment = false
 	}
 }
 
 // WithEndpointURL sets the OTLP collector endpoint as a URL and takes the
 // transport security from its scheme: "http" connects in plaintext, "https"
-// connects over TLS verified against the system roots. Any other scheme, an
-// empty URL, or a URL without a host makes Enable return an error, and Enable
-// registers nothing.
+// connects over TLS verified against the system roots. The URL must name a host
+// and a port, and must not carry userinfo credentials; any other scheme, an
+// empty URL, or a URL that breaks one of those rules makes Enable return an
+// error naming the rule, and Enable registers nothing.
 //
-// The scheme alone decides — WithInsecure does not apply to a URL endpoint, so
-// "https" is never downgraded. A path in the URL is ignored by the gRPC
-// exporter, and OTEL_EXPORTER_OTLP_ENDPOINT, which Enable otherwise reads, is
-// not consulted once this option is given.
+// The port is required rather than defaulted because the gRPC exporter passes
+// the URL's authority through untouched and gRPC fills a missing port with 443,
+// which is not the OTLP/gRPC port.
+//
+// The scheme decides, and WithInsecure cannot downgrade an "https" URL. The one
+// thing that overrules a scheme is an OTLP certificate in the environment
+// (OTEL_EXPORTER_OTLP_CERTIFICATE and its TRACES_/CLIENT_ variants): the
+// exporter prefers those credentials over the scheme's plaintext flag, so
+// "https" honours them as its trust anchor while "http" beside one is refused
+// as a contradiction rather than quietly upgraded.
+//
+// A path in the URL is ignored by the gRPC exporter, and
+// OTEL_EXPORTER_OTLP_ENDPOINT is not consulted once this option is given.
 //
 // If WithEndpoint and WithEndpointURL are both given, the last one wins.
 func WithEndpointURL(endpointURL string) Option {
 	return func(c *config) {
 		c.endpointURL = endpointURL
 		c.endpointURLSet = true
+		c.endpointURLFromEnvironment = false
 	}
 }
 
@@ -86,6 +107,10 @@ func WithEndpointURL(endpointURL string) Option {
 // parse, so a malformed or scheme-less value (a bare "host:4317" parses as the
 // scheme "host") would otherwise be dialled in plaintext or at the wrong address.
 // The error never carries the raw URL: it may hold credentials.
+//
+// Each refusal below is a rule a fixture names. They are not interchangeable:
+// the scheme rule decides the transport, the host and port rules decide the
+// address, and the userinfo rule refuses credentials that would be dropped.
 func validateEndpointURL(raw string) error {
 	if raw == "" {
 		return errors.New("wool/otel: endpoint URL is empty; want an http:// or https:// collector URL")
@@ -108,7 +133,81 @@ func validateEndpointURL(raw string) error {
 	if u.Hostname() == "" {
 		return fmt.Errorf("wool/otel: endpoint URL with scheme %q has no host", u.Scheme)
 	}
+	// The port is REQUIRED, and this rule is the reason: the exporter hands
+	// u.Host to gRPC untouched, and gRPC's default DNS resolver fills a missing
+	// port with 443 — not the OTLP/gRPC 4317. A portless URL therefore exports
+	// to the wrong port and says nothing: the collector is never reached, the
+	// batcher's Shutdown reports only a context deadline, and the global error
+	// handler sees nothing. Naming the port is the only way the address the
+	// caller wrote is the address that is dialled.
+	if u.Port() == "" {
+		return fmt.Errorf("wool/otel: endpoint URL with scheme %q has no port; name it explicitly (the OTLP/gRPC port is usually 4317) — gRPC would otherwise dial 443", u.Scheme)
+	}
+	// Userinfo cannot survive: the exporter keeps only u.Host, so credentials in
+	// the URL are dropped and the export goes out unauthenticated. Refusing is
+	// the only way the caller learns that; staying silent trades an authenticated
+	// export for an anonymous one.
+	if u.User != nil {
+		return fmt.Errorf("wool/otel: endpoint URL with scheme %q carries userinfo credentials, which the gRPC exporter drops; pass OTLP authentication through OTEL_EXPORTER_OTLP_HEADERS instead", u.Scheme)
+	}
 	return nil
+}
+
+// otlpTLSEnvVars are the OTLP environment variables that install gRPC transport
+// credentials. The exporter builds a *tls.Config from any of them and sets it as
+// cfg.Traces.GRPCCredentials, which NewGRPCConfig prefers over the Insecure flag
+// that a URL's scheme sets — so these, not the scheme, decide the transport when
+// they are present.
+var otlpTLSEnvVars = []string{
+	"OTEL_EXPORTER_OTLP_CERTIFICATE",
+	"OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE",
+	"OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE",
+	"OTEL_EXPORTER_OTLP_CLIENT_KEY",
+	"OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE",
+	"OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY",
+}
+
+// refuseEnvOverrulingScheme refuses the one case where the environment would
+// overrule a URL's scheme instead of merely configuring it.
+//
+// An "https" URL and an OTLP certificate agree: both ask for TLS, and the
+// certificate is how an operator points at a private CA rather than the system
+// roots, so it is honoured. An "http" URL and an OTLP certificate contradict
+// each other, and the certificate wins inside the exporter — the caller asked
+// for plaintext and would get TLS, which fails against a plaintext collector
+// and loses every span with nothing in the error handler. Core cannot clear
+// those credentials through the exporter's option surface, so the contradiction
+// is refused here and "http is plaintext" stays true.
+func refuseEnvOverrulingScheme(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" {
+		return nil
+	}
+	for _, name := range otlpTLSEnvVars {
+		if os.Getenv(name) == "" {
+			continue
+		}
+		return fmt.Errorf(
+			"wool/otel: endpoint URL scheme \"http\" asks for plaintext but %s installs TLS credentials the exporter prefers over it; use https:// for that collector, or unset %s",
+			name, name)
+	}
+	return nil
+}
+
+// endpointURLFromEnv reports whether an OTEL_EXPORTER_OTLP_ENDPOINT value is the
+// URL the OTEL specification says it is, so it takes the URL path and its scheme
+// decides the transport.
+//
+// A bare "host:4317" is not: it is the shape this package accepted before the
+// URL path existed, and the exporter's own environment reader rejects it
+// outright ("first path segment in URL cannot contain colon"), so it is kept on
+// the plaintext endpoint path rather than refused.
+func endpointURLFromEnv(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
 }
 
 // WithServiceName sets the service name for traces.
@@ -121,7 +220,13 @@ func WithStdout() Option {
 	return func(c *config) { c.useStdout = true }
 }
 
-// WithInsecure disables TLS for the OTLP connection.
+// WithInsecure states that the OTLP connection is plaintext, which it already
+// is: an endpoint given by WithEndpoint or by a bare "host:port" in the
+// environment is never dialled over TLS, and WithEndpointURL takes its transport
+// from the URL's scheme instead. This option therefore changes nothing on any
+// path, and is kept only because removing an exported symbol from a published
+// package is a breaking change this PR is not the place to make. Choose the
+// transport with WithEndpointURL.
 func WithInsecure() Option {
 	return func(c *config) { c.insecure = true }
 }
@@ -131,13 +236,29 @@ func WithInsecure() Option {
 // If no options are provided, it reads from standard OTEL environment variables
 // (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_SERVICE_NAME).
 //
-// An endpoint given by WithEndpoint, or read from the environment, is dialled in
-// plaintext. WithEndpointURL is the way to choose TLS: the URL's scheme decides.
+// An endpoint given by WithEndpoint is dialled in plaintext. WithEndpointURL is
+// the way to choose TLS: the URL's scheme decides.
+//
+// OTEL_EXPORTER_OTLP_ENDPOINT is a URL by specification, so a value carrying an
+// http or https scheme takes the same path as WithEndpointURL — its scheme
+// decides the transport and the same rules refuse it. A bare "host:4317", the
+// shape this package took before the URL path existed, stays plaintext.
 func Enable(opts ...Option) (*Provider, error) {
 	cfg := &config{
-		endpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		serviceName: os.Getenv("OTEL_SERVICE_NAME"),
 		insecure:    true,
+	}
+	// The environment's endpoint is read into whichever field matches its shape.
+	// Handing a spec-form URL to WithEndpoint's path would pass the whole string
+	// to gRPC as a target, which resolves nowhere: the collector is never dialled
+	// and every span is dropped in silence.
+	if raw := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); raw != "" {
+		if endpointURLFromEnv(raw) {
+			cfg.endpointURL, cfg.endpointURLSet = raw, true
+			cfg.endpointURLFromEnvironment = true
+		} else {
+			cfg.endpoint = raw
+		}
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -145,8 +266,17 @@ func Enable(opts ...Option) (*Provider, error) {
 	if cfg.serviceName == "" {
 		cfg.serviceName = "unknown"
 	}
-	if cfg.endpointURLSet {
+	// A URL is judged when it was written at the call site, and when it is the
+	// one that will be dialled. The asymmetry is deliberate: an unusable argument
+	// a caller passed is that caller's mistake and is worth refusing even if this
+	// run would not have dialled it, whereas a collector this machine happens to
+	// be configured with must not stop WithStdout from working — that would make
+	// stdout unusable anywhere a collector is configured.
+	if cfg.endpointURLSet && (!cfg.endpointURLFromEnvironment || !cfg.useStdout) {
 		if err := validateEndpointURL(cfg.endpointURL); err != nil {
+			return nil, err
+		}
+		if err := refuseEnvOverrulingScheme(cfg.endpointURL); err != nil {
 			return nil, err
 		}
 	}
@@ -157,9 +287,10 @@ func Enable(opts ...Option) (*Provider, error) {
 	if cfg.useStdout {
 		exporter, err = stdouttrace.New(stdouttrace.WithPrettyPrint())
 	} else if cfg.endpointURLSet {
-		// No WithInsecure/WithSecure here: the exporter reads the transport off the
-		// URL's scheme, and validateEndpointURL has already refused any scheme that
-		// would not mean exactly http or https.
+		// No transport option here: the exporter reads it off the URL's scheme,
+		// validateEndpointURL has already refused any scheme that would not mean
+		// exactly http or https, and refuseScheme has refused the one environment
+		// that would overrule a plaintext scheme.
 		exporter, err = otlptrace.New(
 			context.Background(),
 			otlptracegrpc.NewClient(otlptracegrpc.WithEndpointURL(cfg.endpointURL)),
