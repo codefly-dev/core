@@ -83,6 +83,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/resources"
 )
 
 const (
@@ -405,11 +406,23 @@ type ModulePin struct {
 // addressed: a declared address would be a resolution result frozen into a
 // delivery document, true on one cluster for as long as nothing moved.
 type Endpoint struct {
-	Name       string `yaml:"name" json:"name"`
-	Service    string `yaml:"service,omitempty" json:"service,omitempty"`
-	Module     string `yaml:"module,omitempty" json:"module,omitempty"`
-	API        string `yaml:"api" json:"api"`
-	Visibility string `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+	Name    string `yaml:"name" json:"name"`
+	Service string `yaml:"service,omitempty" json:"service,omitempty"`
+	Module  string `yaml:"module,omitempty" json:"module,omitempty"`
+	API     string `yaml:"api" json:"api"`
+
+	// Visibility is the endpoint's REACH, and nothing else: who may call it.
+	// It carries no addressing consequence — an outward address is a
+	// resolution result this document deliberately does not freeze — and it
+	// names nobody: which modules actually reach an endpoint is derived by the
+	// composition that joins the consumers' declared dependencies, never
+	// written on the target, so a host never carries a list of its consumers.
+	//
+	// It is written out rather than omitted: the resource model admits an
+	// omission and resolves it to "private", and a rendered document does not
+	// get that resolution, so one carrying none would leave that default for
+	// every reader to derive a second time.
+	Visibility string `yaml:"visibility" json:"visibility"`
 }
 
 // WorkloadIdentity is the identity the host expects a workload's authenticating
@@ -939,8 +952,13 @@ func (document *SolutionHostBinding) validateEndpoints() error {
 		if !namePattern.MatchString(endpoint.API) {
 			return fmt.Errorf("%w: endpoint %q api %q is invalid", ErrInvalid, endpoint.Name, endpoint.API)
 		}
-		if endpoint.Visibility != "" && !namePattern.MatchString(endpoint.Visibility) {
-			return fmt.Errorf("%w: endpoint %q visibility %q is invalid", ErrInvalid, endpoint.Name, endpoint.Visibility)
+		if endpoint.Visibility == "" {
+			return fmt.Errorf("%w: endpoint %q states no visibility: a rendered document writes the reach out, so no reader re-derives the resource model's default", ErrInvalid, endpoint.Name)
+		}
+		if !resources.KnownVisibility(endpoint.Visibility) {
+			return fmt.Errorf("%w: endpoint %q visibility %q is none of %q, %q or %q: a spelling the resource model deleted describes an endpoint no service can declare",
+				ErrInvalid, endpoint.Name, endpoint.Visibility,
+				resources.VisibilityPrivate, resources.VisibilityInternal, resources.VisibilityPublic)
 		}
 		key := endpoint.Module + "\x00" + endpoint.Service + "\x00" + endpoint.Name
 		if _, exists := seen[key]; exists {
