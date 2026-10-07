@@ -62,7 +62,6 @@ func renderOwnEndpoints(t *testing.T, profile builderv0.KubernetesOutputProfile,
 func TestDeployKustomizeRendersSelfEndpointBesideLocalizedListenEndpoint(t *testing.T) {
 	for _, profile := range []builderv0.KubernetesOutputProfile{
 		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
 		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 	} {
 		t.Run(profile.String(), func(t *testing.T) {

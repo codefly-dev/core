@@ -146,7 +146,7 @@ type DockerBuildContext struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// docker_repository is the image repository used for Docker builds.
 	DockerRepository string `protobuf:"bytes,1,opt,name=docker_repository,json=dockerRepository,proto3" json:"docker_repository,omitempty"`
-	// image_digest is the immutable sha256 manifest digest used for promotable output.
+	// image_digest is the immutable sha256 manifest digest a restricted, digest-pinned output refers to.
 	ImageDigest string `protobuf:"bytes,2,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
 	// cache configures optional external layer reuse, never artifact or test reuse.
 	Cache *BuildCacheOptions `protobuf:"bytes,3,opt,name=cache,proto3" json:"cache,omitempty"`

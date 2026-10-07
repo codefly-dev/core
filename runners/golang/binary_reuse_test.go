@@ -75,13 +75,16 @@ func writeFile(t *testing.T, root, name, body string) {
 
 // newNativeRunner is an initialized native runner on root/source with its own
 // cache directory and the given GOFLAGS (which must include -x for
-// buildWithEvidence to see the toolchain's trace).
+// buildWithEvidence to see the toolchain's trace). An empty goflags leaves
+// the variable to the inherited environment.
 func newNativeRunner(t *testing.T, ctx context.Context, root, source, goflags string) *golang.GoRunnerEnvironment {
 	t.Helper()
 	env, err := golang.NewNativeGoRunner(ctx, root, source)
 	require.NoError(t, err)
 	env.WithLocalCacheDir(t.TempDir())
-	env.WithEnvironmentVariables(ctx, resources.Env("GOFLAGS", goflags))
+	if goflags != "" {
+		env.WithEnvironmentVariables(ctx, resources.Env("GOFLAGS", goflags))
+	}
 	t.Cleanup(func() { require.NoError(t, env.Shutdown(context.Background())) })
 	require.NoError(t, env.Init(ctx))
 	return env

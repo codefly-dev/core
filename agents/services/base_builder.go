@@ -761,12 +761,11 @@ func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *bui
 		if v.Kubernetes == nil {
 			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes deployment is missing"), "cannot deploy")
 		}
-		switch v.Kubernetes.GetProfile() {
-		case builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1,
-			builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1:
-		default:
-			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes output profile is required"), "cannot deploy")
+		// The one judgement of the profile: a request whose number survived
+		// decoding — a deleted value, an unknown one — is refused here, before
+		// anything is rendered under it.
+		if _, err := ParseOutputProfile(v.Kubernetes.GetProfile()); err != nil {
+			return nil, s.Wool.Wrapf(err, "cannot deploy: kubernetes output profile is required")
 		}
 		if v.Kubernetes.GetNamespace() == "" {
 			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes namespace is required"), "cannot deploy")
@@ -801,12 +800,15 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	if err != nil {
 		return s.DeployError(err)
 	}
-	profile := kubernetes.GetProfile()
+	profile, err := ParseOutputProfile(kubernetes.GetProfile())
+	if err != nil {
+		return s.DeployError(err)
+	}
 	output := KustomizeOutput(profile)
 	fail := func(err error) (*builderv0.DeploymentResponse, error) {
 		return s.deployError(err, output)
 	}
-	if IsRestrictedOutputProfile(profile) {
+	if profile.Restricted() {
 		if err = validateRestrictedDeploymentRequest(req, kubernetes.GetSecretReferences()); err != nil {
 			return fail(err)
 		}
@@ -816,7 +818,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	manager := deployment.EnvironmentVariables.DeploymentScope()
 	manager.SetEnvironment(req.GetEnvironment())
 	manager.SetRunning()
-	if IsRestrictedOutputProfile(profile) {
+	if profile.Restricted() {
 		// This render carries no secret values, and the gate above has already
 		// required a secret reference for every templated value's carrier — so
 		// the assemblies are delivered from the environment's secret store, not
@@ -872,7 +874,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	deploymentContext := &KustomizeDeploymentContext{
 		Request:              req,
 		Kubernetes:           kubernetes,
-		Profile:              profile,
+		Profile:              profile.Proto(),
 		EnvironmentVariables: manager,
 		Parameters:           deployment.Parameters,
 		PodOverlay:           deployment.PodOverlay,
@@ -897,7 +899,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	if err != nil {
 		return fail(err)
 	}
-	if IsRestrictedOutputProfile(profile) {
+	if profile.Restricted() {
 		if len(secretValues) > 0 || len(deploymentContext.Secrets) > 0 {
 			return fail(fmt.Errorf("restricted rendering cannot receive secret values"))
 		}
@@ -919,7 +921,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	}
 	var secretMap EnvironmentMap
 	var inlineSecrets []*resources.EnvironmentVariable
-	if profile == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1 {
+	if profile.InlineSecrets() {
 		secrets := append(secretValues, deploymentContext.Secrets...)
 		if inlineSecrets, err = splitFileCarriers(secrets, resources.KubernetesSecretFileCarrierMount, fileCarriers.Secret); err != nil {
 			return fail(err)
@@ -952,7 +954,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		kubernetes.GetDestination(),
 		req.GetEnvironment().GetName(),
 		kubernetes.GetNamespace(),
-		profile,
+		profile.Proto(),
 		kubernetes.GetValidateServerSide(),
 		kubernetes.GetValidationKubeconfig(),
 		kubernetes.GetValidationContext(),
@@ -963,7 +965,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return fail(fmt.Errorf("generated Kubernetes manifests violate %s: %s",
 			KubernetesManifestContractVersion, strings.Join(validation.GetViolations(), "; ")))
 	}
-	if IsRestrictedOutputProfile(profile) && !validation.GetRestricted() {
+	if profile.Restricted() && !validation.GetRestricted() {
 		return fail(fmt.Errorf("restricted rendering requires successful validation"))
 	}
 	// The bundle describes a deliverable manifest tree, so it is emitted only
@@ -972,7 +974,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	bundle, bundleErr := BuildKubernetesManifestBundle(
 		kubernetes.GetDestination(),
 		req.GetEnvironment().GetName(),
-		profile,
+		profile.Proto(),
 		validation,
 		kubernetes.GetSecretReferences(),
 	)
@@ -983,27 +985,37 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	return s.DeployResponse(deploymentContext.exportedConfiguration, output)
 }
 
-func KustomizeOutput(profile builderv0.KubernetesOutputProfile) *builderv0.DeploymentOutput {
+// KustomizeOutput starts the response for a render under a judged profile.
+func KustomizeOutput(profile OutputProfile) *builderv0.DeploymentOutput {
 	return &builderv0.DeploymentOutput{
 		Kind: &builderv0.DeploymentOutput_Kubernetes{
 			Kubernetes: &builderv0.KubernetesDeploymentOutput{
 				Kind:            builderv0.KubernetesDeploymentOutput_KUSTOMIZE,
-				Profile:         profile,
+				Profile:         profile.Proto(),
 				ContractVersion: KubernetesManifestContractVersion,
 			},
 		},
 	}
 }
 
+// KustomizeDeploy renders the deployment templates for req into its
+// destination. The profile is judged first — a deleted or unknown number is
+// refused before the base is built and before anything is written — and the
+// template inputs that say what the render may emit (.Restricted) are derived
+// from that one judgement, never from the raw number.
 func (s *BuilderWrapper) KustomizeDeploy(ctx context.Context, env *basev0.Environment, req *builderv0.KubernetesDeployment, fsys fs.FS, params any) error {
 	defer s.Wool.Catch()
 
+	profile, err := ParseOutputProfile(req.GetProfile())
+	if err != nil {
+		return s.Wool.Wrapf(err, "cannot render")
+	}
 	b, err := s.CreateKubernetesBase(ctx, env, req.Namespace, req.BuildContext)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot create base")
 	}
-	b.Profile = req.GetProfile()
-	b.Restricted = IsRestrictedOutputProfile(req.GetProfile())
+	b.Profile = profile.Proto()
+	b.Restricted = profile.Restricted()
 	err = s.Builder.GenerateGenericKustomize(ctx, fsys, req, b, params)
 	if err != nil {
 		return err
@@ -1068,7 +1080,20 @@ type DeploymentWrapper struct {
 	PodOverlay *PodTemplateOverlay
 }
 
+// GenerateGenericKustomize writes the rendered tree for k from the template
+// inputs in base. It is the write, so it holds the same line as KustomizeDeploy:
+// the request's profile is judged, and the base must say what that judgement
+// says — a base whose .Restricted disagrees with the request's profile is
+// refused before the destination is touched, so no caller renders inline
+// Secret data under a profile that forbids it by assembling the inputs by hand.
 func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.FS, k *builderv0.KubernetesDeployment, base *DeploymentBase, params any) error {
+	profile, err := ParseOutputProfile(k.GetProfile())
+	if err != nil {
+		return s.Wool.Wrapf(err, "cannot render")
+	}
+	if base == nil || base.Profile != profile.Proto() || base.Restricted != profile.Restricted() {
+		return s.Wool.Wrapf(fmt.Errorf("the deployment base does not carry the request's judged profile %s (restricted=%t)", profile, profile.Restricted()), "cannot render")
+	}
 	wrapper := &DeploymentWrapper{DeploymentBase: base, Deployment: params}
 	if base.Information != nil && base.Information.Service != nil {
 		wrapper.Name = base.Information.Service.Name.DNSCase
@@ -1091,7 +1116,7 @@ func (s *BuilderWrapper) GenerateGenericKustomize(ctx context.Context, fsys fs.F
 		}
 	}
 	// Delete
-	err := shared.EmptyDir(ctx, k.Destination)
+	err = shared.EmptyDir(ctx, k.Destination)
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot empty destination")
 	}

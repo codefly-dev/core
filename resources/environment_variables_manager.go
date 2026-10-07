@@ -3,7 +3,9 @@ package resources
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -505,17 +507,26 @@ func (holder *EnvironmentVariableManager) AddSelfEndpoints(ctx context.Context, 
 	return nil
 }
 
+// ErrEndpointCarrierAbsent is a lookup's answer when no entry sits under the
+// key it built: the endpoint was not delivered to this process. It is typed so
+// a consumer entitled to fall back on absence — a local run resolving a native
+// address — tests for this fact rather than for any error, and a carrier that
+// is present and does not hold an address is never mistaken for it.
+var ErrEndpointCarrierAbsent = errors.New("no endpoint carrier under this key")
+
+// FindNetworkInstanceInEnvironmentVariables reads the address a dependency's
+// endpoint carrier delivers: the value under
+// CODEFLY__ENDPOINT__<MODULE>__<SERVICE>__<NAME>__<API>. Absence is
+// ErrEndpointCarrierAbsent; a carrier that is present and does not hold an
+// address is that parse failure naming the key, and no instance travels with
+// either. The key is compared exactly, so a carrier whose identity is wrong is
+// absent here — ValidateEndpointCarriers is what refuses it by name, before
+// anything is read.
 func FindNetworkInstanceInEnvironmentVariables(ctx context.Context, endpointInfo *EndpointInformation, envs []string) (*NetworkInstance, error) {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.FindNetworkInstance")
-	// Create the env key
 	key := EndpointAsEnvironmentVariableKey(endpointInfo)
 	w.Trace("searching for network instance", wool.NameField(key))
-	for _, env := range envs {
-		if after, found := strings.CutPrefix(env, fmt.Sprintf("%s=", key)); found {
-			return ParseAddress(after)
-		}
-	}
-	return nil, w.NewError("no network instance found")
+	return endpointCarrierInstance(key, envs)
 }
 
 // FindSelfNetworkInstanceInEnvironmentVariables is the SDK accessor for a
@@ -525,16 +536,40 @@ func FindNetworkInstanceInEnvironmentVariables(ctx context.Context, endpointInfo
 // for the address to listen on. A missing carrier is an error, never a fallback
 // to the listen address: advertising localhost to a peer is the defect this
 // carrier exists to prevent.
+// Absence is ErrEndpointCarrierAbsent here too, and a present carrier that
+// does not hold an address is that parse failure, never absence.
 func FindSelfNetworkInstanceInEnvironmentVariables(ctx context.Context, endpointInfo *EndpointInformation, envs []string) (*NetworkInstance, error) {
 	w := wool.Get(ctx).In("configurations.EnvironmentVariableManager.FindSelfNetworkInstance")
 	key := SelfEndpointAsEnvironmentVariableKey(endpointInfo)
 	w.Trace("searching for self network instance", wool.NameField(key))
+	return endpointCarrierInstance(key, envs)
+}
+
+// endpointCarrierInstance reads the address under key: absent is
+// ErrEndpointCarrierAbsent, present and unparsable is the parse failure naming
+// the key, and no instance travels with either — a half-parsed instance beside
+// an error is how a refusal gets used as an address.
+func endpointCarrierInstance(key string, envs []string) (*NetworkInstance, error) {
+	value, present := environmentVariableValue(key, envs)
+	if !present {
+		return nil, fmt.Errorf("%w: %s", ErrEndpointCarrierAbsent, key)
+	}
+	instance, err := ParseAddress(value)
+	if err != nil {
+		return nil, fmt.Errorf("endpoint carrier %s does not hold an address: %w", key, err)
+	}
+	return instance, nil
+}
+
+// environmentVariableValue is the value under key in a KEY=VALUE list, and
+// whether there is one. The first entry wins, as it does for a process.
+func environmentVariableValue(key string, envs []string) (string, bool) {
 	for _, env := range envs {
-		if after, found := strings.CutPrefix(env, fmt.Sprintf("%s=", key)); found {
-			return ParseAddress(after)
+		if after, found := strings.CutPrefix(env, key+"="); found {
+			return after, true
 		}
 	}
-	return nil, w.NewError("no self endpoint %s found", key)
+	return "", false
 }
 
 func FindValueInEnvironmentVariables(ctx context.Context, key string, envs []string) (string, error) {
@@ -625,6 +660,125 @@ func EndpointAsEnvironmentVariableKeyBase(info *EndpointInformation) string {
 
 func EndpointAsEnvironmentVariableKey(info *EndpointInformation) string {
 	return strings.ToUpper(fmt.Sprintf("%s__%s", EndpointPrefix, EndpointAsEnvironmentVariableKeyBase(info)))
+}
+
+// ErrInvalidEndpointCarrier refuses an entry under EndpointPrefix that is not,
+// exactly, the canonical carrier key of a declared endpoint, delivered once,
+// with a value. See ValidateEndpointCarriers.
+var ErrInvalidEndpointCarrier = errors.New("endpoint carrier is not the canonical carrier of a declared endpoint")
+
+// ValidateEndpointCarriers judges the endpoint carriers of a process
+// environment against the endpoints declared to its consumer, before any is
+// read. Every entry under EndpointPrefix must be, exactly, the canonical
+// carrier key of one declared endpoint — module, service, name and API spelled
+// as EndpointAsEnvironmentVariableKey spells them — delivered once and with a
+// value, or it is refused by name with ErrInvalidEndpointCarrier. The judgement
+// is equality with the canonical spelling, never a search for what a key almost
+// is: the key is parsed only to say what it fell short of — the API it carries
+// against the one its declaration serves, or that it names no declared
+// endpoint, beside the carriers that are declared. Every refusal is reported,
+// in key order, so one fault does not hide another.
+//
+// This is what makes absence a validated fact. A lookup compares the key it
+// builds against the entries it is handed, exactly, so a carrier whose
+// identity is wrong — the API of another declaration, a near-miss spelling —
+// sits under no key any lookup builds and reads as absent; a consumer entitled
+// to fall back on absence would fall back on it with no error. A consumer calls
+// this on what it ingests, at every path that publishes a snapshot of its
+// environment, and reads carriers only from an environment it accepted.
+//
+// Only CODEFLY__ENDPOINT__ carriers are judged. The advertised-address carrier
+// (SelfEndpointPrefix) and route carriers (RestRoutePrefix) are other
+// contracts read by their own keys, and anything else in the environment is
+// not core's. A declaration that cannot spell a carrier — a missing module,
+// service, name or API — and two declarations whose carriers spell the same
+// are defects of the input, refused with ErrInvalidEndpointDeclaration rather
+// than matched against nothing.
+func ValidateEndpointCarriers(envs []string, declared []*Endpoint) error {
+	canonical := make(map[string]*Endpoint, len(declared))
+	for _, endpoint := range declared {
+		if endpoint == nil || endpoint.Module == "" || endpoint.Service == "" || endpoint.Name == "" || endpoint.API == "" {
+			return fmt.Errorf("%w: %s does not name its module, service, name and API, so its carrier cannot be spelled", ErrInvalidEndpointDeclaration, endpointCarrierLabel(endpoint))
+		}
+		key := EndpointAsEnvironmentVariableKey(&EndpointInformation{Module: endpoint.Module, Service: endpoint.Service, Name: endpoint.Name, API: endpoint.API})
+		if other, taken := canonical[key]; taken {
+			return fmt.Errorf("%w: %s and %s spell the same carrier %s", ErrInvalidEndpointDeclaration, endpointCarrierLabel(other), endpointCarrierLabel(endpoint), key)
+		}
+		canonical[key] = endpoint
+	}
+	prefix := EndpointPrefix + "__"
+	delivered := make(map[string]bool)
+	var refused []endpointCarrierRefusal
+	for _, entry := range envs {
+		if !strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		key, _, hasValue := strings.Cut(entry, "=")
+		switch {
+		case !hasValue:
+			refused = append(refused, endpointCarrierRefusal{key, fmt.Errorf("%w: %s carries no value (an entry is KEY=VALUE)", ErrInvalidEndpointCarrier, key)})
+		case canonical[key] == nil:
+			refused = append(refused, endpointCarrierRefusal{key, explainEndpointCarrier(key, declared, canonical)})
+		case delivered[key]:
+			refused = append(refused, endpointCarrierRefusal{key, fmt.Errorf("%w: %s is delivered more than once, and a lookup would take whichever came first", ErrInvalidEndpointCarrier, key)})
+		default:
+			delivered[key] = true
+		}
+	}
+	if len(refused) == 0 {
+		return nil
+	}
+	slices.SortStableFunc(refused, func(a, b endpointCarrierRefusal) int { return strings.Compare(a.key, b.key) })
+	errs := make([]error, 0, len(refused))
+	for _, refusal := range refused {
+		errs = append(errs, refusal.err)
+	}
+	return errors.Join(errs...)
+}
+
+type endpointCarrierRefusal struct {
+	key string
+	err error
+}
+
+// explainEndpointCarrier says what a key that is no declared endpoint's
+// canonical carrier fell short of. It parses the key only for that: a key of
+// the canonical shape whose module, service and name are a declaration's is
+// refused naming that declaration and the API it serves; anything else names
+// no declared endpoint, and the declared carriers are listed beside it.
+func explainEndpointCarrier(key string, declared []*Endpoint, canonical map[string]*Endpoint) error {
+	segments := strings.Split(strings.TrimPrefix(key, EndpointPrefix+"__"), "__")
+	if len(segments) == 4 {
+		for _, endpoint := range declared {
+			if carrierSegment(endpoint.Module) == segments[0] && carrierSegment(endpoint.Service) == segments[1] && carrierSegment(endpoint.Name) == segments[2] {
+				return fmt.Errorf("%w: %s names the declared endpoint %s with API %s; its declaration serves %s, so its carrier is %s, not this",
+					ErrInvalidEndpointCarrier, key, endpointCarrierLabel(endpoint), segments[3], endpoint.API,
+					EndpointAsEnvironmentVariableKey(&EndpointInformation{Module: endpoint.Module, Service: endpoint.Service, Name: endpoint.Name, API: endpoint.API}))
+			}
+		}
+	}
+	if len(canonical) == 0 {
+		return fmt.Errorf("%w: %s names no declared endpoint; no endpoint is declared to this consumer", ErrInvalidEndpointCarrier, key)
+	}
+	keys := make([]string, 0, len(canonical))
+	for declaredKey := range canonical {
+		keys = append(keys, declaredKey)
+	}
+	slices.Sort(keys)
+	return fmt.Errorf("%w: %s names no declared endpoint; the declared carriers are %s", ErrInvalidEndpointCarrier, key, strings.Join(keys, ", "))
+}
+
+// carrierSegment spells one component of an endpoint's identity as its
+// carrier key does: upper case, with - as _.
+func carrierSegment(component string) string {
+	return strings.ToUpper(strings.ReplaceAll(component, "-", "_"))
+}
+
+func endpointCarrierLabel(endpoint *Endpoint) string {
+	if endpoint == nil {
+		return "a nil endpoint"
+	}
+	return fmt.Sprintf("%s/%s/%s", endpoint.Module, endpoint.Service, endpoint.Name)
 }
 
 // SelfEndpointPrefix carries a service's own endpoints as its peers reach

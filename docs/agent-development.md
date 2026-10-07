@@ -143,12 +143,23 @@ never names how they are later transported, reconciled, or promoted.
   digest-pinned, policy-restricted manifests. It rejects secret-bearing
   configuration input and exposes only identifier-only `secret_references` to
   templates.
-- `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` is **deprecated**. It named a
-  delivery mechanism in a plugin-facing contract; it is retained only so
-  existing callers keep rendering the identical restricted bundle during the
-  migration window. See [Migration and compatibility](#migration-and-compatibility).
 
-An unspecified profile fails before rendering. The profile is selected by the
+Every rendering entrypoint judges the profile first, with one judgement:
+`services.ParseOutputProfile` admits exactly the two profiles above and refuses
+everything else by number — the zero value (`ErrOutputProfileNotSelected`), and
+a number the schema deleted or never defined (`ErrOutputProfileUnknown`) — before
+anything is written. The judgement is the gate, not the decoder: deleting an
+enum value deletes its *name*, not its number, so a request decoded from an
+older schema still carries `2`, the number
+`KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` held, and compared raw it would
+be merely "not restricted" — a render emitting inline Secret data for the
+profile that forbade them. `DeployKustomize`, `KustomizeDeploy`,
+`GenerateGenericKustomize`, `ValidateKubernetesManifestTree` and
+`BuildKubernetesManifestBundle` all refuse it; the write also refuses a
+`DeploymentBase` whose `.Restricted` disagrees with the request's judged
+profile. The only way to ask whether a profile is restricted is
+`OutputProfile.Restricted()` on a judged value; there is no predicate over a
+raw number. See [Migration and compatibility](#migration-and-compatibility). The profile is selected by the
 CLI, so the standard plugin `Deploy` methods below do not hard-code it.
 
 A plugin renders this bundle deterministically from its inputs alone. It needs
@@ -371,21 +382,25 @@ type. CLI and server consumers read the same contract.
 
 ## Migration and compatibility
 
-Issue #110 made this contract transport-neutral. During the compatibility
-window:
+Issue #110 made this contract transport-neutral, and #715 closed the migration
+window on the profile:
 
-- Prefer `KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1`. The deprecated
-  `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` (enum value `2`) still renders
-  the **identical** restricted bundle — a supported migration path, not a
-  silent reinterpretation. New enum values are added, never repurposed.
+- `KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1` (enum value `2`) is
+  **deleted**, its number and name reserved. It rendered the identical
+  restricted bundle as `KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1`, every
+  caller has sent the successor since the CLI stopped sending it, and a request
+  naming it is now refused by the proto decoder. A committed render record
+  (`.codefly-render.json`) that still carries the old profile string reads the
+  new one on its next render. Enum values are added, never repurposed.
 - Replace the removed `.GitOps` template field with `.Restricted`. Both selected
   the same behavior; only the name changed.
-- `KubernetesManifestValidation.restricted` supersedes the deprecated
-  `promotable` field. Core keeps both populated with the same value; migrate
-  reads to `restricted`.
-- Deprecated identifiers are retained only for this window. Core's contract test
-  enforces that every non-deprecated message, field, and enum value stays free
-  of delivery-system terminology, so no new surface may reintroduce it.
+- `KubernetesManifestValidation.promotable` is **deleted** with it (field `3`
+  reserved, name reserved). It mirrored `restricted`, which is what consumers
+  read. No deprecated identifier is left in this contract, and none is kept
+  for a migration window.
+- Core's contract test enforces that every non-deprecated message, field, and
+  enum value stays free of delivery-system terminology, so no new surface may
+  reintroduce it.
 
 ## Runtime
 

@@ -54,8 +54,8 @@ directory loader's existing `.yaml` and `.secret.yaml` names are unchanged.
 
 `EnvironmentVariableManager.Configurations` never emits secret documents;
 `Secrets` returns them separately with error propagation. Raw configuration
-injection refuses structured data because it has no document identity. Promotable
-GitOps rendering refuses resolved structured secrets, including configurations
+injection refuses structured data because it has no document identity. Restricted
+rendering refuses resolved structured secrets, including configurations
 containing no flat secret keys. It must carry declared external references.
 
 A restricted render carries no secret values, so it does not assemble a

@@ -306,6 +306,28 @@ Read it with `resources.FindSelfNetworkInstanceInEnvironmentVariables`. A
 missing self carrier is an error, never a fallback to the listen address:
 advertising `localhost` to a peer is the defect this carrier exists to prevent.
 
+Both lookups compare the key they build against the entries exactly, and say
+absence in a typed way: `resources.ErrEndpointCarrierAbsent`. A carrier that is
+present and does not hold an address is a different error, never that one, and
+no instance travels with either — so a consumer entitled to fall back on
+absence (a local run resolving a native address) tests the sentinel rather than
+any error, and never falls back on a value it could not read.
+
+Exact comparison means a carrier whose **identity** is wrong — the API of
+another declaration, a near-miss spelling — sits under no key a lookup builds
+and reads as absent. So a consumer judges the carriers it was handed before it
+reads any, with `resources.ValidateEndpointCarriers(envs, declared)`: every
+`CODEFLY__ENDPOINT__*` entry must be, exactly, the canonical key of one
+declared endpoint — spelled as above, with the API the declaration serves —
+delivered once and with a value, or it is refused by name. The key is parsed
+only to say what it fell short of: `…__RECORDS__REST__GRPC` for a declaration
+that serves `rest` is refused naming that declaration and its carrier, and a
+trailing underscore is refused as the key it is; no typo is enumerated, and
+every refusal is reported. An SDK calls it at each path that ingests an
+environment, before publishing a snapshot, and a fallback consumes a validated
+absence. The self and route carriers are other contracts, read by their own
+keys, and are not judged by it.
+
 ## Configuration Flow
 
 1. Service A produces configuration (e.g., postgres connection string)

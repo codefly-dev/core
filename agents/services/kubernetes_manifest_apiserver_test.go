@@ -70,7 +70,7 @@ spec:
 func automountViolations(t *testing.T, annotation string, automount bool) []string {
 	t.Helper()
 	var kept []string
-	for _, violation := range validateKubernetesManifest(apiServerManifest(annotation, automount), "demo", builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1) {
+	for _, violation := range validateKubernetesManifest(apiServerManifest(annotation, automount), "demo", restrictedOutputProfile(t)) {
 		if strings.Contains(violation, "automountServiceAccountToken") || strings.Contains(violation, AnnotationAPIServerAccess) {
 			kept = append(kept, violation)
 		}
@@ -115,4 +115,15 @@ func TestUnrecognisedAPIServerAccessDeclarationIsRefused(t *testing.T) {
 			}
 		})
 	}
+}
+
+// restrictedOutputProfile is the judged restricted profile, for the validator
+// helpers that take only a judged one.
+func restrictedOutputProfile(t *testing.T) OutputProfile {
+	t.Helper()
+	profile, err := ParseOutputProfile(builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	if err != nil {
+		t.Fatalf("restricted profile: %v", err)
+	}
+	return profile
 }

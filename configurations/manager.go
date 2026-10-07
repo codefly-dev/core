@@ -2,8 +2,10 @@ package configurations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
@@ -335,6 +337,14 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 	return out, nil
 }
 
+// ErrNotACompositionRootConfiguration refuses a composition-root read that named
+// a group the composition root does not provide run-wide: a name no loader
+// produced, a composed module's group (delivered only to the services that
+// declare it, through GetWorkspaceDependenciesConfigurations), or a name two
+// composed modules defined incompatibly. A named read never answers with less
+// than it was asked for, so such a name is refused rather than skipped.
+var ErrNotACompositionRootConfiguration = errors.New("not a workspace configuration the composition root provides run-wide")
+
 // GetCompositionRootWorkspaceConfigurations returns the workspace configurations
 // the composition root itself provides to the whole run — its own
 // configurations/<profile>/* and any invocation-scoped override — as opposed to
@@ -343,6 +353,20 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 // service in the run, so a composed-module service reading
 // WorkspaceValue(name, key) resolves a root-provided value it never had to
 // redeclare.
+//
+// With no names, every root-provided group is resolved, and the first refusal
+// is the read's. With names, ONLY the named groups are resolved: a consumer
+// that receives a subset of the root's groups — a service a withheld credential
+// never reaches — is judged on what it receives, so a reference that is a fault
+// in a group it does not receive (ambiguous, or without an instance for its
+// access) no longer refuses it. The consumer names what it receives; the
+// configurations stay core's. Each name must be a root-provided group that was
+// loaded, or the whole read is refused with ErrNotACompositionRootConfiguration
+// naming every such name — never answered with the groups that were known.
+// Either way the result is sorted by name with each group once, so the order a
+// caller lists names in does not change what it reads. Zero names is the whole
+// set, so a consumer whose received set is empty does not call: it has nothing
+// to read.
 //
 // This set and the per-dependency composed-module set are disjoint by name: a
 // name the composition root also declares is resolved to the root at load
@@ -361,20 +385,17 @@ func (manager *Manager) GetWorkspaceConfigurations(ctx context.Context) ([]*base
 // does not declare or an invalid declaration is refused here, naming the
 // configuration and key, whichever consumer meets it. Unresolvable secrets
 // still fail the run (they are universal, not consumer-specific).
-func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context) ([]*basev0.Configuration, error) {
+func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Context, names ...string) ([]*basev0.Configuration, error) {
 	if manager == nil {
 		return nil, nil
 	}
 	w := wool.Get(ctx).In("Manager.GetCompositionRootWorkspaceConfigurations")
-	names := make([]string, 0, len(manager.compositionRootWorkspaceConfigurations))
-	for name := range manager.compositionRootWorkspaceConfigurations {
-		if _, ok := manager.worspaceConfigurations[name]; ok {
-			names = append(names, name)
-		}
+	selected, err := manager.selectCompositionRootConfigurations(names)
+	if err != nil {
+		return nil, w.Wrapf(err, "cannot read the composition root's workspace configurations")
 	}
-	slices.Sort(names)
-	out := make([]*basev0.Configuration, 0, len(names))
-	for _, name := range names {
+	out := make([]*basev0.Configuration, 0, len(selected))
+	for _, name := range selected {
 		conf := manager.worspaceConfigurations[name]
 		if err := manager.resolveWorkspaceConfiguration(ctx, name, conf); err != nil {
 			return nil, w.Wrapf(err, "cannot resolve workspace configuration %s", name)
@@ -388,6 +409,66 @@ func (manager *Manager) GetCompositionRootWorkspaceConfigurations(ctx context.Co
 		out = append(out, resolved)
 	}
 	return out, nil
+}
+
+// selectCompositionRootConfigurations is the set a composition-root read
+// resolves: every root-provided group that was loaded when no name is given,
+// otherwise exactly the named ones, each of which must be such a group. Sorted,
+// each name once.
+func (manager *Manager) selectCompositionRootConfigurations(names []string) ([]string, error) {
+	if len(names) == 0 {
+		return manager.loadedCompositionRootConfigurations(), nil
+	}
+	selected := slices.Clone(names)
+	slices.Sort(selected)
+	selected = slices.Compact(selected)
+	var refused []error
+	for _, name := range selected {
+		if err := manager.refuseUnlessCompositionRoot(name); err != nil {
+			refused = append(refused, err)
+		}
+	}
+	if len(refused) > 0 {
+		return nil, errors.Join(refused...)
+	}
+	return selected, nil
+}
+
+// loadedCompositionRootConfigurations names the root-provided groups a loader
+// produced a configuration for, sorted.
+func (manager *Manager) loadedCompositionRootConfigurations() []string {
+	names := make([]string, 0, len(manager.compositionRootWorkspaceConfigurations))
+	for name := range manager.compositionRootWorkspaceConfigurations {
+		if _, ok := manager.worspaceConfigurations[name]; ok {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// refuseUnlessCompositionRoot answers a named composition-root read for one
+// name: nil when the composition root provides that group run-wide and it was
+// loaded, otherwise ErrNotACompositionRootConfiguration saying what the name is
+// instead — a composed module's group, an ambiguous name with the loader's
+// diagnostic, or nothing this run loaded, beside the groups the root does
+// provide.
+func (manager *Manager) refuseUnlessCompositionRoot(name string) error {
+	_, loaded := manager.worspaceConfigurations[name]
+	if manager.compositionRootWorkspaceConfigurations[name] && loaded {
+		return nil
+	}
+	if loaded {
+		return fmt.Errorf("%w: %q is a composed module's group, delivered to the services that declare it (GetWorkspaceDependenciesConfigurations), not to every service of the run", ErrNotACompositionRootConfiguration, name)
+	}
+	if diagnostic, ambiguous := manager.ambiguousWorkspaceConfigurations[name]; ambiguous {
+		return fmt.Errorf("%w: %q: %w", ErrNotACompositionRootConfiguration, name, diagnostic)
+	}
+	provided := manager.loadedCompositionRootConfigurations()
+	if len(provided) == 0 {
+		return fmt.Errorf("%w: %q; the composition root provides no workspace configuration run-wide", ErrNotACompositionRootConfiguration, name)
+	}
+	return fmt.Errorf("%w: %q; the composition root provides %s", ErrNotACompositionRootConfiguration, name, strings.Join(provided, ", "))
 }
 
 // interpolateEndpoints resolves ${endpoint:…} references against the run's network
