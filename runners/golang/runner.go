@@ -502,9 +502,12 @@ func (r *GoRunnerEnvironment) binaryPath(ctx context.Context) string {
 // A build that did not complete leaves nothing to run. targetPath is cleared
 // before the first fallible step and set again only once `go build` has
 // exited 0 — the real exit, since runners/base reports a signal as the
-// failure it is — and the executable it was asked to write is there. Module
+// failure it is, and a real build, since -n=false pins executing mode. Module
 // preparation failing, a dry run and an interrupted build all leave Runner
-// refusing rather than serving the previous executable.
+// refusing rather than serving the previous executable. There is no check
+// that the file exists after the exit: `go build -o` reuses the executable in
+// place, so after any earlier success the file is always there, and such a
+// check would only have protected the very first build.
 func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	w := wool.Get(ctx).In("buildBinary")
 	r.targetPath = ""
@@ -534,13 +537,6 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	}
 	if err := proc.Run(ctx); err != nil {
 		return w.Wrapf(err, "cannot run go build")
-	}
-	built, err := shared.FileExists(ctx, path.Join(r.LocalCacheDir(ctx), binaryName))
-	if err != nil {
-		return w.Wrapf(err, "cannot check the built executable")
-	}
-	if !built {
-		return fmt.Errorf("go build exited 0 but wrote no executable at %s", target)
 	}
 	r.targetPath = target
 	return nil
