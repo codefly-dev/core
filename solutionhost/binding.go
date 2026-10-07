@@ -90,7 +90,7 @@ const (
 	// FileName is the conventional name of a rendered presence document.
 	FileName = "solution-host-binding.codefly.yaml"
 
-	// SchemaPresenceV3 is the only presence schema this package accepts. It
+	// SchemaPresenceV1 is the only presence schema this package accepts. It
 	// requires the kind, the ownership domain, the envelope revision, the
 	// release digest, and — for a generation that renders anything the host
 	// runs — the workloads, their image digests and their workload identities.
@@ -101,7 +101,7 @@ const (
 	// it is part of the canonical encoding that is signed, so a presence
 	// document cannot be presented as an authority document under a signature
 	// that verifies. See PresenceFromVerified.
-	SchemaPresenceV3 = "codefly/solution-host-binding/v3"
+	SchemaPresenceV1 = "codefly/solution-host-binding/v1"
 )
 
 // Kind is what a presence document declares the presence of. A module and a
@@ -477,7 +477,7 @@ func Parse(data []byte) (*SolutionHostBinding, error) { return parse(data, "") }
 // parse is Parse with one named rule deleted, for the self-check that proves
 // each rule is protected by a fixture; "" deletes none.
 func parse(data []byte, without string) (*SolutionHostBinding, error) {
-	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV3, without, checkBuildSizeNodes)
+	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV1, without, checkBuildSizeNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -616,8 +616,8 @@ func (document *SolutionHostBinding) validate(without string) error {
 	if document == nil {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
-	if document.Schema != SchemaPresenceV3 && without != ruleSchema {
-		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaPresenceV3)
+	if document.Schema != SchemaPresenceV1 && without != ruleSchema {
+		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaPresenceV1)
 	}
 	if !slices.Contains(kinds, document.Kind) {
 		return fmt.Errorf("%w: kind %q is not one of %v", ErrInvalid, document.Kind, kinds)

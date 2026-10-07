@@ -1,6 +1,6 @@
 # REJECTED. The section names `backend` twice. One mapping names one key once;
 # a repeated key makes the decoded document depend on which the reader kept.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

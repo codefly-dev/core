@@ -5,7 +5,7 @@
 #
 # It renders only a backend artifact, so it declares exactly the workloads that
 # run it — and no route, because it fronts no surface of its own.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: module
 binding: gamma-region-a-01
 generation: 1

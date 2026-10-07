@@ -1,0 +1,24 @@
+
+# REJECTED, ErrInvalid, rule authority-subject-absent-when-removed. The
+# tombstone, still naming the queues the module owns.
+#
+# A withdrawal claims nothing. One that still describes the module it withdraws
+# leaves a host holding a document that says both "this authority is gone" and
+# "here is what the module owns", and deciding which half meant it. It is the
+# same rule the tombstone already applies to principals, the approved build and
+# the generation it is effective from.
+schema: codefly/solution-authority/v1
+authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
+generation: 5
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+ownership_domain: alpha
+envelope_revision: 7
+queues:
+  - reconcile.default
+  - report.batch
+namespaces: []
+scope_ceilings: []
+removed: true

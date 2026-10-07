@@ -1,15 +1,15 @@
-# REJECTED, ErrSchema. A complete v2 presence document, delivered unchanged: it
-# is well-formed, it is internally consistent, and every rule of its own schema
-# holds. What it cannot do is say whether an address was allocated for its
-# public endpoint, because v2 had no field for it, and reading it as a v3
-# document would mean guessing that fact from the reach — the conflation the
-# two axes exist to remove.
+# REJECTED, ErrSchema. A complete presence document declaring the AUTHORITY
+# schema string.
 #
-# It is shipped because v2 is the shape delivery repositories actually hold, so
-# the cutover is a refusal a consumer pins rather than discovers. ErrSchema and
-# not ErrInvalid: this document is not malformed, it is older than the reader,
-# and the fix is a re-render by whoever wrote it.
-schema: codefly/solution-host-binding/v2
+# The schema string says which document this is, and it is inside the signed
+# canonical encoding — which is what binds a signature to the document TYPE. A
+# reader reads exactly one string and refuses every other, so a document cannot
+# be presented as the other kind under a signature that verifies, and no reader
+# has to decide what an unfamiliar string was meant to be.
+#
+# ErrSchema and not ErrInvalid: nothing here is malformed. The reader is being
+# handed a document it does not read.
+schema: codefly/solution-authority/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 4
@@ -71,3 +71,4 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public

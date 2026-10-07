@@ -1,9 +1,9 @@
-# REJECTED. The valid authority document with a merge key at its top level. The
-# authority reader shares the presence reader's node checks, so the refusal of
-# a merge key — a mapping the typed decoder would apply after every rule had
-# run — is inherited here rather than implemented twice.
+
+# REJECTED, ErrInvalid, rule authority-namespace-unique. One audit namespace
+# declared twice, refused for the reason a repeated queue is: the duplicate
+# changes the canonical bytes and nothing else, so two renders of one contract
+# would not digest alike.
 schema: codefly/solution-authority/v1
-<<: {}
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -20,6 +20,7 @@ queues:
 namespaces:
   - alpha-region-a-01
   - alpha-region-a-audit
+  - alpha-region-a-01
 scope_ceilings:
   - resource_kind: record
     actions:

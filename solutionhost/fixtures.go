@@ -185,6 +185,11 @@ func FixtureEnvelope() Envelope {
 					ID: "binding:alpha:read", Revision: 1,
 					Audience: fixtureOperationsAudience,
 					Scope:    "read", Queue: "read.default", Namespace: FixtureBindingID,
+					// Inside the unit, so the ceiling bounds the key and the
+					// lookup method by the same exact-element inclusion that
+					// bounds the audience and the scope. An envelope entry
+					// without them does not grant a binding that names them.
+					BindingKey: "alpha-read", LookupMethod: "directory",
 				},
 			},
 			{
@@ -204,6 +209,20 @@ func FixtureEnvelope() Envelope {
 			// refusal is "the presence document does not name this build" and
 			// never "the envelope did not approve it".
 			"sha256:4d74ea6aba3e66053c0ad32dfe5dc033d7556197f39f6db4f72270b1f63d8218",
+		},
+		// What the ceiling allows the SUBJECT module to declare about itself,
+		// matching the "valid" authority fixture exactly. The module owns two
+		// queues and emits under two audit namespaces — the shape that had
+		// nowhere to go while a queue lived only on a unit of authority — and
+		// a document naming a third of either is outside this ceiling.
+		Queues:     []string{"reconcile.default", "report.batch"},
+		Namespaces: []string{FixtureBindingID, "alpha-region-a-audit"},
+		// Held whole: a document declaring {read} on record is not granted by
+		// this {read, write}, for the reason a scope is not granted by a wider
+		// scope.
+		ScopeCeilings: []ScopeCeiling{
+			{ResourceKind: "record", Actions: []string{"read", "write"}},
+			{ResourceKind: "summary", Actions: []string{"read"}},
 		},
 	}
 }
@@ -311,24 +330,18 @@ func Fixtures() []Fixture {
 			Message: `exposure "ingress" is neither "public" nor "none"`,
 		},
 		{
-			Name: "superseded-schema", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Rule:    ruleSchema,
-			Reason:  "a v1 presence document; there is no v1 reader, and the refusal is a version skew rather than an invalid document",
-			Message: `"codefly/solution-host-binding/v1" (this Core reads`,
-		},
-		{
-			Name: "superseded-schema-v2", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Name: "other-document-type", Type: DocumentTypePresence, Outcome: OutcomeRejected,
 			Rule: ruleSchema,
-			Reason: "a complete v2 presence document: sound on its own terms, and unable to say whether an address was " +
-				"allocated for its public endpoint, because v2 had no field for it. v2 is the shape delivery " +
-				"repositories hold, so the cutover is a refusal to pin rather than discover",
-			Message: `"codefly/solution-host-binding/v2" (this Core reads`,
+			Reason: "a sound presence document declaring the authority schema string; the string is the document's " +
+				"TYPE and is covered by the signature, so each reader reads exactly one and refuses every other " +
+				"rather than deciding what an unfamiliar string was meant to be",
+			Message: `"codefly/solution-authority/v1" (this Core reads`,
 		},
 		{
 			Name: "build-size", Type: DocumentTypePresence,
 			Outcome: OutcomeAccepted, Decision: DecisionApply,
 			Reason: "the valid document at the next generation, carrying the build's size: lines per language, backend and frontend, " +
-				"the totals, and the vendored paths the manifest declared and the producer excluded; the section is optional in v2 " +
+				"the totals, and the vendored paths the manifest declared and the producer excluded; the section is OPTIONAL " +
 				"and held to the build-size rules when present",
 		},
 		{
@@ -504,6 +517,89 @@ func Fixtures() []Fixture {
 		{
 			Name: "tombstone", Type: DocumentTypeAuthority, Outcome: OutcomeAccepted,
 			Reason: "withdrawal of authority is a generation; it is a sound document that activates nothing",
+		},
+		{
+			Name: "other-document-type", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule:    ruleSchema,
+			Reason:  "the same pin from the other side: an authority document declaring the presence schema string",
+			Message: `"codefly/solution-host-binding/v1" (this Core reads`,
+		},
+		{
+			Name: "subject-queues-omitted", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthoritySubjectDeclared, Message: "declares no queues",
+			Reason: "a renderer that dropped one of the three subject declarations; an omitted list reads as \"the " +
+				"module owns none\", so the document would deliver a module narrower than the contract described",
+		},
+		{
+			Name: "removed-with-queues", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthoritySubjectAbsentWhenRemove, Message: "a removed generation declares no queues",
+			Reason: "a withdrawal still describing the module it withdraws; a host would hold both halves and have " +
+				"to decide which meant it",
+		},
+		{
+			Name: "queue-multi-line", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityQueueName, Message: "which must be a single-line value",
+			Reason: "a queue written across two lines; every declaration here is compared, and a value carrying a " +
+				"newline compares reliably against nothing",
+		},
+		{
+			Name: "queue-twice", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityQueueUnique, Message: `declares queue "reconcile.default" twice`,
+			Reason: "a repeated queue widens nothing and moves the canonical bytes, so two renders of one contract " +
+				"digest differently and a host reads the second as a rewritten generation",
+		},
+		{
+			Name: "namespace-multi-line", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityNamespaceName, Message: "which must be a single-line value",
+			Reason: "an audit namespace written across two lines; an operator binds these to the module's principal, " +
+				"so a value nothing can compare is a binding nothing can make",
+		},
+		{
+			Name: "namespace-twice", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityNamespaceUnique, Message: `declares namespace "alpha-region-a-01" twice`,
+			Reason: "a repeated namespace, refused for the reason a repeated queue is",
+		},
+		{
+			Name: "ceiling-kind-multi-line", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityCeilingKind, Message: "which must be a single-line value",
+			Reason: "a ceiling whose resource kind carries a newline; the kind is half of what a ceiling bounds, so " +
+				"one nothing can compare bounds nothing while reading as a bound",
+		},
+		{
+			Name: "ceiling-kind-twice", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityCeilingKindUnique, Message: `scope ceiling on resource kind "record" twice`,
+			Reason: "two ceilings on one kind are two bounds on the same scopes; a host minting against the first " +
+				"permits less than one minting against the second, from one signed document",
+		},
+		{
+			Name: "ceiling-without-actions", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityCeilingActionsDeclared, Message: "with no action",
+			Reason: "a ceiling naming a kind and permitting nothing on it; a kind the module contributes no action " +
+				"on is left out of the list instead of bounded to nothing",
+		},
+		{
+			Name: "ceiling-action-multi-line", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityCeilingActionName, Message: "which must be a single-line value",
+			Reason: "a permitted action written across two lines; an action is compared against a credential's " +
+				"scopes, and one carrying a newline compares against nothing",
+		},
+		{
+			Name: "ceiling-action-twice", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityCeilingActionUnique, Message: `permits action "read" twice`,
+			Reason: "the duplicate rule one level down, refused for the same reason: it widens nothing and moves " +
+				"the canonical bytes",
+		},
+		{
+			Name: "binding-key-multi-line", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityBindingKeyName, Message: "binding key must be a single-line value",
+			Reason: "a binding key written across two lines; it is the name a host installs the binding under, and " +
+				"one nothing can compare is a binding installable under any name the value resolved to",
+		},
+		{
+			Name: "lookup-method-multi-line", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
+			Rule: ruleAuthorityLookupMethodName, Message: "lookup method must be a single-line value",
+			Reason: "a lookup method written across two lines; it is part of the reviewed unit of authority, so it " +
+				"is held to a value something can compare",
 		},
 		{
 			Name: "outside-envelope", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,

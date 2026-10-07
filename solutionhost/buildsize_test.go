@@ -15,7 +15,7 @@ import (
 // The canonical encoding of the build-size fixture, pinned for the reason
 // regression_test.go pins the others: the section travels inside the signed
 // bytes, so its encoding is a compatibility surface from the day it ships.
-const buildSizeFixtureDigest = "sha256:f3ffc000a9138d28aa7b2fe9f88eba1be5ae1d9ceaecab4fb7a536df50b2486e"
+const buildSizeFixtureDigest = "sha256:afa149e7a55ae3349784e218662397b094c3c3827f9a0b2738fef0d2d631be04"
 
 func TestTheBuildSizeFixtureCarriesEveryDeclaredField(t *testing.T) {
 	document := parse(t, "build-size")

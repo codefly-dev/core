@@ -1,7 +1,7 @@
 # REJECTED. A row counts no line on either side. A language that was not found
 # is not written: an empty row is a claim about the build that the counting
 # never made.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

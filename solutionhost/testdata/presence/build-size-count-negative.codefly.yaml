@@ -1,7 +1,7 @@
 # REJECTED. The frontend total is written negative. A count is unsigned; the
 # node rule refuses the sign by name, so a reader whose count type admitted a
 # negative number would still fail this fixture.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

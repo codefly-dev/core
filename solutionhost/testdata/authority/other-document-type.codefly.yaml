@@ -1,9 +1,8 @@
-# REJECTED. The valid authority document with a merge key at its top level. The
-# authority reader shares the presence reader's node checks, so the refusal of
-# a merge key — a mapping the typed decoder would apply after every rule had
-# run — is inherited here rather than implemented twice.
-schema: codefly/solution-authority/v1
-<<: {}
+# REJECTED, ErrSchema. A complete authority document declaring the PRESENCE
+# schema string, which is the same pin from the other side: the string is the
+# document's type, it is covered by the signature, and each reader reads exactly
+# one.
+schema: codefly/solution-host-binding/v1
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2

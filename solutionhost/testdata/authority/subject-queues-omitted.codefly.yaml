@@ -1,9 +1,15 @@
-# REJECTED. The valid authority document with a merge key at its top level. The
-# authority reader shares the presence reader's node checks, so the refusal of
-# a merge key — a mapping the typed decoder would apply after every rule had
-# run — is inherited here rather than implemented twice.
+
+# REJECTED, ErrInvalid, rule authority-subject-declared. The valid document with
+# its `queues:` list deleted — a renderer that resolved the contract and then
+# forgot to project one of its three subject declarations.
+#
+# This is the whole reason the three are REQUIRED rather than optional. An
+# omitted list decodes to nothing, which reads exactly like "the module owns no
+# queue" — so the document would deliver a module narrower than the contract
+# described, a host would enforce the narrower one, and nothing would be wrong
+# with the bytes. Written out, as [] when there are none, the two cannot look
+# the same.
 schema: codefly/solution-authority/v1
-<<: {}
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -14,9 +20,6 @@ ownership_domain: alpha
 envelope_revision: 7
 approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
 effective_from: 4
-queues:
-  - reconcile.default
-  - report.batch
 namespaces:
   - alpha-region-a-01
   - alpha-region-a-audit

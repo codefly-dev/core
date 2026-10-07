@@ -1,5 +1,5 @@
 # REJECTED. The same excluded path is declared twice.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

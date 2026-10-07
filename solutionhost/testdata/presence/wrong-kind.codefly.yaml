@@ -4,7 +4,7 @@
 # be deciding what may install a thing from the shape of the thing, and the two
 # kinds differ in exactly that. Admission refuses a presence entry whose kind
 # is absent or unknown rather than reading it as the commoner one.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: service
 binding: alpha-region-a-03
 generation: 1

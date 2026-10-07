@@ -1,7 +1,7 @@
 # REJECTED. The backend total is not the sum of the rows' backend lines. The
 # totals are carried so a catalogue need not add, and a total that disagrees
 # with its parts is a document that states two sizes.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

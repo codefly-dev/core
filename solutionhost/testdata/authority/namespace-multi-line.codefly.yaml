@@ -1,9 +1,9 @@
-# REJECTED. The valid authority document with a merge key at its top level. The
-# authority reader shares the presence reader's node checks, so the refusal of
-# a merge key — a mapping the typed decoder would apply after every rule had
-# run — is inherited here rather than implemented twice.
+
+# REJECTED, ErrInvalid, rule authority-namespace-name. An audit namespace
+# written across two lines, refused on the same terms as a queue: an operator
+# binds these to the module's principal, so a value nothing can compare is a
+# binding nothing can make.
 schema: codefly/solution-authority/v1
-<<: {}
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -18,7 +18,7 @@ queues:
   - reconcile.default
   - report.batch
 namespaces:
-  - alpha-region-a-01
+  - "alpha\tother"
   - alpha-region-a-audit
 scope_ceilings:
   - resource_kind: record

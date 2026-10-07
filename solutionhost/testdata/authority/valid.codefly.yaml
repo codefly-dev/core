@@ -1,6 +1,7 @@
-# ACCEPTED. A complete authority document: what two principals hold on one
-# host, within the ceiling FixtureEnvelope describes, effective for one exact
-# build and from one presence generation onwards.
+# ACCEPTED. A complete authority document: what the subject module declares
+# about itself, what two principals hold on one host, within the ceiling
+# FixtureEnvelope describes, effective for one exact build and from one presence
+# generation onwards.
 #
 # It grants nothing on its own. Activate pairs it with the "valid" presence
 # fixture and the build both name; either document alone activates nothing,
@@ -9,6 +10,13 @@
 # The approved build is the image digest the presence fixture's workload
 # declares. That is the tie: authority is held for the build that was reviewed,
 # so shipping a new build does not carry the old build's authority forward.
+#
+# It owns TWO queues and emits under TWO audit namespaces, which is the shape
+# v1 could not render at all: one queue and one namespace lived on each unit of
+# authority, so a module-level declaration had nowhere to go and the renderer
+# refused the contract rather than deliver a module narrower than it described.
+# They are the module's inventory, held against the envelope element by
+# element — never a claim on "any queue".
 schema: codefly/solution-authority/v1
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
@@ -20,6 +28,20 @@ ownership_domain: alpha
 envelope_revision: 7
 approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
 effective_from: 4
+queues:
+  - reconcile.default
+  - report.batch
+namespaces:
+  - alpha-region-a-01
+  - alpha-region-a-audit
+scope_ceilings:
+  - resource_kind: record
+    actions:
+      - read
+      - write
+  - resource_kind: summary
+    actions:
+      - read
 principals:
   - principal: principal:operator
     bindings:
@@ -35,6 +57,8 @@ principals:
         scope: read
         queue: read.default
         namespace: alpha-region-a-01
+        binding_key: alpha-read
+        lookup_method: directory
   - principal: principal:reporter
     bindings:
       - id: binding:alpha:report

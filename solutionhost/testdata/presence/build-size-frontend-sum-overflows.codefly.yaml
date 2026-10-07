@@ -1,6 +1,6 @@
 # REJECTED. Two rows' frontend lines sum past what a count can hold, and the
 # stated frontend total is the wrapped sum, zero.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

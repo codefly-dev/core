@@ -110,7 +110,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 48)
+	require.Len(t, fixtures, 47)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -146,12 +146,11 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		})
 	}
 	for name, target := range map[string]error{
-		"mixed-release":        solutionhost.ErrMixedRelease,
-		"wrong-kind":           solutionhost.ErrInvalid,
-		"missing-identity":     solutionhost.ErrInvalid,
-		"digest-confusion":     solutionhost.ErrDigestConfusion,
-		"superseded-schema":    solutionhost.ErrSchema,
-		"superseded-schema-v2": solutionhost.ErrSchema,
+		"mixed-release":       solutionhost.ErrMixedRelease,
+		"wrong-kind":          solutionhost.ErrInvalid,
+		"missing-identity":    solutionhost.ErrInvalid,
+		"digest-confusion":    solutionhost.ErrDigestConfusion,
+		"other-document-type": solutionhost.ErrSchema,
 		// Addressing is the second axis of an endpoint's declaration, and each
 		// of its three refusals is the resource model's own, made where the
 		// document is read.

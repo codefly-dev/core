@@ -36,98 +36,109 @@ An `Envelope` is therefore always **supplied by the caller** and never read out
 of a document. An envelope a document carried would be a document declaring its
 own ceiling.
 
-## One schema, and no older one to fall back to
+## One version, for all three documents
 
-Each document declares exactly one schema this package reads:
-`codefly/solution-host-binding/v3`, `codefly/solution-authority/v1`,
-`codefly/solution-host-signed/v1`.
+Each document declares exactly one schema string this package reads, and the
+three carry **one version number**, stepped as a family:
 
-The presence schema has stepped twice and **neither older shape is accepted**.
-v1 omitted the build a workload must be running, the identity it must present,
-and the domain its delivery speaks for: a document a host can verify nothing
-against. v2 carried all three and could not say whether an address reachable
-from outside the workspace was allocated for an endpoint — the fact a platform
-standing up a route reads, and the one a reader would otherwise answer from the
-reach, rebuilding the conflation the two axes were split to remove (see [an
-endpoint's reach and its addressing](#an-endpoints-reach-and-its-addressing-and-why-this-document-holds-both-to-cores-vocabulary)).
-Keeping a reader for either would leave the weaker shape permanently available
-to anything that can write a delivery document. Both fail with `ErrSchema` — a
-loud version skew, in the one place that can fix it — and `superseded-schema`
-(v1) and `superseded-schema-v2` are shipped as fixtures so both consumers pin
-each refusal rather than discover it.
+| document | schema string |
+| --- | --- |
+| presence | `codefly/solution-host-binding/v1` |
+| authority | `codefly/solution-authority/v1` |
+| signed carrier | `codefly/solution-host-signed/v1` |
 
-**A new field is a version step, and that is not the same rule as "any
-change".** Strict decoding means a document carrying a field the reader does
-not know is refused as malformed rather than read with the field dropped, so a
-field added under an unchanged schema string makes two Cores read that string
-differently — a skew nothing can detect, because the string is what the fleet
-pins. `build_size` is the one addition that did not step, and it is the
-boundary rather than a counter-example: it is **optional**, so no document that
-was valid stopped being valid and no digest a host had stored moved.
-`exposure` is required wherever it carries information, which is exactly the
-change that cannot hide behind a fixed schema string: a v2 document with a
-public endpoint is sound on its own terms and incomplete against v3. Refusing
-it as `ErrInvalid` would tell its writer the document is malformed, when it is
-older than its reader and a re-render is the fix.
+The *names* differ and must. The string is inside the signed canonical
+encoding, which is what binds a signature to the document TYPE: with one shared
+name, an authority document could be presented where a presence document was
+asked for, under a signature that verifies. The `other-document-type` fixtures
+pin that refusal from both sides.
+
+The *number* is shared so there is one version to cut, pin and reason about.
+A per-document ladder meant three numbers moving independently, a reader that
+could be half-upgraded across the family, and three answers to "which version
+are we on". One number has one answer, and
+`TestSchemaConstantIsTheVersionedName` holds all three to it.
+
+**The number is `v1`, and the earlier ladder is gone rather than retired.**
+These are the shapes this Core reads; no older shape is read, pinned, or
+described here. One consequence is worth stating plainly rather than leaving
+to be discovered: a document written against an earlier shape that happens to
+declare `v1` now reaches the current rules instead of the schema check, so it
+is refused as `ErrInvalid` — "malformed" — rather than as `ErrSchema` —
+"older than me, re-render". Nothing older is *accepted*: every earlier presence
+shape omits a field the current one requires, every earlier authority shape
+omits the subject declarations, and a carrier's payload is checked by its own
+inner schema string. What is lost is the quality of that one diagnosis, for
+documents that this cutover re-renders anyway.
+
+**There is no reader for any other string** — not an older one, not a newer
+one, not another document's. Every other string fails with `ErrSchema`, which
+is a version skew and not an invalid document: the two call for different
+responses, because a document this Core does not read is not malformed, and the
+fix is a re-render by whoever wrote it. No shipped fixture carries a superseded
+shape, and none will: a reader for an older document is the thing this design
+does not have, so there is nothing for one to pin.
 
 The schema is checked **before** the strict decode, and that order is
-load-bearing: an older document's fields are not this one's — v1 carried a
-`workload` mapping v3 does not define, and v2 omits the `exposure` v3 requires
-— so decoding first would refuse it for an unknown field, or validate it
-against rules it was never written to, and tell the caller its document is
-malformed. It is not malformed; it is older than the reader.
+load-bearing: another shape's fields are not this one's, so decoding first
+would refuse a document for an unknown field, or validate it against rules it
+was never written to, and tell the caller its document is malformed.
 
-Two consequences of the v1 → v2 step, both deliberate:
+**A required field is a version step; an optional one need not be.** Strict
+decoding means a document carrying a field the reader does not know is refused
+as malformed rather than read with the field dropped, so a *required* field
+added under an unchanged schema string makes two Cores read that string
+differently — a skew nothing can detect, because the string is what the fleet
+pins. `build_size` is the one addition that did not step, and it is the
+boundary rather than a counter-example: it is optional, so no document that was
+valid stopped being valid and no stored digest moved. The presence document's
+`exposure` and the authority document's three subject declarations are
+required, so both stepped.
 
-- `SchemaV1` is gone as a constant. Pinning it was the contract; so is its
-  removal.
-- **There is no in-place migration for `Applied`, and core provides no
-  mechanism for one.** An earlier draft of this document claimed a host could
-  "treat stored digests as stale"; that was wrong, and the review that caught it
-  was right. A v1-era record fails the new required-`Domain` check, and
-  supplying a domain does not rescue it: the stored digest was computed over v1
-  canonical bytes, so `decide` sees the same generation with different bytes and
-  returns `ErrRewrittenGeneration` — an error that accuses delivery of
-  tampering.
+### What a step costs, and who pays it
 
-  The required-`Domain` failure itself now answers `ErrAppliedUnusable` rather
-  than `ErrInvalid`, because the two accuse different parties and the wrong
-  accusation sends the reader to the wrong repository. A host that has not yet
-  persisted the column gets an error naming its own stored state, which is the
-  only thing that can repair it: applied state is read once for the whole set,
-  so one unusable record withholds **every** binding on every pass,
-  indefinitely and without crashing. `AppliedFrom` fills the field, so a host
-  that builds the record with it rather than by hand cannot reach this.
+- **Delivery re-renders.** Every fact a step adds is one the renderer already
+  holds: the resource model resolves `exposure` on every public endpoint it
+  loads, and the module contract already declares the queues, namespaces and
+  ceilings the authority document now carries. Nothing is reconstructed. A
+  renderer that reads the tree it replaces, as the CLI does to settle the next
+  generation, gets `ErrSchema` there — the signal to render fresh rather than
+  compare against a shape this Core cannot digest, and the reason that refusal
+  is not `ErrInvalid`.
+- **A host discards its applied records** — presence and authority alike — and
+  re-admits the delivered set. The schema string is itself inside the canonical
+  bytes, so every stored `Applied.Digest` and `AppliedAuthority.Digest` is
+  stale by construction, whether or not the document used any new field. That
+  is safe because the older shape is refused outright, so there is no earlier
+  generation discarding could let back in.
+- **There is no in-place migration, and core provides no mechanism for one.**
+  An earlier draft of this document claimed a host could "treat stored digests
+  as stale"; that was wrong, and the review that caught it was right. A record
+  from an older shape fails the current required checks, and filling the
+  missing column does not rescue it: the stored digest was computed over the
+  older canonical bytes, so `decide` sees the same generation with different
+  bytes and returns `ErrRewrittenGeneration` — an error that accuses delivery
+  of tampering.
 
-  The cutover is therefore cold on the host's side too: a host **discards its
-  applied records** and re-admits the delivered set. That is safe here, and only
-  here, for a specific reason — every v2 document is new, and a v1 document is
-  refused outright by `ErrSchema`, so there is no older generation left that
-  discarding could let back in. What discarding does lose is core's record of
-  which generation was applied and which bindings were tombstoned; a host that
-  keeps registry history of its own (late-heartbeat refusal, withdrawal records)
-  keeps that separately and must not discard it. Core's `Applied` is a
-  reconciliation input, not the host's audit log.
+  That failure answers `ErrAppliedUnusable` rather than `ErrInvalid`, because
+  the two accuse different parties and the wrong accusation sends the reader to
+  the wrong repository. A host that has not yet persisted a column gets an
+  error naming its own stored state, which is the only thing that can repair
+  it: applied state is read once for the whole set, so one unusable record
+  withholds **every** binding on every pass, indefinitely and without crashing.
+  `AppliedFrom` and `AppliedAuthorityFrom` fill the fields, so a host that
+  builds the record with them rather than by hand cannot reach this.
 
-The v2 → v3 step is the same cutover, narrower:
-
-- **Delivery re-renders.** `exposure` is a fact the renderer already holds —
-  the resource model resolves it on every public endpoint it loads — so a
-  re-render carries it and nothing has to be reconstructed. A renderer that
-  reads the tree it replaces, as the CLI does to settle the next generation,
-  reads a v2 document there and gets `ErrSchema`: it is the signal to render
-  fresh rather than to compare against a shape this Core cannot digest, and
-  the reason that refusal is not `ErrInvalid`.
-- **A host discards its applied records** and re-admits the delivered set, for
-  the reason the v1 → v2 cutover gives: the schema string is itself inside the
-  canonical bytes, so every stored digest is stale by construction whether or
-  not the binding has a public endpoint, and a v2 document is refused outright,
-  so there is no older generation discarding could let back in.
+  What discarding loses is core's record of which generation was applied and
+  which bindings were tombstoned; a host that keeps registry history of its own
+  (late-heartbeat refusal, withdrawal records) keeps that separately and must
+  not discard it. Core's `Applied` is a reconciliation input, not the host's
+  audit log.
 
 ## The presence document
 
 ```yaml
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution                     # or module — declared, never inferred
 binding: alpha-region-a-01          # stable ID of one deployment instance
 generation: 4                      # strictly monotonic per binding ID
@@ -290,9 +301,9 @@ reader rather than loading it as a module with nothing in it. The loader also
 refuses a declaration that breaks any of the three path rules, through the
 same chain the CLI loads a module by.
 
-**The section is optional, and that is not the superseded-schema case.** A
+**The section is optional, and that is not the version-skew case.** A
 document without it is a producer that did not count, and is accepted; one that
-carries it is held to every build-size rule. The step from v1 to v2 exists
+carries it is held to every build-size rule. A version step exists
 because a document that omits the build a workload must be running is a
 document a host cannot verify anything against, and reading it as a weaker
 shape would make that shape permanently available. The size weakens no verification — a
@@ -380,11 +391,11 @@ consumers.
 `exposure` is **addressing and nothing else**: whether an address reachable
 from outside the workspace is asked for. Before the axes were split,
 `visibility: public` was both statements at once and a host could read `public`
-and know an address existed. It no longer means that, so a v2 document said
-anything outside the workspace may call the endpoint and nothing at all about
-whether it was addressed — the information did not move elsewhere in the
-document, it was absent, and the two readings a reader was left with were a
-conflation and a blank. `Route` does not cover it: a route is `{alias,
+and know an address existed. It no longer means that, so a document carrying
+only the reach said anything outside the workspace may call the endpoint and
+nothing at all about whether it was addressed — the information did not move
+elsewhere in the document, it was absent, and the two readings a reader was
+left with were a conflation and a blank. `Route` does not cover it: a route is `{alias,
 surface}`, one per surface, not one per endpoint.
 
 **It is the declaration, never an instruction, and a host must not read it as
@@ -578,6 +589,10 @@ ownership_domain: alpha
 envelope_revision: 7
 approved_build: sha256:…           # one exact OCI image manifest
 effective_from: 4                  # the presence generation it is effective from
+queues: [reconcile.default, report.batch]        # REQUIRED, [] when none
+namespaces: [alpha-region-a-01, alpha-region-a-audit]  # REQUIRED, [] when none
+scope_ceilings:                    # REQUIRED, [] when none
+  - {resource_kind: record, actions: [read, write]}
 principals:
   - principal: principal:operator
     bindings:
@@ -587,7 +602,82 @@ principals:
         scope: reconcile
         queue: reconcile.default    # OPTIONAL
         namespace: alpha-region-a-01 # OPTIONAL
+        binding_key: alpha-reconcile # OPTIONAL
+        lookup_method: directory     # OPTIONAL
 ```
+
+### What the subject module declares about itself
+
+`queues`, `namespaces` and `scope_ceilings` are the module's own declarations —
+the module the presence binding this authority is granted over runs — and they
+sit on the document rather than on a unit of authority because that is what
+they are. A module contract declares its queues once, for the module; copying
+one onto every binding made a module-level fact look per-unit, and left a
+module owning two queues with no renderable document at all.
+
+**They are required, and a declaration of none is written `[]`.** There is no
+absent form, which is the point: an omitted list reads exactly like "the module
+owns none", so a renderer that dropped one would deliver a module narrower than
+the contract described and a host would enforce the narrower one, with nothing
+wrong in the bytes. A withdrawal states all three empty — a withdrawal that
+still describes what it withdraws leaves a host deciding which half meant it.
+
+**A list does not widen into a wildcard, because containment is unchanged.**
+Every element must be one the envelope holds, so `queues: [a, b]` claims
+exactly those two and a third is `ErrOutsideEnvelope`. That is the same exact
+element inclusion an absent `queue` relies on, one level up: the absent field
+can only match absence, and the list can only match what was allowed. A scope
+ceiling is held **whole** — the same resource kind permitting the same set of
+actions — so a wider set is refused, and so is a narrower one, for the reason a
+narrower scope is not granted by a wider one.
+
+`scope_ceilings` is the one declaration here a host must have in order to refuse
+minting past it, and a module cannot be trusted to bound itself, which is why
+it is bounded like a grant rather than taken as the module's own business. A
+document free to widen its own ceiling would be a document declaring its own
+ceiling — the one shape an envelope must never take.
+
+`binding_key` and `lookup_method` live **inside** the unit of authority, so the
+exact element inclusion that bounds the audience and the scope bounds them too,
+in both directions, and neither needed a containment rule of its own. A host
+substituting a key would be installing a binding nobody reviewed under a name
+something else reads. `lookup_method` is flat and not a nested mapping with one
+key: a nested one would have two spellings for absence — no mapping, and a
+mapping with an empty method — and the two would digest differently while
+meaning the same thing.
+
+### What this document does NOT carry: a module's destinations
+
+A module contract also declares `destinations` — the endpoints it exposes for a
+caller outside it, each with a `kind`. They are **not** here, and that is a
+decision rather than a gap:
+
+- `service` and `endpoint` are already in the **presence** document, which
+  lists the instance's endpoints with their reach and their addressing. The
+  same fact signed in two documents is how two readers come to disagree, and
+  the disagreement is undetectable precisely because both copies verify.
+- `kind` is not a document fact at all. Its vocabulary belongs with the host's
+  envelope table — the module contract's own comment on `DestinationModule`,
+  `DestinationHost` and `DestinationPlatformInternal` says so — and an envelope
+  is the one thing a document must never carry. It is also not reach:
+  `module`, `host` and `platform-internal` name the *class of caller*, where
+  `visibility` names who may call and `exposure` whether an address exists.
+
+So a destination reaches the host under signature, in the presence document,
+and the renderer's job is to hold each one against the endpoints it renders
+there rather than to restate it in a grant. Nothing core owns has to change for
+that; see [the CLI's refusal list](#what-a-renderer-may-now-render).
+
+### What a renderer may now render
+
+`codefly-dev/cli`'s `refuseUncarriedAuthority` refused a resolved module
+contract declaring any of six things, each saying in its own words that it
+needed this document to grow a field. Five of them are now carried: more than
+one queue, more than one namespace, `scope_ceilings`, a binding's
+`binding_key`, and a binding's `lookup.method`. The sixth, `destinations`, is
+not and will not be, for the reasons above — so that one refusal stays, with a
+different reason: not "core cannot carry it" but "the presence document carries
+it, and the kind is the envelope's vocabulary".
 
 ### "Verified" was part of a function name, and nothing more
 
@@ -669,9 +759,10 @@ across the whole document, not per principal: one ID naming two units of
 authority would make that lookup ambiguous in the one place that must never
 guess.
 
-**`Queue` and `Namespace` are optional.** A module that owns no queue is a real
-case, and requiring the field would leave every such module with no derivable
-authority document at all. Absence means the binding grants **no** authority on
+**`Queue` and `Namespace` are optional**, and they are the *unit's* queue and
+namespace — not the module's, which the document declares once above. A binding
+that runs on no queue is a real case, and requiring the field would leave every
+such binding with no derivable authority document at all. Absence means the binding grants **no** authority on
 that dimension — never *every* queue. What makes that safe is the containment
 rule below: an absent queue matches only an absent queue in the envelope, so
 absence cannot widen into a wildcard, and a document naming a queue is not
@@ -688,7 +779,9 @@ those would be a withdrawal that still says what it grants.
 `(*AuthorityDocument).ValidateAgainst(envelope)` checks that the envelope
 revisions agree, that `approved_build` is one the envelope approved, and that
 every binding granted is one the envelope **holds exactly** — same ID, same
-revision, and the same audience, scope, queue and namespace.
+revision, and the same audience, scope, queue, namespace, binding key and
+lookup method — and that each of the subject's own declarations is one the
+envelope allows.
 
 It deliberately does not mean "some envelope binding subsumes this one". A
 subsumption rule is the same rule as searching the bindings for one that

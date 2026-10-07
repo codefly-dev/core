@@ -1,9 +1,9 @@
-# REJECTED. The valid authority document with a merge key at its top level. The
-# authority reader shares the presence reader's node checks, so the refusal of
-# a merge key — a mapping the typed decoder would apply after every rule had
-# run — is inherited here rather than implemented twice.
+
+# REJECTED, ErrInvalid, rule authority-lookup-method-name. A lookup method
+# written across two lines, refused on the same terms as a binding key: it is
+# part of the reviewed unit of authority, so it is held to a value something can
+# compare.
 schema: codefly/solution-authority/v1
-<<: {}
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -44,7 +44,7 @@ principals:
         queue: read.default
         namespace: alpha-region-a-01
         binding_key: alpha-read
-        lookup_method: directory
+        lookup_method: "directory\nscan"
   - principal: principal:reporter
     bindings:
       - id: binding:alpha:report
