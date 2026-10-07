@@ -19,12 +19,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ErrInvalidManifestWireForm is the one sentinel for a manifest refused on its
-// YAML tree, before any field of it is read: a duplicate key, a merge key, an
-// explicit null, a fractional number, a key that is not a name. These are
-// properties of the DOCUMENT, so the refusal names no field and no model —
-// a caller that wants to know which rule fired reads the message, and a caller
-// that wants to know the manifest is unloadable matches this.
+// ErrInvalidManifestWireForm is the one sentinel for a manifest refused by the
+// node-level rules every wire document shares (internal/wire): a duplicate
+// key, a merge key, an explicit null, a fractional number, a key that is not a
+// name. These are properties of the DOCUMENT, so the refusal names no field
+// and no model, and a caller that wants to know which rule fired reads the
+// message.
+//
+// It says the wire form was CHECKED and refused, and nothing beyond that. It
+// is NOT "this manifest is unloadable", and a caller must never read a
+// non-match as "the wire form is fine". Two other refusals are decided on the
+// same tree, in the same function, and carry this no more than an unknown key
+// does: the manifest's kind, and the vestigial keys. And only a closed schema
+// reaches the rules at all (closedSchema — Module today), so a Service or
+// Workspace manifest whose wire form is invalid does not match this:
+// `endpoints: ~` in a service manifest LOADS, reading as nothing declared,
+// with no error to match at all.
 var ErrInvalidManifestWireForm = errors.New("the manifest's wire form is invalid")
 
 // An inline host map must not override a field owned by the resource schema.
@@ -273,10 +283,14 @@ func checkManifestNodes[C Configuration](content []byte) error {
 		return fmt.Errorf("%w: cannot unmarshal %s configuration: the mapping at %s uses the merge key <<; yaml applies a merge inside its typed decoder, after every check over the tree, so a declaration carried in through one — a vendored list, a service — would shadow or be shadowed unseen; no field of a module manifest is declared by merging", ErrInvalidManifestWireForm, label, defect.Path)
 	case wire.NullNode:
 		consequence := "a null reads as \"nothing declared\" to the typed decoder"
-		if strings.HasPrefix(defect.Path, "vendored") {
+		// The vendored consequence is the vendored FIELD's, so the field is
+		// named exactly: under a prefix match, `vendored-cache: ~` was told a
+		// vendored list would count the kit — not a fact about that key, and
+		// one any future key sharing those letters would have been told too.
+		if defect.Path == "vendored" || strings.HasPrefix(defect.Path, "vendored[") {
 			consequence += ", so a vendored list written as null would count the kit while the manifest said it was excluded"
 		}
-		return fmt.Errorf("%w: cannot unmarshal %s configuration: the manifest carries an explicit null at %s %s; %s — an absent key is absent, and an empty list is written []", ErrInvalidManifestWireForm, label, defect.Path, defect.Detail, consequence)
+		return fmt.Errorf("%w: cannot unmarshal %s configuration: the manifest carries an explicit null at %s %s; %s — an absent key is absent, and where a field admits an empty list it is written []", ErrInvalidManifestWireForm, label, defect.Path, defect.Detail, consequence)
 	case wire.FractionalNumber:
 		return fmt.Errorf("%w: cannot unmarshal %s configuration: the number %s at %s is not a whole number; no field of a module manifest takes a fraction", ErrInvalidManifestWireForm, label, defect.Detail, defect.Path)
 	case wire.KeyNotAName:

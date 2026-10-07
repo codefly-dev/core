@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/solutionhost"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -367,6 +368,63 @@ func TestValidationRejectsEachWayTheDocumentCanLie(t *testing.T) {
 			mutate(document)
 			require.Error(t, document.Validate())
 		})
+	}
+}
+
+// An endpoint's reach is a declaration the platform derives policy from, so a
+// value the resource model does not define must not survive in a rendered
+// document: the model refuses one at load, at selection and at dependency
+// wiring, and a presence document that admitted a fourth spelling would
+// describe an endpoint no service can declare.
+//
+// Each refusal is asserted by its own message, not by ErrInvalid alone: every
+// later rule in validateEndpoints returns the same sentinel, so an assertion
+// on it passes even when the reach check is gone and the duplicate-key check
+// refuses instead.
+func TestEndpointReachIsHeldToTheModelsVocabulary(t *testing.T) {
+	for _, refused := range []string{"module", "external", "application", "pubilc", "PUBLIC"} {
+		t.Run(refused, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[0].Visibility = refused
+			err := document.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.ErrorContains(t, err, `endpoint "api" visibility "`+refused+`" is none of`)
+			require.ErrorContains(t, err, "no service can declare")
+		})
+	}
+
+	// The model admits an omission and resolves it to private. A rendered
+	// document gets no such resolution, so it states the reach rather than
+	// leaving that default to be derived a second time.
+	t.Run("omitted", func(t *testing.T) {
+		document := valid(t)
+		document.Endpoints[0].Visibility = ""
+		err := document.Validate()
+		require.ErrorIs(t, err, solutionhost.ErrInvalid)
+		require.ErrorContains(t, err, `endpoint "api" states no visibility`)
+	})
+
+	for _, known := range []string{"private", "internal", "public"} {
+		t.Run(known, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[0].Visibility = known
+			require.NoError(t, document.Validate())
+		})
+	}
+}
+
+// The vocabulary is read from the resource model rather than copied here: this
+// package already links resources through composition, so a literal would be a
+// second list to keep in step for no gain. This holds the two together at the
+// document's own loader, so a widened model cannot leave the document behind
+// and a widened document cannot admit what no service can declare.
+func TestTheReachVocabularyIsTheModelsAndNotACopy(t *testing.T) {
+	for _, visibility := range []string{"private", "internal", "public", "module", "external", "everyone", ""} {
+		document := valid(t)
+		document.Endpoints[0].Visibility = visibility
+		accepted := document.Validate() == nil
+		require.Equalf(t, resources.KnownVisibility(visibility) && visibility != "", accepted,
+			"the document and the resource model disagree about %q", visibility)
 	}
 }
 

@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/codefly-dev/core/internal/wire"
 )
 
 // The manifest's vendored-path declaration is the input to a signed build fact
@@ -89,14 +92,35 @@ func TestAModuleManifestRefusesAKeyItDoesNotDeclare(t *testing.T) {
 // share before the typed decoder reads a field: a null vendored list would
 // otherwise read as "no declaration", and a merge key would carry a second
 // vendored list in after every check had run and shadow the written one.
+//
+// Every row names the RULE it trips and asserts ErrInvalidManifestWireForm, and
+// wire.Kinds() holds the table to one row per rule. The sentinel went onto all
+// five refusals with one row asserting it: the wrap could be deleted from the
+// duplicate-key, merge-key, fraction or key-not-a-name refusal with the whole
+// suite still green, and two of those rules had no row here at all.
 func TestAModuleManifestIsHeldToTheSharedNodeChecks(t *testing.T) {
 	ctx := context.Background()
-	for name, manifest := range map[string]struct{ content, message string }{
-		"null vendored list": {"kind: module\nname: saas\nservices:\n  - name: api\nvendored: ~\n", "explicit null at vendored"},
-		"null services list": {"kind: module\nname: saas\nservices: ~\n", "explicit null at services"},
-		"merge key":          {"kind: module\nname: saas\nservices:\n  - name: api\nvendored: [a]\n<<:\n  vendored: [b]\n", "uses the merge key"},
-		"fraction":           {"kind: module\nname: saas\nservices:\n  - name: api\nweight: 1.5\n", "not a whole number"},
-	} {
+	// kitClause says whether the refusal must name the vendored consequence.
+	// It is stated per row and never derived from the message, which is how
+	// the old expectation agreed with the prefix match it should have caught.
+	// A message ending in a space is not a typo: the null defect carries no
+	// detail, and the space is what tells `vendored ` from `vendored-cache`.
+	table := map[string]struct {
+		content, message string
+		rule             wire.DefectKind
+		kitClause        bool
+	}{
+		"null vendored list":    {"kind: module\nname: saas\nservices:\n  - name: api\nvendored: ~\n", "explicit null at vendored ", wire.NullNode, true},
+		"null vendored element": {"kind: module\nname: saas\nservices:\n  - name: api\nvendored:\n  - ~\n", "explicit null at vendored[0]", wire.NullNode, true},
+		"null services list":    {"kind: module\nname: saas\nservices: ~\n", "explicit null at services", wire.NullNode, false},
+		// A key is not the vendored field because it begins with its letters.
+		"null under a key that only begins with vendored": {"kind: module\nname: saas\nservices:\n  - name: api\nvendored-cache: ~\n", "explicit null at vendored-cache", wire.NullNode, false},
+		"merge key":                   {"kind: module\nname: saas\nservices:\n  - name: api\nvendored: [a]\n<<:\n  vendored: [b]\n", "uses the merge key", wire.MergeKey, false},
+		"fraction":                    {"kind: module\nname: saas\nservices:\n  - name: api\nweight: 1.5\n", "not a whole number", wire.FractionalNumber, false},
+		"duplicate key":               {"kind: module\nname: saas\nname: other\nservices:\n  - name: api\n", `names the key "name" twice`, wire.DuplicateKey, false},
+		"a sequence written as a key": {"kind: module\nname: saas\nservices:\n  - name: api\n? [a]\n: b\n", `a key that is not a name ("!!seq at line 5")`, wire.KeyNotAName, false},
+	}
+	for name, manifest := range table {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.WriteFile(filepath.Join(dir, ModuleConfigurationName), []byte(manifest.content), 0o600); err != nil {
@@ -106,14 +130,31 @@ func TestAModuleManifestIsHeldToTheSharedNodeChecks(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), manifest.message) {
 				t.Fatalf("the manifest must be refused naming %q: %v", manifest.message, err)
 			}
-			// The null refusal names the vendored consequence only on that
-			// path: a null under vendored would count the kit, a null under
-			// services has nothing to say about kits.
-			vendoredClause := strings.Contains(err.Error(), "would count the kit")
-			if wants := strings.HasPrefix(manifest.message, "explicit null at vendored"); err != nil && strings.Contains(err.Error(), "explicit null") && vendoredClause != wants {
-				t.Fatalf("the vendored consequence must appear exactly when the null is under vendored: %v", err)
+			// The authority that refuses names itself. Without this the five
+			// refusals could carry any sentinel, or none, and the one caller
+			// that asks "was the wire form refused" would read false.
+			if !errors.Is(err, ErrInvalidManifestWireForm) {
+				t.Fatalf("a manifest refused on its wire form says so by its own sentinel: %v", err)
+			}
+			// The vendored consequence names the vendored FIELD's stake: a
+			// null there would count the kit while the manifest said it was
+			// excluded. No other key has that stake.
+			if got := strings.Contains(err.Error(), "would count the kit"); got != manifest.kitClause {
+				t.Fatalf("the vendored consequence must appear exactly for the vendored field (wanted %v): %v", manifest.kitClause, err)
 			}
 		})
+	}
+	// One row per rule. A rule with none is a rule nothing would notice
+	// losing its refusal or its sentinel — which is how the interface table's
+	// null row came to assert a sentinel that never fired for it.
+	covered := map[wire.DefectKind]bool{}
+	for _, manifest := range table {
+		covered[manifest.rule] = true
+	}
+	for _, rule := range wire.Kinds() {
+		if !covered[rule] {
+			t.Errorf("wire rule %d refuses a module manifest with no row in this table", rule)
+		}
 	}
 }
 
