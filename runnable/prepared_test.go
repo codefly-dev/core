@@ -228,8 +228,13 @@ func TestAPreparedValueIsReadStrictly(t *testing.T) {
 
 	_, err = runnable.DecodePrepared(nil)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
-	_, err = runnable.DecodePrepared([]byte(strings.Repeat("x", runnable.MaxPreparedBytes+1)))
+	require.ErrorContains(t, err, "outside (0,")
+	// A parseable document over the bound: a run of bytes that is not JSON at
+	// all cannot tell the size refusal from the parser's, and the bound is what
+	// keeps this reader from parsing an installation fact of any size.
+	_, err = runnable.DecodePrepared([]byte(`{"schema":"` + strings.Repeat("a", runnable.MaxPreparedBytes) + `"}`))
 	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "outside (0,")
 	_, err = runnable.DecodePrepared([]byte("not a document"))
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 }

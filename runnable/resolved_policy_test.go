@@ -2,6 +2,7 @@ package runnable_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -129,6 +130,13 @@ func TestAResolvedPolicyReceiptIsRefusedWhenItIsNotAnAnswer(t *testing.T) {
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	_, err = runnable.DecodeResolvedPolicy(nil)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "outside (0,")
+	// The bound is on the bytes, before anything is parsed: a receipt larger
+	// than a prepared value may be is refused as a size, not as a syntax, so a
+	// document this reader would otherwise parse in full is named by its size.
+	_, err = runnable.DecodeResolvedPolicy([]byte(`{"schema":"` + strings.Repeat("a", runnable.MaxPreparedBytes) + `"}`))
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "outside (0,")
 	require.ErrorIs(t, runnable.VerifyResolvedPolicy(nil), runnable.ErrInvalid)
 
 	// A delivered receipt whose digest no longer covers its policy — edited
@@ -136,17 +144,13 @@ func TestAResolvedPolicyReceiptIsRefusedWhenItIsNotAnAnswer(t *testing.T) {
 	// writer states a wrong digest.
 	require.NoError(t, json.Unmarshal(value, &fields))
 	delete(fields, "selections")
-	tampered := map[string]json.RawMessage{}
-	for k, v := range fields {
-		tampered[k] = v
-	}
 	var policyDoc map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(fields["policy"], &policyDoc))
 	policyDoc["max_attempts"] = json.RawMessage(`2`)
 	editedPolicy, err := json.Marshal(policyDoc)
 	require.NoError(t, err)
-	tampered["policy"] = editedPolicy
-	edited, err := json.Marshal(tampered)
+	fields["policy"] = editedPolicy
+	edited, err := json.Marshal(fields)
 	require.NoError(t, err)
 	_, err = runnable.DecodeResolvedPolicy(edited)
 	require.ErrorIs(t, err, runnable.ErrInvalid)

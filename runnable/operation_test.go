@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -195,6 +197,25 @@ func TestOperationFromMethodSkipsAnUnmarkedMethod(t *testing.T) {
 	_, _, err := runnable.PackageFromMethod(files, ingestLocation(), ingestOwner(), applyText)
 	require.ErrorIs(t, err, runnable.ErrNotAnOperation)
 	require.ErrorContains(t, err, "documents.ingest.v1.IngestionService.ApplyText")
+}
+
+// A policy field this core has no name for is refused on the descriptor path
+// as it is on the marker path: TestDecodeOperationRefusesWhatItDoesNotDeclare
+// witnesses the document reader, and this witnesses the option reader, which is
+// where a method compiled against a newer core arrives with no document ever
+// written. Dropping the field is the failure — the derived package and the
+// prepared binding would carry the requirement erased, and VerifyPrepared,
+// seeing only the fixed scopes, could not tell them from complete ones.
+func TestOperationFromMethodRefusesPolicyBytesItDoesNotKnow(t *testing.T) {
+	declared := declaredOperation()
+	future := protowire.AppendVarint(protowire.AppendTag(nil, 9999, protowire.VarintType), 1)
+	declared.ProtoReflect().SetUnknown(protoreflect.RawFields(future))
+
+	files := ingestionFiles(t, nil, operationMethod("ApplyText",
+		".documents.ingest.v1.ApplyTextRequest", ".documents.ingest.v1.ApplyTextResponse", declared))
+	_, _, err := runnable.PackageFromMethod(files, ingestLocation(), ingestOwner(), applyText)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, fmt.Sprintf("%s declares %d bytes of operation policy this core does not know", applyText, len(future)))
 }
 
 func TestOperationFromMethodRejectsStreaming(t *testing.T) {

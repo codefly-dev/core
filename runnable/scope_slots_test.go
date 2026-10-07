@@ -52,6 +52,27 @@ func slotSelections() []*runnablev0.ScopeSelection {
 	}
 }
 
+// snapshotOf and requireUnchanged witness what ResolveScopeSlots promises of
+// every input it is handed — "the call is pure: receiver and selections are
+// read and never written" — on the refusal path, where a count fixed in the
+// fixture cannot say it because each refused declaration holds a different
+// number of slots.
+func snapshotOf[M proto.Message](messages []M) []M {
+	taken := make([]M, 0, len(messages))
+	for _, message := range messages {
+		taken = append(taken, proto.CloneOf(message))
+	}
+	return taken
+}
+
+func requireUnchanged[M proto.Message](t *testing.T, before, after []M, what string) {
+	t.Helper()
+	require.Len(t, after, len(before), "a refused resolution leaves %s as it was", what)
+	for i := range before {
+		require.True(t, proto.Equal(before[i], after[i]), "a refused resolution leaves %s as it was, and entry %d changed", what, i)
+	}
+}
+
 func slottedSpec(t *testing.T) *runnable.OperationSpec {
 	t.Helper()
 	_, spec, err := runnable.PackageFromMethod(ingestionFiles(t, slottedOperation()), ingestLocation(), ingestOwner(), applyText)
@@ -203,9 +224,10 @@ func TestResolveScopeSlotsValidatesTheDeclarationItWasHanded(t *testing.T) {
 	require.Len(t, good.InvokeScopes, 4)
 
 	// Each case is an invalid declaration that a resolver skipping the
-	// receiver's validation would RESOLVE, or refuse for the wrong reason: the
-	// selection below is shaped to satisfy every later rule, so only the
-	// declaration rule, applied first, can be what refuses it.
+	// receiver's validation would RESOLVE, or refuse for the wrong reason, and
+	// each names the rule it exercises by that rule's own message: a rule
+	// deleted from the declaration validation must not be able to hide behind a
+	// later refusal that answers the same input for another reason.
 	type refusal struct {
 		change     func(*runnable.OperationSpec)
 		selections []*runnablev0.ScopeSelection
@@ -224,14 +246,19 @@ func TestResolveScopeSlotsValidatesTheDeclarationItWasHanded(t *testing.T) {
 			slotSelections(),
 			`scope slot "model" requires action "read" twice`},
 		"wildcard required action": {
-			func(s *runnable.OperationSpec) { s.RequiredScopeSlots[1].RequiredActions = []string{"*"} },
-			func() []*runnablev0.ScopeSelection {
-				s := slotSelections()
-				s[1].Invoke = []*basev0.WorkScopeV1{scope("acme.tool/search", []string{"search-1"}, "*")}
-				s[1].Lookup = nil
-				return s
-			}(),
-			`scope slot "tools" requires action "*", which is not a usable value`},
+			func(s *runnable.OperationSpec) { s.RequiredScopeSlots[0].RequiredActions = []string{"*"} },
+			slotSelections(),
+			`scope slot "model" requires action "*", which is not a usable value`},
+		"more required actions than may be bound": {
+			func(s *runnable.OperationSpec) {
+				required := make([]string, 0, runnable.MaxScopeActions+1)
+				for i := range runnable.MaxScopeActions + 1 {
+					required = append(required, fmt.Sprintf("act_%d", i))
+				}
+				s.RequiredScopeSlots[0].RequiredActions = required
+			},
+			slotSelections(),
+			fmt.Sprintf(`scope slot "model" requires %d actions; at most %d may be required`, runnable.MaxScopeActions+1, runnable.MaxScopeActions)},
 		"duplicate slot names": {
 			func(s *runnable.OperationSpec) { s.RequiredScopeSlots[1].Name = "model" },
 			slotSelections()[:1],
@@ -249,10 +276,19 @@ func TestResolveScopeSlotsValidatesTheDeclarationItWasHanded(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			spec := direct()
 			test.change(spec)
+			// The invariant is purity, not a slot count: a resolver that cleared
+			// the slots before validating them would hide a malformed
+			// declaration behind an ordinary scope validation that never saw it.
+			// Each case leaves the receiver holding something different, so the
+			// witness is a copy taken before the call and compared after it, for
+			// the selections as much as for the receiver.
+			declared := snapshotOf(spec.RequiredScopeSlots)
+			selected := snapshotOf(test.selections)
 			_, err := spec.ResolveScopeSlots(test.selections)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
 			require.ErrorContains(t, err, test.rule)
-			require.Len(t, spec.RequiredScopeSlots, len(spec.RequiredScopeSlots), "a refused resolution leaves the receiver as it was")
+			requireUnchanged(t, declared, spec.RequiredScopeSlots, "the receiver's slots")
+			requireUnchanged(t, selected, test.selections, "the selections")
 		})
 	}
 	var nilSpec *runnable.OperationSpec
@@ -323,10 +359,18 @@ func TestScopeSelectionsAreRefusedWhenTheyDoNotAnswerTheSlots(t *testing.T) {
 			s[1].Invoke[0].ResourceIds = []string{"search-1", "search-1"}
 			return s
 		}, `scope slot "tools" invoke scope over kind "acme.tool/search" names resource id "search-1" twice`},
+		"more resource ids than may be selected": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
+			ids := make([]string, 0, runnable.MaxScopeResourceIds+1)
+			for i := range runnable.MaxScopeResourceIds + 1 {
+				ids = append(ids, fmt.Sprintf("search-%d", i))
+			}
+			s[1].Invoke[0].ResourceIds = ids
+			return s
+		}, fmt.Sprintf(`scope slot "tools" invoke scope over kind "acme.tool/search" names %d resource ids; at most %d may be selected`, runnable.MaxScopeResourceIds+1, runnable.MaxScopeResourceIds)},
 		"no actions": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
 			s[1].Invoke[0].Actions = nil
 			return s
-		}, `names 0 actions; between 1 and`},
+		}, `scope slot "tools" invoke scope over kind "acme.tool/search" names 0 actions; between 1 and`},
 		"wildcard action": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
 			s[1].Invoke[0].Actions = []string{"*"}
 			return s
@@ -334,7 +378,7 @@ func TestScopeSelectionsAreRefusedWhenTheyDoNotAnswerTheSlots(t *testing.T) {
 		"repeated action": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
 			s[1].Invoke[0].Actions = []string{"call", "call"}
 			return s
-		}, `names action "call" twice`},
+		}, `scope slot "tools" invoke scope over kind "acme.tool/search" names action "call" twice`},
 		// The lookup is kept so that only the required-action rule can refuse this.
 		"missing required action": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
 			s[0].Invoke[0].Actions = []string{"read"}

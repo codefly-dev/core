@@ -2,6 +2,7 @@ package runnable_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,10 +53,7 @@ func TestDecodeOperationRefusesWhatItDoesNotDeclare(t *testing.T) {
 	require.ErrorContains(t, err, "outside (0,")
 	// The bound is on the bytes, before anything is parsed: a document larger
 	// than a prepared binding may be is refused as a size, not as a syntax.
-	oversize := append([]byte(`{"audience":"`), append(make([]byte, runnable.MaxPreparedBytes), []byte(`"}`)...)...)
-	for i := range oversize[13 : len(oversize)-2] {
-		oversize[13+i] = 'a'
-	}
+	oversize := []byte(`{"audience":"` + strings.Repeat("a", runnable.MaxPreparedBytes) + `"}`)
 	_, err = runnable.DecodeOperation(oversize)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "outside (0,")
