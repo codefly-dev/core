@@ -514,10 +514,17 @@ func (l *Dependencies) resolveEnvironment(ctx context.Context) (*sessionEnvironm
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to get dependencies network mappings")
 	}
-	// The session holds no composition to judge an edge with; the CLI that
-	// served these mappings judged them with its provenance. Select what the
-	// declared dependencies consume, and judge nothing.
-	dependencyMappings, err := resources.SelectDependencyNetworkMappings(svc.ServiceDependencies, mappings.NetworkMappings)
+	// The session judges what it was served with the composition it can find:
+	// the workspace that composed its module, else the one above its directory.
+	// A provider that forgot to judge is not trusted; a session with no
+	// composition is refused rather than handed addresses nobody judged.
+	provenance := resources.Provenance(nil)
+	if mod.Composition() != nil {
+		provenance = mod.Composition()
+	} else if workspace, err := resources.FindWorkspaceUpFrom(ctx, l.dir); err == nil && workspace != nil {
+		provenance = workspace
+	}
+	dependencyMappings, err := resources.ResolveDependencyNetworkMappings(provenance, mod.Name, svc.ServiceDependencies, mappings.NetworkMappings)
 	if err != nil {
 		return nil, w.Wrapf(err, "failed to resolve dependencies network mappings")
 	}

@@ -867,10 +867,12 @@ func configuration(origin, name, key, value string, secret bool) *basev0.Configu
 // A deploy hands the consumer its dependencies' addresses just as a run does.
 // The agent holds no composition to judge an edge with — the verdict takes the
 // composition's provenance, and this process has none — so it SELECTS what its
-// declared dependencies consume among the mappings the CLI handed it, and
-// judges nothing: the CLI is the provider, and it refused what the composition
-// refuses before handing anything over (services.RuntimeInstance, with the
-// workspace in hand). What the dependencies do not name is not wired.
+// declared dependencies consume among the mappings it was handed, and judges
+// nothing: the provider is core's CLI-side wrapper, services.BuilderInstance.Deploy,
+// which refuses what the composition refuses (a private cross-module endpoint,
+// a solution's route) before anything reaches this agent —
+// TestBuilderDeployRefusesDependencyOnPrivateEndpoint in services/ holds that.
+// What the dependencies do not name is not wired.
 func TestDeployKustomizeSelectsWhatTheProviderJudged(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")

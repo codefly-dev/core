@@ -850,9 +850,10 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	if deployment.Inputs.DependencyEndpoints {
 		dependencyMappings := req.GetDependenciesNetworkMappings()
 		if s.Service != nil {
-			// The agent holds no composition to judge an edge with; the CLI that
-			// handed these mappings judged them with its provenance. Select what
-			// the declared dependencies consume, and judge nothing.
+			// The agent holds no composition to judge an edge with; the CLI-side
+			// wrapper that handed these mappings (services.BuilderInstance.Deploy)
+			// judged them with the composition's provenance. Select what the
+			// declared dependencies consume, and judge nothing.
 			dependencyMappings, err = resources.SelectDependencyNetworkMappings(s.Service.ServiceDependencies, dependencyMappings)
 			if err != nil {
 				return fail(err)

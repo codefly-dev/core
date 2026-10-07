@@ -204,7 +204,22 @@ func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.Build
 	return resp, err
 }
 
+// Deploy hands the builder the consumer's dependency addresses judged, exactly
+// as Init and Start do for the runtime: the CLI driving this wrapper is the
+// provider, it holds the composition, and the one verdict runs here with that
+// provenance — a private endpoint of another module, or a solution's route to
+// a module, never reaches the deployment. The builder agent on the far side
+// holds no composition and selects what it is handed.
 func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+	if req != nil && len(req.GetDependenciesNetworkMappings()) > 0 && instance.Service != nil && instance.Module != nil {
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+		if err != nil {
+			return nil, err
+		}
+		filtered := proto.Clone(req).(*builderv0.DeploymentRequest)
+		filtered.DependenciesNetworkMappings = mappings
+		req = filtered
+	}
 	resp, err := instance.Builder.Deploy(ctx, req)
 	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.DeploymentStatus_ERROR {
 		err = operationStatusFailure("builder deploy", resp.State.Message, resp.State.Failure)

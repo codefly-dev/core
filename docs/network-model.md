@@ -317,10 +317,15 @@ whatever the endpoint's visibility grants, on every path alike; a `build` or
 `schema` edge reads the module's contract and is not that route, and an edge
 between two solutions or from a module is judged by visibility alone. No
 provenance, or an end the composition does not carry, is
-`resources.ErrUnjudgedProvenance`: a reader that holds no composition — an
-agent filtering the mappings the CLI handed it, an SDK session — does not ask
-the verdict; it selects what its declared dependencies consume
-(`resources.SelectDependencyNetworkMappings`) from what the provider judged.
+`resources.ErrUnjudgedProvenance`. The providers of a consumer's dependency
+addresses judge with the composition they hold: core's CLI-side wrappers
+(`services.RuntimeInstance.Init`/`Start` and `services.BuilderInstance.Deploy`,
+with the instance's workspace) and the SDK dependency session (the workspace
+that composed its module, else the one above its directory). The one reader
+that holds no composition — the builder agent filtering the mappings the
+wrapper handed it — does not ask the verdict; it selects what its declared
+dependencies consume (`resources.SelectDependencyNetworkMappings`) from what
+the provider judged.
 Every declarer of `service-dependencies` is judged and asks alike — a service,
 a job, a runnable, an application (`Module.LoadDependencyDeclarers`) — so a
 module's runnable that calls an internal endpoint gets its entry and a

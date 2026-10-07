@@ -1,6 +1,7 @@
 package resources_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -189,4 +190,26 @@ func composition(modules ...string) *resources.Workspace {
 		workspace.Modules = append(workspace.Modules, &resources.ModuleReference{Name: module})
 	}
 	return workspace
+}
+
+// A verdict asked with no composition at all is refused, never answered on the
+// assumption that whoever asked is a module: the provenance is in the
+// signature so that a reader cannot leave it out and get an answer.
+func TestTheVerdictRefusesToJudgeWithoutAComposition(t *testing.T) {
+	dependency := &resources.ServiceDependency{Module: "saas", Name: "accounts", Kind: resources.DependencyKindRuntime}
+	err := resources.JudgeCompositionEdge(nil, "wiki", "saas", dependency)
+	if !errors.Is(err, resources.ErrUnjudgedProvenance) {
+		t.Fatalf("nil provenance must be refused as unjudged, got %v", err)
+	}
+	mappings := []*basev0.NetworkMapping{mappingOf("http", resources.VisibilityInternal)}
+	if _, err := resources.ResolveDependencyNetworkMappings(nil, "web", secretsDep("http"), mappings); !errors.Is(err, resources.ErrUnjudgedProvenance) {
+		t.Fatalf("the hand-out with no composition must be refused as unjudged, got %v", err)
+	}
+	if _, err := resources.ConsumedDependencyEndpoints(nil, "web", secretsDep("http")[0], []*basev0.Endpoint{mappings[0].Endpoint}); !errors.Is(err, resources.ErrUnjudgedProvenance) {
+		t.Fatalf("the verdict with no composition must be refused as unjudged, got %v", err)
+	}
+	// And a composition that does not carry one end is the same refusal.
+	if _, err := resources.ResolveDependencyNetworkMappings(composition("web"), "web", secretsDep("http"), mappings); !errors.Is(err, resources.ErrUnjudgedProvenance) {
+		t.Fatalf("a producer the composition does not carry must be refused as unjudged, got %v", err)
+	}
 }
