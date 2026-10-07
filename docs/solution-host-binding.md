@@ -232,7 +232,15 @@ documents share before the typed decoder reads a field — a null vendored list
 would otherwise read as "no declaration", and a merge key would carry a second
 list in after every check had run — and its `kind` is dispatched from the node
 first, so a composition descriptor is refused by name rather than for its
-first unknown key. This is a **breaking change for manifests on disk** that
+first unknown key. Each of those five node-level refusals — a duplicate key, a
+merge key, an explicit null, a fractional number, a key that is not a name —
+wraps `resources.ErrInvalidManifestWireForm`, and each has a fixture that
+notices when it stops carrying it. The sentinel says the wire form was CHECKED
+and refused, and nothing beyond that: the `kind` and the vestigial keys are
+refused on the same tree, in the same function, and do not carry it, and only a
+closed schema reaches the rules at all (`Module` today), so a service manifest
+whose wire form is invalid does not match it — `endpoints: ~` there loads,
+reading as nothing declared. This is a **breaking change for manifests on disk** that
 carry a key no model declares: they loaded before and do not now. The two such keys found
 in practice, `project` and `domain` — written by an earlier workspace layout,
 declared by no version of the model and read by nothing — are refused with
