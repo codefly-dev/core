@@ -32,17 +32,22 @@ runs from that template's directory, preserving its relative output paths.
 Use the Makefile's pinned buf for lint and breaking checks, independently of
 the companion-based generation command.
 
-Python bindings (for the CLI) are produced via `generated/buf.gen.yaml` where
-the BSR remote plugins are reachable. The owning command supports that template:
+The Python package under `generated/python/codefly-cli` is generated from the
+same schema by the BSR remote Python plugins, through the same companion, with
+`generated/buf.gen.python.yaml` — the Python plugins on their own, so the Go
+output is untouched and nothing has to be restored afterwards:
 
 ```bash
-codefly generate proto --proto ./proto --output ./generated --local --template buf.gen.yaml --path codefly/base/v0/artifact_execution.proto --path codefly/services/builder/v0/builder.proto --path codefly/services/solution/v0/solution.proto --path codefly/base/v0/runnable.proto
-codefly generate proto --proto ./proto --output ./generated --local
+codefly generate proto --proto ./proto --output ./generated --template buf.gen.python.yaml
 ```
 
-The second command restores the pinned local Go plugin output after the shared
-remote template. Include new transitive Python imports: Builder references
-`runnable.proto`, so regenerating Builder alone is not a complete Python SDK.
+Regenerate the whole package, never a `--path` subset: a Python module imports
+its transitive dependencies (Builder references `runnable.proto`), and a
+partial regeneration leaves modules at different schema versions. CI runs the
+Python contract tests (`generated/python/codefly-cli/codefly_cli/tests/test_*_contract.py`,
+as `unittest.TestCase` classes — bare `test_*` functions are not collected)
+against the committed package, so a schema change ships with its Python
+regeneration in the same PR.
 
 ## External schema dependencies
 
