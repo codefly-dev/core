@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -55,7 +56,8 @@ func WithInsecure() Option {
 	return func(c *config) { c.insecure = true }
 }
 
-// Enable creates an OTEL TelemetryProvider and registers it with wool.
+// Enable creates an OTEL TelemetryProvider and registers it with wool, and
+// installs the W3C TraceContext propagator so a trace survives a service hop.
 // If no options are provided, it reads from standard OTEL environment variables
 // (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_SERVICE_NAME).
 func Enable(opts ...Option) (*Provider, error) {
@@ -110,6 +112,18 @@ func Enable(opts ...Option) (*Provider, error) {
 		sdktrace.WithResource(res),
 	)
 	otel.SetTracerProvider(tp)
+	// The instrumentation this package installs — the otelgrpc handlers of
+	// GRPCServerOptions and GRPCDialOptions, and otelhttp or otelconnect in a
+	// service that reaches for them — carries a trace across a hop through the
+	// GLOBAL propagator, whose default injects and extracts nothing. Without
+	// this, two fully instrumented services exchange no traceparent and each
+	// side opens a trace of its own for one request (#712).
+	//
+	// TraceContext alone, never a composite with Baggage: baggage is
+	// caller-supplied key/value data that would then be forwarded verbatim
+	// across a trust boundary, which is a decision this package does not get to
+	// make on a service's behalf.
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	provider := &Provider{tp: tp}
 	wool.RegisterTelemetry(provider)

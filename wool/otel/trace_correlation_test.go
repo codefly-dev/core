@@ -12,6 +12,7 @@ import (
 	wooltel "github.com/codefly-dev/core/wool/otel"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -60,12 +61,13 @@ func (c *capture) only(t *testing.T) *wool.Log {
 // network; tests that care about export capture stdout explicitly.
 func realBackend(t *testing.T, name string) *wooltel.Provider {
 	t.Helper()
-	// Enable replaces TWO global registries — OTEL's tracer provider and wool's
-	// telemetry provider — and Shutdown restores neither. Leaving them pointing
-	// at a shut-down backend means a later ordinary wool.New sees telemetry
-	// enabled and starts an invalid span from it. Restoring both is part of the
-	// fixture, and these tests stay serial (no t.Parallel) because the state
-	// they mutate is process-wide.
+	// Enable replaces THREE pieces of global state — OTEL's tracer provider,
+	// OTEL's text-map propagator and wool's telemetry provider — and Shutdown
+	// restores none of them. Leaving the first two pointing at a shut-down
+	// backend means a later ordinary wool.New sees telemetry enabled and starts
+	// an invalid span from it. Restoring all three is part of the fixture, and
+	// these tests stay serial (no t.Parallel) because the state they mutate is
+	// process-wide.
 	previousTracerProvider := otel.GetTracerProvider()
 	previousTelemetry := wool.GetTelemetry()
 	backend, err := wooltel.Enable(wooltel.WithStdout(), wooltel.WithServiceName(name))
@@ -73,12 +75,20 @@ func realBackend(t *testing.T, name string) *wooltel.Provider {
 	t.Cleanup(func() {
 		_ = backend.Shutdown(context.Background())
 		otel.SetTracerProvider(previousTracerProvider)
+		// NOT the propagator captured before Enable. OTEL's global propagator is
+		// a delegating wrapper whose delegate can be assigned exactly once, so
+		// once Enable has installed TraceContext, handing that same wrapper back
+		// restores an object that still injects traceparent — a restore that
+		// silently does nothing. An empty composite is what the untouched global
+		// delegates to, so it is the default's behaviour rather than a stand-in
+		// for it.
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
 		wool.RegisterTelemetry(previousTelemetry)
 	})
 	return backend
 }
 
-// The fixture's own contract, asserted on BOTH registries it replaces.
+// The fixture's own contract, asserted on EVERY global it replaces.
 //
 // A live SDK provider is installed first on purpose. OTEL's global starts as a
 // delegating provider whose spans are invalid and non-recording — exactly what a
@@ -86,7 +96,12 @@ func realBackend(t *testing.T, name string) *wooltel.Provider {
 // unobservable and deleting the restore from realBackend leaves this suite green.
 // Only a provider that was working beforehand makes "left wedged" distinguishable
 // from "restored". These tests stay serial: the state is process-wide.
-func TestTheFixtureRestoresBothGlobals(t *testing.T) {
+//
+// The propagator half needs no live prior value for the same reason inverted:
+// Enable turning propagation ON is observable against the default, which injects
+// nothing. That assertion is also the one that says a process which never calls
+// Enable is left exactly as it was — no traceparent on any carrier.
+func TestTheFixtureRestoresEveryGlobalItReplaces(t *testing.T) {
 	live := sdktrace.NewTracerProvider(
 		sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(tracetest.NewInMemoryExporter())),
 	)
@@ -110,6 +125,20 @@ func TestTheFixtureRestoresBothGlobals(t *testing.T) {
 		"a shut-down provider still answers, with spans that record nothing")
 	require.Nil(t, wool.GetTelemetry(), "wool's registry must be restored too")
 	require.False(t, wool.TelemetryEnabled())
+
+	// A valid, sampled span context is what an instrumented client would hold,
+	// and the only kind TraceContext injects at all.
+	sampled := oteltrace.ContextWithSpanContext(context.Background(), oteltrace.NewSpanContext(
+		oteltrace.SpanContextConfig{
+			TraceID:    oteltrace.TraceID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+			SpanID:     oteltrace.SpanID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+			TraceFlags: oteltrace.FlagsSampled,
+		},
+	))
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(sampled, carrier)
+	require.Empty(t, carrier, "the global propagator must be left injecting nothing")
+	require.Empty(t, otel.GetTextMapPropagator().Fields())
 }
 
 // THE REGRESSION THIS CHANGE WAS REOPENED FOR.
