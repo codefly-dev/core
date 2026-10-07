@@ -468,8 +468,8 @@ Core implements no `BundleVerifier` and never will — signing is keyless over a
 workload identity, verifying is sigstore-go against an identity policy and a
 trust root the verifier holds — but core owns the **ordering**, and the
 unverified path is now unexpressible rather than merely discouraged. The
-`workcontext` half of this same change uses `*Verified`, `*Authenticated` and
-`*Inspected` for exactly this reason.
+`workcontext` half of this same change uses `*Verified`, `*Authenticated`,
+`*Inspected` and `*Decoded` for exactly this reason.
 
 A malformed document now has three layers between it and `Admit`: it has no
 canonical encoding, so `Carrier` will not wrap it, so it cannot be delivered.
