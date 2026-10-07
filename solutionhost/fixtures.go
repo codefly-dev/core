@@ -293,10 +293,36 @@ func Fixtures() []Fixture {
 			Message: "are the same digest",
 		},
 		{
+			Name: "endpoint-exposure-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Reason: "a public endpoint that states no exposure; reach is not addressing, so a platform standing up a route " +
+				"has no field left to read and a reader that took the reach for the answer would conflate the two again",
+			Message: `declares visibility "public" and states no exposure`,
+		},
+		{
+			Name: "endpoint-exposure-beyond-reach", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Reason: "an outward address allocated for an endpoint nothing outside the workspace may call; the two axes are " +
+				"read on their own, which is not the same as being independent",
+			Message: `states exposure "public" with visibility "internal"`,
+		},
+		{
+			Name: "endpoint-exposure-unknown", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Reason: "an exposure the resource model does not define; addressing has one vocabulary, and a route with hostnames " +
+				"is the deployment's ingress rather than a third spelling here",
+			Message: `exposure "ingress" is neither "public" nor "none"`,
+		},
+		{
 			Name: "superseded-schema", Type: DocumentTypePresence, Outcome: OutcomeRejected,
 			Rule:    ruleSchema,
 			Reason:  "a v1 presence document; there is no v1 reader, and the refusal is a version skew rather than an invalid document",
 			Message: `"codefly/solution-host-binding/v1" (this Core reads`,
+		},
+		{
+			Name: "superseded-schema-v2", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleSchema,
+			Reason: "a complete v2 presence document: sound on its own terms, and unable to say whether an address was " +
+				"allocated for its public endpoint, because v2 had no field for it. v2 is the shape delivery " +
+				"repositories hold, so the cutover is a refusal to pin rather than discover",
+			Message: `"codefly/solution-host-binding/v2" (this Core reads`,
 		},
 		{
 			Name: "build-size", Type: DocumentTypePresence,

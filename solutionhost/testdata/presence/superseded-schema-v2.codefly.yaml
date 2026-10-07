@@ -1,10 +1,18 @@
-# REJECTED. The accepted build-size document followed by a second YAML
-# document in the same file. A delivery document is one document; a reader that
-# took the first and ignored the rest would sign something other than the file.
-schema: codefly/solution-host-binding/v3
+# REJECTED, ErrSchema. A complete v2 presence document, delivered unchanged: it
+# is well-formed, it is internally consistent, and every rule of its own schema
+# holds. What it cannot do is say whether an address was allocated for its
+# public endpoint, because v2 had no field for it, and reading it as a v3
+# document would mean guessing that fact from the reach — the conflation the
+# two axes exist to remove.
+#
+# It is shipped because v2 is the shape delivery repositories actually hold, so
+# the cutover is a refusal a consumer pins rather than discovers. ErrSchema and
+# not ErrInvalid: this document is not malformed, it is older than the reader,
+# and the fix is a re-render by whoever wrote it.
+schema: codefly/solution-host-binding/v2
 kind: solution
 binding: alpha-region-a-01
-generation: 5
+generation: 4
 ownership_domain: alpha
 envelope_revision: 7
 host:
@@ -63,19 +71,3 @@ endpoints:
     module: alpha
     api: http
     visibility: public
-    exposure: public
-build_size:
-  languages:
-    - language: go
-      backend: 12416
-      frontend: 0
-    - language: typescript
-      backend: 0
-      frontend: 8102
-  backend: 12416
-  frontend: 8102
-  total: 20518
-  vendored:
-    - web/src/clients
----
-extra: 1

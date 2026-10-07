@@ -1,7 +1,7 @@
 # REJECTED, ErrStaleGeneration. The document is well formed on its own; it is
 # an older generation than the one applied, and an older generation is refused
 # rather than merged into the applied one.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
 generation: 3

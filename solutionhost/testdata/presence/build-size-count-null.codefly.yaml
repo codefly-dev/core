@@ -1,7 +1,7 @@
 # REJECTED. The total is written as an explicit null. yaml decodes a null into a
 # count as zero and reports nothing, so a null total would reach the rules as
 # a zero nobody wrote; the document-wide rule refuses a null anywhere first.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -63,6 +63,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

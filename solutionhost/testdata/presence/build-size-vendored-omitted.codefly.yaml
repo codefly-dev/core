@@ -1,7 +1,7 @@
 # REJECTED. The section declares no vendored list. "Nothing was excluded" is a
 # fact the manifest's author stated by declaring nothing, and the document
 # repeats it as an empty list; an absent list says nothing at all.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -63,6 +63,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

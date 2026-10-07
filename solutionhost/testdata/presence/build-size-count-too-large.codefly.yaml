@@ -2,7 +2,7 @@
 # count can hold. Written plainly, yaml tags such a number a float and
 # SATURATES it to the largest count, which the whole-number rule refuses; this
 # explicit spelling is the one that reaches the count itself.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -64,6 +64,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

@@ -1,10 +1,14 @@
-# REJECTED. The accepted build-size document followed by a second YAML
-# document in the same file. A delivery document is one document; a reader that
-# took the first and ignored the rest would sign something other than the file.
+# REJECTED, ErrInvalid. A v3 document whose public endpoint states no exposure.
+#
+# Reach is not addressing: "web" is reachable from outside the workspace, and
+# whether an address was allocated for it is a separate fact with two possible
+# answers. A document that leaves it out gives a platform standing up a route
+# no field to read, and a reader that took "public" for the answer would
+# rebuild the conflation the two axes were split to remove.
 schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
-generation: 5
+generation: 4
 ownership_domain: alpha
 envelope_revision: 7
 host:
@@ -63,19 +67,3 @@ endpoints:
     module: alpha
     api: http
     visibility: public
-    exposure: public
-build_size:
-  languages:
-    - language: go
-      backend: 12416
-      frontend: 0
-    - language: typescript
-      backend: 0
-      frontend: 8102
-  backend: 12416
-  frontend: 8102
-  total: 20518
-  vendored:
-    - web/src/clients
----
-extra: 1

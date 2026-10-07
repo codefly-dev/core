@@ -1,11 +1,17 @@
-# ACCEPTED, DecisionCurrent. A complete v2 presence document for a solution
+# ACCEPTED, DecisionCurrent. A complete v3 presence document for a solution
 # instance, and the generation FixtureHost has already applied.
 #
 # Three digests appear here and all three are different objects: the release
 # digest pins the release, each artifact digest pins the bytes delivery wrote,
 # and the workload's image digest pins the OCI image manifest the container
 # must be running. Nothing in the model compares any of them to another.
-schema: codefly/solution-host-binding/v2
+#
+# The two endpoints read on two axes. "api" is reachable across the workspace
+# and addressed from nowhere outside it, so it states its reach and no
+# exposure. "web" is reachable from outside and an address was allocated for
+# it — the route above fronts that surface — so it states both. Neither field
+# is the address itself.
+schema: codefly/solution-host-binding/v3
 kind: solution
 binding: alpha-region-a-01
 generation: 4
@@ -67,3 +73,4 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
