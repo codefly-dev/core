@@ -40,9 +40,9 @@ func twoModules() *resources.Workspace {
 // A deploy hands the consumer its dependencies' addresses just as a run does,
 // so the CLI-side wrapper refuses an endpoint the producer keeps private —
 // here, with the composition in hand, exactly as Init and Start do. This is
-// the property main held in the builder agent; it lives in the provider now,
-// because the agent holds no composition to judge an edge with. The incident
-// it guards: a workspace that failed static validation, failed to run, and
+// the property main held only in the builder agent; the provider holds it
+// first now, and the agent judges again with the workspace above the
+// directory it was loaded from. The incident it guards: a workspace that failed static validation, failed to run, and
 // still deployed, shipping the private endpoint's address to the cluster.
 func TestBuilderDeployRefusesDependencyOnPrivateEndpoint(t *testing.T) {
 	client := &recordingBuilderClient{}
@@ -127,4 +127,38 @@ func TestInstanceHandoutsJudgeWithTheComposition(t *testing.T) {
 	require.ErrorIs(t, err, resources.ErrUnjudgedProvenance)
 	_, err = (&BuilderInstance{Instance: unjudged, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})
 	require.ErrorIs(t, err, resources.ErrUnjudgedProvenance)
+}
+
+// Addresses handed to an instance with no module or no service are refused as
+// unjudged on every hand-out — never passed through to the agent on the
+// assumption that nothing needed judging.
+func TestInstanceHandoutsRefuseAddressesTheyCannotJudge(t *testing.T) {
+	ctx := context.Background()
+	mappings := []*basev0.NetworkMapping{
+		{Endpoint: &basev0.Endpoint{Module: "saas", Service: "accounts", Name: "usage", Api: "grpc", Visibility: resources.VisibilityInternal}},
+	}
+	for name, instance := range map[string]*Instance{
+		"no module":  {Workspace: twoModules(), Service: accountsConsumer("usage")},
+		"no service": {Workspace: twoModules(), Module: &resources.Module{Name: "platform"}},
+		"neither":    {Workspace: twoModules()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runtime := &recordingRuntimeClient{}
+			_, err := (&RuntimeInstance{Instance: instance, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Start(ctx, &runtimev0.StartRequest{DependenciesNetworkMappings: mappings})
+			require.ErrorIs(t, err, resources.ErrUnjudgedProvenance, "start")
+			require.Nil(t, runtime.request)
+			_, err = (&RuntimeInstance{Instance: instance, Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtime}}).Init(ctx, &runtimev0.InitRequest{DependenciesNetworkMappings: mappings})
+			require.ErrorIs(t, err, resources.ErrUnjudgedProvenance, "init")
+			builder := &recordingBuilderClient{}
+			_, err = (&BuilderInstance{Instance: instance, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{DependenciesNetworkMappings: mappings})
+			require.ErrorIs(t, err, resources.ErrUnjudgedProvenance, "deploy")
+			require.Nil(t, builder.request)
+		})
+	}
+	// With no addresses there is nothing to judge, and the request goes
+	// through as it is.
+	builder := &recordingBuilderClient{}
+	_, err := (&BuilderInstance{Instance: &Instance{}, Builder: &agentservices.BuilderAgent{BuilderClient: builder}}).Deploy(ctx, &builderv0.DeploymentRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, builder.request)
 }

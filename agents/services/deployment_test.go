@@ -34,6 +34,7 @@ func TestDeployKustomizeCollectsInputsAndRunsPreparation(t *testing.T) {
 	base := &Base{
 		Wool:                 wool.Get(ctx),
 		Identity:             identity,
+		Location:             agentWorkspace(t, "module", "saas"),
 		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
 		EnvironmentVariables: manager,
 		Service: &resources.Service{ServiceDependencies: []*resources.ServiceDependency{{
@@ -864,68 +865,94 @@ func configuration(origin, name, key, value string, secret bool) *basev0.Configu
 	}
 }
 
-// A deploy hands the consumer its dependencies' addresses just as a run does.
-// The agent holds no composition to judge an edge with — the verdict takes the
-// composition's provenance, and this process has none — so it SELECTS what its
-// declared dependencies consume among the mappings it was handed, and judges
-// nothing: the provider is core's CLI-side wrapper, services.BuilderInstance.Deploy,
-// which refuses what the composition refuses (a private cross-module endpoint,
-// a solution's route) before anything reaches this agent —
-// TestBuilderDeployRefusesDependencyOnPrivateEndpoint in services/ holds that.
-// What the dependencies do not name is not wired.
-func TestDeployKustomizeSelectsWhatTheProviderJudged(t *testing.T) {
+// A deploy hands the consumer its dependencies' addresses just as a run does,
+// and the builder agent judges them with the composition its service was
+// loaded from — the workspace above the service directory — exactly as the
+// CLI-side wrapper that handed them did: a private endpoint of another module
+// is refused (the incident this guards: a workspace that failed static
+// validation, failed to run, and still deployed, shipping the private
+// endpoint's address to the cluster), a solution's route to a module is
+// refused, an agent loaded outside any workspace refuses the addresses as
+// unjudged, and what the dependencies do not name is not wired.
+func TestDeployKustomizeJudgesWithTheWorkspaceItWasLoadedFrom(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
 
-	manager := resources.NewEnvironmentVariableManager()
-	manager.SetIdentity(&basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
-	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
-	base := &Base{
-		Wool:                 wool.Get(ctx),
-		Identity:             identity,
-		Information:          &Information{Service: resources.ToServiceWithCase(identity)},
-		EnvironmentVariables: manager,
-		Service: &resources.Service{ServiceDependencies: []*resources.ServiceDependency{{
-			Module:    "saas",
-			Name:      "accounts",
-			Endpoints: []*resources.EndpointReference{{Name: "usage"}},
-		}}},
-		loaded: true,
+	deploy := func(t *testing.T, location string, mappings ...*basev0.NetworkMapping) (*builderv0.DeploymentResponse, string) {
+		t.Helper()
+		manager := resources.NewEnvironmentVariableManager()
+		manager.SetIdentity(&basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
+		identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"}
+		base := &Base{
+			Wool:                 wool.Get(ctx),
+			Identity:             identity,
+			Location:             location,
+			Information:          &Information{Service: resources.ToServiceWithCase(identity)},
+			EnvironmentVariables: manager,
+			Service: &resources.Service{ServiceDependencies: []*resources.ServiceDependency{{
+				Module:    "saas",
+				Name:      "accounts",
+				Kind:      resources.DependencyKindRuntime,
+				Endpoints: []*resources.EndpointReference{{Name: "usage"}},
+			}}},
+			loaded: true,
+		}
+		base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
+		builder := &BuilderWrapper{Base: base}
+		base.Builder = builder
+		destination := t.TempDir()
+		req := &builderv0.DeploymentRequest{
+			Environment: &basev0.Environment{Name: "test", Fixture: "dev-admin"},
+			Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
+				Kubernetes: &builderv0.KubernetesDeployment{
+					Namespace:   "codefly",
+					Destination: destination,
+					Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+				},
+			}},
+			DependenciesNetworkMappings: mappings,
+		}
+		response, err := builder.DeployKustomize(ctx, req, KustomizeDeployment{
+			EnvironmentVariables: manager,
+			Templates:            templates,
+			Inputs:               DeploymentInputs{DependencyEndpoints: true},
+			Parameters:           struct{ Name string }{Name: "prepared"},
+		})
+		require.NoError(t, err, "a refusal is reported as a failed deployment, not a transport error")
+		manifest := ""
+		if raw, err := os.ReadFile(filepath.Join(destination, "base", "config-map.yaml")); err == nil {
+			manifest = string(raw)
+		}
+		return response, manifest
 	}
-	base.SetDockerImage(resources.NewDockerImage("example/service:1.2.3"))
-	builder := &BuilderWrapper{Base: base}
-	base.Builder = builder
-
-	destination := t.TempDir()
-	req := &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: "test", Fixture: "dev-admin"},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
-				Namespace:   "codefly",
-				Destination: destination,
-				Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
-			},
-		}},
-		DependenciesNetworkMappings: []*basev0.NetworkMapping{
-			dependencyMapping("saas", "accounts", "usage", "grpc", 19090, resources.VisibilityInternal),
-			dependencyMapping("saas", "accounts", "admin", "grpc", 19091, resources.VisibilityInternal),
-		},
+	usage := func(visibility string) *basev0.NetworkMapping {
+		return dependencyMapping("saas", "accounts", "usage", "grpc", 19090, visibility)
 	}
 
-	response, err := builder.DeployKustomize(ctx, req, KustomizeDeployment{
-		EnvironmentVariables: manager,
-		Templates:            templates,
-		Inputs:               DeploymentInputs{DependencyEndpoints: true},
-		Parameters:           struct{ Name string }{Name: "prepared"},
+	t.Run("a private endpoint of another module is refused", func(t *testing.T) {
+		response, _ := deploy(t, agentWorkspace(t, "module", "saas"), usage(resources.VisibilityPrivate))
+		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Contains(t, response.GetState().GetMessage(), `private to module "saas"`)
 	})
-	require.NoError(t, err)
-	require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
-	configMapManifest, err := os.ReadFile(filepath.Join(destination, "base", "config-map.yaml"))
-	require.NoError(t, err)
-	manifest := string(configMapManifest)
-	require.Contains(t, manifest, `CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC: "accounts:19090"`, "the endpoint the dependency names is wired")
-	require.NotContains(t, manifest, "CODEFLY__ENDPOINT__SAAS__ACCOUNTS__ADMIN__GRPC", "an endpoint the dependency does not name is not wired, whatever the provider handed over")
+	t.Run("a permitted endpoint is wired, and only what the dependency names", func(t *testing.T) {
+		response, manifest := deploy(t, agentWorkspace(t, "module", "saas"),
+			usage(resources.VisibilityInternal),
+			dependencyMapping("saas", "accounts", "admin", "grpc", 19091, resources.VisibilityInternal))
+		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+		require.Contains(t, manifest, `CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC: "accounts:19090"`)
+		require.NotContains(t, manifest, "CODEFLY__ENDPOINT__SAAS__ACCOUNTS__ADMIN__GRPC")
+	})
+	t.Run("a solution's route to a module is refused", func(t *testing.T) {
+		response, _ := deploy(t, solutionWorkspace(t), usage(resources.VisibilityInternal))
+		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Contains(t, response.GetState().GetMessage(), resources.ErrSolutionReachesThroughHost.Error())
+	})
+	t.Run("an agent loaded outside any workspace refuses the addresses as unjudged", func(t *testing.T) {
+		response, _ := deploy(t, t.TempDir(), usage(resources.VisibilityInternal))
+		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Contains(t, response.GetState().GetMessage(), resources.ErrUnjudgedProvenance.Error())
+	})
 }
 
 // exposureFor states the exposure a public endpoint never omits.
@@ -934,4 +961,40 @@ func exposureFor(visibility resources.Visibility) string {
 		return resources.ExposureNone
 	}
 	return ""
+}
+
+// agentWorkspace writes a modules-layout workspace carrying the modules the
+// deploy tests name, and returns the service directory the agent is loaded
+// from — the composition the agent judges dependency addresses with.
+func agentWorkspace(t *testing.T, modules ...string) string {
+	t.Helper()
+	root := t.TempDir()
+	manifest := "name: workspace\nlayout: modules\nmodules:\n"
+	for _, module := range modules {
+		manifest += "  - name: " + module + "\n"
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "workspace.codefly.yaml"), []byte(manifest), 0o600))
+	service := filepath.Join(root, "modules", "module", "services", "service")
+	require.NoError(t, os.MkdirAll(service, 0o755))
+	return service
+}
+
+// solutionWorkspace writes a product composing a platform workspace (module
+// saas) and declaring the agent's module as a SOLUTION, and returns the
+// service directory the agent is loaded from.
+func solutionWorkspace(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	write := func(relative, content string) {
+		file := filepath.Join(root, relative)
+		require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o755))
+		require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
+	}
+	write("core/workspace.codefly.yaml", "name: platform-core\nlayout: modules\nmodules:\n  - name: saas\n")
+	write("core/modules/saas/module.codefly.yaml", "kind: module\nname: saas\nservices: []\n")
+	write("product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: platform-core\n    path: ../core\nsolutions:\n  - name: module\n    path: solutions/module\n")
+	write("product/solutions/module/module.codefly.yaml", "kind: module\nname: module\nservices: []\n")
+	service := filepath.Join(root, "product", "solutions", "module", "services", "service")
+	require.NoError(t, os.MkdirAll(service, 0o755))
+	return service
 }

@@ -209,9 +209,13 @@ func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.Build
 // provider, it holds the composition, and the one verdict runs here with that
 // provenance — a private endpoint of another module, or a solution's route to
 // a module, never reaches the deployment. The builder agent on the far side
-// holds no composition and selects what it is handed.
+// judges them again, with the workspace above the directory it was loaded
+// from.
 func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
-	if req != nil && len(req.GetDependenciesNetworkMappings()) > 0 && instance.Service != nil && instance.Module != nil {
+	if len(req.GetDependenciesNetworkMappings()) > 0 {
+		if err := instance.judgesHandouts(); err != nil {
+			return nil, err
+		}
 		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
 		if err != nil {
 			return nil, err
@@ -317,9 +321,12 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 // Delegations to the gRPC RuntimeClient
 
 func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
-	if len(req.GetDependenciesNetworkMappings()) > 0 && instance.Service != nil && instance.Module != nil {
+	if len(req.GetDependenciesNetworkMappings()) > 0 {
 		// The CLI is the provider of a service's dependency addresses, and it
 		// holds the composition: the hand-out is judged with its provenance.
+		if err := instance.judgesHandouts(); err != nil {
+			return nil, err
+		}
 		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
 		if err != nil {
 			return nil, err
@@ -336,7 +343,10 @@ func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRe
 }
 
 func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
-	if req != nil && instance.Service != nil && instance.Module != nil {
+	if len(req.GetDependenciesNetworkMappings()) > 0 {
+		if err := instance.judgesHandouts(); err != nil {
+			return nil, err
+		}
 		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
 		if err != nil {
 			return nil, err
@@ -641,6 +651,17 @@ func (instance *Instance) composition() resources.Provenance {
 	}
 	if instance.Module != nil && instance.Module.Composition() != nil {
 		return instance.Module.Composition()
+	}
+	return nil
+}
+
+// judgesHandouts is the precondition of handing an instance any dependency
+// address: the module and the service the addresses are for must be known,
+// or there is nothing to judge the edge with — and addresses nobody judged
+// are refused as unjudged, never passed through to the agent.
+func (instance *Instance) judgesHandouts() error {
+	if instance.Module == nil || instance.Service == nil {
+		return fmt.Errorf("%w: dependency addresses were handed to an instance with no module or no service to judge them for", resources.ErrUnjudgedProvenance)
 	}
 	return nil
 }

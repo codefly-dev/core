@@ -889,9 +889,9 @@ func PermittedDependencyEndpoints(provenance Provenance, consumerModule string, 
 // static passes and every path that hands a consumer an address resolve through
 // it, with the composition's provenance in the signature, so a composition
 // validation refuses can never be one a run resolves — a solution's route to
-// a module included. A reader that holds no composition does not call this; it
-// selects what a provider that did has already judged
-// (SelectDependencyNetworkMappings).
+// a module included. There is no reader that holds no composition: a holder
+// of addresses that can find none refuses them as unjudged
+// (ErrUnjudgedProvenance) rather than wiring them.
 //
 // A dependency that names endpoints consumes exactly those, and naming one the
 // producer does not grant is an error naming that endpoint: the consumer's

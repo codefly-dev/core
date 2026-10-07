@@ -159,30 +159,14 @@ func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, 
 // consults — the edge by the provenance of its two ends, then each endpoint by
 // visibility — so what this returns is what gets injected as the consumer's
 // environment, and therefore what its SDK exposes, and the permitted set and
-// the exposed set cannot drift. Every PROVIDER of a consumer's dependency
-// addresses — the run and the deploy the CLI drives, with the workspace in
-// hand — resolves through here; a reader that holds no composition selects
-// from what a provider judged (SelectDependencyNetworkMappings) and never
-// judges for itself.
+// the exposed set cannot drift. Every HOLDER of a consumer's dependency
+// addresses resolves through here — the run and the deploy the CLI drives,
+// with the workspace in hand; the builder agent, with the workspace above the
+// directory it was loaded from; the SDK session, with the one that composed
+// its module. There is no selecting from what another holder judged: a holder
+// that can find no composition refuses the addresses as unjudged
+// (ErrUnjudgedProvenance) rather than wiring them.
 func ResolveDependencyNetworkMappings(provenance Provenance, consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
-	return selectDependencyNetworkMappings(dependencies, mappings, func(dependency *ServiceDependency, endpoints []*basev0.Endpoint) ([]*basev0.Endpoint, error) {
-		return ConsumedDependencyEndpoints(provenance, consumerModule, dependency, endpoints)
-	})
-}
-
-// SelectDependencyNetworkMappings is the consumer's side of the hand-out: among
-// the mappings a provider judged and delivered, the ones the declared
-// dependencies consume. It judges nothing — an agent filtering the mappings
-// the CLI handed it, or an SDK session reading them back from the CLI, holds
-// no composition to judge an edge with, and this package does not answer the
-// verdict's question without one. The provider is what refuses: every
-// address here came through ResolveDependencyNetworkMappings with the
-// composition's provenance.
-func SelectDependencyNetworkMappings(dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
-	return selectDependencyNetworkMappings(dependencies, mappings, SelectServiceDependencyEndpoints)
-}
-
-func selectDependencyNetworkMappings(dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping, consumed func(*ServiceDependency, []*basev0.Endpoint) ([]*basev0.Endpoint, error)) ([]*basev0.NetworkMapping, error) {
 	endpoints := make([]*basev0.Endpoint, 0, len(mappings))
 	for _, mapping := range mappings {
 		if mapping == nil || mapping.Endpoint == nil {
@@ -201,7 +185,7 @@ func selectDependencyNetworkMappings(dependencies []*ServiceDependency, mappings
 		if !dependency.Kind.Participates(StageRun) {
 			continue
 		}
-		selectedEndpoints, err := consumed(dependency, endpoints)
+		selectedEndpoints, err := ConsumedDependencyEndpoints(provenance, consumerModule, dependency, endpoints)
 		if err != nil {
 			return nil, err
 		}
