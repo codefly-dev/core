@@ -204,10 +204,7 @@ func TestEveryTableRuleHoldsExactlyOneCondition(t *testing.T) {
 // to the SOURCE rather than to a list: every refusal in buildsize.go, and
 // every refusal in the decoder (decodeStrict), must be the refusal some
 // rejected presence fixture actually receives. A condition added without a
-// counterexample fails here at its own line. The decoder's alias-chain bound
-// is declared defensive: yaml.v3 refuses a self-containing anchor before this
-// reader sees it, and a chain of a hundred anchors is not a document anyone
-// writes, so it is unreached rather than unwitnessed and is asserted to stay so.
+// counterexample fails here at its own line.
 func TestEveryNewRefusalIsReachedByAFixture(t *testing.T) {
 	sites, err := conditions.Sites(".", "ErrInvalid", "ErrSchema")
 	if err != nil {
@@ -220,7 +217,6 @@ func TestEveryNewRefusalIsReachedByAFixture(t *testing.T) {
 		}
 	}
 	defensive := map[string]string{
-		"name one another more deeply than this reader follows; an anchor chain that long, or a cycle, has no meaning to resolve": "yaml.v3 refuses a self-containing anchor at parse, and no fixture carries a hundred-anchor chain",
 		"build size is required":               "Validate(nil); forced in TestABuildSizeIsValidatedOnItsOwn, a Go call no document can make",
 		": trailing input after the document:": "a decoder error after the first document that is not a second document; two-documents reaches the sibling condition, and yaml.v3 yields no other error there for well-formed input",
 	}

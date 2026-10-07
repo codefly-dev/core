@@ -93,6 +93,7 @@ func TestAModuleManifestIsHeldToTheSharedNodeChecks(t *testing.T) {
 	ctx := context.Background()
 	for name, manifest := range map[string]struct{ content, message string }{
 		"null vendored list": {"kind: module\nname: saas\nservices:\n  - name: api\nvendored: ~\n", "explicit null at vendored"},
+		"null services list": {"kind: module\nname: saas\nservices: ~\n", "explicit null at services"},
 		"merge key":          {"kind: module\nname: saas\nservices:\n  - name: api\nvendored: [a]\n<<:\n  vendored: [b]\n", "uses the merge key"},
 		"fraction":           {"kind: module\nname: saas\nservices:\n  - name: api\nweight: 1.5\n", "not a whole number"},
 	} {
@@ -104,6 +105,13 @@ func TestAModuleManifestIsHeldToTheSharedNodeChecks(t *testing.T) {
 			_, err := LoadModuleFromDir(ctx, dir)
 			if err == nil || !strings.Contains(err.Error(), manifest.message) {
 				t.Fatalf("the manifest must be refused naming %q: %v", manifest.message, err)
+			}
+			// The null refusal names the vendored consequence only on that
+			// path: a null under vendored would count the kit, a null under
+			// services has nothing to say about kits.
+			vendoredClause := strings.Contains(err.Error(), "would count the kit")
+			if wants := strings.HasPrefix(manifest.message, "explicit null at vendored"); err != nil && strings.Contains(err.Error(), "explicit null") && vendoredClause != wants {
+				t.Fatalf("the vendored consequence must appear exactly when the null is under vendored: %v", err)
 			}
 		})
 	}

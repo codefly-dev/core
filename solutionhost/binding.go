@@ -499,9 +499,6 @@ func decodeStrict[T any](data []byte, label, schema, without string, nodes func(
 	case defect.Kind == wire.FractionalNumber && without != ruleWholeNumbers:
 		return nil, fmt.Errorf("%w: the number %s at %s is not a whole number; yaml converts a fraction to an integer before any rule sees it, so this would have been validated as %s truncated — no field of this document takes a fraction",
 			ErrInvalid, defect.Detail, defect.Path, defect.Detail)
-	case defect.Kind == wire.AliasTooDeep:
-		return nil, fmt.Errorf("%w: the anchors at %s name one another more deeply than this reader follows; an anchor chain that long, or a cycle, has no meaning to resolve",
-			ErrInvalid, defect.Path)
 	case defect.Kind == wire.KeyNotAName && without != ruleKeyIsAName:
 		return nil, fmt.Errorf("%w: the mapping at %s carries a key that is not a name (%q); these mappings are keyed by name",
 			ErrInvalid, defect.Path, defect.Detail)

@@ -23,9 +23,6 @@ const (
 	NullNode
 	// KeyNotAName is a mapping key that is not a non-empty scalar name.
 	KeyNotAName
-	// AliasTooDeep is an anchor chain longer than this package follows, which
-	// a cycle also produces.
-	AliasTooDeep
 	// FractionalNumber is a number written with a fraction or an exponent,
 	// which no model here ever declares.
 	FractionalNumber
@@ -84,10 +81,11 @@ func Check(node *yaml.Node) Defect {
 	return (&walker{walked: map[*yaml.Node]bool{}}).walk(node, "", 0)
 }
 
-// maxAliasDepth bounds alias resolution. An anchor may name another anchor, so
-// following them is recursion over a chain the document controls, and a chain
-// deeper than this must end in a refusal rather than a stack overflow. A cycle
-// is yaml.v3's to refuse, and it does, as it parses.
+// maxAliasDepth bounds alias following, defensively: yaml.v3 gives an alias no
+// properties, so a chain is one step long and a cycle is refused as the
+// document parses (`anchor value contains itself`), and neither ever reaches
+// this walk. The bound keeps a loop over a node graph a document controls from
+// being unbounded in principle; it names no rule, because nothing can reach it.
 const maxAliasDepth = 100
 
 // A walker visits each node of the document ONCE. The checks are context-free
@@ -111,14 +109,9 @@ func (w *walker) walk(node *yaml.Node, at string, depth int) Defect {
 	// an integer field as 443 — a port no declaration states. The target is
 	// walked once: at its anchor, which precedes every alias to it in the
 	// document, or here if it somehow did not. A cycle never reaches this
-	// walk: yaml.v3 refuses a self-containing anchor as it parses the
-	// document. The depth bound is for a chain of anchors naming one another
-	// more deeply than this reader follows.
+	// walk: yaml.v3 refuses a self-containing anchor as it parses.
 	if node.Kind == yaml.AliasNode {
-		if depth >= maxAliasDepth {
-			return Defect{Kind: AliasTooDeep, Path: Where(at)}
-		}
-		if w.walked[node.Alias] {
+		if depth >= maxAliasDepth || w.walked[node.Alias] {
 			return Defect{}
 		}
 		return w.walk(node.Alias, at, depth+1)
@@ -145,9 +138,9 @@ func (w *walker) walk(node *yaml.Node, at string, depth int) Defect {
 			// Keys had their own null check and nothing else, so an anchored
 			// fraction written as a key was never examined — and a key is
 			// where an anchor is most often declared.
-			resolved, defect := resolve(key, at, 0)
-			if defect.Kind != NoDefect {
-				return defect
+			resolved := Resolve(key)
+			if resolved == nil {
+				return Defect{Kind: KeyNotAName, Path: Where(at)}
 			}
 			if isMergeKey(resolved) {
 				return Defect{Kind: MergeKey, Path: Where(at)}
@@ -219,33 +212,21 @@ func isMergeKey(node *yaml.Node) bool {
 		(node.Tag == "" || node.Tag == "!" || node.Tag == "!!merge")
 }
 
-// Resolve follows an alias to the node it names, bounded as the walk bounds
-// it, and returns nil when the chain is deeper than this package follows. It
-// is THE way a reader that looks a key or a value up in the tree before typed
+// Resolve follows an alias to the node it names, bounded, and returns nil for
+// a nil node or a chain the bound cuts, which yaml.v3 never produces. It is
+// THE way a reader that looks a key or a value up in the tree before typed
 // decoding sees what the typed decoder will see: a reader that read a node's
 // written text and skipped aliases let `description: &k composed-module` and
 // `kind: *k` load as a module of kind composed-module — the written kind was
 // an alias, the resolved one the name the dispatch refuses.
 func Resolve(node *yaml.Node) *yaml.Node {
-	resolved, defect := resolve(node, "", 0)
-	if defect.Kind != NoDefect {
-		return nil
-	}
-	return resolved
-}
-
-// resolve follows an alias to the node it names, bounded.
-func resolve(node *yaml.Node, at string, depth int) (*yaml.Node, Defect) {
-	for node != nil && node.Kind == yaml.AliasNode {
+	for depth := 0; node != nil && node.Kind == yaml.AliasNode; depth++ {
 		if depth >= maxAliasDepth {
-			return nil, Defect{Kind: AliasTooDeep, Path: Where(at)}
+			return nil
 		}
-		node, depth = node.Alias, depth+1
+		node = node.Alias
 	}
-	if node == nil {
-		return nil, Defect{Kind: KeyNotAName, Path: Where(at)}
-	}
-	return node, Defect{}
+	return node
 }
 
 func join(at, name string) string {

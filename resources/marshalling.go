@@ -271,8 +271,6 @@ func checkManifestNodes[C Configuration](content []byte) error {
 		return fmt.Errorf("cannot unmarshal %s configuration: the manifest carries an explicit null at %s %s; %s — an absent key is absent, and an empty list is written []", label, defect.Path, defect.Detail, consequence)
 	case wire.FractionalNumber:
 		return fmt.Errorf("cannot unmarshal %s configuration: the number %s at %s is not a whole number; no field of a module manifest takes a fraction", label, defect.Detail, defect.Path)
-	case wire.AliasTooDeep:
-		return fmt.Errorf("cannot unmarshal %s configuration: the anchors at %s name one another more deeply than this loader follows", label, defect.Path)
 	case wire.KeyNotAName:
 		return fmt.Errorf("cannot unmarshal %s configuration: the mapping at %s carries a key that is not a name (%q)", label, defect.Path, defect.Detail)
 	}

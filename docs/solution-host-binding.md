@@ -272,8 +272,8 @@ not again at each alias, because following every alias made a 579-byte
 document of fan-ten aliases take two minutes in the loader the CLI runs on
 every manifest, where yaml.v3's own aliasing guard, which runs only in the
 typed decoder after this walk, had answered at once; a cycle is yaml.v3's to
-refuse, as it parses, and the depth bound is for a chain of anchors deeper
-than the reader follows. Every reader that looks a key or a value up in the
+refuse, as it parses, so no reader here names one — the rule that once did was
+unreachable and is gone. Every reader that looks a key or a value up in the
 tree before typed decoding resolves both through the one wire helper, so what
 it dispatches on is what the typed decoder will read — a `kind` written as an
 alias is the string it names. They exist because yaml.v3 REPAIRS what it cannot
