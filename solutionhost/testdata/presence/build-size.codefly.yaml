@@ -2,11 +2,11 @@
 # the build's size facts: lines of code per language, each line counted
 # backend or frontend, the totals, and the paths the manifest declared vendored
 # — which the producer excluded and lists, so a reader can see what was left
-# out. The section is optional in v3: a document without it is an older
+# out. The section is OPTIONAL: a document without it is an older
 # producer's and is accepted (every other presence fixture is one); a document
 # that carries it is held to the build-size rules, and a producer writes it
 # through Marshal, which reads it back, never by hand.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

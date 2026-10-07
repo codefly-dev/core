@@ -1,7 +1,7 @@
 # REJECTED. A row names a language this Core does not know. The language set is
 # closed and read from core; a reader refuses a name it cannot place rather
 # than displaying a number under it.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

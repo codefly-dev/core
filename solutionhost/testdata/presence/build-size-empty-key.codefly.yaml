@@ -1,6 +1,6 @@
 # REJECTED. The section carries a key that is not a name. Its mappings are keyed
 # by name, and a reader cannot act on a nameless key.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

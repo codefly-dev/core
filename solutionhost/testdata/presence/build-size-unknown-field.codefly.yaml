@@ -2,7 +2,7 @@
 # is refused, never dropped: dropped, the document would state that nothing was
 # excluded while the manifest's author declared an exclusion, and the count
 # would silently include the kit.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

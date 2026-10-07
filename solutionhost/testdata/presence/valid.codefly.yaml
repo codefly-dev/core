@@ -11,7 +11,7 @@
 # exposure. "web" is reachable from outside and an address was allocated for
 # it — the route above fronts that surface — so it states both. Neither field
 # is the address itself.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 4

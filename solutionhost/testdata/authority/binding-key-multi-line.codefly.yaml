@@ -1,9 +1,13 @@
-# REJECTED. The valid authority document with a merge key at its top level. The
-# authority reader shares the presence reader's node checks, so the refusal of
-# a merge key — a mapping the typed decoder would apply after every rule had
-# run — is inherited here rather than implemented twice.
+
+# REJECTED, ErrInvalid, rule authority-binding-key-name. A binding key written
+# across two lines.
+#
+# The key is the name a host installs the binding under and the module reads it
+# back by, and it is inside the unit of authority so the envelope bounds it by
+# the same exact-element inclusion that bounds the audience and the scope. A key
+# nothing can compare is a binding a host could install under any name it
+# resolved the value to.
 schema: codefly/solution-authority/v1
-<<: {}
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -43,7 +47,7 @@ principals:
         scope: read
         queue: read.default
         namespace: alpha-region-a-01
-        binding_key: alpha-read
+        binding_key: "alpha\nread"
         lookup_method: directory
   - principal: principal:reporter
     bindings:

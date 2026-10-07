@@ -5,7 +5,7 @@
 # answers. A document that leaves it out gives a platform standing up a route
 # no field to read, and a reader that took "public" for the answer would
 # rebuild the conflation the two axes were split to remove.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 4

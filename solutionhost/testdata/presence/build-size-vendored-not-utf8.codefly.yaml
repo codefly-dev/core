@@ -4,7 +4,7 @@
 # with U+FFFD — so the signed document would name a path the counter never
 # excluded. A path the signing encoding cannot carry byte-for-byte is not a
 # path; valid UTF-8 is part of the one grammar.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

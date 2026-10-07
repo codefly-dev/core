@@ -1,9 +1,9 @@
-# REJECTED. The valid authority document with a merge key at its top level. The
-# authority reader shares the presence reader's node checks, so the refusal of
-# a merge key — a mapping the typed decoder would apply after every rule had
-# run — is inherited here rather than implemented twice.
+
+# REJECTED, ErrInvalid, rule authority-ceiling-action-unique. One action
+# permitted twice on the same resource kind — the duplicate rule applied one
+# level down, and refused for the same reason: it widens nothing and moves the
+# canonical bytes, so two renders of one contract would not digest alike.
 schema: codefly/solution-authority/v1
-<<: {}
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -25,6 +25,7 @@ scope_ceilings:
     actions:
       - read
       - write
+      - read
   - resource_kind: summary
     actions:
       - read

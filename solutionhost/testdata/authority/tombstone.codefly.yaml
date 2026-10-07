@@ -2,9 +2,13 @@
 # a generation, exactly as withdrawal of presence is: an unreadable mount can
 # never be read as "withdraw every authority".
 #
-# A withdrawn generation names no principal, approves no build and is effective
-# from no generation. Carrying any of those would be a withdrawal that still
-# says what it grants, and a host would have to decide which half meant it.
+# A withdrawn generation names no principal, approves no build, is effective
+# from no generation and declares nothing about the module it withdraws — its
+# queues, namespaces and scope ceilings are written empty. Carrying any of
+# those would be a withdrawal that still says what it grants, and a host would
+# have to decide which half meant it. Empty and not omitted: every generation
+# states all three, so there is no absent form for a reader to read as "owns
+# nothing".
 schema: codefly/solution-authority/v1
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
@@ -14,4 +18,7 @@ host:
   component: solution-host
 ownership_domain: alpha
 envelope_revision: 7
+queues: []
+namespaces: []
+scope_ceilings: []
 removed: true

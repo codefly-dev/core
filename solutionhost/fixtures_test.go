@@ -62,7 +62,9 @@ func TestEveryShippedFileIsADescribedFixture(t *testing.T) {
 			require.Emptyf(t, shipped.Rule, "%s/%s is accepted and names a rule", shipped.Type, shipped.Name)
 		}
 		if shipped.Rule != "" {
-			require.Equalf(t, solutionhost.DocumentTypePresence, shipped.Type, "%s names a build-size rule", shipped.Name)
+			require.Containsf(t, []solutionhost.DocumentType{
+				solutionhost.DocumentTypePresence, solutionhost.DocumentTypeAuthority,
+			}, shipped.Type, "%s names a rule of a table no document of its type is held to", shipped.Name)
 		}
 	}
 	require.Equal(t, onDisk, described)

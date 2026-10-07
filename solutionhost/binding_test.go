@@ -34,7 +34,7 @@ func authority(t *testing.T, name string) []byte {
 func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	document := valid(t)
 
-	require.Equal(t, solutionhost.SchemaPresenceV3, document.Schema)
+	require.Equal(t, solutionhost.SchemaPresenceV1, document.Schema)
 	require.Equal(t, solutionhost.KindSolution, document.Kind)
 	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
 	require.Equal(t, uint64(4), document.Generation)
@@ -291,28 +291,27 @@ func mustParse(t *testing.T, data []byte) *solutionhost.SolutionHostBinding {
 	return document
 }
 
-// There is no reader for a superseded schema. The refusal is a version skew and
-// not an invalid document, because the two call for different responses: an
-// older document is not malformed, it is older than the reader, and the fix is
-// a re-render by whoever wrote it.
+// Each reader reads exactly ONE schema string and refuses every other as a
+// version skew rather than an invalid document, because the two call for
+// different responses: a document the reader does not read is not malformed,
+// and the fix is a re-render by whoever wrote it.
 //
-// v2 is the one that matters now: it is the shape delivery repositories hold,
-// and it is sound on its own terms — what it cannot do is say whether an
-// address was allocated for a public endpoint. A reader that answered that
-// from the reach would rebuild the conflation the two axes were split to
-// remove, so the document is refused rather than read with the fact guessed.
-func TestASupersededSchemaIsRefusedAsVersionSkew(t *testing.T) {
-	for _, fixture := range []string{"superseded-schema", "superseded-schema-v2"} {
-		t.Run(fixture, func(t *testing.T) {
-			_, err := solutionhost.Parse(presence(t, fixture))
-			require.ErrorIs(t, err, solutionhost.ErrSchema)
-			require.NotErrorIs(t, err, solutionhost.ErrInvalid)
-			require.Contains(t, err.Error(), solutionhost.SchemaPresenceV3)
-		})
-	}
+// There is no reader for any other string — no older one, no newer one, and
+// not the other document type's. The string is inside the signed canonical
+// encoding, so it is what binds a signature to the document TYPE: a presence
+// document declaring the authority string is refused here rather than admitted
+// under a signature that verifies.
+func TestOnlyOneSchemaStringIsReadAndEveryOtherIsVersionSkew(t *testing.T) {
+	_, err := solutionhost.Parse(presence(t, "other-document-type"))
+	require.ErrorIs(t, err, solutionhost.ErrSchema)
+	require.NotErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV1)
 
 	document := valid(t)
-	for _, schema := range []string{"", "codefly/solution-host-binding/v1", "codefly/solution-host-binding/v2", "codefly/solution-host-binding/v4", solutionhost.SchemaAuthorityV1} {
+	for _, schema := range []string{
+		"", "codefly/solution-host-binding", "codefly/solution-host-binding/v4",
+		solutionhost.SchemaAuthorityV1, solutionhost.SchemaSignedV1,
+	} {
 		document.Schema = schema
 		require.ErrorIsf(t, document.Validate(), solutionhost.ErrSchema, "schema %q", schema)
 	}
@@ -325,7 +324,7 @@ func TestUnknownFieldIsRejectedSoANewFieldIsAVersionStep(t *testing.T) {
 }
 
 func TestSecondYAMLDocumentIsRejected(t *testing.T) {
-	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV3+"\n")...)
+	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV1+"\n")...)
 	_, err := solutionhost.Parse(data)
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.ErrorContains(t, err, "holds more than one document")

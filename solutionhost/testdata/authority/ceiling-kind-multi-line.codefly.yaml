@@ -1,9 +1,12 @@
-# REJECTED. The valid authority document with a merge key at its top level. The
-# authority reader shares the presence reader's node checks, so the refusal of
-# a merge key — a mapping the typed decoder would apply after every rule had
-# run — is inherited here rather than implemented twice.
+
+# REJECTED, ErrInvalid, rule authority-ceiling-kind. A scope ceiling whose
+# resource kind is written across two lines.
+#
+# The kind is half of what a ceiling bounds — a credential's scopes are
+# "<kind>:<action>" — so a kind nothing can compare is a ceiling that bounds
+# nothing while reading as a bound. That is the failure mode a ceiling exists to
+# foreclose, which is why it is refused here and not normalized.
 schema: codefly/solution-authority/v1
-<<: {}
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -21,7 +24,7 @@ namespaces:
   - alpha-region-a-01
   - alpha-region-a-audit
 scope_ceilings:
-  - resource_kind: record
+  - resource_kind: "record\nsummary"
     actions:
       - read
       - write

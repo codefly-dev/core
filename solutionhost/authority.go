@@ -15,6 +15,14 @@ import (
 // presence schema it is part of the signed canonical encoding, which is what
 // binds a signature to the document TYPE: an authority document cannot be
 // presented as a presence document under a signature that verifies.
+//
+// v1 is NOT accepted. It carried one queue and one namespace per binding and
+// had no field for the subject module's own scope ceilings, so a module
+// contract declaring a second queue, a second namespace or a ceiling of its
+// own could not be rendered at all — the renderer refused it rather than drop
+// it. The declarations are required here, which is what makes the step
+// unavoidable: two Cores reading one schema string differently is skew no pin
+// can detect, because the string is what the fleet pins.
 const SchemaAuthorityV1 = "codefly/solution-authority/v1"
 
 // AuthorityFileName is the conventional name of a rendered authority document.
@@ -116,6 +124,44 @@ type AuthorityDocument struct {
 	// which is what keeps authority from preceding the delivery it describes.
 	EffectiveFrom uint64 `yaml:"effective_from" json:"effective_from"`
 
+	// Queues are the queues the SUBJECT module owns — the module the presence
+	// binding this authority is granted over runs. REQUIRED, and written []
+	// when it owns none.
+	//
+	// It is the module's own inventory and not a grant to any principal listed
+	// below, which is why it sits here rather than on a binding: a module
+	// contract declares its queues once, for the module, and copying one onto
+	// every unit of authority made a module-level fact look per-unit and left
+	// a module owning two queues with nothing to render at all.
+	//
+	// Written out rather than omitted for the reason the contract writes it
+	// out: an absent list and "there are none" must not look the same, because
+	// a renderer that forgot the field would otherwise deliver "owns nothing"
+	// and a host would enforce it. Here there is no absent form to confuse —
+	// every generation states all three, and a withdrawal states them empty.
+	//
+	// Containment is the binding rule one level up: every queue named here
+	// must be one the envelope allows, so the list cannot widen into "any
+	// queue" any more than an absent Queue could.
+	Queues []string `yaml:"queues" json:"queues"`
+
+	// Namespaces are the audit namespaces the subject module emits under,
+	// which an operator binds to its principal. REQUIRED on the same terms as
+	// Queues, and bounded the same way.
+	Namespaces []string `yaml:"namespaces" json:"namespaces"`
+
+	// ScopeCeilings are the subject module's own permission vocabulary: the
+	// widest authority any credential naming the module's resources may carry.
+	// REQUIRED on the same terms as Queues, and written [] when the module
+	// contributes no vocabulary of its own.
+	//
+	// It is the one declaration here a host must have in order to refuse
+	// minting past it, and a module cannot be trusted to bound itself — so it
+	// is held against the envelope exactly as a grant is. A document widening
+	// its own ceiling would be a document declaring its own ceiling, which is
+	// the one shape an envelope must never take.
+	ScopeCeilings []ScopeCeiling `yaml:"scope_ceilings" json:"scope_ceilings"`
+
 	// Principals are the principals this document grants to, each with the
 	// bindings it holds. At least one unless this generation is a tombstone.
 	Principals []PrincipalAuthority `yaml:"principals,omitempty" json:"principals,omitempty"`
@@ -136,6 +182,18 @@ type PrincipalAuthority struct {
 	// a principal listed with no binding is a row that grants nothing and
 	// reads as if it grants something.
 	Bindings []AuthorityBinding `yaml:"bindings" json:"bindings"`
+}
+
+// ScopeCeiling is one resource kind of the subject module's own vocabulary and
+// the actions it contributes on it. A ceiling permits something, so it names at
+// least one action: an entry with none bounds nothing while reading as a bound.
+type ScopeCeiling struct {
+	// ResourceKind is the module's own resource kind the actions apply to.
+	ResourceKind string `yaml:"resource_kind" json:"resource_kind"`
+
+	// Actions are the actions permitted on that kind. At least one, each
+	// declared once.
+	Actions []string `yaml:"actions" json:"actions"`
 }
 
 // AuthorityBinding is one unit of authority: an operation audience, a scope, a
@@ -186,6 +244,23 @@ type AuthorityBinding struct {
 	// Queue: absence grants no namespace-scoped authority and never every
 	// namespace.
 	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+
+	// BindingKey is the key the host installs this binding under. OPTIONAL,
+	// on the same terms as Queue: absence means no key is installed, never
+	// "whatever key the host likes". It is part of the unit rather than beside
+	// it, so the envelope bounds it by the same exact-element inclusion that
+	// bounds the audience and the scope — a host substituting a key would be
+	// installing a binding nobody reviewed under a name something else reads.
+	BindingKey string `yaml:"binding_key,omitempty" json:"binding_key,omitempty"`
+
+	// LookupMethod is how this binding's lookup operation discovers what it
+	// looks up. OPTIONAL: absence means the binding redeems no lookup.
+	//
+	// Flat, and not a nested mapping with one key, because a nested one would
+	// have two spellings for absence — no mapping, and a mapping with an empty
+	// method — and the two would digest differently while meaning the same
+	// thing.
+	LookupMethod string `yaml:"lookup_method,omitempty" json:"lookup_method,omitempty"`
 }
 
 // Envelope is the ceiling an authority document is validated against: WHO MAY
@@ -220,6 +295,27 @@ type Envelope struct {
 
 	// ApprovedBuilds are the builds this envelope has approved.
 	ApprovedBuilds []ImageDigest
+
+	// Queues, Namespaces and ScopeCeilings are what the ceiling allows the
+	// SUBJECT module to declare about itself. A document's declaration is
+	// inside the ceiling when every element of it is held here — the same
+	// exact element inclusion that bounds a grant, and the reason the
+	// document's lists cannot widen: a queue the administrator never allowed
+	// is outside the envelope however the document spells it, and a ceiling
+	// the module wrote wider than the one reviewed is refused rather than
+	// read as the module's own business.
+	Queues []string
+
+	// Namespaces are the audit namespaces the ceiling allows.
+	Namespaces []string
+
+	// ScopeCeilings are the vocabulary entries the ceiling allows, each held
+	// whole: the same resource kind and the same set of actions. A ceiling
+	// permitting {read} is not granted by one permitting {read, write}, for
+	// the reason a scope is not granted by a wider scope — the subsumption
+	// predicate that would allow it is the one thing this package refuses to
+	// own.
+	ScopeCeilings []ScopeCeiling
 }
 
 // AppliedStateReader is the host's applied state, read BY CORE under a binding
@@ -254,12 +350,16 @@ type EnvelopeGrant struct {
 // strict, for the same reason Parse is: an unknown field is an error, so a
 // document cannot smuggle a key, a certificate or an envelope of its own past a
 // verifier that would otherwise ignore it.
-func ParseAuthority(data []byte) (*AuthorityDocument, error) {
-	document, err := decodeStrict[AuthorityDocument](data, "solution authority", SchemaAuthorityV1, "", nil)
+func ParseAuthority(data []byte) (*AuthorityDocument, error) { return parseAuthority(data, "") }
+
+// parseAuthority is ParseAuthority with one named rule deleted, for the
+// self-check that proves each rule is protected by a fixture; "" deletes none.
+func parseAuthority(data []byte, without string) (*AuthorityDocument, error) {
+	document, err := decodeStrict[AuthorityDocument](data, "solution authority", SchemaAuthorityV1, without, nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := document.Validate(); err != nil {
+	if err := document.validate(without); err != nil {
 		return nil, err
 	}
 	return document, nil
@@ -277,11 +377,14 @@ func MarshalAuthority(document *AuthorityDocument) ([]byte, error) {
 // its own. Whether it is inside a ceiling is ValidateAgainst; whether it is
 // active is Activate. Neither is a property of the document alone, and both
 // need something the document must never carry.
-func (document *AuthorityDocument) Validate() error {
+func (document *AuthorityDocument) Validate() error { return document.validate("") }
+
+// validate is Validate with one named rule deleted; "" deletes none.
+func (document *AuthorityDocument) validate(without string) error {
 	if document == nil {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
-	if document.Schema != SchemaAuthorityV1 {
+	if document.Schema != SchemaAuthorityV1 && without != ruleSchema {
 		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaAuthorityV1)
 	}
 	if !opaqueIDPattern.MatchString(document.Authority) {
@@ -305,6 +408,9 @@ func (document *AuthorityDocument) Validate() error {
 	}
 	if document.EnvelopeRevision == 0 {
 		return fmt.Errorf("%w: envelope revision starts at 1; 0 names no ceiling", ErrInvalid)
+	}
+	if err := document.validateDeclarations(without); err != nil {
+		return err
 	}
 	if document.Removed {
 		for _, declared := range []struct {
@@ -406,6 +512,27 @@ func (binding AuthorityBinding) validate(principal string) error {
 	return nil
 }
 
+// same reports two scope ceilings that are the same ceiling: the same resource
+// kind permitting the same set of actions. The actions are compared as a set,
+// because the order they were written in is not part of what a ceiling permits
+// — the canonical encoding sorts them, and an envelope is Go a caller builds
+// rather than a document whose order anything pinned.
+func (ceiling ScopeCeiling) same(other ScopeCeiling) bool {
+	return ceiling.ResourceKind == other.ResourceKind &&
+		slices.Equal(sortedClone(ceiling.Actions), sortedClone(other.Actions))
+}
+
+// sortedClone is a sorted copy, so normalizing for the canonical encoding or
+// for a comparison never reorders the caller's slice. An empty result stays
+// non-nil: the canonical encoding writes [] for a declaration of none, and a
+// nil would write null, which the reader refuses.
+func sortedClone(values []string) []string {
+	out := make([]string, len(values))
+	copy(out, values)
+	sort.Strings(out)
+	return out
+}
+
 // singleLine reports a printable, whitespace-free, single-line value. That is
 // the shape of a name; it is not the shape of a PEM block, a wrapped token or a
 // pasted credential, so the check also holds the "names identities, never
@@ -445,6 +572,27 @@ func (document *AuthorityDocument) ValidateAgainst(envelope Envelope) error {
 	if !slices.Contains(envelope.ApprovedBuilds, document.ApprovedBuild) {
 		return fmt.Errorf("%w: authority %q is approved for build %s, which envelope revision %d has not approved",
 			ErrOutsideEnvelope, document.Authority, document.ApprovedBuild, envelope.Revision)
+	}
+	for _, declared := range []struct {
+		label    string
+		document []string
+		envelope []string
+	}{
+		{"queue", document.Queues, envelope.Queues},
+		{"namespace", document.Namespaces, envelope.Namespaces},
+	} {
+		for _, value := range declared.document {
+			if !slices.Contains(declared.envelope, value) {
+				return fmt.Errorf("%w: authority %q declares %s %q, which envelope revision %d does not allow the module to own",
+					ErrOutsideEnvelope, document.Authority, declared.label, value, envelope.Revision)
+			}
+		}
+	}
+	for _, ceiling := range document.ScopeCeilings {
+		if !slices.ContainsFunc(envelope.ScopeCeilings, ceiling.same) {
+			return fmt.Errorf("%w: authority %q declares a scope ceiling of %s on %q, which envelope revision %d does not hold; a ceiling is held whole, so a wider or narrower set of actions on the same kind is a different ceiling",
+				ErrOutsideEnvelope, document.Authority, strings.Join(ceiling.Actions, ","), ceiling.ResourceKind, envelope.Revision)
+		}
 	}
 	for _, principal := range document.Principals {
 		for _, binding := range principal.Bindings {
@@ -489,6 +637,16 @@ func (document *AuthorityDocument) CanonicalBytes() ([]byte, error) {
 		return nil, err
 	}
 	normalized := *document
+	normalized.Queues = sortedClone(document.Queues)
+	normalized.Namespaces = sortedClone(document.Namespaces)
+	normalized.ScopeCeilings = make([]ScopeCeiling, 0, len(document.ScopeCeilings))
+	for _, ceiling := range document.ScopeCeilings {
+		ceiling.Actions = sortedClone(ceiling.Actions)
+		normalized.ScopeCeilings = append(normalized.ScopeCeilings, ceiling)
+	}
+	sort.Slice(normalized.ScopeCeilings, func(i, j int) bool {
+		return normalized.ScopeCeilings[i].ResourceKind < normalized.ScopeCeilings[j].ResourceKind
+	})
 	normalized.Principals = make([]PrincipalAuthority, 0, len(document.Principals))
 	for _, principal := range document.Principals {
 		bindings := slices.Clone(principal.Bindings)

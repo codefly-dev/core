@@ -35,6 +35,11 @@ func TestEveryRuleIsProtectedByAFixture(t *testing.T) {
 		if fixture.Rule == "" {
 			continue
 		}
+		if fixture.Type == DocumentTypeAuthority {
+			// Held by TestEveryAuthorityRuleIsProtectedByAFixture, against the
+			// authority rule table and the authority reader.
+			continue
+		}
 		if fixture.Type != DocumentTypePresence || fixture.Outcome != OutcomeRejected {
 			t.Errorf("fixture %s/%s names rule %s but is not a rejected presence document", fixture.Type, fixture.Name, fixture.Rule)
 		}
@@ -420,5 +425,53 @@ func TestSameFileRefusesAFileReplacedBetweenLookAndOpen(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "services/api/main.go") || !strings.Contains(err.Error(), "not the regular file that was looked at") {
 		t.Fatalf("a file replaced between Lstat and Open must be refused by identity: %v", err)
+	}
+}
+
+// TestEveryAuthorityRuleIsProtectedByAFixture is the kit's self-check for the
+// authority rule table, and it is the stronger form of the presence one:
+// deleting any rule must ADMIT its witness, not merely refuse it differently.
+//
+// It can be the stronger form because each of these rules is the only thing
+// standing between its witness and acceptance — which is the property worth
+// pinning. The checks these rules replace were inline in Validate, where
+// nothing could say which one refused a document and a reader could drop any
+// of them and still pass the kit.
+func TestEveryAuthorityRuleIsProtectedByAFixture(t *testing.T) {
+	names := authorityRuleNames()
+	protected := map[string][]Fixture{}
+	for _, fixture := range FixturesOf(DocumentTypeAuthority) {
+		if fixture.Rule == "" {
+			continue
+		}
+		if fixture.Outcome != OutcomeRejected {
+			t.Errorf("fixture %s names rule %s but is accepted", fixture.Name, fixture.Rule)
+		}
+		if fixture.Message == "" {
+			t.Errorf("fixture %s names rule %s without the message its refusal carries", fixture.Name, fixture.Rule)
+		}
+		// The schema rule is the decoder's and is shared with the presence
+		// reader; the rest are this table's.
+		if fixture.Rule != ruleSchema && !slices.Contains(names, fixture.Rule) {
+			t.Errorf("fixture %s names rule %q, which no authority rule declares", fixture.Name, fixture.Rule)
+		}
+		protected[fixture.Rule] = append(protected[fixture.Rule], fixture)
+	}
+	for _, r := range authorityRules() {
+		fixtures := protected[r.name]
+		if len(fixtures) == 0 {
+			t.Errorf("authority rule %s is protected by no fixture: a reader could drop it and pass the kit", r.name)
+			continue
+		}
+		for _, fixture := range fixtures {
+			if _, err := parseAuthority(fixture.Document, ""); err == nil ||
+				!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), fixture.Message) {
+				t.Errorf("fixture %s must be refused naming %q (rule %s), got: %v", fixture.Name, fixture.Message, r.name, err)
+			}
+			if _, err := parseAuthority(fixture.Document, r.name); err != nil {
+				t.Errorf("fixture %s is still refused with rule %s deleted, so something else refuses it and the rule is not what the fixture protects: %v",
+					fixture.Name, r.name, err)
+			}
+		}
 	}
 }

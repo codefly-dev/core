@@ -3,7 +3,7 @@
 # tree has run, so the row it carries — a count spelled in octal — is repaired
 # unseen: with this rule gone the document is ACCEPTED with the row read as
 # ten, the stated totals agreeing with a number the file never wrote.
-schema: codefly/solution-host-binding/v3
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
