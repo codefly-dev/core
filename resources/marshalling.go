@@ -19,6 +19,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ErrInvalidManifestWireForm is the one sentinel for a manifest refused on its
+// YAML tree, before any field of it is read: a duplicate key, a merge key, an
+// explicit null, a fractional number, a key that is not a name. These are
+// properties of the DOCUMENT, so the refusal names no field and no model —
+// a caller that wants to know which rule fired reads the message, and a caller
+// that wants to know the manifest is unloadable matches this.
+var ErrInvalidManifestWireForm = errors.New("the manifest's wire form is invalid")
+
 // An inline host map must not override a field owned by the resource schema.
 // yaml.v3 panics for this programmer error; return an ordinary save error.
 func validateExtensionKeys(resource any, extensions map[string]YAMLValue) error {
@@ -260,19 +268,19 @@ func checkManifestNodes[C Configuration](content []byte) error {
 	label := TypeName[C]()
 	switch defect := wire.Check(&tree); defect.Kind {
 	case wire.DuplicateKey:
-		return fmt.Errorf("cannot unmarshal %s configuration: the mapping at %s names the key %q twice; a repeated key — including one written through an alias — makes the loaded manifest depend on order", label, defect.Path, defect.Detail)
+		return fmt.Errorf("%w: cannot unmarshal %s configuration: the mapping at %s names the key %q twice; a repeated key — including one written through an alias — makes the loaded manifest depend on order", ErrInvalidManifestWireForm, label, defect.Path, defect.Detail)
 	case wire.MergeKey:
-		return fmt.Errorf("cannot unmarshal %s configuration: the mapping at %s uses the merge key <<; yaml applies a merge inside its typed decoder, after every check over the tree, so a declaration carried in through one — a vendored list, a service — would shadow or be shadowed unseen; no field of a module manifest is declared by merging", label, defect.Path)
+		return fmt.Errorf("%w: cannot unmarshal %s configuration: the mapping at %s uses the merge key <<; yaml applies a merge inside its typed decoder, after every check over the tree, so a declaration carried in through one — a vendored list, a service — would shadow or be shadowed unseen; no field of a module manifest is declared by merging", ErrInvalidManifestWireForm, label, defect.Path)
 	case wire.NullNode:
 		consequence := "a null reads as \"nothing declared\" to the typed decoder"
 		if strings.HasPrefix(defect.Path, "vendored") {
 			consequence += ", so a vendored list written as null would count the kit while the manifest said it was excluded"
 		}
-		return fmt.Errorf("cannot unmarshal %s configuration: the manifest carries an explicit null at %s %s; %s — an absent key is absent, and an empty list is written []", label, defect.Path, defect.Detail, consequence)
+		return fmt.Errorf("%w: cannot unmarshal %s configuration: the manifest carries an explicit null at %s %s; %s — an absent key is absent, and an empty list is written []", ErrInvalidManifestWireForm, label, defect.Path, defect.Detail, consequence)
 	case wire.FractionalNumber:
-		return fmt.Errorf("cannot unmarshal %s configuration: the number %s at %s is not a whole number; no field of a module manifest takes a fraction", label, defect.Detail, defect.Path)
+		return fmt.Errorf("%w: cannot unmarshal %s configuration: the number %s at %s is not a whole number; no field of a module manifest takes a fraction", ErrInvalidManifestWireForm, label, defect.Detail, defect.Path)
 	case wire.KeyNotAName:
-		return fmt.Errorf("cannot unmarshal %s configuration: the mapping at %s carries a key that is not a name (%q)", label, defect.Path, defect.Detail)
+		return fmt.Errorf("%w: cannot unmarshal %s configuration: the mapping at %s carries a key that is not a name (%q)", ErrInvalidManifestWireForm, label, defect.Path, defect.Detail)
 	}
 	root := tree.Content
 	if tree.Kind != yaml.DocumentNode || len(root) == 0 || root[0].Kind != yaml.MappingNode {
