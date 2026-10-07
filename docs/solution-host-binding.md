@@ -124,7 +124,7 @@ workloads:                         # what the host runs, and what must be true o
     non_authenticating: [envoy, migrate]   # must never be accepted as the authenticator
 modules:
   - {module: alpha, package: example/alpha-core, version: 1.4.0}
-endpoints:                         # named, never addressed
+endpoints:                         # named, never addressed; reach written out
   - {name: api, service: alpha, module: alpha, api: grpc, visibility: internal}
 build_size:                        # OPTIONAL: the build's size, counted by the producer and signed with the digest
   languages:                       # one row per language with a counted line, both sides on the row
@@ -316,6 +316,40 @@ writing the re-read document reproduces them — the guard the module contract's
 with two declared-empty lists. A producer that marshals the model by hand can
 write `vendored: null` for a list it meant as empty, and the failure then
 surfaces at whoever reads the file, or at admission, rather than at publish.
+
+### An endpoint's reach, and why this document holds it to core's vocabulary
+
+An endpoint here is **named, never addressed**: a declared address would be a
+resolution result frozen into a delivery document, true on one cluster for as
+long as nothing moved. What it does carry is `visibility`, which is **reach and
+nothing else** — who may call the endpoint. It has no addressing consequence,
+and it names nobody: which modules actually reach an endpoint is derived by the
+composition that joins the consumers' declared dependencies
+([network-model.md](network-model.md#the-allow-list-is-derived-never-authored)),
+never written on the target, so a host never carries a list of its own
+consumers.
+
+`Validate` holds the value to the resource model's own vocabulary —
+`private`, `internal` or `public` — by calling `resources.KnownVisibility`
+rather than re-stating the set. The reason is the model's own: a value it does
+not define is refused at load, at selection and at dependency wiring, so a
+presence document that admitted a fourth spelling would declare an endpoint no
+service can declare, and the refusal would arrive from the platform later
+instead of from the renderer now. The deleted spellings are what a document
+written against an older model actually carries: `module` was reach written as
+a permission to every module and is now `internal`, which names nobody, and
+`external` was a location written as a permission and is now `location:
+external` beside the visibility that applies.
+
+The reach is also **written out and never omitted**. The resource model admits
+an omission and resolves it to `private`; a rendered document gets no such
+resolution, so one carrying none would leave that default for every reader to
+derive a second time.
+
+The vocabulary is read from `resources` instead of copied because this package
+already links that tree — `host.go` takes `composition.ValidateCollisions` for
+the route-alias check, and `composition` imports `resources` — so a literal
+here would be a second list to keep in step for no gain.
 
 ### Three digests, and why they are three types
 
