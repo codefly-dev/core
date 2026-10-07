@@ -153,20 +153,77 @@ not take. `RunAuthenticator` is stricter than `Run`, not laxer: identical
 outcomes everywhere except the fixtures marked `NeedsIssuer`, which must be
 refused — the one assertion a downgraded authenticator fails.
 
-Two more entry points exist, and neither is a third strength:
+## Forwarding hops inspect, callees verify, one consumer per capability
 
-- **`workcontext.Inspect(token) (*Inspected, error)`** — is this token
+A **forwarding hop** — the host's gateway, any proxy that routes a capability
+to its callee — is neither of the two above. It holds a trust root and a
+routing table, not the issuer's live state, and it must not consume: `Verify`
+burns a single-use nonce as its last step, so a gateway that verified left the
+callee refusing a legitimate capability as replayed, and a gateway that did
+not verify forwarded blind. A host measured exactly that and kept a
+hand-written signature check at its edge — a second implementation of the
+wire contract — because core offered it nothing shaped like an edge.
+
+`Inspector.Inspect(token, audience)` is that entrypoint, and it is built the
+way `Authenticate` is, so it is not a third strength:
+
+- **It is the same body.** `Inspect` assembles a `Verifier` shell from the
+  trust root and the route and runs the exact prefix `Verify` runs before it
+  reaches for live state: the decode path, the issuer pin, the signature, the
+  audience, the window, the chain. A test holds every fixture a hop can see to
+  `Verify`'s refusal *including the message text*.
+- **The route target is the hop's.** `audience` is a per-call argument: the
+  target the hop resolved from the request it is routing, never a value read
+  off the token (comparing the token's audience to itself passes everything).
+  An empty one is refused by name — "no expectation" is not "any audience"; a
+  host's gateway once held exactly that sentinel.
+- **What it cannot see, it forwards.** Every refusal that needs the issuer's
+  live state — the authorization revision, the sealed installation, an epoch,
+  the approved build, a binding, a grant record — is the callee's. A hop that
+  refused on any of them would be claiming a check it cannot make, so for every
+  fixture the kit marks `NeedsLiveState`, `Inspect` must *accept*. A grant
+  capability is forwarded too: `Authenticator` refuses one because it acts on
+  what it accepts; a hop does not act.
+- **It consumes nothing and grants nothing.** `Inspector` has no field through
+  which it could consume, read a revision, resolve a grant or compare a seal —
+  held by reflection. The result, `*Inspected`, carries only what a hop routes
+  on (audience, tenant, installation, task, session; every one a bare string)
+  and nothing takes it: not `policy`, not `Authority.Child`, not `Grant`. A
+  hop routes; it never acts. And nothing in it is for stamping onto the
+  forwarded request — the callee verifies the token itself.
+
+`conformance.RunInspector` is the kit's third mode, stricter in both
+directions: identical outcomes and messages on everything a hop can see, a
+required *acceptance* of everything only live state refuses, the single-use
+fixture inspected twice and then verified through core's verifier on the same
+replay store — the nonce intact — and a sound capability refused for a route
+it is not addressed to and for no route at all. `Verify` and `Authenticate`
+both fail it, correctly.
+
+What `Inspect` deliberately does **not** do, and why core keeps `Seals` and
+`Revisions` mandatory on `Verify` and `Authenticator`: those two are consumers.
+A consumer that acted on a capability it had not held against live state would
+be acting on a revoked one, and "a seal-less mode" on either entrypoint would
+be a flag that turns the strongest check in the model off for whoever sets it.
+The hop needs no such mode because it acts on nothing — the one consumer per
+capability is the callee, which holds the state and burns the nonce.
+
+Two more entry points exist, and neither is a strength at all:
+
+- **`workcontext.Decode(token) (*Decoded, error)`** — is this token
   *structurally* a sealed capability? Shape, encoding, schema, the lifetime
   bound, attenuation, grant shape, a seal naming an installation, an epoch on
   every actor hop. It checks no signature and no issuer state; a test asserts a
-  forgery passes it.
+  forgery passes it. It was called `Inspect` until the hop's entrypoint took
+  that name: a structural read called `Inspect` beside a signature check called
+  `Inspect` is the two-strengths trap this file exists to make unreachable.
 
   **It returns the claims, and this entry used to say "error only, no
   claims"** with an argument for why that was the safe choice. A consumer
   showed the argument was wrong in the direction that mattered: a holder
   reading its OWN credential needs the expiry and the seal, so with nothing
   returned it keeps the hand-written parser that this call exists to delete.
-  The safety now rests on the TYPE — `Inspected` is not `Verified`, cannot
+  The safety now rests on the TYPE — `Decoded` is not `Verified`, cannot
   become one, and `policy.PrincipalFromWorkContext` will not take it — rather
   than on withholding data any holder of the token could base64-decode anyway.
 - **`(*Verifier).Recheck(ctx, *Verified) error`** — re-read live state under a
@@ -276,4 +333,5 @@ this package. Only moving the kit into a package that production cannot import
 fixes that, which moves `Fixtures`, `FixtureKeys` and every `Fixture*` constant
 for every consumer. That relocation is an owner call, not a quiet one.
 
-See `docs/work-context.md`, "Two entrypoints, one implementation, one strength".
+See `docs/work-context.md`, "Two entrypoints, one implementation, one strength"
+and "The forwarding hop inspects; the callee verifies".

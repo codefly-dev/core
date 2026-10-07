@@ -14,9 +14,16 @@
 //     bound to one audience, one subject and one call so the added authority
 //     is unusable anywhere else.
 //
-// Verify is the only way to turn a token back into claims. A capability that
-// fails signature, window, audience, attenuation, grant, revision or replay
-// checks yields nothing — there is no partially-trusted form.
+// Verify, and Authenticate through it, are the only ways to turn a token back
+// into claims a callee may act on. A capability that fails signature, window,
+// audience, attenuation, grant, revision or replay checks yields nothing —
+// there is no partially-trusted form. Two more entrypoints answer narrower
+// questions and yield nothing a callee acts on: Inspect is a forwarding hop's
+// check — signature, window and route under the hop's trust root, consuming
+// nothing and forwarding what only live state refuses — and Decode is the
+// structural read a holder makes of its own credential, authenticating
+// nothing. Each result type says which question was answered, and nothing
+// converts between them.
 //
 // See docs/work-context.md for the model and the resume contract.
 package workcontext
