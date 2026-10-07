@@ -687,7 +687,11 @@ var ErrInvalidEndpointCarrier = errors.New("endpoint carrier is not the canonica
 // this on what it ingests, at every path that publishes a snapshot of its
 // environment, and reads carriers only from an environment it accepted.
 //
-// Only CODEFLY__ENDPOINT__ carriers are judged. The advertised-address carrier
+// Only CODEFLY__ENDPOINT__ carriers are judged, and the prefix is judged
+// without regard to case: a key spelled codefly__endpoint__… is an endpoint
+// carrier that is not canonical, refused as such, never "not a carrier" that
+// the lookups then read as absent. An empty value is refused too: a carrier
+// delivers an address or it is not delivered. The advertised-address carrier
 // (SelfEndpointPrefix) and route carriers (RestRoutePrefix) are other
 // contracts read by their own keys, and anything else in the environment is
 // not core's. A declaration that cannot spell a carrier — a missing module,
@@ -710,13 +714,15 @@ func ValidateEndpointCarriers(envs []string, declared []*Endpoint) error {
 	delivered := make(map[string]bool)
 	var refused []endpointCarrierRefusal
 	for _, entry := range envs {
-		if !strings.HasPrefix(entry, prefix) {
+		if !strings.HasPrefix(strings.ToUpper(entry), prefix) {
 			continue
 		}
-		key, _, hasValue := strings.Cut(entry, "=")
+		key, value, hasValue := strings.Cut(entry, "=")
 		switch {
 		case !hasValue:
 			refused = append(refused, endpointCarrierRefusal{key, fmt.Errorf("%w: %s carries no value (an entry is KEY=VALUE)", ErrInvalidEndpointCarrier, key)})
+		case value == "":
+			refused = append(refused, endpointCarrierRefusal{key, fmt.Errorf("%w: %s carries an empty value; a carrier delivers an address or is not delivered", ErrInvalidEndpointCarrier, key)})
 		case canonical[key] == nil:
 			refused = append(refused, endpointCarrierRefusal{key, explainEndpointCarrier(key, declared, canonical)})
 		case delivered[key]:
@@ -747,6 +753,10 @@ type endpointCarrierRefusal struct {
 // refused naming that declaration and the API it serves; anything else names
 // no declared endpoint, and the declared carriers are listed beside it.
 func explainEndpointCarrier(key string, declared []*Endpoint, canonical map[string]*Endpoint) error {
+	if !strings.HasPrefix(key, EndpointPrefix+"__") {
+		return fmt.Errorf("%w: %s is not spelled in upper case; a carrier key is %s__<MODULE>__<SERVICE>__<NAME>__<API> exactly, and a lookup compares it exactly",
+			ErrInvalidEndpointCarrier, key, EndpointPrefix)
+	}
 	segments := strings.Split(strings.TrimPrefix(key, EndpointPrefix+"__"), "__")
 	if len(segments) == 4 {
 		for _, endpoint := range declared {
