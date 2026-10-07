@@ -750,6 +750,36 @@ func EnvsAsSecretData(envs ...*resources.EnvironmentVariable) (EnvironmentMap, e
 }
 
 func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
+	kubernetes, _, err := s.judgeKubernetesDeployment(req)
+	return kubernetes, err
+}
+
+// judgeKubernetesDeployment is the one place a deployment request's target and
+// profile are judged: KubernetesDeploymentRequest (a plugin's own pre-flight)
+// and DeployKustomize both read this and nothing else, so there is no second
+// parse to fall out of step with the first.
+func (s *BuilderWrapper) judgeKubernetesDeployment(req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, OutputProfile, error) {
+	kubernetes, err := s.kubernetesDeploymentTarget(req)
+	if err != nil {
+		return nil, OutputProfile{}, err
+	}
+	// The profile first: a request whose number survived decoding — a deleted
+	// value, an unknown one — is refused before anything else about the
+	// target is judged, and before anything is rendered under it.
+	profile, err := ParseOutputProfile(kubernetes.GetProfile())
+	if err != nil {
+		return nil, OutputProfile{}, s.Wool.Wrapf(err, "cannot deploy: kubernetes output profile is required")
+	}
+	if kubernetes.GetNamespace() == "" {
+		return nil, OutputProfile{}, s.Wool.Wrapf(fmt.Errorf("kubernetes namespace is required"), "cannot deploy")
+	}
+	if kubernetes.GetDestination() == "" {
+		return nil, OutputProfile{}, s.Wool.Wrapf(fmt.Errorf("kubernetes destination is required"), "cannot deploy")
+	}
+	return kubernetes, profile, nil
+}
+
+func (s *BuilderWrapper) kubernetesDeploymentTarget(req *builderv0.DeploymentRequest) (*builderv0.KubernetesDeployment, error) {
 	if req == nil {
 		return nil, s.Wool.Wrapf(fmt.Errorf("deployment request is nil"), "cannot deploy")
 	}
@@ -760,18 +790,6 @@ func (s *BuilderWrapper) KubernetesDeploymentRequest(_ context.Context, req *bui
 	case *builderv0.Deployment_Kubernetes:
 		if v.Kubernetes == nil {
 			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes deployment is missing"), "cannot deploy")
-		}
-		// The one judgement of the profile: a request whose number survived
-		// decoding — a deleted value, an unknown one — is refused here, before
-		// anything is rendered under it.
-		if _, err := ParseOutputProfile(v.Kubernetes.GetProfile()); err != nil {
-			return nil, s.Wool.Wrapf(err, "cannot deploy: kubernetes output profile is required")
-		}
-		if v.Kubernetes.GetNamespace() == "" {
-			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes namespace is required"), "cannot deploy")
-		}
-		if v.Kubernetes.GetDestination() == "" {
-			return nil, s.Wool.Wrapf(fmt.Errorf("kubernetes destination is required"), "cannot deploy")
 		}
 		return v.Kubernetes, nil
 	default:
@@ -796,11 +814,7 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 		return s.DeployError(err)
 	}
 
-	kubernetes, err := s.KubernetesDeploymentRequest(ctx, req)
-	if err != nil {
-		return s.DeployError(err)
-	}
-	profile, err := ParseOutputProfile(kubernetes.GetProfile())
+	kubernetes, profile, err := s.judgeKubernetesDeployment(req)
 	if err != nil {
 		return s.DeployError(err)
 	}

@@ -668,6 +668,40 @@ func TestARenderRefusesADecodedDeletedProfileBeforeWriting(t *testing.T) {
 	require.Empty(t, entries)
 }
 
+// The judgement comes first: a refused profile stops KustomizeDeploy before
+// the deployment base is built, so nothing of the render — not even the image
+// ID resolution the base performs — runs for a request that will not be
+// rendered. The CLI-injected ImageIDResolver is the observable step of
+// CreateKubernetesBase, so it is the witness.
+func TestKustomizeDeployJudgesTheProfileBeforeBuildingTheBase(t *testing.T) {
+	ctx := context.Background()
+	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
+	require.NoError(t, err)
+	builder, _ := restrictedDeployBuilder(ctx, t)
+
+	previous := ImageIDResolver
+	t.Cleanup(func() { ImageIDResolver = previous })
+	resolved := 0
+	ImageIDResolver = func(*resources.DockerImage) (string, error) {
+		resolved++
+		return "sha256:" + strings.Repeat("b", 64), nil
+	}
+
+	err = builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, &builderv0.KubernetesDeployment{
+		Namespace: "codefly", Destination: t.TempDir(), Profile: builderv0.KubernetesOutputProfile(2),
+	}, templates, DeploymentParameters{ConfigMap: EnvironmentMap{"PLAIN": "value"}, Parameters: struct{ Name string }{Name: "judged"}})
+	require.ErrorIs(t, err, ErrOutputProfileUnknown)
+	require.Equal(t, 0, resolved, "a refused profile must stop the render before the base is built")
+
+	// The same hook is on the path of a render that is judged fit.
+	require.NoError(t, builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, &builderv0.KubernetesDeployment{
+		Namespace: "codefly", Destination: t.TempDir(), Profile: builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+		SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"}},
+	}, templates, DeploymentParameters{ConfigMap: EnvironmentMap{"PLAIN": "value"}, Parameters: struct{ Name string }{Name: "judged"},
+		SecretReferences: map[string]*builderv0.KubernetesSecretKeyReference{"DATABASE_PASSWORD": {Name: "service-secrets", Key: "database-password"}}}))
+	require.Equal(t, 1, resolved)
+}
+
 func TestDeployKustomizeReturnsValidationEvidenceOnFailure(t *testing.T) {
 	ctx := context.Background()
 	manager := resources.NewEnvironmentVariableManager()
