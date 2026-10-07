@@ -165,6 +165,48 @@ func (v *Verifier) resolveKey(keyID string) (ed25519.PublicKey, error) {
 	return key, nil
 }
 
+// inspect is the prefix of Verify that needs nothing but a trust root, a
+// route and a clock: the decode path, the issuer pin, the signature, the
+// audience, the window and the structure, in that order. Everything after it
+// needs the issuer's live state or consumes something.
+//
+// It is ONE body for three entrypoints. Verify runs it and goes on to hold
+// the capability against live state and consume it; Authenticate runs Verify;
+// a forwarding hop's Inspector runs it and stops, because a hop holds nothing
+// to continue with. It is a method on Verifier rather than a function beside
+// one so that the hop's check and the callee's check cannot be two bodies —
+// which is how this package has grown a hole three times: the copy was the
+// one missing a check. The kit holds Inspect to Verify's refusals byte for
+// byte on every fixture a hop can see, which is what breaks the moment a
+// second body appears.
+//
+// It RETURNS the clock it used, for the same reason checkWindow does: the
+// grant window and the replay entry's expiry downstream must read the instant
+// the window was judged at, not a second sample.
+func (v *Verifier) inspect(encoded string) (*basev0.WorkContextV1, time.Time, error) {
+	wc, claims, sig, err := decodeClaims(encoded)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	if wc.GetIssuer() != v.Issuer {
+		return nil, time.Time{}, fmt.Errorf("%w: issued by %q, not %q", ErrInvalid, wc.GetIssuer(), v.Issuer)
+	}
+	if err := v.authenticate(wc, claims, sig); err != nil {
+		return nil, time.Time{}, err
+	}
+	if wc.GetAudience() != v.Audience {
+		return nil, time.Time{}, fmt.Errorf("%w: minted for audience %q, presented to %q", ErrInvalid, wc.GetAudience(), v.Audience)
+	}
+	now, err := v.checkWindow(wc)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	if err := checkStructure(wc); err != nil {
+		return nil, time.Time{}, err
+	}
+	return wc, now, nil
+}
+
 // Verify checks a presented capability and consumes it when it is single-use.
 // Replay consumption happens last, so a capability rejected for any other
 // reason is not burned by the attempt.
@@ -172,20 +214,7 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if v.Revisions == nil || v.Replay == nil || v.Grants == nil || v.Seals == nil {
 		return nil, fmt.Errorf("work context: verifier is missing a revision source, replay store, grant source or seal source")
 	}
-	wc, claims, sig, err := decodeClaims(encoded)
-	if err != nil {
-		return nil, err
-	}
-	if wc.GetIssuer() != v.Issuer {
-		return nil, fmt.Errorf("%w: issued by %q, not %q", ErrInvalid, wc.GetIssuer(), v.Issuer)
-	}
-	if err := v.authenticate(wc, claims, sig); err != nil {
-		return nil, err
-	}
-	if wc.GetAudience() != v.Audience {
-		return nil, fmt.Errorf("%w: minted for audience %q, presented to %q", ErrInvalid, wc.GetAudience(), v.Audience)
-	}
-	now, err := v.checkWindow(wc)
+	wc, now, err := v.inspect(encoded)
 	if err != nil {
 		return nil, err
 	}
@@ -195,9 +224,6 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	// as one, which is the same defect as two bodies behind one claim.
 	skew := v.skew()
 	expires := time.Unix(wc.GetExpiresAtUnix(), 0)
-	if err := checkStructure(wc); err != nil {
-		return nil, err
-	}
 
 	current, err := v.Revisions.AuthorizationRevision(ctx, wc.GetTenantId())
 	if err != nil {

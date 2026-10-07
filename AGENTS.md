@@ -145,16 +145,16 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   historical data that get a snapshot type if they need one. Core owns the
   `approval_required` signal; the approvals engine is product-level.
   **It has exactly one implementation and one strength — this one.** Nothing
-  else signs, verifies or re-encodes a capability; two entrypoints share the
-  one check path, and the verify-only one refuses what it cannot answer rather
-  than skipping it. Needing a weaker check is the owner's question, never a
+  else signs, verifies or re-encodes a capability; the entrypoints share one
+  check path: callees `Verify` or `Authenticate` and refuse what they cannot
+  answer, a forwarding hop `Inspect`s without consuming and forwards what only
+  live state refuses. Needing a weaker check is the owner's question, never a
   local accommodation. A consumer DEMONSTRATES BEHAVIOUR with
-  `workcontext/conformance.Run`, or `RunAuthenticator` for the verify-only
-  entrypoint — the kit proves behaviour and not identity, and the identity
-  proof is the consumer's own import gate; a foreign encoding is refused
-  *before* the signature with
-  `ErrNotACoreToken`, never as a bad signature. A second implementation already
-  cost a day of key-rotation debugging. See
+  `workcontext/conformance.Run`, `RunAuthenticator` or `RunInspector` — the
+  kit proves behaviour and not identity, and the identity proof is the
+  consumer's own import gate; a foreign encoding is refused *before* the
+  signature with `ErrNotACoreToken`, never as a bad signature. A second
+  implementation already cost a day of key-rotation debugging. See
   [`docs/work-context.md`](docs/work-context.md) and
   [`workcontext/README.md`](workcontext/README.md).
 - **An endpoint declares three axes, each read on its own.** `visibility` is reach,

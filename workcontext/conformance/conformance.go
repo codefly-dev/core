@@ -55,6 +55,22 @@
 // it twice to check that the second presentation is refused. So the entrypoint
 // must hold one replay store across the whole Run, which is what a real
 // verifier does anyway.
+//
+// # A third mode, for the hop that forwards
+//
+// RunInspector is for a consumer whose entrypoint is a FORWARDING HOP's —
+// workcontext.Inspector, or a wrapper around it. A hop checks the signature,
+// the window and the route and forwards; it holds no live state and consumes
+// nothing. The mode is stricter in both directions: every fixture a hop can
+// see must reach the full verifier's outcome with the same named reason, and
+// every fixture refused only against live state (NeedsLiveState) must be
+// ACCEPTED — forwarded for the callee to refuse — because an inspector that
+// refused one would be claiming a check it cannot make. It presents the
+// single-use fixture twice and requires both to inspect, then verifies it
+// through core's verifier on the same replay store and requires THAT to
+// succeed: the nonce is intact, so the hop consumed nothing. And it asks the
+// entrypoint about a route the capability is not addressed to, and about no
+// route at all, and requires both refused.
 package conformance
 
 import (
@@ -76,6 +92,13 @@ import (
 // reaches the same accept/refuse decision, with the same named reason, as
 // core's verifier does.
 type Verify func(ctx context.Context, token string) error
+
+// Inspect is a consumer's forwarding-hop entrypoint: it takes a presented
+// token and the route target the hop resolved for it, and returns the error
+// inspection produced, or nil. It mirrors (*workcontext.Inspector).Inspect,
+// which takes no context because it does no I/O; a wrapper that refreshes its
+// trust root on demand supplies its own.
+type Inspect func(token, audience string) error
 
 // TestingT is the part of *testing.T this package uses. It is an interface so
 // that importing this package does not pull the testing flag set into a
@@ -247,6 +270,21 @@ func (s Settings) Authenticator() *workcontext.Authenticator {
 	}
 }
 
+// Inspector assembles core's forwarding-hop entrypoint from the kit's
+// settings: the trust root, the clock and the fixture-key flag, and none of
+// the four sources, because a hop holds none. It is handed to RunInspector,
+// never to Run or RunAuthenticator: those modes require a single-use fixture
+// consumed and the live-state fixtures refused, which is the callee's
+// behaviour and the opposite of a hop's.
+func (s Settings) Inspector() *workcontext.Inspector {
+	return &workcontext.Inspector{
+		TrustTheConformanceFixtureKey: s.TrustTheConformanceFixtureKey,
+		Issuer:                        s.Issuer,
+		Keys:                          s.PublicKeys(),
+		Now:                           s.Now,
+	}
+}
+
 // Run drives every fixture against verify and reports, per fixture, any
 // outcome that differs from the contract. It uses a clock of its own and mints
 // the fixtures fresh, so two consumers running it cannot interfere.
@@ -345,32 +383,40 @@ func checkFixture(t TestingT, ctx context.Context, fixture workcontext.Fixture, 
 			}
 		}
 	case workcontext.OutcomeRejected:
-		if err == nil {
-			t.Errorf("work context conformance: fixture %q (%s) must be refused and was accepted\n  it is: %s",
-				fixture.Name, fixture.Form, fixture.Reason)
-			return
-		}
-		// The named reason is part of the contract. "Refused" and "refused
-		// for the stated reason" are different guarantees, and the whole
-		// reason this kit exists is an implementation that refused the
-		// right token with the wrong error.
-		if fixture.Err != nil && !errors.Is(err, fixture.Err) {
-			t.Errorf("work context conformance: fixture %q (%s) must be refused with %v, got %v\n  it is: %s",
-				fixture.Name, fixture.Form, fixture.Err, err, fixture.Reason)
-			return
-		}
-		// Several fixtures share a sentinel, so where the sentinel is an
-		// umbrella the fixture also names the refusal it must be. The
-		// tampered payload is the case that matters: it exists to be the
-		// one SIGNATURE failure, and asserting only ErrInvalid would let
-		// it pass for any unrelated invalidity.
-		if fixture.Message != "" && !strings.Contains(err.Error(), fixture.Message) {
-			t.Errorf("work context conformance: fixture %q (%s) must be refused with a message containing %q, got %v\n  it is: %s",
-				fixture.Name, fixture.Form, fixture.Message, err, fixture.Reason)
-		}
+		checkRefusal(t, fixture, err)
 	default:
 		t.Errorf("work context conformance: fixture %q declares outcome %q, which is neither accepted nor rejected",
 			fixture.Name, fixture.Outcome)
+	}
+}
+
+// checkRefusal holds a refusal against the fixture's declared sentinel and
+// message. Every mode judges a refusal through it, so the three cannot drift
+// into accepting different reasons for the same fixture.
+func checkRefusal(t TestingT, fixture workcontext.Fixture, err error) {
+	t.Helper()
+	if err == nil {
+		t.Errorf("work context conformance: fixture %q (%s) must be refused and was accepted\n  it is: %s",
+			fixture.Name, fixture.Form, fixture.Reason)
+		return
+	}
+	// The named reason is part of the contract. "Refused" and "refused for
+	// the stated reason" are different guarantees, and the whole reason this
+	// kit exists is an implementation that refused the right token with the
+	// wrong error.
+	if fixture.Err != nil && !errors.Is(err, fixture.Err) {
+		t.Errorf("work context conformance: fixture %q (%s) must be refused with %v, got %v\n  it is: %s",
+			fixture.Name, fixture.Form, fixture.Err, err, fixture.Reason)
+		return
+	}
+	// Several fixtures share a sentinel, so where the sentinel is an umbrella
+	// the fixture also names the refusal it must be. The tampered payload is
+	// the case that matters: it exists to be the one SIGNATURE failure, and
+	// asserting only ErrInvalid would let it pass for any unrelated
+	// invalidity.
+	if fixture.Message != "" && !strings.Contains(err.Error(), fixture.Message) {
+		t.Errorf("work context conformance: fixture %q (%s) must be refused with a message containing %q, got %v\n  it is: %s",
+			fixture.Name, fixture.Form, fixture.Message, err, fixture.Reason)
 	}
 }
 
@@ -440,6 +486,151 @@ func RunAuthenticator(t TestingT, settings Settings, authenticate Verify) {
 	}
 	if matched == 0 {
 		t.Fatalf("work context conformance: every fixture needs the issuer's own records, so nothing was held to the full verifier's outcome")
+	}
+	if err := checkForms(fixtures); err != nil {
+		t.Fatalf("work context conformance: %v", err)
+	}
+}
+
+// RunInspector drives every fixture against a FORWARDING HOP's entrypoint —
+// core's Inspector, or a consumer's wrapper around it — with the kit's
+// audience as the route target, and requires:
+//
+//   - every fixture a hop CAN see reaches the full verifier's outcome with the
+//     same named reason: the encoding, the shape, the schema, the lifetime
+//     bound, the signature, the issuer, the audience, the window, the chain;
+//   - every fixture refused ONLY against live state (NeedsLiveState) is
+//     ACCEPTED — forwarded, for the callee holding that state to refuse. An
+//     inspector that refused one would be claiming a check it cannot make,
+//     which is the pretence this mode exists to catch;
+//   - the single-use fixture inspects on BOTH of two presentations, and core's
+//     verifier built from the same settings — the same replay store — then
+//     accepts it once and refuses it the second time. The first acceptance is
+//     what proves the hop consumed nothing; the second refusal is what proves
+//     the first was not vacuous;
+//   - a sound capability presented for a route it is not addressed to is
+//     refused, and one presented for no route at all is refused.
+//
+// A consumer whose entrypoint is a callee's — Verify or Authenticate — must
+// not call this. Both fail it, correctly: Verify consumes the single-use
+// fixture and refuses the live-state ones, and Authenticate additionally
+// refuses the grant fixture, which a hop forwards.
+//
+// The nonce oracle consumes the single-use fixture through the settings'
+// replay store — the one the consumer was told to use. Every run mints its
+// fixtures afresh, nonces included, so a store that served another run cannot
+// interfere; what the oracle sees is this run's hop, and nothing else.
+func RunInspector(t TestingT, settings Settings, inspect Inspect) {
+	t.Helper()
+	if inspect == nil {
+		t.Fatalf("work context conformance: no inspection entrypoint")
+		return
+	}
+	fixtures, err := workcontext.Fixtures(settings.Now())
+	if err != nil {
+		t.Fatalf("work context conformance: the kit itself did not build: %v", err)
+		return
+	}
+	if len(fixtures) == 0 {
+		t.Fatalf("work context conformance: the kit is empty")
+		return
+	}
+	if settings.Audience == "" {
+		t.Fatalf("work context conformance: the settings name no audience, so there is no route to inspect for")
+		return
+	}
+	var forwarded, matched, singleUse int
+	var sound workcontext.Fixture
+	var haveSound bool
+	for _, fixture := range fixtures {
+		err := inspect(fixture.Token, settings.Audience)
+		if fixture.NeedsLiveState {
+			forwarded++
+			if err != nil {
+				t.Errorf("work context conformance: fixture %q (%s) is refused only against the issuer's live state, "+
+					"which a forwarding hop does not hold, so Inspect must FORWARD it and leave the refusal to the callee; got %v\n  it is: %s",
+					fixture.Name, fixture.Form, err, fixture.Reason)
+			}
+			continue
+		}
+		matched++
+		switch fixture.Outcome {
+		case workcontext.OutcomeAccepted:
+			if fixture.SingleUse {
+				singleUse++
+			}
+			if err != nil {
+				t.Errorf("work context conformance: fixture %q (%s) must inspect and did not: %v\n  it is: %s",
+					fixture.Name, fixture.Form, err, fixture.Reason)
+				continue
+			}
+			if !haveSound && !fixture.SingleUse {
+				sound, haveSound = fixture, true
+			}
+			if fixture.SingleUse {
+				// A hop consumes nothing, so the second presentation inspects
+				// too. ErrReplayed here means the entrypoint burned the nonce,
+				// which is the callee's to burn.
+				if second := inspect(fixture.Token, settings.Audience); second != nil {
+					t.Errorf("work context conformance: fixture %q is single-use and a forwarding hop consumes nothing, "+
+						"so a second presentation must inspect too; got %v", fixture.Name, second)
+				}
+			}
+		case workcontext.OutcomeRejected:
+			checkRefusal(t, fixture, err)
+		default:
+			t.Errorf("work context conformance: fixture %q declares outcome %q, which is neither accepted nor rejected",
+				fixture.Name, fixture.Outcome)
+		}
+	}
+	// THE NONCE IS INTACT. Core's verifier, built from the same settings and
+	// so consuming through the same replay store the consumer was handed,
+	// must still accept every single-use fixture the hop inspected — and
+	// refuse it the second time, or the first acceptance proved nothing.
+	verifier := settings.Verifier()
+	ctx := context.Background()
+	for _, fixture := range fixtures {
+		if !fixture.SingleUse || fixture.Outcome != workcontext.OutcomeAccepted {
+			continue
+		}
+		if _, err := verifier.Verify(ctx, fixture.Token); err != nil {
+			t.Errorf("work context conformance: after inspection the callee's verifier must still accept the single-use "+
+				"fixture %q — its nonce must be intact, so the hop must have consumed nothing; got %v", fixture.Name, err)
+			continue
+		}
+		if _, err := verifier.Verify(ctx, fixture.Token); !errors.Is(err, workcontext.ErrReplayed) {
+			t.Errorf("work context conformance: the replay store handed to this run must consume fixture %q on the "+
+				"callee's verification, or the acceptance before it proved nothing; second verification got %v",
+				fixture.Name, err)
+		}
+	}
+	// THE ROUTE IS THE HOP'S. A sound capability asked about for another
+	// route is refused with the audience refusal, and no route at all is
+	// refused rather than read as a wildcard.
+	if !haveSound {
+		t.Fatalf("work context conformance: no accepted, replayable fixture to present for another route")
+		return
+	}
+	if err := inspect(sound.Token, settings.Audience+"/another-route"); !errors.Is(err, workcontext.ErrInvalid) ||
+		!strings.Contains(err.Error(), "presented to") {
+		t.Errorf("work context conformance: fixture %q presented for a route it is not addressed to must be refused "+
+			"with ErrInvalid naming the audience; got %v", sound.Name, err)
+	}
+	if err := inspect(sound.Token, ""); err == nil || !strings.Contains(err.Error(), "route target") {
+		t.Errorf("work context conformance: fixture %q presented for NO route must be refused naming the missing route "+
+			"target — an empty expectation is not a wildcard; got %v", sound.Name, err)
+	}
+	// A run that forwarded nothing proved nothing about the pretence, one
+	// that matched nothing held nothing to the verifier, and one with no
+	// single-use fixture proved nothing about consumption.
+	if forwarded == 0 {
+		t.Fatalf("work context conformance: no fixture needs live state, so this mode certifies nothing about forwarding")
+	}
+	if matched == 0 {
+		t.Fatalf("work context conformance: every fixture needs live state, so nothing was held to the full verifier's outcome")
+	}
+	if singleUse == 0 {
+		t.Fatalf("work context conformance: no accepted fixture is single-use, so nothing proved the hop consumes nothing")
 	}
 	if err := checkForms(fixtures); err != nil {
 		t.Fatalf("work context conformance: %v", err)

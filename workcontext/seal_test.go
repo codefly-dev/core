@@ -937,7 +937,7 @@ func TestStart_BindsTheMintToTheAttestedExecution(t *testing.T) {
 
 	// And the credential CARRIES the approved build digest.
 	token, _ := h.ownerSession(audience)
-	inspected, err := workcontext.Inspect(token)
+	inspected, err := workcontext.Decode(token)
 	require.NoError(t, err)
 	require.Equal(t, workcontext.FixtureImageDigest, inspected.Seal().GetImageDigest())
 }

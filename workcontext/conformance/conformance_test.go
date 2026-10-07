@@ -458,3 +458,144 @@ func TestTheKitNamesTheMissingFixtureKeyFlag(t *testing.T) {
 	require.NotEmpty(t, reported.fatal)
 	require.Contains(t, reported.fatal[len(reported.fatal)-1], "TrustTheConformanceFixtureKey")
 }
+
+// Core's own forwarding hop passes the inspector mode. If this fails, the kit
+// is wrong rather than the consumer.
+func TestCoresInspectorPassesTheInspectorMode(t *testing.T) {
+	settings := conformance.New(time.Now())
+	inspector := settings.Inspector()
+	conformance.RunInspector(t, settings, func(token, audience string) error {
+		_, err := inspector.Inspect(token, audience)
+		return err
+	})
+}
+
+// The assertion the mode exists for, direction one: an entrypoint that
+// CONSUMES fails. Core's full verifier, passed as if it were a hop, burns the
+// single-use fixture on its first presentation — so the second presentation
+// is a replay, and the callee's verification afterwards is too.
+func TestTheInspectorModeFailsAnEntrypointThatConsumes(t *testing.T) {
+	settings := conformance.New(time.Now())
+	verifier := settings.Verifier()
+
+	reported := &recorder{}
+	conformance.RunInspector(reported, settings, func(token, _ string) error {
+		// A consuming entrypoint that otherwise behaves like a hop: it
+		// forwards what only live state refuses.
+		err := verifyWith(context.Background(), verifier, token)
+		if errors.Is(err, workcontext.ErrRevoked) {
+			return nil
+		}
+		return err
+	})
+
+	require.Empty(t, reported.fatal)
+	require.NotEmpty(t, reported.errors)
+	var consumed, nonceBurned bool
+	for _, reportedError := range reported.errors {
+		if strings.Contains(reportedError, "a forwarding hop consumes nothing") {
+			consumed = true
+		}
+		if strings.Contains(reportedError, "its nonce must be intact") {
+			nonceBurned = true
+		}
+	}
+	require.True(t, consumed, "the second presentation must be reported as consumed: %v", reported.errors)
+	require.True(t, nonceBurned, "the callee's verification afterwards must be reported as finding the nonce burned: %v", reported.errors)
+}
+
+// Direction two: an entrypoint that PRETENDS to see live state fails. Core's
+// authenticator, passed as if it were a hop, refuses every live-state fixture
+// — and the grant fixture, which a hop forwards.
+func TestTheInspectorModeFailsAnEntrypointThatPretendsToSeeLiveState(t *testing.T) {
+	settings := conformance.New(time.Now())
+	authenticator := settings.Authenticator()
+
+	reported := &recorder{}
+	conformance.RunInspector(reported, settings, func(token, _ string) error {
+		return authenticateWith(context.Background(), authenticator, token)
+	})
+
+	require.Empty(t, reported.fatal)
+	require.NotEmpty(t, reported.errors)
+	var pretended, grantRefused int
+	for _, reportedError := range reported.errors {
+		if strings.Contains(reportedError, "so Inspect must FORWARD it") {
+			pretended++
+		}
+		if strings.Contains(reportedError, `fixture "grant"`) && strings.Contains(reportedError, "must inspect and did not") {
+			grantRefused++
+		}
+	}
+	require.NotZero(t, pretended, "every live-state refusal must be reported as a pretence: %v", reported.errors)
+	require.Equal(t, 1, grantRefused, "the grant fixture must be reported as wrongly refused: %v", reported.errors)
+}
+
+// Direction three: an entrypoint that IGNORES the route target fails. A
+// wrapper that always checks the kit's audience, whatever the hop resolved,
+// accepts a capability for a route it is not addressed to, and reads an empty
+// route as a wildcard.
+func TestTheInspectorModeFailsAnEntrypointThatIgnoresTheRouteTarget(t *testing.T) {
+	settings := conformance.New(time.Now())
+	inspector := settings.Inspector()
+
+	reported := &recorder{}
+	conformance.RunInspector(reported, settings, func(token, _ string) error {
+		_, err := inspector.Inspect(token, settings.Audience)
+		return err
+	})
+
+	require.Empty(t, reported.fatal)
+	require.Len(t, reported.errors, 2, "%v", reported.errors)
+	require.Contains(t, reported.errors[0], "presented for a route it is not addressed to must be refused")
+	require.Contains(t, reported.errors[1], "presented for NO route must be refused")
+}
+
+// The mode needs an entrypoint and a route, like the others need an entrypoint.
+func TestTheInspectorModeNeedsAnEntrypointAndARoute(t *testing.T) {
+	reported := &recorder{}
+	conformance.RunInspector(reported, conformance.New(time.Now()), nil)
+	require.Len(t, reported.fatal, 1)
+	require.Contains(t, reported.fatal[0], "no inspection entrypoint")
+
+	settings := conformance.New(time.Now())
+	settings.Audience = ""
+	inspector := settings.Inspector()
+	reported = &recorder{}
+	conformance.RunInspector(reported, settings, func(token, audience string) error {
+		_, err := inspector.Inspect(token, audience)
+		return err
+	})
+	require.Len(t, reported.fatal, 1)
+	require.Contains(t, reported.fatal[0], "no route to inspect for")
+}
+
+// The classification the inspector mode rests on, pinned from both sides: a
+// fixture needs live state if and only if its refusal is ErrRevoked. A hop can
+// never see a revocation, and nothing but a revocation is invisible to it.
+func TestAFixtureNeedsLiveStateExactlyWhenItsRefusalIsARevocation(t *testing.T) {
+	fixtures, err := workcontext.Fixtures(time.Now())
+	require.NoError(t, err)
+	var live int
+	for _, fixture := range fixtures {
+		revoked := errors.Is(fixture.Err, workcontext.ErrRevoked)
+		require.Equal(t, revoked, fixture.NeedsLiveState,
+			"fixture %q: ErrRevoked is %v and NeedsLiveState is %v; the two must agree", fixture.Name, revoked, fixture.NeedsLiveState)
+		if fixture.NeedsLiveState {
+			live++
+			require.Equal(t, workcontext.OutcomeRejected, fixture.Outcome, "fixture %q: an accepted fixture needs no state to be refused on", fixture.Name)
+		}
+	}
+	require.NotZero(t, live)
+}
+
+// Settings assemble a hop the same way they assemble a verifier: the trust
+// root, the clock and the fixture-key flag, which is everything a hop has.
+func TestSettingsAssembleAHopFromTheTrustRootAlone(t *testing.T) {
+	settings := conformance.New(time.Now())
+	inspector := settings.Inspector()
+	require.Equal(t, settings.Issuer, inspector.Issuer)
+	require.Equal(t, settings.PublicKeys(), inspector.Keys)
+	require.True(t, inspector.TrustTheConformanceFixtureKey)
+	require.NotNil(t, inspector.Now)
+}
