@@ -5,7 +5,7 @@ import grpc
 from mind.gateway.v1 import gateway_pb2 as mind_dot_gateway_dot_v1_dot_gateway__pb2
 
 
-class GatewayStub:
+class GatewayStub(object):
     """Gateway is the ONLY service Mind talks to.
     Codefly CLI implements it. Everything else is behind this wall.
 
@@ -15,6 +15,7 @@ class GatewayStub:
 
     Gateway is the firewall API Mind uses to reach Codefly workspaces without talking directly to
     agents, processes, or containers.
+    ─── Topology ───────────────────────────────────────────────
     """
 
     def __init__(self, channel):
@@ -27,6 +28,11 @@ class GatewayStub:
                 '/mind.gateway.v1.Gateway/ListServices',
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListServicesRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListServicesResponse.FromString,
+                _registered_method=True)
+        self.EvaluateStorageCapacity = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/EvaluateStorageCapacity',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.EvaluateStorageCapacityRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.EvaluateStorageCapacityResponse.FromString,
                 _registered_method=True)
         self.ReadFile = channel.unary_unary(
                 '/mind.gateway.v1.Gateway/ReadFile',
@@ -42,6 +48,11 @@ class GatewayStub:
                 '/mind.gateway.v1.Gateway/ListFiles',
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListFilesRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListFilesResponse.FromString,
+                _registered_method=True)
+        self.SubscribeWorkspaceChanges = channel.unary_stream(
+                '/mind.gateway.v1.Gateway/SubscribeWorkspaceChanges',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.SubscribeWorkspaceChangesRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.WorkspaceChangeEvent.FromString,
                 _registered_method=True)
         self.DeleteFile = channel.unary_unary(
                 '/mind.gateway.v1.Gateway/DeleteFile',
@@ -68,10 +79,30 @@ class GatewayStub:
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyEditRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyEditResponse.FromString,
                 _registered_method=True)
+        self.ApplySymbolPatch = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ApplySymbolPatch',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplySymbolPatchRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplySymbolPatchResponse.FromString,
+                _registered_method=True)
         self.BatchApplyEdits = channel.unary_unary(
                 '/mind.gateway.v1.Gateway/BatchApplyEdits',
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.BatchApplyEditsRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.BatchApplyEditsResponse.FromString,
+                _registered_method=True)
+        self.ConfigureMutationAuthority = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ConfigureMutationAuthority',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureMutationAuthorityRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureMutationAuthorityResponse.FromString,
+                _registered_method=True)
+        self.PrepareMutation = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/PrepareMutation',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareMutationRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareMutationResponse.FromString,
+                _registered_method=True)
+        self.ApplyPreparedMutation = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ApplyPreparedMutation',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPreparedMutationRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPreparedMutationResponse.FromString,
                 _registered_method=True)
         self.Search = channel.unary_unary(
                 '/mind.gateway.v1.Gateway/Search',
@@ -92,6 +123,16 @@ class GatewayStub:
                 '/mind.gateway.v1.Gateway/Test',
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.TestRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.TestResponse.FromString,
+                _registered_method=True)
+        self.ConfigureService = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ConfigureService',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureServiceRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureServiceResponse.FromString,
+                _registered_method=True)
+        self.Format = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/Format',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.FormatRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.FormatResponse.FromString,
                 _registered_method=True)
         self.RunCommand = channel.unary_unary(
                 '/mind.gateway.v1.Gateway/RunCommand',
@@ -118,6 +159,11 @@ class GatewayStub:
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitDiffRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitDiffResponse.FromString,
                 _registered_method=True)
+        self.ApplyPatch = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ApplyPatch',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPatchRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPatchResponse.FromString,
+                _registered_method=True)
         self.GitLog = channel.unary_unary(
                 '/mind.gateway.v1.Gateway/GitLog',
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitLogRequest.SerializeToString,
@@ -127,6 +173,76 @@ class GatewayStub:
                 '/mind.gateway.v1.Gateway/GitCommit',
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCommitRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCommitResponse.FromString,
+                _registered_method=True)
+        self.GitBranch = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GitBranch',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitBranchRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitBranchResponse.FromString,
+                _registered_method=True)
+        self.GitCheckout = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GitCheckout',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCheckoutRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCheckoutResponse.FromString,
+                _registered_method=True)
+        self.GitPush = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GitPush',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitPushRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitPushResponse.FromString,
+                _registered_method=True)
+        self.GitTag = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GitTag',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitTagRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitTagResponse.FromString,
+                _registered_method=True)
+        self.GitMerge = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GitMerge',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitMergeRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitMergeResponse.FromString,
+                _registered_method=True)
+        self.GitRevert = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GitRevert',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitRevertRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitRevertResponse.FromString,
+                _registered_method=True)
+        self.MaterializeRepositorySnapshot = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/MaterializeRepositorySnapshot',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.MaterializeRepositorySnapshotRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.MaterializeRepositorySnapshotResponse.FromString,
+                _registered_method=True)
+        self.PrepareRepositoryCheckout = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/PrepareRepositoryCheckout',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareRepositoryCheckoutRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareRepositoryCheckoutResponse.FromString,
+                _registered_method=True)
+        self.ReleaseRepositorySnapshot = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ReleaseRepositorySnapshot',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRepositorySnapshotRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRepositorySnapshotResponse.FromString,
+                _registered_method=True)
+        self.Release = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/Release',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseResponse.FromString,
+                _registered_method=True)
+        self.ForgePullRequestStatus = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ForgePullRequestStatus',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgePullRequestStatusRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgePullRequestStatusResponse.FromString,
+                _registered_method=True)
+        self.ForgeMergePullRequest = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ForgeMergePullRequest',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeMergePullRequestRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeMergePullRequestResponse.FromString,
+                _registered_method=True)
+        self.ForgeRequestReview = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ForgeRequestReview',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeRequestReviewRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeRequestReviewResponse.FromString,
+                _registered_method=True)
+        self.ForgeNormalizeWebhook = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/ForgeNormalizeWebhook',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeNormalizeWebhookRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeNormalizeWebhookResponse.FromString,
                 _registered_method=True)
         self.ListDependencies = channel.unary_unary(
                 '/mind.gateway.v1.Gateway/ListDependencies',
@@ -147,6 +263,26 @@ class GatewayStub:
                 '/mind.gateway.v1.Gateway/GetProjectInfo',
                 request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoRequest.SerializeToString,
                 response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoResponse.FromString,
+                _registered_method=True)
+        self.GetSemanticIndex = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GetSemanticIndex',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSemanticIndexRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSemanticIndexResponse.FromString,
+                _registered_method=True)
+        self.GetInstructionIndex = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GetInstructionIndex',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetInstructionIndexRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetInstructionIndexResponse.FromString,
+                _registered_method=True)
+        self.GetSourceManifest = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/GetSourceManifest',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSourceManifestRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSourceManifestResponse.FromString,
+                _registered_method=True)
+        self.DiscoverCodeUnits = channel.unary_unary(
+                '/mind.gateway.v1.Gateway/DiscoverCodeUnits',
+                request_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.DiscoverCodeUnitsRequest.SerializeToString,
+                response_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.DiscoverCodeUnitsResponse.FromString,
                 _registered_method=True)
         self.OpenTerminal = channel.unary_unary(
                 '/mind.gateway.v1.Gateway/OpenTerminal',
@@ -175,7 +311,7 @@ class GatewayStub:
                 _registered_method=True)
 
 
-class GatewayServicer:
+class GatewayServicer(object):
     """Gateway is the ONLY service Mind talks to.
     Codefly CLI implements it. Everything else is behind this wall.
 
@@ -185,12 +321,22 @@ class GatewayServicer:
 
     Gateway is the firewall API Mind uses to reach Codefly workspaces without talking directly to
     agents, processes, or containers.
+    ─── Topology ───────────────────────────────────────────────
     """
 
     def ListServices(self, request, context):
-        """─── Topology ───────────────────────────────────────────────
+        """ListServices returns all services known to the gateway.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
-        ListServices returns all services known to the gateway.
+    def EvaluateStorageCapacity(self, request, context):
+        """EvaluateStorageCapacity asks the execution authority whether its Gateway
+        and service-state roots can satisfy named byte requirements. Requirements
+        that resolve to one physical volume are evaluated together. The result is
+        an observation, not a reservation; no host path or project content crosses
+        the boundary.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -214,6 +360,15 @@ class GatewayServicer:
 
     def ListFiles(self, request, context):
         """ListFiles lists files in a service's source tree.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SubscribeWorkspaceChanges(self, request, context):
+        """SubscribeWorkspaceChanges streams metadata-only filesystem wakeups from
+        the Codefly execution boundary. Events are sequenced and replayable over a
+        bounded window; consumers must still reconcile with authoritative reads.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -256,8 +411,40 @@ class GatewayServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ApplySymbolPatch(self, request, context):
+        """ApplySymbolPatch replaces one analyzer-owned declaration and returns only
+        source-free mutation evidence across the Mind boundary.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def BatchApplyEdits(self, request, context):
         """BatchApplyEdits applies multiple edits atomically across files/services.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ConfigureMutationAuthority(self, request, context):
+        """ConfigureMutationAuthority pins the SaaS coordinator verification key and
+        this gateway's workspace identity before prepared mutations are allowed.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PrepareMutation(self, request, context):
+        """PrepareMutation resolves one proposed edit against current project bytes
+        without writing them and seals the exact result behind a content digest.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ApplyPreparedMutation(self, request, context):
+        """ApplyPreparedMutation verifies the prepared digest, current resource
+        preconditions, and a coordinator-signed fenced permit before one write.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -290,6 +477,22 @@ class GatewayServicer:
 
     def Test(self, request, context):
         """Test runs the configured test command on the service.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ConfigureService(self, request, context):
+        """ConfigureService applies plugin-owned, schema-validated configuration.
+        Mind supplies typed values; the owning Codefly agent decides how and
+        where they are persisted.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Format(self, request, context):
+        """Format applies the service plugin's canonical formatter/import organizer.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -338,6 +541,14 @@ class GatewayServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ApplyPatch(self, request, context):
+        """ApplyPatch applies or reverses one unified diff inside the execution box.
+        Codefly owns patch parsing, path safety, and the underlying VCS command.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GitLog(self, request, context):
         """GitLog returns recent commit history.
         """
@@ -347,6 +558,111 @@ class GatewayServicer:
 
     def GitCommit(self, request, context):
         """GitCommit commits staged changes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GitBranch(self, request, context):
+        """GitBranch creates a branch at an explicit start point.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GitCheckout(self, request, context):
+        """GitCheckout switches the worktree to an existing branch or revision.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GitPush(self, request, context):
+        """GitPush publishes a local branch to a remote.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GitTag(self, request, context):
+        """GitTag creates an annotated or signed tag.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GitMerge(self, request, context):
+        """GitMerge merges one revision into the checked-out branch.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GitRevert(self, request, context):
+        """GitRevert creates a commit that reverts one revision.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def MaterializeRepositorySnapshot(self, request, context):
+        """MaterializeRepositorySnapshot resolves one remote revision into a
+        detached, immutable worktree owned by the caller's service-state cache.
+        Codefly owns every Git command and credential/configuration boundary.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PrepareRepositoryCheckout(self, request, context):
+        """PrepareRepositoryCheckout resolves one remote revision into a clean,
+        mutable checkout backed by a caller-owned repository cache directory.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReleaseRepositorySnapshot(self, request, context):
+        """ReleaseRepositorySnapshot removes a detached worktree previously leased
+        by MaterializeRepositorySnapshot and prunes its repository metadata.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Release(self, request, context):
+        """Release bumps the code unit versions, commits them, creates a signed tag,
+        and publishes the commit and tag as one semantic operation.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ForgePullRequestStatus(self, request, context):
+        """─── Forge ───────────────────────────────────────────────────
+
+        ForgePullRequestStatus returns one vendor-neutral PR/check/review snapshot.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ForgeMergePullRequest(self, request, context):
+        """ForgeMergePullRequest merges a PR after enforcing its requested check policy.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ForgeRequestReview(self, request, context):
+        """ForgeRequestReview requests reviewers on a PR.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ForgeNormalizeWebhook(self, request, context):
+        """ForgeNormalizeWebhook verifies and normalizes one provider webhook.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -379,6 +695,39 @@ class GatewayServicer:
         """─── Project Analysis ──────────────────────────────────────
 
         GetProjectInfo returns rich project metadata: module, packages, deps, file hashes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSemanticIndex(self, request, context):
+        """GetSemanticIndex returns body-free semantic facts produced inside the
+        production agent rooted at one exact code unit.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetInstructionIndex(self, request, context):
+        """GetInstructionIndex returns typed project guidance produced inside the
+        repository-rooted Codefly source boundary. An optional code unit narrows
+        the result to the instruction scopes applicable at that boundary.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSourceManifest(self, request, context):
+        """GetSourceManifest returns body-free project artifact identities produced
+        inside Codefly for either the live worktree or one immutable Git revision.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DiscoverCodeUnits(self, request, context):
+        """DiscoverCodeUnits returns Codefly-owned structural source boundaries,
+        including unsupported ecosystems that bind to the generic agent.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -434,6 +783,11 @@ def add_GatewayServicer_to_server(servicer, server):
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListServicesRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListServicesResponse.SerializeToString,
             ),
+            'EvaluateStorageCapacity': grpc.unary_unary_rpc_method_handler(
+                    servicer.EvaluateStorageCapacity,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.EvaluateStorageCapacityRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.EvaluateStorageCapacityResponse.SerializeToString,
+            ),
             'ReadFile': grpc.unary_unary_rpc_method_handler(
                     servicer.ReadFile,
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReadFileRequest.FromString,
@@ -448,6 +802,11 @@ def add_GatewayServicer_to_server(servicer, server):
                     servicer.ListFiles,
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListFilesRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ListFilesResponse.SerializeToString,
+            ),
+            'SubscribeWorkspaceChanges': grpc.unary_stream_rpc_method_handler(
+                    servicer.SubscribeWorkspaceChanges,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.SubscribeWorkspaceChangesRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.WorkspaceChangeEvent.SerializeToString,
             ),
             'DeleteFile': grpc.unary_unary_rpc_method_handler(
                     servicer.DeleteFile,
@@ -474,10 +833,30 @@ def add_GatewayServicer_to_server(servicer, server):
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyEditRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyEditResponse.SerializeToString,
             ),
+            'ApplySymbolPatch': grpc.unary_unary_rpc_method_handler(
+                    servicer.ApplySymbolPatch,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplySymbolPatchRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplySymbolPatchResponse.SerializeToString,
+            ),
             'BatchApplyEdits': grpc.unary_unary_rpc_method_handler(
                     servicer.BatchApplyEdits,
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.BatchApplyEditsRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.BatchApplyEditsResponse.SerializeToString,
+            ),
+            'ConfigureMutationAuthority': grpc.unary_unary_rpc_method_handler(
+                    servicer.ConfigureMutationAuthority,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureMutationAuthorityRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureMutationAuthorityResponse.SerializeToString,
+            ),
+            'PrepareMutation': grpc.unary_unary_rpc_method_handler(
+                    servicer.PrepareMutation,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareMutationRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareMutationResponse.SerializeToString,
+            ),
+            'ApplyPreparedMutation': grpc.unary_unary_rpc_method_handler(
+                    servicer.ApplyPreparedMutation,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPreparedMutationRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPreparedMutationResponse.SerializeToString,
             ),
             'Search': grpc.unary_unary_rpc_method_handler(
                     servicer.Search,
@@ -498,6 +877,16 @@ def add_GatewayServicer_to_server(servicer, server):
                     servicer.Test,
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.TestRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.TestResponse.SerializeToString,
+            ),
+            'ConfigureService': grpc.unary_unary_rpc_method_handler(
+                    servicer.ConfigureService,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureServiceRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureServiceResponse.SerializeToString,
+            ),
+            'Format': grpc.unary_unary_rpc_method_handler(
+                    servicer.Format,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.FormatRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.FormatResponse.SerializeToString,
             ),
             'RunCommand': grpc.unary_unary_rpc_method_handler(
                     servicer.RunCommand,
@@ -524,6 +913,11 @@ def add_GatewayServicer_to_server(servicer, server):
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitDiffRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitDiffResponse.SerializeToString,
             ),
+            'ApplyPatch': grpc.unary_unary_rpc_method_handler(
+                    servicer.ApplyPatch,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPatchRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPatchResponse.SerializeToString,
+            ),
             'GitLog': grpc.unary_unary_rpc_method_handler(
                     servicer.GitLog,
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitLogRequest.FromString,
@@ -533,6 +927,76 @@ def add_GatewayServicer_to_server(servicer, server):
                     servicer.GitCommit,
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCommitRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCommitResponse.SerializeToString,
+            ),
+            'GitBranch': grpc.unary_unary_rpc_method_handler(
+                    servicer.GitBranch,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitBranchRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitBranchResponse.SerializeToString,
+            ),
+            'GitCheckout': grpc.unary_unary_rpc_method_handler(
+                    servicer.GitCheckout,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCheckoutRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCheckoutResponse.SerializeToString,
+            ),
+            'GitPush': grpc.unary_unary_rpc_method_handler(
+                    servicer.GitPush,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitPushRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitPushResponse.SerializeToString,
+            ),
+            'GitTag': grpc.unary_unary_rpc_method_handler(
+                    servicer.GitTag,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitTagRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitTagResponse.SerializeToString,
+            ),
+            'GitMerge': grpc.unary_unary_rpc_method_handler(
+                    servicer.GitMerge,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitMergeRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitMergeResponse.SerializeToString,
+            ),
+            'GitRevert': grpc.unary_unary_rpc_method_handler(
+                    servicer.GitRevert,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitRevertRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GitRevertResponse.SerializeToString,
+            ),
+            'MaterializeRepositorySnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.MaterializeRepositorySnapshot,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.MaterializeRepositorySnapshotRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.MaterializeRepositorySnapshotResponse.SerializeToString,
+            ),
+            'PrepareRepositoryCheckout': grpc.unary_unary_rpc_method_handler(
+                    servicer.PrepareRepositoryCheckout,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareRepositoryCheckoutRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareRepositoryCheckoutResponse.SerializeToString,
+            ),
+            'ReleaseRepositorySnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReleaseRepositorySnapshot,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRepositorySnapshotRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRepositorySnapshotResponse.SerializeToString,
+            ),
+            'Release': grpc.unary_unary_rpc_method_handler(
+                    servicer.Release,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseResponse.SerializeToString,
+            ),
+            'ForgePullRequestStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForgePullRequestStatus,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgePullRequestStatusRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgePullRequestStatusResponse.SerializeToString,
+            ),
+            'ForgeMergePullRequest': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForgeMergePullRequest,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeMergePullRequestRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeMergePullRequestResponse.SerializeToString,
+            ),
+            'ForgeRequestReview': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForgeRequestReview,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeRequestReviewRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeRequestReviewResponse.SerializeToString,
+            ),
+            'ForgeNormalizeWebhook': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForgeNormalizeWebhook,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeNormalizeWebhookRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeNormalizeWebhookResponse.SerializeToString,
             ),
             'ListDependencies': grpc.unary_unary_rpc_method_handler(
                     servicer.ListDependencies,
@@ -553,6 +1017,26 @@ def add_GatewayServicer_to_server(servicer, server):
                     servicer.GetProjectInfo,
                     request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoRequest.FromString,
                     response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoResponse.SerializeToString,
+            ),
+            'GetSemanticIndex': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSemanticIndex,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSemanticIndexRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSemanticIndexResponse.SerializeToString,
+            ),
+            'GetInstructionIndex': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetInstructionIndex,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetInstructionIndexRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetInstructionIndexResponse.SerializeToString,
+            ),
+            'GetSourceManifest': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSourceManifest,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSourceManifestRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSourceManifestResponse.SerializeToString,
+            ),
+            'DiscoverCodeUnits': grpc.unary_unary_rpc_method_handler(
+                    servicer.DiscoverCodeUnits,
+                    request_deserializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.DiscoverCodeUnitsRequest.FromString,
+                    response_serializer=mind_dot_gateway_dot_v1_dot_gateway__pb2.DiscoverCodeUnitsResponse.SerializeToString,
             ),
             'OpenTerminal': grpc.unary_unary_rpc_method_handler(
                     servicer.OpenTerminal,
@@ -583,11 +1067,10 @@ def add_GatewayServicer_to_server(servicer, server):
     generic_handler = grpc.method_handlers_generic_handler(
             'mind.gateway.v1.Gateway', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('mind.gateway.v1.Gateway', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class Gateway:
+class Gateway(object):
     """Gateway is the ONLY service Mind talks to.
     Codefly CLI implements it. Everything else is behind this wall.
 
@@ -597,6 +1080,7 @@ class Gateway:
 
     Gateway is the firewall API Mind uses to reach Codefly workspaces without talking directly to
     agents, processes, or containers.
+    ─── Topology ───────────────────────────────────────────────
     """
 
     @staticmethod
@@ -616,6 +1100,33 @@ class Gateway:
             '/mind.gateway.v1.Gateway/ListServices',
             mind_dot_gateway_dot_v1_dot_gateway__pb2.ListServicesRequest.SerializeToString,
             mind_dot_gateway_dot_v1_dot_gateway__pb2.ListServicesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def EvaluateStorageCapacity(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/EvaluateStorageCapacity',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.EvaluateStorageCapacityRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.EvaluateStorageCapacityResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -697,6 +1208,33 @@ class Gateway:
             '/mind.gateway.v1.Gateway/ListFiles',
             mind_dot_gateway_dot_v1_dot_gateway__pb2.ListFilesRequest.SerializeToString,
             mind_dot_gateway_dot_v1_dot_gateway__pb2.ListFilesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SubscribeWorkspaceChanges(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/SubscribeWorkspaceChanges',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.SubscribeWorkspaceChangesRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.WorkspaceChangeEvent.FromString,
             options,
             channel_credentials,
             insecure,
@@ -843,6 +1381,33 @@ class Gateway:
             _registered_method=True)
 
     @staticmethod
+    def ApplySymbolPatch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ApplySymbolPatch',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplySymbolPatchRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplySymbolPatchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def BatchApplyEdits(request,
             target,
             options=(),
@@ -859,6 +1424,87 @@ class Gateway:
             '/mind.gateway.v1.Gateway/BatchApplyEdits',
             mind_dot_gateway_dot_v1_dot_gateway__pb2.BatchApplyEditsRequest.SerializeToString,
             mind_dot_gateway_dot_v1_dot_gateway__pb2.BatchApplyEditsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ConfigureMutationAuthority(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ConfigureMutationAuthority',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureMutationAuthorityRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureMutationAuthorityResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PrepareMutation(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/PrepareMutation',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareMutationRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareMutationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ApplyPreparedMutation(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ApplyPreparedMutation',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPreparedMutationRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPreparedMutationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -967,6 +1613,60 @@ class Gateway:
             '/mind.gateway.v1.Gateway/Test',
             mind_dot_gateway_dot_v1_dot_gateway__pb2.TestRequest.SerializeToString,
             mind_dot_gateway_dot_v1_dot_gateway__pb2.TestResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ConfigureService(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ConfigureService',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureServiceRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ConfigureServiceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Format(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/Format',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.FormatRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.FormatResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1113,6 +1813,33 @@ class Gateway:
             _registered_method=True)
 
     @staticmethod
+    def ApplyPatch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ApplyPatch',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPatchRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ApplyPatchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GitLog(request,
             target,
             options=(),
@@ -1156,6 +1883,384 @@ class Gateway:
             '/mind.gateway.v1.Gateway/GitCommit',
             mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCommitRequest.SerializeToString,
             mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCommitResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GitBranch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GitBranch',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitBranchRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitBranchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GitCheckout(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GitCheckout',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCheckoutRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitCheckoutResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GitPush(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GitPush',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitPushRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitPushResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GitTag(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GitTag',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitTagRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitTagResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GitMerge(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GitMerge',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitMergeRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitMergeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GitRevert(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GitRevert',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitRevertRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GitRevertResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def MaterializeRepositorySnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/MaterializeRepositorySnapshot',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.MaterializeRepositorySnapshotRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.MaterializeRepositorySnapshotResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PrepareRepositoryCheckout(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/PrepareRepositoryCheckout',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareRepositoryCheckoutRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.PrepareRepositoryCheckoutResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReleaseRepositorySnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ReleaseRepositorySnapshot',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRepositorySnapshotRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRepositorySnapshotResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Release(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/Release',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ReleaseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ForgePullRequestStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ForgePullRequestStatus',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgePullRequestStatusRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgePullRequestStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ForgeMergePullRequest(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ForgeMergePullRequest',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeMergePullRequestRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeMergePullRequestResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ForgeRequestReview(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ForgeRequestReview',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeRequestReviewRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeRequestReviewResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ForgeNormalizeWebhook(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/ForgeNormalizeWebhook',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeNormalizeWebhookRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.ForgeNormalizeWebhookResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1264,6 +2369,114 @@ class Gateway:
             '/mind.gateway.v1.Gateway/GetProjectInfo',
             mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoRequest.SerializeToString,
             mind_dot_gateway_dot_v1_dot_gateway__pb2.GetProjectInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSemanticIndex(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GetSemanticIndex',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSemanticIndexRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSemanticIndexResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetInstructionIndex(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GetInstructionIndex',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GetInstructionIndexRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GetInstructionIndexResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSourceManifest(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/GetSourceManifest',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSourceManifestRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.GetSourceManifestResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DiscoverCodeUnits(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mind.gateway.v1.Gateway/DiscoverCodeUnits',
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.DiscoverCodeUnitsRequest.SerializeToString,
+            mind_dot_gateway_dot_v1_dot_gateway__pb2.DiscoverCodeUnitsResponse.FromString,
             options,
             channel_credentials,
             insecure,

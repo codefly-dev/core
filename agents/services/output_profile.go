@@ -77,12 +77,6 @@ func (p OutputProfile) String() string {
 	return p.profile.String()
 }
 
-// selected reports whether this value came out of ParseOutputProfile: the zero
-// value did not, and a renderer handed one refuses it.
-func (p OutputProfile) selected() bool {
-	return p.profile != builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED
-}
-
 // definedOutputProfiles names the profiles this contract renders, for the
 // refusals above.
 func definedOutputProfiles() string {

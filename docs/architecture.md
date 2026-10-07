@@ -333,7 +333,10 @@ and reads as absent. So a consumer judges the carriers it was handed before it
 reads any, with `resources.ValidateEndpointCarriers(envs, declared)`: every
 `CODEFLY__ENDPOINT__*` entry must be, exactly, the canonical key of one
 declared endpoint — spelled as above, with the API the declaration serves —
-delivered once and with a value, or it is refused by name. The key is parsed
+delivered once and with a non-empty value, or it is refused by name. The
+prefix is matched without regard to case, so `codefly__endpoint__…` is judged
+as the non-canonical carrier it is rather than passed over as "not a carrier"
+and then read as absent. The key is parsed
 only to say what it fell short of: `…__RECORDS__REST__GRPC` for a declaration
 that serves `rest` is refused naming that declaration and its carrier, and a
 trailing underscore is refused as the key it is; no typo is enumerated, and

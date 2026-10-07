@@ -24,8 +24,10 @@ enum KubernetesOutputProfile {
   KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1 = 3;
   // Value 2 was KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, which named a
   // delivery mechanism in a plugin-facing contract and rendered the identical
-  // restricted bundle. It is deleted, not repurposed: a request naming it is
-  // refused by the decoder.
+  // restricted bundle. It is deleted, not repurposed. Only its NAME is refused
+  // by a decoder (the JSON one); the number still decodes, from the wire and
+  // from JSON, and is refused by the renderer's judgement of the profile
+  // (services.ParseOutputProfile) before anything is written.
   reserved 2;
   reserved "KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1";
 }

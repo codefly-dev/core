@@ -214,8 +214,10 @@ runs natively, in Nix or in a companion.
 
 `Runner` offers an executable only if the build that produced it completed.
 `BuildBinary` forgets the previous executable before its first fallible step
-and publishes the new one only once `go build` has exited 0 and the file it
-was asked to write is there. Three ways a build ends without completing are
+and publishes the new one only once `go build` has exited 0. (It does not
+check that the file exists afterwards: `go build -o` reuses the executable in
+place, so after any earlier success it is always there, and such a check would
+protect the first build only.) Three ways a build ends without completing are
 each refused rather than served: module preparation failing (a malformed
 `go.mod` fails `go mod download` before `go build` runs); `GOFLAGS=-n`,
 inherited or injected, which would make `go build` a dry run that prints its

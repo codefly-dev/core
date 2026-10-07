@@ -114,11 +114,13 @@
 // service reads them via WorkspaceValue without redeclaring them.
 // GetCompositionRootWorkspaceConfigurations returns exactly the root-provided set
 // for that run-wide injection, resolved and endpoint-interpolated like
-// GetWorkspaceConfigurations — or, given names, exactly the named groups of it,
-// so a consumer that receives a subset (a service a withheld credential never
-// reaches) is judged on what it receives rather than refused by a fault in a
-// group it does not; a name the root does not provide run-wide is refused by
-// name (ErrNotACompositionRootConfiguration), never skipped. The root-provided and per-dependency composed-module
+// GetWorkspaceConfigurations. GetNamedCompositionRootWorkspaceConfigurations
+// returns exactly the named groups of it, so a consumer that receives a subset
+// (a service a withheld credential never reaches) is judged on what it receives
+// rather than refused by a fault in a group it does not; a name the root does
+// not provide run-wide is refused by name (ErrNotACompositionRootConfiguration),
+// never skipped, and naming nothing is refused too — a named read is never the
+// whole set, so an empty received set cannot read everything. The root-provided and per-dependency composed-module
 // sets are disjoint by name: a name a composed module provides stays in the
 // composed set even when the root declares it as its OWN, because the root's
 // values are overlaid onto the module's group PER KEY

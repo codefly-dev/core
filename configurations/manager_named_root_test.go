@@ -98,7 +98,7 @@ func TestTheCompositionRootReadResolvesOnlyTheNamedGroups(t *testing.T) {
 	ctx := context.Background()
 	manager := namedRootGroupsManager(t)
 
-	confs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx, "work-context")
+	confs, err := manager.GetNamedCompositionRootWorkspaceConfigurations(ctx, "work-context")
 	require.NoError(t, err, "a fault in a group this consumer does not receive must not refuse the groups it does")
 	require.Len(t, confs, 1)
 	url, err := resources.GetConfigurationValue(ctx, confs[0], "work-context", "authority-url")
@@ -108,31 +108,30 @@ func TestTheCompositionRootReadResolvesOnlyTheNamedGroups(t *testing.T) {
 	require.Error(t, err, "a group that was not named is not delivered")
 
 	// A name listed twice is one group, read once.
-	confs, err = manager.GetCompositionRootWorkspaceConfigurations(ctx, "work-context", "work-context")
+	confs, err = manager.GetNamedCompositionRootWorkspaceConfigurations(ctx, "work-context", "work-context")
 	require.NoError(t, err)
 	require.Len(t, confs, 1)
 }
 
-// With no names the read is what it was, and "what it was" is pinned from
-// both sides. Zero names is the WHOLE root set — every group, resolved, the
-// same answer as naming every group — not none of it and not some of it. And
-// the first fault still refuses that whole read, naming the group and key:
-// narrowing the named read did not loosen the unnamed one.
+// The whole-set read is what it was, and "what it was" is pinned from both
+// sides: every group, resolved — the same answer as naming every group — not
+// none of it and not some of it; and the first fault still refuses that whole
+// read, naming the group and key. Narrowing the named read did not loosen it.
 func TestTheCompositionRootReadWithoutNamesStillRefusesTheFirstFault(t *testing.T) {
 	ctx := context.Background()
 
-	// No fault anywhere: zero names delivers every root group, resolved, and
-	// is exactly what naming every root group delivers.
+	// No fault anywhere: the whole set is every root group, resolved, and is
+	// exactly what naming every root group delivers.
 	whole := rootGroupsManager(t, "${endpoint:platform/authority/secondary}")
 	unnamed, err := whole.GetCompositionRootWorkspaceConfigurations(ctx)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{
 		"vault/token-endpoint":       "http://localhost:3",
 		"work-context/authority-url": "http://localhost:2/v1",
-	}, rootValues(t, unnamed), "zero names is the whole set, resolved")
-	named, err := whole.GetCompositionRootWorkspaceConfigurations(ctx, "work-context", "vault")
+	}, rootValues(t, unnamed), "the whole set, resolved")
+	named, err := whole.GetNamedCompositionRootWorkspaceConfigurations(ctx, "work-context", "vault")
 	require.NoError(t, err)
-	require.Equal(t, rootValues(t, unnamed), rootValues(t, named), "zero names and every name are one read")
+	require.Equal(t, rootValues(t, unnamed), rootValues(t, named), "the whole set and every name are one read")
 
 	// One fault: the whole read refuses, with the group and key.
 	faulty := namedRootGroupsManager(t)
@@ -143,7 +142,7 @@ func TestTheCompositionRootReadWithoutNamesStillRefusesTheFirstFault(t *testing.
 
 	// Naming the faulty group reaches the same refusal: naming narrows which
 	// groups are judged, never how.
-	_, err = faulty.GetCompositionRootWorkspaceConfigurations(ctx, "vault", "work-context")
+	_, err = faulty.GetNamedCompositionRootWorkspaceConfigurations(ctx, "vault", "work-context")
 	require.ErrorIs(t, err, resources.ErrAmbiguousEndpointReference)
 	require.Contains(t, err.Error(), "vault/token-endpoint")
 }
@@ -170,25 +169,49 @@ func TestTheCompositionRootReadRefusesANameTheRootDoesNotProvide(t *testing.T) {
 	ctx := context.Background()
 	manager := namedRootGroupsManager(t)
 
-	confs, err := manager.GetCompositionRootWorkspaceConfigurations(ctx, "telemetry")
+	confs, err := manager.GetNamedCompositionRootWorkspaceConfigurations(ctx, "telemetry")
 	require.ErrorIs(t, err, configurations.ErrNotACompositionRootConfiguration)
 	require.Contains(t, err.Error(), `"telemetry"`)
 	require.Contains(t, err.Error(), "composed module's group")
 	require.Nil(t, confs)
 
-	_, err = manager.GetCompositionRootWorkspaceConfigurations(ctx, "observability")
+	_, err = manager.GetNamedCompositionRootWorkspaceConfigurations(ctx, "observability")
 	require.ErrorIs(t, err, configurations.ErrNotACompositionRootConfiguration)
 	require.ErrorIs(t, err, configurations.ErrConfigurationConflict, "an ambiguous name carries the loader's diagnostic")
 	require.Contains(t, err.Error(), `"observability"`)
 
-	_, err = manager.GetCompositionRootWorkspaceConfigurations(ctx, "nope")
+	_, err = manager.GetNamedCompositionRootWorkspaceConfigurations(ctx, "nope")
 	require.ErrorIs(t, err, configurations.ErrNotACompositionRootConfiguration)
 	require.Contains(t, err.Error(), `"nope"`)
 	require.Contains(t, err.Error(), "vault, work-context", "the refusal names what the root does provide")
 
 	// One unknown name among known ones refuses the whole read: a named read
 	// never answers with less than it was asked for.
-	confs, err = manager.GetCompositionRootWorkspaceConfigurations(ctx, "work-context", "nope")
+	confs, err = manager.GetNamedCompositionRootWorkspaceConfigurations(ctx, "work-context", "nope")
 	require.ErrorIs(t, err, configurations.ErrNotACompositionRootConfiguration)
+	require.Nil(t, confs)
+}
+
+// A named read never means "all". Naming nothing is refused — an empty
+// received set spread into the call cannot deliver every root group, a
+// withheld credential included — and a nil manager refuses a named read
+// rather than answering it with nothing.
+func TestANamedCompositionRootReadIsNeverTheWholeSet(t *testing.T) {
+	ctx := context.Background()
+	manager := rootGroupsManager(t, "${endpoint:platform/authority/secondary}")
+
+	var received []string
+	confs, err := manager.GetNamedCompositionRootWorkspaceConfigurations(ctx, received...)
+	require.ErrorIs(t, err, configurations.ErrNoCompositionRootConfigurationNamed)
+	require.Nil(t, confs, "an empty received set reads nothing, not everything")
+
+	var uninitialized *configurations.Manager
+	confs, err = uninitialized.GetNamedCompositionRootWorkspaceConfigurations(ctx, "work-context")
+	require.Error(t, err, "a nil manager does not answer a named read with nothing")
+	require.Contains(t, err.Error(), "work-context")
+	require.Nil(t, confs)
+	// The whole-set read keeps the package's nil-receiver convention.
+	confs, err = uninitialized.GetCompositionRootWorkspaceConfigurations(ctx)
+	require.NoError(t, err)
 	require.Nil(t, confs)
 }

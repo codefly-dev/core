@@ -1,0 +1,9 @@
+version: v1
+# Python bindings only: the remote protocolbuffers and grpc Python plugins the
+# repository's buf.gen.yaml names, run on their own so a regeneration of the
+# Python package does not re-run the Go plugins.
+plugins:
+  - plugin: buf.build/protocolbuffers/python:v36.1
+    out: python/codefly-cli/codefly_cli
+  - plugin: buf.build/grpc/python:v1.63.0
+    out: python/codefly-cli/codefly_cli

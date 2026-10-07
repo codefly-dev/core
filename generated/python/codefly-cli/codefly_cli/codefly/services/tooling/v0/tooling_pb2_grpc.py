@@ -5,14 +5,15 @@ import grpc
 from codefly.services.tooling.v0 import tooling_pb2 as codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2
 
 
-class ToolingStub:
+class ToolingStub(object):
     """── Service Definition ─────────────────────────────────
 
     Tooling provides command-oriented language operations.
     Every language agent (go-grpc, python-fastapi, etc.) implements this service.
 
     NOTE: File operations (read, write, list, search) and git operations are
-    NOT part of this service. Mind handles those directly via its VFS.
+    part of Code/Gateway, not this service. Mind reaches those typed capabilities
+    through the Gateway and never owns a project VFS.
     """
 
     def __init__(self, channel):
@@ -51,6 +52,16 @@ class ToolingStub:
                 request_serializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetProjectInfoRequest.SerializeToString,
                 response_deserializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetProjectInfoResponse.FromString,
                 _registered_method=True)
+        self.GetSemanticIndex = channel.unary_unary(
+                '/codefly.services.tooling.v0.Tooling/GetSemanticIndex',
+                request_serializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetSemanticIndexRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetSemanticIndexResponse.FromString,
+                _registered_method=True)
+        self.GetInstructionIndex = channel.unary_unary(
+                '/codefly.services.tooling.v0.Tooling/GetInstructionIndex',
+                request_serializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetInstructionIndexRequest.SerializeToString,
+                response_deserializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetInstructionIndexResponse.FromString,
+                _registered_method=True)
         self.Build = channel.unary_unary(
                 '/codefly.services.tooling.v0.Tooling/Build',
                 request_serializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.BuildRequest.SerializeToString,
@@ -68,14 +79,15 @@ class ToolingStub:
                 _registered_method=True)
 
 
-class ToolingServicer:
+class ToolingServicer(object):
     """── Service Definition ─────────────────────────────────
 
     Tooling provides command-oriented language operations.
     Every language agent (go-grpc, python-fastapi, etc.) implements this service.
 
     NOTE: File operations (read, write, list, search) and git operations are
-    NOT part of this service. Mind handles those directly via its VFS.
+    part of Code/Gateway, not this service. Mind reaches those typed capabilities
+    through the Gateway and never owns a project VFS.
     """
 
     def Fix(self, request, context):
@@ -115,6 +127,21 @@ class ToolingServicer:
 
     def GetProjectInfo(self, request, context):
         """Analysis
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSemanticIndex(self, request, context):
+        """GetSemanticIndex keeps project parsing and project bytes inside Codefly.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetInstructionIndex(self, request, context):
+        """GetInstructionIndex keeps instruction discovery, Markdown parsing, and
+        project document bytes inside Codefly.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -174,6 +201,16 @@ def add_ToolingServicer_to_server(servicer, server):
                     request_deserializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetProjectInfoRequest.FromString,
                     response_serializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetProjectInfoResponse.SerializeToString,
             ),
+            'GetSemanticIndex': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSemanticIndex,
+                    request_deserializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetSemanticIndexRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetSemanticIndexResponse.SerializeToString,
+            ),
+            'GetInstructionIndex': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetInstructionIndex,
+                    request_deserializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetInstructionIndexRequest.FromString,
+                    response_serializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetInstructionIndexResponse.SerializeToString,
+            ),
             'Build': grpc.unary_unary_rpc_method_handler(
                     servicer.Build,
                     request_deserializer=codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.BuildRequest.FromString,
@@ -193,18 +230,18 @@ def add_ToolingServicer_to_server(servicer, server):
     generic_handler = grpc.method_handlers_generic_handler(
             'codefly.services.tooling.v0.Tooling', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('codefly.services.tooling.v0.Tooling', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class Tooling:
+class Tooling(object):
     """── Service Definition ─────────────────────────────────
 
     Tooling provides command-oriented language operations.
     Every language agent (go-grpc, python-fastapi, etc.) implements this service.
 
     NOTE: File operations (read, write, list, search) and git operations are
-    NOT part of this service. Mind handles those directly via its VFS.
+    part of Code/Gateway, not this service. Mind reaches those typed capabilities
+    through the Gateway and never owns a project VFS.
     """
 
     @staticmethod
@@ -359,6 +396,60 @@ class Tooling:
             '/codefly.services.tooling.v0.Tooling/GetProjectInfo',
             codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetProjectInfoRequest.SerializeToString,
             codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetProjectInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSemanticIndex(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.tooling.v0.Tooling/GetSemanticIndex',
+            codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetSemanticIndexRequest.SerializeToString,
+            codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetSemanticIndexResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetInstructionIndex(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.services.tooling.v0.Tooling/GetInstructionIndex',
+            codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetInstructionIndexRequest.SerializeToString,
+            codefly_dot_services_dot_tooling_dot_v0_dot_tooling__pb2.GetInstructionIndexResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -127,6 +127,35 @@ func TestAnEndpointCarrierOfAnUndeclaredEndpointIsRefused(t *testing.T) {
 	require.Contains(t, err.Error(), "no endpoint is declared")
 }
 
+// A carrier whose prefix is spelled in any case but upper is an endpoint
+// carrier that is not canonical — refused as such, by name — and never "not a
+// carrier" that the lookups then read as absent. The prefix is judged without
+// regard to case precisely so this cannot slip through.
+func TestAnEndpointCarrierInTheWrongCaseIsRefused(t *testing.T) {
+	for _, entry := range []string{
+		"codefly__endpoint__producer__records__rest__rest=localhost:8080",
+		"Codefly__Endpoint__PRODUCER__RECORDS__REST__REST=localhost:8080",
+		"CODEFLY__ENDPOINT__producer__records__rest__rest=localhost:8080",
+	} {
+		err := resources.ValidateEndpointCarriers([]string{entry}, declaredCarrierEndpoints())
+		require.ErrorIs(t, err, resources.ErrInvalidEndpointCarrier, entry)
+		key, _, _ := strings.Cut(entry, "=")
+		require.Contains(t, err.Error(), key+" ", entry)
+	}
+	err := resources.ValidateEndpointCarriers([]string{"codefly__endpoint__producer__records__rest__rest=localhost:8080"}, declaredCarrierEndpoints())
+	require.Contains(t, err.Error(), "is not spelled in upper case")
+}
+
+// A carrier with an empty value delivers nothing: refused, not left for the
+// lookup to meet as a parse failure.
+func TestAnEndpointCarrierWithAnEmptyValueIsRefused(t *testing.T) {
+	err := resources.ValidateEndpointCarriers([]string{
+		"CODEFLY__ENDPOINT__PRODUCER__RECORDS__REST__REST=",
+	}, declaredCarrierEndpoints())
+	require.ErrorIs(t, err, resources.ErrInvalidEndpointCarrier)
+	require.Contains(t, err.Error(), "CODEFLY__ENDPOINT__PRODUCER__RECORDS__REST__REST carries an empty value")
+}
+
 // One canonical key delivered twice is unjudgeable: a lookup takes the first
 // by position. An entry with no value is not an entry. Every refusal is
 // reported, in key order, so one fault does not hide another.

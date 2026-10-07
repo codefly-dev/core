@@ -10,7 +10,7 @@ from codefly.services.agent.v0 import agent_pb2 as codefly_dot_services_dot_agen
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 
-class CLIStub:
+class CLIStub(object):
     """CLI exposes the local Codefly command bridge used by companion UIs and integrations.
     """
 
@@ -24,6 +24,11 @@ class CLIStub:
                 '/codefly.cli.v0.CLI/Ping',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.SessionHandshake = channel.unary_unary(
+                '/codefly.cli.v0.CLI/SessionHandshake',
+                request_serializer=codefly_dot_cli_dot_v0_dot_cli__pb2.SessionHandshakeRequest.SerializeToString,
+                response_deserializer=codefly_dot_cli_dot_v0_dot_cli__pb2.SessionHandshakeResponse.FromString,
                 _registered_method=True)
         self.GetAgentInformation = channel.unary_unary(
                 '/codefly.cli.v0.CLI/GetAgentInformation',
@@ -102,12 +107,21 @@ class CLIStub:
                 _registered_method=True)
 
 
-class CLIServicer:
+class CLIServicer(object):
     """CLI exposes the local Codefly command bridge used by companion UIs and integrations.
     """
 
     def Ping(self, request, context):
         """Ping checks that the CLI bridge is reachable.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SessionHandshake(self, request, context):
+        """SessionHandshake proves that this control server belongs to the dependency
+        session the caller started. It carries no HTTP annotation: session proofs
+        must not be reachable through the CLI's REST companion.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -228,6 +242,11 @@ def add_CLIServicer_to_server(servicer, server):
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
+            'SessionHandshake': grpc.unary_unary_rpc_method_handler(
+                    servicer.SessionHandshake,
+                    request_deserializer=codefly_dot_cli_dot_v0_dot_cli__pb2.SessionHandshakeRequest.FromString,
+                    response_serializer=codefly_dot_cli_dot_v0_dot_cli__pb2.SessionHandshakeResponse.SerializeToString,
+            ),
             'GetAgentInformation': grpc.unary_unary_rpc_method_handler(
                     servicer.GetAgentInformation,
                     request_deserializer=codefly_dot_cli_dot_v0_dot_cli__pb2.GetAgentInformationRequest.FromString,
@@ -307,11 +326,10 @@ def add_CLIServicer_to_server(servicer, server):
     generic_handler = grpc.method_handlers_generic_handler(
             'codefly.cli.v0.CLI', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('codefly.cli.v0.CLI', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class CLI:
+class CLI(object):
     """CLI exposes the local Codefly command bridge used by companion UIs and integrations.
     """
 
@@ -332,6 +350,33 @@ class CLI:
             '/codefly.cli.v0.CLI/Ping',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SessionHandshake(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/codefly.cli.v0.CLI/SessionHandshake',
+            codefly_dot_cli_dot_v0_dot_cli__pb2.SessionHandshakeRequest.SerializeToString,
+            codefly_dot_cli_dot_v0_dot_cli__pb2.SessionHandshakeResponse.FromString,
             options,
             channel_credentials,
             insecure,
