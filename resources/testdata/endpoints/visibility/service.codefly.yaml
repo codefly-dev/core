@@ -9,18 +9,22 @@ endpoints:
   - name: grpc
     api: grpc
     visibility: internal
-    allow-modules: ["*"]
   - name: rest
     api: rest
     visibility: public
+    exposure: none
     location: external
   - name: http
     api: http
     visibility: internal
-    allow-modules: [platform]
   - name: tcp
     api: tcp
     visibility: private
   - name: conn
     api: connect
     visibility: public
+    exposure: none
+  - name: web
+    api: http
+    visibility: public
+    exposure: public

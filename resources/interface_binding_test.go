@@ -205,7 +205,7 @@ func TestUnboundInterfaceDependencyNeverResolvesSilently(t *testing.T) {
 	web, err := resources.LoadServiceFromDir(ctx, dir)
 	require.NoError(t, err)
 	web.WithModule("apps")
-	_, err = resources.ResolveDependencyNetworkMappings("apps", web.ServiceDependencies, nil)
+	_, err = resources.ResolveDependencyNetworkMappings(composition("apps", "platform"), "apps", web.ServiceDependencies, nil)
 	require.ErrorContains(t, err, "service dependency on interface codefly.dev/cache@^0.3 is not bound to a provider")
 
 	require.NoError(t, resources.ApplyInterfaceBindings(ctx, web, root))
@@ -223,7 +223,7 @@ func TestUnboundInterfaceDependencyNeverResolvesSilently(t *testing.T) {
 	standalone, err := apps.LoadServiceFromName(ctx, "web")
 	require.NoError(t, err)
 	require.Empty(t, standalone.ServiceDependencies[0].Name)
-	_, err = resources.ResolveDependencyNetworkMappings("apps", standalone.ServiceDependencies, nil)
+	_, err = resources.ResolveDependencyNetworkMappings(composition("apps", "platform"), "apps", standalone.ServiceDependencies, nil)
 	require.ErrorContains(t, err, "is not bound to a provider")
 }
 
@@ -329,7 +329,7 @@ func TestCapabilityOnlyInterfaceIsNoExportBoundary(t *testing.T) {
 	root := bindingWorkspace(t, "", map[string]string{
 		"modules/platform/module.codefly.yaml": "kind: module\nname: platform\nservices:\n    - name: redis\n    - name: api\n" +
 			"interface:\n    capabilities:\n        - service: redis\n          implements: [codefly.dev/cache@0.3.0]\n",
-		"modules/platform/services/redis/service.codefly.yaml": strings.Replace(bindingService("redis", "tcp", ""), "api: tcp\n", "api: tcp\n      visibility: public\n", 1),
+		"modules/platform/services/redis/service.codefly.yaml": strings.Replace(bindingService("redis", "tcp", ""), "api: tcp\n", "api: tcp\n      visibility: public\n      exposure: none\n", 1),
 	})
 	platform, err := resources.LoadModuleFromDir(ctx, filepath.Join(root, "modules/platform"))
 	require.NoError(t, err)

@@ -38,12 +38,12 @@ func TestRuntimeInitDependencyMappingsCrossWireWithVisibilityAndSelection(t *tes
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	instance := &RuntimeInstance{
-		Instance: &Instance{Module: &resources.Module{Name: "consumer"}, Service: &resources.Service{
+		Instance: &Instance{Workspace: &resources.Workspace{Name: "test", Modules: []*resources.ModuleReference{{Name: "consumer"}, {Name: "producer"}}}, Module: &resources.Module{Name: "consumer"}, Service: &resources.Service{
 			ServiceDependencies: []*resources.ServiceDependency{{Module: "producer", Name: "api", Endpoints: []*resources.EndpointReference{{Name: "read"}}}},
 		}},
 		Runtime: &agentservices.RuntimeAgent{RuntimeClient: runtimev0.NewRuntimeClient(conn)},
 	}
-	endpoint := &basev0.Endpoint{Module: "producer", Service: "api", Name: "read", Api: "grpc", Visibility: resources.VisibilityInternal, AllowModules: []string{"consumer"}}
+	endpoint := &basev0.Endpoint{Module: "producer", Service: "api", Name: "read", Api: "grpc", Visibility: resources.VisibilityInternal}
 	mapping := &basev0.NetworkMapping{Endpoint: endpoint, Instances: []*basev0.NetworkInstance{network.Native(endpoint, uint16(listener.Addr().(*net.TCPAddr).Port))}}
 	request := &runtimev0.InitRequest{DependenciesNetworkMappings: []*basev0.NetworkMapping{
 		{Endpoint: &basev0.Endpoint{Module: "producer", Service: "api", Name: "admin", Api: "grpc", Visibility: resources.VisibilityPrivate}},
@@ -56,9 +56,8 @@ func TestRuntimeInitDependencyMappingsCrossWireWithVisibilityAndSelection(t *tes
 	require.True(t, proto.Equal(mapping, received.DependenciesNetworkMappings[0]))
 	require.Len(t, request.DependenciesNetworkMappings, 2, "filtering must not mutate the caller's request")
 
-	// Private, with no allow-list: a list on a private endpoint is an invalid
-	// declaration, which is a different refusal from the denial tested here.
-	endpoint.Visibility, endpoint.AllowModules = resources.VisibilityPrivate, nil
+	// Private: the one visibility that denies a consumer in another module.
+	endpoint.Visibility = resources.VisibilityPrivate
 	_, err = instance.Init(context.Background(), request)
 	require.ErrorContains(t, err, "private to module")
 	require.Empty(t, peer.requests, "a private dependency must not reach the runtime")

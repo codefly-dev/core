@@ -158,6 +158,10 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   cost a day of key-rotation debugging. See
   [`docs/work-context.md`](docs/work-context.md) and
   [`workcontext/README.md`](workcontext/README.md).
+- **An endpoint declares three axes, each read on its own.** `visibility` is reach,
+  `location` is where it lives, `exposure` is whether an outward address exists;
+  `allow_modules` is derived (`Workspace.DeriveAllowModules`), refused when authored.
+  See [`docs/network-model.md`](docs/network-model.md#endpoint-visibility).
 - **Readiness is a gRPC health check, never a TCP connect.** An open port does
   not mean a ready service. Endpoints declare `health.readiness`; consumers go
   through `resources.PlanReadiness` and the `readiness` package. See

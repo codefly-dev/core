@@ -111,9 +111,11 @@ type Endpoint struct {
 	Module string `protobuf:"bytes,3,opt,name=module,proto3" json:"module,omitempty"`
 	// description explains what this endpoint is used for.
 	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	// visibility controls who may reach this endpoint: private (same module),
-	// internal (allow-listed modules), or public (outside the workspace). Where
-	// the endpoint lives is location, never a visibility value.
+	// visibility is who may reach this endpoint, and nothing else: private (the
+	// same module), internal (across modules, from within the workspace) or
+	// public (from outside the workspace). Where the endpoint lives is location
+	// and whether it is addressed from outside is exposure, never a visibility
+	// value; and a visibility names no module.
 	Visibility string `protobuf:"bytes,5,opt,name=visibility,proto3" json:"visibility,omitempty"`
 	// api describes the protocol exposed by the endpoint.
 	Api string `protobuf:"bytes,6,opt,name=api,proto3" json:"api,omitempty"`
@@ -123,13 +125,19 @@ type Endpoint struct {
 	// may reach it. "external" marks a managed resource outside the system,
 	// resolved by DNS rather than an allocated port.
 	Location string `protobuf:"bytes,8,opt,name=location,proto3" json:"location,omitempty"`
-	// allow_modules is the explicit allow-list of modules permitted to reach an
-	// internal endpoint. The single entry "*" permits every module.
-	AllowModules []string `protobuf:"bytes,9,rep,name=allow_modules,json=allowModules,proto3" json:"allow_modules,omitempty"`
 	// health declares what "healthy" means for this endpoint. Absence keeps the
 	// legacy transport-only semantics: consumers may assume nothing beyond a
 	// reachable address.
-	Health        *Health `protobuf:"bytes,10,opt,name=health,proto3" json:"health,omitempty"`
+	Health *Health `protobuf:"bytes,10,opt,name=health,proto3" json:"health,omitempty"`
+	// exposure describes whether the endpoint is allocated an address reachable
+	// from outside the workspace — the Public network instance a run generates
+	// beside the Native and Container ones, and what a deployment renders an
+	// outward address from — independently of who may reach it. "public" is an
+	// outward address, "none" is none, and a public endpoint states one of the
+	// two rather than omitting it. "public" is declared only on an endpoint of
+	// visibility "public" that is not external: the resource model refuses the
+	// other combinations as declarations that contradict themselves.
+	Exposure      string `protobuf:"bytes,11,opt,name=exposure,proto3" json:"exposure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -220,18 +228,18 @@ func (x *Endpoint) GetLocation() string {
 	return ""
 }
 
-func (x *Endpoint) GetAllowModules() []string {
-	if x != nil {
-		return x.AllowModules
-	}
-	return nil
-}
-
 func (x *Endpoint) GetHealth() *Health {
 	if x != nil {
 		return x.Health
 	}
 	return nil
+}
+
+func (x *Endpoint) GetExposure() string {
+	if x != nil {
+		return x.Exposure
+	}
+	return ""
 }
 
 // API selects protocol-specific endpoint details.
@@ -785,7 +793,7 @@ var File_codefly_base_v0_endpoint_proto protoreflect.FileDescriptor
 
 const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1fcodefly/base/v0/readiness.proto\"\xcb\x05\n" +
+	"\x1ecodefly/base/v0/endpoint.proto\x12\x0fcodefly.base.v0\x1a\x1bbuf/validate/validate.proto\x1a\x1fcodefly/base/v0/readiness.proto\"\xa3\x04\n" +
 	"\bEndpoint\x12)\n" +
 	"\x04name\x18\x01 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x142\b^[a-z]+$h\x01R\x04name\x128\n" +
 	"\aservice\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x192\f^[a-z0-9-]+$\xba\x01\x02--h\x01R\aservice\x126\n" +
@@ -797,11 +805,11 @@ const file_codefly_base_v0_endpoint_proto_rawDesc = "" +
 	"\x03api\x18\x06 \x01(\tB%\xbaH\"r R\x04httpR\x04grpcR\x03tcpR\x04restR\aconnectR\x03api\x125\n" +
 	"\vapi_details\x18\a \x01(\v2\x14.codefly.base.v0.APIR\n" +
 	"apiDetails\x12-\n" +
-	"\blocation\x18\b \x01(\tB\x11\xbaH\x0er\fR\x00R\bexternalR\blocation\x12G\n" +
-	"\rallow_modules\x18\t \x03(\tB\"\xbaH\x1f\x92\x01\x1c\"\x1ar\x182\x11^(\\*|[a-z0-9-]+)$\xba\x01\x02--R\fallowModules\x12/\n" +
+	"\blocation\x18\b \x01(\tB\x11\xbaH\x0er\fR\x00R\bexternalR\blocation\x12/\n" +
 	"\x06health\x18\n" +
-	" \x01(\v2\x17.codefly.base.v0.HealthR\x06health:\xa4\x01\xbaH\xa0\x01\x1a\x9d\x01\n" +
-	"$endpoint.allow_modules.internal_only\x124allow_modules is only read for visibility \"internal\"\x1a?this.visibility == 'internal' || this.allow_modules.size() == 0\"\xcb\x01\n" +
+	" \x01(\v2\x17.codefly.base.v0.HealthR\x06health\x121\n" +
+	"\bexposure\x18\v \x01(\tB\x15\xbaH\x12r\x10R\x00R\x04noneR\x06publicR\bexposureJ\x04\b\t\x10\n" +
+	"R\rallow_modules\"\xcb\x01\n" +
 	"\x03API\x12+\n" +
 	"\x03tcp\x18\x01 \x01(\v2\x17.codefly.base.v0.TcpAPIH\x00R\x03tcp\x12.\n" +
 	"\x04http\x18\x02 \x01(\v2\x18.codefly.base.v0.HttpAPIH\x00R\x04http\x12.\n" +

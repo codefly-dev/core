@@ -55,9 +55,10 @@ func TestPublicModuleGraph(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, workspace)
 
-	// modules:
+	// modules (none declares an interface, so each graphs the endpoints whose
+	// own visibility crosses module lines — internal or public — by REACH):
 	// management:
-	// - organization [internal rest, exported to web and billing]
+	// - organization [internal rest: reachable by whatever composes it]
 	// web:
 	// - frontend -> gateway [public http]
 	// - gateway -> organization [internal rest]
@@ -68,7 +69,7 @@ func TestPublicModuleGraph(t *testing.T) {
 	require.Equal(t, 3, len(workspace.Modules))
 	gs, err := architecture.LoadPublicModuleGraph(ctx, workspace)
 	require.NoError(t, err)
-	require.Equal(t, 2, len(gs))
+	require.Equal(t, 3, len(gs), "an internal endpoint crosses module lines, so management is graphed")
 
 	groups := map[string]*architecture.DAG{}
 	for _, g := range gs {
@@ -76,6 +77,14 @@ func TestPublicModuleGraph(t *testing.T) {
 	}
 	billing := groups["billing"]
 	require.NotNil(t, billing)
+	management := groups["management"]
+	require.NotNil(t, management)
+	managementIDs := make([]string, 0, len(management.Nodes()))
+	for _, node := range management.Nodes() {
+		managementIDs = append(managementIDs, node.ID)
+	}
+	require.ElementsMatch(t, []string{"management", "management/organization", "management/organization/rest"}, managementIDs,
+		"the internal endpoint is graphed; the private grpc one is not")
 
 	// Should have
 	// billing -> billing/accounts -> billing/accounts/rest

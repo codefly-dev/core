@@ -103,9 +103,9 @@ func TestAStrictReadReportsADenialOverAnUnavailabilityWhateverTheOrder(t *testin
 // mapping, by the validator and by the resolution.
 func TestTheOwningModuleDoesNotBypassAnInvalidDeclaration(t *testing.T) {
 	ctx := context.Background()
-	err := resources.ValidateEndpointVisibility(selectionModule, selectionModule, selectionService, "grpc", "pubilc", "", nil)
+	err := resources.ValidateEndpointVisibility(selectionModule, selectionModule, resources.EndpointDeclaration{Service: selectionService, Name: "grpc", Visibility: "pubilc"})
 	require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration)
-	require.NoError(t, resources.ValidateEndpointVisibility(selectionModule, selectionModule, selectionService, "grpc", "private", "", nil))
+	require.NoError(t, resources.ValidateEndpointVisibility(selectionModule, selectionModule, resources.EndpointDeclaration{Service: selectionService, Name: "grpc", Visibility: "private"}))
 
 	inRun := resources.WithRunProducers(func(unique string) bool { return unique == selectionUnique })
 	own := resources.WithConsumer(selectionModule, declaredBy(selectionEndpoint("grpc", "grpc", "pubilc")))
@@ -146,7 +146,7 @@ func TestAnUnknownProducerIsRefusedOnTheRunWidePath(t *testing.T) {
 func TestAllUnreachableAPIMatchesRefuseWithTheVisibilityReason(t *testing.T) {
 	_, err := resources.SelectEndpointForReference("payments",
 		&resources.EndpointInformation{Module: selectionModule, Service: selectionService, Name: "grpc"},
-		[]*resources.Endpoint{selectionEndpoint("hidden", "grpc", "private"), selectionEndpoint("inner", "grpc", "internal")})
+		[]*resources.Endpoint{selectionEndpoint("hidden", "grpc", "private"), selectionEndpoint("inner", "grpc", "")})
 	require.ErrorIs(t, err, resources.ErrEndpointNotReachable)
 	require.NotErrorIs(t, err, resources.ErrNoSuchEndpoint)
 	require.Contains(t, err.Error(), "private to module")
@@ -207,11 +207,14 @@ func TestKnownVisibilityIsTheOneList(t *testing.T) {
 	}
 	require.False(t, resources.KnownVisibility("pubilc"))
 	require.False(t, resources.KnownVisibility("everyone"))
-	require.False(t, resources.KnownVisibility("module"), "every module is said with internal and a wildcard allow-list")
+	require.False(t, resources.KnownVisibility("module"), "every module is said with internal, which names nobody")
 	require.False(t, resources.KnownVisibility("external"), "where an endpoint lives is its location")
 	require.True(t, resources.KnownLocation(""))
 	require.True(t, resources.KnownLocation(resources.LocationExternal))
 	require.False(t, resources.KnownLocation("nowhere"))
+	require.True(t, resources.KnownExposure(""))
+	require.True(t, resources.KnownExposure(resources.ExposurePublic))
+	require.False(t, resources.KnownExposure("ingress"))
 }
 
 // Removing the well-formed references from a value must not let the text
@@ -357,16 +360,17 @@ func TestLocationIsTheOnlyRecordOfWhereAnEndpointLives(t *testing.T) {
 }
 
 // The whole declaration is judged at every typed boundary, not only when YAML
-// is read: an allow-list on a visibility that never reads one, or a location
-// the model does not define, is an invalid declaration for the selection, for
+// is read: an authored allow-list, an exposure on an endpoint not reachable
+// from outside, or a location the model does not define, is an invalid declaration for the selection, for
 // dependency wiring, for the proto conversion and for the schema — and never a
 // per-consumer denial a run-wide read may drop.
 func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 	ctx := context.Background()
 	for name, broken := range map[string]*resources.Endpoint{
-		"an allow-list nothing reads (public)":  {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityPublic, AllowModules: []string{"payments"}},
-		"an allow-list nothing reads (private)": {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityPrivate, AllowModules: []string{"payments"}},
-		"an unknown location":                   {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityPublic, Location: "nowhere"},
+		"an authored allow-list (internal)":   {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityInternal, AllowModules: []string{"payments"}},
+		"an authored allow-list (public)":     {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityPublic, AllowModules: []string{"payments"}},
+		"an exposure on an internal endpoint": {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityInternal, Exposure: resources.ExposurePublic},
+		"an unknown location":                 {Module: "platform", Service: "api", Name: "open", API: "grpc", Visibility: resources.VisibilityPublic, Location: "nowhere"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			info := &resources.EndpointInformation{Module: "platform", Service: "api", Name: "open"}
@@ -378,11 +382,15 @@ func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 			_, err := broken.Proto()
 			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "proto conversion")
 
-			typed := &basev0.Endpoint{Module: broken.Module, Service: broken.Service, Name: broken.Name, Api: broken.API, Visibility: broken.Visibility, Location: broken.Location, AllowModules: broken.AllowModules}
-			dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
-			for _, consumer := range []string{"platform", "payments"} {
-				_, err := resources.ConsumedDependencyEndpoints(consumer, dependency, []*basev0.Endpoint{typed})
-				require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "wiring for %s", consumer)
+			// The wire carries no allow-list, so the typed boundary judges the
+			// other two faults; an authored list never reaches it.
+			if broken.AllowModules == nil {
+				typed := &basev0.Endpoint{Module: broken.Module, Service: broken.Service, Name: broken.Name, Api: broken.API, Visibility: broken.Visibility, Location: broken.Location, Exposure: broken.Exposure}
+				dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
+				for _, consumer := range []string{"platform", "payments"} {
+					_, err := resources.ConsumedDependencyEndpoints(composition("platform", "payments", "other"), consumer, dependency, []*basev0.Endpoint{typed})
+					require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "wiring for %s", consumer)
+				}
 			}
 			// Run-wide, the fault is refused with the key named, never dropped.
 			conf := authorityConf("address", "${endpoint:platform/api/open}")
@@ -395,10 +403,11 @@ func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 			require.Contains(t, err.Error(), "authority/address")
 		})
 	}
-	// The schema carries the allow-list rule itself, so a typed endpoint that
-	// never went through this package's conversion is refused on the wire too.
-	typed := &basev0.Endpoint{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic, AllowModules: []string{"payments"}}
-	require.Error(t, resources.Validate(typed), "the schema refuses an allow-list on a public endpoint")
+	// The schema carries the exposure vocabulary itself, so a typed endpoint
+	// that never went through this package's conversion is refused on the wire
+	// too.
+	typed := &basev0.Endpoint{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: "ingress"}
+	require.Error(t, resources.Validate(typed), "the schema refuses an exposure outside the model's list")
 }
 
 // A declaration the model cannot judge is refused by every wiring path, for
@@ -407,7 +416,7 @@ func TestTheWholeDeclarationIsJudgedAtEveryTypedBoundary(t *testing.T) {
 // dependency never drops it as though it had been denied.
 func TestAnInvalidDeclarationIsRefusedByEveryWiringPath(t *testing.T) {
 	endpoints := []*basev0.Endpoint{
-		{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic},
+		{Module: "platform", Service: "api", Name: "open", Api: "grpc", Visibility: resources.VisibilityPublic, Exposure: resources.ExposureNone},
 		{Module: "platform", Service: "api", Name: "broken", Api: "http", Visibility: "pubilc"},
 	}
 	mappings := []*basev0.NetworkMapping{
@@ -417,11 +426,11 @@ func TestAnInvalidDeclarationIsRefusedByEveryWiringPath(t *testing.T) {
 	dependency := &resources.ServiceDependency{Name: "api", Module: "platform"}
 	for _, consumer := range []string{"platform", "payments"} {
 		t.Run(consumer, func(t *testing.T) {
-			_, err := resources.ConsumedDependencyEndpoints(consumer, dependency, endpoints)
+			_, err := resources.ConsumedDependencyEndpoints(composition("platform", "payments", "other"), consumer, dependency, endpoints)
 			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "consumed")
-			_, err = resources.PermittedDependencyEndpoints(consumer, dependency, endpoints)
+			_, err = resources.PermittedDependencyEndpoints(composition("platform", "payments", "other"), consumer, dependency, endpoints)
 			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "permitted")
-			_, err = resources.ResolveDependencyNetworkMappings(consumer, []*resources.ServiceDependency{dependency}, mappings)
+			_, err = resources.ResolveDependencyNetworkMappings(composition("platform", "payments", "other"), consumer, []*resources.ServiceDependency{dependency}, mappings)
 			require.ErrorIs(t, err, resources.ErrInvalidEndpointDeclaration, "network mappings")
 		})
 	}

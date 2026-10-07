@@ -8,7 +8,7 @@ import "github.com/codefly-dev/core/resources"
 // availability fact the run-wide path drops on — and never a composition fault.
 func managerDeclared() resources.DeclaredEndpoints {
 	public := func(module, service, name, api string) *resources.Endpoint {
-		return &resources.Endpoint{Module: module, Service: service, Name: name, API: api, Visibility: "public"}
+		return &resources.Endpoint{Module: module, Service: service, Name: name, API: api, Visibility: "public", Exposure: "none"}
 	}
 	endpoints := []*resources.Endpoint{
 		public("absent", "service", "http", "http"),

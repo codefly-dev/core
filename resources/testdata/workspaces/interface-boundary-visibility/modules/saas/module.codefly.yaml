@@ -9,15 +9,12 @@ interface:
         - service: accounts
           endpoint: grpc
           visibility: internal
-          allow-modules: ["*"]
         - service: gateway
           endpoint: public
           visibility: public
         - service: gateway
           endpoint: restricted
           visibility: internal
-          allow-modules: [platform]
         - service: vendor
           endpoint: listed
           visibility: internal
-          allow-modules: ["*"]

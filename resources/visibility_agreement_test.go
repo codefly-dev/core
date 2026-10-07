@@ -52,6 +52,7 @@ func TestStaticAndRuntimeAgreeOnDeniedEdge(t *testing.T) {
 
 	consumer := loadService(ctx, t, dir, "platform", "api")
 	_, runtimeErr := resources.ResolveDependencyNetworkMappings(
+		workspace,
 		"platform",
 		consumer.ServiceDependencies,
 		runtimeMappingsFor(ctx, t, dir, "saas", "accounts"),
@@ -72,6 +73,7 @@ func TestStaticAndRuntimeAgreeOnAllowedEdge(t *testing.T) {
 
 	consumer := loadService(ctx, t, dir, "platform", "api")
 	resolved, err := resources.ResolveDependencyNetworkMappings(
+		workspace,
 		"platform",
 		consumer.ServiceDependencies,
 		runtimeMappingsFor(ctx, t, dir, "saas", "gateway"),
@@ -101,6 +103,7 @@ func TestStaticAndRuntimeAgreeOnAnEdgeThatConsumesAll(t *testing.T) {
 
 	consumer := loadService(ctx, t, dir, "platform", "api")
 	resolved, err := resources.ResolveDependencyNetworkMappings(
+		workspace,
 		"platform",
 		consumer.ServiceDependencies,
 		runtimeMappingsFor(ctx, t, dir, "saas", "gateway"),

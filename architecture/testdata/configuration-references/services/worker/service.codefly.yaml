@@ -11,4 +11,5 @@ workspace-configuration-dependencies:
 endpoints:
     - name: grpc
       visibility: public
+      exposure: none
       api: grpc

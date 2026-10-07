@@ -1,0 +1,35 @@
+kind: service
+name: alpha
+version: 0.0.1
+agent:
+  kind: runtime::service
+  name: go-grpc
+  version: 0.0.1
+  publisher: codefly.ai
+endpoints:
+  # Reach, location and exposure are three axes, each read on its own.
+  - name: tcp
+    api: tcp
+  - name: grpc
+    api: grpc
+    visibility: private
+  - name: usage
+    api: grpc
+    visibility: internal
+  - name: rest
+    api: rest
+    visibility: public
+    exposure: none
+  - name: http
+    api: http
+    visibility: public
+    exposure: public
+  - name: store
+    api: tcp
+    visibility: internal
+    location: external
+  - name: feed
+    api: rest
+    visibility: public
+    exposure: none
+    location: external

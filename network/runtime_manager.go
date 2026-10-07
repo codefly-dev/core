@@ -74,7 +74,7 @@ func Native(endpoint *basev0.Endpoint, port uint16) *basev0.NetworkInstance {
 // It does NOT apply to external endpoints, whose address comes from a DNS
 // record resolved at runtime rather than the port hash — callers must
 // special-case them with resources.IsExternalEndpoint (external is a location,
-// expressible either as location: external or the deprecated visibility).
+// written as location: external beside the visibility that applies).
 func NativeFor(ctx context.Context, workspace, module, service, namingScope string, endpoint *basev0.Endpoint) *basev0.NetworkInstance {
 	name := endpoint.Name
 	if namingScope != "" {
@@ -170,6 +170,18 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 			m.ReleasePort(port)
 		}
 	}
+	// Every declaration is judged whole BEFORE any instance is allocated — the
+	// wire's unknown fields and the two axes against each other included. A
+	// proto endpoint passes the schema's per-field checks with a visibility
+	// its exposure contradicts, or with reserved allow_modules bytes kept as
+	// unknown data; it is refused here, as an invalid declaration, rather than
+	// handed an address nothing should have. Judged first for all of them, so
+	// a refusal reserves no port.
+	for _, endpoint := range endpoints {
+		if err := resources.ValidateEndpointDeclaration(resources.EndpointDeclarationOf(endpoint)); err != nil {
+			return nil, w.Wrap(err)
+		}
+	}
 	for _, endpoint := range endpoints {
 		nm := &basev0.NetworkMapping{
 			Endpoint: endpoint,
@@ -244,7 +256,12 @@ func (m *RuntimeManager) GenerateNetworkMappings(ctx context.Context,
 			Container(endpoint, port),
 			Native(endpoint, port),
 		}
-		if endpoint.Visibility == resources.VisibilityPublic {
+		// The Public instance is an ADDRESS reachable from outside the workspace,
+		// and whether one exists is the endpoint's exposure — never its
+		// visibility, which says who may call and nothing about addresses. The
+		// declaration was judged whole above, so an exposure the reach
+		// contradicts never reaches this allocation.
+		if resources.IsExposedEndpoint(endpoint) {
 			nm.Instances = append(nm.Instances, PublicDefault(endpoint, port))
 		}
 		out = append(out, nm)

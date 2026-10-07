@@ -20,9 +20,9 @@ func write(t *testing.T, path, content string) {
 }
 
 // visibilityWorkspace writes a modules-layout workspace with a vault service
-// exposing an "internal" endpoint allow-listed to the platform module only,
-// plus one consuming service in platform (allowed) and one in web (denied).
-func visibilityWorkspace(t *testing.T) string {
+// declaring the given endpoints, plus one consuming service in platform and
+// one in web.
+func visibilityWorkspace(t *testing.T, secretsEndpoints string) string {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -57,11 +57,7 @@ agent:
     version: 0.0.16
     publisher: codefly.ai
 endpoints:
-    - name: http
-      api: http
-      visibility: internal
-      allow-modules: [platform]
-`)
+`+secretsEndpoints)
 	write(t, filepath.Join(dir, "modules", "platform", "module.codefly.yaml"), "kind: module\nname: platform\nservices:\n    - name: gateway\n")
 	write(t, filepath.Join(dir, "modules", "platform", "services", "gateway", "service.codefly.yaml"), consumer("gateway"))
 	write(t, filepath.Join(dir, "modules", "web", "module.codefly.yaml"), "kind: module\nname: web\nservices:\n    - name: portal\n")
@@ -86,24 +82,35 @@ func addDependency(t *testing.T, dir, module, name string, endpoints ...string) 
 	return err
 }
 
+const internalAndPrivate = `    - name: http
+      api: http
+      visibility: internal
+    - name: ops
+      api: http
+      visibility: private
+`
+
 func TestAddDependencyEnforcesVisibility(t *testing.T) {
-	dir := visibilityWorkspace(t)
+	dir := visibilityWorkspace(t, internalAndPrivate)
 
-	// The allow-listed module may depend on the internal endpoint.
+	// An internal endpoint names nobody: whatever composes the workspace may
+	// depend on it.
 	require.NoError(t, addDependency(t, dir, "platform", "gateway", "http"))
+	require.NoError(t, addDependency(t, dir, "web", "portal", "http"))
 
-	// A module outside the allow-list is refused.
-	err := addDependency(t, dir, "web", "portal", "http")
+	// A private endpoint is refused outside its module.
+	err := addDependency(t, dir, "web", "portal", "ops")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not permit module \"web\"")
+	require.Contains(t, err.Error(), `secrets/ops (visibility "private") does not permit module "web"`)
 }
 
 // TestAddDependencyEnforcesVisibilityAllEndpoints covers the unnamed-dependency
-// case: consuming every endpoint must still be checked, not skipped.
+// case: consuming every endpoint must still be checked, not skipped — and
+// when the producer grants nothing, the edge is refused.
 func TestAddDependencyEnforcesVisibilityAllEndpoints(t *testing.T) {
-	dir := visibilityWorkspace(t)
+	dir := visibilityWorkspace(t, "    - name: ops\n      api: http\n      visibility: private\n")
 
 	err := addDependency(t, dir, "web", "portal")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not permit module \"web\"")
+	require.Contains(t, err.Error(), `permit module "web"`)
 }

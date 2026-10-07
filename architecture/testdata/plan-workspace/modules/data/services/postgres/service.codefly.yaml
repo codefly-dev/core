@@ -10,6 +10,5 @@ endpoints:
     - name: tcp
       api: tcp
       visibility: internal
-      allow-modules: [api]
 spec:
     password: codefly-plan-secret-sentinel

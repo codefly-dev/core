@@ -125,8 +125,8 @@ func TestInterpolateConfigurationEndpointsRefusesAnUnresolvableTemplateLiteral(t
 // path drops on, and not a producer the workspace does not declare.
 func templateDeclared() DeclaredEndpoints {
 	declared := map[string][]*Endpoint{
-		"mod/store":  {{Module: "mod", Service: "store", Name: "postgres", API: "tcp", Visibility: "public"}},
-		"mod/absent": {{Module: "mod", Service: "absent", Name: "postgres", API: "tcp", Visibility: "public"}},
+		"mod/store":  {{Module: "mod", Service: "store", Name: "postgres", API: "tcp", Visibility: "public", Exposure: "none"}},
+		"mod/absent": {{Module: "mod", Service: "absent", Name: "postgres", API: "tcp", Visibility: "public", Exposure: "none"}},
 	}
 	return func(unique string) ([]*Endpoint, bool) {
 		endpoints, ok := declared[unique]

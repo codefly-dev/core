@@ -9,3 +9,4 @@ agent:
 endpoints:
   - name: public-api
     visibility: public
+    exposure: none

@@ -6,26 +6,23 @@ import "buf/validate/validate.proto";
 import "codefly/base/v0/service.proto";
 import "codefly/base/v0/agent.proto";
 
-// InterfaceEndpoint declares a single endpoint exposed by the module.
+// InterfaceEndpoint declares a single endpoint the module exports across its
+// boundary. An export names nobody: which modules reach it is derived from
+// their declared service dependencies, never listed by the module.
 message InterfaceEndpoint {
-  // The entry is the whole export declaration: an "internal" export names the
-  // modules it exports to (an export to nobody is refused), and a "public" one
-  // lists none (nothing reads it). The same rule the loader enforces.
-  option (buf.validate.message).cel = {
-    id: "interface_endpoint.allow_modules_match_visibility"
-    message: "an internal export names its allow_modules; a public export lists none"
-    expression: "this.visibility == 'internal' ? this.allow_modules.size() > 0 : this.allow_modules.size() == 0"
-  };
+  // allow_modules was the authored allow-list of an internal export. The list
+  // is derived now and an entry carrying one is refused; the number and the
+  // name are reserved.
+  reserved 4;
+  reserved "allow_modules";
   // The service that owns this endpoint
   string service = 1;
   // The endpoint name within the service
   string endpoint = 2;
-  // visibility is what the module grants across its boundary for this
-  // endpoint: "public", or "internal" to the modules allow_modules names.
+  // visibility is the reach the module grants across its boundary for this
+  // endpoint: "public" (from outside the workspace) or "internal" (from
+  // within the composition, by whatever declares a dependency on it).
   string visibility = 3 [(buf.validate.field).string.in = "public", (buf.validate.field).string.in = "internal"];
-  // allow_modules names the modules an "internal" export may be reached from
-  // ("*" for every module).
-  repeated string allow_modules = 4 [(buf.validate.field).repeated.items.string.pattern = "^(\\*|[a-z0-9-]+)$", (buf.validate.field).repeated.items.string.not_contains = "--"];
 }
 
 // ModuleInterface is the formal contract of what a module exposes.

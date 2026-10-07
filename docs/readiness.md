@@ -40,6 +40,7 @@ endpoints:
         failure-threshold: 30
   - name: http
     visibility: public
+    exposure: none
     secured: true
     health:
       readiness:

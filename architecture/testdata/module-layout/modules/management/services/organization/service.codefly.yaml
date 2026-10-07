@@ -11,5 +11,4 @@ endpoints:
       api: grpc
     - name: rest
       visibility: internal
-      allow-modules: [web, billing]
       api: rest

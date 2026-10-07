@@ -9,8 +9,6 @@ agent:
 endpoints:
   - name: rest
     visibility: internal
-    allow-modules:
-      - wiki
 service-dependencies:
   - name: accounts
     endpoints:

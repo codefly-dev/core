@@ -33,6 +33,26 @@ releases fail loading. Saving the product retains its references, not copies of
 the imported modules. `ModuleDeclarationDir` identifies the owner of each
 module's resolution and trust policy for hosts that implement acquisition.
 
+Every module of the expanded graph carries its provenance — `Workspace.Member`
+reports the role it was declared in (`module` under `modules:` of the product
+or of a composed workspace, `solution` under `solutions:`) and the workspace
+that declared it — because a join over the composition has edges that only
+provenance can judge. Provenance is inherited through composition: a solution a
+composed workspace declares stays a solution of that workspace in the product
+that composes it, and a module two workspaces down is owned by the workspace
+that declared it, not by the one in between. Every verdict on an edge takes the
+composition as its `resources.Provenance` — the static pass, the address
+hand-out, the architecture passes and the derivation — and refuses to judge
+without one (`ErrUnjudgedProvenance`). **A solution reaches modules only through the host.** A
+solution's service may not declare a run-stage dependency on a module's endpoint
+— of the composed platform or of the product's own `modules:` — however that
+endpoint's visibility reads; `Workspace.JudgeCompositionEdge` refuses the edge
+(`ErrSolutionReachesThroughHost`) in the workspace's static validation and in
+the derivation of the allow-list alike. A `build` or `schema` edge reads the
+module's contract and calls nothing, so it is not that route; an edge between
+two solutions, or from a module, is judged by visibility alone. See
+[network-model.md](network-model.md#the-allow-list-is-derived-never-authored).
+
 For the product-selected configuration profile, imported workspace groups are
 inherited. Product-owned groups override imported groups. Conflicting sibling
 workspace groups fail unless the product supplies that group. Existing module

@@ -9,5 +9,3 @@ agent:
 endpoints:
   - name: grpc
     visibility: internal
-    allow-modules:
-      - wiki

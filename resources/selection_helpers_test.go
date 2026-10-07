@@ -29,7 +29,7 @@ func declaring(endpoints ...*resources.Endpoint) resources.DeclaredEndpoints {
 // reason.
 func gatewayDeclared() resources.DeclaredEndpoints {
 	public := func(module, service, name, api string) *resources.Endpoint {
-		return &resources.Endpoint{Module: module, Service: service, Name: name, API: api, Visibility: "public"}
+		return &resources.Endpoint{Module: module, Service: service, Name: name, API: api, Visibility: "public", Exposure: "none"}
 	}
 	return declaring(
 		public("edge", "sidecar", "http", standards.HTTP),

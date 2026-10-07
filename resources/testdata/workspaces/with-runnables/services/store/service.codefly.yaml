@@ -10,4 +10,3 @@ endpoints:
   - name: tcp
     api: tcp
     visibility: internal
-    allow-modules: ["*"]

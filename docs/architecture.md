@@ -74,18 +74,26 @@ producing repository. The module `interface` block is the authoritative export
 boundary: only its endpoints are exported and graphed across modules.
 
 A module that declares one therefore states each export once. An entry's
-`visibility` is the visibility that endpoint carries across module lines, and an
-endpoint no entry names does not cross them at all, however the service declares
-it — `visibility:` on the endpoint governs the module's own inside. The boundary
+`visibility` is the reach that endpoint carries across module lines — `public`,
+or `internal` (the default): reachable by whatever composes the module, naming
+nobody — and an endpoint no entry names does not cross them at all, however the
+service declares it; `visibility:` on the endpoint governs the module's own
+inside. Neither names a consumer: which modules reach an endpoint is derived
+from their declared dependencies (`resources.Workspace.DeriveAllowModules`), an authored
+`allow-modules` is refused, and the derived list is reachability for mesh
+policy, never per-call authorization (that is the Work Context) — see
+[network-model.md](network-model.md#the-allow-list-is-derived-never-authored). The boundary
 is applied where a module hands out its services, so every reader observes the
 same value: the static passes, the module graph, the run and deploy resolution,
 and the protos the module publishes. A service loaded by directory rather than
 through its module — an agent loading the service it serves — applies it with
 `resources.ApplyModuleInterface`.
 
-Where an endpoint lives is its `location`, which the boundary never touches: an
-endpoint declaring `location: external` is exported or kept like any other and
-keeps resolving from DNS either way.
+Where an endpoint lives is its `location` and whether it is addressed from
+outside the workspace is its `exposure`, neither of which the boundary touches:
+an endpoint declaring `location: external` is exported or kept like any other
+and keeps resolving from DNS either way, and `visibility: public` allocates no
+address — only `exposure: public` does.
 
 ### Client facades
 
@@ -199,8 +207,7 @@ version: 0.1.0
 endpoints:
   - name: grpc
     api: grpc
-    visibility: internal
-    allow-modules: ["*"]
+    visibility: internal   # reachable by whatever composes this module; names nobody
 service-dependencies:
   - name: store/postgres
 ```

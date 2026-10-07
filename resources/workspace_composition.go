@@ -87,6 +87,8 @@ func (workspace *Workspace) composeWorkspaces(ctx context.Context) error {
 	}
 	workspace.derivedModules = make(map[string]bool)
 	workspace.moduleDeclarationDirs = make(map[string]string)
+	workspace.memberRoles = make(map[string]MemberRole)
+	workspace.memberOwners = make(map[string]string)
 	seen := make(map[string]bool)
 	for _, ref := range workspace.Modules {
 		if seen[ref.Name] {
@@ -94,19 +96,27 @@ func (workspace *Workspace) composeWorkspaces(ctx context.Context) error {
 		}
 		seen[ref.Name] = true
 	}
-	add := func(ref *ModuleReference, owner *Workspace) error {
+	// add records one module of the composition: resolver is the workspace
+	// whose paths and declaration dirs locate it (the immediate child, or
+	// this one), and member is its provenance — the role it was declared in
+	// and the workspace that declared it — which a composed workspace's own
+	// composition already judged. A solution stays a solution of the
+	// workspace that added it, however deep the composition.
+	add := func(ref *ModuleReference, resolver *Workspace, member Member) error {
 		if seen[ref.Name] {
 			return fmt.Errorf("composed module %q conflicts with another declaration; change its owner rather than repinning it", ref.Name)
 		}
 		seen[ref.Name] = true
 		copy := *ref
-		if owner != workspace && (ref.PathOverride != nil || ref.Source == "") {
-			resolved := owner.ModulePath(ctx, ref)
+		if resolver != workspace && (ref.PathOverride != nil || ref.Source == "") {
+			resolved := resolver.ModulePath(ctx, ref)
 			copy.PathOverride = &resolved
 		}
 		workspace.Modules = append(workspace.Modules, &copy)
 		workspace.derivedModules[ref.Name] = true
-		workspace.moduleDeclarationDirs[ref.Name] = owner.ModuleDeclarationDir(ref.Name)
+		workspace.moduleDeclarationDirs[ref.Name] = resolver.ModuleDeclarationDir(ref.Name)
+		workspace.memberRoles[ref.Name] = member.Role
+		workspace.memberOwners[ref.Name] = member.Workspace
 		return nil
 	}
 	workspaceNames := make(map[string]bool)
@@ -143,13 +153,14 @@ func (workspace *Workspace) composeWorkspaces(ctx context.Context) error {
 		}
 		workspace.composedWorkspaces = append(workspace.composedWorkspaces, child)
 		for _, mod := range child.Modules {
-			if err := add(mod, child); err != nil {
+			member, _ := child.Member(mod.Name)
+			if err := add(mod, child, member); err != nil {
 				return err
 			}
 		}
 	}
 	for _, solution := range workspace.Solutions {
-		if err := add(solution, workspace); err != nil {
+		if err := add(solution, workspace, Member{Name: solution.Name, Role: MemberRoleSolution, Workspace: workspace.Name}); err != nil {
 			return err
 		}
 	}

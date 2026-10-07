@@ -64,8 +64,8 @@ modules:
 
 	authority := []*resources.Endpoint{
 		{Module: "platform", Service: "authority", Name: "hidden", API: "grpc", Visibility: "private"},
-		{Module: "platform", Service: "authority", Name: "primary", API: "grpc", Visibility: "public"},
-		{Module: "platform", Service: "authority", Name: "secondary", API: "grpc", Visibility: "public"},
+		{Module: "platform", Service: "authority", Name: "primary", API: "grpc", Visibility: "public", Exposure: "none"},
+		{Module: "platform", Service: "authority", Name: "secondary", API: "grpc", Visibility: "public", Exposure: "none"},
 	}
 	declared := resources.DeclaredEndpoints(func(unique string) ([]*resources.Endpoint, bool) {
 		return authority, unique == "platform/authority"

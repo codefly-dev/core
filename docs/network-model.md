@@ -185,7 +185,7 @@ The full flow from service declaration to usable connection:
 
 3. RuntimeManager.GenerateNetworkMappings() allocates ports:
    - Deterministic port via ToNamedPort()
-   - Creates Native + Container instances (+ Public if visibility=public)
+   - Creates Native + Container instances (+ Public if exposure: public)
 
 4. CLI passes NetworkMappings to agent in Init()
 
@@ -198,23 +198,33 @@ The full flow from service declaration to usable connection:
 
 ### Endpoint Visibility
 
-Visibility answers *who may reach this endpoint*. It is one axis; **location**
-(below) is a separate one.
+Visibility answers *who may reach this endpoint*, and nothing else. It is one of
+three axes an endpoint declares, each on its own and each read on its own:
 
-| Visibility | Who can access | Network instances generated |
+| Axis | Question | Values |
 |---|---|---|
-| `private` | Same module only | Native + Container |
-| `internal` | The modules listed in `allow-modules` (`*` = all) | Native + Container |
-| `public` | Outside the workspace | Native + Container + Public |
+| `visibility` | Who may reach it (**reach**) | `private`, `internal`, `public` |
+| `location` | Where it lives | unset (in-system), `external` |
+| `exposure` | Whether an address reachable from outside the workspace exists (**addressing**) | `none`, `public` — a public endpoint states one; unset means none on the others |
 
-`internal` carries an explicit allow-list, so least privilege is expressible:
+| Visibility | Who can reach | Names anybody? |
+|---|---|---|
+| `private` | The same module only | No |
+| `internal` | Across modules, from within the workspace: whatever composes it | No |
+| `public` | From outside the workspace | No |
+
+The ladder is complete and no value names a module. `internal` is the whole of
+what a host can honestly say about itself — *reachable by whatever composes me*
+— and it stops at the workspace boundary, which no module of the composition is
+on the far side of. So the static passes permit a cross-module dependency onto
+an `internal` or a `public` endpoint and refuse one onto a `private` endpoint;
+what `internal` denies is the outside, which no module ever asks core about.
 
 ```yaml
 endpoints:
   - name: http
     api: http
-    visibility: internal
-    allow-modules: [platform]   # only the platform module may reach this
+    visibility: internal   # reachable by whatever composes this module; names nobody
 ```
 
 A dependency onto an endpoint whose visibility does not permit the consuming
@@ -232,19 +242,160 @@ producer adding one private endpoint does not break every consumer that did not
 enumerate. Being permitted none of them is still an error — the edge is declared
 and the export boundary grants nothing for it.
 
+**Visibility has no addressing consequence.** `public` used to do two jobs: it
+permitted every module *and* allocated the Public network instance (the address
+outside the workspace, and whatever a deployment renders from it). Those are
+two independent facts, and an endpoint that every module should reach but that
+must not be addressable from outside could not be declared. Addressing is now
+[`exposure`](#exposure), beside the visibility, and **a public endpoint states
+it** — `exposure: public` or `exposure: none` — rather than omitting it, so a
+manifest written when `visibility: public` meant an address fails to load
+(`exposure-declared`) instead of quietly losing it.
+
+### The allow-list is derived, never authored
+
+Which modules actually reach an endpoint is **derived by the composition** from
+the consumers' declared `service-dependencies`, by the one implementation in
+core, `resources.Workspace.DeriveAllowModules`. A service declares what it
+requires, in its own repository, as part of its own declaration; the
+composition that performs the join (the CLI, at render — the only component
+holding both the declarations and the environment) calls the derivation for the
+allow-list it writes into the rendered artifact, and that derived list is what
+the platform enforces.
+
+The ask lives with the asker, never with the target. An `allow-modules` list
+written on an endpoint, or on a module interface entry, is the target naming its
+own consumers — a list that is unmaintainable at that layer (every new consumer
+is an edit to the host's repository), inverted (the consumed names its
+consumers), and forbidden by the boundary rules — so **a hand-authored
+`allow-modules` is refused by presence when the manifest is read**: any spelling
+(`allow-modules`, `allow_modules`, `allowModules`), any value (a module, the
+wildcard `["*"]`, `[]`, `null`), judged on the mapping's keys before decoding,
+because a decoder that has already run cannot tell `null` from absence and drops
+a spelling it does not know. On the wire the reserved field numbers
+(`Endpoint.allow_modules = 9`, `InterfaceEndpoint.allow_modules = 4`) are
+refused by number before projection: protobuf keeps bytes for a field the
+schema does not define as unknown data rather than refusing them, so every proto
+ingress judges the declaration whole, unknown fields included. The former
+`module` visibility is written as `visibility: internal` and nothing else.
+
+What the derivation buys, beyond fixing the boundary:
+
+- The grant stays explicit, enforceable and reviewable — in the rendered
+  artifact, computed rather than hand-maintained.
+- A grant cannot exist without a declared need, and a stale entry cannot survive
+  the dependency being removed: the list is exactly the set of asks.
+- Adding a consumer is a change in the consumer, and no edit crosses a
+  repository boundary.
+
+**What derives an entry is what the dependency model says, not stage
+participation.** Only an edge that *reaches* the producer's endpoints at run
+time derives one (`DependencyKind.ReachesEndpoints`: untyped and `runtime`); a
+`build` or `schema` edge reads the producer's contract and never calls it, a
+`completion` prerequisite waits for the producer to finish and consumes no
+endpoint — it is a run-stage edge, and that is not consumption, so an omitted
+endpoint list on it never reads as "all" — and an `external` edge has no
+producer in the workspace. A list applies to an `internal` endpoint only:
+`public` is open and `private` is closed, and neither carries one. The
+producer's own module appears when one of its services asks.
+
+**The join is over the composition, never over bare services, and every
+declarer asks.** Every module of a composition carries its provenance
+(`Workspace.Member`: the role it was declared in, `module` or `solution`, and
+the workspace that declared it — inherited through composition, so a composed
+workspace's own solutions stay solutions), and the provenance is **in the
+signature of the one verdict** every reader consults
+(`resources.ConsumedDependencyEndpoints` and what builds on it:
+`PermittedDependencyEndpoints`, `ResolveDependencyNetworkMappings`, the
+workspace and closure static passes, `architecture.VerifyVisibility`,
+`Closure.Verify`, the plan, and the derivation). The verdict judges the edge by
+the provenance of its two ends first (`resources.JudgeCompositionEdge`): **a
+solution reaches modules only through the host**, so a solution's run-stage
+edge onto a module's endpoint — of the composed platform or of the product's
+own `modules:` — is refused (`resources.ErrSolutionReachesThroughHost`)
+whatever the endpoint's visibility grants, on every path alike; a `build` or
+`schema` edge reads the module's contract and is not that route, and an edge
+between two solutions or from a module is judged by visibility alone. No
+provenance, or an end the composition does not carry, is
+`resources.ErrUnjudgedProvenance`. The providers of a consumer's dependency
+addresses judge with the composition they hold: core's CLI-side wrappers
+(`services.RuntimeInstance.Init`/`Start` and `services.BuilderInstance.Deploy`,
+with the instance's workspace) and the SDK dependency session (the workspace
+that composed its module, else the one above its directory). The one reader
+that holds no composition — the builder agent filtering the mappings the
+wrapper handed it — does not ask the verdict; it selects what its declared
+dependencies consume (`resources.SelectDependencyNetworkMappings`) from what
+the provider judged.
+Every declarer of `service-dependencies` is judged and asks alike — a service,
+a job, a runnable, an application (`Module.LoadDependencyDeclarers`) — so a
+module's runnable that calls an internal endpoint gets its entry and a
+solution's runnable gets its refusal. The derivation runs the workspace's own
+static validation first, so nothing is derived for a composition that does not
+validate: a cross-module ask for a private endpoint, a solution's route, a
+dependency on an endpoint the producer does not declare, are refused there
+exactly as the static pass refuses them.
+
+**A static allow-list is reachability, not authorization.** The derived list can
+only answer *may anything in module X reach this endpoint at all* — a
+deployment-time fact enforced by mesh policy and NetworkPolicy. *Whether a
+particular call is permitted* — on whose behalf, for which installation, within
+which scopes — is per-call and runtime, and that machinery already exists:
+`WorkContextV1` carries `audience` (the exact service or trust boundary allowed
+to consume it), `authority_scopes` (each hop's grant a subset of the preceding
+effective scopes) and a `seal` binding the capability to one installation and
+one execution ([work-context.md](work-context.md)). Neither substitutes for the
+other: derive the static list from declared dependencies for defence in depth,
+and never let it stand in for the runtime check. Who validates that a declared
+dependency is *permitted* — a module asking for a host endpoint is not the same
+as being allowed to have it — is an authorization question for the installation
+and approval layer, not for endpoint visibility.
+
 **Only these three spellings load.** A visibility the model does not define —
 including the former `module` (every module) and `external` (a location written
 as a permission) — is refused when the manifest is read, as an invalid
 declaration, never read as private by one path and denied by another. `module`
-is written as `visibility: internal` with `allow-modules: ["*"]`; `external` is
-written as `location: external` (see below) beside the visibility that applies.
-An `allow-modules` list is only read for `internal` and is refused elsewhere.
+is written as `visibility: internal`; `external` is written as
+`location: external` (see below) beside the visibility that applies.
 
-A module's interface entry is the whole export declaration: it names the
-visibility the module grants across its boundary — `public`, or `internal`
-(the default) with its own `allow-modules` — and the service's own visibility
-and allow-list are not consulted once the module has spoken. An `internal`
-entry that names no module is refused: it would export to nobody.
+Every refusal the endpoint model makes is one named rule, run in a fixed order,
+each carrying its own witness in the table beside its check; each is protected
+by a fixture in a shipped kit — the manifest kit
+(`resources.EndpointDeclarationFixtures`, driven through a consumer's own loader
+by `resources.RunEndpointDeclarationKit`) for the rules a manifest reaches, the
+wire kit (`resources.EndpointWireFixtures`, `resources.RunEndpointWireKit`,
+and `resources.InterfaceEndpointWireFixtures` with
+`resources.RunInterfaceEndpointWireKit`) for the rule only bytes reach — and the
+package's self-check deletes each rule in turn and proves a fixture notices:
+
+| Rule | Judged on | Refuses |
+|---|---|---|
+| `endpoint-keys-known` | the mapping's keys, before decoding | a key the endpoint model does not define (a misspelt one would otherwise decode to nothing) |
+| `allow-modules-derived` | the keys, before decoding; the value, in memory | any authored `allow-modules`, in any spelling, with any value |
+| `wire-fields-known` | the proto, before projection | a field the schema does not define, the reserved `allow_modules` included |
+| `visibility-known` | the declaration | a visibility other than `private`, `internal`, `public` or none |
+| `location-known` | the declaration | a location other than `external` or none |
+| `exposure-known` | the declaration | an exposure other than `public`, `none` or omitted |
+| `exposure-declared` | the declaration | `visibility: public` with no exposure stated |
+| `exposure-within-reach` | the declaration | `exposure: public` on an endpoint not `visibility: public` |
+| `exposure-in-system` | the declaration | `exposure: public` on a `location: external` endpoint |
+
+Every proto ingress judges the declaration whole — the projection into the
+resource model (`resources.FromProtoEndpoints`), the dependency verdict, the
+public split, the environment-variable prefix and the network allocation
+(`network.RuntimeManager.GenerateNetworkMappings`, before any instance is
+allocated) — so a proto that passes the schema's per-field checks with
+`visibility: private, exposure: public`, or with reserved bytes kept as unknown
+data, is refused as an invalid declaration rather than handed an address.
+
+A module's interface entry is the whole export declaration: it names the reach
+the module grants across its boundary — `public`, or `internal` (the default) —
+and the service's own visibility is not consulted once the module has spoken.
+An entry names nobody, and its keys are judged before decoding like an
+endpoint's. An export the endpoint's own declaration contradicts — an endpoint
+declaring `exposure: public` that the interface omits or exports at `internal`
+— is refused at module load, naming the entry in the author's own words. (The
+`InterfaceEndpoint` wire message has no reader in core; `resources.UnknownWireFields`
+is what a reader of published module protos refuses the reserved field with.)
 
 ### Endpoint References
 
@@ -311,11 +462,44 @@ Location answers *where the endpoint lives*, independently of who may reach it:
 
 | Location | Meaning | Network instances generated |
 |---|---|---|
-| (unset) | In-system, port-allocated | Native + Container (+ Public if public) |
+| (unset) | In-system, port-allocated | Native + Container (+ Public if exposed) |
 | `external` | Managed resource outside the system | DNS-resolved instances |
 
 Because the two axes are independent, a managed database can be both
-`location: external` and `visibility: internal` with an allow-list.
+`location: external` and `visibility: internal`.
+
+### Exposure
+
+Exposure answers *whether an address reachable from outside the workspace is
+allocated*, independently of who may reach it. It is the addressing half of the
+job the word `public` used to do, declared on its own:
+
+| Exposure | Meaning | Network instances generated |
+|---|---|---|
+| `none` (or unset on a non-public endpoint) | No outward address | Native + Container |
+| `public` | Addressed from outside the workspace | Native + Container + Public |
+
+```yaml
+endpoints:
+  - name: http
+    api: http
+    visibility: public    # reach: anything outside the workspace may call
+    exposure: public      # addressing: the Public instance is allocated, a deployment renders an outward address
+  - name: grpc
+    api: grpc
+    visibility: public    # reachable by anything that can address it — and published nowhere
+    exposure: none        # stated, never omitted on a public endpoint
+```
+
+`resources.IsExposedEndpoint` is the one condition `network.RuntimeManager`
+emits the Public instance on, `resources.SplitPublicNetworkMappings` splits on
+(exposed or external), and a deployment renders an outward address from. A
+visibility is never that condition. Exposure is declared only on an endpoint
+reachable from outside the workspace (`visibility: public`) that the system
+addresses (not `location: external`): the other combinations contradict
+themselves and are refused when the manifest is read. Internet exposure — a
+route with hostnames — is still the deployment's ingress, declared there;
+exposure is what gives it an endpoint to route to.
 
 ### External Endpoints
 

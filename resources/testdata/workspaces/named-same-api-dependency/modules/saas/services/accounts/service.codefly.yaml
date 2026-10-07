@@ -10,7 +10,7 @@ endpoints:
   - name: grpc
     api: grpc
     visibility: public
+    exposure: none
   - name: usage
     api: grpc
     visibility: internal
-    allow-modules: [platform]

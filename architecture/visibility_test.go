@@ -160,7 +160,7 @@ func TestVisibilityChecksAgreeOnConsumingAll(t *testing.T) {
 	for _, endpoint := range endpoints {
 		mappings = append(mappings, &basev0.NetworkMapping{Endpoint: endpoint})
 	}
-	resolved, err := resources.ResolveDependencyNetworkMappings("consumer", consumer.ServiceDependencies, mappings)
+	resolved, err := resources.ResolveDependencyNetworkMappings(workspace, "consumer", consumer.ServiceDependencies, mappings)
 	require.NoError(t, err)
 	names := make([]string, 0, len(resolved))
 	for _, mapping := range resolved {

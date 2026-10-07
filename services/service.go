@@ -204,7 +204,22 @@ func (instance *BuilderInstance) Build(ctx context.Context, req *builderv0.Build
 	return resp, err
 }
 
+// Deploy hands the builder the consumer's dependency addresses judged, exactly
+// as Init and Start do for the runtime: the CLI driving this wrapper is the
+// provider, it holds the composition, and the one verdict runs here with that
+// provenance — a private endpoint of another module, or a solution's route to
+// a module, never reaches the deployment. The builder agent on the far side
+// holds no composition and selects what it is handed.
 func (instance *BuilderInstance) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+	if req != nil && len(req.GetDependenciesNetworkMappings()) > 0 && instance.Service != nil && instance.Module != nil {
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+		if err != nil {
+			return nil, err
+		}
+		filtered := proto.Clone(req).(*builderv0.DeploymentRequest)
+		filtered.DependenciesNetworkMappings = mappings
+		req = filtered
+	}
 	resp, err := instance.Builder.Deploy(ctx, req)
 	if err == nil && resp != nil && resp.State != nil && resp.State.State == builderv0.DeploymentStatus_ERROR {
 		err = operationStatusFailure("builder deploy", resp.State.Message, resp.State.Failure)
@@ -303,7 +318,9 @@ func (instance *RuntimeInstance) Load(ctx context.Context, env *basev0.Environme
 
 func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
 	if len(req.GetDependenciesNetworkMappings()) > 0 && instance.Service != nil && instance.Module != nil {
-		mappings, err := resources.ResolveDependencyNetworkMappings(instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+		// The CLI is the provider of a service's dependency addresses, and it
+		// holds the composition: the hand-out is judged with its provenance.
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
 		if err != nil {
 			return nil, err
 		}
@@ -320,7 +337,7 @@ func (instance *RuntimeInstance) Init(ctx context.Context, req *runtimev0.InitRe
 
 func (instance *RuntimeInstance) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
 	if req != nil && instance.Service != nil && instance.Module != nil {
-		mappings, err := resources.ResolveDependencyNetworkMappings(instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
+		mappings, err := resources.ResolveDependencyNetworkMappings(instance.composition(), instance.Module.Name, instance.Service.ServiceDependencies, req.GetDependenciesNetworkMappings())
 		if err != nil {
 			return nil, err
 		}
@@ -612,4 +629,18 @@ func acknowledgedContainerRecoveryScope(headers metadata.MD) (string, error) {
 		return "", nil
 	}
 	return values[0], nil
+}
+
+// composition is the provenance the instance's dependency hand-out is judged
+// with: the workspace the instance was built for, or the one that composed
+// its module. An instance with neither is judged with none, which the verdict
+// refuses rather than assuming the module's role.
+func (instance *Instance) composition() resources.Provenance {
+	if instance.Workspace != nil {
+		return instance.Workspace
+	}
+	if instance.Module != nil && instance.Module.Composition() != nil {
+		return instance.Module.Composition()
+	}
+	return nil
 }

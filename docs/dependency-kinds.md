@@ -94,6 +94,7 @@ endpoints:
     - name: grpc
       api: grpc
       visibility: public
+      exposure: none
 ```
 
 ```yaml
@@ -108,6 +109,7 @@ endpoints:
     - name: postgres
       api: tcp
       visibility: public
+      exposure: none
 ```
 
 A cycle **within** one stage — two services each declaring a `runtime`
@@ -130,6 +132,27 @@ service-dependencies:
       module: vendor
       kind: external
 ```
+
+## What a kind consumes, and what it reaches
+
+Stage participation is not consumption. The kind states both, for every kind
+(`DependencyKind.ConsumesEndpoints`, `DependencyKind.ReachesEndpoints`):
+
+| Kind | Stages | Consumes the producer's endpoints | Reaches them at run time |
+|---|---|---|---|
+| (untyped) | build, run | yes (calls them) | yes |
+| `build` | build | yes (reads the contract) | no |
+| `schema` | build | yes (reads the contract) | no |
+| `runtime` | run | yes (calls them) | yes |
+| `completion` | run | **no** — it waits for the producer to finish | no |
+| `external` | none | no — the producer is outside the workspace | no |
+
+An edge that consumes nothing selects no endpoint, whatever it names or omits:
+an omitted endpoint list on a `completion` edge is not "all", so the consumer
+is handed no address of the job it waits on, and the derived allow-list
+([network-model.md](network-model.md#the-allow-list-is-derived-never-authored))
+records no ask from it. Only a reaching edge derives an entry: a `build` edge
+reads the contract and never calls, so it grants nothing either.
 
 ## What does not change
 

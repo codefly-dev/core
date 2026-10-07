@@ -214,7 +214,7 @@ func (closure *Closure) Verify(ctx context.Context, phase resources.Phase) error
 	if _, err := closure.graph.TopologicalSort(); err != nil {
 		return w.Wrapf(err, "cannot order the closure of <%s>", closure.Target)
 	}
-	return verifyVisibility(ctx, closure.services, func(dep *resources.ServiceDependency) bool {
+	return verifyVisibility(ctx, closure.Workspace, closure.services, func(dep *resources.ServiceDependency) bool {
 		return dep.Kind.ConstrainsPhase(phase)
 	})
 }
