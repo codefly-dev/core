@@ -7,14 +7,16 @@ on:
         description: Optional shell command run before the test suite (e.g. docker pull of a test dependency).
         type: string
         default: ''
-      goreleaser-version:
-        description: Version constraint passed to goreleaser-action.
-        type: string
-        default: '~> v2'
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      # Reusable: this job runs the CALLING repository's code, at a ref that
+      # repository chooses -- which may be a pull request's head. Declared here
+      # rather than inherited, because an inherited grant is one neither side
+      # can read. See internal/ciguard/untrusted_code_test.go.
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -28,17 +30,82 @@ jobs:
           cache: false
       - name: Setup
         if: inputs.setup-run != ''
-        run: ${{ inputs.setup-run }}
+        # Through the environment, not interpolated into the script: a `run:`
+        # built by substituting a caller-supplied string is assembled before
+        # any shell sees it, so the string becomes part of the program. `eval`
+        # keeps the "arbitrary shell command" contract the input promises while
+        # leaving the value a value. This job holds no credential either way;
+        # the point is that neither property depends on the other.
+        env:
+          SETUP_RUN: ${{ inputs.setup-run }}
+        run: eval "$SETUP_RUN"
       - name: Test
         run: go test -v ./...
 
+  # This job holds the caller's release PAT, and `permissions:` says nothing
+  # about a PAT -- it governs the built-in token only. So the token being read
+  # is beside the point: what matters is that the PAT is never in a job that
+  # runs code nobody merged.
+  #
+  # Two conditions do that, and both are needed. The `if:` keeps the job off
+  # every event but a pushed tag, which a pull request cannot produce -- a
+  # caller may dispatch this workflow from a pull request with `secrets:
+  # inherit`, and nothing in this file can see that it did. Then the first step
+  # refuses a tag whose commit is not reachable from the caller's default
+  # branch, because a tag can be pushed to any commit: existing is not the same
+  # as reviewed, and GoReleaser executes the hooks and configuration of
+  # whatever tree it is pointed at.
+  #
+  # internal/ciguard/credential_isolation_test.go holds the first;
+  # the refusal below is the second.
   goreleaser:
     needs: test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    permissions:
+      # GoReleaser authenticates to the forge with the GH_PAT the caller passes
+      # (see the `env:` on its step), never with this job's token, so the
+      # release needs no write grant here -- and a caller that grants its
+      # release job write does not hand that grant to this one.
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # Credentials stay persisted here, deliberately. The refusal below
+          # fetches the default branch, and a private caller cannot fetch
+          # anonymously. What is persisted is this job's own read-only built-in
+          # token -- not the PAT, which is only ever a step `env:`.
+
+      - name: require the tag to be on the default branch, or refuse
+        run: |
+          set -euo pipefail
+
+          # The authority is the remote's own HEAD, and there is no input that
+          # can name it. A declaration the caller supplies could be omitted,
+          # defaulted or disagreed with, and each of those is a way for the
+          # caller to choose which history counts as reviewed. Whoever may
+          # approve a release is this repository's decision, so the only source
+          # is the repository.
+          authority=$(git ls-remote --symref origin HEAD \
+            | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2 }')
+          if [ -z "$authority" ]; then
+            echo "::error::cannot read this repository's default branch from origin; refusing to release." >&2
+            exit 1
+          fi
+
+
+          git fetch --quiet --no-tags --force origin \
+            "+refs/heads/${authority}:refs/remotes/origin/${authority}"
+
+          # Fully qualified: a bare `origin/<branch>` is an ambiguous rev that a tag
+          # of the same name can win.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${authority}"; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from refs/remotes/origin/${authority}; refusing to release it." >&2
+            echo "A release runs this repository's own hooks and configuration with a credential, so the commit has to be one that was merged." >&2
+            exit 1
+          fi
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -55,7 +122,9 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: ${{ inputs.goreleaser-version }}
+          # Pinned here, not supplied: the version selects which GoReleaser
+          # binary runs, so a caller-chosen value is a caller-chosen program.
+          version: '~> v2'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}

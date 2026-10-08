@@ -104,6 +104,18 @@ version bump.
 `pull_request`, and is gated on the test workflow having succeeded, so it
 reports on no pull request at all.
 
+**`Notify Slack` from `go.yml`.** Gated to a push of `main` for two reasons —
+the webhook is empty on a Dependabot or fork run, and a repository secret must
+not sit in the job that runs the suite — so it reports on no pull request. See
+[CI credentials](../ci-credentials.md).
+
+**`Coverage badge` from `go.yml`.** The coverage THRESHOLD is decided in
+`Build`, which is required; this job only pushes the badge `README.md` renders,
+and it is gated to a push of `main` so it reports on no pull request either. It
+is a separate job because it is the one write in that workflow and the job that
+runs the suite must not hold it — see
+[CI credentials](../ci-credentials.md).
+
 **`agent-ci`, `go-service-ci`, `go-service-release`.** `workflow_call` only —
 they run when a service repository dispatches them, never here.
 
@@ -117,6 +129,44 @@ it never pushes to `main`, so it is unaffected by protection as configured here
 and merges through the normal pull request path like anything else. An
 allowlist added later must include that identity, or the weekly dependency
 batch silently stops.
+
+## Also needed: a tag-creation ruleset
+
+Branch protection covers `main`. It says nothing about tags, and
+`version-tag.yml` cuts a permanent, proxy-cached tag — so restrict who may
+create one. The workflow's own guards keep its credential away from unreviewed
+code (see [CI credentials](../ci-credentials.md)), but they cannot speak for any
+other identity with push access.
+
+**Status: NOT APPLIED — OPERATOR ACTION, OWNER-OWNED.** Nothing in this
+repository can apply or verify it, so no change here closes it and its absence
+is not a code defect. A read-only ruleset query returns only the branch
+ruleset `protect main`; no tag ruleset exists. This is an operator action and
+nothing in this repository can perform or verify it, so it stays open until
+someone applies it and records the result here.
+
+Apply a ruleset targeting `refs/tags/v*` that restricts creation to the
+Actions identity this workflow runs as, and denies updating and deleting
+outright. Both halves matter: re-pointing a tag is how a commit ends up
+carrying two versions, which `git describe` then reports ambiguously.
+
+Until it is applied, the protection in place is the workflow's own: the tag job
+refuses a commit that is not reachable from the default branch. That governs
+this workflow's credential and no other identity's.
+
+## Also needed: who may dispatch
+
+`combine-deps.yml` is dispatchable, and `workflow_dispatch` is not restricted
+to the default branch: a dispatch names a ref, and both the repository content
+*and the workflow file itself* come from it. The dispatch trigger has since been removed from that workflow, so this
+concerns any dispatchable workflow added later: a branch that edits the
+workflow file is outside what anything in
+the file on `main` can constrain.
+
+That is a permissions question, not a YAML one. Restrict who can dispatch
+workflows — or move the credential-bearing job into an environment with
+required reviewers — and keep `DEPS_COMBINE_TOKEN` scoped to what the weekly
+combination actually needs. See [CI credentials](../ci-credentials.md).
 
 ## Before you turn it on
 

@@ -52,6 +52,7 @@ type pullRequestTrigger struct {
 	Paths          []string `yaml:"paths"`
 	PathsIgnore    []string `yaml:"paths-ignore"`
 	Types          []string `yaml:"types"`
+	Tags           []string `yaml:"tags"`
 }
 
 func contains(list []string, want string) bool {

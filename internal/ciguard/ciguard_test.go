@@ -142,9 +142,18 @@ type secretUse struct {
 func secretRefsIn(values []string) []string {
 	var refs []string
 	for _, value := range values {
-		for _, m := range secretRef.FindAllStringSubmatch(value, -1) {
-			if m[1] != "GITHUB_TOKEN" {
-				refs = append(refs, m[1])
+		// Through the expression parser, so this agrees with the isolation
+		// guards about what a secret reference is: an index and a
+		// whole-context read count, not only `secrets.NAME`.
+		names, err := secretsReferencedIn(value)
+		if err != nil {
+			// Unreadable means unknown, and unknown must not read as none.
+			refs = append(refs, wholeSecretsContext)
+			continue
+		}
+		for _, name := range names {
+			if name != "GITHUB_TOKEN" {
+				refs = append(refs, name)
 			}
 		}
 	}
@@ -202,10 +211,14 @@ func secretUses(wf workflow) []secretUse {
 			}
 
 			if refs := secretRefsIn(values); len(refs) > 0 {
+				// Both conditions, because a step runs only when its job does.
+				// Reading the step's alone misses the shape that is now
+				// preferred -- the credential in a job gated to a push, whose
+				// steps carry only which outcome to report.
 				out = append(out, secretUse{
 					where: fmt.Sprintf("job %q step %q", jobName, step.Name),
 					refs:  refs,
-					gate:  step.If,
+					gate:  strings.TrimPrefix(job.If+" && "+step.If, " && "),
 				})
 			}
 		}
@@ -246,12 +259,19 @@ func TestPullRequestWorkflowsDoNotRequireActionsSecrets(t *testing.T) {
 		}
 
 		for _, use := range secretUses(wf) {
-			// It must be unable to run on a pull_request event.
-			require.Contains(t, use.gate, "github.event_name == 'push'",
-				"%s: %s consumes Actions secret(s) %v but is not gated to push "+
-					"events. On a Dependabot pull request those secrets are empty "+
-					"and it fails, turning an otherwise green run red.",
-				filepath.Base(path), use.where, use.refs)
+			// It must be unable to run on a pull_request event -- decided by
+			// EVALUATING the condition, not by looking for text in it. See
+			// expression_test.go: `<required> || true` and a negated
+			// conjunction both contain the required clause and run on a pull
+			// request.
+			reached, err := canRunUnder(use.gate, pullRequest)
+			require.NoError(t, err, "%s: %s", filepath.Base(path), use.where)
+			require.Equal(t, triFalse.String(), reached.String(),
+				"%s: %s consumes Actions secret(s) %v and its condition (%q) can "+
+					"still be reached on a pull request. On a Dependabot pull request "+
+					"those secrets are empty and it fails, turning an otherwise green "+
+					"run red.",
+				filepath.Base(path), use.where, use.refs, use.gate)
 		}
 	}
 }

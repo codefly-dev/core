@@ -12,6 +12,30 @@
 # GITHUB_TOKEN does not trigger workflow runs, so the combined pull request
 # would sit with no CI and never go green. An organisation-level secret covers
 # every repository at once.
+#
+# TWO JOBS, because the work and the credential cannot share one.
+#
+# `plan` assembles the branch. That means fetching `refs/pull/<n>/head` for
+# each Dependabot pull request, which is whatever was last pushed to that
+# branch — filtering by pull-request author establishes who OPENED each one,
+# not who wrote the commits now on it — and then running the repository's
+# optional post-processing hook over the result. Unreviewed code, by
+# construction. It runs with the built-in read-only token and no secret.
+#
+# `publish` moves the result and opens the pull request. It holds the PAT, and
+# it never checks the combined tree out: the commits arrive as a git bundle and
+# are moved into a ref with `git fetch` and `git push`, while the working tree
+# stays on the default branch.
+#
+# Both checkouts name `ref: main` explicitly, and the workflow is scheduled
+# only. A dispatch names a ref and takes BOTH the repository content and this
+# workflow file from it, so a job holding a credential in a dispatchable
+# workflow cannot establish the provenance of its own program — no assertion
+# about the file on the default branch reaches the copy that would run. The
+# trigger is therefore gone rather than guarded; a scheduled run can be
+# re-executed from the Actions UI, which uses the default branch's file.
+#
+# internal/ciguard/credential_isolation_test.go holds all of the above.
 name: combine-deps
 
 on:
@@ -19,21 +43,62 @@ on:
     # Mondays, a few hours after Dependabot's weekly pass has opened its pull
     # requests. Off the hour: :00 is the busiest minute on the shared runners.
     - cron: '23 9 * * 1'
-  workflow_dispatch:
 
+# Read at workflow scope. The writes this performs are declared on the one job
+# that performs them, so a job added here later does not inherit them.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: combine-deps
   cancel-in-progress: false
 
 jobs:
-  combine:
-    name: Combine open Dependabot pull requests
+  plan:
+    name: Assemble the combined branch
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      # No write, and no secret: this is the job that handles unreviewed code.
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Explicitly the default branch, so a dispatch against another ref
+          # does not select that ref's scripts.
+          ref: main
+          fetch-depth: 0
+          # The built-in read token is all this job has, and nothing here
+          # pushes; keep it out of .git/config while a replayed tree and a
+          # repository hook are present.
+          persist-credentials: false
+
+      - name: assemble
+        env:
+          # The built-in token, read-only. Enough to list pull requests and
+          # fetch their heads; not enough to push, open or close anything.
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/combine-deps-plan.sh "${{ runner.temp }}/combined"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: combined-branch
+          path: ${{ runner.temp }}/combined
+          retention-days: 1
+          # An empty week produces empty marker files rather than no files.
+          if-no-files-found: error
+
+  publish:
+    name: Push it and open the pull request
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Both writes are performed by DEPS_COMBINE_TOKEN rather than by this
+      # job's token (see the top of the file for why GITHUB_TOKEN cannot do
+      # either). Declared anyway: the grant belongs beside the job that writes.
+      contents: write
+      pull-requests: write
     steps:
       # The secrets context is not available to `if:`, so this is checked in the
       # step body rather than as a condition.
@@ -48,11 +113,24 @@ jobs:
             echo "pull request would never go green."
             exit 1
           fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The default branch, and only ever the default branch. The combined
+          # commits arrive below as a bundle and are never checked out.
+          ref: main
           fetch-depth: 0
+          # Persisted on purpose: the push below goes over git. What this job
+          # runs is this repository's own script from `main`, never the tree it
+          # is moving.
           token: ${{ secrets.DEPS_COMBINE_TOKEN }}
-      - name: Combine
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: combined-branch
+          path: ${{ runner.temp }}/combined
+
+      - name: publish
         env:
           GH_TOKEN: ${{ secrets.DEPS_COMBINE_TOKEN }}
-        run: bash .github/scripts/combine-deps.sh
+        run: bash .github/scripts/combine-deps-publish.sh "${{ runner.temp }}/combined"
