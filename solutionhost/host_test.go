@@ -110,7 +110,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 47)
+	require.Len(t, fixtures, 48)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
