@@ -88,6 +88,11 @@ func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspa
 // workspace's own configurations/<profile>/* composed with the ones its
 // composed modules ship. See ReadWorkspaceConfigurations.
 type WorkspaceConfigurations struct {
+	// Origins identify final pre-invocation supplying files, not runtime values.
+	Origins           []ConfigurationOrigin
+	ProfileSelections []ConfigurationProfileSelection
+	// Decisions records executed workspace/import and module-default replacement.
+	Decisions []ConfigurationDecision
 	// Infos holds every provided configuration in provisioning order: the
 	// workspace's own first, then the composed modules' contributions. A group
 	// the workspace overrides keeps the position the workspace declared it in,
@@ -132,6 +137,8 @@ type WorkspaceConfigurations struct {
 // read-only diagnostic. Load builds on it and layers the invocation-scoped
 // overrides on top.
 func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, env *resources.Environment) (*WorkspaceConfigurations, error) {
+	trace := newConfigurationOrigins()
+	ctx = context.WithValue(ctx, configurationOriginsKey{}, trace)
 	w := wool.Get(ctx).In("configurations.ReadWorkspaceConfigurations")
 
 	profiles, err := env.ConfigurationProfileNames()
@@ -151,10 +158,13 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 		return nil, w.Wrapf(err, "cannot compose module workspace configurations")
 	}
 	return &WorkspaceConfigurations{
-		Infos:      workspaceInfos,
-		ComposedBy: composedBy,
-		Ambiguous:  ambiguous,
-		Unsupplied: append(workspaceLevel.Unsupplied, composedUnsupplied...),
+		Infos:             workspaceInfos,
+		Origins:           trace.project(workspaceInfos),
+		ProfileSelections: trace.profiles,
+		Decisions:         trace.finalDecisions(workspaceInfos),
+		ComposedBy:        composedBy,
+		Ambiguous:         ambiguous,
+		Unsupplied:        append(workspaceLevel.Unsupplied, composedUnsupplied...),
 	}, nil
 }
 
@@ -214,6 +224,9 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 		for _, info := range contributed.Infos {
 			fromComposed[info.Name] = true
 			if owned[info.Name] {
+				if trace := configurationOriginsFrom(ctx); trace != nil {
+					trace.shadowedImport(workspace.Name, child.Name, info, infos)
+				}
 				continue
 			}
 			if previous, ok := inherited[info.Name]; ok {
@@ -477,6 +490,7 @@ func composeModuleWorkspaceConfigurations(
 	workspaceInfos := workspaceLevel.Infos
 	overriding := make(map[string]int, len(workspaceInfos))
 	offers := newComposedModuleOffers(len(workspaceInfos), profiles)
+	offers.workspaceInfos = workspaceInfos
 	for index, info := range workspaceInfos {
 		if workspaceLevel.Own[info.Name] && !workspaceLevel.FromComposedWorkspace[info.Name] {
 			overriding[info.Name] = index
@@ -498,6 +512,7 @@ func composeModuleWorkspaceConfigurations(
 // it — so an offer is recorded against what is already there rather than
 // appended, and resolve then turns what survives into the provisioned set.
 type composedModuleOffers struct {
+	workspaceInfos []*basev0.ConfigurationInformation
 	// replacing are the workspace-level names that win whole, so a module's
 	// offer of one is dropped where it is made rather than resolved.
 	replacing map[string]bool
@@ -538,6 +553,9 @@ func (offers *composedModuleOffers) offer(ctx context.Context, module string, re
 	w := wool.Get(ctx).In("configurations.composedModuleOffers.offer")
 	for _, info := range infos {
 		if offers.replacing[info.Name] {
+			if trace := configurationOriginsFrom(ctx); trace != nil {
+				trace.shadowedDefault(module, info, offers.workspaceInfos)
+			}
 			w.Debug("workspace-level configuration a composed workspace also declares replaces composed module configuration",
 				wool.Field("configuration", info.Name), wool.Field("module", module))
 			continue
@@ -710,6 +728,9 @@ func (offers *composedModuleOffers) resolve(
 			}
 			w.Debug("workspace configuration overrides composed module configuration, per key",
 				wool.Field("configuration", name), wool.Field("module", configuration.module))
+			if trace := configurationOriginsFrom(ctx); trace != nil {
+				trace.workspaceOverlay(configuration.info, workspaceInfos[index], overlaid, configuration.module)
+			}
 			info = overlaid
 		}
 		// The group is the module's whether or not the workspace overrode keys of
@@ -1118,6 +1139,9 @@ func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]
 		}
 		if err != nil {
 			return nil, w.Wrapf(err, "cannot load configuration from %s", file.relative)
+		}
+		if trace := configurationOriginsFrom(ctx); trace != nil {
+			trace.record(confInfo, file.path)
 		}
 		w.Trace("loaded configuration", wool.Field("configuration", confInfo.Name))
 		infos = append(infos, confInfo)

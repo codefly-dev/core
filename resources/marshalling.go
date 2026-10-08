@@ -3,6 +3,7 @@ package resources
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"github.com/codefly-dev/core/internal/wire"
@@ -97,7 +98,18 @@ func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
 	if err != nil {
 		return nil, w.NewError("cannot read path %s: %s", p, err)
 	}
-	return LoadFromBytes[C](content)
+	config, err := LoadFromBytes[C](content)
+	if err != nil {
+		return nil, err
+	}
+	if workspace, ok := any(config).(*Workspace); ok {
+		workspace.declarationPath, err = filepath.Abs(p)
+		if err != nil {
+			return nil, err
+		}
+		workspace.declarationSHA256 = fmt.Sprintf("%x", sha256.Sum256(content))
+	}
+	return config, nil
 }
 
 // LoadFromBytes decodes one configuration document. A refusal the decoder makes

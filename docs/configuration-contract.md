@@ -79,3 +79,32 @@ environment carries, so no value is lost to a platform's environment limit;
 see [Runnable binding delivery](runnable-binding-delivery.md).
 
 See [the boundary and migration decision](core-cli-boundary.md).
+
+### Source origins for workspace diagnostics
+
+`ReadWorkspaceConfigurations` returns value-free `Origins` alongside `Infos`.
+Each origin identifies a final group/key's supplying file; structured documents
+have `Document=true` and an empty key. Object identity preserves equal-valued
+overrides through profile selection and composition, including retained defaults
+cloned during workspace per-key overlays. Resolver behavior is unchanged. Only surviving results have origins, never values or
+secret URIs. Origins cover disk composition before invocation overrides, reference
+resolution and injection. They are not a complete input fingerprint, history of
+shadowed candidates or evidence of deployed/runtime values.
+
+`Decisions` additionally records executed workspace-key, document or whole-group
+replacement of module defaults, with module identity, rule, selected origins and
+shadowed origins.
+It also records workspace-group-over-imported-group decisions, naming both
+workspaces. Nested decisions retain intermediate choices; `Final` follows the
+actual selected group object to distinguish them from the final collected result.
+This hook runs at the precedence decision, including equal-valued replacements;
+it does not infer changes by comparing values. Derived-profile decisions also
+record individual-key or whole-document replacement. Their final marker follows
+the selected value/document object, preserving intermediate history even for
+equal values. Conflicts and every rejected offer are not a complete audit trail.
+
+`ProfileSelections` records each configuration location's ordered candidate
+profiles, whether a candidate directory exists, and the actual derivation layers
+read base first. It records absent locations too. These are directory selection
+and explicit derivation, not per-file fallback, and do not establish the current
+identity of previously collected inputs.

@@ -303,10 +303,17 @@ func LoadProfileConfigurations(ctx context.Context, base, kind string, profiles 
 		return nil, err
 	}
 	out := &ProfileConfigurations{Exists: exists, Layers: layers}
+	if trace := configurationOriginsFrom(ctx); trace != nil {
+		trace.profiles = append(trace.profiles, ConfigurationProfileSelection{
+			Location: path.Join(base, kind), Candidates: append([]string{}, profiles...),
+			Layers: append([]string{}, layers...), Found: exists,
+		})
+	}
 	if !exists {
 		return out, nil
 	}
 	overlay := newProfileOverlay()
+	overlay.origins = configurationOriginsFrom(ctx)
 	for _, layer := range layers {
 		loaded, err := LoadConfigurationInformationsFromFiles(ctx, layer)
 		if err != nil {
@@ -325,7 +332,8 @@ func LoadProfileConfigurations(ctx context.Context, base, kind string, profiles 
 // remembers which layer last wrote each value so an unsupplied one can name the
 // file a reader must look at.
 type profileOverlay struct {
-	infos []*basev0.ConfigurationInformation
+	origins *configurationOrigins
+	infos   []*basev0.ConfigurationInformation
 	// writtenIn maps a value to the layer directory that last set it.
 	writtenIn map[string]string
 }
@@ -377,6 +385,11 @@ func (overlay *profileOverlay) add(layer string, infos []*basev0.ConfigurationIn
 				info.GetName(), path.Base(layer), ErrConfigurationConflict)
 		}
 		if info.GetData() != nil {
+			if overlay.origins != nil {
+				overlay.origins.profileReplacement(path.Base(layer), existing.Name,
+					&basev0.ConfigurationInformation{Name: existing.Name, Data: info.GetData()},
+					&basev0.ConfigurationInformation{Name: existing.Name, Data: existing.GetData()})
+			}
 			existing.Data = info.GetData()
 			overlay.writtenIn[profileValueKey(info.GetName(), "")] = layer
 			continue
@@ -414,6 +427,11 @@ func (overlay *profileOverlay) find(name string) *basev0.ConfigurationInformatio
 }
 
 func (overlay *profileOverlay) set(layer string, info *basev0.ConfigurationInformation, value *basev0.ConfigurationValue) {
+	if existing := findConfigurationValue(info, value.GetKey()); existing != nil && overlay.origins != nil {
+		overlay.origins.profileReplacement(path.Base(layer), info.Name,
+			&basev0.ConfigurationInformation{Name: info.Name, ConfigurationValues: []*basev0.ConfigurationValue{value}},
+			&basev0.ConfigurationInformation{Name: info.Name, ConfigurationValues: []*basev0.ConfigurationValue{existing}})
+	}
 	overlay.writtenIn[profileValueKey(info.GetName(), value.GetKey())] = layer
 	setConfigurationValue(info, value)
 }

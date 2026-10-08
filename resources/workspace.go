@@ -59,7 +59,9 @@ type Workspace struct {
 	Path string `yaml:"path,omitempty"`
 
 	// internal
-	dir string
+	dir               string
+	declarationPath   string
+	declarationSHA256 string
 
 	// helper
 	layout Layout `yaml:"-"`
@@ -105,6 +107,13 @@ func (workspace *Workspace) Proto(_ context.Context) (*basev0.Workspace, error) 
 		return nil, err
 	}
 	return proto, nil
+}
+
+// DeclarationSource identifies the exact file bytes parsed for this workspace.
+// It is load-time evidence, not a revalidation of the current file or a complete
+// composition input identity. Programmatically constructed workspaces return empty values.
+func (workspace *Workspace) DeclarationSource() (file, sha256 string) {
+	return workspace.declarationPath, workspace.declarationSHA256
 }
 
 // Dir is the directory of the
