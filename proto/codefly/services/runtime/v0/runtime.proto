@@ -141,6 +141,16 @@ message InitRequest {
   // from isolated or agent-adjusted allocations.
   repeated codefly.base.v0.NetworkMapping dependencies_network_mappings = 9;
 
+  // runtime_image is the image reference built by the CLI from the agent's
+  // recipe for a local run requiring a container runtime: a name with an
+  // explicit non-latest tag or a sha256 digest. Empty means no supplied image;
+  // deployed paths leave it empty and retain the agent's existing resolution.
+  // An adopting agent may use it when the manifest names no runtime image,
+  // preserving refusal of malformed references, implicit or explicit latest,
+  // and non-sha256 digests. Core transports the value without image policy.
+  // Hosts relying on this handoff require runtime-init-image/v1 from the agent.
+  string runtime_image = 10;
+
 }
 
 

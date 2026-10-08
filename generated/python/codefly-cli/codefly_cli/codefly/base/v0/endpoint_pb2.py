@@ -26,7 +26,7 @@ from buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
 from codefly.base.v0 import readiness_pb2 as codefly_dot_base_dot_v0_dot_readiness__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x63odefly/base/v0/endpoint.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\x1a\x1f\x63odefly/base/v0/readiness.proto\"\xcb\x05\n\x08\x45ndpoint\x12)\n\x04name\x18\x01 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x14\x32\x08^[a-z]+$h\x01R\x04name\x12\x38\n\x07service\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x19\x32\x0c^[a-z0-9-]+$h\x01\xba\x01\x02--R\x07service\x12\x36\n\x06module\x18\x03 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x19\x32\x0c^[a-z0-9-]+$h\x01\xba\x01\x02--R\x06module\x12 \n\x0b\x64\x65scription\x18\x04 \x01(\tR\x0b\x64\x65scription\x12@\n\nvisibility\x18\x05 \x01(\tB \xbaH\x1dr\x1bR\x06publicR\x07privateR\x08internalR\nvisibility\x12\x37\n\x03\x61pi\x18\x06 \x01(\tB%\xbaH\"r R\x04httpR\x04grpcR\x03tcpR\x04restR\x07\x63onnectR\x03\x61pi\x12\x35\n\x0b\x61pi_details\x18\x07 \x01(\x0b\x32\x14.codefly.base.v0.APIR\napiDetails\x12-\n\x08location\x18\x08 \x01(\tB\x11\xbaH\x0er\x0cR\x00R\x08\x65xternalR\x08location\x12G\n\rallow_modules\x18\t \x03(\tB\"\xbaH\x1f\x92\x01\x1c\"\x1ar\x18\x32\x11^(\\*|[a-z0-9-]+)$\xba\x01\x02--R\x0c\x61llowModules\x12/\n\x06health\x18\n \x01(\x0b\x32\x17.codefly.base.v0.HealthR\x06health:\xa4\x01\xbaH\xa0\x01\x1a\x9d\x01\n$endpoint.allow_modules.internal_only\x12\x34\x61llow_modules is only read for visibility \"internal\"\x1a?this.visibility == \'internal\' || this.allow_modules.size() == 0\"\xcb\x01\n\x03\x41PI\x12+\n\x03tcp\x18\x01 \x01(\x0b\x32\x17.codefly.base.v0.TcpAPIH\x00R\x03tcp\x12.\n\x04http\x18\x02 \x01(\x0b\x32\x18.codefly.base.v0.HttpAPIH\x00R\x04http\x12.\n\x04rest\x18\x03 \x01(\x0b\x32\x18.codefly.base.v0.RestAPIH\x00R\x04rest\x12.\n\x04grpc\x18\x04 \x01(\x0b\x32\x18.codefly.base.v0.GrpcAPIH\x00R\x04grpcB\x07\n\x05value\"X\n\x0eRestRouteGroup\x12\x12\n\x04path\x18\x01 \x01(\tR\x04path\x12\x32\n\x06routes\x18\x02 \x03(\x0b\x32\x1a.codefly.base.v0.RestRouteR\x06routes\"T\n\tRestRoute\x12\x12\n\x04path\x18\x01 \x01(\tR\x04path\x12\x33\n\x06method\x18\x02 \x01(\x0e\x32\x1b.codefly.base.v0.HTTPMethodR\x06method\"\xa8\x01\n\x07RestAPI\x12\x18\n\x07service\x18\x01 \x01(\tR\x07service\x12\x16\n\x06module\x18\x02 \x01(\tR\x06module\x12\x37\n\x06groups\x18\x03 \x03(\x0b\x32\x1f.codefly.base.v0.RestRouteGroupR\x06groups\x12\x18\n\x07openapi\x18\x04 \x01(\x0cR\x07openapi\x12\x18\n\x07secured\x18\x05 \x01(\x08R\x07secured\"<\n\x03RPC\x12!\n\x0cservice_name\x18\x01 \x01(\tR\x0bserviceName\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\"\xaf\x01\n\x07GrpcAPI\x12\x18\n\x07service\x18\x01 \x01(\tR\x07service\x12\x16\n\x06module\x18\x02 \x01(\tR\x06module\x12\x18\n\x07package\x18\x03 \x01(\tR\x07package\x12(\n\x04rpcs\x18\x04 \x03(\x0b\x32\x14.codefly.base.v0.RPCR\x04rpcs\x12\x14\n\x05proto\x18\x05 \x01(\x0cR\x05proto\x12\x18\n\x07secured\x18\x06 \x01(\x08R\x07secured\"#\n\x07HttpAPI\x12\x18\n\x07secured\x18\x01 \x01(\x08R\x07secured\"\x08\n\x06TcpAPI*n\n\nHTTPMethod\x12\x07\n\x03GET\x10\x00\x12\x08\n\x04POST\x10\x01\x12\x07\n\x03PUT\x10\x02\x12\n\n\x06\x44\x45LETE\x10\x03\x12\t\n\x05PATCH\x10\x04\x12\x0b\n\x07OPTIONS\x10\x05\x12\x08\n\x04HEAD\x10\x06\x12\x0b\n\x07\x43ONNECT\x10\x07\x12\t\n\x05TRACE\x10\x08\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x63odefly/base/v0/endpoint.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\x1a\x1f\x63odefly/base/v0/readiness.proto\"\xa3\x04\n\x08\x45ndpoint\x12)\n\x04name\x18\x01 \x01(\tB\x15\xbaH\x12r\x10\x10\x03\x18\x14\x32\x08^[a-z]+$h\x01R\x04name\x12\x38\n\x07service\x18\x02 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x19\x32\x0c^[a-z0-9-]+$h\x01\xba\x01\x02--R\x07service\x12\x36\n\x06module\x18\x03 \x01(\tB\x1e\xbaH\x1br\x19\x10\x03\x18\x19\x32\x0c^[a-z0-9-]+$h\x01\xba\x01\x02--R\x06module\x12 \n\x0b\x64\x65scription\x18\x04 \x01(\tR\x0b\x64\x65scription\x12@\n\nvisibility\x18\x05 \x01(\tB \xbaH\x1dr\x1bR\x06publicR\x07privateR\x08internalR\nvisibility\x12\x37\n\x03\x61pi\x18\x06 \x01(\tB%\xbaH\"r R\x04httpR\x04grpcR\x03tcpR\x04restR\x07\x63onnectR\x03\x61pi\x12\x35\n\x0b\x61pi_details\x18\x07 \x01(\x0b\x32\x14.codefly.base.v0.APIR\napiDetails\x12-\n\x08location\x18\x08 \x01(\tB\x11\xbaH\x0er\x0cR\x00R\x08\x65xternalR\x08location\x12/\n\x06health\x18\n \x01(\x0b\x32\x17.codefly.base.v0.HealthR\x06health\x12\x31\n\x08\x65xposure\x18\x0b \x01(\tB\x15\xbaH\x12r\x10R\x00R\x04noneR\x06publicR\x08\x65xposureJ\x04\x08\t\x10\nR\rallow_modules\"\xcb\x01\n\x03\x41PI\x12+\n\x03tcp\x18\x01 \x01(\x0b\x32\x17.codefly.base.v0.TcpAPIH\x00R\x03tcp\x12.\n\x04http\x18\x02 \x01(\x0b\x32\x18.codefly.base.v0.HttpAPIH\x00R\x04http\x12.\n\x04rest\x18\x03 \x01(\x0b\x32\x18.codefly.base.v0.RestAPIH\x00R\x04rest\x12.\n\x04grpc\x18\x04 \x01(\x0b\x32\x18.codefly.base.v0.GrpcAPIH\x00R\x04grpcB\x07\n\x05value\"X\n\x0eRestRouteGroup\x12\x12\n\x04path\x18\x01 \x01(\tR\x04path\x12\x32\n\x06routes\x18\x02 \x03(\x0b\x32\x1a.codefly.base.v0.RestRouteR\x06routes\"T\n\tRestRoute\x12\x12\n\x04path\x18\x01 \x01(\tR\x04path\x12\x33\n\x06method\x18\x02 \x01(\x0e\x32\x1b.codefly.base.v0.HTTPMethodR\x06method\"\xa8\x01\n\x07RestAPI\x12\x18\n\x07service\x18\x01 \x01(\tR\x07service\x12\x16\n\x06module\x18\x02 \x01(\tR\x06module\x12\x37\n\x06groups\x18\x03 \x03(\x0b\x32\x1f.codefly.base.v0.RestRouteGroupR\x06groups\x12\x18\n\x07openapi\x18\x04 \x01(\x0cR\x07openapi\x12\x18\n\x07secured\x18\x05 \x01(\x08R\x07secured\"<\n\x03RPC\x12!\n\x0cservice_name\x18\x01 \x01(\tR\x0bserviceName\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\"\xaf\x01\n\x07GrpcAPI\x12\x18\n\x07service\x18\x01 \x01(\tR\x07service\x12\x16\n\x06module\x18\x02 \x01(\tR\x06module\x12\x18\n\x07package\x18\x03 \x01(\tR\x07package\x12(\n\x04rpcs\x18\x04 \x03(\x0b\x32\x14.codefly.base.v0.RPCR\x04rpcs\x12\x14\n\x05proto\x18\x05 \x01(\x0cR\x05proto\x12\x18\n\x07secured\x18\x06 \x01(\x08R\x07secured\"#\n\x07HttpAPI\x12\x18\n\x07secured\x18\x01 \x01(\x08R\x07secured\"\x08\n\x06TcpAPI*n\n\nHTTPMethod\x12\x07\n\x03GET\x10\x00\x12\x08\n\x04POST\x10\x01\x12\x07\n\x03PUT\x10\x02\x12\n\n\x06\x44\x45LETE\x10\x03\x12\t\n\x05PATCH\x10\x04\x12\x0b\n\x07OPTIONS\x10\x05\x12\x08\n\x04HEAD\x10\x06\x12\x0b\n\x07\x43ONNECT\x10\x07\x12\t\n\x05TRACE\x10\x08\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -45,28 +45,26 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_ENDPOINT'].fields_by_name['api']._serialized_options = b'\272H\"r R\004httpR\004grpcR\003tcpR\004restR\007connect'
   _globals['_ENDPOINT'].fields_by_name['location']._loaded_options = None
   _globals['_ENDPOINT'].fields_by_name['location']._serialized_options = b'\272H\016r\014R\000R\010external'
-  _globals['_ENDPOINT'].fields_by_name['allow_modules']._loaded_options = None
-  _globals['_ENDPOINT'].fields_by_name['allow_modules']._serialized_options = b'\272H\037\222\001\034\"\032r\0302\021^(\\*|[a-z0-9-]+)$\272\001\002--'
-  _globals['_ENDPOINT']._loaded_options = None
-  _globals['_ENDPOINT']._serialized_options = b'\272H\240\001\032\235\001\n$endpoint.allow_modules.internal_only\0224allow_modules is only read for visibility \"internal\"\032?this.visibility == \'internal\' || this.allow_modules.size() == 0'
-  _globals['_HTTPMETHOD']._serialized_start=1671
-  _globals['_HTTPMETHOD']._serialized_end=1781
+  _globals['_ENDPOINT'].fields_by_name['exposure']._loaded_options = None
+  _globals['_ENDPOINT'].fields_by_name['exposure']._serialized_options = b'\272H\022r\020R\000R\004noneR\006public'
+  _globals['_HTTPMETHOD']._serialized_start=1503
+  _globals['_HTTPMETHOD']._serialized_end=1613
   _globals['_ENDPOINT']._serialized_start=114
-  _globals['_ENDPOINT']._serialized_end=829
-  _globals['_API']._serialized_start=832
-  _globals['_API']._serialized_end=1035
-  _globals['_RESTROUTEGROUP']._serialized_start=1037
-  _globals['_RESTROUTEGROUP']._serialized_end=1125
-  _globals['_RESTROUTE']._serialized_start=1127
-  _globals['_RESTROUTE']._serialized_end=1211
-  _globals['_RESTAPI']._serialized_start=1214
-  _globals['_RESTAPI']._serialized_end=1382
-  _globals['_RPC']._serialized_start=1384
-  _globals['_RPC']._serialized_end=1444
-  _globals['_GRPCAPI']._serialized_start=1447
-  _globals['_GRPCAPI']._serialized_end=1622
-  _globals['_HTTPAPI']._serialized_start=1624
-  _globals['_HTTPAPI']._serialized_end=1659
-  _globals['_TCPAPI']._serialized_start=1661
-  _globals['_TCPAPI']._serialized_end=1669
+  _globals['_ENDPOINT']._serialized_end=661
+  _globals['_API']._serialized_start=664
+  _globals['_API']._serialized_end=867
+  _globals['_RESTROUTEGROUP']._serialized_start=869
+  _globals['_RESTROUTEGROUP']._serialized_end=957
+  _globals['_RESTROUTE']._serialized_start=959
+  _globals['_RESTROUTE']._serialized_end=1043
+  _globals['_RESTAPI']._serialized_start=1046
+  _globals['_RESTAPI']._serialized_end=1214
+  _globals['_RPC']._serialized_start=1216
+  _globals['_RPC']._serialized_end=1276
+  _globals['_GRPCAPI']._serialized_start=1279
+  _globals['_GRPCAPI']._serialized_end=1454
+  _globals['_HTTPAPI']._serialized_start=1456
+  _globals['_HTTPAPI']._serialized_end=1491
+  _globals['_TCPAPI']._serialized_start=1493
+  _globals['_TCPAPI']._serialized_end=1501
 # @@protoc_insertion_point(module_scope)

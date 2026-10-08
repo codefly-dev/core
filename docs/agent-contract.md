@@ -100,6 +100,45 @@ capability. Advertising support never bypasses the ownership check.
 
 ## Evolution and releases
 
+### Local runtime image handoff
+
+`InitRequest.runtime_image` (field 10) carries one container image reference,
+supplied by the CLI after it builds the agent's recipe for a local run needing
+a container runtime. The reference is a name with an explicit non-`latest` tag
+or a `sha256` digest. It is invocation data, not image bytes, a recipe, registry
+credentials or a deployed artifact selection. A scalar string is sufficient;
+omitted and empty both mean no supplied image. The agent emits the recipe and
+the CLI executes buildx; Init does not acquire a build responsibility.
+
+An adopting agent may use the supplied image when the local manifest names
+none. A nonempty manifest image retains precedence and must validate; a valid
+request must not hide an invalid manifest. Image validation remains the agent's
+responsibility: refuse malformed references, implicit `latest` (a name with
+neither tag nor digest), explicit `latest` even beside a digest, and any
+non-`sha256` digest. If neither source supplies an image, the existing local
+missing-image refusal remains. Core transports the value without parsing or selecting
+images. Every deployed path leaves this field empty and retains the agent's
+existing image resolution; absence is not permission to guess or build an image.
+
+`runtime-init-image/v1` names this optional behavior. The CLI requires it on
+the live `AgentContract` through the existing capability check when relying on
+the handoff. An agent advertises it only after implementing selection and
+refusals; linking generated bindings or Core's shared server does not advertise
+adoption. The release manifest records the operation contract while wire
+protocol 1, startup protocol 2 and shared server capabilities remain unchanged.
+
+The proposal was opened first in
+[handbook#260](https://github.com/obin-ai/handbook/pull/260).
+This is the Core transport for
+[core#748](https://github.com/codefly-dev/core/issues/748), not a completed local
+run: the build-to-Init producer is
+[cli#932](https://github.com/codefly-dev/cli/issues/932), and consumer selection
+and refusal tests belong to
+[service-libreoffice#63](https://github.com/obin-ai/service-libreoffice/issues/63).
+Those implementations and a combined boot must qualify the downstream rollout.
+
+### Compatibility reporting
+
 - Incompatible lifecycle semantics increment `protocol_version`. Both peers
   must explicitly adopt that generation; there is no implicit downgrade.
 - Additive optional behavior gets a stable, versioned capability identifier.

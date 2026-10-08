@@ -48,7 +48,10 @@ func TestContainerOwnershipGuardsReuseReplacementAndShutdown(t *testing.T) {
 			first, err := NewDockerHeadlessEnvironment(ctx, resources.NewDockerImage("alpine:latest"), name)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = first.Shutdown(context.Background()) })
-			command := []string{"sh", "-c", "echo retained > /retained; exec sleep 300"}
+			// Publish only the completed fixture: shell redirection creates an
+			// empty file before echo writes it, so existence alone otherwise
+			// lets the ownership assertion race the writer and read no content.
+			command := []string{"sh", "-c", "echo retained > /retained.tmp && mv /retained.tmp /retained && exec sleep 300"}
 			first.WithCommand(command...)
 			require.NoError(t, first.Init(ctx))
 			originalID := first.instance.ID
