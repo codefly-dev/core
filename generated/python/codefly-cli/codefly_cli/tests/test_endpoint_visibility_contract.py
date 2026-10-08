@@ -91,25 +91,20 @@ class EndpointVisibilityContractTest(unittest.TestCase):
     def test_endpoint_location_is_exactly_external_or_none(self):
         self.assertEqual(["", "external"], _string_in(endpoint_pb2.Endpoint, "location"))
 
-    def test_endpoint_allow_modules_is_only_read_for_internal(self):
-        self.assertEqual(
-            ["this.visibility == 'internal' || this.allow_modules.size() == 0"],
-            _cel_expressions(endpoint_pb2.Endpoint),
-        )
+    def test_endpoint_exposure_is_independent_of_visibility(self):
+        self.assertEqual(["", "none", "public"], _string_in(endpoint_pb2.Endpoint, "exposure"))
+        self.assertNotIn("allow_modules", endpoint_pb2.Endpoint.DESCRIPTOR.fields_by_name)
+        entry = endpoint_pb2.Endpoint(visibility="internal", exposure="public")
+        restored = endpoint_pb2.Endpoint.FromString(entry.SerializeToString())
+        self.assertEqual("internal", restored.visibility)
+        self.assertEqual("public", restored.exposure)
 
-    def test_interface_endpoint_exports_public_or_internal_and_names_its_modules(self):
+    def test_interface_export_names_no_consumers(self):
         self.assertEqual(["public", "internal"], _string_in(module_pb2.InterfaceEndpoint, "visibility"))
-        self.assertEqual(
-            ["this.visibility == 'internal' ? this.allow_modules.size() > 0 : this.allow_modules.size() == 0"],
-            _cel_expressions(module_pb2.InterfaceEndpoint),
-        )
-        allow_modules = module_pb2.InterfaceEndpoint.DESCRIPTOR.fields_by_name["allow_modules"]
-        self.assertEqual(4, allow_modules.number)
-        self.assertTrue(allow_modules.is_repeated)
-        entry = module_pb2.InterfaceEndpoint(
-            service="accounts", endpoint="grpc", visibility="internal", allow_modules=["payments"]
-        )
-        self.assertEqual(["payments"], list(module_pb2.InterfaceEndpoint.FromString(entry.SerializeToString()).allow_modules))
+        self.assertNotIn("allow_modules", module_pb2.InterfaceEndpoint.DESCRIPTOR.fields_by_name)
+        entry = module_pb2.InterfaceEndpoint(service="accounts", endpoint="grpc", visibility="internal")
+        restored = module_pb2.InterfaceEndpoint.FromString(entry.SerializeToString())
+        self.assertEqual("internal", restored.visibility)
 
 
 if __name__ == "__main__":
