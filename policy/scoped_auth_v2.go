@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"crypto"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
@@ -71,6 +72,31 @@ const scopedAuthFormatV2 = "v2-ed25519"
 // Caller stores priv on the gateway and distributes pub to
 // plugins (env var, JWKS endpoint, or static config).
 func MintEd25519(input MintInput, privateKey ed25519.PrivateKey) (string, *ScopedAuthorization, error) {
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return "", nil, fmt.Errorf("%w: ed25519 private key must be %d bytes (got %d)", ErrScopedAuthInvalid, ed25519.PrivateKeySize, len(privateKey))
+	}
+	return MintEd25519WithSigner(input, privateKey)
+}
+
+// MintEd25519WithSigner is MintEd25519 with the signing capability injected
+// rather than the key material passed in.
+//
+// It exists because taking an ed25519.PrivateKey is an assumption about
+// custody, not about the token: a host whose signing key lives in a cloud
+// key-management service that never exports it can reach the key only through
+// that service, and so cannot call MintEd25519 at all. Injecting the signer
+// changes nothing a verifier sees — same envelope, same Ed25519 signature over
+// it — and moves only who holds the key.
+//
+// signer.Public() must be an Ed25519 key, because that is what the v2 format
+// declares and what every verifier checks.
+func MintEd25519WithSigner(input MintInput, signer crypto.Signer) (string, *ScopedAuthorization, error) {
+	if signer == nil {
+		return "", nil, fmt.Errorf("%w: nil signer", ErrScopedAuthInvalid)
+	}
+	if _, ok := signer.Public().(ed25519.PublicKey); !ok {
+		return "", nil, fmt.Errorf("%w: the signer's public key is not an ed25519 key", ErrScopedAuthInvalid)
+	}
 	if input.Principal == nil {
 		return "", nil, fmt.Errorf("%w: nil principal", ErrScopedAuthInvalid)
 	}
@@ -83,10 +109,6 @@ func MintEd25519(input MintInput, privateKey ed25519.PrivateKey) (string, *Scope
 	if input.TTL <= 0 {
 		return "", nil, fmt.Errorf("%w: TTL must be > 0", ErrScopedAuthInvalid)
 	}
-	if len(privateKey) != ed25519.PrivateKeySize {
-		return "", nil, fmt.Errorf("%w: ed25519 private key must be %d bytes (got %d)", ErrScopedAuthInvalid, ed25519.PrivateKeySize, len(privateKey))
-	}
-
 	now := time.Now
 	if input.NowFunc != nil {
 		now = input.NowFunc
@@ -126,7 +148,16 @@ func MintEd25519(input MintInput, privateKey ed25519.PrivateKey) (string, *Scope
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: marshal: %v", ErrScopedAuthInvalid, err)
 	}
-	signature := ed25519.Sign(privateKey, envelope)
+	// opts is crypto.Hash(0): Ed25519 signs the envelope itself, never a digest,
+	// and a signer handed a hash would produce something no verifier accepts.
+	signature, err := signer.Sign(nil, envelope, crypto.Hash(0))
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: sign: %v", ErrScopedAuthInvalid, err)
+	}
+	if len(signature) != ed25519.SignatureSize {
+		return "", nil, fmt.Errorf("%w: the signer returned a %d-byte signature, want %d",
+			ErrScopedAuthInvalid, len(signature), ed25519.SignatureSize)
+	}
 	encoded := base64.RawURLEncoding.EncodeToString(envelope) + "." +
 		base64.RawURLEncoding.EncodeToString(signature)
 	return encoded, sa, nil
