@@ -36,6 +36,10 @@ type workflowStep struct {
 	If   string            `yaml:"if"`
 	Env  map[string]string `yaml:"env"`
 	With map[string]any    `yaml:"with"`
+	// Run is the step's script. It is the one field whose CONTENT is a
+	// program, so an expression interpolated into it is not a value the
+	// program reads but a line of the program itself.
+	Run string `yaml:"run"`
 }
 
 type workflowJob struct {

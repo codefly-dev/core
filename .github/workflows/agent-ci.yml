@@ -39,6 +39,8 @@ jobs:
         # that repository's own workflow -- but a `run:` assembled by
         # substitution is a program assembled by its caller, and this job runs
         # the caller's tree.
+        # internal/ciguard/run_interpolation_test.go holds the splice; the
+        # semver check below is this file's own and nothing else asserts it.
         env:
           CLI_VERSION: ${{ inputs.codefly-cli-version }}
         run: |
