@@ -84,7 +84,12 @@ func NormalizeOrigin(raw string) (Origin, error) {
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return Origin{}, fmt.Errorf("origin is not a valid URL: %w", err)
+		// Never the parser's error: url.Error carries the whole raw string, and
+		// its inner message carries a fragment of it -- an unescaped slash or #
+		// in a password ends the authority early, so the password is read as a
+		// port and named. The userinfo refusal below cannot cover this: a value
+		// that does not parse never reaches it.
+		return Origin{}, fmt.Errorf("origin is not a valid URL; want an http:// or https:// origin with a host and no userinfo, path, query, or fragment")
 	}
 	if parsed.Opaque != "" {
 		return Origin{}, fmt.Errorf("origin must not be opaque")

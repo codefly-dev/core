@@ -117,11 +117,9 @@ func validateEndpointURL(raw string) error {
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
-			err = urlErr.Err
-		}
-		return fmt.Errorf("wool/otel: endpoint URL is not a valid URL: %w", err)
+		// Even the parser's underlying error can contain credentials: an
+		// unescaped slash or # in a password makes it look like an invalid port.
+		return errors.New("wool/otel: endpoint URL is not a valid URL; want an http:// or https:// collector URL with an explicit host and port")
 	}
 	switch u.Scheme {
 	case "http", "https":

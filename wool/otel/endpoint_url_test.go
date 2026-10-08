@@ -381,6 +381,31 @@ func TestWithEndpointURL_Refusals(t *testing.T) {
 	})
 }
 
+func TestWithEndpointURL_ParseErrorDoesNotExposeCredentials(t *testing.T) {
+	for _, tc := range []struct{ name, separator string }{
+		{"slash in password", "/"},
+		{"fragment in password", "#"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			previousTracerProvider := otel.GetTracerProvider()
+			previousTelemetry := wool.GetTelemetry()
+			previousPropagator := otel.GetTextMapPropagator()
+
+			// An unescaped separator ends the authority before the @. The URL
+			// parser reads the password as a port and includes it in its error.
+			provider, err := wooltel.Enable(wooltel.WithEndpointURL(
+				"https://user:hunter2" + tc.separator + "abc@collector.example.com:4317"))
+			require.Error(t, err)
+			require.Nil(t, provider)
+			require.ErrorContains(t, err, "not a valid URL")
+			require.NotContains(t, err.Error(), "hunter2")
+			require.Same(t, previousTracerProvider, otel.GetTracerProvider())
+			require.Equal(t, previousTelemetry, wool.GetTelemetry())
+			require.Equal(t, previousPropagator, otel.GetTextMapPropagator())
+		})
+	}
+}
+
 // TestWithEndpointURL_SchemeVersusEnvironmentCertificate covers the one input
 // that overrules a URL's scheme inside the exporter.
 //

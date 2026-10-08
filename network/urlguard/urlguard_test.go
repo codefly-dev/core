@@ -212,3 +212,21 @@ func mustPort(t *testing.T, s string) uint32 {
 	}
 	return n
 }
+
+func TestNormalizeOrigin_ParseErrorDoesNotExposeCredentials(t *testing.T) {
+	for _, tc := range []struct{ name, separator string }{
+		{"slash in password", "/"},
+		{"fragment in password", "#"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// An unescaped separator ends the authority before the @, so the
+			// parser reads the password as a port and names it in its error.
+			// The userinfo refusal further down is never reached for a value
+			// that does not parse, so this branch is the only guard there is.
+			_, err := urlguard.NormalizeOrigin("https://user:hunter2" + tc.separator + "abc@api.example.com")
+			require.Error(t, err)
+			require.ErrorContains(t, err, "not a valid URL")
+			require.NotContains(t, err.Error(), "hunter2")
+		})
+	}
+}
