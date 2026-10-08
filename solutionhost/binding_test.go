@@ -317,6 +317,60 @@ func TestOnlyOneSchemaStringIsReadAndEveryOtherIsVersionSkew(t *testing.T) {
 	}
 }
 
+// The accepted family version is not monotonic: Core v0.15.0 put the presence
+// and authority documents at one family version, which moved the presence
+// document's accepted value from v2 DOWN to v1 while the document moved
+// forward. Beside a v2 document, "this Core reads v1" names a LOWER version
+// than the document declares and reads as an instruction to downgrade Core —
+// the one action that cannot work, because the generations differ in their
+// fields and not only in their version. A retired value is reported as the
+// older generation it is, and says what fixes it.
+func TestARetiredSchemaIsRefusedAsOlderAndNotAsAReasonToDowngradeCore(t *testing.T) {
+	for schema, generation := range map[string]string{
+		"codefly/solution-host-binding/v2": "v0.1.180",
+		"codefly/solution-host-binding/v3": "reached no release",
+	} {
+		document := valid(t)
+		document.Schema = schema
+		err := document.Validate()
+		require.ErrorIsf(t, err, solutionhost.ErrSchema, "schema %q", schema)
+		require.NotErrorIsf(t, err, solutionhost.ErrInvalid, "schema %q is skew, not malformed", schema)
+		require.Containsf(t, err.Error(), generation, "schema %q names the generation that wrote it", schema)
+		require.Containsf(t, err.Error(), "re-render", "schema %q says a re-render is the fix", schema)
+		require.Containsf(t, err.Error(), "LATER", "schema %q says which of the two documents is later", schema)
+	}
+}
+
+// An unfamiliar string is skew and nothing more. This package cannot say what
+// it was meant to be, so it must not invent a provenance for it: naming a
+// generation a document does not come from would send its author to re-render
+// against a history that never happened.
+func TestAnUnknownSchemaIsRefusedWithoutInventingAGeneration(t *testing.T) {
+	document := valid(t)
+	document.Schema = "codefly/solution-host-binding/v4"
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrSchema)
+	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV1)
+	require.NotContains(t, err.Error(), "re-render")
+	require.NotContains(t, err.Error(), "was written by")
+}
+
+// A retired PRESENCE string handed to the authority reader is the wrong
+// document TYPE, not an old generation of the right one. Reporting it as a
+// generation would send its author to re-render a document they did not write,
+// and would blur the one distinction the schema string exists to hold: the
+// string is inside the signed canonical encoding, so it is what binds a
+// signature to the document type.
+func TestARetiredStringOfAnotherFamilyIsRefusedAsTheWrongDocumentType(t *testing.T) {
+	document := validAuthority(t)
+	document.Schema = "codefly/solution-host-binding/v2"
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrSchema)
+	require.Contains(t, err.Error(), solutionhost.SchemaAuthorityV1)
+	require.NotContains(t, err.Error(), "re-render")
+	require.NotContains(t, err.Error(), "was written by")
+}
+
 func TestUnknownFieldIsRejectedSoANewFieldIsAVersionStep(t *testing.T) {
 	_, err := solutionhost.Parse(append(presence(t, "valid"), []byte("\npublic_key: whatever\n")...))
 	require.Error(t, err)

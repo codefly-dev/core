@@ -207,9 +207,12 @@ func TestEveryTableRuleHoldsExactlyOneCondition(t *testing.T) {
 
 // TestEveryNewRefusalIsReachedByAFixture holds the refusals this change added
 // to the SOURCE rather than to a list: every refusal in buildsize.go, and
-// every refusal in the decoder (decodeStrict), must be the refusal some
-// rejected presence fixture actually receives. A condition added without a
-// counterexample fails here at its own line.
+// every refusal in the decoder (decodeStrict) and in the schema refusal it
+// defers to (schemaRefusal), must be the refusal some rejected presence
+// fixture actually receives. A condition added without a counterexample fails
+// here at its own line. schemaRefusal is named because moving a refusal out of
+// decodeStrict into a helper would otherwise carry it out of this guard's
+// reach, leaving the test green over a refusal no fixture reaches.
 func TestEveryNewRefusalIsReachedByAFixture(t *testing.T) {
 	sites, err := conditions.Sites(".", "ErrInvalid", "ErrSchema")
 	if err != nil {
@@ -226,7 +229,7 @@ func TestEveryNewRefusalIsReachedByAFixture(t *testing.T) {
 		": trailing input after the document:": "a decoder error after the first document that is not a second document; two-documents reaches the sibling condition, and yaml.v3 yields no other error there for well-formed input",
 	}
 	for _, site := range sites {
-		if site.File != "buildsize.go" && site.Func != "decodeStrict" {
+		if site.File != "buildsize.go" && site.Func != "decodeStrict" && site.Func != "schemaRefusal" {
 			continue
 		}
 		if site.Literal == "" {

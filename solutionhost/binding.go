@@ -151,7 +151,9 @@ var (
 	// ErrSchema means a document does not declare a schema this package reads.
 	// A consumer branches on it to say "upgrade Core" rather than "invalid
 	// document": an unknown schema is a version skew, not a malformed record.
-	// A v1 presence document reaches a consumer as this error.
+	// A v2 presence document — every generation from Core v0.9.0 through
+	// v0.14.0 — reaches a consumer as this error. v1 is what this Core reads,
+	// not what it refuses: retiredSchemas says why that is not a downgrade.
 	ErrSchema = errors.New("solution host document schema is not supported")
 
 	// ErrInvalid means a document violates its schema's own rules.
@@ -487,6 +489,55 @@ func parse(data []byte, without string) (*SolutionHostBinding, error) {
 	return document, nil
 }
 
+// retiredSchemas are document schema values this package once read and no
+// longer does, mapped to the generation that wrote them. A document carrying
+// one is OLDER than this reader.
+//
+// They have to be named because the accepted family version is not monotonic.
+// Core v0.15.0 put the presence and authority documents at one family version,
+// which moved the presence document's accepted value from v2 DOWN to v1 while
+// the document itself moved forward. A bare "this Core reads v1" beside a v2
+// document therefore reads as an instruction to downgrade Core — the one
+// action that cannot work, because the two generations differ in their fields
+// and not only in their version.
+//
+// A retired value names the generation and not a Core version range alone,
+// because what has to change is the renderer: the document is re-rendered by a
+// current CLI, never repaired in place.
+var retiredSchemas = map[string]string{
+	"codefly/solution-host-binding/v2": "Core v0.9.0 through v0.14.0, which the Codefly CLI shipped up to v0.1.180",
+	"codefly/solution-host-binding/v3": "a build of Core main on 2026-10-07, after the presence document gained exposure and before the three documents were aligned at one family version; it reached no release",
+}
+
+// schemaRefusal is the one refusal for a document whose declared schema is not
+// the one this reader reads. A retired value of the SAME family is reported as
+// the older generation it is; anything else is reported as the skew it is,
+// naming only what this Core reads, because this package cannot say what an
+// unfamiliar string was meant to be.
+//
+// The family has to match. A retired presence string handed to the authority
+// reader is the wrong document TYPE, not an old generation of the right one,
+// and telling its author to re-render would send them to fix the version of a
+// document they did not write.
+func schemaRefusal(declared, accepted string) error {
+	if generation, ok := retiredSchemas[declared]; ok && schemaFamily(declared) == schemaFamily(accepted) {
+		return fmt.Errorf("%w: %q was written by %s. This Core reads %q, which is the LATER document despite the lower family version: re-render it with a current Codefly CLI. Downgrading Core does not read it either, because the fields differ",
+			ErrSchema, declared, generation, accepted)
+	}
+	return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, declared, accepted)
+}
+
+// schemaFamily is a schema string without its trailing family version, which is
+// what makes two strings versions of the same document rather than two
+// different documents. A string carrying no version is its own family, so it
+// matches nothing and falls to the plain refusal.
+func schemaFamily(schema string) string {
+	if cut := strings.LastIndex(schema, "/"); cut >= 0 {
+		return schema[:cut]
+	}
+	return schema
+}
+
 // decodeStrict decodes exactly one YAML document into T, refusing unknown
 // fields and trailing documents. Both document types decode through it so
 // neither can grow a laxer reading of the same bytes than the other.
@@ -518,7 +569,7 @@ func decodeStrict[T any](data []byte, label, schema, without string, nodes func(
 		return nil, fmt.Errorf("%w: decode %s: not a YAML document: %v", ErrInvalid, label, err)
 	}
 	if header.Schema != schema && without != ruleSchema {
-		return nil, fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, header.Schema, schema)
+		return nil, schemaRefusal(header.Schema, schema)
 	}
 	var tree yaml.Node
 	if err := yaml.Unmarshal(data, &tree); err != nil {
@@ -617,7 +668,7 @@ func (document *SolutionHostBinding) validate(without string) error {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
 	if document.Schema != SchemaPresenceV1 && without != ruleSchema {
-		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaPresenceV1)
+		return schemaRefusal(document.Schema, SchemaPresenceV1)
 	}
 	if !slices.Contains(kinds, document.Kind) {
 		return fmt.Errorf("%w: kind %q is not one of %v", ErrInvalid, document.Kind, kinds)

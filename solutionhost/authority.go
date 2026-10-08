@@ -385,7 +385,7 @@ func (document *AuthorityDocument) validate(without string) error {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
 	if document.Schema != SchemaAuthorityV1 && without != ruleSchema {
-		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaAuthorityV1)
+		return schemaRefusal(document.Schema, SchemaAuthorityV1)
 	}
 	if !opaqueIDPattern.MatchString(document.Authority) {
 		return fmt.Errorf("%w: authority ID %q is invalid", ErrInvalid, document.Authority)

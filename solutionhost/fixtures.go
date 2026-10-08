@@ -338,6 +338,15 @@ func Fixtures() []Fixture {
 			Message: `"codefly/solution-authority/v1" (this Core reads`,
 		},
 		{
+			Name: "retired-generation", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleSchema,
+			Reason: "a sound presence document at the retired v2 schema, as the CLI rendered it up to v0.1.180; a reader " +
+				"that accepted it would apply a generation whose endpoints state reach without addressing, and the refusal " +
+				"has to say the document is OLDER — the accepted family version went from v2 down to v1 when the presence " +
+				"and authority documents were aligned, so naming only what this Core reads invites a downgrade",
+			Message: `"codefly/solution-host-binding/v2" was written by Core v0.9.0 through v0.14.0`,
+		},
+		{
 			Name: "build-size", Type: DocumentTypePresence,
 			Outcome: OutcomeAccepted, Decision: DecisionApply,
 			Reason: "the valid document at the next generation, carrying the build's size: lines per language, backend and frontend, " +
