@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -13,36 +14,74 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// A job that receives a credential must match a REGISTERED TEMPLATE exactly, or
-// it is refused.
+// A job that receives a credential is JUDGED, and the registry is friction on
+// top of the judgement rather than a substitute for it.
 //
-// Six review rounds analysed what jobs do: which contexts are a source, which
-// fields are a sink, which commands execute a value, which conditions skip a
-// refusal. Each round closed the routes it named and the next found more --
-// `$GITHUB_OUTPUT`, `$GITHUB_EVENT_PATH`, `toJSON(github)`, `NODE_OPTIONS`,
-// `working-directory`, `git restore --source`, `git archive | tar -x`, a
-// composite step reusing the refusal's name. The list of things a workflow can
-// do is not a list this package can finish, and a guard built from one is
-// always one construction behind.
+// The history matters, because this file has been both things. Six review
+// rounds analysed what jobs do: which contexts are a source, which fields a
+// sink, which commands execute a value, which conditions skip a refusal. Each
+// round closed the routes it named and the next found more -- `$GITHUB_OUTPUT`,
+// `$GITHUB_EVENT_PATH`, `toJSON(github)`, `NODE_OPTIONS`, `working-directory`,
+// `git restore --source`, `git archive | tar -x`, a composite step reusing the
+// refusal's name. The list of things a workflow can do is not a list this
+// package can finish, and a guard built from one is always one construction
+// behind.
 //
-// So nothing is analysed. The question is not "what does this job do" but "is
-// this job one of the shapes this repository runs". The answer is a digest: a
-// template records the job exactly as written, and a job that differs in any
-// respect -- a step added, an input changed, a condition appearing -- does not
-// match and is refused. A new source, sink or verb is then not something to
-// model; it changes the shape, and the shape is pinned.
+// Round six's answer was to stop analysing: pin each permitted job's bytes and
+// accept whatever matches. That removed the enumeration and removed the
+// judgement with it. The decision became "is this (workflow, job) in the
+// allowlist" and "does sha256 of the workflow file equal a constant" -- so the
+// defect the rounds were about became reachable again by editing one 64-char
+// constant, which is the remediation the failure message itself printed. A
+// review of this package planted exactly that: it took the registered
+// `go.yml` · `coverage-badge` job, which carries `contents: write`, let its
+// condition admit `pull_request`, pointed its checkout at the pull request's
+// own branch and ran a script out of that tree. Five tests failed, one digest
+// was re-recorded, and the suite went green with the violation in place.
 //
-// Changing one of these jobs therefore means updating its template and the test
-// that executes it, deliberately, in the same change. That friction is the
-// point: these five jobs are the only ones in this repository that receive a
-// secret or a write token.
+// So the decision is three conjuncts now, and a digest is only the last of
+// them:
+//
+//  1. REGISTERED. The job is one of the shapes this repository knowingly runs
+//     with a credential. A new one is refused until somebody adds a template
+//     and a test, which is what makes this an allowlist.
+//  2. JUDGED. Either the job's condition is PROVABLY FALSE in every hostile
+//     situation its workflow's triggers admit (`provablyUnreachable`, over the
+//     scenarios `hostileScenariosFor` derives), or the job establishes which
+//     tree it executes (`acceptedExecution`). Evaluated, not matched: unknown
+//     is not false, and a construction this package cannot read is a refusal.
+//  3. RECORDED. The job's shape -- the job block plus the workflow-level `on`,
+//     `permissions`, `env` and `defaults` in scope for every step in it --
+//     matches a recorded digest.
+//
+// (3) cannot excuse (2). Re-recording a digest moves a constant; it does not
+// make a condition false or a tree reviewed. That is the property the planted
+// violation above now fails on, with no digest to re-record.
+//
+// What (3) is still FOR: the residue (2) cannot read. `acceptedExecution` reads
+// checkouts, tree-repointing git verbs and an ancestry refusal; it does not
+// read the semantics of a shell script, a third-party action's behaviour, or a
+// field no rule here names. The digest means a change to any of that stops
+// matching until somebody records the new shape. It is a changelog with teeth,
+// not a gate -- `main`'s ruleset requires zero approving reviews, so nothing
+// obliges a human to read the line that changed (see
+// docs/runbooks/branch-protection.md).
+//
+// And it is scoped to what it protects. It used to hash the whole workflow
+// file, so a Dependabot bump of an action pin in an unrelated job refused every
+// registered job in that file and re-recorded two digests -- making "a pin
+// moved" and "a write token entered a job that runs pull request code" the same
+// failure with the same one-line fix. The record now covers the job and
+// everything the job inherits, and nothing else.
 
 // jobTemplate is one permitted shape.
 type jobTemplate struct {
 	workflow, job string
 	// executedBy is the test that runs this job's own script against real
-	// repositories, where it has one. A template whose behaviour nothing
-	// executes is accepted only for a job that runs no script of its own.
+	// repositories. It is REQUIRED for a job whose acceptance rests on a
+	// refusal written in shell: this package reads that the refusal is there
+	// and reads nothing about whether it works, so something has to execute it.
+	// `acceptedExecution` refuses such a job when this field is empty.
 	executedBy string
 	// why records what this job is for, so a reviewer reading a digest change
 	// knows what they are being asked to approve.
@@ -76,34 +115,79 @@ var permittedCredentialJobs = []jobTemplate{
 	},
 }
 
-// canonicalDigest renders a document to canonical YAML and hashes it, so the
+// canonicalDigest renders a value to canonical YAML and hashes it, so the
 // digest depends on content and not on formatting.
-func canonicalDigest(t *testing.T, node yaml.Node) string {
+func canonicalDigest(t *testing.T, value any) string {
 	t.Helper()
 
-	var canonical any
-	require.NoError(t, node.Decode(&canonical))
-	rendered, err := yaml.Marshal(canonical)
+	rendered, err := yaml.Marshal(value)
 	require.NoError(t, err)
 	sum := sha256.Sum256(rendered)
 	return hex.EncodeToString(sum[:])
 }
 
-// canonicalWorkflowDigest hashes the WHOLE workflow document, not the job block.
+// recordedShape is what a registered job's digest covers: the job, and the
+// workflow-level fields that are in scope for every step in it.
 //
-// A job does not run in isolation: `defaults: run: shell:` at workflow level
-// chooses the interpreter for every step in it, and workflow-level `env:` is in
-// scope for all of them. Hashing the job alone left both outside the record, so
-// the interpreter a refusal runs under, and the environment it runs in, could
-// be replaced while the job itself and its digest were untouched.
-func canonicalWorkflowDigest(t *testing.T, path string) string {
+// Those four are in scope and nothing else is. `on` decides which hostile
+// situations the job answers for, so changing it changes the judgement.
+// `permissions` at workflow level is what a job with no block of its own gets.
+// `env` is in scope for every step, so `BASH_ENV` written there redefines what
+// a step's script does. `defaults.run.shell` chooses the interpreter, so
+// `shell: 'true {0}'` turns every refusal in the file into a no-op.
+//
+// A step of a DIFFERENT job -- an action pin a Dependabot bump moved, a cache
+// key, a matrix -- is outside the record, because it is outside what the
+// registered job runs.
+//
+// The field order here is the digest's input order, so it is fixed by the
+// struct rather than by map iteration.
+type recordedShape struct {
+	On          any `yaml:"on"`
+	Permissions any `yaml:"permissions"`
+	Env         any `yaml:"env"`
+	Defaults    any `yaml:"defaults"`
+	Job         any `yaml:"job"`
+}
+
+// workflowScope holds the workflow-level nodes recordedShape needs, read as
+// nodes so an absent key stays distinguishable from an empty one.
+type workflowScope struct {
+	On          yaml.Node `yaml:"on"`
+	Permissions yaml.Node `yaml:"permissions"`
+	Env         yaml.Node `yaml:"env"`
+	Defaults    yaml.Node `yaml:"defaults"`
+}
+
+// decodedOrNil decodes a node, treating an absent key (kind zero) as nil
+// rather than as a decode error.
+func decodedOrNil(t *testing.T, node yaml.Node) any {
+	t.Helper()
+	if node.Kind == 0 {
+		return nil
+	}
+	var out any
+	require.NoError(t, node.Decode(&out))
+	return out
+}
+
+// canonicalJobDigest hashes one job's recorded shape.
+func canonicalJobDigest(t *testing.T, wf isolatedWorkflow, id string) string {
 	t.Helper()
 
-	raw, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var document yaml.Node
-	require.NoError(t, yaml.Unmarshal(raw, &document), path)
-	return canonicalDigest(t, document)
+	raw, ok := wf.raw[id]
+	require.True(t, ok, "%s has no job %q to record", wf.name, id)
+
+	var scope workflowScope
+	require.NoError(t, wf.document.Decode(&scope), wf.name)
+
+	return canonicalDigest(t, recordedShape{
+		On:          decodedOrNil(t, scope.On),
+		Permissions: decodedOrNil(t, scope.Permissions),
+		Env:         decodedOrNil(t, scope.Env),
+		Defaults:    decodedOrNil(t, scope.Defaults),
+		Job:         decodedOrNil(t, raw),
+	})
 }
 
 // canonicalFileDigest hashes a file that is not YAML -- a script a registered
@@ -128,65 +212,391 @@ func templateFor(workflow, job string) (jobTemplate, bool) {
 	return jobTemplate{}, false
 }
 
-// credentialJobIsAccepted is the whole decision: the job is one of the
-// permitted shapes, unchanged, and its behaviour is executed by a test.
+// recordKey names a job's record. Keyed by job, not by file, because the
+// record covers a job.
+func recordKey(workflow, job string) string { return workflow + "/" + job }
+
+// credentialJobIsAccepted is the decision, and it reports EVERY conjunct that
+// refused rather than the first. A failure that names only the digest reads as
+// "re-record it"; one that names the judgement cannot.
 func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool, string) {
 	t.Helper()
 
 	template, registered := templateFor(wf.name, id)
 	if !registered {
 		return false, "it is not one of the job shapes this repository runs with a " +
-			"credential. Those are registered in permittedCredentialJobs, each with a " +
-			"test that executes it; a job that is not one of them is refused rather " +
-			"than analysed, because the set of things a workflow can do to reach " +
-			"unreviewed code is not a set this package can enumerate"
+			"credential. Those are " + strings.Join(sortedTemplateNames(), ", ") +
+			", registered in permittedCredentialJobs, each with a test that executes " +
+			"it; a job that is not one of them is refused rather than analysed, " +
+			"because the set of things a workflow can do to reach unreviewed code is " +
+			"not a set this package can enumerate"
 	}
 
-	// The comparison. The registry's own field was always empty, so this
-	// previously accepted every registered name whatever its content -- the
-	// check existed and decided nothing. The recorded digest is the authority
-	// and a missing record refuses.
-	recorded, present := recordedDigests[template.workflow]
-	if !present {
-		return false, "no shape is recorded for " + template.workflow +
-			", so nothing pins what this job runs"
+	var refused []string
+
+	// CONJUNCT TWO -- the judgement. Either nothing a triggering party can do
+	// reaches the job, or the job says which tree it executes. Both halves are
+	// evaluated; neither is satisfied by the record below.
+	hostile := hostileScenariosFor(wf.On)
+	if len(hostile) == 0 {
+		refused = append(refused,
+			"its workflow yields no hostile situation at all, so there is nothing to "+
+				"judge its condition against -- which is an unanswered question, not a "+
+				"safe workflow")
+	} else {
+		unreachable, why := provablyUnreachable(t, wf.Jobs[id].If, hostile)
+		if !unreachable {
+			established, how := acceptedExecution(t, wf, id)
+			if !established {
+				refused = append(refused, reachabilityNote(why)+", and "+how)
+			}
+		}
 	}
-	actual := canonicalDigest(t, wf.document)
-	if recorded != actual {
-		return false, template.workflow + " has changed shape: recorded " +
-			recorded[:12] + ", actual " + actual[:12] + " (" + template.why +
-			"). Update recordedDigests and the test that executes this job in the " +
-			"same change, so the new shape is approved rather than inherited"
+
+	// CONJUNCT THREE -- the record. Scoped to the job and what it inherits.
+	key := recordKey(template.workflow, template.job)
+	recorded, present := recordedJobDigests[key]
+	switch {
+	case !present:
+		refused = append(refused, "no shape is recorded for "+key+
+			", so nothing pins what this job runs")
+	default:
+		actual := canonicalJobDigest(t, wf, id)
+		if recorded != actual {
+			refused = append(refused, key+" has changed shape: recorded "+
+				recorded[:12]+", actual "+actual[:12]+" ("+template.why+
+				"). Update recordedJobDigests in the same change, so the new shape is "+
+				"approved rather than inherited -- and note that re-recording settles "+
+				"only this conjunct")
+		}
+	}
+
+	if len(refused) > 0 {
+		return false, strings.Join(refused, "; also ")
 	}
 	return true, ""
 }
 
-// The digests are recorded here rather than in the template literals so that
-// updating one is a visible, reviewable line. A template with no digest yet
-// fails this test with the digest to paste in.
-// recordedDigests is the approved shape of each permitted job. A change to one
-// of these jobs changes its digest, and the guard then refuses the job until
-// this line is updated -- which is the review step: somebody has to look at
-// what changed and approve it, rather than the change being inherited.
+// recordedJobDigests is the approved shape of each permitted job, keyed by
+// workflow and job. Recorded here rather than in the template literals so that
+// updating one is a visible, reviewable line.
+//
+// Re-recording one of these is NOT a way to admit a job the judgement refuses:
+// it is the last of three conjuncts and the only one a constant can satisfy.
+var recordedJobDigests = map[string]string{
+	"combine-deps.yml/publish":          "96fa1520bff8448fea8f54c7bf6608bda3b218c34099469abeffcf0ab28a9eeb",
+	"go-service-release.yml/goreleaser": "236e993f0419411c4093519708ebe76694d7df482bf98b8c26d8396999fd9f25",
+	"go.yml/coverage-badge":             "f90499145fe994ba99df79a30c275d1be9396e572f853ab1bd4ea7519ec2ebc7",
+	"go.yml/notify":                     "150388315f3784739566d301151e8fc74cc6715e54b2af8420c5fdd6b59aaf75",
+	"version-tag.yml/tag":               "447e0de19e05b354745c839d84f533fcfcb58716d7fa120bdb42846270bf0a65",
+}
+
 // recordedFileDigests pins the content of each repository file a registered job
 // runs. A workflow digest cannot cover a script in the tree, so the script is
 // hashed too -- otherwise one line added to it runs unreviewed code with the
 // job's credential while the workflow is untouched.
 var recordedFileDigests = map[string]string{
 	".github/scripts/combine-deps-plan.sh":    "ade2737c41da8b1cc92966a4feb598c9481a9b09dafc643f271dad3aa155fdc1",
-	".github/scripts/combine-deps-publish.sh": "c2d4bb3c30be1fb8e729f28e2d09ffa9df0ea660187d03d170c436313a929a46",
+	".github/scripts/combine-deps-publish.sh": "0162fd6cc089d24594e0fd33dcfda4a9abb70539d14633bc5bc8afedc8bf2853",
 }
 
-var recordedDigests = map[string]string{
-	"combine-deps.yml":       "2ddc71ebfde5eff4d8646d53dca254a9b631a4a951589d5ff587962c09e43e50",
-	"go-service-release.yml": "b96f9dcb767f9a307b4120797007a30bad8b76bb8bd7b461247a555102a54708",
-	"go.yml":                 "976805bc7040504a3c395f7cf0fcca29c3cd485fed06af5b256cad6d74ea563e",
-	"version-tag.yml":        "25972c82482fb3ae6196371328df126843c3e8a1b4aae7b863693bbad5fac641",
+// ------------------------------------------------- what a job executes
+
+// checkoutAction is the one action that replaces the tree. A step using it is
+// read for its `ref:`; every other step is read for what it executes.
+const checkoutAction = "actions/checkout@"
+
+// ancestryRefusalOfTheCheckedOutCommit matches the proof a job offers when its
+// checkout took the TRIGGERING commit: the commit the tree is on is shown to be
+// reachable from the default branch's remote-tracking ref, and the step exits
+// otherwise.
+//
+// Fully qualified on purpose: a bare `origin/<branch>` is an ambiguous rev that
+// a tag of the same name can win, so a refusal spelled that way is not one.
+var ancestryRefusalOfTheCheckedOutCommit = regexp.MustCompile(
+	`git\s+merge-base\s+--is-ancestor\s+"?\$\{?GITHUB_SHA\}?"?\s+"?refs/remotes/origin/`)
+
+// treeRepointedFromARev matches the verbs that put a DIFFERENT commit's content
+// in the tree while naming the commit, capturing the rev so it can be compared
+// with the one a refusal validated. Each of these was a construction a review
+// round found: `git -C . checkout FETCH_HEAD`,
+// `git restore --source=FETCH_HEAD -- .goreleaser.yaml`,
+// `git archive FETCH_HEAD | tar -x`.
+var treeRepointedFromARev = regexp.MustCompile(
+	`git\s+(?:-C\s+\S+\s+)?(?:switch|checkout)\s+(?:--detach\s+)?(\S+)|` +
+		`git\s+(?:-C\s+\S+\s+)?restore\s+--source=(\S+)|` +
+		`git\s+(?:-C\s+\S+\s+)?archive\s+(\S+)`)
+
+// treeRepointedFromAStream matches the verbs that put content in the tree
+// without naming a commit at all. There is nothing to validate against a
+// refusal, so these are refused outright rather than attributed.
+var treeRepointedFromAStream = regexp.MustCompile(
+	`git\s+(?:-C\s+\S+\s+)?(?:apply|am)\b|\btar\s+[^|&;]*-x`)
+
+// ancestryRefusalOf reports whether text refuses a rev that is not on the
+// default branch, for the rev named.
+func ancestryRefusalOf(text, rev string) bool {
+	pattern := regexp.MustCompile(
+		`git\s+merge-base\s+--is-ancestor\s+` + regexp.QuoteMeta(rev) +
+			`\s+"?refs/remotes/origin/`)
+	return pattern.MatchString(text) && strings.Contains(text, "exit 1")
 }
 
-// TestEveryPermittedJobMatchesItsRecordedShape is the gate: each permitted job
-// must still be the shape that was approved, and each template that claims an
-// executing test must name one that exists.
+// executedText is everything a step executes that this package can read: its
+// own `run:`, and the contents of every repository script that run invokes,
+// transitively. A repoint hidden in a script is the route the dependency
+// combination had, so the script is read rather than the `run:` line alone.
+func executedText(t *testing.T, step isolatedStep) string {
+	t.Helper()
+
+	var all strings.Builder
+	all.WriteString(step.Run)
+	all.WriteString("\n")
+
+	pending := scriptReference.FindAllString(step.Run, -1)
+	seen := map[string]bool{}
+	for len(pending) > 0 {
+		rel := pending[0]
+		pending = pending[1:]
+		if seen[rel] {
+			continue
+		}
+		seen[rel] = true
+
+		body, err := os.ReadFile(filepath.Join(repoRoot(t), rel))
+		if os.IsNotExist(err) {
+			all.WriteString("\n# absent: " + rel + "\n")
+			continue
+		}
+		require.NoError(t, err, rel)
+		all.Write(body)
+		all.WriteString("\n")
+		pending = append(pending, scriptReference.FindAllString(string(body), -1)...)
+	}
+	return all.String()
+}
+
+// absentRefIsTheDefaultBranch reports whether a checkout with no `ref:` selects
+// the default branch in this workflow.
+//
+// It does for `workflow_run` and for nothing else: that event sets GITHUB_SHA
+// to the default branch's head whatever produced the run it reacts to, which is
+// the property version-tag.yml's checkout relies on. Under every other trigger
+// an absent `ref:` means the TRIGGERING ref, which is not a statement about
+// what was reviewed.
+func absentRefIsTheDefaultBranch(wf isolatedWorkflow) bool {
+	declared := triggers(wf.On)
+	if len(declared) == 0 {
+		return false
+	}
+	for _, trigger := range declared {
+		if trigger != "workflow_run" {
+			return false
+		}
+	}
+	return true
+}
+
+// treeOrigin says where the content a checkout left in the tree came from, and
+// the distinction between the last two is the whole value of this type.
+//
+// An ancestry refusal proves something about `$GITHUB_SHA` -- the commit the
+// RUN is for. That speaks for the tree only when the tree IS that commit, which
+// is what a checkout with no `ref:` gives. A checkout that NAMES some other ref
+// leaves a tree the refusal says nothing about: the refusal can pass on a
+// commit that was merged while the tree holds a branch that was not.
+//
+// Collapsing those two into one boolean accepted exactly that shape. A probe
+// of this guard took the planted `coverage-badge` violation, kept
+// `ref: ${{ github.head_ref }}`, added a real unconditional refusal on
+// `$GITHUB_SHA` and went green -- a write token, a pull request's branch in
+// the tree, and a refusal that was checking a different commit.
+type treeOrigin int
+
+const (
+	// treeIsTheDefaultBranch: reviewed code, by construction.
+	treeIsTheDefaultBranch treeOrigin = iota
+	// treeIsTheTriggeringCommit: `$GITHUB_SHA`'s content, so an ancestry
+	// refusal on `$GITHUB_SHA` establishes it.
+	treeIsTheTriggeringCommit
+	// treeIsAPartyChosenRef: a named ref that is neither. Nothing this package
+	// reads can establish it, so no refusal rescues it.
+	treeIsAPartyChosenRef
+)
+
+// checkoutSelectsTheDefaultBranch reads one checkout step's `ref:`.
+func checkoutSelectsTheDefaultBranch(step isolatedStep, absentIsDefault bool) (treeOrigin, string) {
+	ref, named := step.With["ref"]
+	if !named {
+		if absentIsDefault {
+			return treeIsTheDefaultBranch, ""
+		}
+		return treeIsTheTriggeringCommit, "names no `ref:`, so it takes the triggering commit"
+	}
+	text, isString := ref.(string)
+	if !isString {
+		return treeIsAPartyChosenRef, "has a `ref:` this package cannot read"
+	}
+	switch strings.TrimSpace(text) {
+	case theDefaultBranch, "refs/heads/" + theDefaultBranch:
+		return treeIsTheDefaultBranch, ""
+	}
+	return treeIsAPartyChosenRef, "checks out " + text + " rather than " + theDefaultBranch
+}
+
+// acceptedExecution is the half of the judgement that does not depend on a
+// condition being right: when this job DOES run, which tree does it execute
+// code from?
+//
+// Two means, and they are the two the workflows here use:
+//
+//   - every checkout selects the default branch, so the tree is reviewed code
+//     throughout (combine-deps.yml `publish`, go.yml `coverage-badge`, and
+//     version-tag.yml `tag`, whose workflow_run checkout defaults to it);
+//   - or the checkout took the triggering commit and an ancestry refusal shows
+//     that commit is reachable from the default branch BEFORE anything else
+//     runs (go-service-release.yml `goreleaser`, which cannot be proven
+//     unreachable at all because a caller chooses its event).
+//
+// WHAT THIS DOES NOT READ, stated here rather than left to be discovered,
+// because a comment describing machinery that is not there is how the previous
+// defect hid:
+//
+//   - whether a refusal WORKS. It reads that the command is present, exits on
+//     failure, and is not skipped or made non-fatal by a step field. Whether
+//     the script refuses what it should is answered by executing it, which is
+//     what `jobTemplate.executedBy` names -- and a job accepted by the second
+//     means with no executing test is refused here.
+//   - a third-party action's behaviour. `goreleaser/goreleaser-action` runs
+//     `.goreleaser.yaml` out of the tree and `actions/setup-go` reads `go.mod`;
+//     both are tree execution, which is why the tree has to be established
+//     before any step that is not a checkout or the refusal.
+//   - anything in a field no rule here names. That is the residue the recorded
+//     digest covers.
+func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, string) {
+	t.Helper()
+
+	job := wf.Jobs[id]
+	steps, unreadable := stepsIncludingLocalActions(t, job)
+	if len(unreadable) > 0 {
+		return false, "it runs " + strings.Join(unreadable, ", ") +
+			", whose steps this package cannot read, so what it executes is not established"
+	}
+
+	absentIsDefault := absentRefIsTheDefaultBranch(wf)
+	// Before the first checkout there is no tree on the runner, so nothing from
+	// one can execute. A `run:` here executes the workflow's own text, which
+	// the recorded digest covers.
+	origin, unreviewedBecause := treeIsTheDefaultBranch, ""
+	leaned := false // whether acceptance rests on a refusal written in shell
+
+	for _, step := range steps {
+		if strings.Contains(step.Uses, checkoutAction) {
+			// A checkout executes none of the tree it writes, so an unreviewed
+			// one is not yet a refusal; the next step that runs is where it is
+			// decided.
+			origin, unreviewedBecause = checkoutSelectsTheDefaultBranch(step, absentIsDefault)
+			continue
+		}
+
+		text := executedText(t, step)
+
+		if origin != treeIsTheDefaultBranch {
+			if origin == treeIsAPartyChosenRef {
+				return false, "its checkout " + unreviewedBecause + ", and " +
+					step.describe() + " then runs with that tree. An ancestry refusal " +
+					"cannot rescue this: a refusal speaks for `$GITHUB_SHA`, the commit " +
+					"the run is for, while the tree holds a different ref. Pin the " +
+					"checkout to " + theDefaultBranch
+			}
+			if !ancestryRefusalOfTheCheckedOutCommit.MatchString(text) {
+				return false, "its checkout " + unreviewedBecause + ", and " +
+					step.describe() + " then runs with that tree. Either pin every " +
+					"checkout to " + theDefaultBranch + ", or put a `git merge-base " +
+					"--is-ancestor \"$GITHUB_SHA\" refs/remotes/origin/<default branch>` " +
+					"refusal ahead of everything that runs"
+			}
+			if unconditional, why := refusalIsUnconditional(step, job, wf); !unconditional {
+				return false, "its ancestry refusal " + why +
+					", so the tree it runs is not established"
+			}
+			origin, leaned = treeIsTheDefaultBranch, true
+			continue
+		}
+
+		// The tree is reviewed code here. It stays so unless this step puts
+		// something else in it.
+		if treeRepointedFromAStream.MatchString(text) {
+			return false, step.describe() +
+				" writes content into the tree without naming a commit (git apply/am, " +
+				"tar -x), so there is nothing an ancestry refusal can be checked against"
+		}
+		for _, match := range treeRepointedFromARev.FindAllStringSubmatch(text, -1) {
+			rev := firstNonEmpty(match[1:])
+			if rev == "" || rev == "HEAD" || rev == "--" {
+				continue
+			}
+			if !ancestryRefusalOf(text, rev) {
+				return false, step.describe() + " puts " + rev +
+					"'s content in the tree without showing it is reachable from " +
+					theDefaultBranch + " first"
+			}
+			leaned = true
+		}
+	}
+
+	if leaned {
+		if template, registered := templateFor(wf.name, id); registered && template.executedBy == "" {
+			return false, "its acceptance rests on a refusal written in shell, and this " +
+				"package reads only that the refusal is there. Name the test that " +
+				"executes it in the template's executedBy"
+		}
+	}
+	return true, ""
+}
+
+// firstNonEmpty returns the first non-empty capture of an alternation.
+func firstNonEmpty(groups []string) string {
+	for _, group := range groups {
+		if group != "" {
+			return group
+		}
+	}
+	return ""
+}
+
+// refusalIsUnconditional reports whether a step carrying an ancestry refusal can
+// actually stop the job. Each of these makes the command present and the
+// refusal absent, which is the shape this whole package is about.
+func refusalIsUnconditional(step isolatedStep, job isolatedJob, wf isolatedWorkflow) (bool, string) {
+	if step.If != "" {
+		return false, "carries a step-level `if:` (" + step.If + "), so it can be skipped"
+	}
+	if step.ContinueOnError {
+		return false, "sets `continue-on-error: true`, so its exit status stops nothing"
+	}
+	if !strings.Contains(step.Run, "exit 1") {
+		return false, "never exits non-zero, so it reports rather than refuses"
+	}
+	for _, shell := range []string{step.Shell, job.Defaults.Run.Shell, wf.Defaults.Run.Shell} {
+		switch strings.TrimSpace(shell) {
+		case "", "bash", "sh", "bash -e {0}":
+		default:
+			return false, "runs under `shell: " + shell +
+				"`, which this package cannot judge as one that propagates a failure"
+		}
+	}
+	return true, ""
+}
+
+// ------------------------------------------------- the gates
+
+// TestEveryPermittedJobMatchesItsRecordedShape is the record's own gate: each
+// permitted job must still be the shape that was approved, and each template
+// that claims an executing test must name one that exists.
+//
+// It is NOT the credential decision. That is TestEveryCredentialBearingJobIsRegistered
+// below, which asks all three conjuncts.
 func TestEveryPermittedJobMatchesItsRecordedShape(t *testing.T) {
 	_, workflows := loadIsolatedWorkflows(t)
 
@@ -201,23 +611,25 @@ func TestEveryPermittedJobMatchesItsRecordedShape(t *testing.T) {
 	tests := all.String()
 
 	for _, template := range permittedCredentialJobs {
-		t.Run(template.workflow+"/"+template.job, func(t *testing.T) {
+		t.Run(recordKey(template.workflow, template.job), func(t *testing.T) {
 			wf, ok := workflows[filepath.Join(repoRoot(t), ".github", "workflows", template.workflow)]
 			require.True(t, ok, "%s does not exist", template.workflow)
-			raw, ok := wf.raw[template.job]
+			_, ok = wf.raw[template.job]
 			require.True(t, ok, "%s has no job %q", template.workflow, template.job)
 
-			_ = raw
-			digest := canonicalWorkflowDigest(t,
-				filepath.Join(repoRoot(t), ".github", "workflows", template.workflow))
-			recorded, present := recordedDigests[template.workflow]
+			key := recordKey(template.workflow, template.job)
+			digest := canonicalJobDigest(t, wf, template.job)
+			recorded, present := recordedJobDigests[key]
 			require.True(t, present,
-				"no shape recorded for %s. Add this line to recordedDigests:\n"+
-					"\t%q: %q,", template.workflow, template.workflow, digest)
+				"no shape recorded for %s. Add this line to recordedJobDigests:\n"+
+					"\t%q: %q,", key, key, digest)
 			require.Equal(t, recorded, digest,
-				"%s has changed shape (%s). If intended, update recordedDigests and "+
-					"the test that executes this job in the same change.",
-				template.workflow, template.why)
+				"%s has changed shape (%s). If intended, update recordedJobDigests and "+
+					"the test that executes this job in the same change. Re-recording "+
+					"settles the record and nothing else: the judgement in "+
+					"credentialJobIsAccepted is asked separately and a digest cannot "+
+					"satisfy it.",
+				key, template.why)
 
 			if template.executedBy != "" {
 				require.Contains(t, tests, "func "+template.executedBy+"(",
@@ -229,8 +641,8 @@ func TestEveryPermittedJobMatchesItsRecordedShape(t *testing.T) {
 }
 
 // And the converse, which is what makes this an allowlist: every job that
-// receives a credential is registered. A new one is refused until someone adds
-// a template and a test for it.
+// receives a credential is registered AND judged. A new one is refused until
+// someone adds a template and a test for it.
 func TestEveryCredentialBearingJobIsRegistered(t *testing.T) {
 	paths, workflows := loadIsolatedWorkflows(t)
 
@@ -262,6 +674,17 @@ func TestEveryCredentialBearingJobIsRegistered(t *testing.T) {
 	require.Len(t, permittedCredentialJobs, found,
 		"the allowlist and the set of credential-bearing jobs must be the same size, "+
 			"or one of them is carrying an entry the other does not")
+
+	// And the record carries no entry for a job that is not registered, so a
+	// digest cannot outlive the job it was recorded for.
+	for key := range recordedJobDigests {
+		workflow, job, ok := strings.Cut(key, "/")
+		require.True(t, ok, "recordedJobDigests key %q is not workflow/job", key)
+		_, registered := templateFor(workflow, job)
+		require.True(t, registered,
+			"recordedJobDigests records %s, which permittedCredentialJobs does not list",
+			key)
+	}
 }
 
 // parsePermissionedFile reads one workflow for its permission blocks.
@@ -274,11 +697,12 @@ func parsePermissionedFile(t *testing.T, path string) permissionedWorkflow {
 	return wf
 }
 
-// sortedTemplateNames is used by the message above and keeps the output stable.
+// sortedTemplateNames names the permitted shapes in a refusal, so a reader of
+// the failure sees what the allowlist actually holds.
 func sortedTemplateNames() []string {
 	out := make([]string, 0, len(permittedCredentialJobs))
 	for _, template := range permittedCredentialJobs {
-		out = append(out, template.workflow+"/"+template.job)
+		out = append(out, recordKey(template.workflow, template.job))
 	}
 	sort.Strings(out)
 	return out

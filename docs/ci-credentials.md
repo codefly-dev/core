@@ -38,11 +38,14 @@ form GitHub resolves it. Workflow-level `env:` is part of the model, because
 every job inherits it.
 
 So a condition is **evaluated** in three-valued logic against scenarios that
-bind the hostile facts — a pull request, a merge-queue candidate, a
-`workflow_run` produced by a pull request, a `workflow_run` produced by a push
-to a fork, a pushed tag. Anything the evaluator cannot know
-(`needs.build.result`, `success()`) is **unknown**, and unknown is not false, so
-a job is accepted only when its condition is *provably* false.
+bind the hostile facts. The scenarios are **derived from the workflow's own
+triggers**, not chosen from a list: `scenariosForTrigger` builds one for every
+trigger, including a trigger GitHub ships next year, so there is no enumeration
+for a trigger to be exempt from — and a `workflow_call` workflow answers for
+every caller event *plus* an unknown remainder that binds no event at all.
+Anything the evaluator cannot know (`needs.build.result`, `success()`) is
+**unknown**, and unknown is not false, so a condition only counts as refusing a
+situation when it is *provably* false there.
 
 The evaluator implements GitHub's semantics, not an approximation of them, and
 the differences are each a condition somebody can build:
@@ -83,22 +86,61 @@ reporting "nothing found".
 
 ## The rule
 
-**A job that receives a credential must be one of the shapes this repository
-runs, recorded exactly, or it is refused.**
+**A job that receives a credential is registered, judged, and recorded — all
+three, and the third cannot stand in for the second.**
 
-There is one list, in `internal/ciguard/job_templates_test.go`: the five jobs
-that hold a secret or a write token, each pinned by a digest over the job's
-canonical content and each named alongside the test that executes it. A job
-that is not on the list is refused. A job on the list that has changed in any
-respect — a step added, an input changed, a field no rule reads — no longer
-matches its digest and is refused until someone updates the record, which is
-the review step.
+`internal/ciguard/job_templates_test.go` asks the three in order and reports
+every one that refused:
 
-Nothing is analysed. Six rounds of asking what a job *does* — which contexts
-are a source, which fields a sink, which commands execute a value — each closed
-the routes it had found and left the ones it had not, because the set of things
-a workflow can do is not a set a guard can finish. Asking whether a job *is* a
-known shape has no such set.
+1. **Registered.** `permittedCredentialJobs` lists the five jobs that hold a
+   secret or a write token. A job that is not on it is refused rather than
+   analysed, because the set of things a workflow can do to reach unreviewed
+   code is not a set a guard can finish.
+2. **Judged.** Either the job's condition is *provably false* in every hostile
+   situation its workflow's triggers admit, or the job establishes which tree
+   it executes. Evaluated — see the parser section above — not matched as text;
+   unknown is not false, and a construction the guard cannot read is a refusal.
+   Two of the five jobs rest on the second half alone: `goreleaser` is a
+   reusable workflow whose event the caller chooses, and `publish` has no `if:`
+   at all. Both pin every checkout to the default branch or refuse a commit
+   that is not on it.
+3. **Recorded.** The job's shape — the job block plus the workflow-level `on`,
+   `permissions`, `env` and `defaults` in scope for every step in it — matches
+   a digest in `recordedJobDigests`.
+
+**Why the order matters, stated plainly because this document previously
+described (2) while the code did not perform it.** For one release the decision
+was (1) and (3) only: the guards computed the hostile situations, asserted the
+set was non-empty, discarded it, and compared `sha256` of the whole workflow
+file against a constant. A `contents: write` job given a condition that admits
+`pull_request`, a checkout pointed at the pull request's own branch and a
+`run:` step from that tree then passed the entire suite after one 64-character
+constant was re-recorded — which was the remediation the failure message
+printed. Re-recording a digest moves a constant; it cannot make a condition
+false or a tree reviewed, and (2) is now asked separately so it does not try.
+
+**What (3) is for.** The residue (2) cannot read: the semantics of a shell
+script, a third-party action's behaviour, a field no rule names. A change to
+any of that stops matching until someone records the new shape. It is a
+changelog with teeth rather than a gate — `main`'s ruleset requires zero
+approving reviews, so nothing obliges a human to read the line that changed
+(see [branch protection](runbooks/branch-protection.md)). It is scoped to the
+job and what the job inherits for a related reason: hashing the whole file made
+a Dependabot action-pin bump in an unrelated job produce the same failure, with
+the same one-line fix, as a write token entering a job that runs pull request
+code.
+
+**And the refusals written in shell are executed, not read.** A job accepted
+because it refuses a commit that is not on the default branch must name the
+test that runs that refusal against real repositories
+(`jobTemplate.executedBy`); the guard reads that the command is present,
+unconditional and fatal, and reads nothing about whether it works.
+
+Every helper in the package must be reached by something
+(`reachable_helpers_test.go`). That is not tidiness: the six functions this
+rule was supposed to be built from sat in the tree with their explanations
+intact and zero callers, and a careful reader concluded the evaluation was
+happening.
 
 
 ## The writes, and why each one is safe
@@ -215,11 +257,57 @@ guard refuses it — that file holds no credential, so it cannot join the
 allowlist, and pinning its bytes would be a mechanism for one line.
 
 
+## Callers: what changed under them, and what it looks like when it breaks
+
+`go-service-release.yml` and `go-service-ci.yml` are `workflow_call` workflows
+that other repositories invoke, so a change here is a change in their builds.
+Three of them are breaking, and none of them was written down outside a commit
+subject. The consumers are `codefly-dev/service-dynamodb`,
+`codefly-dev/service-redis` and `codefly-dev/service-postgres`.
+
+**`goreleaser-version` was removed as an input.** A caller that still passes it
+fails `workflow_call` validation outright, before any job starts. The GoReleaser
+version is pinned inside the job now (`version: '~> v2'`), because the version
+selects which binary runs and a caller-chosen value is a caller-chosen program.
+
+**`goreleaser` is gated to a pushed tag** (`if: github.event_name == 'push' &&
+startsWith(github.ref, 'refs/tags/')`). This is the one to watch, because of
+how it fails: a caller that releases on `workflow_dispatch`, on a `release`
+event, or on anything other than a tag push now **skips** the job — and a
+skipped job reports success. Such a caller publishes nothing and its run is
+green. There is no error to find. If a release stops appearing, check the
+caller's trigger before anything else.
+
+**A release is refused unless its tag is on the repository's own default
+branch.** The job reads the authority from the remote's own `HEAD` (`git
+ls-remote --symref origin HEAD`) and refuses a commit that is not reachable
+from it. A caller that tags off a release branch is now refused rather than
+released. The authority is deliberately not an input: a value a caller supplies
+could be omitted, defaulted or disagreed with, and each of those is a way to
+choose which history counts as reviewed.
+
+All three admit the consumers as they stand: `service-dynamodb` and
+`service-redis` pin `@main`, trigger on a `push` of `v*`, pass no `with:` and
+tag on their default branch; `service-postgres` pins a commit, so it is
+unaffected until it bumps, and its `release` job is `if: github.event_name ==
+'push'` and passes only `setup-run`.
+
+**Also narrower than before:** every job in `agent-ci.yml`, `go-service-ci.yml`
+and `go-service-release.yml` now declares `permissions: contents: read`. A
+declaration can only narrow the caller's grant, so a caller that needs more —
+`packages: read` to pull a private package, say — gets a failure inside the
+reusable job rather than at validation. No caller of `agent-ci.yml` exists in
+either organisation today.
+
 ## Adding a workflow
 
 Declare `permissions: contents: read` at workflow scope and name no secret, and
 stop. If a job needs to write or to hold a secret, give it its own
 `permissions:` block, its own `if:` pinning it to a push of `main` or a tag,
 and no checkout of anything a pull request supplied. Keep party-chosen values
-out of every `run:` script, whether or not the job holds a credential. Running
-`go test ./internal/ciguard/` tells you whether you got it right.
+out of every `run:` script, whether or not the job holds a credential.
+
+Running `go test ./internal/ciguard/` tells you whether you got it right, and
+for a credential-bearing job it now tells you *which* of the three parts of the
+rule refused and why. A failure naming only the record is a failure you may
+clear by recording; one naming the judgement is not.

@@ -131,7 +131,10 @@ func triggerNode(on yaml.Node, name string) (yaml.Node, bool) {
 	return yaml.Node{}, false
 }
 
-var secretRef = regexp.MustCompile(`secrets\.([A-Za-z_][A-Za-z0-9_]*)`)
+// There was a `secrets\.NAME` regexp here with no callers. `secretRefsIn`
+// below goes through the expression parser instead, so it agrees with the
+// isolation guards about what counts as a reference -- an index and a
+// whole-context read among them, which the regexp never saw.
 
 // secretUse is one place in a workflow that consumes a real Actions secret,
 // paired with the `if:` expression guarding it.

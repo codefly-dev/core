@@ -156,3 +156,96 @@ func TestTheCombinedBranchTravelsAsABundleWithoutBeingCheckedOut(t *testing.T) {
 // are recorded in recordedFileDigests, so moving a line from one half to the
 // other changes a digest and refuses. A `strings.Contains` over a script was
 // the scanner's last form, and it could be satisfied by a comment.
+
+// The publisher's own refusals, executed. `BASE` arrives in the artifact the
+// unprivileged half writes, and the manifest allowlist is computed against it,
+// so an unchecked value makes the allowlist meaningless two lines before the
+// push with the PAT. These are the refusals that check it, run against a real
+// repository rather than read.
+func TestThePublisherRefusesABaseItCannotResolve(t *testing.T) {
+	ctx := context.Background()
+	script := filepath.Join(repoRoot(t), publishScript)
+
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
+	for _, args := range [][]string{
+		{"init", "--initial-branch=main"},
+		{"-c", "user.email=t@example.test", "-c", "user.name=t", "commit",
+			"--allow-empty", "-m", "base"},
+		// The remote-tracking ref the refusal resolves against. A publisher
+		// clone has one; a repository with no remote must not be waved through.
+		{"update-ref", "refs/remotes/origin/main", "HEAD"},
+	} {
+		out, err := testgit.Run(ctx, repo, nil, args...)
+		require.NoError(t, err, "git %s: %s", strings.Join(args, " "), out)
+	}
+
+	for _, tc := range []struct{ name, base, refuses string }{
+		{
+			name: "a path rather than a branch",
+			base: "../../etc/passwd", refuses: "a branch is named by a bare name here",
+		},
+		{
+			name: "a revision range, which would diff something else entirely",
+			base: "main..deps/combined", refuses: "not a branch name",
+		},
+		{
+			name: "a branch this repository does not have",
+			base: "no-such-branch", refuses: "it is not a branch of this repository",
+		},
+		{
+			// The fail-open this replaces: `origin/<missing>` made `git diff`
+			// fail inside a process substitution, which `set -euo pipefail`
+			// does not cover, so `touched` was empty and the manifest
+			// allowlist admitted every path in the bundle.
+			name: "an empty value, which the allowlist used to admit everything for",
+			base: "", refuses: "a branch is named by a bare name here",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(in, "combined.tsv"),
+				[]byte("1\tdeps/one\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(in, "base"),
+				[]byte(tc.base), 0o600))
+
+			command := exec.Command("bash", script, in)
+			command.Dir = repo
+			command.Env = append(os.Environ(), "GH_TOKEN=unused")
+			output, err := command.CombinedOutput()
+			require.Error(t, err,
+				"the publisher accepted base %q and carried on to the push:\n%s",
+				tc.base, output)
+			require.Contains(t, string(output), tc.refuses,
+				"the publisher refused base %q for some other reason:\n%s",
+				tc.base, output)
+		})
+	}
+}
+
+// And the other half of that defect: the diff the allowlist is computed from
+// must be FATAL when it fails, not empty. The line is lifted from the script, so
+// a revert to the process-substitution form fails here rather than passing.
+func TestTheManifestAllowlistsDiffIsFatalWhenItFails(t *testing.T) {
+	diffCommand := lineContaining(t, publishScript, "git diff --name-only")
+
+	root := t.TempDir()
+	ctx := context.Background()
+	out, err := testgit.Run(ctx, root, nil, "init", "--initial-branch=main")
+	require.NoError(t, err, out)
+
+	// Neither ref exists, so the diff fails. Under the old
+	// `mapfile -t touched < <(git diff ...)` this left `touched` empty with a
+	// zero status; the allowlist loop then iterated no times and admitted the
+	// whole bundle.
+	command := exec.Command("bash", "-euo", "pipefail", "-c",
+		diffCommand+"\necho REACHED-THE-NEXT-LINE")
+	command.Dir = root
+	command.Env = append(os.Environ(), "BASE=main", "BRANCH=deps/combined")
+	combined, err := command.CombinedOutput()
+	require.Error(t, err,
+		"a failing diff did not stop the script, so the manifest allowlist is "+
+			"computed over an empty list and admits everything:\n%s", combined)
+	require.NotContains(t, string(combined), "REACHED-THE-NEXT-LINE")
+}

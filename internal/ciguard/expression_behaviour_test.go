@@ -131,42 +131,19 @@ var workflowRunFromAForkPush = scenario{
 // `github.repository != 'codefly-dev/core'` excluded nobody.
 //
 // So: one scenario per HOSTILE CALLER EVENT, each binding the event and
-// nothing else.
-var calledFromAPullRequest = scenario{
-	name:   "called as a reusable workflow from a pull request",
-	fixed:  map[string]string{"github.event_name": "pull_request"},
-	always: map[string]tri{"always": triTrue},
-}
-
-var calledFromACommentOnAPullRequest = scenario{
-	name:   "called as a reusable workflow from a comment on a pull request",
-	fixed:  map[string]string{"github.event_name": "issue_comment"},
-	always: map[string]tri{"always": triTrue},
-}
-
-var calledFromAMergeQueue = scenario{
-	name:   "called as a reusable workflow from a merge queue candidate",
-	fixed:  map[string]string{"github.event_name": "merge_group"},
-	always: map[string]tri{"always": triTrue},
-}
-
-// commentOnAPullRequest is the trigger the classifier called hostile and the
-// assertion never evaluated. `issue_comment` fires on a comment -- including
-// one on a pull request, where `github.event.issue.number` names that pull
-// request and a checkout can select `refs/pull/<n>/head`, i.e. the author's
-// unreviewed code. A credential-bearing job gated on
-// `github.event_name == 'issue_comment'` must not be refuted, because the only
-// scenarios evaluated were a pull request and a merge queue candidate, under
-// both of which that condition is false.
-var commentOnAPullRequest = scenario{
-	name: "a comment on a pull request",
-	fixed: map[string]string{
-		"github.event_name":                      "issue_comment",
-		"github.repository":                      theRepository,
-		"github.event.repository.default_branch": theDefaultBranch,
-	},
-	always: map[string]tri{"always": triTrue},
-}
+// nothing else. They are BUILT by `callerScenarios` below rather than written
+// out here -- three were written out, had no callers once the derivation
+// landed, and went on describing the hole they closed from outside the set that
+// closes it.
+//
+// `issue_comment` is worth naming in that derivation specifically. It fires on
+// a comment, including one on a pull request, where `github.event.issue.number`
+// names that pull request and a checkout can select `refs/pull/<n>/head` --
+// the author's unreviewed code. An earlier classifier called it hostile while
+// the assertion evaluated only a pull request and a merge queue candidate,
+// under both of which `github.event_name == 'issue_comment'` is false, so a
+// job gated on it was accepted. `callerEvents` lists it and
+// `scenariosForTrigger` builds it from the workflow's own triggers.
 
 // hostileScenariosFor is the set a credential-bearing job in this workflow
 // must be proven unreachable under, DERIVED from the triggers the workflow
@@ -180,16 +157,19 @@ var commentOnAPullRequest = scenario{
 // write-CAPABLE jobs -- so a read-only job holding a repository secret on
 // `workflow_run` was checked by neither.
 //
-// An exemption is only as good as the covering guard's SCOPE, so each one
-// below names its guard and why that guard's scope is enough. A declared
-// trigger with no scenario is not skipped: it comes back as unmodelled and
-// the caller fails on it, because "added by GitHub next year" must mean a
-// failing test rather than a silent pass.
-func hostileScenariosFor(on yaml.Node) (hostile []scenario, unmodelled []string) {
+// There are no exemptions now, so there is nothing for an `unmodelled` return
+// to carry: `scenariosForTrigger` BUILDS a situation for every trigger,
+// including one GitHub ships next year, and a workflow that yields an empty set
+// has declared no trigger this package can read -- which every caller treats as
+// an unanswered question rather than a safe workflow. The second return value
+// was always nil while the doc comment promised otherwise, and both callers
+// discarded it; a contract nothing keeps is worse than no contract.
+func hostileScenariosFor(on yaml.Node) []scenario {
+	var hostile []scenario
 	for _, trigger := range triggers(on) {
 		hostile = append(hostile, scenariosForTrigger(trigger)...)
 	}
-	return hostile, nil
+	return hostile
 }
 
 // scenariosForTrigger builds the hostile situations a trigger admits, BINDING
@@ -200,10 +180,13 @@ func hostileScenariosFor(on yaml.Node) (hostile []scenario, unmodelled []string)
 // be judged definitely false.
 //
 // Trigger identity cannot establish WHICH CODE a job executes, so no trigger
-// is exempt here: every
-// trigger yields a scenario, and a credential-bearing job answers for itself
-// either by being provably unreachable or by proving what it runs (see
-// acceptedExecution).
+// is exempt here: every trigger yields a scenario, and a credential-bearing job
+// answers for itself either by being provably unreachable under all of them
+// (`provablyUnreachable`) or by establishing which tree it runs
+// (`acceptedExecution`, in job_templates_test.go). Both are reached from
+// `credentialJobIsAccepted`; for one release this comment named
+// `acceptedExecution` while no such function existed and neither half was
+// called at all.
 //
 // Built rather than listed, so a trigger GitHub ships next year is covered
 // before anyone notices it exists: the default binds only the event's own name
@@ -340,11 +323,35 @@ var pushOfATag = scenario{
 	always: map[string]tri{"always": triTrue},
 }
 
-// everyScenario is what the construction tests below sweep.
-var everyScenario = []scenario{
+// everyScenario is what the construction tests below sweep, and it has to be
+// every scenario a guard can actually evaluate rather than a hand-picked five.
+//
+// It was the five. The guards judge a job against whatever
+// `hostileScenariosFor` derives from that workflow's triggers -- around twenty
+// situations once a reusable workflow's caller events are counted -- so the
+// soundness constructions were sweeping a quarter of the set that decides
+// verdicts, and an unsound binding added to a DERIVED scenario would have been
+// checked by nothing. The five hand-written ones stay: each is a regression
+// example with its own reasoning, and the derived ones are appended.
+var everyScenario = append([]scenario{
 	pullRequest, mergeGroup,
 	workflowRunFromAPullRequest, workflowRunFromAForkPush,
 	pushOfATag,
+}, derivableScenarios()...)
+
+// derivableScenarios is every situation scenariosForTrigger can produce: one
+// per trigger this repository's workflows declare, plus every caller event and
+// the unknown remainder.
+func derivableScenarios() []scenario {
+	var out []scenario
+	declarable := append([]string{
+		"push", "pull_request", "workflow_run", "workflow_call", "schedule",
+		"workflow_dispatch", "pull_request_target", "merge_group",
+	}, callerEvents...)
+	for _, trigger := range declarable {
+		out = append(out, scenariosForTrigger(trigger)...)
+	}
+	return out
 }
 
 // chosenByTheTriggeringParty are context paths whose value is picked by whoever

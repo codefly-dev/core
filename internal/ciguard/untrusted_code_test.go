@@ -177,30 +177,11 @@ func jobIDs(wf permissionedWorkflow) []string {
 	return ids
 }
 
-// cannotRunOnAPullRequest reports whether gate is PROVABLY false when the event
-// is a pull request.
-//
-// This asked whether the condition contained two clauses, which `... || true`
-// and `!(... && ...)` both satisfy while running on a pull request. It is now
-// decided by evaluating the expression -- see expression_test.go -- and an
-// unknown result is not an answer: a condition that turns on something no
-// scenario fixes has established nothing.
-func cannotRunOnAPullRequest(t *testing.T, gate string) bool {
-	t.Helper()
-
-	// Both ways a pull request's code runs: the pull_request event, and a merge
-	// queue building the candidate commits before they are on the default
-	// branch.
-	for _, hostile := range []scenario{pullRequest, mergeGroup} {
-		reached, err := canRunUnder(gate, hostile)
-		require.NoError(t, err,
-			"a condition this package cannot parse is one it cannot judge: %q", gate)
-		if reached != triFalse {
-			return false
-		}
-	}
-	return true
-}
+// There was a `cannotRunOnAPullRequest` here with no callers. It applied the
+// two pull-request scenarios to every workflow, which is the wrong question for
+// a `workflow_run` one, and `provablyUnreachable` over the scenarios
+// `hostileScenariosFor` derives from the workflow's own triggers asks the right
+// one for all of them.
 
 // A `pull_request` run checks out the pull request's head: for the whole job,
 // every step after the checkout is running code the author of that branch
@@ -226,7 +207,7 @@ func TestNoJobRunsPullRequestCodeWithAWriteToken(t *testing.T) {
 		// those meant a dispatch job with `contents: write`, no custom secret
 		// and a bare checkout was checked by nothing: the dispatch guard skips
 		// jobs without a custom secret, and this one skipped the workflow.
-		hostile, _ := hostileScenariosFor(wf.On)
+		hostile := hostileScenariosFor(wf.On)
 		require.NotEmpty(t, hostile, "%s yielded no hostile scenario", filepath.Base(path))
 		checked++
 
@@ -237,16 +218,10 @@ func TestNoJobRunsPullRequestCodeWithAWriteToken(t *testing.T) {
 				continue
 			}
 			// The built-in write token is a credential too, so it answers the
-			// same question as a secret: provably unreachable, or proves what
-			// it executes.
-			// The complete rule, and the only one: either no hostile situation
-			// this workflow's triggers admit can reach the job, or the job
-			// proves what it executes. The previous fall-through also asked
-			// `cannotRunOnAPullRequest`, which applies the pull-request
-			// scenarios to every workflow -- the wrong question for a
-			// workflow_run one, whose own scenarios are stricter.
-			// The same one decision the credential guard uses: the built-in
-			// write token is a credential too.
+			// same question as a secret and through the same decision: either
+			// no hostile situation this workflow's triggers admit can reach the
+			// job, or the job establishes which tree it executes -- and then,
+			// separately, its recorded shape still matches.
 			accepted, missing := credentialJobIsAccepted(t, isolated[path], id)
 			require.True(t, accepted,
 				"%s: job %q holds %s, and %s.\n`permissions:` cannot be narrowed per "+

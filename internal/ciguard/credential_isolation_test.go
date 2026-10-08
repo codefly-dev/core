@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -77,6 +78,21 @@ type isolatedStep struct {
 	ContinueOnError  bool              `yaml:"continue-on-error"`
 	Shell            string            `yaml:"shell"`
 	WorkingDirectory string            `yaml:"working-directory"`
+}
+
+// describe names a step in a failure. Most steps that matter here carry no
+// `name:`, and "step \"\"" tells a reader nothing about which one to open.
+func (s isolatedStep) describe() string {
+	switch {
+	case s.Name != "":
+		return "step " + strconv.Quote(s.Name)
+	case s.Uses != "":
+		return "step `uses: " + s.Uses + "`"
+	case s.Run != "":
+		first, _, _ := strings.Cut(strings.TrimSpace(s.Run), "\n")
+		return "step `run: " + first + "`"
+	}
+	return "an unnamed step"
 }
 
 // localAction is a repository-local action's manifest, as far as these guards
@@ -290,60 +306,14 @@ func secretsIn(t *testing.T, wf isolatedWorkflow, id string) map[string][]string
 	return found
 }
 
-// triggersThatCannotCarryAPullRequestsCode is the list, and the direction of
-// the list is the point.
-//
-// This used to read the other way -- `pull_request`, `pull_request_target`,
-// `workflow_call`, `merge_group` were listed as the reachable ones, and
-// anything else was treated as safe. That is the shape two review rounds found
-// twice elsewhere: an enumeration exempts whatever it does not name. GitHub has
-// some thirty-five trigger events and adds more; `issue_comment` and
-// `pull_request_review` both carry a pull request's context, and a workflow
-// reacting to either is a well-known way to reach unreviewed code. Naming the
-// reachable ones means a trigger nobody here thought about is exempt by
-// default, silently.
-//
-// Inverted, a trigger has to be ARGUED safe to be treated as safe. These are
-// the ones that cannot carry a pull request's code at all:
-//
-//   - `push`, `create`, `delete`, `release`: a ref event in this repository,
-//     which requires write access.
-//   - `schedule`: no triggering party.
-//   - `workflow_dispatch`: requires write access, and has a guard of its own
-//     (TestADispatchableCredentialJobChecksOutTheDefaultBranch) because the
-//     dispatched ref is chosen.
-//   - `workflow_run`: has its own two hostile scenarios, which are stricter
-//     than this question.
-//
-// Everything else -- named today or added by GitHub next year -- counts as
-// reachable, and a credential-bearing job in such a workflow has to prove its
-// condition false.
-var triggersThatCannotCarryAPullRequestsCode = []string{
-	"push",
-	"create",
-	"delete",
-	"release",
-	"schedule",
-	"workflow_dispatch",
-	"workflow_run",
-}
-
-// reachableFromAPullRequest reports whether code an author of a pull request
-// wrote can run in this workflow.
-//
-// `workflow_call` counts, and not only because it is in no list above: a
-// reusable workflow runs the CALLER's tree at a ref the caller picks, and
-// nothing here can see whether that caller dispatches it from a pull request --
-// so it has to be assumed, which is also what makes a secret in such a workflow
-// the caller's secret to lose.
-func reachableFromAPullRequest(on yaml.Node) bool {
-	for _, trigger := range triggers(on) {
-		if !contains(triggersThatCannotCarryAPullRequestsCode, trigger) {
-			return true
-		}
-	}
-	return false
-}
+// There was a `triggersThatCannotCarryAPullRequestsCode` list here, inverted
+// from an earlier one so that a trigger had to be ARGUED safe rather than
+// merely absent from an enumeration. Both directions are gone: the question is
+// now asked per trigger by `scenariosForTrigger`, which BUILDS a hostile
+// situation for every trigger including ones GitHub ships next year, so there
+// is no list to be exempt from. The inverted list survived with zero callers
+// for one release, which is the thing this package most has to avoid: a
+// mechanism described in a comment and reached by nothing.
 
 // yamlOf returns a workflow file's raw text.
 func yamlOf(t *testing.T, path string) string {
@@ -415,21 +385,10 @@ func mustNotRunUnder(t *testing.T, gate string, s scenario) (ok bool, reason str
 		" (it turns on something no condition here fixes, which establishes nothing)"
 }
 
-// The rule, stated once: a job that can run code under review references no
-// secret, and a job that references a secret runs on a merged ref and checks
-// out nothing of the pull request.
-//
-// A step-level `if:` does not satisfy this. It decides whether that STEP runs,
-// not what the job is; the credential is still named in a job whose other
-// steps execute the author's code, and a reader has to reason about step order
-// to see whether it is safe. The split into two jobs is what makes it legible
-// reachabilityNote renders the reachability half of a failure, so a message
-// cannot read as "unreachable, therefore fine".
-func reachabilityNote(unreachable bool, why string) string {
-	if unreachable {
-		return "it is unreachable from every hostile situation, which does not " +
-			"establish what it runs when triggered legitimately"
-	}
+// reachabilityNote renders the reachability half of a refusal. It is only
+// reached when the condition was NOT provably false, so it says so rather than
+// leaving a reader to infer which half failed.
+func reachabilityNote(why string) string {
 	return "it is not provably unreachable: " + why
 }
 
@@ -447,14 +406,29 @@ func provablyUnreachable(t *testing.T, gate string, hostile []scenario) (bool, s
 	return true, ""
 }
 
+// The rule, stated once: a job that can run code under review references no
+// secret, and a job that references a secret is either unreachable from every
+// hostile situation its triggers admit or establishes which tree it executes.
+//
+// A step-level `if:` does not satisfy this. It decides whether that STEP runs,
+// not what the job is; the credential is still named in a job whose other
+// steps execute the author's code, and a reader has to reason about step order
+// to see whether it is safe. The split into two jobs is what makes it legible
 // as well as true.
+//
+// `credentialJobIsAccepted` asks all three conjuncts -- registered, judged,
+// recorded -- and the judgement is evaluated over the scenarios computed just
+// below. An earlier version of this guard computed those scenarios, asserted
+// the set was non-empty, discarded it, and handed the whole verdict to a file
+// digest; re-recording that digest then admitted a `contents: write` job
+// running a pull request's own tree.
 func TestNoSecretIsReachableFromAJobThatRunsCodeUnderReview(t *testing.T) {
 	paths, workflows := loadIsolatedWorkflows(t)
 
 	checked := 0
 	for _, path := range paths {
 		wf := workflows[path]
-		hostile, _ := hostileScenariosFor(wf.On)
+		hostile := hostileScenariosFor(wf.On)
 		require.NotEmpty(t, hostile,
 			"%s yielded no hostile scenario at all. Every trigger yields one now, so "+
 				"an empty set means the workflow declares no trigger this package can "+
@@ -759,24 +733,4 @@ jobs:
 		"the invoked script's CONTENTS must be read, or everything a job does "+
 			"inside a script is exempt from the guards above -- and this is the "+
 			"exact string the pull-request-ref guard looks for")
-}
-
-// reachableOnATagPush reports whether a job could run for a pushed tag --
-// either in a workflow this repository triggers on a push, or in a reusable one
-// a caller may invoke from its own tag push.
-func reachableOnATagPush(t *testing.T, wf isolatedWorkflow, job isolatedJob) bool {
-	t.Helper()
-
-	onATagEvent := false
-	for _, trigger := range triggers(wf.On) {
-		if trigger == "push" || trigger == "workflow_call" {
-			onATagEvent = true
-		}
-	}
-	if !onATagEvent {
-		return false
-	}
-	reached, err := canRunUnder(job.If, pushOfATag)
-	require.NoError(t, err)
-	return reached != triFalse
 }
