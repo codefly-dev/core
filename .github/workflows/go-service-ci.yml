@@ -55,6 +55,8 @@ jobs:
         if: inputs.setup-run != ''
         # Through the environment rather than interpolated into the script --
         # see the note on the same step in go-service-release.yml.
+        # internal/ciguard/run_interpolation_test.go holds this for every
+        # workflow here, credential-bearing or not.
         env:
           SETUP_RUN: ${{ inputs.setup-run }}
         run: eval "$SETUP_RUN"
