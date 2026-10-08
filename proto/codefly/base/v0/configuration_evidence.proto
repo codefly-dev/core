@@ -1,0 +1,52 @@
+syntax = "proto3";
+package codefly.base.v0;
+
+// ConfigurationOrigin identifies a supplying file after disk composition,
+// before invocation overrides, reference resolution and runtime injection.
+// It never contains configuration values, secret URIs or content hashes.
+message ConfigurationOrigin {
+  // group is the configuration group name.
+  string group = 1;
+  // key is the declared key; empty for a whole structured document.
+  string key = 2;
+  // file is the supplying path read by the resolver.
+  string file = 3;
+  // document distinguishes a whole structured document from a key.
+  bool document = 4;
+}
+
+// ConfigurationDecision records an executed precedence decision, not a complete
+// resolver audit or evidence of deployed configuration.
+message ConfigurationDecision {
+  // group is the affected configuration group.
+  string group = 1;
+  // module identifies the module whose default was replaced, when applicable.
+  string module = 2;
+  // workspace identifies the overriding workspace, when applicable.
+  string workspace = 3;
+  // imported_workspace identifies the replaced import, when applicable.
+  string imported_workspace = 4;
+  // profile identifies the overriding derived profile, when applicable.
+  string profile = 5;
+  // final is true only when the selected object survives final composition.
+  bool final = 6;
+  // rule names the executed key, document or whole-group replacement rule.
+  string rule = 7;
+  // selected identifies the sources selected at this decision.
+  repeated ConfigurationOrigin selected = 8;
+  // shadowed identifies the sources replaced at this decision.
+  repeated ConfigurationOrigin shadowed = 9;
+}
+
+// ConfigurationProfileSelection records one location's canonical profile choice.
+// Layers are derivation order, not per-file fallback candidates.
+message ConfigurationProfileSelection {
+  // location is the configuration location inspected by the resolver.
+  string location = 1;
+  // candidates are the requested profile names in fallback order.
+  repeated string candidates = 2;
+  // layers are actual directory paths read, base first.
+  repeated string layers = 3;
+  // found reports whether a requested profile directory was found.
+  bool found = 4;
+}

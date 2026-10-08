@@ -27,7 +27,7 @@ from codefly.base.v0 import service_pb2 as codefly_dot_base_dot_v0_dot_service__
 from codefly.base.v0 import agent_pb2 as codefly_dot_base_dot_v0_dot_agent__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1c\x63odefly/base/v0/module.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\x1a\x1d\x63odefly/base/v0/service.proto\x1a\x1b\x63odefly/base/v0/agent.proto\"\xb0\x03\n\x11InterfaceEndpoint\x12\x18\n\x07service\x18\x01 \x01(\tR\x07service\x12\x1a\n\x08\x65ndpoint\x18\x02 \x01(\tR\x08\x65ndpoint\x12\x37\n\nvisibility\x18\x03 \x01(\tB\x17\xbaH\x14r\x12R\x06publicR\x08internalR\nvisibility\x12G\n\rallow_modules\x18\x04 \x03(\tB\"\xbaH\x1f\x92\x01\x1c\"\x1ar\x18\x32\x11^(\\*|[a-z0-9-]+)$\xba\x01\x02--R\x0c\x61llowModules:\xe2\x01\xbaH\xde\x01\x1a\xdb\x01\n1interface_endpoint.allow_modules_match_visibility\x12\x46\x61n internal export names its allow_modules; a public export lists none\x1a^this.visibility == \'internal\' ? this.allow_modules.size() > 0 : this.allow_modules.size() == 0\"S\n\x0fModuleInterface\x12@\n\tendpoints\x18\x01 \x03(\x0b\x32\".codefly.base.v0.InterfaceEndpointR\tendpoints\"\x87\x02\n\x06Module\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12\x34\n\x08services\x18\x04 \x03(\x0b\x32\x18.codefly.base.v0.ServiceR\x08services\x12#\n\rservice_entry\x18\x05 \x01(\tR\x0cserviceEntry\x12>\n\tinterface\x18\x06 \x01(\x0b\x32 .codefly.base.v0.ModuleInterfaceR\tinterface\x12,\n\x05\x61gent\x18\x07 \x01(\x0b\x32\x16.codefly.base.v0.AgentR\x05\x61gent\"d\n\rManagedModule\x12\"\n\x02id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x02id\x12/\n\x06module\x18\x02 \x01(\x0b\x32\x17.codefly.base.v0.ModuleR\x06moduleb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1c\x63odefly/base/v0/module.proto\x12\x0f\x63odefly.base.v0\x1a\x1b\x62uf/validate/validate.proto\x1a\x1d\x63odefly/base/v0/service.proto\x1a\x1b\x63odefly/base/v0/agent.proto\"\x97\x01\n\x11InterfaceEndpoint\x12\x18\n\x07service\x18\x01 \x01(\tR\x07service\x12\x1a\n\x08\x65ndpoint\x18\x02 \x01(\tR\x08\x65ndpoint\x12\x37\n\nvisibility\x18\x03 \x01(\tB\x17\xbaH\x14r\x12R\x06publicR\x08internalR\nvisibilityJ\x04\x08\x04\x10\x05R\rallow_modules\"S\n\x0fModuleInterface\x12@\n\tendpoints\x18\x01 \x03(\x0b\x32\".codefly.base.v0.InterfaceEndpointR\tendpoints\"\x87\x02\n\x06Module\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\x12\x34\n\x08services\x18\x04 \x03(\x0b\x32\x18.codefly.base.v0.ServiceR\x08services\x12#\n\rservice_entry\x18\x05 \x01(\tR\x0cserviceEntry\x12>\n\tinterface\x18\x06 \x01(\x0b\x32 .codefly.base.v0.ModuleInterfaceR\tinterface\x12,\n\x05\x61gent\x18\x07 \x01(\x0b\x32\x16.codefly.base.v0.AgentR\x05\x61gent\"d\n\rManagedModule\x12\"\n\x02id\x18\x01 \x01(\tB\x12\xbaH\x0fr\r2\x0b^[a-z]{10}$R\x02id\x12/\n\x06module\x18\x02 \x01(\x0b\x32\x17.codefly.base.v0.ModuleR\x06moduleb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,18 +36,14 @@ if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_INTERFACEENDPOINT'].fields_by_name['visibility']._loaded_options = None
   _globals['_INTERFACEENDPOINT'].fields_by_name['visibility']._serialized_options = b'\272H\024r\022R\006publicR\010internal'
-  _globals['_INTERFACEENDPOINT'].fields_by_name['allow_modules']._loaded_options = None
-  _globals['_INTERFACEENDPOINT'].fields_by_name['allow_modules']._serialized_options = b'\272H\037\222\001\034\"\032r\0302\021^(\\*|[a-z0-9-]+)$\272\001\002--'
-  _globals['_INTERFACEENDPOINT']._loaded_options = None
-  _globals['_INTERFACEENDPOINT']._serialized_options = b'\272H\336\001\032\333\001\n1interface_endpoint.allow_modules_match_visibility\022Fan internal export names its allow_modules; a public export lists none\032^this.visibility == \'internal\' ? this.allow_modules.size() > 0 : this.allow_modules.size() == 0'
   _globals['_MANAGEDMODULE'].fields_by_name['id']._loaded_options = None
   _globals['_MANAGEDMODULE'].fields_by_name['id']._serialized_options = b'\272H\017r\r2\013^[a-z]{10}$'
   _globals['_INTERFACEENDPOINT']._serialized_start=139
-  _globals['_INTERFACEENDPOINT']._serialized_end=571
-  _globals['_MODULEINTERFACE']._serialized_start=573
-  _globals['_MODULEINTERFACE']._serialized_end=656
-  _globals['_MODULE']._serialized_start=659
-  _globals['_MODULE']._serialized_end=922
-  _globals['_MANAGEDMODULE']._serialized_start=924
-  _globals['_MANAGEDMODULE']._serialized_end=1024
+  _globals['_INTERFACEENDPOINT']._serialized_end=290
+  _globals['_MODULEINTERFACE']._serialized_start=292
+  _globals['_MODULEINTERFACE']._serialized_end=375
+  _globals['_MODULE']._serialized_start=378
+  _globals['_MODULE']._serialized_end=641
+  _globals['_MANAGEDMODULE']._serialized_start=643
+  _globals['_MANAGEDMODULE']._serialized_end=743
 # @@protoc_insertion_point(module_scope)

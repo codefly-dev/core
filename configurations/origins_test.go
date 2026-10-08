@@ -69,7 +69,7 @@ func TestConfigurationOriginsFollowWholeDocumentReplacement(t *testing.T) {
 	writeConfigurationFile(t, dir, "configurations/staging/policy.yaml", "mode: private-override\n")
 	provided, err := configurations.ReadWorkspaceConfigurations(ctx, loadOriginWorkspace(t, ctx, dir), &resources.Environment{Name: "staging", ConfigurationProfile: "staging"})
 	require.NoError(t, err)
-	require.Equal(t, []configurations.ConfigurationOrigin{{Group: "policy", File: filepath.Join(dir, "configurations/staging/policy.yaml"), Document: true}}, provided.Origins)
+	require.Equal(t, []*configurations.ConfigurationOrigin{{Group: "policy", File: filepath.Join(dir, "configurations/staging/policy.yaml"), Document: true}}, provided.Origins)
 	require.Len(t, provided.Decisions, 1)
 	require.Equal(t, "profile-document-replaces-base-document", provided.Decisions[0].Rule)
 	require.True(t, provided.Decisions[0].Final)

@@ -89,10 +89,10 @@ func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspa
 // composed modules ship. See ReadWorkspaceConfigurations.
 type WorkspaceConfigurations struct {
 	// Origins identify final pre-invocation supplying files, not runtime values.
-	Origins           []ConfigurationOrigin
-	ProfileSelections []ConfigurationProfileSelection
+	Origins           []*ConfigurationOrigin
+	ProfileSelections []*ConfigurationProfileSelection
 	// Decisions records executed workspace/import and module-default replacement.
-	Decisions []ConfigurationDecision
+	Decisions []*ConfigurationDecision
 	// Infos holds every provided configuration in provisioning order: the
 	// workspace's own first, then the composed modules' contributions. A group
 	// the workspace overrides keeps the position the workspace declared it in,

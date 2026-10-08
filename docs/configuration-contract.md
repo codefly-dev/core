@@ -83,6 +83,9 @@ See [the boundary and migration decision](core-cli-boundary.md).
 ### Source origins for workspace diagnostics
 
 `ReadWorkspaceConfigurations` returns value-free `Origins` alongside `Infos`.
+The public evidence types are generated `codefly.base.v0` protobuf messages
+from `proto/codefly/base/v0/configuration_evidence.proto`; private trace state
+never crosses that boundary.
 Each origin identifies a final group/key's supplying file; structured documents
 have `Document=true` and an empty key. Object identity preserves equal-valued
 overrides through profile selection and composition, including retained defaults
