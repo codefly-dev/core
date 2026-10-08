@@ -644,6 +644,25 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 		}
 	}
 	if workspace.Layout == LayoutKindFlat {
+		// A flat workspace IS one module, named after itself, so the derived
+		// list replaces whatever was declared. REFUSE a declared list rather
+		// than overwriting it: the two disagree about what the composition
+		// carries, and since core#721 every judged edge asks exactly that, so
+		// a silent replacement answers a question with a module nobody wrote.
+		// A reader who declared `modules:` here and watched judging refuse an
+		// edge between modules that are plainly listed has no way to see why.
+		if len(workspace.Modules) > 0 {
+			declared := make([]string, 0, len(workspace.Modules))
+			for _, ref := range workspace.Modules {
+				if ref != nil {
+					declared = append(declared, ref.Name)
+				}
+			}
+			if len(declared) != 1 || !ReferenceMatch(declared[0], workspace.Name) {
+				return w.NewError("workspace %q declares layout %q and modules [%s]: a flat workspace is one module named after itself, so it may declare no module list, or only %q; use layout %q to carry modules of other names",
+					workspace.Name, LayoutKindFlat, strings.Join(declared, ", "), workspace.Name, LayoutKindModules)
+			}
+		}
 		workspace.Modules = []*ModuleReference{{Name: workspace.Name}}
 
 		// Backward compat: migrate from module.codefly.yaml if it exists
