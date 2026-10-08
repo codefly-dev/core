@@ -1,7 +1,7 @@
 # REJECTED. The backend total is written in hexadecimal. yaml reads 0x3080 as
 # 12416 and the totals agree, so with this rule gone the document is accepted;
 # a count has one spelling, decimal digits, as this package writes it.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -63,6 +63,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

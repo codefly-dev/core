@@ -3,7 +3,7 @@
 # inherits nothing, the alias included; the host refuses the collision before
 # applying the generation, and a renderer running the same check refuses it
 # where it was authored.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-02
 generation: 1

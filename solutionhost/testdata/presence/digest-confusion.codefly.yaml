@@ -12,7 +12,7 @@
 # different thing and the reason the refusal is readable at all. Left to run,
 # the symptom would be a credential refusal on a healthy pod with no stated
 # cause.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: module
 binding: gamma-region-a-03
 generation: 1

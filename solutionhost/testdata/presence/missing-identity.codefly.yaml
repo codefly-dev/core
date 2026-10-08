@@ -7,7 +7,7 @@
 # verifying a name it was handed against a name it was handed, so the document
 # names the thing that is checkable and admission refuses a presence entry
 # whose identity is absent.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: module
 binding: gamma-region-a-02
 generation: 1

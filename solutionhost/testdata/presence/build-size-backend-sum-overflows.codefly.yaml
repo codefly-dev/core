@@ -2,7 +2,7 @@
 # stated backend total is the wrapped sum, zero. A rule that compared the wrapped
 # sum with the total would agree by accident, so the sum fitting is a rule of
 # its own, refused before the comparison.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -64,6 +64,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

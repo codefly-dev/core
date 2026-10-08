@@ -33,6 +33,17 @@ const (
 	MergeKey
 )
 
+// Kinds is every rule Check reports, so a reader that must hold one fixture
+// per rule drives off this list rather than hardcoding a bound of its own in
+// another package, where a rule added here would not reach it. It is
+// maintained with the block above — a rule added there is added here, in the
+// same edit — and that is the whole of the guarantee: a Kind left out of this
+// list is a rule no table built on it asks about. It lives beside the
+// constants so the two are one screen apart.
+func Kinds() []DefectKind {
+	return []DefectKind{DuplicateKey, NullNode, KeyNotAName, FractionalNumber, MergeKey}
+}
+
 // Defect is what a document-level check found: which rule refuses it, where in
 // the document, and the text a refusal names.
 type Defect struct {
@@ -153,7 +164,12 @@ func (w *walker) walk(node *yaml.Node, at string, depth int) Defect {
 			}
 			key = resolved
 			if key.Kind != yaml.ScalarNode {
-				return Defect{Kind: KeyNotAName, Path: Where(at)}
+				// A sequence or a mapping written as a key (`? [a]`) has no
+				// text of its own, so a detail taken from its value named
+				// nothing: the refusal read `a key that is not a name ("")`
+				// and left the author to find it. What it IS, and where, is
+				// the detail — Where() names the enclosing mapping only.
+				return Defect{Kind: KeyNotAName, Path: Where(at), Detail: fmt.Sprintf("%s at line %d", key.Tag, key.Line)}
 			}
 			// A name is a STRING, written as one: the key's tag is !!str,
 			// plain or quoted. Any other spelling of a key is refused, because

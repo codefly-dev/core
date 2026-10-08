@@ -30,6 +30,16 @@ func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, string(document.ApprovedBuild))
 	require.Len(t, document.Principals, 2)
 
+	// What the SUBJECT module declares about itself: two queues and two audit
+	// namespaces, which v1 could not carry at all, and the module's own
+	// permission vocabulary.
+	require.Equal(t, []string{"reconcile.default", "report.batch"}, document.Queues)
+	require.Equal(t, []string{solutionhost.FixtureBindingID, "alpha-region-a-audit"}, document.Namespaces)
+	require.Equal(t, []solutionhost.ScopeCeiling{
+		{ResourceKind: "record", Actions: []string{"read", "write"}},
+		{ResourceKind: "summary", Actions: []string{"read"}},
+	}, document.ScopeCeilings)
+
 	// Lookup is exact and by ID. There is deliberately no variant that searches
 	// for a binding matching a set of scopes — that search is the thing the
 	// sealed-ID credential contract exists to remove.
@@ -41,6 +51,139 @@ func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 
 	_, _, held = document.Binding("binding:alpha:administer")
 	require.False(t, held)
+
+	// The key a host installs the binding under and the method its lookup
+	// discovers by are part of the unit, so they come back with it.
+	read, _, held := document.Binding("binding:alpha:read")
+	require.True(t, held)
+	require.Equal(t, "alpha-read", read.BindingKey)
+	require.Equal(t, "directory", read.LookupMethod)
+}
+
+// The three subject declarations are REQUIRED and each is bounded by the
+// envelope element by element. That pair is what lets the document carry a
+// module that owns several queues without any of it becoming a wildcard: a
+// list cannot say "any", because every element has to be one the ceiling
+// already holds.
+func TestTheSubjectsDeclarationsAreBoundedElementByElement(t *testing.T) {
+	document := validAuthority(t)
+	require.NoError(t, document.ValidateAgainst(solutionhost.FixtureEnvelope()))
+
+	for name, mutate := range map[string]func(*solutionhost.AuthorityDocument){
+		"a queue the ceiling does not allow": func(d *solutionhost.AuthorityDocument) {
+			d.Queues = append(d.Queues, "payments.priority")
+		},
+		"a namespace the ceiling does not allow": func(d *solutionhost.AuthorityDocument) {
+			d.Namespaces = append(d.Namespaces, "beta-region-a-audit")
+		},
+		"a ceiling on a kind the envelope does not hold": func(d *solutionhost.AuthorityDocument) {
+			d.ScopeCeilings = append(d.ScopeCeilings,
+				solutionhost.ScopeCeiling{ResourceKind: "ledger", Actions: []string{"read"}})
+		},
+		// A ceiling is held whole. Widening it is the obvious claim; NARROWING
+		// it is refused too, for the reason a narrower scope is not granted by
+		// a wider one — whoever writes the predicate that admits it decides
+		// what a ceiling means.
+		"a wider set of actions on a kind the envelope holds": func(d *solutionhost.AuthorityDocument) {
+			d.ScopeCeilings[1].Actions = []string{"read", "write"}
+		},
+		"a narrower set of actions on a kind the envelope holds": func(d *solutionhost.AuthorityDocument) {
+			d.ScopeCeilings[0].Actions = []string{"read"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claiming := validAuthority(t)
+			mutate(claiming)
+			require.ErrorIs(t, claiming.ValidateAgainst(solutionhost.FixtureEnvelope()),
+				solutionhost.ErrOutsideEnvelope)
+		})
+	}
+
+	// The order a ceiling's actions were written in is not part of what it
+	// permits: the canonical encoding sorts them, and an envelope is Go a
+	// caller builds rather than a document whose order anything pinned.
+	reordered := validAuthority(t)
+	reordered.ScopeCeilings[0].Actions = []string{"write", "read"}
+	require.NoError(t, reordered.ValidateAgainst(solutionhost.FixtureEnvelope()))
+}
+
+// A declaration of none is written out, and that is what makes the required
+// field safe: there is no absent form a reader could take for "the module owns
+// nothing". A renderer that dropped the list is refused instead of believed.
+func TestADeclarationOfNoneIsWrittenOutRatherThanOmitted(t *testing.T) {
+	none := validAuthority(t)
+	none.Queues, none.Namespaces = []string{}, []string{}
+	none.ScopeCeilings = []solutionhost.ScopeCeiling{}
+	require.NoError(t, none.Validate(), "a module that owns nothing is a real case")
+	// Claiming nothing is inside every ceiling, including one that allows
+	// nothing — the same property a tombstone has.
+	bare := solutionhost.FixtureEnvelope()
+	bare.Queues, bare.Namespaces, bare.ScopeCeilings = nil, nil, nil
+	require.NoError(t, none.ValidateAgainst(bare))
+
+	for name, mutate := range map[string]func(*solutionhost.AuthorityDocument){
+		"queues":         func(d *solutionhost.AuthorityDocument) { d.Queues = nil },
+		"namespaces":     func(d *solutionhost.AuthorityDocument) { d.Namespaces = nil },
+		"scope_ceilings": func(d *solutionhost.AuthorityDocument) { d.ScopeCeilings = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			dropped := validAuthority(t)
+			mutate(dropped)
+			err := dropped.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.Contains(t, err.Error(), "declares no "+name)
+		})
+	}
+}
+
+// A withdrawal's canonical bytes are what a signature covers and what
+// AuthorityFromVerified reads back, so the three empty declarations must
+// survive that round trip. A nil written as JSON null would not: the reader
+// refuses an explicit null, so a tombstone would sign and then fail to verify.
+func TestAWithdrawalsEmptyDeclarationsSurviveTheSignedRoundTrip(t *testing.T) {
+	tombstone, err := solutionhost.ParseAuthority(authority(t, "tombstone"))
+	require.NoError(t, err)
+
+	canonical, err := tombstone.CanonicalBytes()
+	require.NoError(t, err)
+	require.Contains(t, string(canonical), `"queues":[]`)
+	require.NotContains(t, string(canonical), "null")
+
+	reparsed, err := solutionhost.ParseAuthority(canonical)
+	require.NoError(t, err)
+	require.Equal(t, tombstone, reparsed)
+}
+
+// The binding key and the lookup method live INSIDE the unit of authority, so
+// the exact element inclusion that bounds the audience and the scope bounds
+// them too, in both directions — which is the same argument the optional queue
+// rests on, and the reason neither needed a containment rule of its own.
+func TestABindingsKeyAndLookupMethodAreBoundedWithIt(t *testing.T) {
+	bare := solutionhost.AuthorityBinding{
+		ID: "binding:alpha:keyless", Revision: 1,
+		Audience: "https://prod.region-a.example/operations",
+		Scope:    "record:read",
+	}
+	keyed := bare
+	keyed.BindingKey, keyed.LookupMethod = "alpha-keyless", "directory"
+
+	for name, pair := range map[string]struct{ document, envelope solutionhost.AuthorityBinding }{
+		"a key the envelope does not hold":  {document: keyed, envelope: bare},
+		"no key where the envelope has one": {document: bare, envelope: keyed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := validAuthority(t)
+			document.Principals = []solutionhost.PrincipalAuthority{{
+				Principal: "principal:operator",
+				Bindings:  []solutionhost.AuthorityBinding{pair.document},
+			}}
+			envelope := solutionhost.FixtureEnvelope()
+			envelope.Grants = []solutionhost.EnvelopeGrant{
+				{Principal: "principal:operator", Binding: pair.envelope},
+			}
+			require.ErrorIs(t, document.ValidateAgainst(envelope), solutionhost.ErrOutsideEnvelope)
+		})
+	}
 }
 
 // activationOf builds a request with the current envelope and nothing applied
@@ -488,7 +631,12 @@ func TestAuthorityCanonicalEncodingIgnoresDeclarationOrder(t *testing.T) {
 // Pinned for the same reason the presence digests are: this encoding is what a
 // signature covers, so moving it invalidates every signed authority document
 // ever delivered.
-const authorityFixtureDigest = "sha256:316846822e7a8b5703cd3ac87fe815d782bbf02e98355e7865bfda55c2f89b58"
+//
+// It moved once, with the v1 → v2 schema step: the document itself changed, so
+// every signature over a v1 document is stale by construction and the schema
+// string inside the canonical bytes is what says so. That is the migration,
+// and it is the only reason this may move.
+const authorityFixtureDigest = "sha256:d2db00ee32ecbddfda1b9781b8061a6526c048428085a62c4a27248f0008e770"
 
 // A module that owns no queue is a real case, so Queue and Namespace are
 // optional. Absence means this binding grants NO authority on that dimension —
@@ -897,10 +1045,13 @@ func TestAWithdrawnAuthorityCannotBeRenamedBackIntoLife(t *testing.T) {
 	withdrawnDocument := validAuthority(t)
 	withdrawnDocument.Removed = true
 	withdrawnDocument.Generation = 3
-	// A withdrawal claims nothing: no principals and no approved build.
+	// A withdrawal claims nothing: no principals, no approved build, and
+	// nothing about the module it withdraws.
 	withdrawnDocument.Principals = nil
 	withdrawnDocument.ApprovedBuild = ""
 	withdrawnDocument.EffectiveFrom = 0
+	withdrawnDocument.Queues, withdrawnDocument.Namespaces = []string{}, []string{}
+	withdrawnDocument.ScopeCeilings = []solutionhost.ScopeCeiling{}
 	withdrawn, err := solutionhost.AppliedAuthorityFrom(withdrawnDocument)
 	require.NoError(t, err)
 
@@ -944,6 +1095,8 @@ func TestCoreReadsTheAppliedStateItselfSoAbsenceCannotBeAsserted(t *testing.T) {
 	withdrawn.Principals = nil
 	withdrawn.ApprovedBuild = ""
 	withdrawn.EffectiveFrom = 0
+	withdrawn.Queues, withdrawn.Namespaces = []string{}, []string{}
+	withdrawn.ScopeCeilings = []solutionhost.ScopeCeiling{}
 	record, err := solutionhost.AppliedAuthorityFrom(withdrawn)
 	require.NoError(t, err)
 

@@ -1,7 +1,7 @@
 # REJECTED. The accepted build-size document followed by a second YAML
 # document in the same file. A delivery document is one document; a reader that
 # took the first and ignored the rest would sign something other than the file.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -63,6 +63,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

@@ -56,28 +56,39 @@ interface:
 // its own consumers.
 func TestInterfaceEntryIsJudgedOnItsOwn(t *testing.T) {
 	ctx := context.Background()
-	for name, tc := range map[string]struct{ entry, says string }{
+	// `is` names the authority that refuses the entry. Most are refused by the
+	// endpoint model, which is the entry's own judgement. A property of the
+	// DOCUMENT is refused earlier, by the manifest's shared node checks, which
+	// name no field and so carry their own sentinel -- a generic check that
+	// wrapped the endpoint's sentinel would be claiming an authority it does
+	// not have, and would claim it for a null under `vendored` too.
+	for name, tc := range map[string]struct {
+		entry, says string
+		is          error
+	}{
 		// The forbidden key is refused by PRESENCE, before decoding: any value
 		// and any spelling.
-		"an internal allow-list": {"          visibility: internal\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
-		"a wildcard":             {"          visibility: internal\n          allow-modules: [\"*\"]\n", `authors allow-modules (key "allow-modules")`},
-		"an empty list":          {"          visibility: internal\n          allow-modules: []\n", `authors allow-modules (key "allow-modules")`},
+		"an internal allow-list": {"          visibility: internal\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`, ErrInvalidEndpointDeclaration},
+		"a wildcard":             {"          visibility: internal\n          allow-modules: [\"*\"]\n", `authors allow-modules (key "allow-modules")`, ErrInvalidEndpointDeclaration},
+		"an empty list":          {"          visibility: internal\n          allow-modules: []\n", `authors allow-modules (key "allow-modules")`, ErrInvalidEndpointDeclaration},
 		// A null is refused by the manifest's shared node check before the
 		// entry's own judgement is reached: no field of a manifest takes one.
-		"null":                       {"          visibility: internal\n          allow-modules: null\n", "explicit null at interface.endpoints[0].allow-modules"},
-		"the underscore spelling":    {"          visibility: internal\n          allow_modules: [platform]\n", `authors allow-modules (key "allow_modules")`},
-		"the camel spelling":         {"          visibility: internal\n          allowModules: [platform]\n", `authors allow-modules (key "allowModules")`},
-		"public with an allow-list":  {"          visibility: public\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
-		"an undecorated allow-list":  {"          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`},
-		"an unknown key":             {"          visibilty: public\n", `declares unknown key "visibilty"`},
-		"the former module spelling": {"          visibility: module\n", "visibility"},
-		"a private export":           {"          visibility: private\n", "visibility"},
+		"null":                       {"          visibility: internal\n          allow-modules: null\n", "explicit null at interface.endpoints[0].allow-modules", ErrInvalidManifestWireForm},
+		"the underscore spelling":    {"          visibility: internal\n          allow_modules: [platform]\n", `authors allow-modules (key "allow_modules")`, ErrInvalidEndpointDeclaration},
+		"the camel spelling":         {"          visibility: internal\n          allowModules: [platform]\n", `authors allow-modules (key "allowModules")`, ErrInvalidEndpointDeclaration},
+		"public with an allow-list":  {"          visibility: public\n          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`, ErrInvalidEndpointDeclaration},
+		"an undecorated allow-list":  {"          allow-modules: [platform]\n", `authors allow-modules (key "allow-modules")`, ErrInvalidEndpointDeclaration},
+		"an unknown key":             {"          visibilty: public\n", `declares unknown key "visibilty"`, ErrInvalidEndpointDeclaration},
+		"the former module spelling": {"          visibility: module\n", "visibility", ErrInvalidEndpointDeclaration},
+		"a private export":           {"          visibility: private\n", "visibility", ErrInvalidEndpointDeclaration},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := writeInterfaceFixture(t, "kind: module\nname: billing\nservices:\n    - name: accounts\ninterface:\n    endpoints:\n        - service: accounts\n          endpoint: grpc\n"+tc.entry)
 			_, err := LoadModuleFromDir(ctx, dir)
 			require.ErrorContains(t, err, tc.says)
-			require.ErrorIs(t, err, ErrInvalidEndpointDeclaration, "an interface entry the model refuses is an invalid declaration, by the one sentinel")
+			require.NotNil(t, tc.is, "every case names the authority that refuses it")
+			require.ErrorIs(t, err, tc.is,
+				"an entry the model refuses is an invalid declaration, and a document the manifest refuses is an invalid wire form -- each by its own sentinel, and every case by one")
 		})
 	}
 	for _, spelling := range []string{"module", "private", "external"} {

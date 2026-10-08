@@ -84,7 +84,7 @@ reader drops one, or when its decoder quietly repairs a count.
 
 | fixture | outcome | the rule it pins |
 | --- | --- | --- |
-| `valid` | accepted, `DecisionCurrent` | a complete v2 document for a solution instance, and the generation `FixtureHost` has applied |
+| `valid` | accepted, `DecisionCurrent` | a complete v3 document for a solution instance, and the generation `FixtureHost` has applied |
 | `module-presence` | accepted, `DecisionApply` | presence covers modules too, and the kind is declared rather than inferred |
 | `tombstone` | accepted, `DecisionApply` | removal is a generation, under the domain the binding was applied with |
 | `tombstone-foreign-domain` | rejected | the same withdrawal from a delivery that speaks for another domain; the generation is *newer*, and ownership is what refuses it |
@@ -94,10 +94,14 @@ reader drops one, or when its decoder quietly repairs a count.
 | `wrong-kind` | rejected | the kind is neither `solution` nor `module`, and is not guessed |
 | `missing-identity` | rejected | no SPIFFE ID, so nothing a host could verify an SVID against |
 | `digest-confusion` | rejected | an image digest and a rendered digest are the same string |
+| `endpoint-exposure-omitted` | rejected | a public endpoint stating no exposure; reach is not addressing, so nothing is left to read for whether an address was allocated |
+| `endpoint-exposure-beyond-reach` | rejected | `exposure: public` on an `internal` endpoint; an outward address is declared only within the reach |
+| `endpoint-exposure-unknown` | rejected | `exposure: ingress`; addressing has one vocabulary, and a route with hostnames is the deployment's ingress |
 | `superseded-schema` | rejected, rule `schema` | a v1 document; there is no v1 reader, and the refusal is `ErrSchema` rather than `ErrInvalid` |
+| `superseded-schema-v2` | rejected, rule `schema` | a complete v2 document: sound on its own terms, and with no field for whether its public endpoint was addressed. v2 is what delivery repositories hold, so this is the cutover a consumer pins |
 | `not-yaml` | rejected, rule `well-formed` | not YAML at all; syntax is a precondition of reading anything |
 | `two-documents` | rejected, rule `one-document` | a second document in the file; a reader that took the first would sign something other than the file |
-| `build-size` | accepted, `DecisionApply` | the `valid` document at generation 5 carrying `build_size`: lines per language, backend and frontend, the totals, and the vendored paths the manifest declared and the producer excluded. The section is **optional** in v2 — every other presence fixture is an older producer's document without it — and held to the build-size rules when present |
+| `build-size` | accepted, `DecisionApply` | the `valid` document at generation 5 carrying `build_size`: lines per language, backend and frontend, the totals, and the vendored paths the manifest declared and the producer excluded. The section is **optional** in v3 — every other presence fixture is an older producer's document without it — and held to the build-size rules when present |
 | `build-size-languages-omitted` | rejected, rule `build-size-languages-declared` | no `languages` list; an absent list and "nothing was counted" must not look the same |
 | `build-size-unknown-language` | rejected, rule `build-size-language-known` | a row names `cobol`; the language set is closed and read from core |
 | `build-size-language-twice` | rejected, rule `build-size-language-unique` | Go in two rows; one language is one row carrying both sides |

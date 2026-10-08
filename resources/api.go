@@ -27,7 +27,18 @@ func NewAPI(_ context.Context, endpoint *Endpoint, api *basev0.API) (*basev0.End
 		Name:       endpoint.Name,
 		Api:        APIString(api),
 		ApiDetails: api,
+		// All THREE axes, because an endpoint is not described by reach alone:
+		// visibility is who may call, exposure is whether an address reachable
+		// from outside the workspace is asked for, and location is where the
+		// endpoint lives. Carrying only visibility produced a public endpoint
+		// with no exposure — a declaration this package's own validator
+		// refuses — so an agent that materialized its endpoint here emitted
+		// one it could not then load, and the refusal named the module's
+		// manifest rather than this conversion. Light() already carries all
+		// three; this did not.
 		Visibility: endpoint.Visibility,
+		Exposure:   endpoint.Exposure,
+		Location:   endpoint.Location,
 	}, nil
 }
 

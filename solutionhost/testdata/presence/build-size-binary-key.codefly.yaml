@@ -3,7 +3,7 @@
 # looking for the key by its written text never sees it. So with this rule gone
 # the row's octal count is repaired to ten, the totals agree, and the document
 # is ACCEPTED. A key is a name only under the !!str tag.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -65,6 +65,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 !!binary YnVpbGRfc2l6ZQ==:
   languages:
     - language: go

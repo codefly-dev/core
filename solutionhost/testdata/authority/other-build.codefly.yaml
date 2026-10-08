@@ -17,6 +17,20 @@ ownership_domain: alpha
 envelope_revision: 7
 approved_build: sha256:4d74ea6aba3e66053c0ad32dfe5dc033d7556197f39f6db4f72270b1f63d8218
 effective_from: 4
+queues:
+  - reconcile.default
+  - report.batch
+namespaces:
+  - alpha-region-a-01
+  - alpha-region-a-audit
+scope_ceilings:
+  - resource_kind: record
+    actions:
+      - read
+      - write
+  - resource_kind: summary
+    actions:
+      - read
 principals:
   - principal: principal:operator
     bindings:

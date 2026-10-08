@@ -68,10 +68,26 @@ func TestEveryFieldIsTaggedForBothEncodings(t *testing.T) {
 	walk(t, reflect.TypeOf(solutionhost.SolutionHostBinding{}), "SolutionHostBinding", map[reflect.Type]bool{})
 }
 
-// v1 is the only schema this Core reads, and the constant is the contract three
-// repositories pin to. Changing it is a version step, never an edit.
+// Each constant is the one schema this Core reads for its document, and the
+// contract three repositories pin to. Changing one is a version step, never an
+// edit.
+//
+// ONE version number across the three, stepped as a family. The names stay
+// distinct because the string is inside the signed canonical encoding and is
+// what binds a signature to the document TYPE — collapsing them would let an
+// authority document be presented as a presence document under a signature
+// that verifies. The NUMBER is shared so there is one version to pin, cut and
+// reason about rather than a per-document ladder, and so a reader can never be
+// half-upgraded across the family.
 func TestSchemaConstantIsTheVersionedName(t *testing.T) {
-	require.Equal(t, "codefly/solution-host-binding/v2", solutionhost.SchemaPresenceV2)
+	// Held explicitly: three names, one version.
+	for _, schema := range []string{
+		solutionhost.SchemaPresenceV1, solutionhost.SchemaAuthorityV1, solutionhost.SchemaSignedV1,
+	} {
+		require.True(t, strings.HasSuffix(schema, "/v1"), "schema %q is not at the family version", schema)
+	}
+
+	require.Equal(t, "codefly/solution-host-binding/v1", solutionhost.SchemaPresenceV1)
 	require.Equal(t, "codefly/solution-authority/v1", solutionhost.SchemaAuthorityV1)
 	require.Equal(t, "codefly/solution-host-signed/v1", solutionhost.SchemaSignedV1)
 	require.Equal(t, "solution-host-binding.codefly.yaml", solutionhost.FileName)
@@ -128,4 +144,62 @@ func TestShippedFixtureBytesArePinned(t *testing.T) {
 
 // shippedFixtureDigest covers every document under testdata, by path and
 // content. See TestShippedFixtureBytesArePinned.
-const shippedFixtureDigest = "sha256:f411bf41209f5202cbbd7475b502251935f6b88870d14da1eb0dee2c8da9dca4"
+const shippedFixtureDigest = "sha256:437b7c5959ce840083ac742d96e4fd8cf4dbdf15aae7c0db5e140752db21981e"
+
+// The family version is v1, which is a string earlier shapes of these
+// documents also used. That is safe, and this is what makes it checkable
+// rather than asserted: bytes written against an earlier shape reach the
+// current rules instead of the schema check, and every one of them is REFUSED.
+//
+// What the reuse costs is the quality of one diagnosis — `ErrInvalid`
+// ("malformed") where a distinct string would have said `ErrSchema` ("older
+// than me, re-render"). It does not cost admission, which is the property that
+// would matter.
+func TestBytesFromAnEarlierShapeAreRefusedRatherThanAdmitted(t *testing.T) {
+	// A presence document as the earliest shape wrote one: no release digest,
+	// no ownership domain, and a workload with no identity to present.
+	earlierPresence := []byte(`schema: codefly/solution-host-binding/v1
+kind: solution
+binding: alpha-region-a-01
+generation: 4
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+release:
+  publisher: example
+  name: alpha
+  version: 1.4.0
+workload:
+  image: {repository: example/alpha, tag: "1.4.0"}
+`)
+	_, err := solutionhost.Parse(earlierPresence)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, solutionhost.ErrSchema, "it declares the string this Core reads")
+
+	// An authority document as the earlier shape wrote one: one queue and one
+	// namespace on the unit, and nothing the subject declares about itself.
+	earlierAuthority := []byte(`schema: codefly/solution-authority/v1
+authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
+generation: 2
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+ownership_domain: alpha
+envelope_revision: 7
+approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+effective_from: 4
+principals:
+  - principal: principal:operator
+    bindings:
+      - id: binding:alpha:reconcile
+        revision: 3
+        audience: https://prod.region-a.example/operations
+        scope: reconcile
+        queue: reconcile.default
+        namespace: alpha-region-a-01
+`)
+	_, err = solutionhost.ParseAuthority(earlierAuthority)
+	require.ErrorIs(t, err, solutionhost.ErrInvalid)
+	require.Contains(t, err.Error(), "declares no queues")
+}

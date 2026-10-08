@@ -2,7 +2,7 @@
 # one spelling — path.Clean's — in the manifest and in the document that
 # repeats it, so "web/src/clients/" and "web/src/clients" cannot read as two
 # different exclusions of one directory.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -64,6 +64,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

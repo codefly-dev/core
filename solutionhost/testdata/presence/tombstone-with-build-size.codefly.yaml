@@ -1,7 +1,7 @@
 # REJECTED. A tombstone that still carries a build size. A removed generation
 # declares no artifacts, no workloads and no size: a size describes a build,
 # and this generation declares that there is none.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

@@ -3,7 +3,7 @@
 # for it: with this rule gone no node rule runs, the typed decoder merges the
 # section in, a signed count is read from "+7", an omitted count becomes zero,
 # and the document is ACCEPTED.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -65,6 +65,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 <<:
   build_size:
     languages:

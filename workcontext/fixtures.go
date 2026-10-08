@@ -218,6 +218,22 @@ type Fixture struct {
 	// fixture and fails. Without the mark, a kit run against an Authenticator
 	// would have had to be lenient about exactly the case that matters.
 	NeedsIssuer bool
+
+	// NeedsLiveState marks a fixture whose stated Outcome is reachable ONLY
+	// against the issuer's live state — the authorization revision, the
+	// sealed installation's revision, a principal's epoch, the approved build,
+	// an operation binding's revision, incarnation, withdrawal or grant
+	// association. Every such refusal is ErrRevoked, and every ErrRevoked
+	// refusal is one of these; a test holds the two sets equal.
+	//
+	// It exists so the kit can certify the forwarding hop's entrypoint
+	// without certifying a pretence. A hop holds no live state, so for a
+	// fixture marked here Inspect must ACCEPT — forward it, and leave the
+	// refusal to the callee that holds the state. An inspector that refused
+	// one would be claiming a check it cannot make, which is the mirror image
+	// of the authenticator's downgrade: not accepting what it never checked,
+	// but refusing on what it never read. The kit catches both directions.
+	NeedsLiveState bool
 }
 
 // FixtureKeyPair returns the fixture signing key. THE PRIVATE KEY IS PUBLIC —
@@ -680,7 +696,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		}
 		fixtures = append(fixtures, Fixture{
 			Name: moved.name, Form: FormSession, Token: token,
-			Outcome: OutcomeRejected, Err: ErrRevoked, Reason: moved.rule,
+			Outcome: OutcomeRejected, Err: ErrRevoked, NeedsLiveState: true, Reason: moved.rule,
 		})
 	}
 
@@ -713,7 +729,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "execution-missing", Form: FormSession, Token: noExecution,
-		Outcome: OutcomeRejected, Err: ErrRevoked,
+		Outcome: OutcomeRejected, Err: ErrRevoked, NeedsLiveState: true,
 		Reason: "carries no execution, and the issuer approves a build for the principal exercising it",
 	})
 
@@ -753,7 +769,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "wrong-binding-revision", Form: FormOperation, Token: wrongBinding,
-		Outcome: OutcomeRejected, Err: ErrRevoked,
+		Outcome: OutcomeRejected, Err: ErrRevoked, NeedsLiveState: true,
 		Reason: "sealed to a binding at a revision the issuer does not hold; the binding exists, so a verifier " +
 			"that searched for a binding fitting the capability's scopes would accept it",
 	})
@@ -828,6 +844,25 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		Reason: "minted for another audience; a capability is not a credential outside the one it names",
 	})
 
+	// Addressed to NO audience. The schema refuses it (min_len 1), so every
+	// entrypoint refuses it in the decode path, before any comparison — which
+	// is the property that matters at a forwarding hop: a host's gateway once
+	// held an empty-string sentinel meaning "do not check the audience", and a
+	// capability minted with an empty audience would have matched it. There is
+	// no such capability, and this fixture is what holds that.
+	noAudience := cloneClaims(session.Context())
+	noAudience.Audience = ""
+	noAudienceToken, err := resign(noAudience)
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, Fixture{
+		Name: "empty-audience", Form: FormSession, Token: noAudienceToken,
+		Outcome: OutcomeRejected, Err: ErrInvalid, Message: "audience",
+		Reason: "addressed to no audience at all; the schema refuses it before any entrypoint compares it to anything, " +
+			"so an empty expectation at a hop can never be matched by a capability that names nothing",
+	})
+
 	// Signed by a key the verifier does not hold.
 	foreignKeyToken, err := fixtureForeignKey(session.Context())
 	if err != nil {
@@ -874,7 +909,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "stale-actor-epoch", Form: FormDelegated, Token: staleActorToken,
-		Outcome: OutcomeRejected, Err: ErrRevoked,
+		Outcome: OutcomeRejected, Err: ErrRevoked, NeedsLiveState: true,
 		Reason: "the delegated actor's epoch has moved while the owner's seal is current; without a per-actor epoch " +
 			"the only lever for a compromised actor is the tenant's authorization revision, which cuts off every " +
 			"capability of the tenant",
@@ -947,7 +982,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		}
 		fixtures = append(fixtures, Fixture{
 			Name: foreign.name, Form: FormOperation, Token: token,
-			Outcome: OutcomeRejected, Err: ErrRevoked, Reason: foreign.rule,
+			Outcome: OutcomeRejected, Err: ErrRevoked, NeedsLiveState: true, Reason: foreign.rule,
 		})
 	}
 
@@ -1063,7 +1098,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	}
 	fixtures = append(fixtures, Fixture{
 		Name: "superseded-authorization-revision", Form: FormSession, Token: supersededToken,
-		Outcome: OutcomeRejected, Err: ErrRevoked,
+		Outcome: OutcomeRejected, Err: ErrRevoked, NeedsLiveState: true,
 		Reason: "minted at a revision the issuer has moved past; the coarse revocation lever, which nothing else in the kit exercised",
 	})
 
@@ -1110,7 +1145,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		}
 		fixtures = append(fixtures, Fixture{
 			Name: moved.name, Form: FormOperation, Token: token,
-			Outcome: OutcomeRejected, Err: ErrRevoked, Reason: moved.rule,
+			Outcome: OutcomeRejected, Err: ErrRevoked, NeedsLiveState: true, Reason: moved.rule,
 		})
 	}
 

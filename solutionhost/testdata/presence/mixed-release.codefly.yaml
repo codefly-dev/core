@@ -2,7 +2,7 @@
 # example/beta@1.9.0 while the generation declares example/beta@2.0.0. A partial
 # rollout must never be declarable as one generation, and this is refused by
 # validation alone — no host state is needed to see it.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: beta-region-a-01
 generation: 1

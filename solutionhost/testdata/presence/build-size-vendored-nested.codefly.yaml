@@ -1,6 +1,6 @@
 # REJECTED. One excluded path lies under another. A path inside an excluded one
 # excludes nothing more, so the outer one is declared alone.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -62,6 +62,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go

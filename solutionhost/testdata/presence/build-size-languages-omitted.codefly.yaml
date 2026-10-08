@@ -1,7 +1,7 @@
 # REJECTED. The build-size section declares no languages list at all. An
 # absent list and "no file in a known language was counted" must not look the
 # same to a reader, so the list is declared, empty when there is nothing in it.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -63,6 +63,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   backend: 0
   frontend: 0

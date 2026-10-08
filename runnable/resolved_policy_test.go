@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
 	"github.com/codefly-dev/core/runnable"
 )
@@ -129,4 +130,51 @@ func TestAResolvedPolicyReceiptIsRefusedWhenItIsNotAnAnswer(t *testing.T) {
 	_, err = runnable.DecodeResolvedPolicy(nil)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorIs(t, runnable.VerifyResolvedPolicy(nil), runnable.ErrInvalid)
+
+	// A delivered receipt whose digest no longer covers its policy — edited
+	// after it was written — is refused on the read path, not only when a
+	// writer states a wrong digest.
+	require.NoError(t, json.Unmarshal(value, &fields))
+	delete(fields, "selections")
+	tampered := map[string]json.RawMessage{}
+	for k, v := range fields {
+		tampered[k] = v
+	}
+	var policyDoc map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(fields["policy"], &policyDoc))
+	policyDoc["max_attempts"] = json.RawMessage(`2`)
+	editedPolicy, err := json.Marshal(policyDoc)
+	require.NoError(t, err)
+	tampered["policy"] = editedPolicy
+	edited, err := json.Marshal(tampered)
+	require.NoError(t, err)
+	_, err = runnable.DecodeResolvedPolicy(edited)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "carries policy digest")
+}
+
+// The gate verifies the binding it is handed before comparing: a binding that
+// would not install on its own does not match any receipt, however equal its
+// policy reads.
+func TestTheEqualityGateRefusesABindingThatDoesNotVerify(t *testing.T) {
+	spec := slottedSpec(t)
+	resolved, err := spec.ResolveScopeSlots(slotSelections())
+	require.NoError(t, err)
+	binding := bindingFor(resolved)
+	value, err := runnable.EncodeResolvedPolicy(receiptFor(binding))
+	require.NoError(t, err)
+	receipt, err := runnable.DecodeResolvedPolicy(value)
+	require.NoError(t, err)
+
+	delivered, err := runnable.DecodePrepared(encoded(t, binding))
+	require.NoError(t, err)
+	require.NoError(t, runnable.BindingMatchesResolvedPolicy(delivered, receipt))
+
+	// Same policy, same operation, but the contract no longer derives the digest
+	// the binding carries: VerifyPrepared refuses it, and so must the gate.
+	delivered.Contract.Input.Fields[0].Type = basev0.RunnableField_BOOLEAN
+	err = runnable.BindingMatchesResolvedPolicy(delivered, receipt)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "contract digest")
+	require.ErrorIs(t, runnable.BindingMatchesResolvedPolicy(nil, receipt), runnable.ErrInvalid)
 }

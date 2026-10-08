@@ -8,7 +8,7 @@
 # withdrawal the delivery that owns this binding is entitled to make. The
 # tombstone-foreign-domain fixture is the same withdrawal from a delivery that
 # is not.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5

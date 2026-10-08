@@ -1,0 +1,72 @@
+# REJECTED, ErrInvalid. A v3 document that allocates an outward address for an
+# endpoint nothing outside the workspace may call.
+#
+# "api" is reachable across the workspace and no further, so an address
+# reachable from outside it addresses an endpoint that would refuse every
+# caller holding it. The two axes are read on their own, which is not the same
+# as being independent: addressing beyond the reach is a contradiction, and it
+# is the resource model's own refusal, made here where the document is read.
+schema: codefly/solution-host-binding/v1
+kind: solution
+binding: alpha-region-a-01
+generation: 4
+ownership_domain: alpha
+envelope_revision: 7
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+release:
+  publisher: example
+  name: alpha
+  version: 1.4.0
+  digest: sha256:5b1cbf059fa244a163e6f443417e5259db2392b95ae25a9d3aa03496c180eaef
+routes:
+  - alias: alpha
+    surface: frontend
+artifacts:
+  - surface: frontend
+    name: web
+    release: example/alpha@1.4.0
+    digest: sha256:aa9c1fe334d87d4d05b25d3025bd6c06b3598d3fc7120bdf4532d94ffd5c5d25
+  - surface: backend
+    name: api
+    release: example/alpha@1.4.0
+    digest: sha256:c2acc8c3501463299cde42448a5844ce7257d532238bf2cab71eaa12b8ddf9fd
+  - surface: client
+    name: sdk
+    release: example/alpha@1.4.0
+    digest: sha256:a44f8bb94e828e2fc613ccbde5e58d497e44a4110feae074672bc0325902dc01
+workloads:
+  - name: alpha-api
+    artifact: api
+    container: api
+    image:
+      repository: registry.example/alpha-api
+      digest: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+    identity:
+      audience: https://prod.region-a.example/solutions
+      subject: system:serviceaccount:alpha-region-a-01:alpha-api
+      spiffe_id: spiffe://prod.region-a.example/ns/alpha-region-a-01/sa/alpha-api
+    non_authenticating:
+      - envoy
+      - migrate
+modules:
+  - module: alpha
+    package: example/alpha-core
+    version: 1.4.0
+  - module: gamma
+    package: example/gamma
+    version: 0.9.2
+endpoints:
+  - name: api
+    service: alpha
+    module: alpha
+    api: grpc
+    visibility: internal
+    exposure: public
+  - name: web
+    service: alpha
+    module: alpha
+    api: http
+    visibility: public
+    exposure: public

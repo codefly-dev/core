@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/solutionhost"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -33,7 +34,7 @@ func authority(t *testing.T, name string) []byte {
 func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	document := valid(t)
 
-	require.Equal(t, solutionhost.SchemaPresenceV2, document.Schema)
+	require.Equal(t, solutionhost.SchemaPresenceV1, document.Schema)
 	require.Equal(t, solutionhost.KindSolution, document.Kind)
 	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
 	require.Equal(t, uint64(4), document.Generation)
@@ -46,7 +47,15 @@ func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	require.False(t, document.Removed)
 	require.Equal(t, []string{"alpha"}, document.Aliases())
 	require.Len(t, document.Modules, 2)
-	require.Len(t, document.Endpoints, 2)
+
+	// An endpoint is named and never addressed, and declares two things about
+	// one: who may call it, and whether an address reachable from outside the
+	// workspace was allocated for it. The second is stated where it can
+	// differ, which is on the endpoint reachable from outside.
+	require.Equal(t, []solutionhost.Endpoint{
+		{Name: "api", Service: "alpha", Module: "alpha", API: "grpc", Visibility: "internal"},
+		{Name: "web", Service: "alpha", Module: "alpha", API: "http", Visibility: "public", Exposure: "public"},
+	}, document.Endpoints)
 
 	// Every rendered artifact is pinned.
 	surfaces := map[solutionhost.Surface]solutionhost.RenderedDigest{}
@@ -282,20 +291,84 @@ func mustParse(t *testing.T, data []byte) *solutionhost.SolutionHostBinding {
 	return document
 }
 
-// There is no v1 reader. The refusal is a version skew and not an invalid
-// document, because the two call for different responses: a v1 document is not
-// malformed, it is older than the reader, and the fix is a re-render.
-func TestV1IsRefusedAsVersionSkew(t *testing.T) {
-	_, err := solutionhost.Parse(presence(t, "superseded-schema"))
+// Each reader reads exactly ONE schema string and refuses every other as a
+// version skew rather than an invalid document, because the two call for
+// different responses: a document the reader does not read is not malformed,
+// and the fix is a re-render by whoever wrote it.
+//
+// There is no reader for any other string — no older one, no newer one, and
+// not the other document type's. The string is inside the signed canonical
+// encoding, so it is what binds a signature to the document TYPE: a presence
+// document declaring the authority string is refused here rather than admitted
+// under a signature that verifies.
+func TestOnlyOneSchemaStringIsReadAndEveryOtherIsVersionSkew(t *testing.T) {
+	_, err := solutionhost.Parse(presence(t, "other-document-type"))
 	require.ErrorIs(t, err, solutionhost.ErrSchema)
 	require.NotErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV2)
+	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV1)
 
 	document := valid(t)
-	for _, schema := range []string{"", "codefly/solution-host-binding/v1", "codefly/solution-host-binding/v3", solutionhost.SchemaAuthorityV1} {
+	for _, schema := range []string{
+		"", "codefly/solution-host-binding", "codefly/solution-host-binding/v4",
+		solutionhost.SchemaAuthorityV1, solutionhost.SchemaSignedV1,
+	} {
 		document.Schema = schema
 		require.ErrorIsf(t, document.Validate(), solutionhost.ErrSchema, "schema %q", schema)
 	}
+}
+
+// The accepted family version is not monotonic: Core v0.15.0 put the presence
+// and authority documents at one family version, which moved the presence
+// document's accepted value from v2 DOWN to v1 while the document moved
+// forward. Beside a v2 document, "this Core reads v1" names a LOWER version
+// than the document declares and reads as an instruction to downgrade Core —
+// the one action that cannot work, because the generations differ in their
+// fields and not only in their version. A retired value is reported as the
+// older generation it is, and says what fixes it.
+func TestARetiredSchemaIsRefusedAsOlderAndNotAsAReasonToDowngradeCore(t *testing.T) {
+	for schema, generation := range map[string]string{
+		"codefly/solution-host-binding/v2": "v0.1.180",
+		"codefly/solution-host-binding/v3": "reached no release",
+	} {
+		document := valid(t)
+		document.Schema = schema
+		err := document.Validate()
+		require.ErrorIsf(t, err, solutionhost.ErrSchema, "schema %q", schema)
+		require.NotErrorIsf(t, err, solutionhost.ErrInvalid, "schema %q is skew, not malformed", schema)
+		require.Containsf(t, err.Error(), generation, "schema %q names the generation that wrote it", schema)
+		require.Containsf(t, err.Error(), "re-render", "schema %q says a re-render is the fix", schema)
+		require.Containsf(t, err.Error(), "LATER", "schema %q says which of the two documents is later", schema)
+	}
+}
+
+// An unfamiliar string is skew and nothing more. This package cannot say what
+// it was meant to be, so it must not invent a provenance for it: naming a
+// generation a document does not come from would send its author to re-render
+// against a history that never happened.
+func TestAnUnknownSchemaIsRefusedWithoutInventingAGeneration(t *testing.T) {
+	document := valid(t)
+	document.Schema = "codefly/solution-host-binding/v4"
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrSchema)
+	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV1)
+	require.NotContains(t, err.Error(), "re-render")
+	require.NotContains(t, err.Error(), "was written by")
+}
+
+// A retired PRESENCE string handed to the authority reader is the wrong
+// document TYPE, not an old generation of the right one. Reporting it as a
+// generation would send its author to re-render a document they did not write,
+// and would blur the one distinction the schema string exists to hold: the
+// string is inside the signed canonical encoding, so it is what binds a
+// signature to the document type.
+func TestARetiredStringOfAnotherFamilyIsRefusedAsTheWrongDocumentType(t *testing.T) {
+	document := validAuthority(t)
+	document.Schema = "codefly/solution-host-binding/v2"
+	err := document.Validate()
+	require.ErrorIs(t, err, solutionhost.ErrSchema)
+	require.Contains(t, err.Error(), solutionhost.SchemaAuthorityV1)
+	require.NotContains(t, err.Error(), "re-render")
+	require.NotContains(t, err.Error(), "was written by")
 }
 
 func TestUnknownFieldIsRejectedSoANewFieldIsAVersionStep(t *testing.T) {
@@ -305,7 +378,7 @@ func TestUnknownFieldIsRejectedSoANewFieldIsAVersionStep(t *testing.T) {
 }
 
 func TestSecondYAMLDocumentIsRejected(t *testing.T) {
-	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV2+"\n")...)
+	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV1+"\n")...)
 	_, err := solutionhost.Parse(data)
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.ErrorContains(t, err, "holds more than one document")
@@ -367,6 +440,154 @@ func TestValidationRejectsEachWayTheDocumentCanLie(t *testing.T) {
 			mutate(document)
 			require.Error(t, document.Validate())
 		})
+	}
+}
+
+// An endpoint's reach is a declaration the platform derives policy from, so a
+// value the resource model does not define must not survive in a rendered
+// document: the model refuses one at load, at selection and at dependency
+// wiring, and a presence document that admitted a fourth spelling would
+// describe an endpoint no service can declare.
+//
+// Each refusal is asserted by its own message, not by ErrInvalid alone: every
+// later rule in validateEndpoints returns the same sentinel, so an assertion
+// on it passes even when the reach check is gone and the duplicate-key check
+// refuses instead.
+func TestEndpointReachIsHeldToTheModelsVocabulary(t *testing.T) {
+	for _, refused := range []string{"module", "external", "application", "pubilc", "PUBLIC"} {
+		t.Run(refused, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[0].Visibility = refused
+			err := document.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.ErrorContains(t, err, `endpoint "api" visibility "`+refused+`" is none of`)
+			require.ErrorContains(t, err, "no service can declare")
+		})
+	}
+
+	// The model admits an omission and resolves it to private. A rendered
+	// document gets no such resolution, so it states the reach rather than
+	// leaving that default to be derived a second time.
+	t.Run("omitted", func(t *testing.T) {
+		document := valid(t)
+		document.Endpoints[0].Visibility = ""
+		err := document.Validate()
+		require.ErrorIs(t, err, solutionhost.ErrInvalid)
+		require.ErrorContains(t, err, `endpoint "api" states no visibility`)
+	})
+
+	for _, known := range []string{"private", "internal", "public"} {
+		t.Run(known, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[0].Visibility = known
+			if known == "public" {
+				document.Endpoints[0].Exposure = "none"
+			}
+			require.NoError(t, document.Validate())
+		})
+	}
+}
+
+// Addressing is the endpoint's second axis, and the one v2 could not state: a
+// public endpoint says whether an address reachable from outside the workspace
+// was allocated for it, since reach admits both answers and a reader that took
+// the reach for the answer is exactly the conflation the split removed.
+//
+// Each refusal is asserted by its own message rather than by ErrInvalid alone:
+// every later rule in validateEndpoints returns the same sentinel, so an
+// assertion on it passes with the exposure checks gone and the duplicate-key
+// check refusing instead.
+func TestAPublicEndpointStatesWhetherAnAddressWasAllocated(t *testing.T) {
+	t.Run("omitted", func(t *testing.T) {
+		document := valid(t)
+		document.Endpoints[1].Exposure = ""
+		err := document.Validate()
+		require.ErrorIs(t, err, solutionhost.ErrInvalid)
+		require.ErrorContains(t, err, `endpoint "web" declares visibility "public" and states no exposure`)
+		require.ErrorContains(t, err, "no field left to tell whether an address was allocated")
+	})
+
+	for _, stated := range []string{"public", "none"} {
+		t.Run(stated, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[1].Exposure = stated
+			require.NoError(t, document.Validate())
+		})
+	}
+
+	for _, refused := range []string{"ingress", "route", "internet", "pubilc", "PUBLIC"} {
+		t.Run("unknown "+refused, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[1].Exposure = refused
+			err := document.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.ErrorContains(t, err, `endpoint "web" exposure "`+refused+`" is neither "public" nor "none"`)
+		})
+	}
+}
+
+// An address reachable from outside the workspace is declared only on an
+// endpoint reachable from outside it. The axes are read on their own, which is
+// not the same as being independent: addressing past the reach describes an
+// address whose every holder the endpoint would refuse.
+//
+// "none" is admitted on a reach that stops at the workspace, and that is the
+// resource model's judgment rather than a gap here: nothing else is true of
+// such an endpoint, so a renderer may write it or leave it out, and neither
+// spelling makes the document say something the model did not.
+func TestAnOutwardAddressIsDeclaredOnlyWithinTheReach(t *testing.T) {
+	for _, visibility := range []string{"private", "internal"} {
+		t.Run(visibility, func(t *testing.T) {
+			document := valid(t)
+			document.Endpoints[0].Visibility = visibility
+			document.Endpoints[0].Exposure = "public"
+			err := document.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.ErrorContains(t, err, `endpoint "api" states exposure "public" with visibility "`+visibility+`"`)
+
+			document.Endpoints[0].Exposure = "none"
+			require.NoError(t, document.Validate())
+			document.Endpoints[0].Exposure = ""
+			require.NoError(t, document.Validate())
+		})
+	}
+}
+
+// Both vocabularies and both cross-field rules are the resource model's,
+// read from it rather than copied here: this package already links resources
+// through composition, so a literal would be a second list to keep in step for
+// no gain. Holding the two together at the document's own loader is what makes
+// a widened model unable to leave the document behind, and a widened document
+// unable to admit what no service can declare.
+//
+// It also means a renderer projects a declaration the model admitted straight
+// through, without normalizing it first — and a normalizing renderer is where
+// the fact would be lost. The one difference is the reach itself, which the
+// model resolves from an omission and a rendered document states (see
+// TestEndpointReachIsHeldToTheModelsVocabulary).
+//
+// The model's third exposure rule has nothing to bind to here: it refuses an
+// address allocated for an endpoint that lives outside the system, and this
+// document carries no location. Such an endpoint is refused at its source,
+// where the location is declared.
+func TestTheEndpointAxesAreJudgedAsTheModelJudgesThem(t *testing.T) {
+	for _, visibility := range []string{"private", "internal", "public", "module", "external", "everyone", ""} {
+		for _, exposure := range []string{"", "none", "public", "ingress"} {
+			document := valid(t)
+			document.Endpoints[0].Visibility = visibility
+			document.Endpoints[0].Exposure = exposure
+			accepted := document.Validate() == nil
+
+			declaration := resources.EndpointDeclaration{
+				Service:    document.Endpoints[0].Service,
+				Name:       document.Endpoints[0].Name,
+				Visibility: visibility,
+				Exposure:   exposure,
+			}
+			byTheModel := resources.ValidateEndpointDeclaration(declaration) == nil && visibility != ""
+			require.Equalf(t, byTheModel, accepted,
+				"the document and the resource model disagree about visibility %q with exposure %q", visibility, exposure)
+		}
 	}
 }
 

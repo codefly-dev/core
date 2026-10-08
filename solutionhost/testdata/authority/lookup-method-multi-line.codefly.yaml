@@ -1,0 +1,55 @@
+
+# REJECTED, ErrInvalid, rule authority-lookup-method-name. A lookup method
+# written across two lines, refused on the same terms as a binding key: it is
+# part of the reviewed unit of authority, so it is held to a value something can
+# compare.
+schema: codefly/solution-authority/v1
+authority: alpha-region-a-01-authority
+binding: alpha-region-a-01
+generation: 2
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+ownership_domain: alpha
+envelope_revision: 7
+approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+effective_from: 4
+queues:
+  - reconcile.default
+  - report.batch
+namespaces:
+  - alpha-region-a-01
+  - alpha-region-a-audit
+scope_ceilings:
+  - resource_kind: record
+    actions:
+      - read
+      - write
+  - resource_kind: summary
+    actions:
+      - read
+principals:
+  - principal: principal:operator
+    bindings:
+      - id: binding:alpha:reconcile
+        revision: 3
+        audience: https://prod.region-a.example/operations
+        scope: reconcile
+        queue: reconcile.default
+        namespace: alpha-region-a-01
+      - id: binding:alpha:read
+        revision: 1
+        audience: https://prod.region-a.example/operations
+        scope: read
+        queue: read.default
+        namespace: alpha-region-a-01
+        binding_key: alpha-read
+        lookup_method: "directory\nscan"
+  - principal: principal:reporter
+    bindings:
+      - id: binding:alpha:report
+        revision: 2
+        audience: https://prod.region-a.example/operations
+        scope: report
+        queue: report.batch
+        namespace: alpha-region-a-01

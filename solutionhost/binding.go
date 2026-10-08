@@ -83,22 +83,25 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/resources"
 )
 
 const (
 	// FileName is the conventional name of a rendered presence document.
 	FileName = "solution-host-binding.codefly.yaml"
 
-	// SchemaPresenceV2 is the only presence schema this package accepts. It
+	// SchemaPresenceV1 is the only presence schema this package accepts. It
 	// requires the kind, the ownership domain, the envelope revision, the
 	// release digest, and — for a generation that renders anything the host
 	// runs — the workloads, their image digests and their workload identities.
+	// An endpoint reachable from outside the workspace also states whether an
+	// address was allocated for it, which v2 had no field for.
 	//
 	// The schema string is also what binds a signature to a document TYPE:
 	// it is part of the canonical encoding that is signed, so a presence
 	// document cannot be presented as an authority document under a signature
 	// that verifies. See PresenceFromVerified.
-	SchemaPresenceV2 = "codefly/solution-host-binding/v2"
+	SchemaPresenceV1 = "codefly/solution-host-binding/v1"
 )
 
 // Kind is what a presence document declares the presence of. A module and a
@@ -148,7 +151,9 @@ var (
 	// ErrSchema means a document does not declare a schema this package reads.
 	// A consumer branches on it to say "upgrade Core" rather than "invalid
 	// document": an unknown schema is a version skew, not a malformed record.
-	// A v1 presence document reaches a consumer as this error.
+	// A v2 presence document — every generation from Core v0.9.0 through
+	// v0.14.0 — reaches a consumer as this error. v1 is what this Core reads,
+	// not what it refuses: retiredSchemas says why that is not a downgrade.
 	ErrSchema = errors.New("solution host document schema is not supported")
 
 	// ErrInvalid means a document violates its schema's own rules.
@@ -405,11 +410,46 @@ type ModulePin struct {
 // addressed: a declared address would be a resolution result frozen into a
 // delivery document, true on one cluster for as long as nothing moved.
 type Endpoint struct {
-	Name       string `yaml:"name" json:"name"`
-	Service    string `yaml:"service,omitempty" json:"service,omitempty"`
-	Module     string `yaml:"module,omitempty" json:"module,omitempty"`
-	API        string `yaml:"api" json:"api"`
-	Visibility string `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+	Name    string `yaml:"name" json:"name"`
+	Service string `yaml:"service,omitempty" json:"service,omitempty"`
+	Module  string `yaml:"module,omitempty" json:"module,omitempty"`
+	API     string `yaml:"api" json:"api"`
+
+	// Visibility is the endpoint's REACH, and nothing else: who may call it.
+	// It carries no addressing consequence — an outward address is a
+	// resolution result this document deliberately does not freeze — and it
+	// names nobody: which modules actually reach an endpoint is derived by the
+	// composition that joins the consumers' declared dependencies, never
+	// written on the target, so a host never carries a list of its consumers.
+	//
+	// It is written out rather than omitted: the resource model admits an
+	// omission and resolves it to "private", and a rendered document does not
+	// get that resolution, so one carrying none would leave that default for
+	// every reader to derive a second time.
+	Visibility string `yaml:"visibility" json:"visibility"`
+
+	// Exposure is what the module DECLARED about addressing: whether an address
+	// reachable from outside the workspace is asked for. It is the second axis
+	// of one declaration, carried for the same reason the first is — a document
+	// that keeps one and drops the other is a lossy copy of what its author
+	// said, and the loss is silent — and v2 had no field for it.
+	//
+	// It is NOT an instruction to allocate anything, and a host must not read
+	// it as one. The allocation is resources.IsExposedEndpoint's, where a run
+	// emits the Public network instance; the hostnames an outward address is
+	// published under are the environment's ingress, declared there. This
+	// document states the declaration and resolves nothing, which is the same
+	// reason an endpoint here is named and never addressed.
+	//
+	// A public endpoint states it, "public" or "none", because reach from
+	// outside the workspace admits both answers and a reader that took the
+	// reach for the answer would rebuild the conflation the two axes exist to
+	// remove. A reach that stops at the workspace entails no outward address,
+	// so an endpoint that is not public may state "none" and need not state
+	// anything; "public" on one is refused. That is the resource model's own
+	// judgment, unchanged, so a renderer projects a declaration the model
+	// admitted without normalizing it first.
+	Exposure string `yaml:"exposure,omitempty" json:"exposure,omitempty"`
 }
 
 // WorkloadIdentity is the identity the host expects a workload's authenticating
@@ -439,7 +479,7 @@ func Parse(data []byte) (*SolutionHostBinding, error) { return parse(data, "") }
 // parse is Parse with one named rule deleted, for the self-check that proves
 // each rule is protected by a fixture; "" deletes none.
 func parse(data []byte, without string) (*SolutionHostBinding, error) {
-	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV2, without, checkBuildSizeNodes)
+	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV1, without, checkBuildSizeNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -447,6 +487,55 @@ func parse(data []byte, without string) (*SolutionHostBinding, error) {
 		return nil, err
 	}
 	return document, nil
+}
+
+// retiredSchemas are document schema values this package once read and no
+// longer does, mapped to the generation that wrote them. A document carrying
+// one is OLDER than this reader.
+//
+// They have to be named because the accepted family version is not monotonic.
+// Core v0.15.0 put the presence and authority documents at one family version,
+// which moved the presence document's accepted value from v2 DOWN to v1 while
+// the document itself moved forward. A bare "this Core reads v1" beside a v2
+// document therefore reads as an instruction to downgrade Core — the one
+// action that cannot work, because the two generations differ in their fields
+// and not only in their version.
+//
+// A retired value names the generation and not a Core version range alone,
+// because what has to change is the renderer: the document is re-rendered by a
+// current CLI, never repaired in place.
+var retiredSchemas = map[string]string{
+	"codefly/solution-host-binding/v2": "Core v0.9.0 through v0.14.0, which the Codefly CLI shipped up to v0.1.180",
+	"codefly/solution-host-binding/v3": "a build of Core main on 2026-10-07, after the presence document gained exposure and before the three documents were aligned at one family version; it reached no release",
+}
+
+// schemaRefusal is the one refusal for a document whose declared schema is not
+// the one this reader reads. A retired value of the SAME family is reported as
+// the older generation it is; anything else is reported as the skew it is,
+// naming only what this Core reads, because this package cannot say what an
+// unfamiliar string was meant to be.
+//
+// The family has to match. A retired presence string handed to the authority
+// reader is the wrong document TYPE, not an old generation of the right one,
+// and telling its author to re-render would send them to fix the version of a
+// document they did not write.
+func schemaRefusal(declared, accepted string) error {
+	if generation, ok := retiredSchemas[declared]; ok && schemaFamily(declared) == schemaFamily(accepted) {
+		return fmt.Errorf("%w: %q was written by %s. This Core reads %q, which is the LATER document despite the lower family version: re-render it with a current Codefly CLI. Downgrading Core does not read it either, because the fields differ",
+			ErrSchema, declared, generation, accepted)
+	}
+	return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, declared, accepted)
+}
+
+// schemaFamily is a schema string without its trailing family version, which is
+// what makes two strings versions of the same document rather than two
+// different documents. A string carrying no version is its own family, so it
+// matches nothing and falls to the plain refusal.
+func schemaFamily(schema string) string {
+	if cut := strings.LastIndex(schema, "/"); cut >= 0 {
+		return schema[:cut]
+	}
+	return schema
 }
 
 // decodeStrict decodes exactly one YAML document into T, refusing unknown
@@ -480,7 +569,7 @@ func decodeStrict[T any](data []byte, label, schema, without string, nodes func(
 		return nil, fmt.Errorf("%w: decode %s: not a YAML document: %v", ErrInvalid, label, err)
 	}
 	if header.Schema != schema && without != ruleSchema {
-		return nil, fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, header.Schema, schema)
+		return nil, schemaRefusal(header.Schema, schema)
 	}
 	var tree yaml.Node
 	if err := yaml.Unmarshal(data, &tree); err != nil {
@@ -578,8 +667,8 @@ func (document *SolutionHostBinding) validate(without string) error {
 	if document == nil {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
-	if document.Schema != SchemaPresenceV2 && without != ruleSchema {
-		return fmt.Errorf("%w: %q (this Core reads %q)", ErrSchema, document.Schema, SchemaPresenceV2)
+	if document.Schema != SchemaPresenceV1 && without != ruleSchema {
+		return schemaRefusal(document.Schema, SchemaPresenceV1)
 	}
 	if !slices.Contains(kinds, document.Kind) {
 		return fmt.Errorf("%w: kind %q is not one of %v", ErrInvalid, document.Kind, kinds)
@@ -939,8 +1028,25 @@ func (document *SolutionHostBinding) validateEndpoints() error {
 		if !namePattern.MatchString(endpoint.API) {
 			return fmt.Errorf("%w: endpoint %q api %q is invalid", ErrInvalid, endpoint.Name, endpoint.API)
 		}
-		if endpoint.Visibility != "" && !namePattern.MatchString(endpoint.Visibility) {
-			return fmt.Errorf("%w: endpoint %q visibility %q is invalid", ErrInvalid, endpoint.Name, endpoint.Visibility)
+		if endpoint.Visibility == "" {
+			return fmt.Errorf("%w: endpoint %q states no visibility: a rendered document writes the reach out, so no reader re-derives the resource model's default", ErrInvalid, endpoint.Name)
+		}
+		if !resources.KnownVisibility(endpoint.Visibility) {
+			return fmt.Errorf("%w: endpoint %q visibility %q is none of %q, %q or %q: a spelling the resource model deleted describes an endpoint no service can declare",
+				ErrInvalid, endpoint.Name, endpoint.Visibility,
+				resources.VisibilityPrivate, resources.VisibilityInternal, resources.VisibilityPublic)
+		}
+		if !resources.KnownExposure(endpoint.Exposure) {
+			return fmt.Errorf("%w: endpoint %q exposure %q is neither %q nor %q: addressing has one vocabulary, and an ingress or a hostname is the deployment's to declare, not this document's",
+				ErrInvalid, endpoint.Name, endpoint.Exposure, resources.ExposurePublic, resources.ExposureNone)
+		}
+		if endpoint.Visibility == resources.VisibilityPublic && endpoint.Exposure == "" {
+			return fmt.Errorf("%w: endpoint %q declares visibility %q and states no exposure (%q or %q): reach is not addressing, so a reader has no field left to tell whether an address was allocated",
+				ErrInvalid, endpoint.Name, resources.VisibilityPublic, resources.ExposurePublic, resources.ExposureNone)
+		}
+		if endpoint.Exposure == resources.ExposurePublic && endpoint.Visibility != resources.VisibilityPublic {
+			return fmt.Errorf("%w: endpoint %q states exposure %q with visibility %q: an address reachable from outside the workspace is declared only on an endpoint reachable from outside it",
+				ErrInvalid, endpoint.Name, resources.ExposurePublic, endpoint.Visibility)
 		}
 		key := endpoint.Module + "\x00" + endpoint.Service + "\x00" + endpoint.Name
 		if _, exists := seen[key]; exists {

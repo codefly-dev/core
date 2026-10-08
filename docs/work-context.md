@@ -44,13 +44,13 @@ measured both halves and declined advice to drop its own client-side ceiling on
 the grounds that neither layer actually enforced one. It was right.
 
 The bound is now checked in `decodeClaims`, the single decode path, so
-`Verify`, `Authenticate` and `Inspect` all answer it identically and with one
-message. It was first written into `Verify` alone — in the same change whose
-comment says a bound belongs in the one decode path and not in one entrypoint —
-and the caller that paid for that was the one which never verifies a signature
-at all: a **mint client** reads its own window through `Inspect`, so a
-capability every receiver refuses was reported to its holder as thirty days of
-validity. A missing bound tells a caller nothing; that one told it something
+`Verify`, `Authenticate`, `Inspect` and `Decode` all answer it identically and
+with one message. It was first written into `Verify` alone — in the same change
+whose comment says a bound belongs in the one decode path and not in one
+entrypoint — and the caller that paid for that was the one which never verifies
+a signature at all: a **mint client** reads its own window through `Decode`
+(then called `Inspect`), so a capability every receiver refuses was reported to
+its holder as thirty days of validity. A missing bound tells a caller nothing; that one told it something
 false about the only field it was called for.
 
 Two layers enforcing one rule is not two implementations of one decision. A
@@ -498,8 +498,8 @@ rule was asserted in prose and unenforced where it mattered most.
 `solutionhost` had enforced exactly this for its documents all along, with
 `ErrNotCanonical`; the capability had no equivalent.
 
-Two checks now sit in the single decode path, so `Verify`, `Authenticate` and
-`Inspect` all get them:
+Two checks now sit in the single decode path, so `Verify`, `Authenticate`,
+`Inspect` and `Decode` all get them:
 
 - **No unknown fields, recursively.** A capability carrying a field this Core
   does not know was written by some other minter. The kit's `unknown-field`
@@ -601,6 +601,91 @@ verifier unchanged would have been certifying the downgrade.
 
 What remains a seam, stated rather than implied: a consumer that holds no
 sealed state at all still cannot verify at full strength, and nothing here
-changes that. The answer for such a consumer is that the gateway verifies and
-the consumer checks what it can, documenting what it does not — not a weaker
-core entrypoint.
+changes that. The answer for such a consumer is not a weaker core entrypoint.
+If it forwards, it inspects (next section); if it acts, it is a callee and
+needs a callee's inputs.
+
+### The forwarding hop inspects; the callee verifies
+
+A **forwarding hop** — the host's gateway, any proxy that routes a capability
+to its callee — is a third party with a third shape, and the two entrypoints
+above both fail it. `Verify` consumes a single-use nonce as its last step, so a
+gateway that verified in flight left the callee refusing a legitimate
+capability as replayed; and both entrypoints require the issuer's live state,
+which an edge holding a JWKS cache and a routing table does not have. A host
+measured exactly that and kept a hand-written signature check at its edge: a
+second implementation of the wire contract, because core offered nothing
+shaped like an edge.
+
+`Inspector.Inspect(token, audience)` is the entrypoint shaped like an edge, and
+it is built the way `Authenticate` is so that it is not a third **strength**:
+
+- **One body.** `Inspect` assembles a `Verifier` shell from the trust root and
+  the route and runs `(*Verifier).inspect` — the exact prefix `Verify` runs
+  before it reaches for live state: the decode path (shape, encoding, schema,
+  the lifetime bound, no unknown field, the canonical encoding), the issuer
+  pin, the signature under the key the capability names, the audience, the
+  window, the chain's attenuation and the grant hop's shape. A test holds every
+  fixture a hop can see to `Verify`'s refusal including the message text; a
+  second body would break it.
+- **The route target is the hop's, never the token's.** `audience` is a
+  per-call argument because a hop serves many routes and because of where the
+  value must come from: the target the hop resolved from the request it is
+  routing. Reading the audience off the token and comparing it to itself
+  passes everything, and so does an empty expectation treated as a wildcard —
+  a host found the second one in its own gateway, as an empty-string sentinel
+  meaning "do not check". An empty route target is refused by name, and the
+  kit's `empty-audience` fixture holds that no capability can match one: the
+  schema refuses an empty audience in the decode path, before any comparison.
+- **What it cannot see, it forwards.** The authorization revision, the sealed
+  installation's revision, every principal's epoch, the approved build, an
+  operation binding's revision, incarnation, withdrawal and association, and
+  the issuer's record of a grant are the callee's to hold a capability
+  against. A hop that refused on any of them would be claiming a check it
+  cannot make; one that answered them from a cache would be a second verifier
+  with stale state. So the kit marks every such fixture `NeedsLiveState` — a
+  test pins that this is exactly the set refused with `ErrRevoked` — and
+  requires `Inspect` to **accept** each one. A grant capability is forwarded
+  too. `Authenticator` refuses one with `ErrNeedsIssuer` because an
+  authenticator *acts* on what it accepts; a hop does not act, so for a hop
+  the forwarding is the deferral.
+- **It consumes nothing.** There is no replay store to consume with and no
+  nonce is read: `Inspector` has no field through which it could consume, read
+  a revision, resolve a grant or compare a seal, and a test holds the struct's
+  shape by reflection. A single-use capability inspects every time it is
+  presented, and the callee burns it exactly once. **One consumer per
+  capability**: the hop inspects, the callee verifies.
+- **It grants nothing and derives nothing.** `*Inspected` carries only what a
+  hop routes on — the audience it was checked against, the tenant, the sealed
+  installation, the task and the session, every one a bare string — and no
+  function in `workcontext` or `policy` takes it. The AST guard that keeps an
+  `Authenticated` from becoming a `Verified` covers it too. Nothing in it is
+  for stamping onto the forwarded request: the callee verifies the token
+  itself, and a header a hop writes is a header a caller can write.
+
+`conformance.RunInspector` is the kit's third mode, and it is stricter in both
+directions. Every fixture a hop can see must reach the full verifier's outcome
+with the same named reason. Every fixture refused only against live state must
+be accepted. The single-use fixture is presented twice and must inspect both
+times, then core's verifier built from the same settings — the same replay
+store the consumer was handed — must accept it once and refuse it the second
+time: the first acceptance proves the hop consumed nothing, the second refusal
+proves the first was not vacuous. And a sound capability presented for a route
+it is not addressed to, and for no route at all, must both be refused. `Verify`
+and `Authenticate` both fail the mode, correctly, and tests hold that they do.
+
+**Why `Seals` and `Revisions` stay mandatory on `Verify` and `Authenticator`.**
+The hop's entrypoint is not a relaxation of either. Those two are *consumers*:
+a consumer that acted on a capability it had not held against live state would
+be acting on a revoked one, and a seal-less mode on either would be a flag that
+turns the strongest check in the model off for whoever sets it. The hop needs
+no such mode because it acts on nothing. Core keeps one strength per question:
+a callee verifies at full strength or not at all, and a hop inspects.
+
+**What this unblocks, and what it does not.** A host whose edge held only a
+JWKS cache could call no core entrypoint; it can now call this one and delete
+its own signature check. That is the prerequisite for the host's cutover from
+a JSON-signing SDK to this encoding — a cutover that is *atomic* (core refuses
+a JSON token as `ErrNotACoreToken` before the signature, so there is no
+dual-read window) and is the host's to make, in one move for its mint and
+every verifier. Core's encoding does not change for it.

@@ -1,7 +1,7 @@
 # REJECTED. The section declares no total. An absent count decodes as zero, and
 # a zero nobody wrote is a total that agrees with nothing; the node rule refuses
 # the omission before the typed decoder can invent the zero.
-schema: codefly/solution-host-binding/v2
+schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
 generation: 5
@@ -63,6 +63,7 @@ endpoints:
     module: alpha
     api: http
     visibility: public
+    exposure: public
 build_size:
   languages:
     - language: go
