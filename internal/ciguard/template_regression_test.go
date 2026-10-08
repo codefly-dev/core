@@ -9,14 +9,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Every construction six review rounds produced, asked of the template rule.
+// Every construction six review rounds produced, asked of the ALLOWLIST.
 //
 // Under the old rules each of these needed its own answer, and each round found
 // routes the answers did not cover: a source outside the context list, a sink
-// outside the field list, a verb outside the command list. The template rule
-// does not answer them individually. None of them is a registered shape, so all
-// of them are refused -- and so is the next one, which is the property six
-// rounds of lists could not provide.
+// outside the field list, a verb outside the command list. None of them is
+// answered individually here either. None is a registered shape, so all are
+// refused by the first conjunct alone -- and so is the next one, which is the
+// property six rounds of lists could not provide.
+//
+// That is this test's whole claim, and it is a narrow one: it says the
+// allowlist discriminates, NOT that anything about these constructions was
+// evaluated. Treating "the allowlist refuses what is not on it" as the whole
+// credential decision is what let a REGISTERED job hold a write token while
+// running a pull request's tree -- see
+// TestThePlantedWriteTokenViolationStaysCaught below, which asks the judgement
+// instead, and TestRepointingTheTagJobsTreeWithoutProvingTheCommitIsRefused,
+// which puts several of the constructions below inside a registered job.
 //
 // They are kept as fixtures rather than deleted, because a rule that refuses
 // everything is worthless: TestThePermittedShapesAreStillAccepted is the other

@@ -204,10 +204,12 @@ type isolatedWorkflow struct {
 	// name is the workflow's file name, so a registry keyed by workflow can be
 	// consulted without threading the path through every call.
 	name string
-	// document is the whole workflow as parsed. The template digest is taken
-	// from this rather than re-read from disk, so a caller can hand over a
-	// changed workflow and see it refused -- which is what makes the
-	// comparison testable at all.
+	// document is the whole workflow as parsed. It is where the recorded
+	// digest's workflow-level half comes from -- `on`, `permissions`, `env`,
+	// `defaults` -- while the job half comes from `raw`. Taken from here
+	// rather than re-read from disk, so a caller can hand over a changed
+	// workflow and see it refused, which is what makes the comparison
+	// testable at all.
 	document yaml.Node
 }
 
