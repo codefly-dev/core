@@ -116,7 +116,7 @@ is a separate job because it is the one write in that workflow and the job that
 runs the suite must not hold it — see
 [CI credentials](../ci-credentials.md).
 
-**`agent-ci`, `go-service-ci`, `go-service-release`.** `workflow_call` only —
+**`agent-ci`, `go-service-ci`, `go-service-release`, `publish-service-image`.** `workflow_call` only —
 they run when a service repository dispatches them, never here.
 
 **Approving reviews.** `required_pull_request_reviews` stays null deliberately.
