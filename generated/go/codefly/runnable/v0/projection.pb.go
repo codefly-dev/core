@@ -38,7 +38,8 @@ type ToolProjection struct {
 	// covers the method's bounded schemas, not these tools or the binding policy.
 	ContractDigest string `protobuf:"bytes,2,opt,name=contract_digest,json=contractDigest,proto3" json:"contract_digest,omitempty"`
 	// tools contains 1..256 declarations with distinct model-facing names.
-	// Admission also rejects collisions with tools from other projections.
+	// ToolsFromProjection also refuses the binding's direct exposure name;
+	// admission rejects collisions with tools from other bindings or projections.
 	Tools         []*ProjectedTool `protobuf:"bytes,3,rep,name=tools,proto3" json:"tools,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -99,7 +100,8 @@ func (x *ToolProjection) GetTools() []*ProjectedTool {
 // It contains no route, credential or authority. The adapter validates the
 // declared payload, wraps it in the operation's envelope, fixes the selector
 // and installation context, and unwraps the result. Model input cannot replace
-// any of those fixed values.
+// any of those fixed values. Distinct names may share selectors or declaration
+// digests: aliases are permitted, and admission decides which views to expose.
 type ProjectedTool struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// name follows ToolExposure.name's rules.

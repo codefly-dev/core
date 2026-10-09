@@ -109,6 +109,49 @@ func TestToolProjectionDoesNotRequireDirectMethodExposure(t *testing.T) {
 	require.Equal(t, runnablev0.ToolExposure_EFFECT_READ_ONLY, tools[0].Effect)
 }
 
+func TestToolProjectionRefusesDirectToolNameCollision(t *testing.T) {
+	for _, name := range []string{"inspect_item", "update_item"} {
+		t.Run(name, func(t *testing.T) {
+			binding := projectedBinding(t)
+			binding.Policy.Tool = exposedTool()
+			binding.Policy.Tool.Name = name
+			projection := projectionFixture(t, "snake_case")
+			require.NoError(t, runnable.VerifyPrepared(binding))
+			require.NoError(t, runnable.ValidateToolProjection(projection))
+			tools, err := runnable.ToolsFromProjection(binding, projection)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, "collides with direct tool exposure")
+			require.Nil(t, tools)
+		})
+	}
+}
+
+func TestToolProjectionPermitsAliasesWithDistinctNames(t *testing.T) {
+	for name, change := range map[string]func(*runnablev0.ToolProjection){
+		"shared selector": func(p *runnablev0.ToolProjection) {
+			p.Tools[1].Selector = proto.CloneOf(p.Tools[0].Selector)
+		},
+		"shared declaration digest": func(p *runnablev0.ToolProjection) {
+			p.Tools[1].Digest = p.Tools[0].Digest
+		},
+		"alias": func(p *runnablev0.ToolProjection) {
+			p.Tools[1] = proto.CloneOf(p.Tools[0])
+			p.Tools[1].Name = "inspect_item_alias"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			projection := projectionFixture(t, "snake_case")
+			change(projection)
+			tools, err := runnable.ToolsFromProjection(projectedBinding(t), projection)
+			require.NoError(t, err)
+			require.Len(t, tools, 2)
+			for i := range tools {
+				require.True(t, proto.Equal(projection.Tools[i], tools[i]))
+			}
+		})
+	}
+}
+
 func TestToolProjectionRejectsMalformedDeclarations(t *testing.T) {
 	tests := map[string]func(*runnablev0.ToolProjection){
 		"no binding":            func(p *runnablev0.ToolProjection) { p.BindingId = "" },

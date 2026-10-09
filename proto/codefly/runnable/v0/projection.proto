@@ -18,7 +18,8 @@ message ToolProjection {
   // covers the method's bounded schemas, not these tools or the binding policy.
   string contract_digest = 2;
   // tools contains 1..256 declarations with distinct model-facing names.
-  // Admission also rejects collisions with tools from other projections.
+  // ToolsFromProjection also refuses the binding's direct exposure name;
+  // admission rejects collisions with tools from other bindings or projections.
   repeated ProjectedTool tools = 3;
 }
 
@@ -26,7 +27,8 @@ message ToolProjection {
 // It contains no route, credential or authority. The adapter validates the
 // declared payload, wraps it in the operation's envelope, fixes the selector
 // and installation context, and unwraps the result. Model input cannot replace
-// any of those fixed values.
+// any of those fixed values. Distinct names may share selectors or declaration
+// digests: aliases are permitted, and admission decides which views to expose.
 message ProjectedTool {
   // name follows ToolExposure.name's rules.
   string name = 1;

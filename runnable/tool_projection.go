@@ -146,7 +146,9 @@ func DecodeToolProjection(value []byte) (*runnablev0.ToolProjection, error) {
 // detached tool declarations. The consumer must resolve projection.binding_id
 // to this exact admitted binding: PreparedBinding has no installation id. A
 // missing policy.tool hides direct exposure only; this separate declaration may
-// still project tools. Neither this check nor an effect grants authority.
+// still project tools. A projected name must not collide with that binding's
+// direct exposure. Admission checks names across other bindings and projections.
+// Neither this check nor an effect grants authority.
 func ToolsFromProjection(binding *runnablev0.PreparedBinding, projection *runnablev0.ToolProjection) ([]*runnablev0.ProjectedTool, error) {
 	if err := VerifyPrepared(binding); err != nil {
 		return nil, err
@@ -158,6 +160,9 @@ func ToolsFromProjection(binding *runnablev0.PreparedBinding, projection *runnab
 		return nil, fmt.Errorf("%w: projection contract_digest differs from prepared binding", ErrInvalid)
 	}
 	for _, tool := range projection.GetTools() {
+		if tool.GetName() == binding.GetPolicy().GetTool().GetName() {
+			return nil, fmt.Errorf("%w: projected tool %q collides with direct tool exposure", ErrInvalid, tool.GetName())
+		}
 		found := false
 		for _, field := range binding.GetContract().GetInput().GetFields() {
 			if field.GetName() == tool.GetSelector().GetField() && field.GetType() == basev0.RunnableField_STRING {

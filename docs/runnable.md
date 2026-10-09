@@ -905,6 +905,12 @@ Schema draft 2020-12 and loads no external references, including local files.
 These schemas describe the declared payload and unwrapped result, not the generic
 method envelope. They neither replace nor widen the bounded Runnable profile.
 
+Tool names are the uniqueness key. Distinct names may share a selector, a
+declaration digest, or both: aliases are permitted. Admission decides which
+views to expose and authenticates each complete declaration, including its
+effect; equal selectors or asserted digests do not establish that two tools
+are interchangeable.
+
 `selector.field` names one top-level string field in the prepared input contract,
 in that contract's spelling. `selector.value` fixes its value, independently of
 the discovery name. The adapter validates model input against `input_schema`,
@@ -920,7 +926,8 @@ the adapter owns that explicit encoding; protobuf maps, bytes and well-known
 `DecodeToolProjection` accepts snake_case or lowerCamelCase names and refuses
 unknown fields. `ToolsFromProjection(prepared, projection)` first verifies the
 complete binding, then the projection, contract equality and selector fields,
-and returns detached `ProjectedTool` messages. `TestToolProjectionRoundTripsEveryField`
+and refuses names colliding with that binding's direct `policy.tool` exposure.
+It returns detached `ProjectedTool` messages. `TestToolProjectionRoundTripsEveryField`
 holds both JSON fixtures, delivery and extraction to the schema's field list,
 including every nested projection field, as `TestPolicyRoundTripsEveryField`
 does for policy. A valid projection may accompany a binding with `policy.tool`
@@ -930,7 +937,8 @@ method is a separate tool; its effect does not classify the projected tools.
 
 Discovery authenticates the declaration publisher and exposes only currently
 permitted installations and declarations. Admission rejects name collisions
-across projections and direct tools too. Each invocation and receipt lookup still
+with other projections and other bindings' direct tools; `ToolsFromProjection`
+cannot check tool sets it was not given. Each invocation and receipt lookup still
 needs current delegated caller authority; neither a projection nor a read-only
 effect grants it. `ToolsFromProjection` verifies data, not those live decisions.
 
