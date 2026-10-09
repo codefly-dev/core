@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"crypto/subtle"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/agents/contract"
+	"github.com/codefly-dev/core/callertoken"
 	executionv1 "github.com/codefly-dev/core/generated/go/codefly/execution/v1"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -33,7 +33,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -129,33 +128,10 @@ type PluginRegistration struct {
 // in-process latency histogram (RPCStats). Callers can read it via
 // SnapshotRPCStats — useful for daemons that want to expose p50/p99
 // per RPC without standing up a separate metrics endpoint.
-// AuthMetadataKey is the gRPC metadata key carrying the per-spawn
-// auth token. Lowercase per gRPC convention — metadata keys are
-// case-insensitive but the wire form is lowercase.
-const AuthMetadataKey = "x-codefly-token"
-
-// authUnaryInterceptor verifies the per-spawn token on every unary gRPC call.
-// An empty expected token is a server misconfiguration and fails closed.
-//
-// The health-check service is exempt: the host's readiness probe
-// uses grpc.health.v1.Health/Check which fires BEFORE the host has
-// established any client metadata interceptor (it's part of the
-// agent-loader's connection setup). Letting Check through unauthed
-// is safe — it returns only SERVING/NOT_SERVING, no privileged data.
-func authUnaryInterceptor(expectedToken string) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if isHealthMethod(info.FullMethod) {
-			return handler(ctx, req)
-		}
-		if expectedToken == "" {
-			return nil, status.Error(codes.Unauthenticated, "agent auth token is not configured")
-		}
-		if err := verifyAuthToken(ctx, expectedToken); err != nil {
-			return nil, err
-		}
-		return handler(ctx, req)
-	}
-}
+// AuthMetadataKey is the gRPC metadata key carrying the per-spawn auth token.
+// It is callertoken.MetadataKey, the one definition of the caller token that
+// agents, the agent manager and service gateways share.
+const AuthMetadataKey = callertoken.MetadataKey
 
 // runtimeLoadTracker records that this agent process has actually entered the
 // Runtime lifecycle. Builder-only invocations still register a Runtime server,
@@ -168,55 +144,6 @@ func runtimeLoadTracker(loaded *atomic.Bool) grpc.UnaryServerInterceptor {
 		}
 		return handler(ctx, req)
 	}
-}
-
-// authStreamInterceptor mirrors authUnaryInterceptor for streaming
-// RPCs. Same exemption for health checks.
-func authStreamInterceptor(expectedToken string) grpc.StreamServerInterceptor {
-	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if isHealthMethod(info.FullMethod) {
-			return handler(srv, ss)
-		}
-		if expectedToken == "" {
-			return status.Error(codes.Unauthenticated, "agent auth token is not configured")
-		}
-		if err := verifyAuthToken(ss.Context(), expectedToken); err != nil {
-			return err
-		}
-		return handler(srv, ss)
-	}
-}
-
-// verifyAuthToken extracts the bearer from metadata and constant-time
-// compares against the expected value. Returns codes.Unauthenticated
-// on any failure path so the model sees a clear refusal.
-func verifyAuthToken(ctx context.Context, expected string) error {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return status.Error(codes.Unauthenticated, "no metadata")
-	}
-	values := md.Get(AuthMetadataKey)
-	if len(values) == 0 {
-		return status.Error(codes.Unauthenticated, "missing auth token")
-	}
-	// subtle.ConstantTimeCompare returns 1 on equality. Comparing as
-	// byte slices avoids the timing side-channel of `==`.
-	if subtle.ConstantTimeCompare([]byte(values[0]), []byte(expected)) != 1 {
-		return status.Error(codes.Unauthenticated, "bad auth token")
-	}
-	return nil
-}
-
-// isHealthMethod returns true for gRPC health-check method names.
-// The set is small enough to enumerate — no need for a string-prefix
-// hack that could accidentally match plugin methods.
-func isHealthMethod(fullMethod string) bool {
-	switch fullMethod {
-	case "/grpc.health.v1.Health/Check",
-		"/grpc.health.v1.Health/Watch":
-		return true
-	}
-	return false
 }
 
 // panicRecoveryInterceptor converts a panic in any handler (or inner
@@ -441,14 +368,14 @@ func Serve(reg PluginRegistration) {
 			// acting as). The PDP downstream branches on the
 			// stamped Principal — wrong order = no principal +
 			// insecure default.
-			authUnaryInterceptor(expectedToken),
+			callertoken.UnaryServerInterceptor(expectedToken),
 			principalUnaryInterceptor(),
 			containerRecoveryInterceptor(),
 			runtimeLoadTracker(&runtimeLoaded),
 			agentRPCInterceptor(),
 		),
 		grpc.ChainStreamInterceptor(
-			authStreamInterceptor(expectedToken),
+			callertoken.StreamServerInterceptor(expectedToken),
 			principalStreamInterceptor(),
 		),
 	)
