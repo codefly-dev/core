@@ -405,7 +405,7 @@ func (a authoritySpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) e
 		return nil
 	}
 	if len(scopes) == 0 {
-		return fmt.Errorf("%w: %s has no %s and no required_scope_slots to resolve; the owner must declare authority, and policy readers must preserve and resolve required_scope_slots before delivery", ErrInvalid, a.subject, at)
+		return fmt.Errorf("%w: %s declares no %s and no required_scope_slots; the owner must declare authority", ErrInvalid, a.subject, at)
 	}
 	if len(scopes) > MaxScopes {
 		return fmt.Errorf("%w: %s declares %d %s; at most %d are allowed", ErrInvalid, a.subject, len(scopes), at, MaxScopes)

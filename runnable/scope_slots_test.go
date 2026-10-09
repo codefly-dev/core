@@ -274,8 +274,8 @@ func TestScopeSelectionsAreRefusedWhenTheyDoNotAnswerTheSlots(t *testing.T) {
 		"unknown slot": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
 			return append(s, &runnablev0.ScopeSelection{Slot: "other", Invoke: []*basev0.WorkScopeV1{scope("x", []string{"1"}, "do")}})
 		}, `selects scope slot "other", which it does not declare`},
-		"missing slot":   {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return s[:1] }, `requires scope slot "tools" and the composition selected nothing for it`},
-		"nothing at all": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return nil }, `requires scope slot "model" and the composition selected nothing for it`},
+		"missing slot":   {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return s[:1] }, `declares required scope slot "tools" but no ScopeSelection was supplied for it`},
+		"nothing at all": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return nil }, `declares required scope slot "model" but no ScopeSelection was supplied for it`},
 		"selected twice": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection { return append(s, s[1]) }, `scope slot "tools" is selected twice`},
 		"no invoke scope": {func(s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
 			s[1].Invoke = nil

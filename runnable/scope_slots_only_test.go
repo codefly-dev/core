@@ -49,17 +49,15 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 			_, err = runnable.EncodePrepared(pending)
 			require.ErrorIs(t, err, runnable.ErrUnresolvedScopeSlots)
 
-			// A lossy reader can erase the slot before delivery. The empty policy
-			// cannot reveal whether authority was never declared or was dropped;
-			// its diagnostic must name both the declaration and reader obligations.
+			// Erasing the slot leaves an invalid declaration, not a selected policy.
+			// A reader must preserve the slot for its missing selection to be named.
 			dropped := proto.CloneOf(pending)
 			dropped.Policy.RequiredScopeSlots = nil
 			_, err = runnable.EncodePrepared(dropped)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
 			require.NotErrorIs(t, err, runnable.ErrUnresolvedScopeSlots)
-			require.ErrorContains(t, err, "has no invoke_scopes and no required_scope_slots to resolve")
+			require.ErrorContains(t, err, "declares no invoke_scopes and no required_scope_slots")
 			require.ErrorContains(t, err, "the owner must declare authority")
-			require.ErrorContains(t, err, "policy readers must preserve and resolve required_scope_slots before delivery")
 
 			receipt := receiptFor(pending)
 			receipt.Schema = runnable.ResolvedPolicySchemaV1
@@ -151,8 +149,35 @@ func TestSlotOnlyAuthorityStillRefusesIncompleteOrWidenedSelections(t *testing.T
 			_, err = spec.ResolveScopeSlots(selections)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
 			if name == "empty final lookup" {
-				require.ErrorContains(t, err, "has no lookup_scopes and no required_scope_slots")
+				require.ErrorContains(t, err, "declares no lookup_scopes and no required_scope_slots")
 			}
+		})
+	}
+}
+
+func TestScopeAuthorityDiagnosticsDistinguishDeclarationFromSelection(t *testing.T) {
+	declared := slotOnlyOperation(t)
+	declared.RequiredScopeSlots = nil
+	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "declares no invoke_scopes and no required_scope_slots; the owner must declare authority")
+	require.NotContains(t, err.Error(), "no ScopeSelection")
+	t.Log(err)
+
+	for _, fixed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "slot-only", true: "slot-plus-fixed"}[fixed], func(t *testing.T) {
+			declared := slotOnlyOperation(t)
+			if fixed {
+				declared.InvokeScopes = []*basev0.WorkScopeV1{scope("acme.fixed", []string{"fixed-a"}, "invoke", "read")}
+				declared.LookupScopes = []*basev0.WorkScopeV1{scope("acme.fixed", []string{"fixed-a"}, "read")}
+			}
+			_, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+			require.NoError(t, err)
+			_, err = spec.ResolveScopeSlots(nil)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, "declares required scope slot \"target\" but no ScopeSelection was supplied for it; the composition must select exact authority for this slot")
+			require.NotContains(t, err.Error(), "the owner must declare authority")
+			t.Log(err)
 		})
 	}
 }
