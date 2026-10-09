@@ -860,6 +860,86 @@ digest alone covers schemas, **not** policy or tool metadata. Every invocation
 and receipt lookup still needs current, narrowly delegated caller authority.
 A read-only declaration is an owner assertion, never an authorization grant.
 
+### Tools over a parameterised operation
+
+One owner method can serve many installed declarations, each discoverable as a
+tool with its own name, schema and effect. Discovery projects those tools over
+**one prepared binding**. Core does not derive a package per declaration:
+`PackageFromMethod` still reads the method descriptors and release identity at
+generation time. Installation-selected declarations do not change that identity.
+
+[`ToolProjection`](../proto/codefly/runnable/v0/projection.proto) is the shared
+delivery shape. Its fields are:
+
+```text
+{
+  binding_id, contract_digest,
+  tools: [{name, description, effect, input_schema, output_schema,
+           selector: {field, value}, digest}]
+}
+```
+
+Complete examples are shipped in both
+[snake_case](../runnable/testdata/tool-projection/snake_case.json) and
+[lowerCamelCase](../runnable/testdata/tool-projection/lowerCamelCase.json).
+
+`binding_id` is an opaque installation reference. The admitting consumer resolves
+it to the exact prepared binding; `PreparedBinding` does not itself carry that
+reference, so matching a contract digest cannot prove the reference was resolved
+correctly. `contract_digest` must equal that binding's digest and covers only its
+bounded method contract. It does not cover policy, route or projected tools.
+Each tool's `digest` identifies the authenticated publisher's complete declaration,
+including implementation details outside discovery. The publisher owns that
+declaration format and its digest computation. Core can check the digest's
+`sha256:<lowercase hex>` spelling, but cannot recompute content it does not have.
+Admission freezes and compares **the entire projection and exact binding**,
+including every declaration digest; equal contract digests, or equal asserted
+declaration digests with changed metadata, are not sufficient.
+
+`ValidateToolProjection` enforces `ToolExposure`'s name, description and explicit
+effect rules, unique names within the projection, required digests and selectors,
+and bounded self-contained JSON Schemas. There are 1..256 tools in at most 1 MiB
+of canonical JSON; each schema is at most 64 KiB. Input declares root `type:
+"object"`; output may describe any JSON type. Schema validation defaults to JSON
+Schema draft 2020-12 and loads no external references, including local files.
+These schemas describe the declared payload and unwrapped result, not the generic
+method envelope. They neither replace nor widen the bounded Runnable profile.
+
+`selector.field` names one top-level string field in the prepared input contract,
+in that contract's spelling. `selector.value` fixes its value, independently of
+the discovery name. The adapter validates model input against `input_schema`,
+wraps it in the method envelope, applies the fixed selector and admitted
+installation context, and validates the unwrapped output against `output_schema`.
+It must refuse model attempts to supply or override binding identities, selectors,
+destinations or authority. Core does not infer this adapter from field names and
+does not dispatch a projection. For a method carrying a JSON payload in a string,
+the adapter owns that explicit encoding; protobuf maps, bytes and well-known
+`Struct`/`Value` remain outside `ProjectMessage`'s bounded profile.
+
+`EncodeToolProjection` validates and writes canonical proto3 JSON;
+`DecodeToolProjection` accepts snake_case or lowerCamelCase names and refuses
+unknown fields. `ToolsFromProjection(prepared, projection)` first verifies the
+complete binding, then the projection, contract equality and selector fields,
+and returns detached `ProjectedTool` messages. `TestToolProjectionRoundTripsEveryField`
+holds both JSON fixtures, delivery and extraction to the schema's field list,
+including every nested projection field, as `TestPolicyRoundTripsEveryField`
+does for policy. A valid projection may accompany a binding with `policy.tool`
+absent: this leaves the generic method hidden from direct discovery, and
+`ToolFromPrepared` still returns `ErrNotATool`. An explicitly exposed generic
+method is a separate tool; its effect does not classify the projected tools.
+
+Discovery authenticates the declaration publisher and exposes only currently
+permitted installations and declarations. Admission rejects name collisions
+across projections and direct tools too. Each invocation and receipt lookup still
+needs current delegated caller authority; neither a projection nor a read-only
+effect grants it. `ToolsFromProjection` verifies data, not those live decisions.
+
+`ScopeSlot` is the ownership precedent: a fixed operation can carry
+installation-selected specifics. It is not a tool representation to reuse: scope
+resolution fills authority policy, while this projection declares discovery and
+one fixed argument. No scope resolution, new operation derivation, OpenAPI reader
+extension or generic payload adapter is introduced here.
+
 ### Required scope slots
 
 An owner cannot always spell its authority alone. A generic model operation

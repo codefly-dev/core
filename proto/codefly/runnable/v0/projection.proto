@@ -1,0 +1,64 @@
+syntax = "proto3";
+package codefly.runnable.v0;
+
+import "codefly/runnable/v0/options.proto";
+import "google/protobuf/struct.proto";
+
+// ToolProjection declares tools over one installed operation without deriving
+// new packages or changing its policy. Its publisher authenticates the complete
+// declarations; discovery filters current permissions. Admission freezes this
+// whole value and the exact prepared binding, not only contract_digest.
+// runnable.ValidateToolProjection and ToolsFromProjection enforce its bounds.
+message ToolProjection {
+  // binding_id is the installation's opaque binding reference, 1..512 UTF-8
+  // bytes without whitespace or controls. The consumer resolves it to the exact
+  // admitted PreparedBinding; that message does not itself carry this id.
+  string binding_id = 1;
+  // contract_digest must equal the prepared binding's contract_digest. It
+  // covers the method's bounded schemas, not these tools or the binding policy.
+  string contract_digest = 2;
+  // tools contains 1..256 declarations with distinct model-facing names.
+  // Admission also rejects collisions with tools from other projections.
+  repeated ProjectedTool tools = 3;
+}
+
+// ProjectedTool exposes a declared specialization of an installed operation.
+// It contains no route, credential or authority. The adapter validates the
+// declared payload, wraps it in the operation's envelope, fixes the selector
+// and installation context, and unwraps the result. Model input cannot replace
+// any of those fixed values.
+message ProjectedTool {
+  // name follows ToolExposure.name's rules.
+  string name = 1;
+  // description follows ToolExposure.description's rules.
+  string description = 2;
+  // effect is explicit for this declaration; it is never inferred from the
+  // generic operation's exposure, transport or authority scopes.
+  ToolExposure.Effect effect = 3;
+  // input_schema is a self-contained JSON Schema object for the tool payload,
+  // at most 64 KiB of canonical JSON, with root type "object". Validation
+  // defaults to draft 2020-12; external reference loading is refused.
+  google.protobuf.Struct input_schema = 4;
+  // output_schema is a self-contained JSON Schema object for the unwrapped
+  // result, under the same size and reference rules as input_schema. Its root
+  // may describe any JSON type. These schemas do not replace RunnableContract.
+  google.protobuf.Struct output_schema = 5;
+  // selector fixes one top-level string field in the prepared input envelope.
+  ToolSelector selector = 6;
+  // digest is "sha256:<lowercase hex>" identifying the authenticated complete
+  // declaration. The publisher computes it over its own declaration format,
+  // including details outside this projection. Core checks syntax, not content
+  // it does not possess; admission compares every projected field as well.
+  string digest = 7;
+}
+
+// ToolSelector is one fixed argument, never a path or a model-supplied value.
+message ToolSelector {
+  // field names exactly one top-level field of the prepared input contract,
+  // using that contract's spelling: 1..64 ASCII letters, digits or '_', starting
+  // with a letter or '_'. ToolsFromProjection requires a string field.
+  string field = 1;
+  // value is the fixed string, 1..512 UTF-8 bytes without controls or leading
+  // or trailing whitespace. It need not equal the tool's discovery name.
+  string value = 2;
+}
