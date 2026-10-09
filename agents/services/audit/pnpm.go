@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -184,7 +185,7 @@ func parsePnpmOutdated(locked, output []byte) ([]*builderv0.OutdatedDep, error) 
 		}
 	}
 	var entries map[string]npmOutdatedEntry
-	if err := json.Unmarshal(output, &entries); err != nil {
+	if err := json.Unmarshal(pnpmJSONReport(output), &entries); err != nil {
 		return nil, fmt.Errorf("parse pnpm outdated: %w", err)
 	}
 	if entries == nil {
@@ -207,4 +208,25 @@ func parsePnpmOutdated(locked, output []byte) ([]*builderv0.OutdatedDep, error) 
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Package < result[j].Package })
 	return result, nil
+}
+
+// pnpmJSONReport returns the JSON document in a pnpm --json report. pnpm
+// writes its diagnostics ("WARN  GET https://registry.npmjs.org/… error
+// (ECONNRESET)", a deprecated-setting notice) to stdout BEFORE the report,
+// so a report that is otherwise whole begins with lines that are not JSON.
+// Those lines are pnpm talking about the fetch, not evidence about any
+// dependency; the report starts at the first line that opens a JSON value,
+// and everything before it is dropped. A report with no such line is
+// returned unchanged, so the parse error names what pnpm actually printed.
+func pnpmJSONReport(output []byte) []byte {
+	rest := output
+	for len(rest) > 0 {
+		line, tail, _ := bytes.Cut(rest, []byte("\n"))
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+			return rest
+		}
+		rest = tail
+	}
+	return output
 }
