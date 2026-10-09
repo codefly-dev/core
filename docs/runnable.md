@@ -398,10 +398,10 @@ validates them and hands them back: the method must be unary (a streaming
 method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
 least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
 `retryable_codes`, each named once and a code of the transport's own
-vocabulary; `audience` and both scope sets are required and carry the runtime's
-own value bounds — the
-bounds the orchestration runtime enforces at installation, restated here so a
-descriptor that generates is a descriptor that installs. An operation with no
+vocabulary; `audience` is required, and both concrete scope sets are required at
+installation. An owner declaration may defer scopes to its
+[required scope slots](#required-scope-slots); supplied scopes carry the runtime's
+own value bounds. An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
 capability from, and the runtime refuses the installation rather than calling
 without authority. `lookup_scopes` must be a subset of `invoke_scopes` under
@@ -964,6 +964,18 @@ must come with each invoke scope so a receipt can be read back. The resource
 kinds, the actions and the exact ids are the composition's: it answers each
 slot with a `ScopeSelection` carrying the `invoke` scopes it forwards and the
 read-only `lookup` scopes that go with them.
+
+Required slots may supply **all** of an operation's resource authority. An
+unresolved declaration may leave both fixed `invoke_scopes` and `lookup_scopes`
+empty; it need not invent an unrelated fixed permission or a wildcard of the
+selected kind. Supplied fixed scopes still satisfy the usual bounds and lookup
+subset rules. After every slot is resolved, both concrete scope lists must be
+nonempty. `lookup: true` additionally requires read-only lookup over the same
+exact ids for every invoke kind selected into that slot. A slot without that
+flag may supply lookup too, but a completed policy with no lookup authority
+is refused. The [slot-only fixture](../runnable/testdata/scope-slots/slot-only-operation.json)
+is exercised through derivation, resolution, prepared delivery and the matching
+resolved-policy receipt.
 
 `OperationSpec.ResolveScopeSlots` is the one resolution to a concrete policy.
 It validates the declaration it was handed before it resolves anything, then

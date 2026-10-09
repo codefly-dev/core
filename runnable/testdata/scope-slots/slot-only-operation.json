@@ -1,0 +1,15 @@
+{
+  "attempt_timeout": "60s",
+  "total_timeout": "600s",
+  "max_attempts": 5,
+  "backoff": "2s",
+  "retryable_codes": ["UNAVAILABLE", "RESOURCE_EXHAUSTED", "ABORTED"],
+  "audience": "acme.items",
+  "lookup_method": "/documents.ingest.v1.IngestionService/LookupText",
+  "max_input_bytes": "65536",
+  "max_output_bytes": "1048576",
+  "completion": "COMPLETION_CALL",
+  "required_scope_slots": [
+    {"name": "target", "required_actions": ["invoke", "read"], "lookup": true}
+  ]
+}
