@@ -977,6 +977,12 @@ is refused. The [slot-only fixture](../runnable/testdata/scope-slots/slot-only-o
 is exercised through derivation, resolution, prepared delivery and the matching
 resolved-policy receipt.
 
+A policy with neither concrete scopes nor required slots is refused with a
+diagnostic naming both the owner's declaration and the reader's obligation to
+preserve and resolve `required_scope_slots`. An empty policy cannot reveal
+whether authority was never declared or a reader dropped its slots; check the
+original declaration and the derived document before changing authority.
+
 `OperationSpec.ResolveScopeSlots` is the one resolution to a concrete policy.
 It validates the declaration it was handed before it resolves anything, then
 refuses a selection naming no declared slot, a slot left unselected or

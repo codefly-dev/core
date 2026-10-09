@@ -268,8 +268,8 @@ func TestOperationFromMethodEnforcesThePolicyBounds(t *testing.T) {
 		{"no audience", func(o *runnablev0.Operation) { o.Audience = "" }, "audience"},
 		{"untrimmed audience", func(o *runnablev0.Operation) { o.Audience = " documents.ingestion " }, "audience"},
 		{"overlong audience", func(o *runnablev0.Operation) { o.Audience = strings.Repeat("a", runnable.MaxAudienceLength+1) }, "audience"},
-		{"no invoke scopes", func(o *runnablev0.Operation) { o.InvokeScopes = nil }, "declares 0 invoke_scopes"},
-		{"no lookup scopes", func(o *runnablev0.Operation) { o.LookupScopes = nil }, "declares 0 lookup_scopes"},
+		{"no invoke scopes", func(o *runnablev0.Operation) { o.InvokeScopes = nil }, "has no invoke_scopes and no required_scope_slots"},
+		{"no lookup scopes", func(o *runnablev0.Operation) { o.LookupScopes = nil }, "has no lookup_scopes and no required_scope_slots"},
 		{"too many scopes", func(o *runnablev0.Operation) {
 			o.InvokeScopes = make([]*basev0.WorkScopeV1, 0, runnable.MaxScopes+1)
 			for i := range runnable.MaxScopes + 1 {

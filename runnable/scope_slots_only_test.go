@@ -48,6 +48,19 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 			require.ErrorIs(t, runnable.VerifyPrepared(pending), runnable.ErrUnresolvedScopeSlots)
 			_, err = runnable.EncodePrepared(pending)
 			require.ErrorIs(t, err, runnable.ErrUnresolvedScopeSlots)
+
+			// A lossy reader can erase the slot before delivery. The empty policy
+			// cannot reveal whether authority was never declared or was dropped;
+			// its diagnostic must name both the declaration and reader obligations.
+			dropped := proto.CloneOf(pending)
+			dropped.Policy.RequiredScopeSlots = nil
+			_, err = runnable.EncodePrepared(dropped)
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.NotErrorIs(t, err, runnable.ErrUnresolvedScopeSlots)
+			require.ErrorContains(t, err, "has no invoke_scopes and no required_scope_slots to resolve")
+			require.ErrorContains(t, err, "the owner must declare authority")
+			require.ErrorContains(t, err, "policy readers must preserve and resolve required_scope_slots before delivery")
+
 			receipt := receiptFor(pending)
 			receipt.Schema = runnable.ResolvedPolicySchemaV1
 			receipt.PolicyDigest, err = runnable.PolicyDigest(receipt.Policy)
@@ -138,7 +151,7 @@ func TestSlotOnlyAuthorityStillRefusesIncompleteOrWidenedSelections(t *testing.T
 			_, err = spec.ResolveScopeSlots(selections)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
 			if name == "empty final lookup" {
-				require.ErrorContains(t, err, "declares 0 lookup_scopes")
+				require.ErrorContains(t, err, "has no lookup_scopes and no required_scope_slots")
 			}
 		})
 	}

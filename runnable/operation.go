@@ -404,8 +404,11 @@ func (a authoritySpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) e
 		// This defers only absence; supplied fixed scopes keep all their checks.
 		return nil
 	}
-	if len(scopes) == 0 || len(scopes) > MaxScopes {
-		return fmt.Errorf("%w: %s declares %d %s; between 1 and %d are required", ErrInvalid, a.subject, len(scopes), at, MaxScopes)
+	if len(scopes) == 0 {
+		return fmt.Errorf("%w: %s has no %s and no required_scope_slots to resolve; the owner must declare authority, and policy readers must preserve and resolve required_scope_slots before delivery", ErrInvalid, a.subject, at)
+	}
+	if len(scopes) > MaxScopes {
+		return fmt.Errorf("%w: %s declares %d %s; at most %d are allowed", ErrInvalid, a.subject, len(scopes), at, MaxScopes)
 	}
 	kinds := make(map[string]struct{}, len(scopes))
 	for _, scope := range scopes {
