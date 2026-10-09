@@ -1,0 +1,5 @@
+name: module-dev
+layout: modules
+modules:
+  - name: module-local
+  - name: saas

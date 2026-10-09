@@ -11,16 +11,17 @@ import (
 )
 
 func TestOperationSupportDoesNotAdvertiseExecutorAdoption(t *testing.T) {
-	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", ConfigurationValueTemplate, RuntimeInitImage}, SupportedOperationContracts())
+	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance}, SupportedOperationContracts())
 	require.NotContains(t, Current().Capabilities, artifactexecution.Contract)
 	require.NotContains(t, Current().Capabilities, RuntimeInitDependencyMappings)
 	require.NotContains(t, Current().Capabilities, RuntimeInitImage)
+	require.NotContains(t, Current().Capabilities, DeploymentCompositionProvenance)
 	// Host support for a configuration value template is not an executor
 	// capability: an agent advertising the baseline contract must stay
 	// compatible, so this must never leak into the AgentContract wire.
 	require.NotContains(t, Current().Capabilities, ConfigurationValueTemplate)
 	SupportedOperationContracts()[0] = "changed"
-	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", ConfigurationValueTemplate, RuntimeInitImage}, SupportedOperationContracts())
+	require.Equal(t, []string{artifactexecution.Contract, RuntimeInitDependencyMappings, "codefly.dev/docker-build-recipe/v4", ConfigurationValueTemplate, RuntimeInitImage, DeploymentCompositionProvenance}, SupportedOperationContracts())
 }
 
 func TestCheck(t *testing.T) {

@@ -137,6 +137,46 @@ and refusal tests belong to
 [service-libreoffice#63](https://github.com/obin-ai/service-libreoffice/issues/63).
 Those implementations and a combined boot must qualify the downstream rollout.
 
+### Deployment composition provenance
+
+`DeploymentRequest.composition_provenance` carries every member of the CLI's
+one loaded, resolved composition, including transitive imports under their
+**composed names**. Each member carries its declared role (`module` or
+`solution`) and the name of its owning workspace, preserved through imports.
+The CLI fills this from the same composition its own dependency judge uses.
+
+The shared builder converts supplied membership to `resources.Provenance` and
+passes it to `ResolveDependencyNetworkMappings`, which already takes that
+interface. It uses the existing edge and endpoint verdicts. Request provenance
+wins whenever present: the agent neither loads nor merges a repository's dev
+workspace into it. An empty supplied composition still has presence; missing
+edge members, duplicate names, empty names or owners, and unspecified or unknown
+roles refuse as `ErrUnjudgedProvenance`, never trigger another source.
+
+Only an absent field falls back to `FindWorkspaceUpFrom` at the service's
+physical location. That older-CLI behavior is correct **only for a checkout
+inside the rendering composition**. It does not fix pinned module caches,
+composed renames or imports for an older CLI. No discovered workspace still
+means unjudged dependency addresses.
+
+This is stricter as well as correct: a solution's direct route to a module
+endpoint returns `ErrSolutionReachesThroughHost`, even when its repo's dev
+workspace treats it as a module and would admit the edge. The request preserves
+the role needed for that refusal and the owning workspaces in its diagnostic.
+
+`deployment-composition-provenance/v1` names this optional operation contract.
+The CLI requires the live `AgentContract` capability when relying on the
+handoff. Agents advertise it only when their deployment path implements these
+semantics; the shared server does not automatically advertise adoption.
+Wire protocol 1 and startup protocol 2 are unchanged. No version roster or
+fleet repin substitutes for live adoption.
+
+[Handbook proposal #266](https://github.com/obin-ai/handbook/pull/266) preceded
+the proto edit for [core#751](https://github.com/codefly-dev/core/issues/751).
+The CLI producer is sequenced after Core in
+[cli#937](https://github.com/codefly-dev/cli/issues/937). Core tests do
+not qualify that handoff, downstream agent adoption, or a staging render.
+
 ### Compatibility reporting
 
 - Incompatible lifecycle semantics increment `protocol_version`. Both peers

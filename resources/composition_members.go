@@ -28,9 +28,9 @@ type Member struct {
 }
 
 // Provenance answers who a module is to the composition that carries it. The
-// composition — *Workspace — is the one implementation. Every verdict on an
-// edge takes one, so a reader that holds no composition cannot ask the verdict
-// and get an answer that a composition would have refused: it is a caller's
+// loaded composition (*Workspace), or its request-carried membership snapshot,
+// supplies it. Every verdict on an edge takes one, so a reader that holds no
+// composition cannot ask the verdict and get an answer that a composition would have refused: it is a caller's
 // provenance, not a precheck beside the verdict.
 type Provenance interface {
 	Member(name string) (Member, bool)
