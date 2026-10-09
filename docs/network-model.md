@@ -329,7 +329,12 @@ addresses judges with the composition it holds: core's CLI-side wrappers
 with the instance's workspace, and refusing addresses handed to an instance
 with no module or service to judge them for), the SDK dependency session (the
 workspace that composed its module, else the one above its directory) and the
-builder agent (the workspace above the service directory it was loaded from).
+builder agent (the resolved membership supplied by the deployment request).
+The request includes every member, imports included under composed names, with
+its role and owning workspace. It wins over local discovery; only an absent
+field from an older CLI falls back to the workspace above the service directory.
+That fallback is correct only for a checkout inside the rendering composition,
+not a pinned module cache. See [deployment composition provenance](agent-contract.md#deployment-composition-provenance).
 A holder that can find no composition refuses the addresses as unjudged rather
 than wiring them, and there is no selecting from what another holder judged.
 Every declarer of `service-dependencies` is judged and asks alike — a service,
