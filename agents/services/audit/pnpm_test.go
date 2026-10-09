@@ -47,3 +47,24 @@ func TestPnpmOutdatedUsesLockedVersion(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+// TestPnpmOutdatedSkipsPnpmDiagnosticsBeforeTheReport: pnpm writes "WARN …"
+// lines to stdout ahead of its --json report (seen 2026-10-09 in a release
+// conformance gate: `parse pnpm outdated: invalid character 'W' looking for
+// beginning of value`). The diagnostics are not evidence; the report is.
+func TestPnpmOutdatedSkipsPnpmDiagnosticsBeforeTheReport(t *testing.T) {
+	locked := []byte(`[{"dependencies":{"left-pad":{"version":"1.0.0"}}}]`)
+	report := []byte("WARN  GET https://registry.npmjs.org/left-pad error (ECONNRESET). Will retry in 10 seconds. 2 retries left.\n" +
+		" WARN  deprecated subdependencies found: foo@1.0.0\n" +
+		`{"left-pad":{"current":"1.0.0","wanted":"1.0.0","latest":"1.3.0"}}` + "\n")
+	outdated, err := parsePnpmOutdated(locked, report)
+	if err != nil {
+		t.Fatalf("parse with leading diagnostics: %v", err)
+	}
+	if len(outdated) != 1 || outdated[0].GetPackage() != "left-pad" {
+		t.Fatalf("outdated = %+v, want left-pad", outdated)
+	}
+	if _, err := parsePnpmOutdated(locked, []byte("WARN  nothing but noise\n")); err == nil {
+		t.Fatal("a report with no JSON must still fail to parse")
+	}
+}
