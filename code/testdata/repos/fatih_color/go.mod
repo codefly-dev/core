@@ -1,6 +1,6 @@
 module github.com/fatih/color
 
-go 1.24
+go 1.25
 
 require (
 	github.com/mattn/go-colorable v0.1.14
