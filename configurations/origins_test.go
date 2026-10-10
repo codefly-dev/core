@@ -3,13 +3,84 @@ package configurations_test
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
+
+func TestConfigurationEvidenceDoesNotDependOnValuesReferencesOrContent(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.CopyFS(dir, os.DirFS("testdata/origins")))
+	ctx := context.Background()
+	workspace := loadOriginWorkspace(t, ctx, dir)
+	env := &resources.Environment{Name: "staging", ConfigurationProfile: "staging"}
+	read := func() *configurations.WorkspaceConfigurations {
+		t.Helper()
+		provided, err := configurations.ReadWorkspaceConfigurations(ctx, workspace, env)
+		require.NoError(t, err)
+		require.Len(t, provided.Origins, 6)
+		require.Len(t, provided.Decisions, 6)
+		require.Len(t, provided.ProfileSelections, 1)
+		return provided
+	}
+	// Exercise both protobuf transports and Go JSON. The evidence contract is
+	// separate from Infos, which intentionally still holds the supplied values.
+	encode := func(provided *configurations.WorkspaceConfigurations) []string {
+		t.Helper()
+		var messages []proto.Message
+		for _, origin := range provided.Origins {
+			messages = append(messages, origin)
+		}
+		for _, decision := range provided.Decisions {
+			messages = append(messages, decision)
+		}
+		for _, selection := range provided.ProfileSelections {
+			messages = append(messages, selection)
+		}
+		var encoded []string
+		for _, message := range messages {
+			wire, err := proto.MarshalOptions{Deterministic: true}.Marshal(message)
+			require.NoError(t, err)
+			jsonWire, err := protojson.Marshal(message)
+			require.NoError(t, err)
+			goJSON, err := json.Marshal(message)
+			require.NoError(t, err)
+			for _, payload := range [][]byte{wire, jsonWire, goJSON} {
+				require.NotContains(t, string(payload), "private-canary")
+				require.NotContains(t, string(payload), "op://")
+				encoded = append(encoded, string(payload))
+			}
+		}
+		return encoded
+	}
+	before := read()
+	want := encode(before)
+	// Change every selected AND shadowed value, including reference-only and
+	// inline-secret documents. Any value-derived fingerprint would change too.
+	require.NoError(t, filepath.WalkDir(dir, func(file string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		content, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(file, []byte(strings.ReplaceAll(string(content), "origin-private-canary", "rotated-private-canary")), 0600)
+	}))
+	after := read()
+	for i := range before.Infos {
+		require.False(t, proto.Equal(before.Infos[i], after.Infos[i]), "fixture must actually change each supplied group")
+	}
+	require.Equal(t, want, encode(after), "origins, decisions and profile selections must not expose values or content hashes")
+}
 
 func TestConfigurationOriginsFollowEqualValuedOverridesAndDefaults(t *testing.T) {
 	ctx := context.Background()

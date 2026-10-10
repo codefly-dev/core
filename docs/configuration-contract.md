@@ -89,8 +89,9 @@ never crosses that boundary.
 Each origin identifies a final group/key's supplying file; structured documents
 have `Document=true` and an empty key. Object identity preserves equal-valued
 overrides through profile selection and composition, including retained defaults
-cloned during workspace per-key overlays. Resolver behavior is unchanged. Only surviving results have origins, never values or
-secret URIs. Origins cover disk composition before invocation overrides, reference
+cloned during workspace per-key overlays. Resolver behavior is unchanged. Only
+surviving results have origins, never values, secret URIs or content hashes.
+Origins cover disk composition before invocation overrides, reference
 resolution and injection. They are not a complete input fingerprint, history of
 shadowed candidates or evidence of deployed/runtime values.
 
@@ -111,3 +112,10 @@ profiles, whether a candidate directory exists, and the actual derivation layers
 read base first. It records absent locations too. These are directory selection
 and explicit derivation, not per-file fallback, and do not establish the current
 identity of previously collected inputs.
+
+Only the three evidence collections (`Origins`, `Decisions` and
+`ProfileSelections`) have this value-free contract. `Infos` still carries the
+configuration values and documents for provisioning; serializing the entire
+`WorkspaceConfigurations` result exposes them. Changing plaintext, inline
+secrets, secret references or document contents without changing their source
+selection leaves the serialized evidence unchanged, including shadowed sources.
