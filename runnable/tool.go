@@ -19,7 +19,11 @@ func ValidateToolExposure(tool *runnablev0.ToolExposure) error {
 	if tool == nil {
 		return nil
 	}
-	name := tool.GetName()
+	return validateToolMetadata(tool.GetName(), tool.GetDescription(), tool.GetEffect())
+}
+
+// validateToolMetadata is shared by direct exposure and declared projections.
+func validateToolMetadata(name, description string, effect runnablev0.ToolExposure_Effect) error {
 	if len(name) == 0 || len(name) > 64 {
 		return fmt.Errorf("%w: tool name must contain 1..64 ASCII characters", ErrInvalid)
 	}
@@ -29,11 +33,10 @@ func ValidateToolExposure(tool *runnablev0.ToolExposure) error {
 			return fmt.Errorf("%w: invalid tool name", ErrInvalid)
 		}
 	}
-	description := tool.GetDescription()
 	if len(description) == 0 || len(description) > 4096 || !utf8.ValidString(description) || strings.TrimSpace(description) != description || strings.ContainsRune(description, '\x00') {
 		return fmt.Errorf("%w: tool description must be nonempty bounded UTF-8 text", ErrInvalid)
 	}
-	switch tool.GetEffect() {
+	switch effect {
 	case runnablev0.ToolExposure_EFFECT_READ_ONLY, runnablev0.ToolExposure_EFFECT_MUTATION:
 	default:
 		return fmt.Errorf("%w: tool effect must explicitly declare read-only or mutation", ErrInvalid)

@@ -87,9 +87,11 @@ func (ToolExposure_Effect) EnumDescriptor() ([]byte, []int) {
 //
 // The option's presence is the marking; every field below except
 // lookup_method, max_input_bytes, max_output_bytes, tool and
-// required_scope_slots is required, completion included. An attempt
+// required_scope_slots and the scope lists is required, completion included. An attempt
 // budget and an authority nobody chose are not defaults core may invent on an
 // owner's behalf, so an empty option is rejected rather than filled in.
+// Fixed invoke_scopes and lookup_scopes may be empty while required_scope_slots
+// await selection; the resolved policy must contain both concrete scope lists.
 type Operation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// attempt_timeout bounds one attempt.
@@ -106,11 +108,13 @@ type Operation struct {
 	RetryableCodes []string `protobuf:"bytes,5,rep,name=retryable_codes,json=retryableCodes,proto3" json:"retryable_codes,omitempty"`
 	// audience is the exact trust boundary the authority is minted for.
 	Audience string `protobuf:"bytes,6,opt,name=audience,proto3" json:"audience,omitempty"`
-	// invoke_scopes are the scopes the runtime binds for the call itself.
+	// invoke_scopes are the fixed scopes the runtime binds for the call itself.
+	// Required slots may supply all invoke scopes instead of fixed ones.
 	InvokeScopes []*v0.WorkScopeV1 `protobuf:"bytes,7,rep,name=invoke_scopes,json=invokeScopes,proto3" json:"invoke_scopes,omitempty"`
 	// lookup_scopes are the scopes the runtime binds to read an effect receipt.
 	// They must be a read-only subset of invoke_scopes: recovering an outcome
-	// never carries more authority than producing it did.
+	// never carries more authority than producing it did. Required slots may
+	// supply all lookup scopes; a resolved policy with none is still refused.
 	LookupScopes []*v0.WorkScopeV1 `protobuf:"bytes,8,rep,name=lookup_scopes,json=lookupScopes,proto3" json:"lookup_scopes,omitempty"`
 	// lookup_method is a paired method on the same service that takes the effect
 	// id and answers with the receipt, spelled "/package.Service/Method". Empty

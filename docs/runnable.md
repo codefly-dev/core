@@ -398,10 +398,10 @@ validates them and hands them back: the method must be unary (a streaming
 method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
 least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
 `retryable_codes`, each named once and a code of the transport's own
-vocabulary; `audience` and both scope sets are required and carry the runtime's
-own value bounds — the
-bounds the orchestration runtime enforces at installation, restated here so a
-descriptor that generates is a descriptor that installs. An operation with no
+vocabulary; `audience` is required, and both concrete scope sets are required at
+installation. An owner declaration may defer scopes to its
+[required scope slots](#required-scope-slots); supplied scopes carry the runtime's
+own value bounds. An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
 capability from, and the runtime refuses the installation rather than calling
 without authority. `lookup_scopes` must be a subset of `invoke_scopes` under
@@ -860,6 +860,94 @@ digest alone covers schemas, **not** policy or tool metadata. Every invocation
 and receipt lookup still needs current, narrowly delegated caller authority.
 A read-only declaration is an owner assertion, never an authorization grant.
 
+### Tools over a parameterised operation
+
+One owner method can serve many installed declarations, each discoverable as a
+tool with its own name, schema and effect. Discovery projects those tools over
+**one prepared binding**. Core does not derive a package per declaration:
+`PackageFromMethod` still reads the method descriptors and release identity at
+generation time. Installation-selected declarations do not change that identity.
+
+[`ToolProjection`](../proto/codefly/runnable/v0/projection.proto) is the shared
+delivery shape. Its fields are:
+
+```text
+{
+  binding_id, contract_digest,
+  tools: [{name, description, effect, input_schema, output_schema,
+           selector: {field, value}, digest}]
+}
+```
+
+Complete examples are shipped in both
+[snake_case](../runnable/testdata/tool-projection/snake_case.json) and
+[lowerCamelCase](../runnable/testdata/tool-projection/lowerCamelCase.json).
+
+`binding_id` is an opaque installation reference. The admitting consumer resolves
+it to the exact prepared binding; `PreparedBinding` does not itself carry that
+reference, so matching a contract digest cannot prove the reference was resolved
+correctly. `contract_digest` must equal that binding's digest and covers only its
+bounded method contract. It does not cover policy, route or projected tools.
+Each tool's `digest` identifies the authenticated publisher's complete declaration,
+including implementation details outside discovery. The publisher owns that
+declaration format and its digest computation. Core can check the digest's
+`sha256:<lowercase hex>` spelling, but cannot recompute content it does not have.
+Admission freezes and compares **the entire projection and exact binding**,
+including every declaration digest; equal contract digests, or equal asserted
+declaration digests with changed metadata, are not sufficient.
+
+`ValidateToolProjection` enforces `ToolExposure`'s name, description and explicit
+effect rules, unique names within the projection, required digests and selectors,
+and bounded self-contained JSON Schemas. There are 1..256 tools in at most 1 MiB
+of canonical JSON; each schema is at most 64 KiB. Input declares root `type:
+"object"`; output may describe any JSON type. Schema validation defaults to JSON
+Schema draft 2020-12 and loads no external references, including local files.
+These schemas describe the declared payload and unwrapped result, not the generic
+method envelope. They neither replace nor widen the bounded Runnable profile.
+
+Tool names are the uniqueness key. Distinct names may share a selector, a
+declaration digest, or both: aliases are permitted. Admission decides which
+views to expose and authenticates each complete declaration, including its
+effect; equal selectors or asserted digests do not establish that two tools
+are interchangeable.
+
+`selector.field` names one top-level string field in the prepared input contract,
+in that contract's spelling. `selector.value` fixes its value, independently of
+the discovery name. The adapter validates model input against `input_schema`,
+wraps it in the method envelope, applies the fixed selector and admitted
+installation context, and validates the unwrapped output against `output_schema`.
+It must refuse model attempts to supply or override binding identities, selectors,
+destinations or authority. Core does not infer this adapter from field names and
+does not dispatch a projection. For a method carrying a JSON payload in a string,
+the adapter owns that explicit encoding; protobuf maps, bytes and well-known
+`Struct`/`Value` remain outside `ProjectMessage`'s bounded profile.
+
+`EncodeToolProjection` validates and writes canonical proto3 JSON;
+`DecodeToolProjection` accepts snake_case or lowerCamelCase names and refuses
+unknown fields. `ToolsFromProjection(prepared, projection)` first verifies the
+complete binding, then the projection, contract equality and selector fields,
+and refuses names colliding with that binding's direct `policy.tool` exposure.
+It returns detached `ProjectedTool` messages. `TestToolProjectionRoundTripsEveryField`
+holds both JSON fixtures, delivery and extraction to the schema's field list,
+including every nested projection field, as `TestPolicyRoundTripsEveryField`
+does for policy. A valid projection may accompany a binding with `policy.tool`
+absent: this leaves the generic method hidden from direct discovery, and
+`ToolFromPrepared` still returns `ErrNotATool`. An explicitly exposed generic
+method is a separate tool; its effect does not classify the projected tools.
+
+Discovery authenticates the declaration publisher and exposes only currently
+permitted installations and declarations. Admission rejects name collisions
+with other projections and other bindings' direct tools; `ToolsFromProjection`
+cannot check tool sets it was not given. Each invocation and receipt lookup still
+needs current delegated caller authority; neither a projection nor a read-only
+effect grants it. `ToolsFromProjection` verifies data, not those live decisions.
+
+`ScopeSlot` is the ownership precedent: a fixed operation can carry
+installation-selected specifics. It is not a tool representation to reuse: scope
+resolution fills authority policy, while this projection declares discovery and
+one fixed argument. No scope resolution, new operation derivation, OpenAPI reader
+extension or generic payload adapter is introduced here.
+
 ### Required scope slots
 
 An owner cannot always spell its authority alone. A generic model operation
@@ -876,6 +964,25 @@ must come with each invoke scope so a receipt can be read back. The resource
 kinds, the actions and the exact ids are the composition's: it answers each
 slot with a `ScopeSelection` carrying the `invoke` scopes it forwards and the
 read-only `lookup` scopes that go with them.
+
+Required slots may supply **all** of an operation's resource authority. An
+unresolved declaration may leave both fixed `invoke_scopes` and `lookup_scopes`
+empty; it need not invent an unrelated fixed permission or a wildcard of the
+selected kind. Supplied fixed scopes still satisfy the usual bounds and lookup
+subset rules. After every slot is resolved, both concrete scope lists must be
+nonempty. `lookup: true` additionally requires read-only lookup over the same
+exact ids for every invoke kind selected into that slot. A slot without that
+flag may supply lookup too, but a completed policy with no lookup authority
+is refused. The [slot-only fixture](../runnable/testdata/scope-slots/slot-only-operation.json)
+is exercised through derivation, resolution, prepared delivery and the matching
+resolved-policy receipt.
+
+A declaration with neither concrete scopes nor required slots is refused as
+missing owner authority. A declared slot with no selection is a different
+refusal: `ResolveScopeSlots` names the required slot and says the composition
+must supply its `ScopeSelection`. This holds even when fixed scopes already
+exist. Readers must preserve `required_scope_slots` through resolution so a
+missing selection remains distinguishable from a declaration without authority.
 
 `OperationSpec.ResolveScopeSlots` is the one resolution to a concrete policy.
 It validates the declaration it was handed before it resolves anything, then
