@@ -172,7 +172,7 @@ func parsePnpmOutdated(locked, output []byte) ([]*builderv0.OutdatedDep, error) 
 		DevDependencies      map[string]dependency `json:"devDependencies"`
 		OptionalDependencies map[string]dependency `json:"optionalDependencies"`
 	}
-	if err := json.Unmarshal(locked, &projects); err != nil {
+	if err := json.Unmarshal(pnpmJSONReport(locked), &projects); err != nil {
 		return nil, fmt.Errorf("parse pnpm locked dependencies: %w", err)
 	}
 	if len(projects) != 1 {
@@ -211,19 +211,21 @@ func parsePnpmOutdated(locked, output []byte) ([]*builderv0.OutdatedDep, error) 
 }
 
 // pnpmJSONReport returns the JSON document in a pnpm --json report. pnpm
-// writes its diagnostics ("WARN  GET https://registry.npmjs.org/… error
-// (ECONNRESET)", a deprecated-setting notice) to stdout BEFORE the report,
-// so a report that is otherwise whole begins with lines that are not JSON.
-// Those lines are pnpm talking about the fetch, not evidence about any
-// dependency; the report starts at the first line that opens a JSON value,
-// and everything before it is dropped. A report with no such line is
-// returned unchanged, so the parse error names what pnpm actually printed.
+// writes its diagnostics to stdout BEFORE the report — "WARN  GET
+// https://registry.npmjs.org/… error (ECONNRESET)", and since pnpm 11
+// "[WARN] Unsupported engine: wanted: {…}" — so a report that is otherwise
+// whole begins with lines that are not JSON, and one of them begins with the
+// same byte a JSON array does. Those lines are pnpm talking about the fetch
+// or the host, not evidence about any dependency. The report is the first
+// line suffix that parses as a JSON document; everything before it is
+// dropped. Output with no such suffix is returned unchanged, so the parse
+// error names what pnpm actually printed.
 func pnpmJSONReport(output []byte) []byte {
 	rest := output
 	for len(rest) > 0 {
 		line, tail, _ := bytes.Cut(rest, []byte("\n"))
 		trimmed := bytes.TrimSpace(line)
-		if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+		if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid(rest) {
 			return rest
 		}
 		rest = tail
