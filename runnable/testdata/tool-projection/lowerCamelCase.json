@@ -1,0 +1,81 @@
+{
+  "tools": [
+    {
+      "name": "inspect_item",
+      "description": "Read one item.",
+      "effect": "EFFECT_READ_ONLY",
+      "selector": {
+        "field": "operation_code",
+        "value": "inspect.v1"
+      },
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "inputSchema": {
+        "type": "object",
+        "$defs": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "properties": {
+          "key": {
+            "$ref": "#/$defs/key"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "update_item",
+      "description": "Update one item.",
+      "effect": "EFFECT_MUTATION",
+      "selector": {
+        "field": "operation_code",
+        "value": "update.v1"
+      },
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  ],
+  "bindingId": "owner__invoke",
+  "contractDigest": "sha256:99350b18db8997632000eb1e67c221bccf861fb2c86dd61070ba4ebbb8fec9af"
+}

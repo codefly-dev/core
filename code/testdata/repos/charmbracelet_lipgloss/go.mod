@@ -4,7 +4,7 @@ retract v0.7.0 // v0.7.0 introduces a bug that causes some apps to freeze.
 
 retract v0.11.1 // v0.11.1 uses a broken version of x/ansi StringWidth that causes some lines to wrap incorrectly.
 
-go 1.24.0
+go 1.25
 
 require (
 	github.com/aymanbagabas/go-udiff v0.3.1

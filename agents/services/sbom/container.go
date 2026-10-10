@@ -12,7 +12,7 @@ const (
 	// SyftVersion and SyftImage pin the managed container generator used when
 	// an operator-managed syft binary is not available.
 	SyftVersion = "v1.48.0"
-	SyftImage   = "anchore/syft@sha256:b4f1df79f97b817682d8b5ff941eb6bfe74f6172553a5e312c75bbc2eabc405c"
+	SyftImage   = "ghcr.io/anchore/syft@sha256:b4f1df79f97b817682d8b5ff941eb6bfe74f6172553a5e312c75bbc2eabc405c"
 )
 
 // Container generates a package-level inventory for a registry image. The
