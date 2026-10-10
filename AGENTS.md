@@ -96,6 +96,7 @@ modelled, read it there first.
 | --- | --- |
 | `resources/` | Workspace/Module/Service/Endpoint/Agent, YAML loading, validation |
 | `proto/` | schema source of truth (`codefly/*`, `mind/*`); `generated/` is output |
+| `callertoken/` | shared gRPC caller-token authentication for agent and service listeners |
 | `agents/` | agent registration, process manager, the embeddable server types |
 | `network/` | deterministic port allocation, DNS, native/container/public modes |
 | `configurations/` | what services provide and consume, injected as env vars |
@@ -178,7 +179,6 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   nothing under review. See [`docs/ci-credentials.md`](docs/ci-credentials.md).
 
 ## Procedures
-
 Step-by-step procedures live in `.claude/skills/`, loaded on demand rather than
 carried here:
 

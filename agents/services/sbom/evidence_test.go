@@ -163,3 +163,39 @@ func TestCollectImageEvidenceRequiresAnImmutableSubject(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalImageSubjectsRefuseCallerDeclaredPlatforms(t *testing.T) {
+	for _, platforms := range [][]string{{"linux/amd64"}, {"linux/amd64", "linux/arm64"}} {
+		subjects, err := ImageSubjects(context.Background(), PublishedImage{
+			Service: "fixture", Reference: "fixture:local", Platforms: platforms,
+		}, true)
+		require.ErrorContains(t, err, "daemon holds one platform")
+		require.Nil(t, subjects)
+	}
+}
+
+func TestEvidenceWriterRefusesDigestPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	result := scanned(t, pinned, "linux/amd64", digestAMD64)
+	for _, digest := range []string{"sha256:/../../outside", "", "sha256:ABC", "sha256:" + strings.Repeat("A", 64)} {
+		result.Digest = digest
+		_, err := writeImageEvidence(dir, result)
+		require.ErrorContains(t, err, "invalid image sha256 digest")
+	}
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
+func TestImageEvidenceIndexKeepsFourColumnsWithoutAPlatform(t *testing.T) {
+	dir := t.TempDir()
+	document, err := writeImageEvidence(dir, scanned(t, pinned, "", digestAMD64))
+	require.NoError(t, err)
+	require.NoError(t, WriteImageEvidenceIndex(dir, []ImageEvidenceDocument{document}))
+	raw, err := os.ReadFile(filepath.Join(dir, "index.txt"))
+	require.NoError(t, err)
+	fields := strings.Fields(string(raw))
+	require.Len(t, fields, 4)
+	require.Equal(t, "-", fields[0])
+	require.Equal(t, "ghcr.io/codefly-dev/service-warehouse@"+digestAMD64, fields[1])
+}

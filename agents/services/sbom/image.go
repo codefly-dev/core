@@ -12,6 +12,7 @@ import (
 
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	"github.com/codefly-dev/core/resources"
 )
 
 // ImageSource selects how the scanner reaches an image.
@@ -125,7 +126,7 @@ func resolveImage(ctx context.Context, req ImageRequest) (string, string, error)
 		if pinned == "" || req.Platform != "" {
 			return "", "", fmt.Errorf("%w: resolving %s needs docker to query the registry; pin the reference to a digest and omit the platform to scan with syft alone", ErrUnsupported, req.Reference)
 		}
-		return pinned, "", nil
+		return manifestIdentity(pinned, "")
 	}
 	raw, err := runCommand(ctx, "docker", "buildx", "imagetools", "inspect", req.Reference, "--format", "{{json .Manifest}}")
 	if err != nil {
@@ -167,7 +168,7 @@ func inspectDaemonImage(ctx context.Context, req ImageRequest) (string, string, 
 // platform per reference, so a mismatch means the wrong image would be scanned.
 func daemonIdentity(raw []byte, reference, want string) (string, string, error) {
 	fields := strings.Fields(string(raw))
-	if len(fields) != 2 || !strings.HasPrefix(fields[0], "sha256:") {
+	if len(fields) != 2 || !resources.IsSHA256Digest(fields[0]) {
 		return "", "", fmt.Errorf("local image %s reported no usable image ID", reference)
 	}
 	if want != "" && fields[1] != want {
@@ -256,11 +257,11 @@ func selectManifestDigest(data []byte, platform string) (string, string, error) 
 			if len(shipped) > 1 {
 				return "", "", fmt.Errorf("image ships %d platforms; name the platform to scan", len(shipped))
 			}
-			return shipped[0].Digest, shipped[0].Platform.String(), nil
+			return manifestIdentity(shipped[0].Digest, shipped[0].Platform.String())
 		}
 		for _, child := range shipped {
 			if child.Platform.String() == platform {
-				return child.Digest, platform, nil
+				return manifestIdentity(child.Digest, platform)
 			}
 		}
 		return "", "", fmt.Errorf("image ships no manifest for platform %s", platform)
@@ -279,7 +280,16 @@ func selectManifestDigest(data []byte, platform string) (string, string, error) 
 	}
 	// An unstated platform stays unstated. The caller confirms it against the
 	// image config rather than having its own request echoed back as evidence.
-	return descriptor.Digest, resolved, nil
+	return manifestIdentity(descriptor.Digest, resolved)
+}
+
+// Registry responses are external data. A digest is also used in a filename,
+// so validate its OCI spelling before handing it to scanners or writers.
+func manifestIdentity(digest, platform string) (string, string, error) {
+	if !resources.IsSHA256Digest(digest) {
+		return "", "", fmt.Errorf("image manifest carries an invalid sha256 digest %q", digest)
+	}
+	return digest, platform, nil
 }
 
 func scanImage(ctx context.Context, req ImageRequest, digest string) (*Result, error) {

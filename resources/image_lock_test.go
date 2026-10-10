@@ -3,6 +3,7 @@ package resources_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,7 @@ func TestParseImageLockRefusesAnythingButASHA256DigestOfThisImage(t *testing.T) 
 	for _, fixture := range []string{
 		"no-name", "other-image", "other-registry",
 		"tag-as-digest", "other-algorithm", "truncated", "not-hex", "too-long",
-		"not-json",
+		"not-json", "uppercase", "unknown-tag", "trailing-document",
 	} {
 		t.Run(fixture, func(t *testing.T) {
 			image, err := resources.ParseImageLock(lock(t, fixture), lockedImageName)
@@ -59,14 +60,15 @@ func TestAnUnpublishedLockIsRefusedNeverRunAsLatest(t *testing.T) {
 func TestIsSHA256Digest(t *testing.T) {
 	const hex64 = "1205da0743e56b68c12c754438476e8fdd0f05cdb08ce1c9687ddb8d8f0e1669"
 	for digest, want := range map[string]bool{
-		"sha256:" + hex64:        true,
-		"sha256:" + hex64 + "00": false,
-		"sha256:" + hex64[:62]:   false,
-		"sha512:" + hex64:        false,
-		"SHA256:" + hex64:        false,
-		"sha256:":                false,
-		hex64:                    false,
-		"":                       false,
+		"sha256:" + hex64:                  true,
+		"sha256:" + strings.ToUpper(hex64): false,
+		"sha256:" + hex64 + "00":           false,
+		"sha256:" + hex64[:62]:             false,
+		"sha512:" + hex64:                  false,
+		"SHA256:" + hex64:                  false,
+		"sha256:":                          false,
+		hex64:                              false,
+		"":                                 false,
 	} {
 		require.Equal(t, want, resources.IsSHA256Digest(digest), "%q", digest)
 	}

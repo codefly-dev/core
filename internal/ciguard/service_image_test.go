@@ -1,6 +1,7 @@
 package ciguard
 
 import (
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,6 +56,7 @@ func publishStep(t *testing.T, name string) isolatedStep {
 // default branch: a dispatch can name any branch, and the Dockerfile it builds
 // runs with the registry credential.
 func TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-read-token")
 	script := publishStep(t, publishRefusalStep).Run
 
 	for _, tc := range []struct {
@@ -88,6 +90,7 @@ func TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch(t *testi
 // The refusal has to be the thing that decides: neutralising it must be
 // visible, which makes the test above one of behaviour rather than of text.
 func TestNeutralisingThePublishRefusalIsVisible(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-read-token")
 	script := publishStep(t, publishRefusalStep).Run
 	fixture := newReleaseFixture(t)
 
@@ -100,7 +103,7 @@ func TestNeutralisingThePublishRefusalIsVisible(t *testing.T) {
 			"rejected, so something other than the refusal decided it")
 }
 
-// The refusal takes nothing from the caller, so the authority it checks against
+// The refusal takes no caller input or secret, so the authority it checks against
 // has one source, and it runs before anything the caller's tree can influence:
 // the first step after the checkout, ahead of the validation, the login that
 // receives the credential and the build that runs the Dockerfile.
@@ -110,7 +113,9 @@ func TestThePublishRefusalTakesNoInputAndRunsFirst(t *testing.T) {
 	require.True(t, strings.HasPrefix(steps[0].Uses, "actions/checkout@"), "the first step is the checkout")
 	require.Equal(t, publishRefusalStep, steps[1].Name,
 		"the refusal must be the first thing that runs after the checkout")
-	require.Empty(t, steps[1].Env, "the refusal receives %v; it must take nothing from the caller", steps[1].Env)
+	require.Equal(t, map[string]string{"GH_TOKEN": "${{ github.token }}"}, steps[1].Env,
+		"only the job read token reaches the refusal, never caller inputs or secrets")
+	require.Equal(t, false, steps[0].With["persist-credentials"], "the caller build context must contain no persisted checkout credential")
 	require.Empty(t, steps[1].If, "a condition on the refusal is a way to skip it")
 
 	for _, step := range steps[2:] {
@@ -126,9 +131,10 @@ func TestThePublishRefusalTakesNoInputAndRunsFirst(t *testing.T) {
 func TestThePublishJobCannotRunOnAPullRequestOrInAMergeQueue(t *testing.T) {
 	_, workflows := loadIsolatedWorkflows(t)
 	wf := workflows[filepath.Join(repoRoot(t), ".github", "workflows", publishWorkflow)]
-	require.True(t, cannotRunOnAPullRequest(t, wf.Jobs[publishJob].If),
-		"the publish job holds a registry credential and its condition %q is not provably false on a pull request",
-		wf.Jobs[publishJob].If)
+	for _, trigger := range []string{"pull_request", "pull_request_target", "merge_group"} {
+		unreachable, reason := provablyUnreachable(t, wf.Jobs[publishJob].If, scenariosForTrigger(trigger))
+		require.True(t, unreachable, "%s can reach the publish job: %s", trigger, reason)
+	}
 }
 
 // The workflow cannot import resources.ImageRegistry, so a test holds the two
@@ -160,11 +166,12 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 
 	step := publishStep(t, publishInputsStep)
 	valid := map[string]string{
-		"IMAGE_NAME": "service-warehouse",
-		"VERSION":    "1.2.3",
-		"LOCK_FILE":  "gateway-image.json",
-		"PLATFORMS":  "linux/amd64,linux/arm64",
-		"REGISTRY":   resources.ImageRegistry,
+		"IMAGE_NAME":        "",
+		"CALLER_REPOSITORY": "codefly-dev/service-warehouse",
+		"VERSION":           "1.2.3",
+		"LOCK_FILE":         "gateway-image.json",
+		"PLATFORMS":         "linux/amd64,linux/arm64",
+		"REGISTRY":          resources.ImageRegistry,
 	}
 	run := func(t *testing.T, overrides map[string]string) (bool, string, string) {
 		t.Helper()
@@ -191,7 +198,7 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 	for name, overrides := range map[string]map[string]string{
 		"an image name with a registry":        {"IMAGE_NAME": "ghcr.io/other/app"},
 		"an image name with upper case":        {"IMAGE_NAME": "Service"},
-		"an empty image name":                  {"IMAGE_NAME": ""},
+		"an empty derived image name":          {"CALLER_REPOSITORY": ""},
 		"an image name injecting an output":    {"IMAGE_NAME": "app\nversion=9.9.9"},
 		"a v prefixed version":                 {"VERSION": "v1.2.3"},
 		"a two part version":                   {"VERSION": "1.2"},
@@ -209,14 +216,52 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 		})
 	}
 	for name, overrides := range map[string]map[string]string{
-		"another lock name":   {"LOCK_FILE": "minio-image.json"},
-		"one platform":        {"PLATFORMS": "linux/arm64"},
-		"a zero version":      {"VERSION": "0.0.0"},
-		"a dotted image name": {"IMAGE_NAME": "service.warehouse"},
+		"explicit image override": {"IMAGE_NAME": "another-service"},
+		"mixed case repository":   {"CALLER_REPOSITORY": "codefly-dev/Service-Warehouse"},
+		"another lock name":       {"LOCK_FILE": "minio-image.json"},
+		"one platform":            {"PLATFORMS": "linux/arm64"},
+		"a zero version":          {"VERSION": "0.0.0"},
+		"a dotted image name":     {"IMAGE_NAME": "service.warehouse"},
 	} {
 		t.Run("accepts "+name, func(t *testing.T) {
-			ok, output, _ := run(t, overrides)
+			ok, output, written := run(t, overrides)
 			require.True(t, ok, output)
+			name := overrides["IMAGE_NAME"]
+			if name == "" {
+				name = "service-warehouse"
+			}
+			require.Contains(t, written, "image="+resources.ImageRegistry+"/"+name+"\n")
 		})
+	}
+}
+
+// Execute the authenticated refusal against a real repository. A caller may
+// COPY . . without a .dockerignore: no token may remain in its build context.
+func TestThePublishRefusalLeavesNoCredentialInTheBuildContext(t *testing.T) {
+	const token = "fixture-read-token"
+	t.Setenv("GH_TOKEN", token)
+	steps := publishSteps(t)
+	require.Equal(t, false, steps[0].With["persist-credentials"])
+	fixture := newReleaseFixture(t)
+	admitted, output := fixture.run(t, publishStep(t, publishRefusalStep).Run, theDefaultBranch, fixture.tip)
+	require.True(t, admitted, output)
+	encoded := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	require.NotContains(t, output, token)
+	require.NotContains(t, output, encoded)
+	err := filepath.WalkDir(fixture.dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		require.NotContains(t, string(data), token, path)
+		require.NotContains(t, string(data), encoded, path)
+		return nil
+	})
+	require.NoError(t, err)
+	for _, step := range steps[2:] {
+		require.NotContains(t, step.Env, "GH_TOKEN", "only the refusal receives the read token")
 	}
 }

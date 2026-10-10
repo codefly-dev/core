@@ -36,14 +36,11 @@ type Listener struct {
 func CheckListener(token string, allowAnonymous bool, l Listener) error {
 	switch {
 	case token != "" && allowAnonymous:
-		return fmt.Errorf("%s and %s=true are mutually exclusive: "+
-			"unset %[2]s to enforce the token, or unset %[1]s to accept anonymous callers",
+		return fmt.Errorf("%s and %s=true are mutually exclusive",
 			l.TokenVar, l.AnonymousVar)
 	case token != "", allowAnonymous:
 		return nil
 	}
-	return fmt.Errorf("%[1]s is required: without it every caller that can reach the listener %[2]s. "+
-		"Set %[1]s to a shared secret and have clients send it as the %[3]q gRPC metadata header, "+
-		"or set %[4]s=true if the listener is confined to a private boundary enforced elsewhere (cluster NetworkPolicy / service-mesh mTLS)",
-		l.TokenVar, l.Exposure, MetadataKey, l.AnonymousVar)
+	return fmt.Errorf("%s is required unless %s=true: without a token every caller that can reach the listener %s",
+		l.TokenVar, l.AnonymousVar, l.Exposure)
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	"github.com/codefly-dev/core/resources"
 )
 
 // LocalImageID reports the identity the local Docker daemon holds an image
@@ -27,8 +28,9 @@ func LocalImageID(ctx context.Context, reference string) (string, error) {
 // subject per shipped platform, derived from its digest-pinned reference
 // (ExpectedFromImageReference, which refuses a bare tag). A local image was
 // built and never pushed, so the daemon holds exactly one platform of it: the
-// subject names none, which is read back from the image rather than asserted
-// by the caller, and carries the image ID instead of a pin sitting in the
+// subject names the platform read back from the image rather than asserted
+// by the caller. A caller-supplied platform list is refused. It carries the
+// image ID instead of a pin sitting in the
 // reference (see LocalImageID).
 func ImageSubjects(ctx context.Context, image PublishedImage, local bool) ([]*builderv0.ImageSubject, error) {
 	if !local {
@@ -37,13 +39,17 @@ func ImageSubjects(ctx context.Context, image PublishedImage, local bool) ([]*bu
 	if image.Service == "" {
 		return nil, fmt.Errorf("image %s cannot be inventoried for no service", image.Reference)
 	}
-	id, err := LocalImageID(ctx, image.Reference)
+	if len(image.Platforms) > 0 {
+		return nil, fmt.Errorf("local image %s cannot declare platforms: the daemon holds one platform, read from the image", image.Reference)
+	}
+	id, platform, err := inspectDaemonImage(ctx, ImageRequest{Reference: image.Reference})
 	if err != nil {
 		return nil, err
 	}
 	return []*builderv0.ImageSubject{{
 		Reference: image.Reference,
 		Digest:    id,
+		Platform:  platform,
 		Role:      image.Role,
 		Service:   image.Service,
 		Source:    sourceKind(SourceDockerDaemon),
@@ -99,6 +105,9 @@ func CollectImageEvidence(ctx context.Context, dir string, subjects []*builderv0
 
 // writeImageEvidence encodes one scanned image as CycloneDX and writes it.
 func writeImageEvidence(dir string, result *ImageResult) (ImageEvidenceDocument, error) {
+	if !resources.IsSHA256Digest(result.Digest) {
+		return ImageEvidenceDocument{}, fmt.Errorf("invalid image sha256 digest %q", result.Digest)
+	}
 	encoded, err := MarshalCycloneDXJSON(result.Bom)
 	if err != nil {
 		return ImageEvidenceDocument{}, fmt.Errorf("encode: %w", err)
@@ -124,8 +133,12 @@ func writeImageEvidence(dir string, result *ImageResult) (ImageEvidenceDocument,
 func WriteImageEvidenceIndex(dir string, documents []ImageEvidenceDocument) error {
 	var index strings.Builder
 	for _, document := range documents {
+		platform := document.Platform
+		if platform == "" {
+			platform = "-"
+		}
 		fmt.Fprintf(&index, "%s %s@%s %s %s\n",
-			document.Platform, referenceName(document.Reference), document.Digest,
+			platform, referenceName(document.Reference), document.Digest,
 			filepath.Base(document.Path), document.SHA256)
 	}
 	return os.WriteFile(filepath.Join(dir, "index.txt"), []byte(index.String()), 0o644)

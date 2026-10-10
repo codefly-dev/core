@@ -36,7 +36,8 @@ it adds no independent service version or tag.
 
 The registry is `resources.ImageRegistry`, and the name must match the expected
 service image exactly. The returned `DockerImage` uses the digest rather than
-a floating tag. An empty digest returns `ErrImageUnpublished`; malformed digests
+a floating tag. The digest requires 64 lowercase hex characters, and unknown JSON fields or a
+second document are refused. An empty digest returns `ErrImageUnpublished`; malformed digests
 and a different repository are separate errors. Services may embed the lock and
 wrap failures with their own publication instructions.
 
@@ -45,7 +46,8 @@ wrap failures with their own publication instructions.
 `sbom.ImageSubjects(ctx, PublishedImage{...}, local)` derives one subject per
 published platform from the pinned reference. For a locally built image it
 reads the daemon's immutable image ID and records it as the subject's expected
-digest. Local images need Docker and a host `syft`; registry scans can use the
+digest and platform. A local request must omit `Platforms`: the daemon holds
+one platform, and a caller list is refused rather than silently dropped. Local images need Docker and a host `syft`; registry scans can use the
 managed syft image. A requested registry platform needs Docker/buildx to resolve
 the platform manifest.
 
@@ -63,7 +65,8 @@ callers publish artifacts only after the complete call succeeds. The function
 may have written earlier subjects before a later failure, so use a fresh output
 directory per collection. `WriteImageEvidenceIndex` writes `index.txt` with the
 platform, repository plus scanned digest, document filename, and inventory
-checksum. `ImageEvidenceDocument.SHA256` is the canonical inventory checksum,
+checksum. An unstated platform occupies its column as `-`.
+`ImageEvidenceDocument.SHA256` is the canonical inventory checksum,
 not a checksum of the formatted CycloneDX file bytes.
 
 The live regression uses locally built scratch images, the real Docker daemon,
@@ -79,15 +82,20 @@ suite exercises the file format, index, subject derivation, and input refusals.
 ## Publishing before the release
 
 Call `.github/workflows/publish-service-image.yml` pinned to an immutable core
-commit from a service's `workflow_dispatch`. Supply `image-name`, stable
-`version` without `v`, and optionally `lock-file` and `platforms`; pass the
+commit from a service's `workflow_dispatch`. Supply a stable `version` without
+`v`, and optionally `lock-file` and `platforms`. The image name defaults to the
+caller repository name in lowercase; `image-name` is an explicit override for
+a service that intentionally publishes another package. Pass the
 registry credential as `registry-token`. The workflow builds the caller's
 Dockerfile for those platforms and pushes by digest. It returns `digest` and
 uploads the lock as an artifact; the service commits that lock before tagging
 its release. No tag or lock commit is created by this workflow.
 
 The publish job refuses a triggering commit not reachable from the caller's
-own default branch before registry login or build. The credential boundary and
+own default branch before registry login or build. Checkout does not persist
+credentials, and the refusal authenticates its remote reads with command-scoped
+git configuration. No read token is written into the caller build context, even
+when its Dockerfile copies `.git`. The job has a 30-minute timeout. The credential boundary and
 repository dispatch restrictions are described in
 [CI credentials](ci-credentials.md) and
 [branch protection](runbooks/branch-protection.md).

@@ -1,10 +1,11 @@
 package resources
 
 import (
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -39,8 +40,13 @@ type ImageLock struct {
 // is a different error, so a caller can tell "not yet published" from "wrong".
 func ParseImageLock(content []byte, name string) (*DockerImage, error) {
 	var lock ImageLock
-	if err := json.Unmarshal(content, &lock); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&lock); err != nil {
 		return nil, fmt.Errorf("parse image lock: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil, fmt.Errorf("parse image lock: expected one JSON document")
 	}
 	image := PublishedImage(name, "")
 	if want := image.Repository + "/" + image.Name; lock.Name != want {
@@ -57,9 +63,9 @@ func ParseImageLock(content []byte, name string) (*DockerImage, error) {
 }
 
 // IsSHA256Digest reports whether digest is a complete sha256 image digest:
-// "sha256:" followed by exactly 64 hexadecimal characters.
+// "sha256:" followed by exactly 64 lowercase hexadecimal characters (OCI).
 func IsSHA256Digest(digest string) bool {
 	algorithm, encoded, found := strings.Cut(digest, ":")
-	decoded, err := hex.DecodeString(encoded)
-	return found && algorithm == "sha256" && err == nil && len(decoded) == 32
+	return found && algorithm == "sha256" && len(encoded) == 64 &&
+		strings.Trim(encoded, "0123456789abcdef") == ""
 }

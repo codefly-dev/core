@@ -24,13 +24,10 @@ func TestCheckListener(t *testing.T) {
 		{"anonymous opt-out alone", "", true, nil},
 		{"both is a contradiction", "s3cret", true, []string{
 			"SWH_AUTH_TOKEN and SWH_ALLOW_ANONYMOUS=true are mutually exclusive",
-			"unset SWH_ALLOW_ANONYMOUS to enforce the token",
-			"unset SWH_AUTH_TOKEN to accept anonymous callers",
 		}},
 		{"neither", "", false, []string{
 			"SWH_AUTH_TOKEN is required",
 			"can run SQL against the bound database",
-			`"x-codefly-token"`,
 			"SWH_ALLOW_ANONYMOUS=true",
 		}},
 	} {
