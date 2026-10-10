@@ -1,6 +1,6 @@
 module example.test/independent-agent
 
-go 1.27.0
+go 1.27
 
 require (
 	github.com/codefly-dev/core v0.3.40
