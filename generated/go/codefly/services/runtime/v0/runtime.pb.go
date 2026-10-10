@@ -1066,8 +1066,17 @@ type InitRequest struct {
 	// mappings rather than reconstructing deterministic addresses, which differ
 	// from isolated or agent-adjusted allocations.
 	DependenciesNetworkMappings []*v0.NetworkMapping `protobuf:"bytes,9,rep,name=dependencies_network_mappings,json=dependenciesNetworkMappings,proto3" json:"dependencies_network_mappings,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// runtime_image is the image reference built by the CLI from the agent's
+	// recipe for a local run requiring a container runtime: a name with an
+	// explicit non-latest tag or a sha256 digest. Empty means no supplied image;
+	// deployed paths leave it empty and retain the agent's existing resolution.
+	// An adopting agent may use it when the manifest names no runtime image,
+	// preserving refusal of malformed references, implicit or explicit latest,
+	// and non-sha256 digests. Core transports the value without image policy.
+	// Hosts relying on this handoff require runtime-init-image/v1 from the agent.
+	RuntimeImage  string `protobuf:"bytes,10,opt,name=runtime_image,json=runtimeImage,proto3" json:"runtime_image,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InitRequest) Reset() {
@@ -1161,6 +1170,13 @@ func (x *InitRequest) GetDependenciesNetworkMappings() []*v0.NetworkMapping {
 		return x.DependenciesNetworkMappings
 	}
 	return nil
+}
+
+func (x *InitRequest) GetRuntimeImage() string {
+	if x != nil {
+		return x.RuntimeImage
+	}
+	return ""
 }
 
 // InitResponse returns the runtime context and mappings the agent actually accepted.
@@ -4527,7 +4543,7 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05READY\x10\x01\x12\t\n" +
-	"\x05ERROR\x10\x02\"\x9c\x06\n" +
+	"\x05ERROR\x10\x02\"\xc1\x06\n" +
 	"\vInitRequest\x12H\n" +
 	"\x0fruntime_context\x18\x01 \x01(\v2\x1f.codefly.base.v0.RuntimeContextR\x0eruntimeContext\x12D\n" +
 	"\rconfiguration\x18\x02 \x01(\v2\x1e.codefly.base.v0.ConfigurationR\rconfiguration\x12[\n" +
@@ -4537,7 +4553,9 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x18workspace_configurations\x18\x06 \x03(\v2\x1e.codefly.base.v0.ConfigurationR\x17workspaceConfigurations\x12\x18\n" +
 	"\afixture\x18\a \x01(\tR\afixture\x12U\n" +
 	"\toverrides\x18\b \x03(\v27.codefly.services.runtime.v0.InitRequest.OverridesEntryR\toverrides\x12c\n" +
-	"\x1ddependencies_network_mappings\x18\t \x03(\v2\x1f.codefly.base.v0.NetworkMappingR\x1bdependenciesNetworkMappings\x1a<\n" +
+	"\x1ddependencies_network_mappings\x18\t \x03(\v2\x1f.codefly.base.v0.NetworkMappingR\x1bdependenciesNetworkMappings\x12#\n" +
+	"\rruntime_image\x18\n" +
+	" \x01(\tR\fruntimeImage\x1a<\n" +
 	"\x0eOverridesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbc\x02\n" +

@@ -288,8 +288,8 @@ func clonedScopes(scopes []*basev0.WorkScopeV1) []*basev0.WorkScopeV1 {
 	return cloned
 }
 
-// Validate rejects a policy the runtime would refuse to install and authority
-// a recovery could widen with.
+// Validate checks a declared policy and authority a recovery could not widen.
+// Required slots may supply all scopes; delivery still requires their resolution.
 func (s *OperationSpec) Validate() error {
 	if s.AttemptTimeout < MinAttemptTimeout || s.AttemptTimeout > MaxAttemptTimeout {
 		return fmt.Errorf("%w: %s attempt_timeout %s is outside %s..%s", ErrInvalid, s.Method, s.AttemptTimeout, MinAttemptTimeout, MaxAttemptTimeout)
@@ -335,9 +335,6 @@ func (s *OperationSpec) Validate() error {
 	if err := ValidateToolExposure(s.Tool); err != nil {
 		return err
 	}
-	if err := validateScopeSlots(s.Method, s.RequiredScopeSlots); err != nil {
-		return err
-	}
 	return s.authority().validate()
 }
 
@@ -348,19 +345,20 @@ func (s *OperationSpec) Validate() error {
 // second place for it to be almost right.
 func (s *OperationSpec) authority() authoritySpec {
 	return authoritySpec{
-		subject:      s.Method,
-		audience:     s.Audience,
-		invokeScopes: s.InvokeScopes,
-		lookupScopes: s.LookupScopes,
+		subject:            s.Method,
+		audience:           s.Audience,
+		invokeScopes:       s.InvokeScopes,
+		lookupScopes:       s.LookupScopes,
+		requiredScopeSlots: s.RequiredScopeSlots,
 	}
 }
 
 // authoritySpec is one Work Context authority: the audience a child capability
 // is minted for and the scopes bound for invoking and for reading a receipt.
-// It is validated identically wherever it appears — a method's declared policy,
-// a prepared binding's delivered policy, an installed binding's own authority —
-// because an authority the generator would have refused must not become
-// acceptable by arriving through a different door.
+// Fixed scopes are validated identically wherever they appear. A declaration
+// with required slots may defer nonempty scope lists until resolution. Delivered
+// policies refuse unresolved slots, and an installed binding's own authority
+// has no slots, so concrete authority always requires both scope lists.
 type authoritySpec struct {
 	// subject names what the authority belongs to, for the error message: an
 	// operation spelling, or a binding's facility.
@@ -368,9 +366,14 @@ type authoritySpec struct {
 	audience     string
 	invokeScopes []*basev0.WorkScopeV1
 	lookupScopes []*basev0.WorkScopeV1
+	// requiredScopeSlots exists only while an owner declaration awaits selection.
+	requiredScopeSlots []*runnablev0.ScopeSlot
 }
 
 func (a authoritySpec) validate() error {
+	if err := validateScopeSlots(a.subject, a.requiredScopeSlots); err != nil {
+		return err
+	}
 	if !boundedScopeValue(a.audience, MaxAudienceLength) {
 		return fmt.Errorf("%w: %s audience %q is not a trust boundary the runtime can mint authority for", ErrInvalid, a.subject, a.audience)
 	}
@@ -396,8 +399,16 @@ func (a authoritySpec) validate() error {
 // and no scopes there is nothing to mint a child capability from, and the
 // runtime refuses the installation rather than calling without authority.
 func (a authoritySpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) error {
-	if len(scopes) == 0 || len(scopes) > MaxScopes {
-		return fmt.Errorf("%w: %s declares %d %s; between 1 and %d are required", ErrInvalid, a.subject, len(scopes), at, MaxScopes)
+	if len(scopes) == 0 && len(a.requiredScopeSlots) > 0 {
+		// The resolver validates again after filling and clearing every slot.
+		// This defers only absence; supplied fixed scopes keep all their checks.
+		return nil
+	}
+	if len(scopes) == 0 {
+		return fmt.Errorf("%w: %s declares no %s and no required_scope_slots; the owner must declare authority", ErrInvalid, a.subject, at)
+	}
+	if len(scopes) > MaxScopes {
+		return fmt.Errorf("%w: %s declares %d %s; at most %d are allowed", ErrInvalid, a.subject, len(scopes), at, MaxScopes)
 	}
 	kinds := make(map[string]struct{}, len(scopes))
 	for _, scope := range scopes {

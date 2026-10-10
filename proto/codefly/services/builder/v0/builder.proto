@@ -325,6 +325,32 @@ message BuildResponse {
 Deployment
 */
 
+// CompositionMember identifies a member under its resolved, composed name.
+message CompositionMember {
+  // Role is the member's declared relationship to the composition.
+  enum Role {
+    // ROLE_UNSPECIFIED is invalid for a supplied member.
+    ROLE_UNSPECIFIED = 0;
+    // ROLE_MODULE identifies a host module.
+    ROLE_MODULE = 1;
+    // ROLE_SOLUTION identifies a solution, including through imports.
+    ROLE_SOLUTION = 2;
+  }
+  // name is the composed name, not the repository-local module name.
+  string name = 1;
+  // role is preserved from the workspace that declared this member.
+  Role role = 2;
+  // workspace names the owning workspace, preserved through imports.
+  string workspace = 3;
+}
+
+// CompositionProvenance carries the CLI's complete resolved composition.
+message CompositionProvenance {
+  // members includes every member, including imports under composed names.
+  // Names must be unique; names and owning workspaces must be nonempty.
+  repeated CompositionMember members = 1;
+}
+
 // DeploymentRequest provides target environment, build output, and dependency data for deploy.
 message DeploymentRequest {
   // environment is the target Codefly environment such as local, staging, or production.
@@ -344,6 +370,11 @@ message DeploymentRequest {
   // output_directory is an absolute caller-owned staging directory, required
   // when execution is present. Bound Deploy renders only; it must not apply.
   string output_directory = 8;
+  // composition_provenance is the composition used by the CLI's own judge.
+  // When present it alone judges dependency edges, even if empty or invalid.
+  // Only absence falls back to workspace discovery above the service directory,
+  // which is correct only for a checkout inside the rendering composition.
+  CompositionProvenance composition_provenance = 9;
 }
 
 // DeploymentStatus reports the state and message for the deployment lifecycle phase.

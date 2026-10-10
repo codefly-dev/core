@@ -899,21 +899,14 @@ func configuration(origin, name, key, value string, secret bool) *basev0.Configu
 	}
 }
 
-// A deploy hands the consumer its dependencies' addresses just as a run does,
-// and the builder agent judges them with the composition its service was
-// loaded from — the workspace above the service directory — exactly as the
-// CLI-side wrapper that handed them did: a private endpoint of another module
-// is refused (the incident this guards: a workspace that failed static
-// validation, failed to run, and still deployed, shipping the private
-// endpoint's address to the cluster), a solution's route to a module is
-// refused, an agent loaded outside any workspace refuses the addresses as
-// unjudged, and what the dependencies do not name is not wired.
-func TestDeployKustomizeJudgesWithTheWorkspaceItWasLoadedFrom(t *testing.T) {
+// A deploy judges dependency addresses with the request's resolved composition,
+// falling back to the service's workspace only for older callers.
+func TestDeployKustomizeJudgesComposition(t *testing.T) {
 	ctx := context.Background()
 	templates, err := fs.Sub(deploymentTestFS, "testdata/deployment")
 	require.NoError(t, err)
 
-	deploy := func(t *testing.T, location string, mappings ...*basev0.NetworkMapping) (*builderv0.DeploymentResponse, string) {
+	deploy := func(t *testing.T, location string, provenance *builderv0.CompositionProvenance, mappings ...*basev0.NetworkMapping) (*builderv0.DeploymentResponse, string) {
 		t.Helper()
 		manager := resources.NewEnvironmentVariableManager()
 		manager.SetIdentity(&basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "service", Version: "1.2.3"})
@@ -946,7 +939,13 @@ func TestDeployKustomizeJudgesWithTheWorkspaceItWasLoadedFrom(t *testing.T) {
 				},
 			}},
 			DependenciesNetworkMappings: mappings,
+			CompositionProvenance:       provenance,
 		}
+		// Exercise the real wire representation, including present-empty provenance.
+		wire, err := proto.Marshal(req)
+		require.NoError(t, err)
+		req = &builderv0.DeploymentRequest{}
+		require.NoError(t, proto.Unmarshal(wire, req))
 		response, err := builder.DeployKustomize(ctx, req, KustomizeDeployment{
 			EnvironmentVariables: manager,
 			Templates:            templates,
@@ -965,12 +964,12 @@ func TestDeployKustomizeJudgesWithTheWorkspaceItWasLoadedFrom(t *testing.T) {
 	}
 
 	t.Run("a private endpoint of another module is refused", func(t *testing.T) {
-		response, _ := deploy(t, agentWorkspace(t, "module", "saas"), usage(resources.VisibilityPrivate))
+		response, _ := deploy(t, agentWorkspace(t, "module", "saas"), nil, usage(resources.VisibilityPrivate))
 		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), `private to module "saas"`)
 	})
 	t.Run("a permitted endpoint is wired, and only what the dependency names", func(t *testing.T) {
-		response, manifest := deploy(t, agentWorkspace(t, "module", "saas"),
+		response, manifest := deploy(t, agentWorkspace(t, "module", "saas"), nil,
 			usage(resources.VisibilityInternal),
 			dependencyMapping("saas", "accounts", "admin", "grpc", 19091, resources.VisibilityInternal))
 		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
@@ -978,15 +977,79 @@ func TestDeployKustomizeJudgesWithTheWorkspaceItWasLoadedFrom(t *testing.T) {
 		require.NotContains(t, manifest, "CODEFLY__ENDPOINT__SAAS__ACCOUNTS__ADMIN__GRPC")
 	})
 	t.Run("a solution's route to a module is refused", func(t *testing.T) {
-		response, _ := deploy(t, solutionWorkspace(t), usage(resources.VisibilityInternal))
+		response, _ := deploy(t, solutionWorkspace(t), nil, usage(resources.VisibilityInternal))
 		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), resources.ErrSolutionReachesThroughHost.Error())
 	})
 	t.Run("an agent loaded outside any workspace refuses the addresses as unjudged", func(t *testing.T) {
-		response, _ := deploy(t, t.TempDir(), usage(resources.VisibilityInternal))
+		response, _ := deploy(t, t.TempDir(), nil, usage(resources.VisibilityInternal))
 		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
 		require.Contains(t, response.GetState().GetMessage(), resources.ErrUnjudgedProvenance.Error())
 	})
+	provenance := func() *builderv0.CompositionProvenance {
+		return &builderv0.CompositionProvenance{Members: []*builderv0.CompositionMember{
+			{Name: "module", Role: builderv0.CompositionMember_ROLE_MODULE, Workspace: "product"},
+			{Name: "saas", Role: builderv0.CompositionMember_ROLE_MODULE, Workspace: "platform-core"},
+		}}
+	}
+	t.Run("request composed name passes where repo-local name refuses", func(t *testing.T) {
+		location, err := filepath.Abs("testdata/deployment-provenance/modules/module-local/services/service")
+		require.NoError(t, err)
+		workspace, err := resources.FindWorkspaceUpFrom(ctx, location)
+		require.NoError(t, err)
+		_, local := workspace.Member("module-local")
+		require.True(t, local)
+		_, composed := workspace.Member("module")
+		require.False(t, composed)
+
+		response, _ := deploy(t, location, nil, usage(resources.VisibilityInternal))
+		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Contains(t, response.GetState().GetMessage(), resources.ErrUnjudgedProvenance.Error())
+
+		response, manifest := deploy(t, location, provenance(), usage(resources.VisibilityInternal))
+		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+		require.Contains(t, manifest, `CODEFLY__ENDPOINT__SAAS__ACCOUNTS__USAGE__GRPC: "accounts:19090"`)
+	})
+	t.Run("request needs no workspace above the service", func(t *testing.T) {
+		response, _ := deploy(t, t.TempDir(), provenance(), usage(resources.VisibilityInternal))
+		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+	})
+	t.Run("request solution role refuses what the dev workspace admits", func(t *testing.T) {
+		location := agentWorkspace(t, "module", "saas")
+		response, _ := deploy(t, location, nil, usage(resources.VisibilityInternal))
+		require.Equal(t, builderv0.DeploymentStatus_SUCCESS, response.GetState().GetState(), response.GetState().GetMessage())
+		supplied := provenance()
+		supplied.Members[0].Role = builderv0.CompositionMember_ROLE_SOLUTION
+		response, _ = deploy(t, location, supplied, usage(resources.VisibilityInternal))
+		require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+		require.Contains(t, response.GetState().GetMessage(), resources.ErrSolutionReachesThroughHost.Error())
+		require.Contains(t, response.GetState().GetMessage(), `solution "module" (of workspace "product")`)
+		require.Contains(t, response.GetState().GetMessage(), `module "saas" (of workspace "platform-core")`)
+	})
+	for _, tc := range []struct {
+		name   string
+		change func(*builderv0.CompositionProvenance)
+	}{
+		{"empty", func(p *builderv0.CompositionProvenance) { p.Members = nil }},
+		{"missing producer", func(p *builderv0.CompositionProvenance) { p.Members = p.Members[:1] }},
+		{"missing consumer", func(p *builderv0.CompositionProvenance) { p.Members = p.Members[1:] }},
+		{"duplicate", func(p *builderv0.CompositionProvenance) { p.Members = append(p.Members, p.Members[0]) }},
+		{"empty name", func(p *builderv0.CompositionProvenance) { p.Members[0].Name = "" }},
+		{"empty owner", func(p *builderv0.CompositionProvenance) { p.Members[0].Workspace = "" }},
+		{"unspecified role", func(p *builderv0.CompositionProvenance) {
+			p.Members[0].Role = builderv0.CompositionMember_ROLE_UNSPECIFIED
+		}},
+		{"unknown role", func(p *builderv0.CompositionProvenance) { p.Members[0].Role = builderv0.CompositionMember_Role(99) }},
+		{"nil member", func(p *builderv0.CompositionProvenance) { p.Members = append(p.Members, nil) }},
+	} {
+		t.Run("request never falls back/"+tc.name, func(t *testing.T) {
+			supplied := provenance()
+			tc.change(supplied)
+			response, _ := deploy(t, agentWorkspace(t, "module", "saas"), supplied, usage(resources.VisibilityInternal))
+			require.Equal(t, builderv0.DeploymentStatus_ERROR, response.GetState().GetState())
+			require.Contains(t, response.GetState().GetMessage(), resources.ErrUnjudgedProvenance.Error())
+		})
+	}
 }
 
 // exposureFor states the exposure a public endpoint never omits.

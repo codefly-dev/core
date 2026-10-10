@@ -19,6 +19,14 @@ const ContainerRecoveryScope = "container-recovery-scope/v1"
 // dependency addresses at Init, including when tests never start the target.
 const RuntimeInitDependencyMappings = "runtime-init-dependency-mappings/v1"
 
+// RuntimeInitImage identifies runtimes that consume a CLI-built local image at
+// Init when the manifest names none, preserving their image-reference refusals.
+const RuntimeInitImage = "runtime-init-image/v1"
+
+// DeploymentCompositionProvenance identifies builders that judge deployment
+// dependency edges with the request's resolved composition membership.
+const DeploymentCompositionProvenance = "deployment-composition-provenance/v1"
+
 // ConfigurationValueTemplate identifies host support for a producer declaring a
 // secret configuration value as a ConfigurationValueTemplate instead of a value:
 // the host assembles it where the primitives are, or requires a secret reference

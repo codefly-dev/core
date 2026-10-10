@@ -161,9 +161,9 @@ func FindNetworkMapping(ctx context.Context, mappings []*basev0.NetworkMapping, 
 // environment, and therefore what its SDK exposes, and the permitted set and
 // the exposed set cannot drift. Every HOLDER of a consumer's dependency
 // addresses resolves through here — the run and the deploy the CLI drives,
-// with the workspace in hand; the builder agent, with the workspace above the
-// directory it was loaded from; the SDK session, with the one that composed
-// its module. There is no selecting from what another holder judged: a holder
+// with the workspace in hand; the builder agent, with request provenance or,
+// for older callers, the workspace above its service; the SDK session, with
+// the one that composed its module. There is no selecting from what another holder judged: a holder
 // that can find no composition refuses the addresses as unjudged
 // (ErrUnjudgedProvenance) rather than wiring them.
 func ResolveDependencyNetworkMappings(provenance Provenance, consumerModule string, dependencies []*ServiceDependency, mappings []*basev0.NetworkMapping) ([]*basev0.NetworkMapping, error) {
