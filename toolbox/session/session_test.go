@@ -489,6 +489,10 @@ type receiptDeadlineContext struct{ context.Context }
 
 func (c receiptDeadlineContext) Err() error { return context.Cause(c.Context) }
 
+// The parent has no application values. Hide its private cancel-context value
+// so derived contexts consult our Err instead of inheriting its Canceled error.
+func (c receiptDeadlineContext) Value(any) any { return nil }
+
 func deadlineAfterReceipt(t *testing.T) (context.Context, func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancelCause(context.Background())
@@ -541,6 +545,7 @@ func TestSessionInFlightDeadlineAfterFixtureReceipt(t *testing.T) {
 	require.ErrorAs(t, err, &callErr)
 	require.Equal(t, session.ErrorTimeout, callErr.Code)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err), "the real gRPC client observes the deadline")
 	require.Equal(t, session.RetrySafe, callErr.Retry)
 	events := audit.snapshot()
 	require.Equal(t, session.AuditCancel, events[len(events)-2].Phase)
