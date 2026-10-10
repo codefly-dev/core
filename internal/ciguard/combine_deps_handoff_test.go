@@ -156,3 +156,158 @@ func TestTheCombinedBranchTravelsAsABundleWithoutBeingCheckedOut(t *testing.T) {
 // are recorded in recordedFileDigests, so moving a line from one half to the
 // other changes a digest and refuses. A `strings.Contains` over a script was
 // the scanner's last form, and it could be satisfied by a comment.
+
+// The publisher's own refusals, executed. `BASE` arrives in the artifact the
+// unprivileged half writes, and the manifest allowlist is computed against it,
+// so an unchecked value makes the allowlist meaningless two lines before the
+// push with the PAT. These are the refusals that check it, run against a real
+// repository rather than read.
+func TestThePublisherRefusesABaseItCannotResolve(t *testing.T) {
+	ctx := context.Background()
+	script := filepath.Join(repoRoot(t), publishScript)
+
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
+	for _, args := range [][]string{
+		{"init", "--initial-branch=main"},
+		{"-c", "user.email=t@example.test", "-c", "user.name=t", "commit",
+			"--allow-empty", "-m", "base"},
+		// The remote-tracking ref the refusal resolves against. A publisher
+		// clone has one; a repository with no remote must not be waved through.
+		{"update-ref", "refs/remotes/origin/main", "HEAD"},
+	} {
+		out, err := testgit.Run(ctx, repo, nil, args...)
+		require.NoError(t, err, "git %s: %s", strings.Join(args, " "), out)
+	}
+
+	for _, tc := range []struct{ name, base, refuses string }{
+		{name: "multiline branch", base: "main\n--bad", refuses: "a branch is named by a bare name here"},
+		{
+			name: "a path rather than a branch",
+			base: "../../etc/passwd", refuses: "a branch is named by a bare name here",
+		},
+		{
+			name: "a revision range, which would diff something else entirely",
+			base: "main..deps/combined", refuses: "not a branch name",
+		},
+		{
+			name: "a branch this repository does not have",
+			base: "no-such-branch", refuses: "it is not a branch of this repository",
+		},
+		{
+			// The fail-open this replaces: `origin/<missing>` made `git diff`
+			// fail inside a process substitution, which `set -euo pipefail`
+			// does not cover, so `touched` was empty and the manifest
+			// allowlist admitted every path in the bundle.
+			name: "an empty value, which the allowlist used to admit everything for",
+			base: "", refuses: "a branch is named by a bare name here",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(in, "combined.tsv"),
+				[]byte("1\tdeps/one\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(in, "base"),
+				[]byte(tc.base), 0o600))
+
+			command := exec.Command("bash", script, in)
+			command.Dir = repo
+			command.Env = append(os.Environ(), "GH_TOKEN=unused")
+			output, err := command.CombinedOutput()
+			require.Error(t, err,
+				"the publisher accepted base %q and carried on to the push:\n%s",
+				tc.base, output)
+			require.Contains(t, string(output), tc.refuses,
+				"the publisher refused base %q for some other reason:\n%s",
+				tc.base, output)
+		})
+	}
+}
+
+// And the other half of that defect: the diff the allowlist is computed from
+// must be FATAL when it fails, not empty. The line is lifted from the script, so
+// a revert to the process-substitution form fails here rather than passing.
+// Extract the entire parsed statement, not an unterminated `if` line.
+func manifestDiffStatement(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), publishScript))
+	require.NoError(t, err)
+	file, err := executionShell(string(raw))
+	require.NoError(t, err)
+	for _, stmt := range file.Stmts {
+		if strings.Contains(shellText(stmt), "git diff --name-only") {
+			return shellText(stmt)
+		}
+	}
+	t.Fatal("publisher has no diff statement")
+	return ""
+}
+
+func TestTheManifestAllowlistsDiffIsFatalWhenItFails(t *testing.T) {
+	block := manifestDiffStatement(t)
+	// bash -n must pass before a failing command can count as a refusal.
+	syntaxCheck := exec.Command("bash", "-n", "-c", block)
+	output, err := syntaxCheck.CombinedOutput()
+	require.NoError(t, err, string(output))
+	root := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "--initial-branch=main"},
+		{"commit", "--allow-empty", "-m", "base"},
+		{"update-ref", "refs/remotes/origin/main", "HEAD"},
+	} {
+		out, err := testgit.Run(context.Background(), root, nil, args...)
+		require.NoError(t, err, string(out))
+	}
+	run := func(script string) (string, error) {
+		command := exec.Command("bash", "-euo", "pipefail", "-c", script+"\necho REACHED-THE-NEXT-LINE")
+		command.Dir = root
+		command.Env = append(os.Environ(), "BASE=main", "BRANCH=deps/combined")
+		out, err := command.CombinedOutput()
+		return string(out), err
+	}
+	out, err := run(block)
+	require.Error(t, err)
+	require.Contains(t, out, "cannot diff the combined branch")
+	require.NotContains(t, out, "REACHED-THE-NEXT-LINE")
+	// A fail-open body must reach the sentinel. This proves syntax and an
+	// unrelated failure are not what made the negative case green.
+	out, err = run(strings.ReplaceAll(block, "exit 1", ":"))
+	require.NoError(t, err, out)
+	require.Contains(t, out, "REACHED-THE-NEXT-LINE")
+	_, err = testgit.Run(context.Background(), root, nil, "branch", "deps/combined")
+	require.NoError(t, err)
+	out, err = run(block)
+	require.NoError(t, err, out)
+	require.Contains(t, out, "REACHED-THE-NEXT-LINE")
+}
+
+// The full publisher fetches the combined branch before diffing it, so a
+// missing branch stops at fetch. A real bundle with unrelated history reaches
+// the actual diff failure instead (both refs exist, but no merge base does).
+func TestThePublisherRefusesAnUndiffableBundle(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) string {
+		out, err := testgit.Run(context.Background(), root, nil, args...)
+		require.NoError(t, err, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "--initial-branch=main")
+	git("commit", "--allow-empty", "-m", "base")
+	git("update-ref", "refs/remotes/origin/main", "HEAD")
+	git("checkout", "--orphan", "deps/combined")
+	git("commit", "--allow-empty", "-m", "unrelated")
+	in := t.TempDir()
+	git("bundle", "create", filepath.Join(in, "combined.bundle"), "refs/heads/deps/combined")
+	git("checkout", "main")
+	git("branch", "-D", "deps/combined")
+	require.NoError(t, os.WriteFile(filepath.Join(in, "base"), []byte("main"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(in, "combined.tsv"), []byte("1\tdeps/one\n"), 0600))
+	command := exec.Command("bash", filepath.Join(repoRoot(t), publishScript), in)
+	command.Dir = root
+	command.Env = append(os.Environ(), "GH_TOKEN=unused")
+	out, err := command.CombinedOutput()
+	require.Error(t, err)
+	require.Contains(t, string(out), "cannot diff the combined branch")
+	require.NotContains(t, string(out), "syntax error")
+}

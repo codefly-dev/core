@@ -1,17 +1,79 @@
 # Protecting `main`
 
-`main` has no branch protection, so any pull request can merge while its checks
-are red. #447 did: `Build: FAILURE` was visible on the pull request, GitHub
-auto-merge was not involved, and nothing stopped the merge.
+## Where protection lives: rulesets, not the legacy API
 
-That is not a one-off cost. Pull request CI tests the *merge* of the branch with
-`main`, so one red commit on `main` turns every open pull request red regardless
-of its contents — and the failure looks exactly like ordinary flakiness, so it
-is paid for by every contributor at once before anyone diagnoses it.
+**Read this first, because this document used to say the opposite.** It opened
+with "`main` has no branch protection" and told you to `PUT` a legacy
+`branches/main/protection` object. Both were wrong, and wrong in opposite
+directions: `main` *is* protected, by a **ruleset**, and following the old
+instructions would have written a legacy protection object alongside it.
 
-Protection is applied in **repository settings**, which this repository cannot
-reach. This runbook is the other half: the check names that are safe to require,
-and the ones that will wedge every merge if you require them.
+The two live in different APIs and neither mentions the other:
+
+```sh
+# 404 "Branch not protected" — and this means only that no LEGACY protection
+# object exists. It is not a statement about whether the branch is protected.
+gh api repos/codefly-dev/core/branches/main/protection
+
+# The actual answer.
+gh api repos/codefly-dev/core/rulesets --jq '.[] | {id, name, target, enforcement}'
+gh api repos/codefly-dev/core/rulesets/24397257
+```
+
+A 404 from the first is how the claim above got written down. Across these
+repositories the rulesets are:
+
+| Repository | Ruleset | Id |
+| --- | --- | --- |
+| `codefly-dev/core` | `protect main` | 24397257 |
+| `codefly-dev/sdk-go` | `protect main` | 24397258 |
+| `codefly-dev/cli` | `main merge queue` | 23846762 |
+
+### What `protect main` holds on core today
+
+Queried, not inferred. Ruleset 24397257, `target: branch`,
+`enforcement: active`, `bypass_actors: []`, conditions `refs/heads/main`:
+
+- **`required_status_checks`** — `Build`, `Proto`, `Registry cache cold (go)`,
+  `Registry cache cold (next)`, `Registry cache clean runner (go)`,
+  `Registry cache clean runner (next)`. Six, not the seven below:
+  `pnpm source evidence` is derived as safe to require and is **not** in the
+  live ruleset.
+- **`strict_required_status_checks_policy: false`** — a pull request that went
+  green against an older `main` can land without being retested. The `"strict":
+  true` recommended below is not what is applied.
+- **`deletion`** and **`non_fast_forward`** — `main` cannot be deleted or
+  force-pushed.
+- **`pull_request`** with **`required_approving_review_count: 0`**. Changes go
+  through a pull request, and nothing obliges anyone to read one.
+
+That last line is load-bearing elsewhere. `internal/ciguard`'s credential
+record (`job_templates_test.go`) is review friction: it refuses a registered job
+whose shape changed until someone records the new one. With zero required
+approvals that record is a changelog, not a gate — which is why the credential
+decision does not rest on it. See [CI credentials](../ci-credentials.md).
+
+**The good news, also verified:** `Build` runs `go test ./...` and `go.yml`
+triggers on `pull_request` with no `paths:` filter, so `internal/ciguard` is a
+required check on every change to `.github/`. The guard suite cannot be skipped.
+
+## Why the set below matters
+
+#447 merged with `Build: FAILURE` visible on the pull request; auto-merge was
+not involved and nothing stopped it. That is the hole `required_status_checks`
+closes, and it is closed now.
+
+The cost of getting the *names* wrong is the reason this runbook exists. Pull
+request CI tests the *merge* of the branch with `main`, so one red commit on
+`main` turns every open pull request red regardless of its contents — and the
+failure looks exactly like ordinary flakiness, so it is paid for by every
+contributor at once before anyone diagnoses it. Meanwhile a required check whose
+workflow never runs holds the merge open forever.
+
+Rulesets are edited in **repository settings** or through the rulesets API,
+neither of which this repository can reach. This runbook is the other half: the
+check names that are safe to require, and the ones that will wedge every merge
+if you require them.
 
 ## The set to require
 
@@ -47,44 +109,84 @@ safe rather than merely desirable:
 
 ## Applying it
 
+`protect main` already exists, so this UPDATES ruleset 24397257 rather than
+creating anything. Fetch it first — a `PUT` replaces the whole object, so a
+rule left out of the payload is a rule removed:
+
 ```sh
-gh api -X PUT repos/codefly-dev/core/branches/main/protection --input - <<'JSON'
+gh api repos/codefly-dev/core/rulesets/24397257 > /tmp/protect-main.json
+```
+
+Then put it back with the required checks set to exactly the derived set:
+
+```sh
+gh api -X PUT repos/codefly-dev/core/rulesets/24397257 --input - <<'JSON'
 {
-  "required_status_checks": {
-    "strict": true,
-    "checks": [
-      {"context": "Build"},
-      {"context": "Proto"},
-      {"context": "pnpm source evidence"},
-      {"context": "Registry cache cold (go)"},
-      {"context": "Registry cache cold (next)"},
-      {"context": "Registry cache clean runner (go)"},
-      {"context": "Registry cache clean runner (next)"}
-    ]
-  },
-  "enforce_admins": true,
-  "required_pull_request_reviews": null,
-  "restrictions": null
+  "name": "protect main",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+  "rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {"type": "pull_request", "parameters": {
+      "required_approving_review_count": 0,
+      "dismiss_stale_reviews_on_push": false,
+      "require_code_owner_review": false,
+      "require_last_push_approval": false,
+      "required_review_thread_resolution": false,
+      "allowed_merge_methods": ["merge", "squash", "rebase"]
+    }},
+    {"type": "required_status_checks", "parameters": {
+      "strict_required_status_checks_policy": true,
+      "do_not_enforce_on_create": false,
+      "required_status_checks": [
+        {"context": "Build"},
+        {"context": "Proto"},
+        {"context": "pnpm source evidence"},
+        {"context": "Registry cache cold (go)"},
+        {"context": "Registry cache cold (next)"},
+        {"context": "Registry cache clean runner (go)"},
+        {"context": "Registry cache clean runner (next)"}
+      ]
+    }}
+  ]
 }
 JSON
 ```
 
-All four top-level keys are required by the API even when null. Verify with:
+Verify with:
 
 ```sh
-gh api repos/codefly-dev/core/branches/main/protection \
-  --jq '{strict: .required_status_checks.strict,
-         checks: [.required_status_checks.checks[].context],
-         admins: .enforce_admins.enabled}'
+gh api repos/codefly-dev/core/rulesets/24397257 --jq '
+  {enforcement, bypass: (.bypass_actors | length),
+   rules: [.rules[].type],
+   strict: (.rules[] | select(.type == "required_status_checks")
+            | .parameters.strict_required_status_checks_policy),
+   checks: [.rules[] | select(.type == "required_status_checks")
+            | .parameters.required_status_checks[].context],
+   approvals: (.rules[] | select(.type == "pull_request")
+               | .parameters.required_approving_review_count)}'
 ```
 
-`"strict": true` is "require branches to be up to date before merging". It is
-what stops a pull request that went green against an older `main` from landing
-without being retested, and it costs a rebase per merge.
+Two differences from what is live, and both are decisions rather than
+oversights to correct blindly:
 
-`"enforce_admins": true` is the decision to actually make. Without it an admin
-can still merge red, which is how `main` got here — every merge in recent
-history is by the same admin account.
+`strict_required_status_checks_policy: true` is "require branches to be up to
+date before merging". It stops a pull request that went green against an older
+`main` from landing without being retested, and it costs a rebase per merge.
+Live value: `false`.
+
+`required_approving_review_count` stays `0` in the payload above because that is
+what is live and because GitHub does not let you approve your own pull request —
+on a single-maintainer repository, requiring one means nothing can ever merge.
+Raising it is the owner's call, and it is the one change that would turn the
+credential record in `internal/ciguard` from a changelog into a gate.
+
+`bypass_actors: []` is the decision equivalent to the old `enforce_admins:
+true`: with a bypass actor an admin can still merge red, which is how `main` got
+to #447. It is empty today; keep it empty.
 
 ## What must stay out, and why
 
@@ -119,11 +221,11 @@ runs the suite must not hold it — see
 **`agent-ci`, `go-service-ci`, `go-service-release`, `publish-service-image`.** `workflow_call` only —
 they run when a service repository dispatches them, never here.
 
-**Approving reviews.** `required_pull_request_reviews` stays null deliberately.
-GitHub does not let you approve your own pull request, and on a
-single-maintainer repository requiring an approval means nothing can ever merge.
+**Approving reviews.** `required_approving_review_count` stays `0`
+deliberately — see "Applying it" above for why, and for what it costs.
 
-**Push restrictions.** `restrictions` stays null. `combine-deps.yml` uses
+**Push restrictions.** No `restrictions` equivalent is applied.
+`combine-deps.yml` uses
 `DEPS_COMBINE_TOKEN` to push the `deps/combined` branch and open a pull request;
 it never pushes to `main`, so it is unaffected by protection as configured here
 and merges through the normal pull request path like anything else. An
@@ -139,11 +241,10 @@ code (see [CI credentials](../ci-credentials.md)), but they cannot speak for any
 other identity with push access.
 
 **Status: NOT APPLIED — OPERATOR ACTION, OWNER-OWNED.** Nothing in this
-repository can apply or verify it, so no change here closes it and its absence
-is not a code defect. A read-only ruleset query returns only the branch
-ruleset `protect main`; no tag ruleset exists. This is an operator action and
-nothing in this repository can perform or verify it, so it stays open until
-someone applies it and records the result here.
+repository can apply it, so no change here closes it and its absence is not a
+code defect. A read-only ruleset query returns only the branch ruleset
+`protect main` (24397257); no ruleset targets `refs/tags/v*`. It stays open
+until someone applies one and records the result here.
 
 Apply a ruleset targeting `refs/tags/v*` that restricts creation to the
 Actions identity this workflow runs as, and denies updating and deleting
@@ -170,19 +271,18 @@ combination actually needs. See [CI credentials](../ci-credentials.md).
 
 ## Before you turn it on
 
-Confirm the five names against a recent **pull request** run rather than a push
-to `main`, with `gh pr checks <n>` or:
+Confirm the seven names against a recent **pull request** run rather than a
+push to `main`, with `gh pr checks <n>` or:
 
 ```sh
 gh api repos/codefly-dev/core/commits/<pr-head-sha>/check-runs \
   --jq '.check_runs[] | "\(.conclusion)\t\(.name)"'
 ```
 
-Push runs on `main` are currently red for a reason unrelated to any pull
-request: `go.yml`'s Slack notification steps, which are gated to push events,
-fail on the bumped action (#489). Pull request runs skip those steps, so `Build`
-is green there and requiring it is safe today — but do not read a push run and
-conclude the set is wrong.
+Confirm them against a **pull request** run, not a push to `main`: the Slack
+notification steps in `go.yml` are gated to push events, so a push run can be
+red for a reason no pull request ever sees (#489). Pull request runs skip those
+steps.
 
 ## Keeping the set honest
 
@@ -196,10 +296,14 @@ and both are your job to resolve in the pull request that causes them:
 - **A check joins the set** — you added a job that runs on every pull request.
   Protection does not cover it yet.
 
-Either way, update `requiredChecks`, the payload above, **and** the repository
-settings in the same change. The settings are not in this repository, so nothing
-else will notice; the failure lands on `main` only if the change merges without
-protection turned on.
+Either way, update `requiredChecks`, the payload above, **and** ruleset
+24397257 in the same change. The ruleset is not in this repository, so nothing
+else will notice.
+
+What the test does NOT check is whether the payload above matches what is
+actually applied — it cannot reach the API. The six-versus-seven gap on
+`pnpm source evidence` is recorded at the top of this file for that reason, and
+re-checking it is a `gh api` call, not a test run.
 
 One shape to know when adding a **matrix** job: GitHub appends the matrix values
 to the check name, so an unnamed `lint` job really reports as `lint (1.27)`. The

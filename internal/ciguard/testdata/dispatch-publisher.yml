@@ -1,0 +1,200 @@
+name: publish-service-image
+
+# Builds a service's image for several platforms and pushes it BY DIGEST,
+# carrying no tag, then records the digest as <lock-file> for the caller to
+# commit. Nothing resolves the image yet: the caller's release creates the tags
+# consumers use, from the digest the lock records.
+#
+# It runs before the release tag rather than from it. A service pins the digest
+# it runs, and a digest is only known once the image is built, so a tag cut
+# before the build can never carry it. Publishing here, committing the digest,
+# and tagging afterwards is what lets the released service name the image that
+# was actually built for its version. resources.ParseImageLock reads the lock.
+#
+# A caller is a workflow_dispatch workflow with a `version` input and one job
+# that calls this workflow by its job-level `uses`, pinned to an immutable core
+# commit SHA rather than @main. That job grants `contents: read` and
+# `packages: write`, passes `version` under `with:` (the image name defaults to
+# the caller's repository name), and passes the registry credential under
+# `secrets:` as `registry-token: ${{ secrets.GITHUB_TOKEN }}`.
+#
+# The registry credential is a secret the caller passes, not this workflow's
+# own token. `permissions:` here can only narrow what the caller grants, and a
+# reusable workflow declares no write (see internal/ciguard); the caller's job
+# is where `packages: write` is decided, and the token travels as a value.
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: Explicit image-name override inside core's image registry; omitted uses the caller's repository name.
+        default: ''
+        type: string
+      version:
+        description: Upcoming stable service version, without a v prefix. Stamped on the image as org.opencontainers.image.version.
+        required: true
+        type: string
+      lock-file:
+        description: File name recorded for the caller to commit, <name>-image.json.
+        type: string
+        default: gateway-image.json
+      platforms:
+        description: Comma-separated platforms to build. The evidence the caller publishes has to cover exactly these.
+        type: string
+        default: linux/amd64,linux/arm64
+    secrets:
+      registry-token:
+        description: Credential that can push to the registry, normally the caller's GITHUB_TOKEN from a job that grants packages write.
+        required: true
+    outputs:
+      digest:
+        description: The sha256 digest of the pushed image index.
+        value: ${{ jobs.publish.outputs.digest }}
+
+env:
+  # core's resources.ImageRegistry. A workflow cannot import a Go constant, so
+  # internal/ciguard holds the two together.
+  REGISTRY: ghcr.io/codefly-dev
+
+jobs:
+  # This job holds the caller's registry credential, and `permissions:` says
+  # nothing about a secret. It builds the CALLER's Dockerfile, so what keeps
+  # that credential from code nobody merged is the same pair of conditions
+  # go-service-release.yml's release job relies on: the `if:` keeps the job off
+  # every event but a dispatch, which a pull request cannot produce, and the
+  # first step refuses a commit that is not reachable from the caller's default
+  # branch, because a dispatch can name any branch. internal/ciguard holds both.
+  publish:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # The registry is reached with the secret above, never with this job's
+      # token, so this job needs no write grant -- and a caller that grants
+      # packages write does not hand that grant to anything here.
+      contents: read
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # The build context may include .git even for COPY . . callers.
+          # Authentication for the refusal is ephemeral, never stored here.
+          persist-credentials: false
+
+      - name: require the commit to be on the default branch, or refuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Private repositories need authentication for these two remote
+          # reads. Command-scoped config disappears with git; neither the token
+          # nor a credential-bearing config file enters the Docker context.
+          git_remote() {
+            local authorization
+            authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" "$@"
+          }
+
+          # The authority is the remote's own HEAD, and there is no input that
+          # can name it. A declaration the caller supplies could be omitted,
+          # defaulted or disagreed with, and each of those is a way for the
+          # caller to choose which history counts as reviewed. Whoever may
+          # approve a publication is this repository's decision, so the only
+          # source is the repository.
+          authority=$(git_remote ls-remote --symref origin HEAD \
+            | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2 }')
+          if [ -z "$authority" ]; then
+            echo "::error::cannot read this repository's default branch from origin; refusing to publish." >&2
+            exit 1
+          fi
+
+          git_remote fetch --quiet --no-tags --force origin \
+            "+refs/heads/${authority}:refs/remotes/origin/${authority}"
+
+          # Fully qualified: a bare `origin/<branch>` is an ambiguous rev that a tag
+          # of the same name can win.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${authority}"; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from refs/remotes/origin/${authority}; refusing to publish it." >&2
+            echo "Publishing builds this repository's Dockerfile with a registry credential, so the commit has to be one that was merged." >&2
+            exit 1
+          fi
+
+      # Through the environment, never interpolated into the script: a `run:`
+      # built by substituting a caller-supplied string is assembled before any
+      # shell sees it, so the string becomes part of the program.
+      - name: Validate the inputs
+        id: inputs
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          LOCK_FILE: ${{ inputs.lock-file }}
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -euo pipefail
+          if [ -z "$IMAGE_NAME" ]; then
+            IMAGE_NAME=$(printf '%s' "${CALLER_REPOSITORY##*/}" | tr '[:upper:]' '[:lower:]')
+          fi
+          if [[ ! "$IMAGE_NAME" =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo "image-name must be a lowercase repository name inside the registry" >&2
+            exit 1
+          fi
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "version must be a stable semantic version without a v prefix" >&2
+            exit 1
+          fi
+          if [[ ! "$LOCK_FILE" =~ ^[a-z0-9]+(-[a-z0-9]+)*-image\.json$ ]]; then
+            echo "lock-file must be a plain file name of the form <name>-image.json" >&2
+            exit 1
+          fi
+          if [[ ! "$PLATFORMS" =~ ^[a-z0-9]+/[a-z0-9]+(,[a-z0-9]+/[a-z0-9]+)*$ ]]; then
+            echo "platforms must be comma-separated os/arch pairs" >&2
+            exit 1
+          fi
+          {
+            echo "image=${REGISTRY}/${IMAGE_NAME}"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.registry-token }}
+
+      # The version label is how a release tells this image apart from the one
+      # published for an earlier version: both are digests in the same
+      # repository, and a lock left unrefreshed would otherwise publish the
+      # previous release's bytes under the new tag.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: build
+        with:
+          context: .
+          platforms: ${{ inputs.platforms }}
+          labels: org.opencontainers.image.version=${{ steps.inputs.outputs.version }}
+          outputs: type=image,name=${{ steps.inputs.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Record the digest
+        env:
+          IMAGE: ${{ steps.inputs.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          LOCK_FILE: ${{ inputs.lock-file }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-evidence
+          jq -n --arg name "$IMAGE" --arg digest "$DIGEST" '{name: $name, digest: $digest}' > "release-evidence/${LOCK_FILE}"
+          {
+            echo "Commit this as \`${LOCK_FILE}\`, then tag the release:"
+            echo
+            echo '```json'
+            cat "release-evidence/${LOCK_FILE}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.lock-file }}-${{ steps.inputs.outputs.version }}
+          path: release-evidence/${{ inputs.lock-file }}
+          if-no-files-found: error

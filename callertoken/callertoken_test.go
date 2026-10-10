@@ -2,6 +2,8 @@ package callertoken_test
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -100,10 +102,38 @@ func chat(c context.Context, conn *grpc.ClientConn) error {
 	if err != nil {
 		return err
 	}
-	if err := st.SendMsg(&emptypb.Empty{}); err != nil {
-		return err
+	return chatResult(st, st.SendMsg(&emptypb.Empty{}))
+}
+
+// SendMsg reports EOF when the server has already closed the stream. The RPC
+// status lives in RecvMsg; returning the send-side EOF hides an authentication
+// refusal as codes.Unknown and makes the test depend on scheduling.
+func chatResult(st grpc.ClientStream, sendErr error) error {
+	if sendErr != nil && !errors.Is(sendErr, io.EOF) {
+		return sendErr
 	}
 	return st.RecvMsg(&emptypb.Empty{})
+}
+
+func TestStreamRefusalBeforeSendStillReportsAuthenticationStatus(t *testing.T) {
+	conn := serve(t, token)
+	st, err := conn.NewStream(ctx(t), &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, "/callertoken.test.Echo/Chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wait for the real server's refusal before sending. This forces the
+	// ordering that CI exposed without a sleep or a mocked transport.
+	_, err = st.Header()
+	// A trailers-only refusal may expose no header and no Header error. Its
+	// final status still belongs to RecvMsg.
+	if err != nil {
+		requireCode(t, err, codes.Unauthenticated, "missing "+callertoken.MetadataKey)
+	}
+	sendErr := st.SendMsg(&emptypb.Empty{})
+	if !errors.Is(sendErr, io.EOF) {
+		t.Fatalf("send after server refusal = %v, want EOF", sendErr)
+	}
+	requireCode(t, chatResult(st, sendErr), codes.Unauthenticated, "missing "+callertoken.MetadataKey)
 }
 
 func requireCode(t *testing.T, err error, want codes.Code, contains string) {

@@ -575,12 +575,6 @@ func knownValue(v any) value {
 
 func knownBool(b bool) value { return knownValue(b) }
 
-// prefixedValue is a string whose leading characters the event fixes. A
-// non-empty prefix means the string is non-empty, hence truthy.
-func prefixedValue(prefix string) value {
-	return value{kind: valuePrefixed, prefix: prefix, t: triOf(prefix != "")}
-}
-
 // constrainedValue is a string described by a prefix it must have, a set of
 // literals it cannot be, or both. With neither it is simply unknown.
 func constrainedValue(prefix string, excluded []string) value {

@@ -25,6 +25,26 @@ fi
 BASE="$(cat "$IN/base")"
 mapfile -t combined < "$IN/combined.tsv"
 
+# `BASE` is a value from the artifact like any other, and it was the one value
+# that was not checked. It decides two things: the ref the manifest allowlist
+# below is computed against, and the base of the pull request opened at the end.
+# A value that does not resolve as a branch of this repository makes the first
+# meaningless (see the diff below) and the second wrong.
+if [[ ! "$BASE" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+  echo "::error::refusing to act on base <${BASE}>: a branch is named by a bare name here." >&2
+  exit 1
+fi
+case "$BASE" in
+  # `a..b` is a revision RANGE, not a branch, and `.lock` is not a valid ref
+  # suffix. Neither can reach here through a name that resolves below, but the
+  # shape rule states what is accepted rather than relying on that.
+  *..*|*.lock) echo "::error::refusing to act on base <${BASE}>: not a branch name." >&2; exit 1 ;;
+esac
+if ! git rev-parse --verify --quiet "refs/remotes/origin/${BASE}" >/dev/null; then
+  echo "::error::refusing to act on base <${BASE}>: it is not a branch of this repository." >&2
+  exit 1
+fi
+
 # Every number this half will act on must be a bare number of THIS repository.
 # The artifact is written by a job that handles unreviewed code, so a value from
 # it is checked before this token is pointed at anything.
@@ -39,7 +59,25 @@ done
 # And the bundle may carry nothing but dependency manifests. The plan replays
 # Dependabot commits; anything else in them is not a dependency bump.
 git fetch --quiet "$IN/combined.bundle" "+refs/heads/${BRANCH}:refs/heads/${BRANCH}"
-mapfile -t touched < <(git diff --name-only "origin/${BASE}...refs/heads/${BRANCH}")
+
+# NOT `mapfile -t touched < <(git diff ...)`. A process substitution is not
+# covered by `set -euo pipefail`: a failing `git diff` inside one leaves the
+# array empty, `$?` is 0, and the allowlist loop below then iterates zero times
+# and admits the bundle unconditionally — right before the push with the PAT. A
+# command substitution is covered, so the failure is fatal here.
+#
+# Fully qualified: a bare `origin/<branch>` is an ambiguous rev that a tag of
+# the same name can win, which is the same reasoning as the ancestry refusals in
+# version-tag.yml and go-service-release.yml.
+if ! diffed="$(git diff --name-only "refs/remotes/origin/${BASE}...refs/heads/${BRANCH}")"; then
+  echo "::error::cannot diff the combined branch against refs/remotes/origin/${BASE}; refusing to publish." >&2
+  exit 1
+fi
+if [ -z "$diffed" ]; then
+  echo "::error::the combined branch changes nothing against refs/remotes/origin/${BASE}; refusing to publish." >&2
+  exit 1
+fi
+mapfile -t touched <<< "$diffed"
 for path in "${touched[@]}"; do
   case "$path" in
     go.mod|go.sum|*/go.mod|*/go.sum|package.json|*/package.json|\

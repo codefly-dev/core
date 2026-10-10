@@ -305,21 +305,39 @@ func requiredContextsInRunbook(t *testing.T) []string {
 	}
 	require.NotEqual(t, -1, end, "%s: unterminated JSON heredoc", branchProtectionRunbook)
 
+	// A RULESET payload, not the legacy branch-protection object. Protection on
+	// this repository lives in `repos/.../rulesets`; the legacy
+	// `branches/main/protection` endpoint returns 404, which the runbook used
+	// to read as "`main` is unprotected" while ruleset 24397257 was active.
 	var payload struct {
-		RequiredStatusChecks struct {
-			Checks []struct {
-				Context string `json:"context"`
-			} `json:"checks"`
-		} `json:"required_status_checks"`
+		Rules []struct {
+			Type       string `json:"type"`
+			Parameters struct {
+				RequiredStatusChecks []struct {
+					Context string `json:"context"`
+				} `json:"required_status_checks"`
+			} `json:"parameters"`
+		} `json:"rules"`
 	}
 	body := strings.Join(lines[start:end], "\n")
 	require.NoError(t, json.Unmarshal([]byte(body), &payload),
 		"%s: the apply payload is not valid JSON, so copy-pasting it fails", branchProtectionRunbook)
 
-	out := make([]string, 0, len(payload.RequiredStatusChecks.Checks))
-	for _, check := range payload.RequiredStatusChecks.Checks {
-		out = append(out, check.Context)
+	var out []string
+	found := false
+	for _, rule := range payload.Rules {
+		if rule.Type != "required_status_checks" {
+			continue
+		}
+		found = true
+		for _, check := range rule.Parameters.RequiredStatusChecks {
+			out = append(out, check.Context)
+		}
 	}
+	require.True(t, found,
+		"%s: the apply payload carries no `required_status_checks` rule, so it "+
+			"would replace the ruleset with one that requires nothing. A ruleset "+
+			"PUT replaces the whole object.", branchProtectionRunbook)
 	return out
 }
 
