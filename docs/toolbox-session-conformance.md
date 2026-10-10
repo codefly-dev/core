@@ -124,7 +124,7 @@ release commit/report after the aggregate build completes.
 | expired/replayed token | deny | use stays consumed through clock-skew window |
 | wrong audience/resource/tenant | deny | exact binding tests pass |
 | catalog/request mutation | deny | deterministic digest mismatch |
-| timeout | stable `timeout` before or after dispatch; safe retry only for approved idempotent tool | dispatched token remains consumed; no implicit retry |
+| timeout | stable `timeout` before or after dispatch; safe retry only for approved idempotent tool | any consumed token remains consumed; no implicit retry |
 | cancellation | stable `canceled`; never auto-retry | cancellation audit emitted |
 | crash before authorization | no authorization/invoke audit | hard process exit contained |
 | crash after authorization | `reconcile_before_retry` | authorization ID and invoke audit exist |
