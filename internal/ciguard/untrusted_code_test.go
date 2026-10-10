@@ -261,7 +261,7 @@ func TestNoWorkflowRunJobHoldsAWriteTokenReachableFromAnUntrustedRun(t *testing.
 			if !writeCapable(grant) {
 				continue
 			}
-			for _, hostile := range []scenario{workflowRunFromAPullRequest, workflowRunFromAForkPush} {
+			for _, hostile := range scenariosForTrigger("workflow_run") {
 				reached, err := canRunUnder(job.If, hostile)
 				require.NoError(t, err,
 					"%s: job %q has a condition this package cannot judge: %q",

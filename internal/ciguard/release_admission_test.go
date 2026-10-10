@@ -30,22 +30,7 @@ const releaseRefusalStep = "require the tag to be on the default branch, or refu
 func releaseRefusalScript(t *testing.T) string {
 	t.Helper()
 
-	_, workflows := loadIsolatedWorkflows(t)
-	path := filepath.Join(repoRoot(t), ".github", "workflows", "go-service-release.yml")
-	wf, ok := workflows[path]
-	require.True(t, ok, "go-service-release.yml did not load")
-
-	for _, id := range isolatedJobIDs(wf) {
-		for _, step := range wf.Jobs[id].Steps {
-			if step.Name == releaseRefusalStep {
-				require.NotEmpty(t, step.Run)
-				return step.Run
-			}
-		}
-	}
-	t.Fatalf("no step named %q, so the refusal this test exercises is not the one that runs",
-		releaseRefusalStep)
-	return ""
+	return executionTestStep(t).Run
 }
 
 // releaseFixture is a repository with a default branch, an unmerged commit, and

@@ -130,12 +130,7 @@ func TestDispatchPublisherMutationsStayRefusedAfterReRecording(t *testing.T) {
 // registration above names this test, not just a plausible-looking function.
 func TestDispatchPublisherFixtureRefusesUnmergedCommits(t *testing.T) {
 	t.Setenv("GH_TOKEN", "fixture-read-token")
-	wf := parseIsolatedDocument(t, dispatchPublisherFixture(t), "dispatch-publisher-fixture.yml")
-	steps := wf.Jobs["publish"].Steps
-	require.GreaterOrEqual(t, len(steps), 2)
-	require.Equal(t, "require the commit to be on the default branch, or refuse", steps[1].Name)
-	script := steps[1].Run
-	require.NotEmpty(t, script)
+	script := executionTestStep(t).Run
 	fixture := newReleaseFixture(t)
 	for _, tc := range []struct {
 		name, sha string

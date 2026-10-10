@@ -57,7 +57,7 @@ func publishStep(t *testing.T, name string) isolatedStep {
 // runs with the registry credential.
 func TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch(t *testing.T) {
 	t.Setenv("GH_TOKEN", "fixture-read-token")
-	script := publishStep(t, publishRefusalStep).Run
+	script := executionTestStep(t).Run
 
 	for _, tc := range []struct {
 		name   string

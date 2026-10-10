@@ -101,9 +101,9 @@ every one that refused:
    it executes. Evaluated — see the parser section above — not matched as text;
    unknown is not false, and a construction the guard cannot read is a refusal.
    Three of the six jobs rest on the second half alone: `goreleaser` is a
-   reusable workflow whose event the caller chooses, the image publisher is also reusable, and dependency `publish` has no `if:`
-   at all. Both pin every checkout to the default branch or refuse a commit
-   that is not on it.
+   reusable workflow whose event the caller chooses, the image publisher is
+   also reusable, and dependency `publish` has no `if:` at all. Each pins its
+   checkout to the default branch or refuses a commit that is not on it.
 3. **Recorded.** The job's shape — the job block plus the workflow-level `on`,
    `permissions`, `env` and `defaults` in scope for every step in it — matches
    a digest in `recordedJobDigests`.
@@ -150,8 +150,36 @@ with the real publisher YAML fixture under `internal/ciguard/testdata/`, runs
 its shell against real repositories, and re-records every unsafe mutation's
 digest before asserting that the judgement still refuses it.
 
-Every helper in the package must be reached by something
-(`reachable_helpers_test.go`). That is not tidiness: the six functions this
+The execution check attributes every `uses:` and Git invocation. Checkout
+reads `repository`, `ref`, and `path`: another repository or an additional
+checkout directory cannot be erased by a later checkout of `main`. Unknown
+actions and Git verbs are refused. Shell is parsed, including global Git
+options, substitutions and line continuations. Only a preceding fatal ancestry
+check can attribute `git switch --detach` or `git checkout --detach`.
+
+Artifact downloads are untrusted content. The coverage badge therefore relies
+on its event condition; making it PR-reachable is refused even with a checkout
+of `main`. The dependency publisher has a separate, bounded data contract:
+`combined-branch` goes outside the workspace, and its only consumer is the
+publisher script whose bundle handoff is executed against real repositories.
+Changing the path or adding any consumer invalidates that attribution.
+
+Before a triggering-commit refusal, the parsed commands may only discover and
+fetch the authority, format metadata, or report a refusal. A tree script in an
+assignment is still execution. Workflow, job and step environments are checked
+for interpreter/Git overrides such as `BASH_ENV`, `ENV`, `GIT_CONFIG_*` and
+`PATH`. The publisher's command-scoped read-token wrapper remains admitted.
+The `executedBy` binding names an exact workflow, job and step; its executing
+test lifts that same binding using its own running test identity. A test for
+another job cannot be borrowed to certify a new refusal.
+
+The `workflow_run` hostile scenarios include same-repository pushes to any
+non-default branch as well as pull requests and fork pushes. An event and
+repository condition alone therefore cannot certify an unmerged branch.
+
+Every helper must be reachable from a test entry point or `init`
+(`reachable_helpers_test.go` follows resolved Go objects transitively, including
+through package values; dead cycles and shadowed names do not count as uses). That is not tidiness: the six functions this
 rule was supposed to be built from sat in the tree with their explanations
 intact and zero callers, and a careful reader concluded the evaluation was
 happening.

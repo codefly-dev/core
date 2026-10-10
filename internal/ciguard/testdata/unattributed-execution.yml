@@ -1,0 +1,41 @@
+# Each case is reachable with a write credential and has its digest re-recorded.
+- name: download-artifact and run
+  steps:
+    - uses: actions/checkout@v7
+      with: {ref: main}
+    - uses: actions/download-artifact@v8
+      with: {name: coverage-profile}
+    - run: bash ./coverage-profile/render.sh
+- name: forked checkout action
+  steps:
+    - uses: someone/checkout-fork@v4
+      with: {ref: '${{ github.head_ref }}'}
+    - run: bash ./render.sh
+- name: checkout of another repository
+  steps:
+    - uses: actions/checkout@v7
+      with: {ref: main, repository: '${{ github.event.pull_request.head.repo.full_name }}'}
+    - run: bash ./render.sh
+- name: nested checkout survives a main checkout
+  steps:
+    - uses: actions/checkout@v7
+      with: {ref: '${{ github.head_ref }}', path: untrusted}
+    - uses: actions/checkout@v7
+      with: {ref: main}
+    - run: bash ./untrusted/x.sh
+- name: git reset hard
+  run: git fetch origin refs/pull/1/head && git reset --hard FETCH_HEAD
+- name: git config option before checkout
+  run: git -c advice.detachedHead=false checkout FETCH_HEAD
+- name: git merge
+  run: git merge --no-edit FETCH_HEAD
+- name: git pull
+  run: git pull origin refs/pull/1/head
+- name: git worktree add
+  run: git worktree add ../w FETCH_HEAD && bash ../w/render.sh
+- name: git line continuation
+  run: |
+    git \
+      checkout FETCH_HEAD
+- name: git clone
+  run: git clone --branch "${{ github.head_ref }}" https://github.com/contributor/core pr && bash ./pr/render.sh

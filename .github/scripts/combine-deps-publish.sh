@@ -30,7 +30,7 @@ mapfile -t combined < "$IN/combined.tsv"
 # below is computed against, and the base of the pull request opened at the end.
 # A value that does not resolve as a branch of this repository makes the first
 # meaningless (see the diff below) and the second wrong.
-if ! printf '%s' "$BASE" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]*$'; then
+if [[ ! "$BASE" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
   echo "::error::refusing to act on base <${BASE}>: a branch is named by a bare name here." >&2
   exit 1
 fi

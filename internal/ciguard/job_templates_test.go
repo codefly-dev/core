@@ -303,13 +303,13 @@ var recordedJobDigests = map[string]string{
 // job's credential while the workflow is untouched.
 var recordedFileDigests = map[string]string{
 	".github/scripts/combine-deps-plan.sh":    "ade2737c41da8b1cc92966a4feb598c9481a9b09dafc643f271dad3aa155fdc1",
-	".github/scripts/combine-deps-publish.sh": "0162fd6cc089d24594e0fd33dcfda4a9abb70539d14633bc5bc8afedc8bf2853",
+	".github/scripts/combine-deps-publish.sh": "19c6833c51700abfbefe80bcd2b98ac4170152922f62659285455446e58e74c0",
 }
 
 // ------------------------------------------------- what a job executes
 
-// checkoutAction is the one action that replaces the tree. A step using it is
-// read for its `ref:`; every other step is read for what it executes.
+// Checkout is attributed from ref, repository and path; every other action
+// needs its own source contract in attributedAction.
 const checkoutAction = "actions/checkout@"
 
 // ancestryRefusalOfTheCheckedOutCommit matches the proof a job offers when its
@@ -321,32 +321,6 @@ const checkoutAction = "actions/checkout@"
 // a tag of the same name can win, so a refusal spelled that way is not one.
 var ancestryRefusalOfTheCheckedOutCommit = regexp.MustCompile(
 	`git\s+merge-base\s+--is-ancestor\s+"?\$\{?GITHUB_SHA\}?"?\s+"?refs/remotes/origin/`)
-
-// treeRepointedFromARev matches the verbs that put a DIFFERENT commit's content
-// in the tree while naming the commit, capturing the rev so it can be compared
-// with the one a refusal validated. Each of these was a construction a review
-// round found: `git -C . checkout FETCH_HEAD`,
-// `git restore --source=FETCH_HEAD -- .goreleaser.yaml`,
-// `git archive FETCH_HEAD | tar -x`.
-var treeRepointedFromARev = regexp.MustCompile(
-	`git\s+(?:-C\s+\S+\s+)?(?:switch|checkout)\s+(?:--detach\s+)?(\S+)|` +
-		`git\s+(?:-C\s+\S+\s+)?restore\s+--source=(\S+)|` +
-		`git\s+(?:-C\s+\S+\s+)?archive\s+(\S+)`)
-
-// treeRepointedFromAStream matches the verbs that put content in the tree
-// without naming a commit at all. There is nothing to validate against a
-// refusal, so these are refused outright rather than attributed.
-var treeRepointedFromAStream = regexp.MustCompile(
-	`git\s+(?:-C\s+\S+\s+)?(?:apply|am)\b|\btar\s+[^|&;]*-x`)
-
-// ancestryRefusalOf reports whether text refuses a rev that is not on the
-// default branch, for the rev named.
-func ancestryRefusalOf(text, rev string) bool {
-	pattern := regexp.MustCompile(
-		`git\s+merge-base\s+--is-ancestor\s+` + regexp.QuoteMeta(rev) +
-			`\s+"?refs/remotes/origin/`)
-	return pattern.MatchString(text) && strings.Contains(text, "exit 1")
-}
 
 // executedText is everything a step executes that this package can read: its
 // own `run:`, and the contents of every repository script that run invokes,
@@ -430,8 +404,12 @@ const (
 	treeIsAPartyChosenRef
 )
 
-// checkoutSelectsTheDefaultBranch reads one checkout step's `ref:`.
+// checkoutSelectsTheDefaultBranch reads the repository identity and ref.
+// acceptedExecution separately refuses additional checkout paths.
 func checkoutSelectsTheDefaultBranch(step isolatedStep, absentIsDefault bool) (treeOrigin, string) {
+	if repository, named := step.With["repository"]; named && repository != "${{ github.repository }}" && repository != theRepository {
+		return treeIsAPartyChosenRef, "selects a party-chosen repository"
+	}
 	ref, named := step.With["ref"]
 	if !named {
 		if absentIsDefault {
@@ -494,10 +472,15 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 	// one can execute. A `run:` here executes the workflow's own text, which
 	// the recorded digest covers.
 	origin, unreviewedBecause := treeIsTheDefaultBranch, ""
-	leaned := false // whether acceptance rests on a refusal written in shell
 
-	for _, step := range steps {
-		if strings.Contains(step.Uses, checkoutAction) {
+	for index, step := range steps {
+		if strings.HasPrefix(step.Uses, checkoutAction) {
+			if path, named := step.With["path"]; named && path != "" && path != "." {
+				return false, "checkout path is not the workspace root; a later checkout cannot establish that additional tree"
+			}
+			if origin != treeIsTheDefaultBranch {
+				return false, "a later checkout cannot erase an earlier unattributed tree"
+			}
 			// A checkout executes none of the tree it writes, so an unreviewed
 			// one is not yet a refusal; the next step that runs is where it is
 			// decided.
@@ -526,55 +509,44 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 				return false, "its ancestry refusal " + why +
 					", so the tree it runs is not established"
 			}
-			origin, leaned = treeIsTheDefaultBranch, true
-			continue
+			if why := triggeringCommitRefusalIsFirst(step.Run); why != "" {
+				return false, why
+			}
+			if template, ok := templateFor(wf.name, id); !ok || !executingTestCovers(template, step) {
+				return false, "Name the test that executes it in executedBy, bound to this workflow, job and refusal step"
+			}
+			origin = treeIsTheDefaultBranch
 		}
 
-		// The tree is reviewed code here. It stays so unless this step puts
-		// something else in it.
-		if treeRepointedFromAStream.MatchString(text) {
-			return false, step.describe() +
-				" writes content into the tree without naming a commit (git apply/am, " +
-				"tar -x), so there is nothing an ancestry refusal can be checked against"
+		if step.Uses != "" {
+			if why := attributedAction(wf, id, steps, index); why != "" {
+				return false, why
+			}
 		}
-		for _, match := range treeRepointedFromARev.FindAllStringSubmatch(text, -1) {
-			rev := firstNonEmpty(match[1:])
-			if rev == "" || rev == "HEAD" || rev == "--" {
-				continue
+		repointed, why := attributedShell(text)
+		if why != "" {
+			return false, step.describe() + " " + why
+		}
+		if repointed {
+			if unconditional, why := refusalIsUnconditional(step, job, wf); !unconditional {
+				return false, why
 			}
-			if !ancestryRefusalOf(text, rev) {
-				return false, step.describe() + " puts " + rev +
-					"'s content in the tree without showing it is reachable from " +
-					theDefaultBranch + " first"
+			if template, ok := templateFor(wf.name, id); !ok || !executingTestCovers(template, step) {
+				return false, "Name the test that executes it in executedBy, bound to this workflow, job and refusal step"
 			}
-			leaned = true
 		}
 	}
 
-	if leaned {
-		if template, registered := templateFor(wf.name, id); registered && template.executedBy == "" {
-			return false, "its acceptance rests on a refusal written in shell, and this " +
-				"package reads only that the refusal is there. Name the test that " +
-				"executes it in the template's executedBy"
-		}
-	}
 	return true, ""
-}
-
-// firstNonEmpty returns the first non-empty capture of an alternation.
-func firstNonEmpty(groups []string) string {
-	for _, group := range groups {
-		if group != "" {
-			return group
-		}
-	}
-	return ""
 }
 
 // refusalIsUnconditional reports whether a step carrying an ancestry refusal can
 // actually stop the job. Each of these makes the command present and the
 // refusal absent, which is the shape this whole package is about.
 func refusalIsUnconditional(step isolatedStep, job isolatedJob, wf isolatedWorkflow) (bool, string) {
+	if step.WorkingDirectory != "" {
+		return false, "selects an unattributed working directory"
+	}
 	if step.If != "" {
 		return false, "carries a step-level `if:` (" + step.If + "), so it can be skipped"
 	}
@@ -583,6 +555,13 @@ func refusalIsUnconditional(step isolatedStep, job isolatedJob, wf isolatedWorkf
 	}
 	if !strings.Contains(step.Run, "exit 1") {
 		return false, "never exits non-zero, so it reports rather than refuses"
+	}
+	for _, env := range []map[string]string{wf.Env, job.Env, step.Env} {
+		for key := range env {
+			if dangerousExecutionEnv(key) {
+				return false, "inherits execution-changing environment " + key
+			}
+		}
 	}
 	for _, shell := range []string{step.Shell, job.Defaults.Run.Shell, wf.Defaults.Run.Shell} {
 		switch strings.TrimSpace(shell) {

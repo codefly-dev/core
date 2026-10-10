@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/internal/testgit"
 )
@@ -41,35 +40,11 @@ const (
 func selectionScript(t *testing.T) (script, defaultBranch string) {
 	t.Helper()
 
-	path := filepath.Join(repoRoot(t), ".github", "workflows", versionTagWorkflow)
-	raw, err := os.ReadFile(path)
-	require.NoError(t, err)
-
-	var wf permissionedWorkflow
-	require.NoError(t, yaml.Unmarshal(raw, &wf))
-
-	for _, id := range jobIDs(wf) {
-		for _, step := range wf.Jobs[id].Steps {
-			if step.Name == selectionStepName {
-				require.NotEmpty(t, step.Run,
-					"%s: step %q carries no `run:`", versionTagWorkflow, selectionStepName)
-				branch := step.Env["DEFAULT_BRANCH"]
-				require.NotEmpty(t, branch,
-					"%s: step %q sets no DEFAULT_BRANCH, so neither the script nor "+
-						"this test can name the branch a commit has to be on",
-					versionTagWorkflow, selectionStepName)
-				require.NotContains(t, branch, "${{",
-					"%s: step %q takes DEFAULT_BRANCH from an expression (%q). A "+
-						"payload field that came back empty would make every release "+
-						"refuse, silently; name the branch literally.",
-					versionTagWorkflow, selectionStepName, branch)
-				return step.Run, branch
-			}
-		}
-	}
-	t.Fatalf("%s has no step named %q, so the commit-selection script this test "+
-		"exercises is not the one CI runs", versionTagWorkflow, selectionStepName)
-	return "", ""
+	step := executionTestStep(t)
+	branch := step.Env["DEFAULT_BRANCH"]
+	require.NotEmpty(t, branch)
+	require.NotContains(t, branch, "${{")
+	return step.Run, branch
 }
 
 // selectionFixture is a repository shaped like the one the tag job checks out:

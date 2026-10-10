@@ -118,6 +118,25 @@ var workflowRunFromAForkPush = scenario{
 	always: map[string]tri{"always": triTrue},
 }
 
+// A same-repository branch can contain an unmerged commit just as a pushed
+// tag can. The branch must be excluded relationally, not sampled by name.
+var workflowRunFromANonDefaultPush = scenario{
+	name: "a workflow_run produced by a non-default-branch push in this repository",
+	fixed: map[string]string{
+		"github.event_name":                      "workflow_run",
+		"github.repository":                      theRepository,
+		"github.event.repository.default_branch": theDefaultBranch,
+	},
+	adversarial: map[string]string{
+		// This case is specifically a same-repository push; fork and PR
+		// cases remain separate domains, never inferred from this sample.
+		"github.event.workflow_run.event":                     "push",
+		"github.event.workflow_run.head_repository.full_name": theRepository,
+	},
+	excluded: map[string][]string{"github.event.workflow_run.head_branch": {theDefaultBranch}},
+	always:   map[string]tri{"always": triTrue},
+}
+
 // A reusable workflow is called by another repository, which supplies its own
 // context: its repository, its ref, its actor -- and its EVENT. The event is
 // the one fact a condition can still use, because `github.event_name` in a
@@ -218,7 +237,7 @@ func scenariosForTrigger(trigger string) []scenario {
 		return []scenario{eventScenario(trigger, "refs/", []string{defaultBranchRef})}
 
 	case "workflow_run":
-		return []scenario{workflowRunFromAPullRequest, workflowRunFromAForkPush}
+		return []scenario{workflowRunFromAPullRequest, workflowRunFromAForkPush, workflowRunFromANonDefaultPush}
 
 	case "workflow_call":
 		// The caller's event is the caller's choice, and this repository cannot

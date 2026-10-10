@@ -419,8 +419,7 @@ func TestThePlantedWriteTokenViolationStaysCaught(t *testing.T) {
 // these are the ways of breaking it — each refused, and refused without the
 // record being consulted.
 //
-// Without this, `treeRepointedFromARev` and `treeRepointedFromAStream` would be
-// machinery nothing exercises, which is the shape this change exists to remove.
+// The shell attribution must remain load-bearing independently of the record.
 func TestRepointingTheTagJobsTreeWithoutProvingTheCommitIsRefused(t *testing.T) {
 	path := filepath.Join(repoRoot(t), ".github", "workflows", "version-tag.yml")
 	raw, err := os.ReadFile(path)
