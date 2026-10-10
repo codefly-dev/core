@@ -1,6 +1,7 @@
 package sbom
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -46,10 +47,10 @@ func TestSelectManifestDigestParsesRealBuildxIndex(t *testing.T) {
 // resolver must leave it unstated rather than echo the request back, or
 // evidence would claim a platform nothing verified.
 func TestSelectManifestDigestLeavesAnUnstatedPlatformUnstated(t *testing.T) {
-	descriptor := `{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:c64c","size":1023}`
+	descriptor := `{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","size":1023}`
 	digest, platform, err := selectManifestDigest([]byte(descriptor), "linux/amd64")
 	require.NoError(t, err)
-	require.Equal(t, "sha256:c64c", digest)
+	require.Equal(t, "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", digest)
 	require.Empty(t, platform)
 }
 
@@ -62,48 +63,48 @@ func TestSelectManifestDigestRejectsAnAttestationOnlyIndex(t *testing.T) {
 
 func TestSelectManifestDigestPicksThePlatformChild(t *testing.T) {
 	index := `{"digest":"sha256:index","manifests":[
-		{"digest":"sha256:amd","platform":{"os":"linux","architecture":"amd64"}},
-		{"digest":"sha256:arm","platform":{"os":"linux","architecture":"arm64"}}]}`
+		{"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","platform":{"os":"linux","architecture":"amd64"}},
+		{"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","platform":{"os":"linux","architecture":"arm64"}}]}`
 	digest, platform, err := selectManifestDigest([]byte(index), "linux/arm64")
 	require.NoError(t, err)
-	require.Equal(t, "sha256:arm", digest)
+	require.Equal(t, "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", digest)
 	require.Equal(t, "linux/arm64", platform)
 }
 
 func TestSelectManifestDigestRefusesAmbiguousMultiPlatformImage(t *testing.T) {
 	index := `{"digest":"sha256:index","manifests":[
-		{"digest":"sha256:amd","platform":{"os":"linux","architecture":"amd64"}},
-		{"digest":"sha256:arm","platform":{"os":"linux","architecture":"arm64"}}]}`
+		{"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","platform":{"os":"linux","architecture":"amd64"}},
+		{"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","platform":{"os":"linux","architecture":"arm64"}}]}`
 	_, _, err := selectManifestDigest([]byte(index), "")
 	require.ErrorContains(t, err, "name the platform")
 }
 
 func TestSelectManifestDigestIgnoresAttestationManifests(t *testing.T) {
 	index := `{"digest":"sha256:index","manifests":[
-		{"digest":"sha256:amd","platform":{"os":"linux","architecture":"amd64"}},
+		{"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","platform":{"os":"linux","architecture":"amd64"}},
 		{"digest":"sha256:att","platform":{"os":"unknown","architecture":"unknown"}}]}`
 	digest, platform, err := selectManifestDigest([]byte(index), "")
 	require.NoError(t, err)
-	require.Equal(t, "sha256:amd", digest)
+	require.Equal(t, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", digest)
 	require.Equal(t, "linux/amd64", platform)
 }
 
 func TestSelectManifestDigestRejectsAnUnshippedPlatform(t *testing.T) {
 	index := `{"digest":"sha256:index","manifests":[
-		{"digest":"sha256:amd","platform":{"os":"linux","architecture":"amd64"}}]}`
+		{"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","platform":{"os":"linux","architecture":"amd64"}}]}`
 	_, _, err := selectManifestDigest([]byte(index), "linux/arm64")
 	require.ErrorContains(t, err, "no manifest for platform linux/arm64")
 }
 
 func TestSelectManifestDigestRejectsPlatformMismatch(t *testing.T) {
-	_, _, err := selectManifestDigest([]byte(`{"digest":"sha256:only","platform":{"os":"linux","architecture":"amd64"}}`), "linux/arm64")
+	_, _, err := selectManifestDigest([]byte(`{"digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","platform":{"os":"linux","architecture":"amd64"}}`), "linux/arm64")
 	require.ErrorContains(t, err, "does not match requested platform")
 }
 
 func TestSelectManifestDigestUsesASingleManifest(t *testing.T) {
-	digest, platform, err := selectManifestDigest([]byte(`{"digest":"sha256:only","platform":{"os":"linux","architecture":"amd64"}}`), "")
+	digest, platform, err := selectManifestDigest([]byte(`{"digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","platform":{"os":"linux","architecture":"amd64"}}`), "")
 	require.NoError(t, err)
-	require.Equal(t, "sha256:only", digest)
+	require.Equal(t, "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", digest)
 	require.Equal(t, "linux/amd64", platform)
 }
 
@@ -134,17 +135,17 @@ func TestConfigPlatformDetectsAMismatchedSingleConfig(t *testing.T) {
 // The local daemon holds one platform per reference, so scanning a reference
 // whose platform differs from the request would inventory the wrong image.
 func TestDaemonIdentityRejectsAPlatformMismatch(t *testing.T) {
-	_, _, err := daemonIdentity([]byte("sha256:abc linux/amd64\n"), "app:dev", "linux/arm64")
+	_, _, err := daemonIdentity([]byte("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd linux/amd64\n"), "app:dev", "linux/arm64")
 	require.ErrorContains(t, err, "not the requested platform linux/arm64")
 
-	id, platform, err := daemonIdentity([]byte("sha256:abc linux/amd64\n"), "app:dev", "linux/amd64")
+	id, platform, err := daemonIdentity([]byte("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd linux/amd64\n"), "app:dev", "linux/amd64")
 	require.NoError(t, err)
-	require.Equal(t, "sha256:abc", id)
+	require.Equal(t, "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", id)
 	require.Equal(t, "linux/amd64", platform)
 
-	id, platform, err = daemonIdentity([]byte("sha256:abc linux/amd64\n"), "app:dev", "")
+	id, platform, err = daemonIdentity([]byte("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd linux/amd64\n"), "app:dev", "")
 	require.NoError(t, err)
-	require.Equal(t, "sha256:abc", id)
+	require.Equal(t, "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", id)
 	require.Equal(t, "linux/amd64", platform)
 }
 
@@ -213,4 +214,24 @@ func TestSourceOfDefaultsToRegistry(t *testing.T) {
 
 	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_REGISTRY, sourceKind(SourceRegistry))
 	require.Equal(t, builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON, sourceKind(SourceDockerDaemon))
+}
+
+func TestImageIdentitiesRefuseMalformedDigests(t *testing.T) {
+	for _, digest := range []string{"", "sha256:abc", "sha256:/../../outside", "sha256:" + strings.Repeat("A", 64), "sha256:" + strings.Repeat("a", 63) + " "} {
+		t.Run(digest, func(t *testing.T) {
+			for _, descriptor := range []manifestDescriptor{
+				{Digest: digest},
+				{Manifests: []manifestChildRef{{Digest: digest, Platform: &manifestPlatform{OS: "linux", Architecture: "amd64"}}}},
+			} {
+				raw, err := json.Marshal(descriptor)
+				require.NoError(t, err)
+				got, _, err := selectManifestDigest(raw, "linux/amd64")
+				require.Error(t, err)
+				require.Empty(t, got)
+			}
+			got, _, err := daemonIdentity([]byte(digest+" linux/amd64"), "fixture", "")
+			require.Error(t, err)
+			require.Empty(t, got)
+		})
+	}
 }

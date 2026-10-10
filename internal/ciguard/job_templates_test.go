@@ -34,7 +34,7 @@ import (
 //
 // Changing one of these jobs therefore means updating its template and the test
 // that executes it, deliberately, in the same change. That friction is the
-// point: these five jobs are the only ones in this repository that receive a
+// point: these six jobs are the only ones in this repository that receive a
 // secret or a write token.
 
 // jobTemplate is one permitted shape.
@@ -60,6 +60,11 @@ var permittedCredentialJobs = []jobTemplate{
 		workflow: "go-service-release.yml", job: "goreleaser",
 		executedBy: "TestAReleaseIsAdmittedOnlyFromTheRepositorysOwnDefaultBranch",
 		why:        "publishes a release for a tag proven to be on the repository's own default branch",
+	},
+	{
+		workflow: "publish-service-image.yml", job: "publish",
+		executedBy: "TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch",
+		why:        "pushes a caller's service image by digest with the caller's registry credential, from a commit proven to be on the repository's own default branch",
 	},
 	{
 		workflow: "combine-deps.yml", job: "publish",
@@ -178,10 +183,11 @@ var recordedFileDigests = map[string]string{
 }
 
 var recordedDigests = map[string]string{
-	"combine-deps.yml":       "2ddc71ebfde5eff4d8646d53dca254a9b631a4a951589d5ff587962c09e43e50",
-	"go-service-release.yml": "b96f9dcb767f9a307b4120797007a30bad8b76bb8bd7b461247a555102a54708",
-	"go.yml":                 "e484c97790a696fcd2a55e323df7d4b451b7657a917a126d7c6831e02cd2a904",
-	"version-tag.yml":        "25972c82482fb3ae6196371328df126843c3e8a1b4aae7b863693bbad5fac641",
+	"combine-deps.yml":          "2ddc71ebfde5eff4d8646d53dca254a9b631a4a951589d5ff587962c09e43e50",
+	"go-service-release.yml":    "b96f9dcb767f9a307b4120797007a30bad8b76bb8bd7b461247a555102a54708",
+	"go.yml":                    "e484c97790a696fcd2a55e323df7d4b451b7657a917a126d7c6831e02cd2a904",
+	"publish-service-image.yml": "10afa917aa051d051756b170dac9d88c37e2bd35bffff03fe4d46c2b10401462",
+	"version-tag.yml":           "25972c82482fb3ae6196371328df126843c3e8a1b4aae7b863693bbad5fac641",
 }
 
 // TestEveryPermittedJobMatchesItsRecordedShape is the gate: each permitted job

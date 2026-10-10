@@ -4,10 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +21,7 @@ import (
 	"time"
 
 	"github.com/codefly-dev/core/agents"
+	"github.com/codefly-dev/core/callertoken"
 	"github.com/codefly-dev/core/grpcconfig"
 	"github.com/codefly-dev/core/policy"
 	providerartifact "github.com/codefly-dev/core/provider/artifact"
@@ -947,7 +946,7 @@ func spawnAgent(ctx context.Context, bin, identity, telemetryName, artifactDiges
 	// crypto/rand → guaranteed unbiased. Hex encoding (not base64)
 	// avoids any case where shell quoting / env-var escaping could
 	// mangle the bearer in transit.
-	authToken, err := mintAgentToken()
+	authToken, err := callertoken.Generate()
 	if err != nil {
 		return nil, w.Wrapf(err, "mint agent token")
 	}
@@ -1164,7 +1163,7 @@ func spawnAgent(ctx context.Context, bin, identity, telemetryName, artifactDiges
 	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-		grpc.WithPerRPCCredentials(bearerCreds{token: authToken}),
+		callertoken.DialOption(authToken),
 		// Host-side dispatch gate for the Solution contract: refuses to send a
 		// Solution RPC whose declared effect/network policy exceeds the ceiling
 		// stamped on the call context by solution.Client. No-ops for every
@@ -1400,32 +1399,3 @@ func parseAgentHandshake(line string) (addr string, err error) {
 	}
 	return endpoint, nil
 }
-
-// mintAgentToken returns 32 random bytes hex-encoded. 256 bits of
-// entropy from crypto/rand — overwhelmingly more than the auth-
-// against-local-attacker threat model demands, but cheap.
-//
-// Hex (not base64) so the token survives env-var quoting through
-// every shell + exec layer between host and plugin without any
-// special-character footguns.
-func mintAgentToken() (string, error) {
-	var buf [32]byte
-	if _, err := cryptorand.Read(buf[:]); err != nil {
-		return "", fmt.Errorf("read random: %w", err)
-	}
-	return hex.EncodeToString(buf[:]), nil
-}
-
-// bearerCreds is a grpc.PerRPCCredentials that attaches the per-
-// spawn token to every outgoing RPC. RequireTransportSecurity
-// returns false because we run over UDS / loopback — the token
-// is the auth, the transport doesn't need TLS.
-type bearerCreds struct {
-	token string
-}
-
-func (b bearerCreds) GetRequestMetadata(_ context.Context, _ ...string) (map[string]string, error) {
-	return map[string]string{agents.AuthMetadataKey: b.token}, nil
-}
-
-func (b bearerCreds) RequireTransportSecurity() bool { return false }
