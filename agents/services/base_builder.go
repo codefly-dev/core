@@ -797,6 +797,52 @@ func (s *BuilderWrapper) kubernetesDeploymentTarget(req *builderv0.DeploymentReq
 	}
 }
 
+// deploymentMembers is a snapshot of the caller's resolved composition.
+// The existing resources judge owns every edge verdict.
+type deploymentMembers map[string]resources.Member
+
+func (members deploymentMembers) Member(name string) (resources.Member, bool) {
+	member, ok := members[name]
+	return member, ok
+}
+
+func (s *BuilderWrapper) deploymentProvenance(ctx context.Context, req *builderv0.DeploymentRequest) (resources.Provenance, error) {
+	if supplied := req.GetCompositionProvenance(); supplied != nil {
+		members := make(deploymentMembers, len(supplied.GetMembers()))
+		for _, member := range supplied.GetMembers() {
+			if strings.TrimSpace(member.GetName()) == "" || strings.TrimSpace(member.GetWorkspace()) == "" {
+				return nil, fmt.Errorf("%w: supplied composition member requires a name and owning workspace", resources.ErrUnjudgedProvenance)
+			}
+			if _, exists := members[member.GetName()]; exists {
+				return nil, fmt.Errorf("%w: duplicate supplied composition member %q", resources.ErrUnjudgedProvenance, member.GetName())
+			}
+			var role resources.MemberRole
+			switch member.GetRole() {
+			case builderv0.CompositionMember_ROLE_MODULE:
+				role = resources.MemberRoleModule
+			case builderv0.CompositionMember_ROLE_SOLUTION:
+				role = resources.MemberRoleSolution
+			default:
+				return nil, fmt.Errorf("%w: supplied composition member %q has unknown role %d", resources.ErrUnjudgedProvenance, member.GetName(), member.GetRole())
+			}
+			members[member.GetName()] = resources.Member{Name: member.GetName(), Role: role, Workspace: member.GetWorkspace()}
+		}
+		// Presence is authoritative, even when no members were supplied. Never
+		// complete the request from a different composition on disk.
+		return members, nil
+	}
+	// Older CLIs supply no provenance. This discovery is correct only for a
+	// checkout inside the rendering composition, not a pinned module cache.
+	workspace, err := resources.FindWorkspaceUpFrom(ctx, s.Location)
+	if err != nil {
+		return nil, err
+	}
+	if workspace == nil {
+		return nil, fmt.Errorf("%w: service %s at %s is loaded outside any workspace, so the dependency addresses it was handed cannot be judged", resources.ErrUnjudgedProvenance, s.Identity.Name, s.Location)
+	}
+	return workspace, nil
+}
+
 // DeployKustomize runs the standard service-plugin Kubernetes deployment
 // pipeline: validate the target, collect declared inputs, run the plugin's
 // preparation hook, split configuration from secrets, render Kustomize, and
@@ -864,23 +910,14 @@ func (s *BuilderWrapper) DeployKustomize(ctx context.Context, req *builderv0.Dep
 	if deployment.Inputs.DependencyEndpoints {
 		dependencyMappings := req.GetDependenciesNetworkMappings()
 		if len(dependencyMappings) > 0 {
-			// The agent judges the addresses it was handed with the composition
-			// its service was loaded from — the workspace above the service
-			// directory — exactly as the CLI-side wrapper that handed them did
-			// (services.BuilderInstance.Deploy). An agent with no service, or
-			// one loaded outside any workspace, has nothing to judge with and
-			// refuses the addresses as unjudged rather than wiring them.
 			if s.Service == nil {
 				return fail(fmt.Errorf("%w: dependency addresses were handed to an agent with no service to judge them for", resources.ErrUnjudgedProvenance))
 			}
-			workspace, err := resources.FindWorkspaceUpFrom(ctx, s.Location)
+			provenance, err := s.deploymentProvenance(ctx, req)
 			if err != nil {
 				return fail(err)
 			}
-			if workspace == nil {
-				return fail(fmt.Errorf("%w: service %s at %s is loaded outside any workspace, so the dependency addresses it was handed cannot be judged", resources.ErrUnjudgedProvenance, s.Identity.Name, s.Location))
-			}
-			dependencyMappings, err = resources.ResolveDependencyNetworkMappings(workspace, s.Identity.Module, s.Service.ServiceDependencies, dependencyMappings)
+			dependencyMappings, err = resources.ResolveDependencyNetworkMappings(provenance, s.Identity.Module, s.Service.ServiceDependencies, dependencyMappings)
 			if err != nil {
 				return fail(err)
 			}

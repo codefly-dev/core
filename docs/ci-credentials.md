@@ -165,10 +165,61 @@ The remaining gap is not in this repository: nothing stops a tag being created
 by some other identity. That is a tag-creation ruleset, which an operator
 applies — see [branch protection](runbooks/branch-protection.md).
 
+## A separate, smaller rule: a `run:` is a program
+
+Everything above is about credentials, and it is pinned by shape because the
+question it answers — could this job's credential reach code nobody reviewed —
+is one no analysis finishes. There is a second rule here that is not part of
+that model and does not want its machinery.
+
+**A `run:` script never interpolates a value chosen by whoever triggered the
+run.** A `run:` is the one field whose content is a *program*: GitHub assembles
+it before any shell sees it, so `${{ inputs.setup-run }}` written there is not
+a value the script reads, it is a line of the script, already past every
+quoting rule the author wrote. The value reaches the script through the
+environment instead, which keeps the program fixed:
+
+```yaml
+env:
+  SETUP_RUN: ${{ inputs.setup-run }}
+run: eval "$SETUP_RUN"
+```
+
+`eval` is not a workaround for the env indirection — it is what preserves the
+"arbitrary shell command" contract the input promises while leaving the value a
+value. Shell `-e` still applies inside it, so a failing command still stops the
+step.
+
+This rule is checked by reading the parsed script rather than by pinning a
+shape, and that is affordable here because the set is closed: the contexts
+whose content the triggering party chooses are `inputs.*`, `github.event.*` and
+`github.head_ref`. `runner.*` and `matrix.*` are fixed by the runner and by
+this repository, so they are permitted. `env.*` and `steps.*` are a level of
+indirection this rule does not follow — a tainted value can still arrive
+through them, and that is what the credential model is for.
+
+It is separate for a reason worth recording. The credential allowlist pins the
+five jobs that hold a secret or a write token, so it covers a reusable workflow
+holding a credential and says nothing about one holding none. Reverting
+`go-service-ci.yml` to `run: ${{ inputs.setup-run }}` therefore left
+`go test ./internal/ciguard/` green, while the identical change to
+`go-service-release.yml` was refused by seven tests — the comments in both
+files claimed the property, and only one of them had anything holding it.
+`internal/ciguard/run_interpolation_test.go` now holds it for every workflow in
+the directory, including ones added later, and proves on each case that it
+fires rather than asserting a clean tree and being believed.
+
+What it does not cover: the *absence* of a check. Deleting `agent-ci.yml`'s
+semver validation of `codefly-cli-version` is not an interpolation, and no
+guard refuses it — that file holds no credential, so it cannot join the
+allowlist, and pinning its bytes would be a mechanism for one line.
+
+
 ## Adding a workflow
 
 Declare `permissions: contents: read` at workflow scope and name no secret, and
 stop. If a job needs to write or to hold a secret, give it its own
 `permissions:` block, its own `if:` pinning it to a push of `main` or a tag,
-and no checkout of anything a pull request supplied. Running
+and no checkout of anything a pull request supplied. Keep party-chosen values
+out of every `run:` script, whether or not the job holds a credential. Running
 `go test ./internal/ciguard/` tells you whether you got it right.

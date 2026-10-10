@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from codefly.base.v0 import endpoint_pb2
 from codefly.base.v0 import module_pb2
+from google.protobuf import descriptor_pb2
 
 # buf.validate's extension numbers and the field numbers inside its rules, as
 # the binding serialises them: the Python package does not ship the validate
@@ -93,18 +94,23 @@ class EndpointVisibilityContractTest(unittest.TestCase):
 
     def test_endpoint_exposure_is_independent_of_visibility(self):
         self.assertEqual(["", "none", "public"], _string_in(endpoint_pb2.Endpoint, "exposure"))
-        self.assertNotIn("allow_modules", endpoint_pb2.Endpoint.DESCRIPTOR.fields_by_name)
-        entry = endpoint_pb2.Endpoint(visibility="internal", exposure="public")
-        restored = endpoint_pb2.Endpoint.FromString(entry.SerializeToString())
-        self.assertEqual("internal", restored.visibility)
-        self.assertEqual("public", restored.exposure)
 
-    def test_interface_export_names_no_consumers(self):
+    def test_authored_allow_modules_is_removed_and_reserved(self):
+        for message, number in [(endpoint_pb2.Endpoint, 9), (module_pb2.InterfaceEndpoint, 4)]:
+            with self.subTest(message=message.DESCRIPTOR.full_name):
+                self.assertNotIn("allow_modules", message.DESCRIPTOR.fields_by_name)
+                descriptor = descriptor_pb2.DescriptorProto()
+                message.DESCRIPTOR.CopyToProto(descriptor)
+                self.assertIn("allow_modules", descriptor.reserved_name)
+                self.assertIn((number, number + 1), [(r.start, r.end) for r in descriptor.reserved_range])
+                self.assertEqual([], _cel_expressions(message))
+
+    def test_interface_endpoint_exports_public_or_internal_without_naming_modules(self):
         self.assertEqual(["public", "internal"], _string_in(module_pb2.InterfaceEndpoint, "visibility"))
-        self.assertNotIn("allow_modules", module_pb2.InterfaceEndpoint.DESCRIPTOR.fields_by_name)
-        entry = module_pb2.InterfaceEndpoint(service="accounts", endpoint="grpc", visibility="internal")
-        restored = module_pb2.InterfaceEndpoint.FromString(entry.SerializeToString())
-        self.assertEqual("internal", restored.visibility)
+        entry = module_pb2.InterfaceEndpoint(
+            service="accounts", endpoint="grpc", visibility="internal"
+        )
+        self.assertEqual(entry, module_pb2.InterfaceEndpoint.FromString(entry.SerializeToString()))
 
 
 if __name__ == "__main__":

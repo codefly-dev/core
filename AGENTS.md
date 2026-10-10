@@ -55,7 +55,7 @@ the temptation is always to absorb it locally rather than fix what owns it.
 
 ## Build and test
 
-Derived from `.github/workflows/go.yml` — CI pins Go 1.27.0 and every step is
+Derived from `.github/workflows/go.yml` — CI pins Go 1.27.2 and every step is
 strict (nothing skips when a prerequisite is missing).
 
 ```bash

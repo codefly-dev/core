@@ -35,7 +35,9 @@ jobs:
         # any shell sees it, so the string becomes part of the program. `eval`
         # keeps the "arbitrary shell command" contract the input promises while
         # leaving the value a value. This job holds no credential either way;
-        # the point is that neither property depends on the other.
+        # the point is that neither property depends on the other -- and
+        # internal/ciguard/run_interpolation_test.go now holds the second one
+        # on its own, rather than it riding on this job's pinned shape.
         env:
           SETUP_RUN: ${{ inputs.setup-run }}
         run: eval "$SETUP_RUN"

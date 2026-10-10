@@ -131,7 +131,7 @@ func (s *OperationSpec) ResolveScopeSlots(selections []*runnablev0.ScopeSelectio
 		name := slot.GetName()
 		selection, ok := bySlot[name]
 		if !ok {
-			return nil, fmt.Errorf("%w: %s requires scope slot %q and the composition selected nothing for it", ErrInvalid, s.Method, name)
+			return nil, fmt.Errorf("%w: %s declares required scope slot %q but no ScopeSelection was supplied for it; the composition must select exact authority for this slot", ErrInvalid, s.Method, name)
 		}
 		if len(selection.GetInvoke()) == 0 {
 			return nil, fmt.Errorf("%w: %s scope slot %q is selected with no invoke scope; a slot is required and never a wildcard", ErrInvalid, s.Method, name)
