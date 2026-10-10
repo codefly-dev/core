@@ -473,19 +473,9 @@ func (s *BuilderWrapper) SBOMImages(ctx context.Context, subjects []*builderv0.I
 	var images []*builderv0.ImageSBOM
 	index := map[string]*builderv0.ImageSBOM{}
 	for _, subject := range subjects {
-		if err := servicesbom.RequirePinned(subject); err != nil {
-			return s.SBOMImageError(err)
-		}
-		result, err := servicesbom.Image(ctx, servicesbom.ImageRequest{
-			Reference: subject.GetReference(),
-			Platform:  subject.GetPlatform(),
-			Source:    servicesbom.SourceOf(subject),
-		})
+		result, err := servicesbom.ImageForSubject(ctx, subject)
 		if err != nil {
 			return s.SBOMImageError(err)
-		}
-		if want := subject.GetDigest(); want != "" && want != result.Digest {
-			return s.SBOMImageError(fmt.Errorf("image %s resolved to digest %s, not the requested %s", subject.GetReference(), result.Digest, want))
 		}
 		key := result.Digest + "|" + result.Platform
 		if existing, ok := index[key]; ok {

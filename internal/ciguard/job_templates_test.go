@@ -101,6 +101,11 @@ var permittedCredentialJobs = []jobTemplate{
 		why:        "publishes a release for a tag proven to be on the repository's own default branch",
 	},
 	{
+		workflow: "publish-service-image.yml", job: "publish",
+		executedBy: "TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch",
+		why:        "pushes a caller's service image by digest with the caller's registry credential, from a commit proven to be on the repository's own default branch",
+	},
+	{
 		workflow: "combine-deps.yml", job: "publish",
 		executedBy: "TestTheCombinedBranchTravelsAsABundleWithoutBeingCheckedOut",
 		why:        "pushes the branch the unprivileged plan job assembled, without checking it out",
@@ -284,6 +289,7 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool
 // Re-recording one of these is NOT a way to admit a job the judgement refuses:
 // it is the last of three conjuncts and the only one a constant can satisfy.
 var recordedJobDigests = map[string]string{
+	"publish-service-image.yml/publish": "de6da0675711da839493b8e2f0a7576e0041af12f0f22328208ecf24ec004bfe",
 	"combine-deps.yml/publish":          "96fa1520bff8448fea8f54c7bf6608bda3b218c34099469abeffcf0ab28a9eeb",
 	"go-service-release.yml/goreleaser": "236e993f0419411c4093519708ebe76694d7df482bf98b8c26d8396999fd9f25",
 	"go.yml/coverage-badge":             "f90499145fe994ba99df79a30c275d1be9396e572f853ab1bd4ea7519ec2ebc7",

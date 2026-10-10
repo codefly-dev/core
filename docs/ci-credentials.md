@@ -92,7 +92,7 @@ three, and the third cannot stand in for the second.**
 `internal/ciguard/job_templates_test.go` asks the three in order and reports
 every one that refused:
 
-1. **Registered.** `permittedCredentialJobs` lists the five jobs that hold a
+1. **Registered.** `permittedCredentialJobs` lists the six jobs that hold a
    secret or a write token. A job that is not on it is refused rather than
    analysed, because the set of things a workflow can do to reach unreviewed
    code is not a set a guard can finish.
@@ -100,8 +100,8 @@ every one that refused:
    situation its workflow's triggers admit, or the job establishes which tree
    it executes. Evaluated — see the parser section above — not matched as text;
    unknown is not false, and a construction the guard cannot read is a refusal.
-   Two of the five jobs rest on the second half alone: `goreleaser` is a
-   reusable workflow whose event the caller chooses, and `publish` has no `if:`
+   Three of the six jobs rest on the second half alone: `goreleaser` is a
+   reusable workflow whose event the caller chooses, the image publisher is also reusable, and dependency `publish` has no `if:`
    at all. Both pin every checkout to the default branch or refuse a commit
    that is not on it.
 3. **Recorded.** The job's shape — the job block plus the workflow-level `on`,
@@ -165,6 +165,7 @@ happening.
 | `go.yml` | `notify` holds `SLACK_WEBHOOK_URL` | Its own job, gated to a push of `main`, with `permissions: {}` and no checkout at all. It reads the outcome from `needs.build.result`. |
 | `version-tag.yml` | `tag` creates the release tag and publishes the release | Event and head-repository conditions; checks out the default branch; refuses a sha not reachable from it. |
 | `go-service-release.yml` | `goreleaser` receives the **caller's** release PAT | Gated to a pushed tag, which a pull request cannot produce; then refuses a tag whose commit is not reachable from the caller's default branch. The `test` job that runs the caller's suite names no secret. |
+| `publish-service-image.yml` | `publish` receives the **caller's** registry credential, passed as the secret `registry-token` | Gated to a `workflow_dispatch`, which a pull request cannot produce; then refuses a commit that is not reachable from the caller's default branch, as the first step after the checkout and before the login that receives the credential or the build that runs the caller's Dockerfile. Checkout never persists its read token; only the refusal receives it, through command-scoped git authentication for private repositories. The job times out after 30 minutes. A reusable workflow declares no write, so the caller's own job is where `packages: write` is granted and its token travels as a value. |
 | `combine-deps.yml` | `publish` holds `DEPS_COMBINE_TOKEN` | A job of its own that never checks the combined tree out: the commits arrive as a git bundle and move into a ref by `git fetch`/`git push`. The `plan` job does the replaying, with the read-only built-in token and no secret. Both checkouts pin `ref: main`. |
 
 Every other job in every other workflow declares `contents: read` and names no
@@ -255,7 +256,7 @@ indirection this rule does not follow — a tainted value can still arrive
 through them, and that is what the credential model is for.
 
 It is separate for a reason worth recording. The credential allowlist pins the
-five jobs that hold a secret or a write token, so it covers a reusable workflow
+six jobs that hold a secret or a write token, so it covers a reusable workflow
 holding a credential and says nothing about one holding none. Reverting
 `go-service-ci.yml` to `run: ${{ inputs.setup-run }}` therefore left
 `go test ./internal/ciguard/` green, while the identical change to
