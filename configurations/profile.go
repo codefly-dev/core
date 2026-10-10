@@ -304,10 +304,9 @@ func LoadProfileConfigurations(ctx context.Context, base, kind string, profiles 
 	}
 	out := &ProfileConfigurations{Exists: exists, Layers: layers}
 	if trace := configurationOriginsFrom(ctx); trace != nil {
-		trace.profiles = append(trace.profiles, &ConfigurationProfileSelection{
-			Location: path.Join(base, kind), Candidates: append([]string{}, profiles...),
-			Layers: append([]string{}, layers...), Found: exists,
-		})
+		if err := trace.profileSelection(path.Join(base, kind), profiles, layers, exists); err != nil {
+			return nil, err
+		}
 	}
 	if !exists {
 		return out, nil

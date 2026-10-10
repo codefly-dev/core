@@ -24,17 +24,19 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n,codefly/base/v0/configuration_evidence.proto\x12\x0f\x63odefly.base.v0\"m\n\x13\x43onfigurationOrigin\x12\x14\n\x05group\x18\x01 \x01(\tR\x05group\x12\x10\n\x03key\x18\x02 \x01(\tR\x03key\x12\x12\n\x04\x66ile\x18\x03 \x01(\tR\x04\x66ile\x12\x1a\n\x08\x64ocument\x18\x04 \x01(\x08R\x08\x64ocument\"\xda\x02\n\x15\x43onfigurationDecision\x12\x14\n\x05group\x18\x01 \x01(\tR\x05group\x12\x16\n\x06module\x18\x02 \x01(\tR\x06module\x12\x1c\n\tworkspace\x18\x03 \x01(\tR\tworkspace\x12-\n\x12imported_workspace\x18\x04 \x01(\tR\x11importedWorkspace\x12\x18\n\x07profile\x18\x05 \x01(\tR\x07profile\x12\x14\n\x05\x66inal\x18\x06 \x01(\x08R\x05\x66inal\x12\x12\n\x04rule\x18\x07 \x01(\tR\x04rule\x12@\n\x08selected\x18\x08 \x03(\x0b\x32$.codefly.base.v0.ConfigurationOriginR\x08selected\x12@\n\x08shadowed\x18\t \x03(\x0b\x32$.codefly.base.v0.ConfigurationOriginR\x08shadowed\"\x89\x01\n\x1d\x43onfigurationProfileSelection\x12\x1a\n\x08location\x18\x01 \x01(\tR\x08location\x12\x1e\n\ncandidates\x18\x02 \x03(\tR\ncandidates\x12\x16\n\x06layers\x18\x03 \x03(\tR\x06layers\x12\x14\n\x05\x66ound\x18\x04 \x01(\x08R\x05\x66oundb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n,codefly/base/v0/configuration_evidence.proto\x12\x0f\x63odefly.base.v0\"m\n\x13\x43onfigurationOrigin\x12\x14\n\x05group\x18\x01 \x01(\tR\x05group\x12\x10\n\x03key\x18\x02 \x01(\tR\x03key\x12\x12\n\x04\x66ile\x18\x03 \x01(\tR\x04\x66ile\x12\x1a\n\x08\x64ocument\x18\x04 \x01(\x08R\x08\x64ocument\"\xfe\x02\n\x15\x43onfigurationDecision\x12\x14\n\x05group\x18\x01 \x01(\tR\x05group\x12\x16\n\x06module\x18\x02 \x01(\tR\x06module\x12\x1c\n\tworkspace\x18\x03 \x01(\tR\tworkspace\x12-\n\x12imported_workspace\x18\x04 \x01(\tR\x11importedWorkspace\x12\x18\n\x07profile\x18\x05 \x01(\tR\x07profile\x12\x14\n\x05\x66inal\x18\x06 \x01(\x08R\x05\x66inal\x12\x36\n\x04rule\x18\x07 \x01(\x0e\x32\".codefly.base.v0.ConfigurationRuleR\x04rule\x12@\n\x08selected\x18\x08 \x03(\x0b\x32$.codefly.base.v0.ConfigurationOriginR\x08selected\x12@\n\x08shadowed\x18\t \x03(\x0b\x32$.codefly.base.v0.ConfigurationOriginR\x08shadowed\"\x89\x01\n\x1d\x43onfigurationProfileSelection\x12\x1a\n\x08location\x18\x01 \x01(\tR\x08location\x12\x1e\n\ncandidates\x18\x02 \x03(\tR\ncandidates\x12\x16\n\x06layers\x18\x03 \x03(\tR\x06layers\x12\x14\n\x05\x66ound\x18\x04 \x01(\x08R\x05\x66ound*\xae\x03\n\x11\x43onfigurationRule\x12\"\n\x1e\x43ONFIGURATION_RULE_UNSPECIFIED\x10\x00\x12<\n8CONFIGURATION_RULE_WORKSPACE_KEY_REPLACES_MODULE_DEFAULT\x10\x01\x12\x41\n=CONFIGURATION_RULE_WORKSPACE_DOCUMENT_REPLACES_MODULE_DEFAULT\x10\x02\x12>\n:CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_MODULE_DEFAULT\x10\x03\x12>\n:CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_IMPORTED_GROUP\x10\x04\x12\x34\n0CONFIGURATION_RULE_PROFILE_KEY_REPLACES_BASE_KEY\x10\x05\x12>\n:CONFIGURATION_RULE_PROFILE_DOCUMENT_REPLACES_BASE_DOCUMENT\x10\x06\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'codefly.base.v0.configuration_evidence_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
+  _globals['_CONFIGURATIONRULE']._serialized_start=702
+  _globals['_CONFIGURATIONRULE']._serialized_end=1132
   _globals['_CONFIGURATIONORIGIN']._serialized_start=65
   _globals['_CONFIGURATIONORIGIN']._serialized_end=174
   _globals['_CONFIGURATIONDECISION']._serialized_start=177
-  _globals['_CONFIGURATIONDECISION']._serialized_end=523
-  _globals['_CONFIGURATIONPROFILESELECTION']._serialized_start=526
-  _globals['_CONFIGURATIONPROFILESELECTION']._serialized_end=663
+  _globals['_CONFIGURATIONDECISION']._serialized_end=559
+  _globals['_CONFIGURATIONPROFILESELECTION']._serialized_start=562
+  _globals['_CONFIGURATIONPROFILESELECTION']._serialized_end=699
 # @@protoc_insertion_point(module_scope)

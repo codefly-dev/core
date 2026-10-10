@@ -89,7 +89,8 @@ func NewConfigurationLocalReader(_ context.Context, workspace *resources.Workspa
 // composed modules ship. See ReadWorkspaceConfigurations.
 type WorkspaceConfigurations struct {
 	// Origins identify final pre-invocation supplying files, not runtime values.
-	Origins           []*ConfigurationOrigin
+	Origins []*ConfigurationOrigin
+	// ProfileSelections records candidate profiles and the directories read.
 	ProfileSelections []*ConfigurationProfileSelection
 	// Decisions records executed workspace/import and module-default replacement.
 	Decisions []*ConfigurationDecision
@@ -134,11 +135,27 @@ type WorkspaceConfigurations struct {
 // It is a pure read. A workspace whose profile directory does not exist simply
 // contributes nothing of its own — the composed modules may still satisfy
 // every dependency — and nothing is created on disk, so it is safe from a
-// read-only diagnostic. Load builds on it and layers the invocation-scoped
-// overrides on top.
+// read-only diagnostic. This entry point collects source evidence; Load shares
+// its resolver without collecting evidence it would discard, then applies
+// invocation-scoped overrides. Evidence paths are slash-separated and relative
+// to workspace.Dir(), including ../ paths for external compositions.
 func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, env *resources.Environment) (*WorkspaceConfigurations, error) {
-	trace := newConfigurationOrigins()
+	trace, err := newConfigurationOrigins(workspace.Dir())
+	if err != nil {
+		return nil, err
+	}
 	ctx = context.WithValue(ctx, configurationOriginsKey{}, trace)
+	provided, err := readWorkspaceConfigurations(ctx, workspace, env)
+	if err != nil {
+		return nil, err
+	}
+	provided.Origins = trace.project(provided.Infos)
+	provided.ProfileSelections = trace.profiles
+	provided.Decisions = trace.finalDecisions(provided.Infos)
+	return provided, nil
+}
+
+func readWorkspaceConfigurations(ctx context.Context, workspace *resources.Workspace, env *resources.Environment) (*WorkspaceConfigurations, error) {
 	w := wool.Get(ctx).In("configurations.ReadWorkspaceConfigurations")
 
 	profiles, err := env.ConfigurationProfileNames()
@@ -158,13 +175,10 @@ func ReadWorkspaceConfigurations(ctx context.Context, workspace *resources.Works
 		return nil, w.Wrapf(err, "cannot compose module workspace configurations")
 	}
 	return &WorkspaceConfigurations{
-		Infos:             workspaceInfos,
-		Origins:           trace.project(workspaceInfos),
-		ProfileSelections: trace.profiles,
-		Decisions:         trace.finalDecisions(workspaceInfos),
-		ComposedBy:        composedBy,
-		Ambiguous:         ambiguous,
-		Unsupplied:        append(workspaceLevel.Unsupplied, composedUnsupplied...),
+		Infos:      workspaceInfos,
+		ComposedBy: composedBy,
+		Ambiguous:  ambiguous,
+		Unsupplied: append(workspaceLevel.Unsupplied, composedUnsupplied...),
 	}, nil
 }
 
@@ -264,7 +278,7 @@ func (local *ConfigurationInformationLocalReader) Load(ctx context.Context, env 
 		return w.Wrapf(err, "cannot select configuration profile")
 	}
 
-	provided, err := ReadWorkspaceConfigurations(ctx, local.workspace, env)
+	provided, err := readWorkspaceConfigurations(ctx, local.workspace, env)
 	if err != nil {
 		return w.Wrap(err)
 	}
@@ -1141,7 +1155,9 @@ func LoadConfigurationInformationsFromFiles(ctx context.Context, dir string) ([]
 			return nil, w.Wrapf(err, "cannot load configuration from %s", file.relative)
 		}
 		if trace := configurationOriginsFrom(ctx); trace != nil {
-			trace.record(confInfo, file.path)
+			if err := trace.record(confInfo, file.path); err != nil {
+				return nil, err
+			}
 		}
 		w.Trace("loaded configuration", wool.Field("configuration", confInfo.Name))
 		infos = append(infos, confInfo)

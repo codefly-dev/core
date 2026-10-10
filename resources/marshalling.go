@@ -3,10 +3,8 @@ package resources
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/codefly-dev/core/internal/wire"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,8 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/codefly-dev/core/internal/wire"
 	"github.com/codefly-dev/core/shared"
-
 	"github.com/codefly-dev/core/wool"
 	"gopkg.in/yaml.v3"
 )
@@ -89,6 +87,12 @@ func LoadFromDir[C Configuration](ctx context.Context, dir string) (*C, error) {
 	return LoadFromPath[C](ctx, p)
 }
 
+// declarationSourceAware lets a resource retain its parsed source without
+// coupling the generic loader to concrete resource types.
+type declarationSourceAware interface {
+	setDeclarationSource(file string, content []byte) error
+}
+
 func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
 	w := wool.Get(ctx).In("configurations.LoadWorkspace", wool.Field("path", p))
 	if _, err := os.Stat(p); os.IsNotExist(err) {
@@ -102,12 +106,10 @@ func LoadFromPath[C Configuration](ctx context.Context, p string) (*C, error) {
 	if err != nil {
 		return nil, err
 	}
-	if workspace, ok := any(config).(*Workspace); ok {
-		workspace.declarationPath, err = filepath.Abs(p)
-		if err != nil {
+	if source, ok := any(config).(declarationSourceAware); ok {
+		if err := source.setDeclarationSource(p, content); err != nil {
 			return nil, err
 		}
-		workspace.declarationSHA256 = fmt.Sprintf("%x", sha256.Sum256(content))
 	}
 	return config, nil
 }

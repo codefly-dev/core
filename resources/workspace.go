@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -109,9 +110,22 @@ func (workspace *Workspace) Proto(_ context.Context) (*basev0.Workspace, error) 
 	return proto, nil
 }
 
+func (workspace *Workspace) setDeclarationSource(file string, content []byte) error {
+	absolute, err := filepath.Abs(file)
+	if err != nil {
+		return fmt.Errorf("resolve workspace declaration path: %w", err)
+	}
+	workspace.declarationPath = absolute
+	workspace.declarationSHA256 = fmt.Sprintf("%x", sha256.Sum256(content))
+	return nil
+}
+
 // DeclarationSource identifies the exact file bytes parsed for this workspace.
 // It is load-time evidence, not a revalidation of the current file or a complete
 // composition input identity. Programmatically constructed workspaces return empty values.
+// The path is absolute and host-specific for local source revalidation; consumers
+// must relativize it to their composition root before exporting diagnostics.
+// This declaration digest is separate from value-free configuration origins.
 func (workspace *Workspace) DeclarationSource() (file, sha256 string) {
 	return workspace.declarationPath, workspace.declarationSHA256
 }

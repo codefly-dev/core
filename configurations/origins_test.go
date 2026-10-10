@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/configurations"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -80,6 +81,11 @@ func TestConfigurationEvidenceDoesNotDependOnValuesReferencesOrContent(t *testin
 		require.False(t, proto.Equal(before.Infos[i], after.Infos[i]), "fixture must actually change each supplied group")
 	}
 	require.Equal(t, want, encode(after), "origins, decisions and profile selections must not expose values or content hashes")
+
+	relocated := t.TempDir()
+	require.NoError(t, os.CopyFS(relocated, os.DirFS(dir)))
+	workspace = loadOriginWorkspace(t, ctx, relocated)
+	require.Equal(t, want, encode(read()), "exported evidence must not expose the absolute host path")
 }
 
 func TestConfigurationOriginsFollowEqualValuedOverridesAndDefaults(t *testing.T) {
@@ -91,9 +97,9 @@ func TestConfigurationOriginsFollowEqualValuedOverridesAndDefaults(t *testing.T)
 	for _, origin := range provided.Origins {
 		byKey[origin.Key] = origin.File
 	}
-	require.Equal(t, filepath.Join(filepath.Dir(dir), "host/configurations/local/app-config.env"), byKey["KEEP"])
-	require.Equal(t, filepath.Join(dir, "configurations/local/app-config.env"), byKey["OVERRIDE"], "equal values must not erase override identity")
-	require.Equal(t, filepath.Join(dir, "configurations/local/app-config.secret.env"), byKey["TOKEN"])
+	require.Equal(t, "../host/configurations/local/app-config.env", byKey["KEEP"])
+	require.Equal(t, "configurations/local/app-config.env", byKey["OVERRIDE"], "equal values must not erase override identity")
+	require.Equal(t, "configurations/local/app-config.secret.env", byKey["TOKEN"])
 	encoded, err := json.Marshal(provided.Origins)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "private-default")
@@ -101,13 +107,13 @@ func TestConfigurationOriginsFollowEqualValuedOverridesAndDefaults(t *testing.T)
 	require.NotContains(t, string(encoded), "private-secret")
 	require.Len(t, provided.Decisions, 2)
 	d := provided.Decisions[0]
-	require.Equal(t, "workspace-key-replaces-module-default", d.Rule)
+	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_KEY_REPLACES_MODULE_DEFAULT, d.Rule)
 	require.Equal(t, "host", d.Module)
 	require.Len(t, d.Selected, 1)
 	require.Len(t, d.Shadowed, 1)
 	require.Equal(t, "OVERRIDE", d.Shadowed[0].Key)
 	require.True(t, d.Final)
-	require.Equal(t, filepath.Join(filepath.Dir(dir), "host/configurations/local/app-config.env"), d.Shadowed[0].File)
+	require.Equal(t, "../host/configurations/local/app-config.env", d.Shadowed[0].File)
 	decisions, err := json.Marshal(provided.Decisions)
 	require.NoError(t, err)
 	require.NotContains(t, string(decisions), "private-default")
@@ -124,7 +130,7 @@ func TestConfigurationOriginsFollowProfileDerivation(t *testing.T) {
 	require.NoError(t, err)
 	for _, origin := range provided.Origins {
 		if origin.Key == "OVERRIDE" {
-			require.Equal(t, filepath.Join(dir, "configurations/staging/app-config.env"), origin.File)
+			require.Equal(t, "configurations/staging/app-config.env", origin.File)
 			return
 		}
 	}
@@ -140,11 +146,11 @@ func TestConfigurationOriginsFollowWholeDocumentReplacement(t *testing.T) {
 	writeConfigurationFile(t, dir, "configurations/staging/policy.yaml", "mode: private-override\n")
 	provided, err := configurations.ReadWorkspaceConfigurations(ctx, loadOriginWorkspace(t, ctx, dir), &resources.Environment{Name: "staging", ConfigurationProfile: "staging"})
 	require.NoError(t, err)
-	require.Equal(t, []*configurations.ConfigurationOrigin{{Group: "policy", File: filepath.Join(dir, "configurations/staging/policy.yaml"), Document: true}}, provided.Origins)
+	require.Equal(t, []*configurations.ConfigurationOrigin{{Group: "policy", File: "configurations/staging/policy.yaml", Document: true}}, provided.Origins)
 	require.Len(t, provided.Decisions, 1)
-	require.Equal(t, "profile-document-replaces-base-document", provided.Decisions[0].Rule)
+	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_PROFILE_DOCUMENT_REPLACES_BASE_DOCUMENT, provided.Decisions[0].Rule)
 	require.True(t, provided.Decisions[0].Final)
-	require.Equal(t, filepath.Join(dir, "configurations/local/policy.yaml"), provided.Decisions[0].Shadowed[0].File)
+	require.Equal(t, "configurations/local/policy.yaml", provided.Decisions[0].Shadowed[0].File)
 }
 
 func TestConfigurationProfileDecisionsFollowIndividualValueIdentity(t *testing.T) {
@@ -159,7 +165,7 @@ func TestConfigurationProfileDecisionsFollowIndividualValueIdentity(t *testing.T
 	provided, err := configurations.ReadWorkspaceConfigurations(ctx, loadOriginWorkspace(t, ctx, dir), &resources.Environment{Name: "staging", ConfigurationProfile: "staging"})
 	require.NoError(t, err)
 	require.Len(t, provided.Decisions, 2)
-	require.Equal(t, "profile-key-replaces-base-key", provided.Decisions[0].Rule)
+	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_PROFILE_KEY_REPLACES_BASE_KEY, provided.Decisions[0].Rule)
 	require.False(t, provided.Decisions[0].Final)
 	require.True(t, provided.Decisions[1].Final)
 	require.Equal(t, "staging", provided.Decisions[1].Profile)
@@ -167,10 +173,10 @@ func TestConfigurationProfileDecisionsFollowIndividualValueIdentity(t *testing.T
 	profile := provided.ProfileSelections[0]
 	require.True(t, profile.Found)
 	require.Equal(t, []string{"staging"}, profile.Candidates)
-	require.Equal(t, []string{filepath.Join(dir, "configurations/base"), filepath.Join(dir, "configurations/middle"), filepath.Join(dir, "configurations/staging")}, profile.Layers)
+	require.Equal(t, []string{"configurations/base", "configurations/middle", "configurations/staging"}, profile.Layers)
 	require.Equal(t, provided.Decisions[0].Selected, provided.Decisions[1].Shadowed)
 	require.Equal(t, "KEEP", provided.Origins[0].Key)
-	require.Equal(t, filepath.Join(dir, "configurations/base/app.env"), provided.Origins[0].File)
+	require.Equal(t, "configurations/base/app.env", provided.Origins[0].File)
 	encoded, err := json.Marshal(provided.Decisions)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "private")
@@ -196,7 +202,7 @@ func TestConfigurationDecisionsRetainNestedImportReplacement(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, provided.Decisions, 2)
 	middle, product := provided.Decisions[0], provided.Decisions[1]
-	require.Equal(t, "workspace-group-replaces-imported-group", middle.Rule)
+	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_IMPORTED_GROUP, middle.Rule)
 	require.Equal(t, "base", middle.ImportedWorkspace)
 	require.Equal(t, "middle", middle.Workspace)
 	require.False(t, middle.Final, "intermediate winner must not be advertised as final")
@@ -236,10 +242,10 @@ func TestConfigurationProfileSelectionRecordsDirectoryFallbackAndAbsence(t *test
 			require.Len(t, provided.ProfileSelections, 1)
 			profile := provided.ProfileSelections[0]
 			require.Equal(t, found, profile.Found)
-			require.Equal(t, filepath.Join(dir, "configurations"), profile.Location)
+			require.Equal(t, "configurations", profile.Location)
 			require.Equal(t, []string{"staging", "local"}, profile.Candidates)
 			if found {
-				require.Equal(t, []string{filepath.Join(dir, "configurations/local")}, profile.Layers)
+				require.Equal(t, []string{"configurations/local"}, profile.Layers)
 			} else {
 				require.Empty(t, profile.Layers)
 			}
@@ -259,7 +265,7 @@ func TestConfigurationOriginsRetainClonedModuleProfileDecisions(t *testing.T) {
 	require.True(t, provided.Decisions[0].Final, "retained cloned KEEP preserves its profile decision")
 	require.False(t, provided.Decisions[1].Final, "workspace overrides the profile's OVERRIDE")
 	require.True(t, provided.Decisions[2].Final)
-	require.Equal(t, filepath.Join(host, "configurations/staging/app-config.env"), provided.Origins[0].File)
+	require.Equal(t, "../host/configurations/staging/app-config.env", provided.Origins[0].File)
 }
 
 func TestConfigurationOriginsWorkspaceDocumentOverride(t *testing.T) {
@@ -272,10 +278,48 @@ func TestConfigurationOriginsWorkspaceDocumentOverride(t *testing.T) {
 	provided, err := configurations.ReadWorkspaceConfigurations(ctx, loadOriginWorkspace(t, ctx, filepath.Join(root, "product")), resources.LocalEnvironment())
 	require.NoError(t, err)
 	require.Len(t, provided.Decisions, 1)
-	require.Equal(t, "workspace-document-replaces-module-default", provided.Decisions[0].Rule)
+	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_DOCUMENT_REPLACES_MODULE_DEFAULT, provided.Decisions[0].Rule)
 	require.True(t, provided.Decisions[0].Final)
 	require.Equal(t, provided.Origins, provided.Decisions[0].Selected)
 	encoded, err := json.Marshal(provided.Decisions)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "private-")
+}
+
+func TestConfigurationDecisionsCombineModuleAndRepositoryOffers(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: imported\n    path: ../imported\nmodules:\n  - name: host\n    path: ../repository/modules/host\n")
+	writeConfigurationFile(t, root, "imported/workspace.codefly.yaml", "name: imported\nlayout: modules\n")
+	writeConfigurationFile(t, root, "imported/configurations/local/app.env", "URL=imported\n")
+	writeConfigurationFile(t, root, "repository/workspace.codefly.yaml", "name: repository\nlayout: modules\n")
+	writeConfigurationFile(t, root, "repository/configurations/local/app.env", "URL=repository-default\n")
+	writeConfigurationFile(t, root, "repository/modules/host/module.codefly.yaml", "kind: module\nname: host\nservices: []\n")
+	writeConfigurationFile(t, root, "repository/modules/host/configurations/local/app.env", "URL=module-default\n")
+	provided, err := configurations.ReadWorkspaceConfigurations(ctx, loadOriginWorkspace(t, ctx, filepath.Join(root, "product")), resources.LocalEnvironment())
+	require.NoError(t, err)
+	require.Len(t, provided.Decisions, 1, "one replacement per module/group, even when it offers from two locations")
+	decision := provided.Decisions[0]
+	require.Equal(t, basev0.ConfigurationRule_CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_MODULE_DEFAULT, decision.Rule)
+	require.Equal(t, "host", decision.Module)
+	require.True(t, decision.Final)
+	require.Equal(t, provided.Origins, decision.Selected)
+	require.Equal(t, []*configurations.ConfigurationOrigin{
+		{Group: "app", Key: "URL", File: "../repository/configurations/local/app.env"},
+		{Group: "app", Key: "URL", File: "../repository/modules/host/configurations/local/app.env"},
+	}, decision.Shadowed, "both replaced source locations remain visible")
+}
+
+func TestConfigurationOriginsNameFirstEqualSiblingImport(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeConfigurationFile(t, root, "product/workspace.codefly.yaml", "name: product\nlayout: modules\nworkspaces:\n  - name: first\n    path: ../first\n  - name: second\n    path: ../second\n")
+	for _, name := range []string{"first", "second"} {
+		writeConfigurationFile(t, root, name+"/workspace.codefly.yaml", "name: "+name+"\nlayout: modules\n")
+		writeConfigurationFile(t, root, name+"/configurations/local/app.env", "URL=equal-private-value\n")
+	}
+	provided, err := configurations.ReadWorkspaceConfigurations(ctx, loadOriginWorkspace(t, ctx, filepath.Join(root, "product")), resources.LocalEnvironment())
+	require.NoError(t, err)
+	require.Equal(t, []*configurations.ConfigurationOrigin{{Group: "app", Key: "URL", File: "../first/configurations/local/app.env"}}, provided.Origins)
+	require.Empty(t, provided.Decisions, "equal sibling imports are deduplicated by the resolver, not a replacement rule")
 }
