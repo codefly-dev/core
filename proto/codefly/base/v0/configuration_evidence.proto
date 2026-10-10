@@ -1,0 +1,74 @@
+syntax = "proto3";
+package codefly.base.v0;
+
+// ConfigurationRule names a precedence rule executed by Core's resolver.
+enum ConfigurationRule {
+  // CONFIGURATION_RULE_UNSPECIFIED is not an executed precedence rule.
+  CONFIGURATION_RULE_UNSPECIFIED = 0;
+  // CONFIGURATION_RULE_WORKSPACE_KEY_REPLACES_MODULE_DEFAULT selects a workspace key.
+  CONFIGURATION_RULE_WORKSPACE_KEY_REPLACES_MODULE_DEFAULT = 1;
+  // CONFIGURATION_RULE_WORKSPACE_DOCUMENT_REPLACES_MODULE_DEFAULT selects a workspace document.
+  CONFIGURATION_RULE_WORKSPACE_DOCUMENT_REPLACES_MODULE_DEFAULT = 2;
+  // CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_MODULE_DEFAULT selects a whole workspace-level group.
+  CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_MODULE_DEFAULT = 3;
+  // CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_IMPORTED_GROUP selects an importing workspace's group.
+  CONFIGURATION_RULE_WORKSPACE_GROUP_REPLACES_IMPORTED_GROUP = 4;
+  // CONFIGURATION_RULE_PROFILE_KEY_REPLACES_BASE_KEY selects a derived profile's key.
+  CONFIGURATION_RULE_PROFILE_KEY_REPLACES_BASE_KEY = 5;
+  // CONFIGURATION_RULE_PROFILE_DOCUMENT_REPLACES_BASE_DOCUMENT selects a derived profile's document.
+  CONFIGURATION_RULE_PROFILE_DOCUMENT_REPLACES_BASE_DOCUMENT = 6;
+}
+
+// ConfigurationOrigin identifies a supplying file after disk composition,
+// before invocation overrides, reference resolution and runtime injection.
+// It never contains configuration values, secret URIs or content hashes.
+message ConfigurationOrigin {
+  // group is the configuration group name.
+  string group = 1;
+  // key is the declared key; empty for a whole structured document.
+  string key = 2;
+  // file is the supplying path relative to the consuming workspace directory,
+  // with slash separators. External compositions may start with ../.
+  // It is not an absolute host path or a path relative to an imported workspace.
+  string file = 3;
+  // document distinguishes a whole structured document from a key.
+  bool document = 4;
+}
+
+// ConfigurationDecision records an executed precedence decision, not a complete
+// resolver audit or evidence of deployed configuration.
+message ConfigurationDecision {
+  // group is the affected configuration group.
+  string group = 1;
+  // module identifies the module whose default was replaced, when applicable.
+  string module = 2;
+  // workspace identifies the overriding workspace, when applicable.
+  string workspace = 3;
+  // imported_workspace identifies the replaced import, when applicable.
+  string imported_workspace = 4;
+  // profile identifies the overriding derived profile, when applicable.
+  string profile = 5;
+  // final is true only when the selected object survives final composition.
+  bool final = 6;
+  // rule identifies the executed key, document or whole-group replacement rule.
+  ConfigurationRule rule = 7;
+  // selected identifies the sources selected at this decision.
+  repeated ConfigurationOrigin selected = 8;
+  // shadowed identifies the sources replaced at this decision.
+  repeated ConfigurationOrigin shadowed = 9;
+}
+
+// ConfigurationProfileSelection records one location's canonical profile choice.
+// Layers are derivation order, not per-file fallback candidates.
+message ConfigurationProfileSelection {
+  // location is the inspected configuration directory, relative to the consuming
+  // workspace directory with slash separators, as ConfigurationOrigin.file is.
+  string location = 1;
+  // candidates are the requested profile names in fallback order.
+  repeated string candidates = 2;
+  // layers are actual directories read, base first, relative to the consuming
+  // workspace directory with slash separators, as ConfigurationOrigin.file is.
+  repeated string layers = 3;
+  // found reports whether a requested profile directory was found.
+  bool found = 4;
+}

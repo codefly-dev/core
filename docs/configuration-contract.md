@@ -79,3 +79,65 @@ environment carries, so no value is lost to a platform's environment limit;
 see [Runnable binding delivery](runnable-binding-delivery.md).
 
 See [the boundary and migration decision](core-cli-boundary.md).
+
+### Source origins for workspace diagnostics
+
+`ReadWorkspaceConfigurations` returns value-free `Origins` alongside `Infos`.
+The public evidence types are generated `codefly.base.v0` protobuf messages
+from `proto/codefly/base/v0/configuration_evidence.proto`; private trace state
+never crosses that boundary.
+Each origin identifies a final group/key's supplying file; structured documents
+have `Document=true` and an empty key. Object identity preserves equal-valued
+overrides through profile selection and composition, including retained defaults
+cloned during workspace per-key overlays. Resolver behavior is unchanged. Only
+surviving results have origins, never values, secret URIs or content hashes.
+Origins cover disk composition before invocation overrides, reference
+resolution and injection. They are not a complete input fingerprint, history of
+shadowed candidates or evidence of deployed/runtime values.
+
+`Decisions` additionally records executed workspace-key, document or whole-group
+replacement of module defaults, with module identity, rule, selected origins and
+shadowed origins. `Rule` is the generated protobuf `ConfigurationRule` enum,
+whose named values are owned by the schema rather than copied string literals.
+If a module offers a replaced group from both its repository root and its own
+directory, one decision identifies that module/group and keeps both shadowed
+source locations.
+It also records workspace-group-over-imported-group decisions, naming both
+workspaces. Nested decisions retain intermediate choices; `Final` follows the
+actual selected group object to distinguish them from the final collected result.
+This hook runs at the precedence decision, including equal-valued replacements;
+it does not infer changes by comparing values. Derived-profile decisions also
+record individual-key or whole-document replacement. Their final marker follows
+the selected value/document object, preserving intermediate history even for
+equal values. This is not a complete audit trail of conflicts or rejected offers.
+In particular, the resolver deduplicates equal groups from sibling imports (and
+equal composed-module offers), retaining the first supplied object. Origins name
+that retained source; no replacement decision or second origin is emitted for
+an equal duplicate. The trace follows that choice without comparing values
+itself, and does not enumerate every declaration that agrees with it.
+
+`ProfileSelections` records each configuration location's ordered candidate
+profiles, whether a candidate directory exists, and the actual derivation layers
+read base first. It records absent locations too. These are directory selection
+and explicit derivation, not per-file fallback, and do not establish the current
+identity of previously collected inputs.
+
+Every evidence path (`File`, `Location` and `Layers`) is slash-separated and
+relative to the consuming workspace passed to `ReadWorkspaceConfigurations`,
+including paths for imported workspaces and composed modules. External sources
+may begin with `../`. The absolute composition root is not included in the
+evidence; the caller already has `workspace.Dir()` and can resolve a relative
+path locally. Moving the same composition tree between host directories leaves
+its evidence unchanged. Source, group and key names remain visible metadata.
+
+The public diagnostic read collects this evidence. Ordinary
+`ConfigurationInformationLocalReader.Load` uses the same resolver without
+allocating an origin trace or projecting evidence it would discard, then applies
+the usual invocation overrides, reference resolution and provisioning.
+
+Only the three evidence collections (`Origins`, `Decisions` and
+`ProfileSelections`) have this value-free contract. `Infos` still carries the
+configuration values and documents for provisioning; serializing the entire
+`WorkspaceConfigurations` result exposes them. Changing plaintext, inline
+secrets, secret references or document contents without changing their source
+selection leaves the serialized evidence unchanged, including shadowed sources.

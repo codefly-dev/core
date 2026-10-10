@@ -288,3 +288,17 @@ answering with less than was asked.
 
 This changes resource composition only. Deployment declarations and artifact
 acquisition remain CLI responsibilities; no agent protocol changes are needed.
+
+### Declaration content evidence
+
+`Workspace.DeclarationSource()` returns the absolute declaration path and SHA-256
+of the exact bytes parsed by `LoadFromPath[Workspace]`. It stays a load-time
+receipt when the file changes later; hosts must compare against their inspected
+source before calling it current. It is empty for workspaces constructed without
+a path read, is never serialized into workspace YAML, and does not bind overlays,
+package materialization, configuration inputs or build/runtime state.
+
+This accessor is for local file revalidation: its absolute path is host-specific
+and consumers must make it relative to their composition root before exporting
+a diagnostic. Its declaration digest is separate from configuration-origin
+evidence, whose paths are already relative and which carries no content hashes.
