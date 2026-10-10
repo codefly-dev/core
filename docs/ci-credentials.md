@@ -136,6 +136,20 @@ test that runs that refusal against real repositories
 (`jobTemplate.executedBy`); the guard reads that the command is present,
 unconditional and fatal, and reads nothing about whether it works.
 
+A reusable dispatch publisher needs that execution proof too: a
+`workflow_dispatch` condition is not provably false for every possible caller
+of `workflow_call`. With no explicit checkout `ref`, the tree is the triggering
+commit, so the first step after checkout must unconditionally refuse a
+`$GITHUB_SHA` not reachable from the repository's own default branch, using its
+fully qualified `refs/remotes/origin/` ref. A step condition, non-fatal exit,
+neutralising shell, or execution before that refusal invalidates the proof.
+An ancestry refusal cannot establish a checkout of a party-chosen ref, nor a
+later checkout or tree repoint to unreviewed content. The template must name a
+test that executes the refusal. `dispatch_publisher_test.go` exercises this contract
+with the real publisher YAML fixture under `internal/ciguard/testdata/`, runs
+its shell against real repositories, and re-records every unsafe mutation's
+digest before asserting that the judgement still refuses it.
+
 Every helper in the package must be reached by something
 (`reachable_helpers_test.go`). That is not tidiness: the six functions this
 rule was supposed to be built from sat in the tree with their explanations
