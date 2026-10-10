@@ -106,7 +106,7 @@ func TestCollectImageEvidenceRefusesNoSubjects(t *testing.T) {
 func TestCollectImageEvidenceFailsWholeOnOneUnscannableSubject(t *testing.T) {
 	dir := t.TempDir()
 	_, err := CollectImageEvidence(context.Background(), dir, []*builderv0.ImageSubject{
-		{Reference: "", Platform: "linux/arm64"},
+		{Reference: "", Digest: digestARM64, Platform: "linux/arm64"},
 	})
 	require.ErrorContains(t, err, "inventory  on linux/arm64")
 	require.ErrorContains(t, err, "image SBOM requires an image reference")
@@ -143,4 +143,23 @@ func TestImageSubjectsRefuseAPublishedImageThatIsNotPinned(t *testing.T) {
 func TestImageSubjectsRefuseALocalImageForNoService(t *testing.T) {
 	_, err := ImageSubjects(context.Background(), PublishedImage{Reference: "service-warehouse:local"}, true)
 	require.ErrorContains(t, err, "no service")
+}
+
+// No scanner or registry is consulted for a subject whose identity is absent.
+func TestCollectImageEvidenceRequiresAnImmutableSubject(t *testing.T) {
+	for name, subject := range map[string]*builderv0.ImageSubject{
+		"nil":                      nil,
+		"floating registry tag":    {Reference: "example.com/app:latest"},
+		"local reference pin only": {Reference: pinned, Source: builderv0.ImageSourceKind_IMAGE_SOURCE_KIND_DOCKER_DAEMON},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			documents, err := CollectImageEvidence(context.Background(), dir, []*builderv0.ImageSubject{subject})
+			require.ErrorContains(t, err, "sha256 digest")
+			require.Nil(t, documents)
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			require.Empty(t, entries)
+		})
+	}
 }

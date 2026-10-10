@@ -84,11 +84,7 @@ func CollectImageEvidence(ctx context.Context, dir string, subjects []*builderv0
 	}
 	documents := make([]ImageEvidenceDocument, 0, len(subjects))
 	for _, subject := range subjects {
-		result, err := Image(ctx, ImageRequest{
-			Reference: subject.GetReference(),
-			Platform:  subject.GetPlatform(),
-			Source:    SourceOf(subject),
-		})
+		result, err := ImageForSubject(ctx, subject)
 		if err != nil {
 			return nil, fmt.Errorf("inventory %s: %w", describeSubject(subject), err)
 		}

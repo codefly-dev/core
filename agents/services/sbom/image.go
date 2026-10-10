@@ -68,6 +68,28 @@ type ImageResult struct {
 	Platform  string
 }
 
+// ImageForSubject inventories an immutable subject and checks an explicit
+// expected digest against the image actually scanned. A reference pin may name
+// a multi-platform index; a Digest field always names the scanned platform (or
+// a local daemon image ID), so the two pins are not interchangeable.
+func ImageForSubject(ctx context.Context, subject *builderv0.ImageSubject) (*ImageResult, error) {
+	if err := RequirePinned(subject); err != nil {
+		return nil, err
+	}
+	result, err := Image(ctx, ImageRequest{
+		Reference: subject.GetReference(),
+		Platform:  subject.GetPlatform(),
+		Source:    SourceOf(subject),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if want := subject.GetDigest(); want != "" && want != result.Digest {
+		return nil, fmt.Errorf("image %s resolved to digest %s, not the requested %s", subject.GetReference(), result.Digest, want)
+	}
+	return result, nil
+}
+
 // Image inventories the OS packages and installed application dependencies of
 // one image and binds the evidence to the immutable digest it was scanned
 // from. It never returns a result whose digest is unknown: evidence that is not
@@ -268,7 +290,9 @@ func scanImage(ctx context.Context, req ImageRequest, digest string) (*Result, e
 		if _, err := exec.LookPath("syft"); err != nil {
 			return nil, fmt.Errorf("%w: scanning a local-only image requires an installed syft; the managed scanner has no access to the Docker daemon", ErrUnsupported)
 		}
-		return runSyft(ctx, "syft", []string{"docker:" + req.Reference, "-o", "cyclonedx-json@1.5"}, "syft", req.Reference)
+		// A tag can move after inspection. Scan the resolved immutable ID so
+		// the bound digest describes the bytes syft actually inventories.
+		return runSyft(ctx, "syft", []string{"docker:" + digest, "-o", "cyclonedx-json@1.5"}, "syft", req.Reference)
 	}
 	target := "registry:" + pinnedReference(req.Reference, digest)
 	if _, err := exec.LookPath("syft"); err != nil {

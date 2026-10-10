@@ -86,7 +86,7 @@ reporting "nothing found".
 **A job that receives a credential must be one of the shapes this repository
 runs, recorded exactly, or it is refused.**
 
-There is one list, in `internal/ciguard/job_templates_test.go`: the five jobs
+There is one list, in `internal/ciguard/job_templates_test.go`: the six jobs
 that hold a secret or a write token, each pinned by a digest over the job's
 canonical content and each named alongside the test that executes it. A job
 that is not on the list is refused. A job on the list that has changed in any
@@ -200,7 +200,7 @@ indirection this rule does not follow — a tainted value can still arrive
 through them, and that is what the credential model is for.
 
 It is separate for a reason worth recording. The credential allowlist pins the
-five jobs that hold a secret or a write token, so it covers a reusable workflow
+six jobs that hold a secret or a write token, so it covers a reusable workflow
 holding a credential and says nothing about one holding none. Reverting
 `go-service-ci.yml` to `run: ${{ inputs.setup-run }}` therefore left
 `go test ./internal/ciguard/` green, while the identical change to
