@@ -505,15 +505,20 @@ func (s *ToolboxSession) call(ctx context.Context, input CallRequest, now func()
 		CatalogDigest: catalogDigest, RequestDigest: requestDigest, Caveats: caveats,
 	})
 	if err != nil {
-		// Three distinct outcomes, and only one of them is an
-		// infrastructure fault. An approvable call is neither denied nor
-		// broken: the authority is obtainable, and classifying it as
-		// transport both hides the approval request from the model and
-		// records a policy hold in the audit trail as a network failure.
+		// A context-honoring PDP may fail closed when its backend observes
+		// cancellation. The caller's context takes precedence over that deny
+		// (or an infrastructure failure), just as it does during invocation.
 		code := ErrorTransport
 		phase := AuditDeny
 		retry := RetryNever
+		auditCtx := callCtx
+		ctxErr := callContextError(callCtx, now)
 		switch {
+		case ctxErr != nil:
+			err = errors.Join(ctxErr, err)
+			code = classifyTransport(callCtx, err)
+			phase = AuditCancel
+			auditCtx = context.Background()
 		case errors.Is(err, policy.ErrApprovalRequired):
 			code = ErrorApprovalRequired
 			phase = AuditApproval
@@ -529,7 +534,7 @@ func (s *ToolboxSession) call(ctx context.Context, input CallRequest, now func()
 		denial.RequestDigest = requestDigest
 		denial.ErrorCode = code
 		denial.Duration = time.Since(started)
-		_ = s.record(callCtx, denial)
+		_ = s.record(auditCtx, denial)
 		return nil, &CallError{Code: code, Op: "authorize", Err: err, Retry: retry}
 	}
 	baseEvent := correlation
@@ -578,7 +583,7 @@ func (s *ToolboxSession) call(ctx context.Context, input CallRequest, now func()
 	// the transport surfaces the deadline; the caller must still see the stable
 	// timeout/canceled category, never tool_error.
 	if ctxErr := callContextError(callCtx, now); ctxErr != nil {
-		callErr = ctxErr
+		callErr = errors.Join(ctxErr, callErr)
 	}
 	if callErr != nil {
 		code := classifyTransport(callCtx, callErr)

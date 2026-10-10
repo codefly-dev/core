@@ -1,9 +1,13 @@
 package session_test
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +18,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/codefly-dev/core/policy"
@@ -99,6 +105,11 @@ func openFixtureWithEnvironment(
 	environment []string,
 ) *session.ToolboxSession {
 	t.Helper()
+	return openFixtureWithLogs(t, decider, audit, environment, nil)
+}
+
+func openFixtureWithLogs(t *testing.T, decider policy.Decider, audit session.AuditSink, environment []string, logs io.Writer) *session.ToolboxSession {
+	t.Helper()
 	manifest, _ := installFixture(t)
 	opened, err := session.Open(context.Background(), session.Options{
 		Manifest: manifest,
@@ -115,6 +126,7 @@ func openFixtureWithEnvironment(
 		SessionID:   "session-1",
 		Audit:       audit,
 		Environment: environment,
+		LogWriter:   logs,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
@@ -447,6 +459,157 @@ func TestSessionElapsedDeadlineOverridesRacingResponse(t *testing.T) {
 			events := audit.snapshot()
 			require.Equal(t, session.AuditCancel, events[len(events)-2].Phase)
 			require.Equal(t, session.ErrorTimeout, events[len(events)-1].ErrorCode)
+		})
+	}
+}
+
+func TestSessionElapsedDeadlinePreservesTransportError(t *testing.T) {
+	opened := openFixtureWithEnvironment(t, policy.AllowAllPDP{}, nil,
+		[]string{conformance.FaultEnvironment + "=" + conformance.FaultResponseSerialization})
+	deadline := time.Now().Add(time.Hour)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	now := deadline.Add(-time.Second)
+	opened.AfterDispatch(func() { now = deadline })
+	_, err := opened.CallWithClock(ctx, session.CallRequest{Name: conformance.CrashTool}, func() time.Time { return now })
+	require.NoError(t, ctx.Err(), "deadline notification must still be pending")
+	var callErr *session.CallError
+	require.ErrorAs(t, err, &callErr)
+	require.Equal(t, session.ErrorTimeout, callErr.Code, "context deadline takes precedence over the real transport status")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, codes.Internal, status.Code(err), "the fixture's response serialization failure remains discoverable")
+	require.Equal(t, session.RetryReconcile, callErr.Retry)
+}
+
+// A deadline cannot be chosen before dispatch without assuming a dispatch-time
+// margin. This context relays a real timer's deadline cause after receipt. It
+// advertises no deadline (consistently), so gRPC propagates Done to the server
+// instead of installing an earlier server timer. Err retains DeadlineExceeded.
+type receiptDeadlineContext struct{ context.Context }
+
+func (c receiptDeadlineContext) Err() error { return context.Cause(c.Context) }
+
+func deadlineAfterReceipt(t *testing.T) (context.Context, func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(context.Canceled) })
+	return receiptDeadlineContext{ctx}, func() {
+		timerCtx, stop := context.WithTimeout(context.Background(), time.Nanosecond)
+		defer stop()
+		<-timerCtx.Done()
+		cancel(timerCtx.Err())
+	}
+}
+
+func TestSessionInFlightDeadlineAfterFixtureReceipt(t *testing.T) {
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = reader.Close() })
+	received, canceled := make(chan struct{}), make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			switch scanner.Text() {
+			case conformance.WaitReceivedMarker:
+				close(received)
+			case conformance.WaitCanceledMarker:
+				close(canceled)
+			}
+		}
+	}()
+	audit := &auditRecorder{}
+	opened := openFixtureWithLogs(t, policy.AllowAllPDP{}, audit,
+		[]string{conformance.FaultEnvironment + "=" + conformance.FaultWaitForCancellation}, writer)
+	ctx, expire := deadlineAfterReceipt(t)
+	arguments, err := structpb.NewStruct(map[string]any{"duration_ms": 5000})
+	require.NoError(t, err)
+	finished := make(chan error, 1)
+	go func() {
+		_, err := opened.Call(ctx, session.CallRequest{Name: conformance.WaitTool, Arguments: arguments})
+		finished <- err
+	}()
+	select {
+	case <-received:
+	case err := <-finished:
+		t.Fatalf("call ended before fixture receipt: %v", err)
+	}
+	require.NoError(t, ctx.Err(), "the call must still be live at fixture receipt")
+	expire()
+	<-ctx.Done()
+	err = <-finished
+	<-canceled // prove the actual handler observed transport cancellation
+	var callErr *session.CallError
+	require.ErrorAs(t, err, &callErr)
+	require.Equal(t, session.ErrorTimeout, callErr.Code)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, session.RetrySafe, callErr.Retry)
+	events := audit.snapshot()
+	require.Equal(t, session.AuditCancel, events[len(events)-2].Phase)
+	require.Equal(t, session.AuditResult, events[len(events)-1].Phase)
+	require.Equal(t, session.ErrorTimeout, events[len(events)-1].ErrorCode)
+}
+
+// Exercise SaasPDP's real fail-closed path through a context-honoring HTTP
+// request. The server holds the permissions request until the caller ends it.
+type waitingPermissionsBackend struct{ url string }
+
+func (b waitingPermissionsBackend) Decide(ctx context.Context, _, _, _, _, _ string) (bool, string, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.url, nil)
+	if err != nil {
+		return false, "", "", err
+	}
+	response, err := http.DefaultClient.Do(req)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	return false, "", "", err
+}
+
+func TestSessionContextEndsDuringAuthorization(t *testing.T) {
+	for _, timeout := range []bool{true, false} {
+		t.Run(fmt.Sprintf("timeout=%t", timeout), func(t *testing.T) {
+			entered := make(chan struct{})
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				close(entered)
+				<-r.Context().Done()
+			}))
+			defer backend.Close()
+			audit := &auditRecorder{}
+			opened := openFixture(t, policy.NewSaasPDP(waitingPermissionsBackend{backend.URL}), session.AuditFunc(func(ctx context.Context, event session.AuditEvent) error {
+				if err := ctx.Err(); err != nil {
+					return err // cancellation audit must use a live context
+				}
+				return audit.Record(ctx, event)
+			}))
+			ctx, end := deadlineAfterReceipt(t)
+			cause, code := error(context.DeadlineExceeded), session.ErrorTimeout
+			if !timeout {
+				ctx, end = context.WithCancel(context.Background())
+				t.Cleanup(end)
+				cause, code = context.Canceled, session.ErrorCanceled
+			}
+			defer end()
+			finished := make(chan error, 1)
+			go func() {
+				_, err := opened.Call(ctx, session.CallRequest{Name: conformance.IdentityTool})
+				finished <- err
+			}()
+			select {
+			case <-entered:
+			case err := <-finished:
+				t.Fatalf("call ended before authorization: %v", err)
+			}
+			require.NoError(t, ctx.Err())
+			end()
+			err := <-finished
+			var callErr *session.CallError
+			require.ErrorAs(t, err, &callErr)
+			require.Equal(t, code, callErr.Code)
+			require.ErrorIs(t, err, cause)
+			require.ErrorIs(t, err, policy.ErrGatewayDeny, "preserve the underlying fail-closed denial")
+			require.Equal(t, session.RetryNever, callErr.Retry, "authorization did not complete")
+			events := audit.snapshot()
+			require.Equal(t, []session.AuditPhase{session.AuditDiscovery, session.AuditDescribe, session.AuditCancel}, phases(events))
+			require.Equal(t, code, events[len(events)-1].ErrorCode)
 		})
 	}
 }

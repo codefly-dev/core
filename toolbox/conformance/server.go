@@ -5,6 +5,7 @@ package conformance
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync/atomic"
 	"time"
@@ -35,6 +36,12 @@ const (
 	FaultDuringExecution       = "during_execution"
 	FaultAfterSideEffect       = "after_side_effect"
 	FaultResponseSerialization = "response_serialization"
+	FaultWaitForCancellation   = "wait_for_cancellation"
+
+	// Wait receipt/cancellation markers are written only in the gated fixture
+	// mode. Hosts can arm deadlines after actual dispatch, without a margin.
+	WaitReceivedMarker = "fixture: wait received"
+	WaitCanceledMarker = "fixture: wait canceled"
 )
 
 // Server is deterministic except for its deliberately observable in-memory
@@ -226,6 +233,12 @@ func (s *Server) readEffectCount(context.Context, *toolboxv0.CallToolRequest) *t
 }
 
 func (s *Server) wait(ctx context.Context, req *toolboxv0.CallToolRequest) *toolboxv0.CallToolResponse {
+	if s.fault == FaultWaitForCancellation {
+		fmt.Fprintln(os.Stderr, WaitReceivedMarker)
+		<-ctx.Done()
+		fmt.Fprintln(os.Stderr, WaitCanceledMarker)
+		return respond.Error("fixture: wait canceled: %v", ctx.Err())
+	}
 	durationMillis, _ := respond.Args(req)["duration_ms"].(float64)
 	timer := time.NewTimer(time.Duration(durationMillis) * time.Millisecond)
 	defer timer.Stop()

@@ -141,18 +141,30 @@ dispatch is `timeout` too; fixture receipt is not a prerequisite. Once a tool
 is approved and authorized, an elapsed deadline prevents dispatch and produces
 `cancellation` and `result` audit events with the `timeout` category. A timeout
 before descriptor approval has no approved retry safety and retains `never`.
+When the context ends during authorization, its timeout/cancellation takes
+precedence over a PDP's fail-closed denial or backend error. Session records
+`cancellation` with a live audit context, never a policy `denial` for that
+outcome; no invocation occurred and retry advice remains `never`.
 
 Go context cancellation notification is asynchronous. Session checks both
 `ctx.Err()` and the deadline time before dispatch and after the RPC returns,
 so a delayed timer notification cannot let a racing tool error or success
 replace `timeout`. Explicit caller cancellation retains `canceled` and `never`.
 The original response, when received, remains available in `CallResult`;
-the context cause remains reachable with `errors.Is`. Retry advice continues
+both the context cause and underlying authorization/transport error remain
+reachable through error unwrapping. Deadline classification takes precedence
+even when the preserved transport status differs. Retry advice continues
 to depend on the approved idempotency class, and session never retries itself.
 
 Session regression tests hold dispatch at the invocation audit boundary and
 advance an injected clock to the deadline while the context notification is
 still pending. They also hold real subprocess responses before classification.
+Authorization tests use SaasPDP with an HTTP permissions request held until
+cancellation. An in-flight test waits for the fixture's receipt marker before
+arming a real timer, relays its deadline cause to the call, and waits for the
+fixture's cancellation marker. This context advertises no deadline before
+receipt; it propagates `Done` over gRPC while retaining `DeadlineExceeded` for
+the caller. The fixture waits for cancellation rather than its duration timer.
 No sleep or minimum dispatch-time margin determines the result. The fixture
 binary is built once per test process, while every session still launches its
 own subprocess in an isolated Codefly home.
