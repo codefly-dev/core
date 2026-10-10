@@ -422,6 +422,10 @@ func (s *ToolboxSession) describeTool(ctx context.Context, name string, correlat
 
 // Call authorizes and invokes one exact request with a single-use scoped token.
 func (s *ToolboxSession) Call(ctx context.Context, input CallRequest) (*CallResult, error) {
+	return s.call(ctx, input, time.Now)
+}
+
+func (s *ToolboxSession) call(ctx context.Context, input CallRequest, now func() time.Time) (*CallResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -555,7 +559,11 @@ func (s *ToolboxSession) Call(ctx context.Context, input CallRequest) (*CallResu
 	metadataPairs = appendMetadata(metadataPairs, metadataTraceID, traceID)
 	metadataPairs = appendMetadata(metadataPairs, metadataReleaseID, s.scope.ReleaseID)
 	callCtx = metadata.AppendToOutgoingContext(callCtx, metadataPairs...)
-	response, callErr := client.CallTool(callCtx, request)
+	var response *toolboxv0.CallToolResponse
+	callErr := callContextError(callCtx, now)
+	if callErr == nil {
+		response, callErr = client.CallTool(callCtx, request)
+	}
 	result := &CallResult{
 		Response: response, InvocationID: invocationID,
 		AuthorizationID: evaluation.Authorization.ID,
@@ -569,10 +577,8 @@ func (s *ToolboxSession) Call(ctx context.Context, input CallRequest) (*CallResu
 	// tool error, and that response can win the race back to the client before
 	// the transport surfaces the deadline; the caller must still see the stable
 	// timeout/canceled category, never tool_error.
-	if callErr == nil {
-		if ctxErr := callCtx.Err(); ctxErr != nil {
-			callErr = ctxErr
-		}
+	if ctxErr := callContextError(callCtx, now); ctxErr != nil {
+		callErr = ctxErr
 	}
 	if callErr != nil {
 		code := classifyTransport(callCtx, callErr)
@@ -738,6 +744,20 @@ func buildRequest(input CallRequest) (*toolboxv0.CallToolRequest, string, error)
 	return &toolboxv0.CallToolRequest{
 		Name: input.Name, Arguments: arguments, Roots: append([]string(nil), input.Roots...),
 	}, resource, nil
+}
+
+// Deadline notification is asynchronous: Err can still be nil after the
+// deadline has elapsed. Check the deadline itself as well, both before dispatch
+// and before accepting a racing response. An explicit cancellation keeps its
+// cause even if the deadline subsequently passes.
+func callContextError(ctx context.Context, now func() time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 func classifyTransport(ctx context.Context, err error) ErrorCode {
