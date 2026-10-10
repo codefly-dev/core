@@ -124,7 +124,7 @@ release commit/report after the aggregate build completes.
 | expired/replayed token | deny | use stays consumed through clock-skew window |
 | wrong audience/resource/tenant | deny | exact binding tests pass |
 | catalog/request mutation | deny | deterministic digest mismatch |
-| timeout | stable `timeout`; safe retry only for approved idempotent tool | token remains consumed |
+| timeout | stable `timeout` before or after dispatch; safe retry only for approved idempotent tool | any consumed token remains consumed; no implicit retry |
 | cancellation | stable `canceled`; never auto-retry | cancellation audit emitted |
 | crash before authorization | no authorization/invoke audit | hard process exit contained |
 | crash after authorization | `reconcile_before_retry` | authorization ID and invoke audit exist |
@@ -133,3 +133,38 @@ release commit/report after the aggregate build completes.
 | response serialization failure | stable `internal_failure` | later calls succeed |
 | concurrent sessions | no principal, callback, replay, or trace crossover | unique one-use authorization per call |
 | cleanup | idempotent | private UDS directory and callback socket removed |
+
+### Deadline classification
+
+The session owns deadline classification. A deadline that expires before RPC
+dispatch is `timeout` too; fixture receipt is not a prerequisite. Once a tool
+is approved and authorized, an elapsed deadline prevents dispatch and produces
+`cancellation` and `result` audit events with the `timeout` category. A timeout
+before descriptor approval has no approved retry safety and retains `never`.
+When the context ends during authorization, its timeout/cancellation takes
+precedence over a PDP's fail-closed denial or backend error. Session records
+`cancellation` with a live audit context, never a policy `denial` for that
+outcome; no invocation occurred and retry advice remains `never`.
+
+Go context cancellation notification is asynchronous. Session checks both
+`ctx.Err()` and the deadline time before dispatch and after the RPC returns,
+so a delayed timer notification cannot let a racing tool error or success
+replace `timeout`. Explicit caller cancellation retains `canceled` and `never`.
+The original response, when received, remains available in `CallResult`;
+both the context cause and underlying authorization/transport error remain
+reachable through error unwrapping. Deadline classification takes precedence
+even when the preserved transport status differs. Retry advice continues
+to depend on the approved idempotency class, and session never retries itself.
+
+Session regression tests hold dispatch at the invocation audit boundary and
+advance an injected clock to the deadline while the context notification is
+still pending. They also hold real subprocess responses before classification.
+Authorization tests use SaasPDP with an HTTP permissions request held until
+cancellation. An in-flight test waits for the fixture's receipt marker before
+arming a real timer, relays its deadline cause to the call, and waits for the
+fixture's cancellation marker. This context advertises no deadline before
+receipt; it propagates `Done` over gRPC while retaining `DeadlineExceeded` for
+the caller. The fixture waits for cancellation rather than its duration timer.
+No sleep or minimum dispatch-time margin determines the result. The fixture
+binary is built once per test process, while every session still launches its
+own subprocess in an isolated Codefly home.

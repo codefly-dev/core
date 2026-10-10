@@ -1,9 +1,13 @@
 package session_test
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +18,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/codefly-dev/core/policy"
@@ -56,6 +62,23 @@ func (r *auditRecorder) snapshot() []session.AuditEvent {
 	return append([]session.AuditEvent(nil), r.events...)
 }
 
+// Build once per test binary, including -count runs. Every test still installs
+// into its own Codefly home and starts a fresh, isolated fixture subprocess.
+var fixtureBinary = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "session-fixture-build-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	target := filepath.Join(dir, "conformance-toolbox")
+	command := exec.Command("go", "build", "-o", target,
+		"github.com/codefly-dev/core/toolbox/conformance/cmd/conformance-toolbox")
+	if output, err := command.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("build conformance fixture: %w: %s", err, output)
+	}
+	return os.ReadFile(target)
+})
+
 func installFixture(t *testing.T) (*resources.Toolbox, string) {
 	t.Helper()
 	manifest, err := resources.LoadToolboxFromDir(context.Background(), "../conformance/testdata")
@@ -65,10 +88,9 @@ func installFixture(t *testing.T) (*resources.Toolbox, string) {
 	target, err := manifest.Agent.Path(context.Background())
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
-	command := exec.Command("go", "build", "-o", target,
-		"github.com/codefly-dev/core/toolbox/conformance/cmd/conformance-toolbox")
-	output, err := command.CombinedOutput()
-	require.NoError(t, err, "build conformance fixture: %s", output)
+	binary, err := fixtureBinary()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(target, binary, 0o755))
 	return manifest, codeflyHome
 }
 
@@ -82,6 +104,11 @@ func openFixtureWithEnvironment(
 	audit session.AuditSink,
 	environment []string,
 ) *session.ToolboxSession {
+	t.Helper()
+	return openFixtureWithLogs(t, decider, audit, environment, nil)
+}
+
+func openFixtureWithLogs(t *testing.T, decider policy.Decider, audit session.AuditSink, environment []string, logs io.Writer) *session.ToolboxSession {
 	t.Helper()
 	manifest, _ := installFixture(t)
 	opened, err := session.Open(context.Background(), session.Options{
@@ -99,6 +126,7 @@ func openFixtureWithEnvironment(
 		SessionID:   "session-1",
 		Audit:       audit,
 		Environment: environment,
+		LogWriter:   logs,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
@@ -316,24 +344,21 @@ func TestSessionDescribeAuditFailureCannotBeBypassedThroughCache(t *testing.T) {
 }
 
 func TestSessionTimeoutAndCancellationAreStableCategories(t *testing.T) {
-	// The call timeout is bounded on BOTH sides, and a value too small is just
-	// as wrong as one too large. It must exceed the cost of dispatching the RPC
-	// to the fixture subprocess — otherwise the deadline can expire before
-	// dispatch and the failure surfaces as a transport/tool error rather than
-	// the timeout category under test — while staying well under waitDuration,
-	// so the timeout is what ends the call. 20ms failed the lower bound on a
-	// loaded runner and made this test flaky.
-	const (
-		waitDuration = 2 * time.Second
-		callTimeout  = 200 * time.Millisecond
-	)
-
 	audit := &auditRecorder{}
-	opened := openFixture(t, policy.AllowAllPDP{}, audit)
-	arguments, err := structpb.NewStruct(map[string]any{"duration_ms": waitDuration.Milliseconds()})
+	// Hold dispatch until the real context timer has fired. The descriptor is
+	// approved first, so an arbitrarily early deadline still exercises invoke.
+	opened := openFixture(t, policy.AllowAllPDP{}, session.AuditFunc(func(ctx context.Context, event session.AuditEvent) error {
+		if event.Phase == session.AuditInvoke {
+			<-ctx.Done()
+		}
+		return audit.Record(ctx, event)
+	}))
+	_, err := opened.DescribeTool(context.Background(), conformance.WaitTool)
+	require.NoError(t, err)
+	arguments, err := structpb.NewStruct(map[string]any{"duration_ms": 1})
 	require.NoError(t, err)
 	_, err = opened.Call(context.Background(), session.CallRequest{
-		Name: conformance.WaitTool, Arguments: arguments, Timeout: callTimeout,
+		Name: conformance.WaitTool, Arguments: arguments, Timeout: time.Nanosecond,
 	})
 	var callErr *session.CallError
 	require.ErrorAs(t, err, &callErr)
@@ -350,6 +375,248 @@ func TestSessionTimeoutAndCancellationAreStableCategories(t *testing.T) {
 	require.Equal(t, session.ErrorCanceled, callErr.Code)
 	require.Equal(t, session.RetryNever, callErr.Retry, "caller cancellation is never automatically retried")
 	require.Contains(t, phases(audit.snapshot()), session.AuditCancel)
+}
+
+// The dispatch gate injects a delay without sleeping or changing the RPC client.
+// Advancing the session clock independently of the context timer reproduces the
+// interval where the deadline has elapsed but Err/Done have not been notified.
+func TestSessionDeadlineBeforeDispatchDoesNotBecomeToolError(t *testing.T) {
+	audit := &auditRecorder{}
+	entered, release := make(chan struct{}), make(chan struct{})
+	opened := openFixture(t, policy.AllowAllPDP{}, session.AuditFunc(func(ctx context.Context, event session.AuditEvent) error {
+		if event.Phase == session.AuditInvoke {
+			close(entered)
+			<-release
+		}
+		return audit.Record(ctx, event)
+	}))
+	deadline := time.Now().Add(time.Hour)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	now := deadline.Add(-time.Second)
+	type outcome struct {
+		result *session.CallResult
+		err    error
+	}
+	finished := make(chan outcome, 1)
+	go func() {
+		result, err := opened.CallWithClock(ctx, session.CallRequest{
+			Name: conformance.DeterministicErrorTool,
+		}, func() time.Time { return now })
+		finished <- outcome{result, err}
+	}()
+	select {
+	case <-entered:
+	case result := <-finished:
+		t.Fatalf("call ended before dispatch gate: %v", result.err)
+	}
+	now = deadline // equality is already expired; no grace period
+	close(release)
+	result := <-finished
+	require.NoError(t, ctx.Err(), "deadline notification must still be pending")
+	var callErr *session.CallError
+	require.ErrorAs(t, result.err, &callErr)
+	require.Equal(t, session.ErrorTimeout, callErr.Code)
+	require.ErrorIs(t, result.err, context.DeadlineExceeded)
+	require.Equal(t, session.RetrySafe, callErr.Retry)
+	require.NotNil(t, result.result)
+	require.Nil(t, result.result.Response, "an expired call must not dispatch")
+	require.NotEmpty(t, result.result.AuthorizationID)
+	events := audit.snapshot()
+	require.Equal(t, []session.AuditPhase{
+		session.AuditDiscovery, session.AuditDescribe, session.AuditAuthorize,
+		session.AuditInvoke, session.AuditCancel, session.AuditResult,
+	}, phases(events))
+	for _, event := range events[len(events)-2:] {
+		require.Equal(t, session.ErrorTimeout, event.ErrorCode)
+		require.Equal(t, result.result.InvocationID, event.InvocationID)
+	}
+}
+
+func TestSessionElapsedDeadlineOverridesRacingResponse(t *testing.T) {
+	for _, tool := range []string{conformance.IdentityTool, conformance.DeterministicErrorTool} {
+		t.Run(tool, func(t *testing.T) {
+			audit := &auditRecorder{}
+			opened := openFixture(t, policy.AllowAllPDP{}, audit)
+			deadline := time.Now().Add(time.Hour)
+			ctx, cancel := context.WithDeadline(context.Background(), deadline)
+			defer cancel()
+			now := deadline.Add(-time.Second)
+			opened.AfterDispatch(func() { now = deadline })
+			result, err := opened.CallWithClock(ctx, session.CallRequest{Name: tool}, func() time.Time { return now })
+			require.NoError(t, ctx.Err(), "deadline notification must still be pending")
+			var callErr *session.CallError
+			require.ErrorAs(t, err, &callErr)
+			require.Equal(t, session.ErrorTimeout, callErr.Code)
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			require.Equal(t, session.RetrySafe, callErr.Retry)
+			require.NotNil(t, result.Response, "the real fixture response is preserved")
+			if tool == conformance.DeterministicErrorTool {
+				require.Equal(t, conformance.DeterministicError, result.Response.Error)
+			} else {
+				require.Empty(t, result.Response.Error)
+			}
+			events := audit.snapshot()
+			require.Equal(t, session.AuditCancel, events[len(events)-2].Phase)
+			require.Equal(t, session.ErrorTimeout, events[len(events)-1].ErrorCode)
+		})
+	}
+}
+
+func TestSessionElapsedDeadlinePreservesTransportError(t *testing.T) {
+	opened := openFixtureWithEnvironment(t, policy.AllowAllPDP{}, nil,
+		[]string{conformance.FaultEnvironment + "=" + conformance.FaultResponseSerialization})
+	deadline := time.Now().Add(time.Hour)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	now := deadline.Add(-time.Second)
+	opened.AfterDispatch(func() { now = deadline })
+	_, err := opened.CallWithClock(ctx, session.CallRequest{Name: conformance.CrashTool}, func() time.Time { return now })
+	require.NoError(t, ctx.Err(), "deadline notification must still be pending")
+	var callErr *session.CallError
+	require.ErrorAs(t, err, &callErr)
+	require.Equal(t, session.ErrorTimeout, callErr.Code, "context deadline takes precedence over the real transport status")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, codes.Internal, status.Code(err), "the fixture's response serialization failure remains discoverable")
+	require.Equal(t, session.RetryReconcile, callErr.Retry)
+}
+
+// A deadline cannot be chosen before dispatch without assuming a dispatch-time
+// margin. This context relays a real timer's deadline cause after receipt. It
+// advertises no deadline (consistently), so gRPC propagates Done to the server
+// instead of installing an earlier server timer. Err retains DeadlineExceeded.
+type receiptDeadlineContext struct{ context.Context }
+
+func (c receiptDeadlineContext) Err() error { return context.Cause(c.Context) }
+
+// The parent has no application values. Hide its private cancel-context value
+// so derived contexts consult our Err instead of inheriting its Canceled error.
+func (c receiptDeadlineContext) Value(any) any { return nil }
+
+func deadlineAfterReceipt(t *testing.T) (context.Context, func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(context.Canceled) })
+	return receiptDeadlineContext{ctx}, func() {
+		timerCtx, stop := context.WithTimeout(context.Background(), time.Nanosecond)
+		defer stop()
+		<-timerCtx.Done()
+		cancel(timerCtx.Err())
+	}
+}
+
+func TestSessionInFlightDeadlineAfterFixtureReceipt(t *testing.T) {
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = reader.Close() })
+	received, canceled := make(chan struct{}), make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			switch scanner.Text() {
+			case conformance.WaitReceivedMarker:
+				close(received)
+			case conformance.WaitCanceledMarker:
+				close(canceled)
+			}
+		}
+	}()
+	audit := &auditRecorder{}
+	opened := openFixtureWithLogs(t, policy.AllowAllPDP{}, audit,
+		[]string{conformance.FaultEnvironment + "=" + conformance.FaultWaitForCancellation}, writer)
+	ctx, expire := deadlineAfterReceipt(t)
+	arguments, err := structpb.NewStruct(map[string]any{"duration_ms": 5000})
+	require.NoError(t, err)
+	finished := make(chan error, 1)
+	go func() {
+		_, err := opened.Call(ctx, session.CallRequest{Name: conformance.WaitTool, Arguments: arguments})
+		finished <- err
+	}()
+	select {
+	case <-received:
+	case err := <-finished:
+		t.Fatalf("call ended before fixture receipt: %v", err)
+	}
+	require.NoError(t, ctx.Err(), "the call must still be live at fixture receipt")
+	expire()
+	<-ctx.Done()
+	err = <-finished
+	<-canceled // prove the actual handler observed transport cancellation
+	var callErr *session.CallError
+	require.ErrorAs(t, err, &callErr)
+	require.Equal(t, session.ErrorTimeout, callErr.Code)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err), "the real gRPC client observes the deadline")
+	require.Equal(t, session.RetrySafe, callErr.Retry)
+	events := audit.snapshot()
+	require.Equal(t, session.AuditCancel, events[len(events)-2].Phase)
+	require.Equal(t, session.AuditResult, events[len(events)-1].Phase)
+	require.Equal(t, session.ErrorTimeout, events[len(events)-1].ErrorCode)
+}
+
+// Exercise SaasPDP's real fail-closed path through a context-honoring HTTP
+// request. The server holds the permissions request until the caller ends it.
+type waitingPermissionsBackend struct{ url string }
+
+func (b waitingPermissionsBackend) Decide(ctx context.Context, _, _, _, _, _ string) (bool, string, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.url, nil)
+	if err != nil {
+		return false, "", "", err
+	}
+	response, err := http.DefaultClient.Do(req)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	return false, "", "", err
+}
+
+func TestSessionContextEndsDuringAuthorization(t *testing.T) {
+	for _, timeout := range []bool{true, false} {
+		t.Run(fmt.Sprintf("timeout=%t", timeout), func(t *testing.T) {
+			entered := make(chan struct{})
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				close(entered)
+				<-r.Context().Done()
+			}))
+			defer backend.Close()
+			audit := &auditRecorder{}
+			opened := openFixture(t, policy.NewSaasPDP(waitingPermissionsBackend{backend.URL}), session.AuditFunc(func(ctx context.Context, event session.AuditEvent) error {
+				if err := ctx.Err(); err != nil {
+					return err // cancellation audit must use a live context
+				}
+				return audit.Record(ctx, event)
+			}))
+			ctx, end := deadlineAfterReceipt(t)
+			cause, code := error(context.DeadlineExceeded), session.ErrorTimeout
+			if !timeout {
+				ctx, end = context.WithCancel(context.Background())
+				t.Cleanup(end)
+				cause, code = context.Canceled, session.ErrorCanceled
+			}
+			defer end()
+			finished := make(chan error, 1)
+			go func() {
+				_, err := opened.Call(ctx, session.CallRequest{Name: conformance.IdentityTool})
+				finished <- err
+			}()
+			select {
+			case <-entered:
+			case err := <-finished:
+				t.Fatalf("call ended before authorization: %v", err)
+			}
+			require.NoError(t, ctx.Err())
+			end()
+			err := <-finished
+			var callErr *session.CallError
+			require.ErrorAs(t, err, &callErr)
+			require.Equal(t, code, callErr.Code)
+			require.ErrorIs(t, err, cause)
+			require.ErrorIs(t, err, policy.ErrGatewayDeny, "preserve the underlying fail-closed denial")
+			require.Equal(t, session.RetryNever, callErr.Retry, "authorization did not complete")
+			events := audit.snapshot()
+			require.Equal(t, []session.AuditPhase{session.AuditDiscovery, session.AuditDescribe, session.AuditCancel}, phases(events))
+			require.Equal(t, code, events[len(events)-1].ErrorCode)
+		})
+	}
 }
 
 func TestSessionCrashMatrix(t *testing.T) {
