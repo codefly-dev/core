@@ -445,7 +445,7 @@ func actionRef(line string) (string, bool) {
 // whatever that tag means on the day CI fires.
 func TestEveryActionIsPinnedToAFullCommitSHA(t *testing.T) {
 	seen := 0
-	for _, path := range workflowFiles(t) {
+	for _, path := range workflowAndActionFiles(t) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 
@@ -481,7 +481,7 @@ func TestPinnedActionCommentsNameTheExactUpstreamTag(t *testing.T) {
 
 	// sha -> the tag the comment claims, per "owner/repo".
 	claims := map[string]map[string]string{}
-	for _, path := range workflowFiles(t) {
+	for _, path := range workflowAndActionFiles(t) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 		for _, line := range strings.Split(string(raw), "\n") {
@@ -569,4 +569,21 @@ func morePrecise(a, b string) bool {
 		return ca > cb
 	}
 	return len(a) > len(b)
+}
+
+// Pin checks cover the action dependencies even when no workflow uses them.
+func workflowAndActionFiles(t *testing.T) []string {
+	t.Helper()
+	paths := workflowFiles(t)
+	err := filepath.WalkDir(filepath.Join(repoRoot(t), ".github", "actions"), func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && (entry.Name() == "action.yml" || entry.Name() == "action.yaml") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	return paths
 }

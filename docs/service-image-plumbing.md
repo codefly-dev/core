@@ -81,22 +81,110 @@ suite exercises the file format, index, subject derivation, and input refusals.
 
 ## Publishing before the release
 
-Call `.github/workflows/publish-service-image.yml` pinned to an immutable core
-commit from a service's `workflow_dispatch`. Supply a stable `version` without
-`v`, and optionally `lock-file` and `platforms`. The image name defaults to the
-caller repository name in lowercase; `image-name` is an explicit override for
-a service that intentionally publishes another package. Pass the
-registry credential as `registry-token`. The workflow builds the caller's
-Dockerfile for those platforms and pushes by digest. It returns `digest` and
-uploads the lock as an artifact; the service commits that lock before tagging
-its release. No tag or lock commit is created by this workflow.
+Call `.github/actions/publish-service-image` as a **step in the service's own
+job**, pinned to an immutable core commit. The reusable publisher shipped in
+v0.18.1 has been removed: GHCR checks the repository defining the job, so a
+core-defined reusable job could not write a service's package. Do not grant
+core write access to service packages. Keep their Actions access on the service
+repository and replace its old publisher with this action.
 
-The publish job refuses a triggering commit not reachable from the caller's
-own default branch before registry login or build. Checkout does not persist
-credentials, and the refusal authenticates its remote reads with command-scoped
-git configuration. No read token is written into the caller build context, even
-when its Dockerfile copies `.git`. The job has a 30-minute timeout. The credential boundary and
-repository dispatch restrictions are described in
+```yaml
+name: publish-image
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+      lock: ${{ steps.publish.outputs.lock }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: codefly-dev/core/.github/actions/publish-service-image@<immutable-core-commit-SHA>
+        id: publish
+        with:
+          version: ${{ inputs.version }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Use a dedicated job with no service execution before the action. Checkout must
+select the triggering commit (omit `ref`) at the workspace root, never persist
+credentials, and fetch full history. The caller owns the event gate, permissions
+and 30-minute timeout; a composite action cannot declare job policy. The action
+also refuses events other than `workflow_dispatch`, and refuses a triggering
+commit not reachable from the caller's own remote default branch before login
+or build. It also checks that `HEAD` equals the triggering SHA, so a caller's
+`ref` override cannot publish a different tree. It refuses modified or staged
+files and all untracked or ignored files, including submodule dirt. It also
+refuses tracked paths marked `assume-unchanged` or `skip-worktree`: the Docker
+context must be the committed tree. Commit code generation or version stamps
+before publishing. It checks `origin` against GitHub's server/repository identity
+before reading the default branch, and rejects effective local/worktree Git
+config (including included files) containing HTTP authorization headers,
+credential helpers, credential includes (including
+checkout v6+ `includeIf`), token/password keys, URL rewrites or credentials in
+URLs. It refuses repository `core.fsmonitor` settings and disables fsmonitor and
+Git hooks on every guard Git call (`core.fsmonitor=false`,
+`core.hooksPath=/dev/null`). Both `.git/hooks/` and configured hook directories
+are disabled, so hooks cannot inherit the remote-read authorization header.
+Config values are never logged. Private-repository remote
+reads use command-scoped authentication with `github.token`; `GH_TOKEN` is not
+exported to Git or other child processes, and nothing is stored in the Docker
+context. The `registry-token` input goes only to `docker/login-action`, never a
+shell or a build argument. In this job the built-in token has `packages: write` throughout;
+passing it to one step does not narrow its job-wide permission.
+
+Supply a stable `version` without `v`, and optionally `lock-file` and `platforms`
+(defaults: `gateway-image.json` and `linux/amd64,linux/arm64`). The image name
+defaults to the caller repository name in lowercase; `image-name` overrides it
+within `resources.ImageRegistry`. These inputs are validated before login. `dockerfile` defaults to `Dockerfile`;
+an override must name a tracked relative regular file inside the clean checkout
+(no absolute paths, traversal, symlinks or untracked recipes).
+The action builds the caller's selected Dockerfile with the repository root as context and pushes by digest, without
+tags. It returns `digest` and the compact two-field JSON `lock`, writes
+`release-evidence/<lock-file>`, and uploads that file as the artifact
+`<lock-file>-<version>`. Commit the lock before tagging the service release.
+The action neither commits the lock nor tags the image or repository.
+
+### Exercising the publisher
+
+[The manual test caller](../.github/workflows/test-publish-service-image.yml)
+uses the committed `FROM scratch` fixture at
+`.github/actions/publish-service-image/testdata/Dockerfile`, calls the action,
+and compares its outputs with the artifact's source. It creates no build inputs
+before calling the action. In core it loads the local action only
+from `main`, so a dispatch cannot load an unmerged local action with a write
+token. It publishes only to `core-publish-service-image-test` and requires the
+workflow/action to have landed before dispatch on the current default-branch
+commit (its checkout must match the triggering SHA).
+
+For the cross-repository GHCR proof before release, put that caller in a test
+repository's default branch, replace its local `uses` with the immutable core
+commit under test, omit checkout's `ref: main` to select the triggering commit,
+and change `image-name` to the designated scratch package. Commit the scratch
+Dockerfile in that repository before dispatch, setting `dockerfile` to its
+tracked path; do not generate or copy a recipe in a workflow step. Give only that test
+repository Actions write access to the package. Dispatch on its default branch;
+a successful build alone is insufficient: record the push run URL, returned
+digest, and uploaded lock. Dispatch an unmerged branch as well and require it
+to fail at the ancestry refusal before login. A local shell test or a push from
+core itself does not prove cross-repository GHCR authorization.
+
+The credential boundary and repository dispatch restrictions are described in
 [CI credentials](ci-credentials.md) and
 [branch protection](runbooks/branch-protection.md).
 

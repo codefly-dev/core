@@ -218,8 +218,14 @@ is a separate job because it is the one write in that workflow and the job that
 runs the suite must not hold it — see
 [CI credentials](../ci-credentials.md).
 
-**`agent-ci`, `go-service-ci`, `go-service-release`, `publish-service-image`.** `workflow_call` only —
-they run when a service repository dispatches them, never here.
+**`agent-ci`, `go-service-ci`, `go-service-release`.** `workflow_call` only —
+they run when a service repository calls them, never here. The former
+`publish-service-image` reusable workflow has been removed; publication is a
+composite action in the caller's job.
+
+**`test-publish-service-image`.** Manual `workflow_dispatch` only, with
+`packages: write` in its dedicated scratch-publisher job. It reports on no pull
+request and is not a required status check. See the dispatch restriction below.
 
 **Approving reviews.** `required_approving_review_count` stays `0`
 deliberately — see "Applying it" above for why, and for what it costs.
@@ -257,17 +263,24 @@ this workflow's credential and no other identity's.
 
 ## Also needed: who may dispatch
 
-`combine-deps.yml` is dispatchable, and `workflow_dispatch` is not restricted
-to the default branch: a dispatch names a ref, and both the repository content
-*and the workflow file itself* come from it. The dispatch trigger has since been removed from that workflow, so this
-concerns any dispatchable workflow added later: a branch that edits the
-workflow file is outside what anything in
-the file on `main` can constrain.
+`test-publish-service-image.yml` is dispatchable and holds a package-write
+`GITHUB_TOKEN` in its dedicated publisher job. `workflow_dispatch` is not
+restricted to the default branch: a dispatch names a ref, and the workflow file
+itself comes from that ref. The committed caller selects `main` before loading
+the local action, and the action refuses unmerged commits, dirty build contexts,
+stored credentials and a different repository as `origin`. Every guard Git call
+disables fsmonitor and Git hooks, including `.git/hooks/` and configured
+`core.hooksPath` directories, so repository hooks cannot inherit the remote-read
+authorization header. Those guards cannot constrain a branch that changes the
+workflow file itself.
 
-That is a permissions question, not a YAML one. Restrict who can dispatch
-workflows — or move the credential-bearing job into an environment with
-required reviewers — and keep `DEPS_COMBINE_TOKEN` scoped to what the weekly
-combination actually needs. See [CI credentials](../ci-credentials.md).
+Restrict who can dispatch this workflow, or put its credential-bearing job in
+an environment with required reviewers. This is an operator-owned permissions
+control; the YAML guards do not replace it. The scratch package must grant
+Actions access only to the repository that owns the caller job.
+
+`combine-deps.yml` no longer has a dispatch trigger. Keep `DEPS_COMBINE_TOKEN`
+scoped to its weekly combination work. See [CI credentials](../ci-credentials.md).
 
 ## Before you turn it on
 
