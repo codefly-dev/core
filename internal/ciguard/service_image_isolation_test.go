@@ -15,7 +15,18 @@ func runPublishInspection(t *testing.T, fixture releaseFixture, script string) (
 	t.Helper()
 	cmd := exec.Command("bash", "-c", "export INSPECTION_PID=$$\n"+script)
 	cmd.Dir = fixture.dir
-	cmd.Env = append(os.Environ(), "GITHUB_SHA="+fixture.tip, "GITHUB_REF_NAME=main")
+	// Model the step's declared token environment, not the test runner's.
+	// Keeping the YAML value (including expressions) is sufficient for the
+	// presence probe and makes a step-split mutant observable without a secret.
+	for _, variable := range os.Environ() {
+		if !strings.HasPrefix(variable, "GH_TOKEN=") {
+			cmd.Env = append(cmd.Env, variable)
+		}
+	}
+	if token, declared := publishStep(t, publishRefusalStep).Env["GH_TOKEN"]; declared {
+		cmd.Env = append(cmd.Env, "GH_TOKEN="+token)
+	}
+	cmd.Env = append(cmd.Env, "GITHUB_SHA="+fixture.tip, "GITHUB_REF_NAME=main")
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
@@ -29,6 +40,7 @@ func removePublishBlock(t *testing.T, script, start, end string) string {
 }
 
 func TestThePublishActionNeverExecutesGitFilters(t *testing.T) {
+	t.Setenv("GH_TOKEN", "test-runner-token-not-declared-by-step")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	for _, tc := range []struct{ scope, driver, attributes string }{
 		{"local", "clean", "info"}, {"worktree", "clean", "info"},
@@ -90,7 +102,7 @@ exec cat
 			if tc.scope == "global" {
 				require.Contains(t, output, "filter attributes")
 			} else {
-				require.Contains(t, output, "Git filter drivers and alternate attributes files are unsupported")
+				require.Contains(t, output, "Git config-defined hooks, filter drivers and alternate attributes files are unsupported")
 			}
 			require.NoFileExists(t, marker)
 
@@ -130,6 +142,46 @@ func TestThePublishActionRefusesFilterAttributesWithoutADriver(t *testing.T) {
 			mutant := removePublishBlock(t, script, "# Check all in-tree attributes", "# These variables are set by GitHub")
 			output, err = runPublishInspection(t, fixture, mutant)
 			require.NoError(t, err, output)
+		})
+	}
+}
+
+func TestThePublishActionMatchesOnlyFilterAttributeTokens(t *testing.T) {
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+	fixture := newPublishFixture(t)
+	for _, tc := range []struct {
+		attributes string
+		refused    bool
+	}{
+		// Words and patterns that only look like assignments select nothing.
+		{"# a filter comment\n  # filter=lfs\n", false},
+		{"filter text\nfilter=lfs text\n", false},
+		{"\"path filter=lfs\" text\n", false},
+		{"Dockerfile !filter\n", false},
+		{"[attr]custom filter=lfs\n", false},
+		{"other/path filter=lfs\n", false},
+		// Every assignment Git would apply to a build-context path is refused,
+		// however it is spelled.
+		{"* text filter=lfs\n", true},
+		{"* -filter\n", true},
+		{"* filter\n", true},
+		{"Dockerfile\ttext\tfilter=lfs\r\n", true},
+		{"\"Dockerfile\" text filter=lfs\n", true},
+		{"\"Dockerfile\"filter=lfs\n", true},
+		{"\"[attr]x\"filter=lfs\n* x\n", true},
+		{"[attr]custom filter=lfs\n* custom\n", true},
+		{"[attr]a b\n[attr]b filter=lfs\n* a\n", true},
+		{"[!\xff]ockerfile filter=lfs\n", true},
+	} {
+		t.Run(tc.attributes, func(t *testing.T) {
+			require.NoError(t, os.WriteFile(filepath.Join(fixture.dir, ".git/info/attributes"), []byte(tc.attributes), 0o600))
+			output, err := runPublishInspection(t, fixture, publishStep(t, publishRefusalStep).Run)
+			if tc.refused {
+				require.Error(t, err, output)
+				require.Contains(t, output, "filter attributes")
+			} else {
+				require.NoError(t, err, output)
+			}
 		})
 	}
 }

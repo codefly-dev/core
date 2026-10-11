@@ -190,15 +190,21 @@ needs a fresh run. It rejects modified/staged/untracked/ignored files and
 It checks effective local/worktree config and includes for stored credentials,
 helpers, token/password keys, URL rewrites/credentials and credential indirection,
 without logging values. Inspection disables global/system Git config and system
-attributes. Filter drivers and alternate attributes files are refused in every
-remaining effective scope, including local/worktree/includes and command config.
-Filter attributes in in-tree `.gitattributes`, Git info attributes or default
-user attributes are also refused. Submodules are unsupported: declarations,
+attributes. Config-defined hooks (`hook.*`), filter drivers and alternate
+attributes files are refused in every remaining effective scope, including
+local/worktree/includes and command config.
+Any build-context path that Git assigns a `filter` attribute from in-tree
+`.gitattributes`, Git info attributes or default user attributes is also
+refused. The guard asks `git check-attr filter` for every tracked and
+untracked path instead of parsing attribute files, so no spelling Git accepts
+(an unspaced quoted pattern, a macro, a non-UTF-8 byte) can slip past it;
+symlinked or unreadable attribute files are refused. Submodules are unsupported: declarations,
 gitlinks and retained `.git/modules/` metadata all refuse publication, preventing
 unscanned submodule credentials or code from entering inspection or the build.
 
 Repository fsmonitor settings are refused. Every inspection Git call disables
-fsmonitor and hooks with `core.fsmonitor=false` and `core.hooksPath=/dev/null`.
+fsmonitor and file-based hooks with `core.fsmonitor=false` and
+`core.hooksPath=/dev/null`.
 `origin` must still match the GitHub server/repository identity. Only the
 isolated remote read and registry login receive tokens; login runs after the
 inspection and input validation. Ciguard attributes the exact isolated reader,

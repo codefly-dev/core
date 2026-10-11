@@ -96,20 +96,20 @@ runs:
         # repository helpers, fsmonitor or Git hooks to execute during the guard.
         # Do not print config values: they can contain the credential itself.
         # Includes inherit their scope; command scope must not hide a stored
-        # fsmonitor setting. Disable fsmonitor and all Git hooks on every call,
+        # fsmonitor setting. Disable fsmonitor and file-based Git hooks on every call,
         # including default .git/hooks and configured hooksPath directories.
         effective_config=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null config --list --show-scope --includes)
         local_config=$(printf '%s\n' "$effective_config" | awk '$1 == "local" || $1 == "worktree" { sub(/^[^\t]*\t/, ""); print }')
         if [[ "$local_config" =~ (^|$'\n')(http\.(.*\.)?extraheader=|credential\.|include\.|includeif\.|url\.|core\.(sshcommand|fsmonitor)=|[^=]*\.(token|password)=) ]] ||
            [[ "$local_config" =~ ://[^/[:space:]]*@ ]]; then
-          echo "::error::stored credentials or credential indirection, or fsmonitor in local/worktree git config; use persist-credentials: false and remove stored credentials, indirection or fsmonitor settings; hooks are disabled; refusing to publish." >&2
+          echo "::error::stored credentials or credential indirection, or fsmonitor in local/worktree git config; use persist-credentials: false and remove stored credentials, indirection or fsmonitor settings; file-based hooks are disabled; refusing to publish." >&2
           exit 1
         fi
 
-        # Driver names are arbitrary. Refuse every effective filter definition,
+        # Driver names are arbitrary. Refuse every effective filter or hook definition,
         # including includes and command scope, before status can run one.
-        if [[ "$effective_config" =~ (^|$'\n')[^$'\t']+$'\t'(filter\.|core\.attributesfile=) ]]; then
-          echo "::error::Git filter drivers and alternate attributes files are unsupported; refusing to publish." >&2
+        if [[ "$effective_config" =~ (^|$'\n')[^$'\t']+$'\t'(hook\.|filter\.|core\.attributesfile=) ]]; then
+          echo "::error::Git config-defined hooks, filter drivers and alternate attributes files are unsupported; refusing to publish." >&2
           exit 1
         fi
 
@@ -123,25 +123,33 @@ runs:
         fi
 
         # Check all in-tree attributes, even ignored/untracked ones, and Git's
-        # info/default user attributes. Reject symlinks and unreadable files.
+        # info/default user attributes. Reject symlinks and unreadable files:
+        # Git skips both silently, so neither may hide an assignment.
         attribute_list=$(mktemp "${RUNNER_TEMP}/publisher-attributes.XXXXXX")
-        trap 'rm -f "$attribute_list"' EXIT
+        context_paths=$(mktemp "${RUNNER_TEMP}/publisher-paths.XXXXXX")
+        filter_values=$(mktemp "${RUNNER_TEMP}/publisher-filters.XXXXXX")
+        trap 'rm -f "$attribute_list" "$context_paths" "$filter_values"' EXIT
         git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --cached --others -z -- .gitattributes '**/.gitattributes' > "$attribute_list"
         printf '%s\0' "$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --git-path info/attributes)" "${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes" >> "$attribute_list"
         while IFS= read -r -d '' attributes; do
-          if [ -L "$attributes" ]; then
-            echo "::error::symlink attributes file; refusing to publish." >&2
+          if [ -L "$attributes" ] || { [ -e "$attributes" ] && [ ! -r "$attributes" ]; }; then
+            echo "::error::filter attributes, or a symlinked or unreadable attributes file; refusing to publish." >&2
             exit 1
           fi
-          if [ -e "$attributes" ]; then
-            attribute_status=0
-            grep -Eq '(^|[[:space:]])filter(=|[[:space:]]|$)' "$attributes" || attribute_status=$?
-            if [ "$attribute_status" != 1 ]; then
-              echo "::error::filter attributes or unreadable attributes file; refusing to publish." >&2
-              exit 1
-            fi
-          fi
         done < "$attribute_list"
+
+        # Ask Git, not a pattern, which filter every path in the build context
+        # gets: its own quoting, macro, whitespace and byte rules decide, so no
+        # spelling of an assignment can differ from what a later Git applies.
+        # Anything but unspecified (a driver name, set or unset) is refused.
+        git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --cached --others -z > "$context_paths"
+        git -c core.fsmonitor=false -c core.hooksPath=/dev/null check-attr -z --stdin filter < "$context_paths" > "$filter_values"
+        while IFS= read -r -d '' _path && IFS= read -r -d '' _attribute && IFS= read -r -d '' value; do
+          if [ "$value" != unspecified ]; then
+            echo "::error::filter attributes, or a symlinked or unreadable attributes file; refusing to publish." >&2
+            exit 1
+          fi
+        done < "$filter_values"
 
         # These variables are set by GitHub, not action inputs; the effective
         # URL (including rewrites) must still name the caller repository.

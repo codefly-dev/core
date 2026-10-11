@@ -138,13 +138,17 @@ paths marked `assume-unchanged` or `skip-worktree`. Commit generated inputs befo
 publishing. It rejects persisted credentials/indirection in effective local and
 worktree config, including includes, and requires `origin` to match the GitHub
 server/repository identity. System/global Git config and system attributes are
-disabled. Filter drivers and `core.attributesFile` in any remaining config scope,
-plus filter attributes in `.gitattributes`, Git info attributes
-or default user attributes, are unsupported. Submodules are also unsupported:
+disabled. Config-defined hooks (`hook.*`), filter drivers and `core.attributesFile`
+in any remaining config scope are unsupported, and so is any build-context path
+that Git assigns a `filter` attribute (a driver, set or unset) from `.gitattributes`,
+Git info attributes or default user attributes. The guard asks Git itself
+(`git check-attr filter` over every tracked and untracked path) rather than
+parsing attribute files, so quoting, macros, whitespace and byte rules are Git's.
+Symlinked or unreadable attribute files are refused too. Submodules are also unsupported:
 `.gitmodules`, gitlinks or retained `.git/modules/` metadata cause refusal.
 
-Fsmonitor configuration in the repository is refused. Fsmonitor and Git hooks
-are disabled on every inspection call, including hooks in `.git/hooks/` or a
+Fsmonitor configuration in the repository is refused. Fsmonitor and file-based
+Git hooks are disabled on every inspection call, including hooks in `.git/hooks/` or a
 configured `core.hooksPath`. Config values are never logged. Do not inject tokens
 through workflow/job/composite-call environment: repository inspection must
 start without a credential, not merely unexport it from an already credentialed
