@@ -16,6 +16,7 @@ import (
 	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
 	"sigs.k8s.io/kustomize/api/krusty"
+	"sigs.k8s.io/kustomize/api/resmap"
 	"sigs.k8s.io/kustomize/api/types"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 )
@@ -130,11 +131,7 @@ func ProjectServiceAccount(ctx context.Context, baseDir, namespace, serviceAccou
 	if overlay == nil {
 		return nil
 	}
-	if overlay.ServiceAccount == nil {
-		return fmt.Errorf("service account projection requires a service account")
-	}
-	overlay.DefaultServiceAccountName(serviceAccountName)
-	if err := overlay.Validate(); err != nil {
+	if err := prepareServiceAccountOverlay(serviceAccountName, overlay); err != nil {
 		return err
 	}
 	baseDir, err := filepath.Abs(baseDir)
@@ -194,91 +191,8 @@ func ProjectServiceAccount(ctx context.Context, baseDir, namespace, serviceAccou
 	if err != nil {
 		return err
 	}
-	if err := emitWorkloadServiceAccount(ctx, staging, namespace, overlay.ServiceAccount); err != nil {
+	if err = ProjectServiceAccountOnFS(ctx, filesys.MakeFsOnDisk(), staging, namespace, serviceAccountName, overlay); err != nil {
 		return err
-	}
-	result, err := applyPodOverlay(ctx, staging, overlay)
-	if err != nil {
-		return err
-	}
-	if !result.boundServiceAccount {
-		return fmt.Errorf("service account %q bound no workload in %s: no manifest there carries a pod template", overlay.ServiceAccount.Name, baseDir)
-	}
-	kustomizationPath := filepath.Join(staging, "kustomization.yaml")
-	kustomizationData, err := os.ReadFile(kustomizationPath)
-	if err != nil {
-		return err
-	}
-	var kustomization map[string]any
-	if err := yaml.Unmarshal(kustomizationData, &kustomization); err != nil {
-		return err
-	}
-	// Origin tracking identifies the emitted account after name/namespace transforms.
-	// This option is validation-only; the caller's kustomization is preserved.
-	kustomization["buildMetadata"] = []string{types.OriginAnnotations}
-	validationData, err := yaml.Marshal(kustomization)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(kustomizationPath, validationData, 0o600); err != nil {
-		return err
-	}
-	built, err := krusty.MakeKustomizer(krusty.MakeDefaultOptions()).Run(filesys.MakeFsOnDisk(), staging)
-	if err != nil {
-		return fmt.Errorf("render workload identity: %w", err)
-	}
-	if err := os.WriteFile(kustomizationPath, kustomizationData, 0o600); err != nil {
-		return err
-	}
-	resolvedAccount := ""
-	resolvedNamespace := ""
-	for _, resource := range built.Resources() {
-		origin, err := resource.GetOrigin()
-		if err != nil {
-			return err
-		}
-		if resource.GetKind() != "ServiceAccount" || origin == nil || origin.Path != "serviceaccount.yaml" || origin.Repo != "" {
-			continue
-		}
-		for key, value := range overlay.ServiceAccount.Annotations {
-			if resource.GetAnnotations()[key] != value {
-				return fmt.Errorf("workload identity conflicts with rendered service account annotation %q", key)
-			}
-		}
-		resolvedAccount = resource.GetName()
-		resolvedNamespace = resource.GetNamespace()
-	}
-	if resolvedAccount == "" {
-		return fmt.Errorf("workload identity service account is absent from the rendered kustomization")
-	}
-	bound := false
-	for _, resource := range built.Resources() {
-		data, err := resource.AsYAML()
-		if err != nil {
-			return err
-		}
-		var document yaml.Node
-		if err := yaml.Unmarshal(data, &document); err != nil {
-			return err
-		}
-		root := document.Content[0]
-		template := workloadPodTemplate(root)
-		if template == nil {
-			continue
-		}
-		if resource.GetNamespace() != resolvedNamespace || mappingScalar(mappingChild(template, "spec"), "serviceAccountName") != resolvedAccount {
-			return fmt.Errorf("workload %q does not bind declared service account %q", mappingScalar(mappingChild(root, "metadata"), "name"), resolvedAccount)
-		}
-		labels := mappingChild(mappingChild(template, "metadata"), "labels")
-		for key, value := range overlay.PodLabels {
-			if mappingScalar(labels, key) != value {
-				return fmt.Errorf("workload identity conflicts with rendered pod label %q", key)
-			}
-		}
-		bound = true
-	}
-	if !bound {
-		return fmt.Errorf("service account %q bound no workload in kustomization", overlay.ServiceAccount.Name)
 	}
 	err = filepath.WalkDir(staging, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil || entry.IsDir() {
@@ -357,6 +271,127 @@ func ProjectServiceAccount(ctx context.Context, baseDir, namespace, serviceAccou
 		return err
 	}
 	return exchangeWorkloadTree(staging, baseDir)
+}
+
+func prepareServiceAccountOverlay(name string, overlay *PodTemplateOverlay) error {
+	if overlay.ServiceAccount == nil {
+		return fmt.Errorf("service account projection requires a service account")
+	}
+	overlay.DefaultServiceAccountName(name)
+	return overlay.Validate()
+}
+
+// ProjectServiceAccountOnFS projects and validates an identity using only the
+// supplied filesystem, including the Kustomize build. The caller owns the
+// transaction: use a staged tree and publish it only after this returns nil.
+// ProjectServiceAccount supplies that transaction for ordinary disk callers.
+func ProjectServiceAccountOnFS(ctx context.Context, filesystem filesys.FileSystem, baseDir, namespace, serviceAccountName string, overlay *PodTemplateOverlay) error {
+	if overlay == nil {
+		return nil
+	}
+	if err := prepareServiceAccountOverlay(serviceAccountName, overlay); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := refuseRemoteKustomizeReferences(filesystem, baseDir); err != nil {
+		return err
+	}
+	if err := emitWorkloadServiceAccountOnFS(ctx, filesystem, baseDir, namespace, overlay.ServiceAccount); err != nil {
+		return err
+	}
+	result, err := applyPodOverlayOnFS(ctx, filesystem, baseDir, overlay)
+	if err != nil {
+		return err
+	}
+	if !result.boundServiceAccount {
+		return fmt.Errorf("service account %q bound no workload in %s: no manifest there carries a pod template", overlay.ServiceAccount.Name, baseDir)
+	}
+	kustomizationPath := filepath.Join(baseDir, "kustomization.yaml")
+	kustomizationData, err := filesystem.ReadFile(kustomizationPath)
+	if err != nil {
+		return err
+	}
+	var kustomization map[string]any
+	if err = yaml.Unmarshal(kustomizationData, &kustomization); err != nil {
+		return err
+	}
+	// Origin tracking identifies the emitted account after name/namespace transforms.
+	// This option is validation-only; the caller's kustomization is preserved.
+	kustomization["buildMetadata"] = []string{types.OriginAnnotations}
+	validationData, err := yaml.Marshal(kustomization)
+	if err != nil {
+		return err
+	}
+	if err = filesystem.WriteFile(kustomizationPath, validationData); err != nil {
+		return err
+	}
+	built, err := krusty.MakeKustomizer(krusty.MakeDefaultOptions()).Run(filesystem, baseDir)
+	if err != nil {
+		return fmt.Errorf("render workload identity: %w", err)
+	}
+	if err = filesystem.WriteFile(kustomizationPath, kustomizationData); err != nil {
+		return err
+	}
+	if err = validateServiceAccountResources(built, overlay); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func validateServiceAccountResources(built resmap.ResMap, overlay *PodTemplateOverlay) error {
+	resolvedAccount := ""
+	resolvedNamespace := ""
+	for _, resource := range built.Resources() {
+		origin, err := resource.GetOrigin()
+		if err != nil {
+			return err
+		}
+		if resource.GetKind() != "ServiceAccount" || origin == nil || origin.Path != "serviceaccount.yaml" || origin.Repo != "" {
+			continue
+		}
+		for key, value := range overlay.ServiceAccount.Annotations {
+			if resource.GetAnnotations()[key] != value {
+				return fmt.Errorf("workload identity conflicts with rendered service account annotation %q", key)
+			}
+		}
+		resolvedAccount = resource.GetName()
+		resolvedNamespace = resource.GetNamespace()
+	}
+	if resolvedAccount == "" {
+		return fmt.Errorf("workload identity service account is absent from the rendered kustomization")
+	}
+	bound := false
+	for _, resource := range built.Resources() {
+		data, err := resource.AsYAML()
+		if err != nil {
+			return err
+		}
+		var document yaml.Node
+		if err = yaml.Unmarshal(data, &document); err != nil {
+			return err
+		}
+		root := document.Content[0]
+		template := workloadPodTemplate(root)
+		if template == nil {
+			continue
+		}
+		if resource.GetNamespace() != resolvedNamespace || mappingScalar(mappingChild(template, "spec"), "serviceAccountName") != resolvedAccount {
+			return fmt.Errorf("workload %q does not bind declared service account %q", mappingScalar(mappingChild(root, "metadata"), "name"), resolvedAccount)
+		}
+		labels := mappingChild(mappingChild(template, "metadata"), "labels")
+		for key, value := range overlay.PodLabels {
+			if mappingScalar(labels, key) != value {
+				return fmt.Errorf("workload identity conflicts with rendered pod label %q", key)
+			}
+		}
+		bound = true
+	}
+	if !bound {
+		return fmt.Errorf("service account %q bound no workload in kustomization", overlay.ServiceAccount.Name)
+	}
+	return nil
 }
 
 // dns1123Subdomain matches a Kubernetes ServiceAccount name.
@@ -510,7 +545,14 @@ func uniqueVolumeName(base string, used map[string]bool) string {
 // app.kubernetes.io/managed-by: codefly ownership label is baked in here so the
 // SA is conformant by construction — no agent re-implements the label and none
 // can forget it (ValidateKubernetesManifestTree requires it on ServiceAccounts).
-func emitWorkloadServiceAccount(_ context.Context, baseDir, namespace string, sa *WorkloadServiceAccount) error {
+func emitWorkloadServiceAccount(ctx context.Context, baseDir, namespace string, sa *WorkloadServiceAccount) error {
+	return emitWorkloadServiceAccountOnFS(ctx, filesys.MakeFsOnDisk(), baseDir, namespace, sa)
+}
+
+func emitWorkloadServiceAccountOnFS(ctx context.Context, filesystem filesys.FileSystem, baseDir, namespace string, sa *WorkloadServiceAccount) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	metadata := map[string]any{
 		"name":      sa.Name,
 		"namespace": namespace,
@@ -529,7 +571,7 @@ func emitWorkloadServiceAccount(_ context.Context, baseDir, namespace string, sa
 		"metadata":   metadata,
 	}
 	path := filepath.Join(baseDir, "serviceaccount.yaml")
-	if existing, err := os.ReadFile(path); err == nil {
+	if existing, err := filesystem.ReadFile(path); err == nil {
 		var current map[string]any
 		decoder := yaml.NewDecoder(bytes.NewReader(existing))
 		if err := decoder.Decode(&current); err != nil {
@@ -573,10 +615,10 @@ func emitWorkloadServiceAccount(_ context.Context, baseDir, namespace string, sa
 	if err != nil {
 		return fmt.Errorf("marshal service account: %w", err)
 	}
-	if err = os.WriteFile(filepath.Join(baseDir, "serviceaccount.yaml"), document, 0o644); err != nil {
+	if err = filesystem.WriteFile(filepath.Join(baseDir, "serviceaccount.yaml"), document); err != nil {
 		return fmt.Errorf("write service account: %w", err)
 	}
-	return addKustomizeResource(filepath.Join(baseDir, "kustomization.yaml"), "serviceaccount.yaml")
+	return addKustomizeResourceOnFS(filesystem, filepath.Join(baseDir, "kustomization.yaml"), "serviceaccount.yaml")
 }
 
 // podTemplateWorkloadKinds have a pod template at spec.template.
@@ -624,7 +666,14 @@ type podOverlayResult struct {
 // in its own template. The write is idempotent: a field the template already
 // rendered is left untouched, so an agent mid-migration that still carries the
 // binding does not double-render it.
-func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOverlay) (podOverlayResult, error) {
+func applyPodOverlay(ctx context.Context, baseDir string, overlay *PodTemplateOverlay) (podOverlayResult, error) {
+	return applyPodOverlayOnFS(ctx, filesys.MakeFsOnDisk(), baseDir, overlay)
+}
+
+func applyPodOverlayOnFS(ctx context.Context, filesystem filesys.FileSystem, baseDir string, overlay *PodTemplateOverlay) (podOverlayResult, error) {
+	if err := ctx.Err(); err != nil {
+		return podOverlayResult{}, err
+	}
 	result := podOverlayResult{renderedConfigVolumes: map[string]bool{}}
 	if overlay == nil {
 		return result, nil
@@ -632,15 +681,15 @@ func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOver
 	if !overlay.HasServiceAccount() && len(overlay.PodLabels) == 0 && len(overlay.PodAnnotations) == 0 && !overlay.HasConfigMounts() {
 		return result, nil
 	}
-	entries, err := os.ReadDir(baseDir)
+	entries, err := filesystem.ReadDir(baseDir)
 	if err != nil {
 		return result, fmt.Errorf("read base dir: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+		if filesystem.IsDir(filepath.Join(baseDir, entry)) || !strings.HasSuffix(entry, ".yaml") {
 			continue
 		}
-		bound, volumes, err := applyPodOverlayToFile(filepath.Join(baseDir, entry.Name()), overlay)
+		bound, volumes, err := applyPodOverlayToFile(filesystem, filepath.Join(baseDir, entry), overlay)
 		if err != nil {
 			return result, err
 		}
@@ -654,8 +703,8 @@ func applyPodOverlay(_ context.Context, baseDir string, overlay *PodTemplateOver
 	return result, nil
 }
 
-func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) (bool, []string, error) {
-	content, err := os.ReadFile(path)
+func applyPodOverlayToFile(filesystem filesys.FileSystem, path string, overlay *PodTemplateOverlay) (bool, []string, error) {
+	content, err := filesystem.ReadFile(path)
 	if err != nil {
 		return false, nil, fmt.Errorf("read manifest: %w", err)
 	}
@@ -696,7 +745,7 @@ func applyPodOverlayToFile(path string, overlay *PodTemplateOverlay) (bool, []st
 	if err = encoder.Close(); err != nil {
 		return false, nil, fmt.Errorf("render manifest %s: %w", path, err)
 	}
-	if err = os.WriteFile(path, out.Bytes(), 0o644); err != nil {
+	if err = filesystem.WriteFile(path, out.Bytes()); err != nil {
 		return false, nil, err
 	}
 	return bound, volumes, nil
@@ -825,7 +874,11 @@ func mergeScalarsIfAbsent(node *yaml.Node, values map[string]string) bool {
 // idempotently. It round-trips the rendered YAML rather than editing the
 // plugin template so the wiring stays owned by core.
 func addKustomizeResource(kustomizationPath, resource string) error {
-	content, err := os.ReadFile(kustomizationPath)
+	return addKustomizeResourceOnFS(filesys.MakeFsOnDisk(), kustomizationPath, resource)
+}
+
+func addKustomizeResourceOnFS(filesystem filesys.FileSystem, kustomizationPath, resource string) error {
+	content, err := filesystem.ReadFile(kustomizationPath)
 	if err != nil {
 		return fmt.Errorf("read kustomization: %w", err)
 	}
@@ -847,5 +900,5 @@ func addKustomizeResource(kustomizationPath, resource string) error {
 	if err != nil {
 		return fmt.Errorf("marshal kustomization: %w", err)
 	}
-	return os.WriteFile(kustomizationPath, out, 0o644)
+	return filesystem.WriteFile(kustomizationPath, out)
 }
