@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -329,4 +331,44 @@ func TestDSSEAcceptsURLSafeBase64(t *testing.T) {
 	})
 	_, err := solutionhost.VerifyDelivered(context.Background(), changed, fixtureVerifier(t))
 	require.NoError(t, err)
+}
+
+// A small-order Ed25519 point accepts a fixed signature for every message, and
+// a non-canonical encoding names a point twice: neither may become a pin.
+func TestPinnedKeySetRefusesWeakEd25519Keys(t *testing.T) {
+	pinFor := func(t *testing.T, raw []byte) solutionhost.PinnedKey {
+		t.Helper()
+		der, err := x509.MarshalPKIXPublicKey(ed25519.PublicKey(raw))
+		require.NoError(t, err)
+		return solutionhost.PinnedKey{
+			KeyID: "release", Kind: solutionhost.KeyKindRelease, OwnershipDomains: []string{"example"},
+			PublicKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
+		}
+	}
+	for _, encoded := range []string{
+		// The eight points of small order.
+		"0100000000000000000000000000000000000000000000000000000000000000",
+		"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+		"0000000000000000000000000000000000000000000000000000000000000000",
+		"0000000000000000000000000000000000000000000000000000000000000080",
+		"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+		"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+		"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+		"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+		// Non-canonical encodings: y = p, y = p + 1, and the identity with x's sign bit.
+		"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+		"eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+		"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+	} {
+		t.Run(encoded[:8], func(t *testing.T) {
+			raw, err := hex.DecodeString(encoded)
+			require.NoError(t, err)
+			_, err = solutionhost.NewPinnedKeySet(pinFor(t, raw))
+			require.Error(t, err)
+		})
+	}
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, err = solutionhost.NewPinnedKeySet(pinFor(t, public))
+	require.NoError(t, err, "an ordinary key still pins")
 }

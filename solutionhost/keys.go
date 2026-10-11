@@ -8,9 +8,11 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"slices"
 	"strings"
 	"unicode"
@@ -110,7 +112,7 @@ func keyName(value string) bool {
 func validatePublicKey(public crypto.PublicKey) error {
 	switch key := public.(type) {
 	case ed25519.PublicKey:
-		if len(key) == ed25519.PublicKeySize {
+		if len(key) == ed25519.PublicKeySize && canonicalEd25519(key) && !smallOrderEd25519(key) {
 			return nil
 		}
 	case *ecdsa.PublicKey:
@@ -119,6 +121,47 @@ func validatePublicKey(public crypto.PublicKey) error {
 		}
 	}
 	return fmt.Errorf("public key must be Ed25519 or ECDSA P-256")
+}
+
+// ed25519P is the field prime 2^255 - 19.
+var ed25519P = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 255), big.NewInt(19))
+
+// canonicalEd25519 reports whether the encoded y coordinate is below the field
+// prime: a non-canonical encoding names a point a second time and is refused,
+// as libsodium refuses it.
+func canonicalEd25519(key ed25519.PublicKey) bool {
+	le := make([]byte, len(key))
+	copy(le, key)
+	le[31] &= 0x7f // the sign bit of x is not part of y
+	be := make([]byte, len(le))
+	for i := range le {
+		be[len(le)-1-i] = le[i]
+	}
+	return new(big.Int).SetBytes(be).Cmp(ed25519P) < 0
+}
+
+// ed25519SmallOrder lists the canonical encodings of the eight points of small
+// order (the identity, the point of order 2, and those of orders 4 and 8). A
+// pin on one of them would accept a fixed signature for every message.
+var ed25519SmallOrder = []string{
+	"0100000000000000000000000000000000000000000000000000000000000000",
+	"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+	"0000000000000000000000000000000000000000000000000000000000000000",
+	"0000000000000000000000000000000000000000000000000000000000000080",
+	"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+	"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+	"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+	"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+}
+
+func smallOrderEd25519(key ed25519.PublicKey) bool {
+	encoded := hex.EncodeToString(key)
+	for _, point := range ed25519SmallOrder {
+		if encoded == point {
+			return true
+		}
+	}
+	return false
 }
 
 // DomainsBySigner returns a fresh copy of the pinned domain policy for Host or
