@@ -2,7 +2,6 @@ package solutionhost_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -218,9 +217,9 @@ func deliverAuthority(t *testing.T, document *solutionhost.AuthorityDocument) *s
 	t.Helper()
 	payload, err := document.CanonicalBytes()
 	require.NoError(t, err)
-	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	carrier, err := solutionhost.Carrier(payload, fixtureEnvelope(t, payload))
 	require.NoError(t, err)
-	delivered, err := solutionhost.VerifyDeliveredAuthority(context.Background(), carrier, testBundleVerifier{})
+	delivered, err := solutionhost.VerifyDeliveredAuthority(context.Background(), carrier, verifierFor(t, pinFor(t, solutionhost.FixtureSigner(), solutionhost.KeyKindRelease, document.OwnershipDomain)))
 	require.NoError(t, err)
 	return delivered
 }
@@ -729,12 +728,6 @@ func TestTheRenderersDerivedBindingShapeIsAdmitted(t *testing.T) {
 // emptiness meant a renderer. What is wrong with that is simply that it makes
 // a security check optional and indistinguishable from its absence — nothing
 // in the call says whether the caller waived it or forgot the field.
-//
-// It was FIRST justified by a different argument, that no renderer can reach
-// Activate because Delivered's fields are unexported. That argument is false:
-// BundleVerifier is caller-supplied, so a permissive one yields a *Delivered
-// over any bytes. TestADeliveredProvesOrderingAndNotIdentity holds that fact
-// now, so the refuted claim cannot quietly come back as a comment.
 func TestActivationRequiresTheSignerPolicyAndHoldsItPerHalf(t *testing.T) {
 	presenceDocument := valid(t)
 	authorityDocument := validAuthority(t)
@@ -763,12 +756,7 @@ func TestActivationRequiresTheSignerPolicyAndHoldsItPerHalf(t *testing.T) {
 	// rejected the AUTHORITY half first and the presence branch was never
 	// reached. Round six was right. Delivering the presence half under a
 	// different signer, allowed for neither domain, is what isolates it.
-	presenceUnderAnotherSigner, err := solutionhost.VerifyDelivered(
-		context.Background(),
-		carrierOf(t, presenceDocument),
-		permissiveVerifier{as: "https://signer.example/other@refs/heads/main"},
-	)
-	require.NoError(t, err)
+	presenceUnderAnotherSigner := deliverSignedBy(t, presenceDocument, "another-release-key")
 	onlyPresenceDenied := activationOf(t, authorityDocument, presenceDocument, build)
 	onlyPresenceDenied.Presence = presenceUnderAnotherSigner
 	_, err = solutionhost.Activate(onlyPresenceDenied)
@@ -903,61 +891,6 @@ func TestARendererActivatesWithARevisionAndNotAnEnvelope(t *testing.T) {
 	request.Envelope = solutionhost.Envelope{Revision: revision}
 	_, err = solutionhost.Activate(request)
 	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
-}
-
-// A *Delivered proves ORDERING, not identity, and this test exists because I
-// claimed otherwise in a comment and used the claim to justify a change.
-//
-// The claim was that a renderer cannot obtain the *Delivered halves Activate
-// takes, Delivered's fields being unexported and VerifyDelivered its only
-// constructor. A host consumer refuted it in nine lines, below:
-// BundleVerifier is an interface the CALLER supplies, so a permissive
-// implementation returning any identity produces a *Delivered with no
-// attestation behind it. DeliveredBy's own comment already said so — the
-// signer "is a string the CALLER handed it" — which is the part I had read and
-// not connected.
-//
-// Requiring the policy was still right, for the plainer reason that an
-// optional security check is indistinguishable from its absence. But the false
-// argument was load-bearing prose: applied one file over it says
-// Host.admit's `host.Coordinate != ""` guard is pointless, and
-// TestTheCoordinateGuardIsLoadBearing shows what removing that costs.
-func TestADeliveredProvesOrderingAndNotIdentity(t *testing.T) {
-	document := valid(t)
-	payload, err := document.CanonicalBytes()
-	require.NoError(t, err)
-	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
-	require.NoError(t, err)
-
-	delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, permissiveVerifier{as: "whoever-i-say-i-am"})
-	require.NoError(t, err)
-	require.Equal(t, "whoever-i-say-i-am", delivered.DeliveredBy(),
-		"a caller-supplied BundleVerifier decides the signer, so *Delivered carries no evidence about who signed")
-
-	// What it DOES buy: those exact bytes passed through a verifier before any
-	// judgement could read them, and the document re-derives from them rather
-	// than from anything a caller held separately.
-	rederived, err := delivered.Document()
-	require.NoError(t, err)
-	require.Equal(t, document.Binding, rederived.Binding)
-
-	// And the host's policy is what turns a self-asserted signer into a
-	// refusal, which is why it is required rather than optional.
-	request := activationOf(t, validAuthority(t), document, document.Workloads[0].Image.Digest)
-	request.Presence = delivered
-	_, err = solutionhost.Activate(request)
-	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
-	require.Contains(t, err.Error(), "does not let speak for domain")
-}
-
-// permissiveVerifier accepts anything and names whatever signer it is told to.
-// It is that consumer's nine lines, kept as a test fixture because
-// the claim it refutes was in a comment, a doc, a commit message and a PR
-// comment.
-type permissiveVerifier struct{ as string }
-
-func (p permissiveVerifier) VerifyBundle(context.Context, []byte, json.RawMessage) (string, error) {
-	return p.as, nil
 }
 
 // The `host.Coordinate != ""` guard on the DomainsBySigner requirement is
@@ -1270,7 +1203,7 @@ func carrierOf(t *testing.T, document *solutionhost.SolutionHostBinding) *soluti
 	t.Helper()
 	payload, err := document.CanonicalBytes()
 	require.NoError(t, err)
-	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	carrier, err := solutionhost.Carrier(payload, fixtureEnvelope(t, payload))
 	require.NoError(t, err)
 	return carrier
 }

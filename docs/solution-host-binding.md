@@ -33,19 +33,19 @@ their *identities and revisions*, so that a document can be held against them
 and a credential can seal them — see [work-context.md](work-context.md).
 
 An `Envelope` is therefore always **supplied by the caller** and never read out
-of a document. An envelope a document carried would be a document declaring its
-own ceiling.
+of a document. A policy envelope supplied by a document would let that document declare its
+own ceiling. This host policy `Envelope` is distinct from the DSSE signature
+envelope described below.
 
-## One version, for all three documents
+## One version, for both document kinds
 
 Each document declares exactly one schema string this package reads, and the
-three carry **one version number**, stepped as a family:
+two carry **one version number**, stepped as a family:
 
 | document | schema string |
 | --- | --- |
 | presence | `codefly/solution-host-binding/v1` |
 | authority | `codefly/solution-authority/v1` |
-| signed carrier | `codefly/solution-host-signed/v1` |
 
 The *names* differ and must. The string is inside the signed canonical
 encoding, which is what binds a signature to the document TYPE: with one shared
@@ -54,10 +54,9 @@ asked for, under a signature that verifies. The `other-document-type` fixtures
 pin that refusal from both sides.
 
 The *number* is shared so there is one version to cut, pin and reason about.
-A per-document ladder meant three numbers moving independently, a reader that
-could be half-upgraded across the family, and three answers to "which version
-are we on". One number has one answer, and
-`TestSchemaConstantIsTheVersionedName` holds all three to it.
+Both kinds advance together; `TestSchemaConstantIsTheVersionedName` holds
+them to that version. The signed carrier has no separate schema field: its
+DSSE envelope authenticates the document-specific payload type and bytes.
 
 **The number is `v1`, and the earlier ladder is gone rather than retired.**
 These are the shapes this Core reads; no older shape is read, pinned, or
@@ -686,38 +685,20 @@ it, and the kind is the envelope's vocabulary".
 host that never verified a carrier had no way to find out, and the ordering the
 whole signature design rests on was a convention about naming.
 
-`Admit` takes `*Delivered` now, and `Activate` takes `*DeliveredAuthority` and
+`Admit` takes `*Delivered`, and `Activate` takes `*DeliveredAuthority` and
 `*Delivered`. Each is produced only by `VerifyDelivered` /
-`VerifyDeliveredAuthority`, which take a caller-supplied `BundleVerifier`, call
-it **first**, and build the document from the payload only when it accepts.
-Core implements no `BundleVerifier` and never will — signing is keyless over a
-workload identity, verifying is sigstore-go against an identity policy and a
-trust root the verifier holds — but core owns the **ordering**, and the
-unverified path is now unexpressible rather than merely discouraged. The
-`workcontext` half of this same change uses `*Verified`, `*Authenticated`,
-`*Inspected` and `*Decoded` for exactly this reason.
+`VerifyDeliveredAuthority`, using Core's concrete `Verifier`. The verifier
+checks the signature against the host's pinned public keys **first**, then
+checks the canonical document and the signing key's ownership domains. A
+successful result attests the pinned key ID and kind (`release` or `person`).
+The delivered types retain private copies of the signed bytes, and their
+accessors return fresh copies.
 
-A malformed document now has three layers between it and `Admit`: it has no
-canonical encoding, so `Carrier` will not wrap it, so it cannot be delivered.
-None of those is a set-wide decision — which is the withdrawn `ByDomain`
-guidance's invariant from the other side.
-
-### Who may speak for a domain
-
-A document **asserts its own** ownership domain. `Host.Domains` bounded which
-domains a host accepts at all; it did not bound who may speak for one, so any
-signer the host accepted could write any accepted domain and take over bindings
-in it. That is the keyless form of "a document nominates its own authority",
-one layer up from the key.
-
-`Host.DomainsBySigner` maps each attested identity to the domains it may
-deliver under, and is required whenever `Coordinate` is set — an unstated
-policy would let every accepted signer claim every accepted domain.
-`ActivationRequest.DomainsBySigner` applies the same policy to both halves of a
-tuple, because activation is the other place a self-asserted domain would
-otherwise be taken at its word. Core still establishes nothing about who a
-signer is: the caller's `BundleVerifier` names the identity, and this says what
-that identity is allowed to deliver.
+`Host.DomainsBySigner` maps these key IDs to the ownership domains they may
+speak for. `PinnedKeySet.DomainsBySigner()` returns a copy of that policy;
+the host can narrow it further. `Activate` applies its policy to both halves
+of a tuple. The host must still declare its coordinate, accepted domains and
+signer policy: a valid signature does not grant authority beyond them.
 
 ### What activation requires, and the three things it did not
 
@@ -844,21 +825,10 @@ the call says whether the caller waived the check or forgot the field. Deleting
 the whole branch left the entire suite green, which is how a check nobody tests
 behaves.
 
-This paragraph previously argued that a renderer **cannot obtain** the
-`*Delivered` halves, their fields being unexported. That is **false** and
-A host consumer refuted it in nine lines: `BundleVerifier` is an
-interface the *caller* supplies, so a permissive implementation returning any
-identity produces a `*Delivered` with nothing behind it — as `DeliveredBy`'s
-own comment says, the signer "is a string the caller handed it". The correction
-is recorded rather than quietly edited because the false version was
-load-bearing: applied one file over it says `Host.admit`'s `host.Coordinate !=
-""` guard is pointless, and removing that fails every test that reaches the host-free checks through a zero Host, since
-`AdmitRenderedSets` routes through `Host{}.admit`.
-
-What `*Delivered` does buy is **ordering within one codebase**, held by the
-compiler: no sequence of exported calls reaches a judgement without some
-verifier having accepted those exact bytes. It is not evidence about *who*
-signed.
+`*Delivered` attests a signature by a pinned key and preserves the verified
+payload. The host owns the pins and must supply its own configuration; the
+carrier cannot nominate a key or change that policy. The host's admission and
+activation checks still apply after cryptographic verification.
 
 A renderer wanting the same tuple rules over documents it has not signed yet
 calls `ActivateRendered`, which answers a `RenderedMatch` — deliberately not
@@ -954,79 +924,100 @@ do:
 
 ## The signature envelope
 
-Signing is **keyless**. A release is attested by CI over its workload's OIDC
-identity: the signature is by an ephemeral key a certificate authority binds to
-that identity, and **verification is an identity allowlist** — the signing
-repository, workflow path, ref pattern and OIDC issuer — checked against a trust
-root the verifier holds, never against a key the document names. Rotation
-reduces to trust-root updates, and a disconnected perimeter verifies offline
-from the bundle against a mirrored trust root.
+Delivered documents are signed by **platform-owned keys** and verified entirely
+offline against the public keys the host's trust anchor pins. DSSE signing and
+verification use only the Go standard library. No third-party signing service,
+certificate authority, public log or particular cloud provider is part of this
+path.
 
-**None of that is core's.** A trust root and an identity policy are deployment
-configuration, and the component that owns them is the component that verifies.
-So the carrier carries the bundle and core does not look inside it:
+The carrier has two fields:
 
 ```go
 type Signed struct {
-    Schema   string          `json:"schema"`   // codefly/solution-host-signed/v1
-    Document json.RawMessage `json:"document"` // the canonical bytes, verbatim
-    Bundle   json.RawMessage `json:"bundle"`   // the signature bundle, OPAQUE to core
+    Document json.RawMessage `json:"document"` // canonical bytes, verbatim
+    Envelope json.RawMessage `json:"envelope"` // DSSE JSON envelope
 }
 ```
 
-The division of labour, in order:
+The envelope is `{payloadType, payload, signatures: [{keyid, sig}]}`. `payload`
+and `sig` are base64 strings. Exactly one signature is required. The decoded
+payload must be byte-identical to the carried document. The payload type is
+fixed by the document schema:
 
-1. The caller verifies `Bundle` over `Document` with a Sigstore verifier, its
-   own trust root and its own identity allowlist.
-2. The caller hands the verified bytes to `PresenceFromVerified(payload)` or
-   `AuthorityFromVerified(payload)`, which own the document half.
+- presence: `application/vnd.codefly.solution-presence+json`;
+- authority: `application/vnd.codefly.solution-authority+json`.
+
+Both type and payload are authenticated through DSSE's pre-authentication
+encoding (PAE): `DSSEv1 <type-byte-length> <type> <payload-byte-length> <payload>`,
+with ASCII decimal lengths and the literal payload bytes. The implementation's
+golden test uses the [DSSE specification example](https://github.com/secure-systems-lab/dsse/blob/master/protocol.md#test-vectors).
+
+`keyid` selects exactly one key from the host's pins; verification never
+searches for another key after that key fails. The only accepted algorithms
+are Ed25519 and ECDSA P-256 with SHA-256 and ASN.1 DER signatures. The verifier
+resolves no URLs, trust roots or credentials and accepts no carrier-supplied
+public key or certificate.
+
+`NewPinnedKeySet(pins...)` accepts `PinnedKey` values with `KeyID`,
+`PublicKeyPEM`, `Kind`, and `OwnershipDomains`. It rejects duplicate or empty
+IDs, unsupported kinds, absent or invalid domains, and anything other than one
+parseable PKIX public-key PEM block holding Ed25519 or ECDSA P-256. The set is
+immutable after construction. Rotation replaces the host's pin set; no trust
+material travels in the delivered carrier.
 
 ```go
-signed, err := solutionhost.ParseSigned(data)        // shape only
-// ... caller verifies signed.Bundle over signed.Document, elsewhere ...
-document, err := solutionhost.PresenceFromVerified(signed.Document)
+keys, err := solutionhost.NewPinnedKeySet(solutionhost.PinnedKey{
+    KeyID:            keyID,
+    PublicKeyPEM:     publicKeyPEM, // from the host's trust anchor
+    Kind:             solutionhost.KeyKindRelease,
+    OwnershipDomains: allowedDomains,
+})
+// Handle each error before proceeding.
+verifier, err := solutionhost.NewVerifier(keys)
+signed, err := solutionhost.ParseSigned(data)
+delivered, err := solutionhost.VerifyDelivered(ctx, signed, verifier)
+identity := delivered.Signer() // verified KeyID and Kind
 ```
 
-**The names are the contract.** `FromVerified` says the caller has already
-verified; core verifies no signature, holds no trust root and interprets no
-bundle, so a successful return is **not** evidence that anything was signed.
+For authority documents, use `VerifyDeliveredAuthority`. Both entrypoints
+verify the envelope before decoding the document for admission, enforce its schema and canonical
+round-trip, and reject a key whose pinned domains do not include the document's
+ownership domain. `DeliveredBy()` returns the verified key ID for the existing
+host ownership checks. `PresenceFromVerified` and `AuthorityFromVerified` are
+only decoding helpers: they neither verify signatures nor produce a value that
+`Admit` or `Activate` accepts.
 
-**The bundle's certificate is evidence, never authority.** It is checked against
-the caller's identity allowlist. That is exactly why core refuses to interpret
-the bundle at all: a library that parsed a certificate out of a delivery
-document would be one short step from trusting what it found there, which is the
-"a document never nominates its own key" rule in its keyless form.
+Signing uses a caller-held key through `Signer`:
 
-What core does own, and all three parts matter:
+```go
+type Signer interface {
+    KeyID() string
+    Public() crypto.PublicKey
+    Sign(message []byte) ([]byte, error)
+}
 
-- **Strict decoding**, so a carrier that ships a `public_key`, a `certificate`
-  or a URL beside its bundle is refused when parsed rather than quietly
-  tolerated. `bundle` is the one opaque field, and that boundary is drawn on
-  purpose rather than by omission.
-- **The document type**, which is the `schema` string *inside* the signed bytes
-  and therefore attested rather than asserted by the carrier. A verified
-  authority payload is refused where a presence document was asked for
-  (`ErrSchema`). There is no type field on the carrier: an outer one would be an
-  unsigned claim about a signed payload.
-- **The canonical round-trip** (`ErrNotCanonical`). A payload that is not the
-  canonical encoding of the document it decodes to is refused even when the
-  attestation over it is genuine, because a signer and a host that disagree about
-  which bytes represent the document disagree about what was approved — and the
-  digest the host stores would not match the bytes that were attested.
+payload, err := solutionhost.SignedPayload(document)
+envelope, err := solutionhost.SignEnvelope(payload, signer)
+carrier, err := solutionhost.Carrier(payload, envelope)
+encoded, err := solutionhost.MarshalSigned(carrier)
+```
 
-A carrier with **no bundle** is refused: it is a document, not a signed one, and
-letting it through would make "signed" a shape rather than a claim. The bundle
-must be a JSON **object**, because a base64 string of a bundle also decodes as
-valid JSON here and two accepted shapes is two code paths in every consumer.
+`SignedPayloadFor` provides authority bytes. `SignEnvelope` derives the fixed
+payload type from the document schema. `Sign` receives the full PAE message:
+Ed25519 signs it directly; an ECDSA P-256 adapter hashes it with SHA-256 and
+returns an ASN.1 DER signature. A local keychain or Vault Transit adapter owns
+its key access and authentication; Core's interface assumes neither a cloud nor
+a custody provider. `NewInMemorySigner` copies a caller-provided private key
+for local signing, tests and fixtures. `SignEnvelope` checks the returned signature
+against `Public()` before emitting an envelope, catching an adapter that signed
+the wrong bytes or used the wrong key.
 
-**Core ships no signer and no trust store.** `SignedPayload` /
-`SignedPayloadFor` return the exact bytes to attest, so "what was signed" has
-one answer on both sides; `Carrier(payload, bundle)` assembles the delivered
-form from bytes and a bundle, and refuses a payload no consumer could
-round-trip — so a render that produced non-canonical bytes fails at the render
-rather than at the host. A test holds the package's exported declarations
-against a list of signing and trust surfaces, so `Sign`, `Signature`, `Anchor`
-or a key type cannot reappear.
+`ParseSigned` strictly decodes the carrier, rejecting unknown fields such as
+`public_key`, `certificate` or a key URL beside the envelope. An envelope is required
+and must be a JSON object. The document schema and envelope payload type must
+agree, and both are authenticated. `Carrier` refuses noncanonical payloads, and verification checks the
+same canonical round-trip (`ErrNotCanonical`) so the host stores the digest of
+exactly what was signed.
 
 ### The carrier is JSON, under a `.codefly.yaml` name
 
@@ -1066,17 +1057,18 @@ payload that survives a round trip through it.
 | A presence document is written through `Marshal`, which reads back what it wrote | `Marshal`, `ErrInvalid` |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
 | Each (principal, binding) pair is inside the caller's envelope, by exact inclusion | `ValidateAgainst`, `ErrOutsideEnvelope` |
-| An unverified document cannot reach `Admit` or `Activate` | distinct `Delivered` types, produced only through a caller's `BundleVerifier` |
+| An unverified document cannot reach `Admit` or `Activate` | distinct `Delivered` types, produced only through the pinned-key `Verifier` |
 | A domain is deliverable only by a signer the host allows | `Host.Admit` / `Activate`, `ErrWrongDomain` / `ErrNotActivated` |
 | Neither half of a tuple activates alone | `Activate`, `ErrNotActivated` |
 | Authority is granted over ONE presence binding, and activates no other | `Activate`, `ErrNotActivated` |
 | A replayed or rewritten authority generation activates nothing | `decideAuthority` via `Activate`, `ErrStaleGeneration` / `ErrRewrittenGeneration` |
 | Activation checks the ceiling it is given, rather than trusting the caller called `ValidateAgainst` | `Activate`, `ErrOutsideEnvelope` |
 | A tombstone is terminal, for a binding and for an authority alike | `decide` / `decideAuthority`, `ErrTombstoned` |
-| A document never hands a verifier the material it is checked with | strict decoding in `ParseSigned`; the bundle is the one opaque field |
-| A signed document carries a bundle, as an object | `ParseSigned`, `ErrUnsigned` |
+| A document never hands a verifier the material it is checked with | strict carrier decoding and verification against host-pinned public keys only |
+| A signed document carries a DSSE envelope, as an object | `ParseSigned`, `ErrUnsigned` |
+| The DSSE payload equals the document bytes, and its type matches the schema | `Verifier.VerifyEnvelope` |
 | An attested payload is the canonical encoding of its document, and its type is attested | `PresenceFromVerified` / `AuthorityFromVerified`, `ErrNotCanonical` / `ErrSchema` |
-| Core declares no signer, key type or trust store | held by test over the package's exported declarations |
+| One DSSE signature verifies offline using only the key its keyid identifies | `Verifier`, standard-library Ed25519 or P-256/SHA-256, pinned public keys |
 | Neither document names a credential | there is no field to put one in, held by a schema guard test |
 | An unknown field is an error, so adding one is a version step | strict decoding in `Parse`, `ParseAuthority`, `ParseSigned` |
 
@@ -1091,7 +1083,7 @@ usable binding ID.
 A **renderer** checks the set it is about to write with `AdmitRenderedSets`, over
 **parsed** documents. Its documents are not signed yet — signing happens at
 publish, and a `--local` qualification publish is never signed — so there is no
-carrier for a `BundleVerifier` to accept:
+carrier for a `Verifier` to accept:
 
 ```go
 admissions, err := solutionhost.AdmitRenderedSets(sets...) // RenderedSet per document
@@ -1126,7 +1118,8 @@ every digested file exactly once.
 
 A **host** verifies first and admits second, and the ordering is now enforced
 rather than described: `VerifyDelivered` takes the carrier and the host's own
-`BundleVerifier`, calls it, and returns a `*Delivered` only when it accepts.
+`Verifier`, verifies the signature and ownership domain, and returns a
+`*Delivered` only when both checks pass.
 `Admit` takes nothing else:
 
 ```go

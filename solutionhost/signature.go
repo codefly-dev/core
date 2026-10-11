@@ -8,9 +8,6 @@ import (
 	"io"
 )
 
-// SchemaSignedV1 is the only signature-carrier schema this package reads.
-const SchemaSignedV1 = "codefly/solution-host-signed/v1"
-
 // SignedFileName is the conventional name of a delivered signed document.
 //
 // The carrier is JSON, not YAML, even under this extension. The verified
@@ -23,8 +20,7 @@ const SignedFileName = "solution-host-binding.signed.codefly.yaml"
 
 var (
 	// ErrUnsigned means a carrier is not a signed document this package reads —
-	// a wrong schema, a missing payload, a missing bundle, or a shape that is
-	// not the envelope.
+	// a missing document, a missing envelope, or an invalid carrier shape.
 	ErrUnsigned = errors.New("solution host document is not a signed document")
 
 	// ErrNotCanonical means a payload is not the canonical encoding of the
@@ -35,57 +31,27 @@ var (
 	ErrNotCanonical = errors.New("solution host document payload is not its canonical encoding")
 )
 
-// Signed is a document and the signature bundle attesting it.
+// Signed carries a canonical document and the DSSE envelope attesting it.
+// Verification is offline, using only the Go standard library and the host's
+// pinned public keys. No third-party service or carrier-supplied trust material
+// participates. SignEnvelope uses a caller-held Signer to produce the envelope.
 //
-// # What core does and does not do here
-//
-// Core does NOT verify the bundle. It holds no trust root, no identity policy
-// and no key material, and it interprets nothing inside Bundle. Signing is
-// keyless: a release is signed by CI over its workload's OIDC identity, the
-// signature is by an ephemeral key certified with that identity, and
-// VERIFICATION IS AN IDENTITY ALLOWLIST — the signing repository, workflow
-// path, ref pattern and OIDC issuer — checked against a trust root the verifier
-// holds, never a key the document names. Rotation reduces to trust-root
-// updates. None of that belongs in a library every binary imports: a trust root
-// and an identity policy are deployment configuration, and the component that
-// owns them is the one that verifies.
-//
-// So the division is: the caller verifies the bundle over Document with a
-// Sigstore verifier and its own identity policy, and THEN hands the verified
-// bytes to PresenceFromVerified or AuthorityFromVerified, which own the
-// document half — strict parse, the schema that names the document type, and
-// the canonical round-trip.
-//
-// The bundle's certificate is EVIDENCE, checked against the caller's identity
-// allowlist. It is never read as authority. That distinction is the whole
-// reason core refuses to interpret the bundle at all: a library that parsed a
-// certificate out of a delivery document would be one short step from trusting
-// what it found there.
+// ParseSigned only decodes the carrier. VerifyDelivered and
+// VerifyDeliveredAuthority verify it before returning a document for admission.
 type Signed struct {
-	// Schema is the carrier's own version.
-	Schema string `json:"schema"`
-
-	// Document is the canonical bytes that were signed, verbatim. The document
-	// TYPE is not a field here: it is the schema inside these bytes, so it is
-	// covered by the signature. An outer type field would be an unsigned claim
-	// about a signed payload, which is worse than no field at all.
-	//
-	// Verbatim matters. Re-encoding these bytes from a parsed form would
-	// produce bytes the signature does not cover, and the only honest answer
-	// then is that nothing verifies.
+	// Document contains the canonical document bytes verbatim. Its schema and
+	// the envelope's payloadType must agree, and its bytes must be identical
+	// to the envelope's decoded payload. Re-encoding is not verification.
 	Document json.RawMessage `json:"document"`
 
-	// Bundle is the Sigstore bundle over Document, opaque to this package. It
-	// is required: a carrier with no bundle is a document, not a signed one,
-	// and letting it through would make "signed" a shape rather than a claim.
-	Bundle json.RawMessage `json:"bundle"`
+	// Envelope is a DSSE JSON object with exactly one signature.
+	Envelope json.RawMessage `json:"envelope"`
 }
 
 // ParseSigned decodes a signature carrier. Decoding is strict: an unknown field
 // is an error, which is what refuses a carrier that ships a key, a certificate
-// or a URL alongside its bundle instead of quietly dropping it. Bundle is the
-// one field whose contents this package does not look at, and that boundary is
-// deliberate rather than incidental.
+// or a URL alongside its envelope instead of quietly dropping it. Verifier
+// decodes and checks the envelope; this parser checks the carrier shape.
 func ParseSigned(data []byte) (*Signed, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -111,32 +77,20 @@ func ParseSigned(data []byte) (*Signed, error) {
 }
 
 func (signed *Signed) validate() error {
-	// THE CARRIER'S OWN SCHEMA, checked here and not only in ParseSigned.
-	//
-	// It was checked in ParseSigned alone, so the rule held for a carrier that
-	// arrived as bytes and not for one a caller constructed: VerifyDelivered
-	// calls validate() and nothing else, so a hand-built Signed claiming any
-	// schema, or none, went straight to the BundleVerifier. That is the same
-	// shape as a bound enforced in one entrypoint rather than on the one
-	// shared path, which this repository has now had to fix three times.
-	if signed.Schema != SchemaSignedV1 {
-		return fmt.Errorf("%w: schema %q (this Core reads %q)", ErrSchema, signed.Schema, SchemaSignedV1)
-	}
 	if len(bytes.TrimSpace(signed.Document)) == 0 {
 		return fmt.Errorf("%w: the carrier holds no document", ErrUnsigned)
 	}
-	// A bundle that is absent, empty or JSON null is no attestation. Core does
-	// not look inside it, but "there is one" is checkable and is the difference
-	// between a signed document and a document.
-	trimmed := bytes.TrimSpace(signed.Bundle)
+	// An envelope that is absent, empty or JSON null is no attestation. The shape
+	// parser requires its presence; Verifier checks its contents.
+	trimmed := bytes.TrimSpace(signed.Envelope)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return fmt.Errorf("%w: the carrier holds no signature bundle", ErrUnsigned)
+		return fmt.Errorf("%w: the carrier holds no signature envelope", ErrUnsigned)
 	}
-	// An object, because a bundle is one. Refusing the other JSON shapes keeps
-	// a single wire form: a base64 string of a bundle would also decode as
+	// An object, because an envelope is one. Refusing the other JSON shapes keeps
+	// a single wire form: a base64 string of an envelope would also decode as
 	// valid JSON here, and two accepted shapes is two code paths downstream.
 	if trimmed[0] != '{' {
-		return fmt.Errorf("%w: the signature bundle must be a JSON object", ErrUnsigned)
+		return fmt.Errorf("%w: the signature envelope must be a JSON object", ErrUnsigned)
 	}
 	return nil
 }
@@ -144,11 +98,10 @@ func (signed *Signed) validate() error {
 // PresenceFromVerified turns payload bytes the caller HAS ALREADY VERIFIED into
 // a presence document.
 //
-// The name is the contract. This function verifies no signature, checks no
-// certificate identity and holds no trust root — a caller that reaches it
-// without having verified the bundle over exactly these bytes has authenticated
-// nothing, and a successful return here is not evidence that anything was
-// signed.
+// This function verifies no signature and checks no pinned key. A caller
+// that reaches it without verifying the envelope over these exact bytes has
+// authenticated nothing. A successful return here is not evidence that
+// anything was signed.
 //
 // What it does own is the document half, and all three parts matter:
 //
@@ -206,8 +159,8 @@ func fromVerified[T any](
 	return document, nil
 }
 
-// documentSchema reads the schema string out of a payload that has already
-// parsed, so it cannot fail in a way a caller must handle.
+// documentSchema reads the document kind. Invalid JSON or a missing schema
+// returns an empty string, which no supported document kind accepts.
 func documentSchema(payload []byte) string {
 	var header struct {
 		Schema string `json:"schema"`
@@ -218,33 +171,29 @@ func documentSchema(payload []byte) string {
 	return header.Schema
 }
 
-// SignedPayload returns the exact bytes a signer must sign for a validated
+// SignedPayload returns the canonical payload bytes for a validated
 // presence document, and SignedPayloadFor does the same for an authority
 // document. They exist so the signing pipeline never reimplements the canonical
 // encoding, and so that "what was signed" has one answer on both sides.
 //
-// This package deliberately ships no signer. Signing is CI's, over a workload
-// identity, and the authority to sign a document that grants authority is not
-// something a library hands to every binary that imports it.
+// Pass these bytes to SignEnvelope with a platform-owned Signer.
 func SignedPayload(document *SolutionHostBinding) ([]byte, error) {
 	return document.CanonicalBytes()
 }
 
-// SignedPayloadFor returns the exact bytes a signer must sign for a validated
+// SignedPayloadFor returns the canonical payload bytes for a validated
 // authority document.
 func SignedPayloadFor(document *AuthorityDocument) ([]byte, error) {
 	return document.CanonicalBytes()
 }
 
-// Carrier assembles the delivered form from a payload and the bundle attesting
-// it. It takes the bundle as bytes and never produces one: assembling the
-// carrier is not the same authority as attesting it, and only the first belongs
-// in a library.
-func Carrier(payload []byte, bundle json.RawMessage) (*Signed, error) {
+// Carrier assembles the delivered form from a payload and the envelope attesting
+// it. SignEnvelope produces an envelope using a caller-held key. Carrier checks the
+// document shape; acceptance still requires the host's pinned-key Verifier.
+func Carrier(payload []byte, envelope json.RawMessage) (*Signed, error) {
 	signed := &Signed{
-		Schema:   SchemaSignedV1,
 		Document: bytes.Clone(payload),
-		Bundle:   bytes.Clone(bundle),
+		Envelope: bytes.Clone(envelope),
 	}
 	if err := signed.validate(); err != nil {
 		return nil, err
@@ -266,9 +215,6 @@ func Carrier(payload []byte, bundle json.RawMessage) (*Signed, error) {
 func MarshalSigned(signed *Signed) ([]byte, error) {
 	if signed == nil {
 		return nil, fmt.Errorf("%w: no signed document", ErrUnsigned)
-	}
-	if signed.Schema != SchemaSignedV1 {
-		return nil, fmt.Errorf("%w: schema %q (this Core writes %q)", ErrSchema, signed.Schema, SchemaSignedV1)
 	}
 	if err := signed.validate(); err != nil {
 		return nil, err

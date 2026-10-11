@@ -310,7 +310,7 @@ func TestOnlyOneSchemaStringIsReadAndEveryOtherIsVersionSkew(t *testing.T) {
 	document := valid(t)
 	for _, schema := range []string{
 		"", "codefly/solution-host-binding", "codefly/solution-host-binding/v4",
-		solutionhost.SchemaAuthorityV1, solutionhost.SchemaSignedV1,
+		solutionhost.SchemaAuthorityV1, "codefly/solution-host-signed/v1",
 	} {
 		document.Schema = schema
 		require.ErrorIsf(t, document.Validate(), solutionhost.ErrSchema, "schema %q", schema)

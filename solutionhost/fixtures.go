@@ -1,8 +1,12 @@
 package solutionhost
 
 import (
+	"crypto/ed25519"
+	"crypto/sha256"
+	"crypto/x509"
 	"embed"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io/fs"
 	"path"
@@ -38,7 +42,7 @@ const (
 	// DocumentTypeAuthority is an AuthorityDocument, read with ParseAuthority.
 	DocumentTypeAuthority DocumentType = "authority"
 	// DocumentTypeSigned is a signature carrier, read with ParseSigned and then
-	// PresenceFromVerified or AuthorityFromVerified, once its bundle is verified.
+	// VerifyDelivered or VerifyDeliveredAuthority using FixturePinnedKeys.
 	DocumentTypeSigned DocumentType = "signed"
 )
 
@@ -62,10 +66,9 @@ const (
 //
 // Fixtures are driven ONE AT A TIME against the fixture state for their type:
 // a presence fixture against FixtureHost, an authority fixture against
-// FixtureEnvelope, a signed fixture read after its bundle is verified
-// elsewhere. Several of them are
-// deliberately contradictory — a tombstone and a tombstone from the wrong
-// ownership domain are the same withdrawal of the same binding — so admitting
+// FixtureEnvelope, a signed fixture verified with FixturePinnedKeys. Several
+// of them are deliberately contradictory — a tombstone and a tombstone from
+// the wrong ownership domain withdraw the same binding — so admitting
 // the whole set in one call is not what any of them means.
 type Fixture struct {
 	// Name is the fixture's file name without its extension, unique within its
@@ -227,34 +230,33 @@ func FixtureEnvelope() Envelope {
 	}
 }
 
-// FixtureDeliveredBy is the delivering identity a consumer's BundleVerifier is
-// expected to name for the shipped fixtures — a keyless certificate SAN in the shape
-// a workflow identity takes. Core verifies no attestation, so this is what the
-// fixture host's signer policy is written against rather than anything core
-// checks.
-const FixtureDeliveredBy = "https://signer.example/workflow@refs/heads/main"
+// FixtureDeliveredBy is the pinned key ID used by the signed conformance kit.
+const FixtureDeliveredBy = "fixture-release"
 
-// FixtureBundle is the placeholder that stands in for a Sigstore bundle in the
-// signed fixtures.
-//
-// It is a placeholder on purpose, and the purpose is worth stating. Core does
-// not verify a bundle: signing is keyless, verification is an identity
-// allowlist checked against a trust root the verifier holds, and neither
-// belongs in a library every binary imports. So a real bundle in these
-// fixtures would be a large opaque blob that nothing here reads, would expire
-// as its certificate and transparency-log entry aged, and would invite a
-// reader to believe core checks it.
-//
-// What the fixtures CAN pin is the boundary: that a carrier without a bundle is
-// refused, that the payload must be the canonical encoding of the document it
-// decodes to, that the schema binds the document type, and that a carrier
-// nominating a key is refused when parsed. Those are core's half, and they are
-// what these fixtures drive.
-//
-// A consumer testing real verification does that against sigstore-go and its
-// own identity policy, with a bundle its own pipeline produced. That is not
-// something core can ship for it.
-const FixtureBundle = `{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","_comment":"placeholder; core verifies no bundle"}`
+// FixtureSigner returns the kit's reproducible Ed25519 signer. Its private key
+// is public test material: never pin this key in a real host's trust anchor.
+func FixtureSigner() *InMemorySigner {
+	seed := sha256.Sum256([]byte("codefly solutionhost conformance signing key"))
+	signer, err := NewInMemorySigner(FixtureDeliveredBy, ed25519.NewKeyFromSeed(seed[:]))
+	if err != nil {
+		panic(err)
+	}
+	return signer
+}
+
+// FixturePinnedKeys returns the fixture trust anchor, separately from carriers.
+// It authorizes only FixtureDomain and must never be installed on a real host.
+func FixturePinnedKeys() (*PinnedKeySet, error) {
+	der, err := x509.MarshalPKIXPublicKey(FixtureSigner().Public())
+	if err != nil {
+		return nil, err
+	}
+	return NewPinnedKeySet(PinnedKey{
+		KeyID:        FixtureDeliveredBy,
+		PublicKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
+		Kind:         KeyKindRelease, OwnershipDomains: []string{FixtureDomain},
+	})
+}
 
 // Fixtures returns every shipped conformance fixture, ordered by type and then
 // by name.
@@ -622,29 +624,29 @@ func Fixtures() []Fixture {
 		},
 		{
 			Name: string(DocumentTypePresence), Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
-			Reason: "the valid presence document as its canonical bytes, carried with a bundle; PresenceFromVerified accepts it",
+			Reason: "the valid presence document as its canonical bytes, carried with an envelope; PresenceFromVerified accepts it",
 		},
 		{
 			Name: string(DocumentTypeAuthority), Type: DocumentTypeSigned, Outcome: OutcomeAccepted,
-			Reason: "the valid authority document as its canonical bytes, carried with a bundle",
+			Reason: "the valid authority document as its canonical bytes, carried with an envelope",
 		},
 		{
 			Name: "nominates-key", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
-			Reason: "the carrier ships a public key beside its bundle; strict decoding refuses it, so a delivery document " +
+			Reason: "the carrier ships a public key beside its envelope; strict decoding refuses it, so a delivery document " +
 				"can never hand a verifier the material it is checked with",
 			Message: `unknown field "public_key"`,
 		},
 		{
-			Name: "no-bundle", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
-			Reason: "a carrier with no signature bundle is a document, not a signed one; letting it through would make " +
+			Name: "no-envelope", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
+			Reason: "a carrier with no signature envelope is a document, not a signed one; letting it through would make " +
 				"\"signed\" a shape rather than a claim",
-			Message: "the carrier holds no signature bundle",
+			Message: "the carrier holds no signature envelope",
 		},
 		{
-			Name: "bundle-not-an-object", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
-			Reason: "the bundle is a base64 string rather than the object a bundle is; one wire form, because two " +
+			Name: "envelope-not-an-object", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
+			Reason: "the envelope is a base64 string rather than the object an envelope is; one wire form, because two " +
 				"accepted shapes is two code paths in every consumer",
-			Message: "the signature bundle must be a JSON object",
+			Message: "the signature envelope must be a JSON object",
 		},
 		{
 			Name: "cross-type", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
@@ -698,12 +700,12 @@ func fixtureFile(documentType DocumentType, name string) (string, error) {
 }
 
 // signedCarrier assembles one signed-fixture carrier from a payload and a
-// bundle, without going through Carrier — several of these are carriers the
+// envelope, without going through Carrier — several of these are carriers the
 // library refuses to build, which is exactly what makes them worth shipping.
-func signedCarrier(payload, bundle string, extra string) []byte {
-	carrier := `{"schema":"` + SchemaSignedV1 + `","document":` + payload
-	if bundle != "" {
-		carrier += `,"bundle":` + bundle
+func signedCarrier(payload, envelope string, extra string) []byte {
+	carrier := `{"document":` + payload
+	if envelope != "" {
+		carrier += `,"envelope":` + envelope
 	}
 	if extra != "" {
 		carrier += "," + extra
@@ -732,22 +734,28 @@ func signedFixtures(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	wrap := func(payload []byte, extra string) ([]byte, error) {
+		envelope, err := SignEnvelope(payload, FixtureSigner())
+		if err != nil {
+			return nil, err
+		}
+		return signedCarrier(string(payload), string(envelope), extra), nil
+	}
 	switch name {
 	case "presence":
-		return signedCarrier(string(presencePayload), FixtureBundle, ""), nil
+		return wrap(presencePayload, "")
 	case "authority":
-		return signedCarrier(string(authorityPayload), FixtureBundle, ""), nil
+		return wrap(authorityPayload, "")
 	case "cross-type":
 		// An authority payload, carried where a presence document is asked
 		// for. The carrier itself is sound; the schema inside the signed bytes
 		// is what refuses it.
-		return signedCarrier(string(authorityPayload), FixtureBundle, ""), nil
+		return wrap(authorityPayload, "")
 	case "nominates-key":
-		return signedCarrier(string(presencePayload), FixtureBundle,
-			`"public_key":"MCowBQYDK2VwAyEA"`), nil
-	case "no-bundle":
+		return wrap(presencePayload, `"public_key":"MCowBQYDK2VwAyEA"`)
+	case "no-envelope":
 		return signedCarrier(string(presencePayload), "", ""), nil
-	case "bundle-not-an-object":
+	case "envelope-not-an-object":
 		return signedCarrier(string(presencePayload), `"eyJtZWRpYVR5cGUiOiJ4In0="`, ""), nil
 	case "non-canonical":
 		// Declaration-order keys: what a signer that reached for encoding/json
@@ -757,7 +765,7 @@ func signedFixtures(name string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return signedCarrier(string(declarationOrder), FixtureBundle, ""), nil
+		return wrap(declarationOrder, "")
 	}
 	return nil, fmt.Errorf("solution host signed fixture %q: no such fixture", name)
 }

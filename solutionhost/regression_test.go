@@ -218,7 +218,7 @@ func TestOneMalformedDocumentDoesNotRefuseTheRest(t *testing.T) {
 	// Admit now, and none of them is a set-wide decision.
 	payload, err := json.Marshal(bad)
 	require.NoError(t, err)
-	_, err = solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	_, err = solutionhost.Carrier(payload, fixtureEnvelope(t, payload))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "generation starts at 1")
 

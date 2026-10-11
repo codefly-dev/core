@@ -72,7 +72,7 @@ func TestEveryFieldIsTaggedForBothEncodings(t *testing.T) {
 // contract three repositories pin to. Changing one is a version step, never an
 // edit.
 //
-// ONE version number across the three, stepped as a family. The names stay
+// ONE version number across both document kinds, stepped as a family. The names stay
 // distinct because the string is inside the signed canonical encoding and is
 // what binds a signature to the document TYPE — collapsing them would let an
 // authority document be presented as a presence document under a signature
@@ -80,16 +80,15 @@ func TestEveryFieldIsTaggedForBothEncodings(t *testing.T) {
 // reason about rather than a per-document ladder, and so a reader can never be
 // half-upgraded across the family.
 func TestSchemaConstantIsTheVersionedName(t *testing.T) {
-	// Held explicitly: three names, one version.
+	// Held explicitly: two document names, one version.
 	for _, schema := range []string{
-		solutionhost.SchemaPresenceV1, solutionhost.SchemaAuthorityV1, solutionhost.SchemaSignedV1,
+		solutionhost.SchemaPresenceV1, solutionhost.SchemaAuthorityV1,
 	} {
 		require.True(t, strings.HasSuffix(schema, "/v1"), "schema %q is not at the family version", schema)
 	}
 
 	require.Equal(t, "codefly/solution-host-binding/v1", solutionhost.SchemaPresenceV1)
 	require.Equal(t, "codefly/solution-authority/v1", solutionhost.SchemaAuthorityV1)
-	require.Equal(t, "codefly/solution-host-signed/v1", solutionhost.SchemaSignedV1)
 	require.Equal(t, "solution-host-binding.codefly.yaml", solutionhost.FileName)
 	require.Equal(t, "solution-authority.codefly.yaml", solutionhost.AuthorityFileName)
 }

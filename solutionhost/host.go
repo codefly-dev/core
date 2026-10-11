@@ -167,21 +167,10 @@ type Host struct {
 	// core cannot know which delivery is entitled to a name it has never seen.
 	Domains []string
 
-	// DomainsBySigner is the host's policy: which ownership domains each
-	// SIGNER IDENTITY may deliver under. Required whenever Coordinate is set.
-	//
-	// Domains alone was not enough, and the gap is the keyless form of the
-	// thing this whole design refuses at the key level. A document ASSERTS its
-	// own ownership domain, so any signer the host accepted at all could write
-	// any domain in Domains and take over bindings in it — "a document
-	// nominates its own authority", one layer up from the key. Core cannot
-	// establish who a signer is (that is the caller's trust root, through
-	// BundleVerifier) but it can refuse a document whose attested signer is
-	// not one this host lets speak for that domain.
-	//
-	// It is host CONFIGURATION core consumes, not a trust root core resolves:
-	// the caller supplies the verified identity, and this says what that
-	// identity is allowed to deliver.
+	// DomainsBySigner maps pinned key IDs to ownership domains. Required
+	// whenever Coordinate is set. PinnedKeySet.DomainsBySigner supplies a copy
+	// of the pin policy; a host may narrow it further. A document's claimed
+	// ownership domain never grants a signer authority to deliver under it.
 	DomainsBySigner map[string][]string
 
 	// Applied is the host's durable record, at most one entry per binding ID.
@@ -229,7 +218,7 @@ type Admission struct {
 //
 // Admit decides admission only. It does not verify who signed the document or
 // how it arrived; a host still checks provenance and its expected target first.
-// Admit takes DELIVERED documents — ones whose carrier a BundleVerifier
+// Admit takes DELIVERED documents — ones whose carrier a Verifier
 // accepted — rather than parsed ones. See Delivered: "verified" used to be
 // part of a function name and nothing more, and a host that forgot to verify a
 // carrier had no way to find out.
@@ -262,7 +251,7 @@ func (host Host) Admit(delivered ...*Delivered) ([]Admission, error) {
 		if err != nil {
 			return nil, err
 		}
-		documents[index], signers[index] = document, one.signer
+		documents[index], signers[index] = document, one.signer.KeyID
 	}
 	return host.admit(documents, signers)
 }
