@@ -172,6 +172,18 @@ triggering-commit refusal must precede execution, exactly as at job level.
 re-records the unsafe mutations before requiring rejection. The execution test
 binding follows the caller through its composite to the exact refusal script.
 
+The publisher's own refusal also checks the build context, because a matching
+HEAD alone says nothing about a modified working tree. Modified/staged,
+untracked and ignored files (including submodule dirt) are refused. The caller
+must commit its Dockerfile and all generated build inputs. Before any remote
+read, local Git config is checked for persisted authorization headers, helpers,
+credential includes, token/password keys and URL rewrites or embedded URL
+credentials; a finding fails without printing values. `origin` must match the
+GitHub server and repository of the job, so a fork cannot supply the authority.
+The test caller uses a committed Dockerfile fixture through the validated
+`dockerfile` input. See the [dispatch policy](runbooks/branch-protection.md#also-needed-who-may-dispatch)
+for its package-write job.
+
 The execution check attributes every `uses:` and Git invocation. Checkout
 reads `repository`, `ref`, and `path`: another repository or an additional
 checkout directory cannot be erased by a later checkout of `main`. Unknown

@@ -17,6 +17,9 @@ inputs:
   platforms:
     description: Comma-separated os/arch pairs covered by the caller's evidence.
     default: linux/amd64,linux/arm64
+  dockerfile:
+    description: Tracked relative Dockerfile path inside the clean caller checkout.
+    default: Dockerfile
   registry-token:
     description: The caller job's GITHUB_TOKEN with packages write; passed only to registry login.
     required: true
@@ -38,6 +41,25 @@ runs:
         set -euo pipefail
         if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
           echo "::error::service images may only be published by workflow_dispatch; refusing to publish." >&2
+          exit 1
+        fi
+
+        # Never let a checkout credential enter the Docker context, or allow
+        # local helpers/includes to execute while discovering the authority.
+        # Do not print config values: they can contain the credential itself.
+        local_config=$(git config --local --no-includes --list)
+        if [[ "$local_config" =~ (^|$'\n')(http\.(.*\.)?extraheader=|credential\.|include\.|includeif\.|url\.|core\.sshcommand=|[^=]*\.(token|password)=) ]] ||
+           [[ "$local_config" =~ ://[^/[:space:]]*@ ]]; then
+          echo "::error::stored credentials or credential indirection in local git config; use persist-credentials: false; refusing to publish." >&2
+          exit 1
+        fi
+
+        # These variables are set by GitHub, not action inputs. Check the
+        # effective URL (including rewrites) before trusting origin's HEAD.
+        origin=$(git remote get-url origin)
+        expected_origin="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+        if [ "$origin" != "$expected_origin" ] && [ "$origin" != "${expected_origin}.git" ]; then
+          echo "::error::origin must be the GitHub repository running this job; refusing to publish." >&2
           exit 1
         fi
 
@@ -81,6 +103,14 @@ runs:
           exit 1
         fi
 
+        # The build consumes the working tree, not just HEAD. Include ignored
+        # files and submodule dirt: Docker can copy either into an image.
+        tree_status=$(git status --porcelain=v1 --untracked-files=all --ignored --ignore-submodules=none)
+        if [ -n "$tree_status" ]; then
+          echo "::error::build context must be the clean triggering commit, with no modified, staged, untracked or ignored files; refusing to publish." >&2
+          exit 1
+        fi
+
     # Through the environment, never interpolated into the script: a `run:`
     # built by substituting a caller-supplied string is assembled before any
     # shell sees it, so the string becomes part of the program.
@@ -94,6 +124,7 @@ runs:
         VERSION: ${{ inputs.version }}
         LOCK_FILE: ${{ inputs.lock-file }}
         PLATFORMS: ${{ inputs.platforms }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
       shell: bash
       run: |
         set -euo pipefail
@@ -116,6 +147,13 @@ runs:
           echo "platforms must be comma-separated os/arch pairs" >&2
           exit 1
         fi
+        if [[ ! "$DOCKERFILE" =~ ^[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$ ]] ||
+           [[ "/$DOCKERFILE/" == *"/../"* ]] || [[ "/$DOCKERFILE/" == *"/./"* ]] ||
+           [ ! -f "$DOCKERFILE" ] || [ -L "$DOCKERFILE" ]; then
+          echo "dockerfile must be a tracked relative regular file inside the checkout" >&2
+          exit 1
+        fi
+        git ls-files --error-unmatch -- "$DOCKERFILE" > /dev/null
         {
           echo "image=${REGISTRY}/${IMAGE_NAME}"
           echo "version=$VERSION"
@@ -136,6 +174,7 @@ runs:
       id: build
       with:
         context: .
+        file: ${{ inputs.dockerfile }}
         platforms: ${{ inputs.platforms }}
         labels: org.opencontainers.image.version=${{ steps.inputs.outputs.version }}
         outputs: type=image,name=${{ steps.inputs.outputs.image }},push-by-digest=true,name-canonical=true,push=true

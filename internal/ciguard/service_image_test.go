@@ -1,6 +1,7 @@
 package ciguard
 
 import (
+	"context"
 	"encoding/base64"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/codefly-dev/core/internal/testgit"
 	"github.com/codefly-dev/core/resources"
 )
 
@@ -76,7 +78,7 @@ func TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch(t *testi
 		{name: "a commit on no default branch", commit: "unmerged", admit: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			fixture := newReleaseFixture(t)
+			fixture := newPublishFixture(t)
 			sha := map[string]string{
 				"tip": fixture.tip, "older": fixture.older, "unmerged": fixture.unmerged,
 			}[tc.commit]
@@ -97,7 +99,7 @@ func TestNeutralisingThePublishRefusalIsVisible(t *testing.T) {
 	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	script := publishStep(t, publishRefusalStep).Run
-	fixture := newReleaseFixture(t)
+	fixture := newPublishFixture(t)
 
 	admitted, output := fixture.run(t, script, theDefaultBranch, fixture.unmerged)
 	require.False(t, admitted, "%s", output)
@@ -168,6 +170,8 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 	require.Less(t, validated, loggedIn, "the inputs are validated before the credential is used")
 
 	step := publishStep(t, publishInputsStep)
+	fixture := newPublishFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(fixture.dir, "untracked-Dockerfile"), []byte("FROM scratch\n"), 0o600))
 	valid := map[string]string{
 		"IMAGE_NAME":        "",
 		"CALLER_REPOSITORY": "codefly-dev/service-warehouse",
@@ -175,6 +179,7 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 		"LOCK_FILE":         "gateway-image.json",
 		"PLATFORMS":         "linux/amd64,linux/arm64",
 		"REGISTRY":          resources.ImageRegistry,
+		"DOCKERFILE":        "Dockerfile",
 	}
 	run := func(t *testing.T, overrides map[string]string) (bool, string, string) {
 		t.Helper()
@@ -188,6 +193,7 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 		output := filepath.Join(t.TempDir(), "output")
 		env = append(env, "GITHUB_OUTPUT="+output)
 		command := exec.Command("bash", "-c", step.Run)
+		command.Dir = fixture.dir
 		command.Env = env
 		combined, err := command.CombinedOutput()
 		written, _ := os.ReadFile(output)
@@ -211,6 +217,9 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 		"a lock file not ending in -image":     {"LOCK_FILE": "gateway.json"},
 		"platforms with a shell metacharacter": {"PLATFORMS": "linux/amd64;rm -rf /"},
 		"empty platforms":                      {"PLATFORMS": ""},
+		"absolute Dockerfile":                  {"DOCKERFILE": "/Dockerfile"},
+		"escaping Dockerfile":                  {"DOCKERFILE": "../Dockerfile"},
+		"untracked Dockerfile":                 {"DOCKERFILE": "untracked-Dockerfile"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ok, output, written := run(t, overrides)
@@ -246,7 +255,7 @@ func TestThePublishRefusalLeavesNoCredentialInTheBuildContext(t *testing.T) {
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	steps := publishSteps(t)
 	require.Equal(t, false, publishCaller(t).Jobs[publishJob].Steps[0].With["persist-credentials"])
-	fixture := newReleaseFixture(t)
+	fixture := newPublishFixture(t)
 	admitted, output := fixture.run(t, publishStep(t, publishRefusalStep).Run, theDefaultBranch, fixture.tip)
 	require.True(t, admitted, output)
 	encoded := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
@@ -313,7 +322,7 @@ func TestThePublishActionWritesTheSameLockAsItsOutput(t *testing.T) {
 func TestThePublishActionRefusesACallerCheckoutOfAnotherCommit(t *testing.T) {
 	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
-	fixture := newReleaseFixture(t)
+	fixture := newPublishFixture(t)
 	script := publishStep(t, publishRefusalStep).Run
 	admitted, output := fixture.run(t, script, theDefaultBranch, fixture.unmerged)
 	require.False(t, admitted, output) // leaves the unmerged tree checked out
@@ -323,4 +332,107 @@ func TestThePublishActionRefusesACallerCheckoutOfAnotherCommit(t *testing.T) {
 	outputBytes, err := cmd.CombinedOutput()
 	require.Error(t, err)
 	require.Contains(t, string(outputBytes), "checkout must select the triggering commit")
+}
+
+func publishGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	output, err := testgit.Run(context.Background(), dir, nil, args...)
+	require.NoError(t, err, "%s", output)
+	return strings.TrimSpace(string(output))
+}
+
+// Real file:// origin with the same server/repository identity split GitHub
+// supplies. No network or Git command is mocked.
+func newPublishFixture(t *testing.T) releaseFixture {
+	t.Helper()
+	fixture := newReleaseFixture(t)
+	origin := publishGit(t, fixture.dir, "remote", "get-url", "origin")
+	publishGit(t, fixture.dir, "remote", "set-url", "origin", "file://"+origin)
+	t.Setenv("GITHUB_SERVER_URL", "file://"+filepath.Dir(origin))
+	t.Setenv("GITHUB_REPOSITORY", strings.TrimSuffix(filepath.Base(origin), ".git"))
+	require.NoError(t, os.WriteFile(filepath.Join(fixture.dir, "Dockerfile"), []byte("FROM scratch\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(fixture.dir, ".gitignore"), []byte("ignored.bin\n"), 0o600))
+	publishGit(t, fixture.dir, "add", "Dockerfile", ".gitignore")
+	publishGit(t, fixture.dir, "commit", "-m", "committed build context")
+	fixture.tip = publishGit(t, fixture.dir, "rev-parse", "HEAD")
+	publishGit(t, fixture.dir, "push", "origin", "HEAD:refs/heads/main")
+	return fixture
+}
+
+func TestThePublishActionRefusesUncommittedBuildContext(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-read-token")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+	for _, mutation := range []string{"git restore", "staged", "untracked", "ignored"} {
+		t.Run(mutation, func(t *testing.T) {
+			fixture := newPublishFixture(t)
+			switch mutation {
+			case "git restore", "staged":
+				publishGit(t, fixture.dir, "checkout", "-b", "unmerged-dockerfile")
+				require.NoError(t, os.WriteFile(filepath.Join(fixture.dir, "Dockerfile"), []byte("FROM scratch\nLABEL unmerged=true\n"), 0o600))
+				publishGit(t, fixture.dir, "add", "Dockerfile")
+				publishGit(t, fixture.dir, "commit", "-m", "unmerged Dockerfile")
+				publishGit(t, fixture.dir, "checkout", "main")
+				args := []string{"restore", "--source=unmerged-dockerfile"}
+				if mutation == "staged" {
+					args = append(args, "--staged", "--worktree")
+				}
+				publishGit(t, fixture.dir, append(args, "--", "Dockerfile")...)
+			default:
+				name := "injected.bin"
+				if mutation == "ignored" {
+					name = "ignored.bin"
+				}
+				require.NoError(t, os.WriteFile(filepath.Join(fixture.dir, name), []byte("unreviewed"), 0o600))
+			}
+			require.Equal(t, fixture.tip, publishGit(t, fixture.dir, "rev-parse", "HEAD"))
+			admitted, output := fixture.run(t, publishStep(t, publishRefusalStep).Run, theDefaultBranch, fixture.tip)
+			require.False(t, admitted, output)
+			require.Contains(t, output, "build context must be the clean triggering commit")
+		})
+	}
+}
+
+func TestThePublishActionRefusesStoredCheckoutCredentials(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-read-token")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+	for key, value := range map[string]string{
+		"http.https://github.com/.extraheader": "AUTHORIZATION: basic fixture-secret",
+		"http.extraheader":                     "AUTHORIZATION: basic fixture-secret",
+		"credential.helper":                    "!echo fixture-secret",
+		"include.path":                         "credentials-include",
+		"includeIf.gitdir:/tmp/.path":          "credentials-include",
+		"github.token":                         "fixture-secret",
+		"remote.backup.url":                    "https://fixture-secret@example.com/repo.git",
+		"url.https://github.com/.insteadOf":    "https://other.example/",
+	} {
+		t.Run(key, func(t *testing.T) {
+			fixture := newPublishFixture(t)
+			if strings.HasPrefix(key, "include") {
+				value = filepath.Join(t.TempDir(), "credentials")
+				require.NoError(t, os.WriteFile(value, []byte("[http]\nextraheader = AUTHORIZATION: basic fixture-secret\n"), 0o600))
+			}
+			publishGit(t, fixture.dir, "config", "--local", key, value)
+			// Run directly: include/helper values must never execute even before
+			// the refusal, including through a fixture's checkout command.
+			command := exec.Command("bash", "-c", publishStep(t, publishRefusalStep).Run)
+			command.Dir = fixture.dir
+			command.Env = append(os.Environ(), "GITHUB_SHA="+fixture.tip, "GITHUB_REF_NAME=main")
+			output, err := command.CombinedOutput()
+			require.Error(t, err)
+			require.Contains(t, string(output), "stored credentials or credential indirection")
+			require.NotContains(t, string(output), "fixture-secret")
+		})
+	}
+}
+
+func TestThePublishActionRefusesAForkAsDefaultBranchAuthority(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-read-token")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+	fixture := newPublishFixture(t)
+	fork := filepath.Join(t.TempDir(), "fork.git")
+	publishGit(t, fixture.dir, "clone", "--bare", fixture.dir, fork)
+	publishGit(t, fixture.dir, "remote", "set-url", "origin", "file://"+fork)
+	admitted, output := fixture.run(t, publishStep(t, publishRefusalStep).Run, theDefaultBranch, fixture.tip)
+	require.False(t, admitted, output)
+	require.Contains(t, output, "origin must be the GitHub repository running this job")
 }

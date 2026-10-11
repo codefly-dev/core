@@ -25,15 +25,12 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
-      - name: Prepare a scratch image without executing service code
-        shell: bash
-        run: |
-          printf 'FROM scratch\nLABEL purpose="publish-service-image-test"\n' > Dockerfile
       - uses: ./.github/actions/publish-service-image
         id: publish
         with:
           image-name: core-publish-service-image-test
           version: 0.0.0
+          dockerfile: .github/actions/publish-service-image/testdata/Dockerfile
           lock-file: scratch-image.json
           registry-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Check the returned lock against the artifact's source

@@ -199,6 +199,10 @@ func safeRefusalPrelude(stmt *syntax.Stmt, remoteAuth bool) string {
 				}
 				switch args[0].Lit() {
 				case "fetch", "ls-remote", "cat-file":
+				case "config", "remote":
+					if shellText(n) != "git config --local --no-includes --list" && shellText(n) != "git remote get-url origin" {
+						why = "unattributed git configuration or remote read before the ancestry refusal"
+					}
 				default:
 					why = "git " + args[0].Lit() + " before the ancestry refusal"
 				}
@@ -290,7 +294,11 @@ func attributedShell(text string) (leaned bool, why string) {
 			}
 			verb := args[0].Lit()
 			switch verb {
-			case "fetch", "ls-remote", "rev-parse", "cat-file", "merge-base", "log", "diff", "bundle", "push", "tag", "remote", "show":
+			case "config":
+				if shellText(call) != "git config --local --no-includes --list" {
+					why = "unattributed git configuration read"
+				}
+			case "status", "ls-files", "fetch", "ls-remote", "rev-parse", "cat-file", "merge-base", "log", "diff", "bundle", "push", "tag", "remote", "show":
 			case "switch", "checkout":
 				if len(args) != 3 || args[1].Lit() != "--detach" || !proven[shellArgument(args[2])] {
 					why = "git " + shellText(call) + " puts content in the tree without showing it is reachable from " + theDefaultBranch + " first"
