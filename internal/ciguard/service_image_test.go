@@ -23,11 +23,12 @@ import (
 // string establishes nothing about what it does.
 
 const (
-	publishWorkflow    = "test-publish-service-image.yml"
-	publishAction      = ".github/actions/publish-service-image/action.yml"
-	publishJob         = "publish"
-	publishRefusalStep = "require the commit to be on the default branch, or refuse"
-	publishInputsStep  = "Validate the inputs"
+	publishWorkflow      = "test-publish-service-image.yml"
+	publishAction        = ".github/actions/publish-service-image/action.yml"
+	publishJob           = "publish"
+	publishRefusalStep   = "require the commit to be on the default branch, or refuse"
+	publishInputsStep    = "Validate the inputs"
+	publishAuthorityStep = "Resolve the default branch outside the checkout"
 )
 
 // publishSteps reads the real composite, not a copy of its scripts.
@@ -62,7 +63,6 @@ func publishStep(t *testing.T, name string) isolatedStep {
 // default branch: a dispatch can name any branch, and the Dockerfile it builds
 // runs with the registry credential.
 func TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	script := executionTestStep(t).Run
 
@@ -97,7 +97,6 @@ func TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch(t *testi
 // The refusal has to be the thing that decides: neutralising it must be
 // visible, which makes the test above one of behaviour rather than of text.
 func TestNeutralisingThePublishRefusalIsVisible(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	script := publishStep(t, publishRefusalStep).Run
 	fixture := newPublishFixture(t)
@@ -111,16 +110,15 @@ func TestNeutralisingThePublishRefusalIsVisible(t *testing.T) {
 			"rejected, so something other than the refusal decided it")
 }
 
-// The refusal takes no caller input or secret, so the authority it checks against
-// has one source, and it runs before anything the caller's tree can influence:
-// the first step after the checkout, ahead of the validation, the login that
-// receives the credential and the build that runs the Dockerfile.
+// The isolated authority read is followed immediately by inspection with only
+// its SHA as input. No credential may enter the inspecting process at startup.
 func TestThePublishRefusalTakesNoInputAndRunsFirst(t *testing.T) {
 	steps := publishSteps(t)
 	require.NotEmpty(t, steps)
-	require.Equal(t, publishRefusalStep, steps[0].Name, "the action refuses before any other step")
-	require.Equal(t, map[string]string{"GH_TOKEN": "${{ github.token }}"}, steps[0].Env,
-		"the registry-token input reaches only login; Git remote reads use the job token")
+	require.Equal(t, publishAuthorityStep, steps[0].Name)
+	require.Equal(t, publishRefusalStep, steps[1].Name)
+	require.Equal(t, map[string]string{"GH_TOKEN": "${{ github.token }}"}, steps[0].Env)
+	require.Equal(t, map[string]string{"DEFAULT_BRANCH_SHA": "${{ steps.authority.outputs.sha }}"}, steps[1].Env, "checkout inspection must start in a process with no credential in its environment")
 	checkout := publishCaller(t).Jobs[publishJob].Steps[0]
 	require.True(t, strings.HasPrefix(checkout.Uses, "actions/checkout@"))
 	require.Equal(t, false, checkout.With["persist-credentials"])
@@ -252,7 +250,6 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 // COPY . . without a .dockerignore: no token may remain in its build context.
 func TestThePublishRefusalLeavesNoCredentialInTheBuildContext(t *testing.T) {
 	const token = "fixture-read-token"
-	t.Setenv("GH_TOKEN", token)
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	steps := publishSteps(t)
 	require.Equal(t, false, publishCaller(t).Jobs[publishJob].Steps[0].With["persist-credentials"])
@@ -276,13 +273,12 @@ func TestThePublishRefusalLeavesNoCredentialInTheBuildContext(t *testing.T) {
 	})
 	require.NoError(t, err)
 	for _, step := range steps[1:] {
-		require.NotContains(t, step.Env, "GH_TOKEN", "only the refusal receives the read token")
+		require.NotContains(t, step.Env, "GH_TOKEN", "only the isolated authority read receives the token")
 	}
 }
 
 // The action also refuses an incorrectly gated caller, before remote access.
 func TestThePublishActionRefusesNonDispatchEvents(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	for _, event := range []string{"pull_request", "pull_request_target", "push", "merge_group", ""} {
 		t.Run(event, func(t *testing.T) {
 			t.Setenv("GITHUB_EVENT_NAME", event)
@@ -321,7 +317,6 @@ func TestThePublishActionWritesTheSameLockAsItsOutput(t *testing.T) {
 // Moving checkout into the caller must not let a proof of GITHUB_SHA bless a
 // different checked-out commit, even when that SHA itself was merged.
 func TestThePublishActionRefusesACallerCheckoutOfAnotherCommit(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	fixture := newPublishFixture(t)
 	script := publishStep(t, publishRefusalStep).Run
@@ -357,11 +352,12 @@ func newPublishFixture(t *testing.T) releaseFixture {
 	publishGit(t, fixture.dir, "commit", "-m", "committed build context")
 	fixture.tip = publishGit(t, fixture.dir, "rev-parse", "HEAD")
 	publishGit(t, fixture.dir, "push", "origin", "HEAD:refs/heads/main")
+	t.Setenv("RUNNER_TEMP", t.TempDir())
+	publishResolveAuthority(t, fixture)
 	return fixture
 }
 
 func TestThePublishActionRefusesUncommittedBuildContext(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	for _, mutation := range []string{"git restore", "staged", "untracked", "ignored"} {
 		t.Run(mutation, func(t *testing.T) {
@@ -394,7 +390,6 @@ func TestThePublishActionRefusesUncommittedBuildContext(t *testing.T) {
 }
 
 func TestThePublishActionRefusesStoredCheckoutCredentials(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	for _, scope := range []string{"local", "worktree"} {
 		t.Run(scope, func(t *testing.T) {
@@ -434,7 +429,6 @@ func TestThePublishActionRefusesStoredCheckoutCredentials(t *testing.T) {
 }
 
 func TestThePublishActionRefusesAForkAsDefaultBranchAuthority(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	fixture := newPublishFixture(t)
 	fork := filepath.Join(t.TempDir(), "fork.git")
@@ -447,7 +441,6 @@ func TestThePublishActionRefusesAForkAsDefaultBranchAuthority(t *testing.T) {
 
 // Status reports a clean tree for these flags even with a rewritten Dockerfile.
 func TestThePublishActionRefusesIndexFlags(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	for _, flag := range []string{"--skip-worktree", "--assume-unchanged"} {
 		t.Run(flag, func(t *testing.T) {
@@ -466,7 +459,6 @@ func TestThePublishActionRefusesIndexFlags(t *testing.T) {
 }
 
 func TestThePublishActionNeverExecutesRepositoryFSMonitor(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	for _, scope := range []string{"local", "worktree"} {
 		t.Run(scope, func(t *testing.T) {
@@ -479,7 +471,8 @@ func TestThePublishActionNeverExecutesRepositoryFSMonitor(t *testing.T) {
 			t.Setenv("FSMONITOR_MARKER", marker)
 			require.NoError(t, os.WriteFile(hook, []byte("#!/bin/sh\nprintf '%s\\n' \"${GH_TOKEN-unset}\" > \"$FSMONITOR_MARKER\"\n"), 0o700))
 			publishGit(t, fixture.dir, "config", "--"+scope, "core.fsmonitor", hook)
-			publishGit(t, fixture.dir, "status", "--porcelain=v1")
+			_, controlErr := testgit.Run(context.Background(), fixture.dir, []string{"GH_TOKEN=fixture-read-token"}, "status", "--porcelain=v1")
+			require.NoError(t, controlErr)
 			leaked, err := os.ReadFile(marker)
 			require.NoError(t, err, "the real hook must execute without the guard")
 			require.Contains(t, string(leaked), "fixture-read-token")
@@ -507,7 +500,6 @@ func TestThePublishActionNeverExecutesRepositoryFSMonitor(t *testing.T) {
 }
 
 func TestThePublishActionNeverExecutesRepositoryHooks(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	for _, placement := range []string{".git/hooks", "local", "worktree"} {
 		t.Run(placement, func(t *testing.T) {
@@ -548,29 +540,29 @@ exit 0
 			require.NoFileExists(t, marker, "no repository hook may execute inside the guard")
 
 			// Prove the override is load-bearing with actual Git hooks: removing
-			// it executes both hooks and exposes the fetch's authorization key.
+			// it executes the status hook. There is no authenticated fetch in this process.
 			mutant := strings.ReplaceAll(script, "-c core.hooksPath=/dev/null ", "")
 			require.NotEqual(t, script, mutant)
 			run(mutant, mtime.Add(time.Minute))
 			executed, err := os.ReadFile(marker)
 			require.NoError(t, err)
-			require.Contains(t, string(executed), "reference-transaction")
+			require.NotContains(t, string(executed), "reference-transaction", "inspection performs no fetch")
 			require.Contains(t, string(executed), "post-index-change")
-			require.Contains(t, string(executed), "auth-header-visible")
+			require.NotContains(t, string(executed), "auth-header-visible", "inspection has no authorization header")
 		})
 	}
 }
 
 // Git's own trace (not a wrapper/mock) observes the environment of every Git
-// process, including the authenticated remote reads. The token stays in Bash.
+// inspection process. Authentication happens in a different step entirely.
 func TestThePublishGuardDoesNotExportItsTokenToGit(t *testing.T) {
-	t.Setenv("GH_TOKEN", "fixture-read-token")
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	fixture := newPublishFixture(t)
 	t.Setenv("GIT_TRACE2_ENV_VARS", "GH_TOKEN")
 	control := filepath.Join(t.TempDir(), "control.json")
 	t.Setenv("GIT_TRACE2_EVENT", control)
-	publishGit(t, fixture.dir, "rev-parse", "HEAD")
+	_, controlErr := testgit.Run(context.Background(), fixture.dir, []string{"GH_TOKEN=fixture-read-token"}, "rev-parse", "HEAD")
+	require.NoError(t, controlErr)
 	traced, err := os.ReadFile(control)
 	require.NoError(t, err)
 	require.Contains(t, string(traced), `"param":"GH_TOKEN"`, "prove Git traces exported tokens")
@@ -585,8 +577,26 @@ func TestThePublishGuardDoesNotExportItsTokenToGit(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	traced, err = os.ReadFile(trace)
 	require.NoError(t, err)
-	require.Contains(t, string(traced), `"ls-remote"`)
+	require.NotContains(t, string(traced), `"ls-remote"`, "inspection performs no remote operations")
 	require.Contains(t, string(traced), `"status"`)
 	require.NotContains(t, string(traced), `"param":"GH_TOKEN"`)
 	require.NotContains(t, string(traced), "fixture-read-token")
+}
+
+// Execute the real authority step in its own process and directory. The token
+// is supplied only there, never through the test process or inspection env.
+func publishResolveAuthority(t *testing.T, fixture releaseFixture) {
+	t.Helper()
+	step := publishStep(t, publishAuthorityStep)
+	outputPath := filepath.Join(t.TempDir(), "output")
+	cmd := exec.Command("bash", "-c", step.Run)
+	cmd.Dir = os.Getenv("RUNNER_TEMP")
+	cmd.Env = append(os.Environ(), "GH_TOKEN=fixture-read-token", "GITHUB_EVENT_NAME=workflow_dispatch", "GITHUB_OUTPUT="+outputPath)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	written, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	sha := strings.TrimPrefix(strings.TrimSpace(string(written)), "sha=")
+	require.Equal(t, fixture.tip, sha)
+	t.Setenv("DEFAULT_BRANCH_SHA", sha)
 }

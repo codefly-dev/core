@@ -310,7 +310,7 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool
 // Re-recording one of these is NOT a way to admit a job the judgement refuses:
 // it is the last of three conjuncts and the only one a constant can satisfy.
 var recordedJobDigests = map[string]string{
-	"test-publish-service-image.yml/publish": "3d915463775c0d59b25d4e5a8663a4d8b175a635a954e7564581186a39f7bae9",
+	"test-publish-service-image.yml/publish": "e875dd81f903a3dd272657deca9b6ef068131689c5f4b8372689c686dfc5118f",
 	"combine-deps.yml/publish":               "96fa1520bff8448fea8f54c7bf6608bda3b218c34099469abeffcf0ab28a9eeb",
 	"go-service-release.yml/goreleaser":      "236e993f0419411c4093519708ebe76694d7df482bf98b8c26d8396999fd9f25",
 	"go.yml/coverage-badge":                  "f90499145fe994ba99df79a30c275d1be9396e572f853ab1bd4ea7519ec2ebc7",
@@ -341,7 +341,7 @@ const checkoutAction = "actions/checkout@"
 // Fully qualified on purpose: a bare `origin/<branch>` is an ambiguous rev that
 // a tag of the same name can win, so a refusal spelled that way is not one.
 var ancestryRefusalOfTheCheckedOutCommit = regexp.MustCompile(
-	`git\s+(?:-c\s+core\.fsmonitor=false\s+-c\s+core\.hooksPath=/dev/null\s+)?merge-base\s+--is-ancestor\s+"?\$\{?GITHUB_SHA\}?"?\s+"?refs/remotes/origin/`)
+	`git\s+(?:-c\s+core\.fsmonitor=false\s+-c\s+core\.hooksPath=/dev/null\s+)?merge-base\s+--is-ancestor\s+"?\$\{?GITHUB_SHA\}?"?\s+"?(?:refs/remotes/origin/|\$DEFAULT_BRANCH_SHA)`)
 
 // executedText is everything a step executes that this package can read: its
 // own `run:`, and the contents of every repository script that run invokes,
@@ -519,6 +519,32 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 			// decided.
 			origin, unreviewedBecause = checkoutSelectsTheDefaultBranch(step, absentIsDefault)
 			continue
+		}
+
+		if isPublisherAuthorityStep(step) {
+			if origin == treeIsAPartyChosenRef {
+				return false, "tree holds a different ref"
+			}
+			if len(wf.Env) != 0 || len(job.Env) != 0 {
+				return false, "publisher inspection must not inherit workflow/job environment"
+			}
+			for _, prior := range steps[:index] {
+				if strings.HasPrefix(prior.Uses, "./") && len(prior.Env) != 0 {
+					return false, "publisher inspection must not inherit composite environment"
+				}
+			}
+			continue
+		}
+		if strings.Contains(step.Run, "$DEFAULT_BRANCH_SHA") || step.Env["DEFAULT_BRANCH_SHA"] != "" {
+			if index == 0 || !isPublisherAuthorityStep(steps[index-1]) || len(step.Env) != 1 || step.Env["DEFAULT_BRANCH_SHA"] != "${{ steps.authority.outputs.sha }}" {
+				return false, "publisher authority must come from the preceding isolated read, with no credential in inspection env"
+			}
+			if unconditional, why := refusalIsUnconditional(step, job, wf); !unconditional {
+				return false, why
+			}
+			if why := triggeringCommitRefusalIsFirst(step.Run); why != "" {
+				return false, why
+			}
 		}
 
 		text := executedText(t, step)

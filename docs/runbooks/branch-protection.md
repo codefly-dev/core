@@ -267,12 +267,15 @@ this workflow's credential and no other identity's.
 `GITHUB_TOKEN` in its dedicated publisher job. `workflow_dispatch` is not
 restricted to the default branch: a dispatch names a ref, and the workflow file
 itself comes from that ref. The committed caller selects `main` before loading
-the local action, and the action refuses unmerged commits, dirty build contexts,
-stored credentials and a different repository as `origin`. Every guard Git call
-disables fsmonitor and Git hooks, including `.git/hooks/` and configured
-`core.hooksPath` directories, so repository hooks cannot inherit the remote-read
-authorization header. Those guards cannot constrain a branch that changes the
-workflow file itself.
+the local action. The action resolves the default-branch SHA with an isolated,
+authenticated `ls-remote` in an empty temporary directory, then inspects the
+checkout in a separate step with no credential in its environment. Do not supply
+credentials through workflow/job/composite-call environment. Inspection refuses
+unmerged commits, dirty build contexts, stored credentials, Git filters/filter
+attributes, submodules (including retained metadata), and a different repository
+as `origin`. Its Git calls disable fsmonitor and repository hooks. A default-
+branch tip missing from local history fails closed and requires a fresh run.
+These guards cannot constrain a branch that changes the workflow file itself.
 
 Restrict who can dispatch this workflow, or put its credential-bearing job in
 an environment with required reviewers. This is an operator-owned permissions
