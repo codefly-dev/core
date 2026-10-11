@@ -77,9 +77,9 @@ type AuthorityDocument struct {
 	//
 	// Detecting a replay takes more than monotonicity, and an earlier version
 	// of this comment claimed the detection existed when nothing performed it:
-	// Activate never compared this field against anything, and keyless
-	// signatures do not expire, so a genuinely signed document at generation
-	// N-1 re-granted every binding generation N had withdrawn. The fold is
+	// Activate never compared this field against anything, and
+	// signatures do not prevent replay, so a signed document at generation N-1
+	// re-granted every binding generation N had withdrawn. The fold is
 	// AppliedAuthority and decideAuthority, and Activate requires the applied
 	// record — see ActivationRequest.
 	Generation uint64 `yaml:"generation" json:"generation"`
@@ -806,7 +806,7 @@ func decideAuthority(record AppliedAuthority, document *AuthorityDocument) (Deci
 // reading it can see that the envelope and the applied record are not optional.
 type ActivationRequest struct {
 	// Authority and Presence are the two halves, each DELIVERED — a carrier a
-	// BundleVerifier accepted. Neither activates alone, and neither reaches
+	// pinned-key Verifier accepted. Neither activates alone, and neither reaches
 	// here unverified: see Delivered.
 	Authority *DeliveredAuthority
 	Presence  *Delivered
@@ -906,38 +906,8 @@ func Activate(request ActivationRequest) (Activation, error) {
 	// accepted signer claim any accepted domain" — and activation is the other
 	// place a self-asserted domain would otherwise be taken at its word.
 	//
-	// AN EARLIER VERSION OF THIS COMMENT ARGUED SOMETHING FALSE, and the
-	// correction matters more than the original claim because the false
-	// version was load-bearing prose. It said a renderer CANNOT OBTAIN the
-	// *Delivered halves this function takes, since their fields are unexported
-	// and VerifyDelivered is the only constructor. A host consumer
-	// refuted it in nine lines: BundleVerifier is an interface the CALLER
-	// supplies, so a permissive implementation returning any identity yields a
-	// *Delivered with no attestation behind it, and DeliveredBy's own comment
-	// already says the signer "is a string the CALLER handed it".
-	//
-	// Why that mattered rather than being a pedantic correction: applied
-	// consistently, the same argument says Host.admit's `host.Coordinate != ""`
-	// guard is pointless too. It is not: removing it fails every test that
-	// reaches the host-free checks through a zero Host, because
-	// AdmitRenderedSets routes through Host{}.admit and that branch is what
-	// lets a renderer reach them at all.
-	//
-	// THE COUNT IS DELIBERATELY NOT STATED. It was "three" from a consumer,
-	// then seven, then eight, then ten, then eleven — it moves every time a
-	// renderer test is added, and each figure was a floor presented as a
-	// measurement. The property is what matters: the guard is load-bearing,
-	// and TestTheCoordinateGuardIsLoadBearing holds it.
-	// branch is what lets a renderer run the host-free checks at all. A false
-	// justification for a correct change is worse than no justification: the
-	// next reader applies it one file over and removes something that works.
-	//
-	// What *Delivered actually buys is ORDERING WITHIN ONE CODEBASE, held by
-	// the compiler: no sequence of exported calls reaches a judgement without
-	// some verifier having accepted those exact bytes. That is what its type
-	// comment claims and it is worth having. It is not evidence to core about
-	// who signed, so it cannot carry an argument about what a caller is ABLE
-	// to construct.
+	// The pinned-key verifier establishes who signed; the host still supplies
+	// the policy deciding which domains those keys may activate here.
 	//
 	// A renderer that genuinely wants the match without host policy calls
 	// ActivateRendered, which takes the documents a renderer actually holds.
@@ -977,8 +947,8 @@ func Activate(request ActivationRequest) (Activation, error) {
 		signer string
 		domain string
 	}{
-		{string(DocumentTypeAuthority), request.Authority.signer, authority.OwnershipDomain},
-		{string(DocumentTypePresence), request.Presence.signer, presence.OwnershipDomain},
+		{string(DocumentTypeAuthority), request.Authority.signer.KeyID, authority.OwnershipDomain},
+		{string(DocumentTypePresence), request.Presence.signer.KeyID, presence.OwnershipDomain},
 	} {
 		if !slices.Contains(policy[half.signer], half.domain) {
 			return Activation{}, fmt.Errorf("%w: the %s half was signed by %q, which this host does not let speak for domain %q",

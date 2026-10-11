@@ -27,7 +27,7 @@ Each type is checked against its own piece of fixture state:
 | --- | --- | --- |
 | `presence` | `solutionhost.FixtureHost()` | `Parse`, then `Host.Admit` |
 | `authority` | `solutionhost.FixtureEnvelope()` | `ParseAuthority`, then `ValidateAgainst`, then `Activate` against the `valid` presence fixture |
-| `signed` | the caller's own trust root and identity allowlist, which core has none of | `ParseSigned`, then — once the bundle is verified elsewhere — `PresenceFromVerified` or `AuthorityFromVerified` |
+| `signed` | `FixturePinnedKeys()` | `ParseSigned`, then `VerifyDelivered` or `VerifyDeliveredAuthority` with `NewVerifier` |
 
 **One at a time.** Several fixtures are deliberately contradictory — `tombstone`
 and `tombstone-foreign-domain` are the same withdrawal of the same binding, from
@@ -73,12 +73,11 @@ reader drops one, or when its decoder quietly repairs a count.
   presence fixture runs — so `authority/other-build`'s refusal is "the presence
   document does not name this build" and never "the envelope did not approve
   it".
-- There is no fixture anchor and no fixture signing key for these documents.
-  Signing is keyless and core verifies no bundle, so there is nothing for core
-  to hold. `FixtureBundle` is a placeholder object that stands where a Sigstore
-  bundle goes — a real one would be a large blob nothing here reads, would expire
-  as its certificate and log entry aged, and would invite a reader to believe
-  core checks it.
+- `FixtureSigner()` holds the reproducible Ed25519 test key used to sign every
+  carrier. `FixturePinnedKeys()` pins its public key as `release` for
+  `FixtureDomain`; the pin set is supplied separately from the carrier. This
+  private key is public test material and must never be trusted by a real host.
+  `FixtureDeliveredBy` is its key ID, `fixture-release`.
 
 ## Presence fixtures
 
@@ -155,18 +154,20 @@ They are **derived, not stored**. Every one is a mechanical transform of the
 change to a document silently leaving its carrier describing the old one.
 `FixtureDocument(DocumentTypeSigned, name)` builds them on demand.
 
-Drive them by parsing the carrier, then — standing in for the bundle
-verification a consumer does with its own trust root — handing the payload to
-`PresenceFromVerified` or `AuthorityFromVerified`.
+Drive them by parsing the carrier and calling `VerifyDelivered` or
+`VerifyDeliveredAuthority` with a `Verifier` built from `FixturePinnedKeys()`.
+Every envelope is a real signature, verified offline with the same path as a
+host uses. The noncanonical fixture is also genuinely signed so its refusal
+comes from the document round-trip check.
 
 | fixture | outcome | the rule it pins |
 | --- | --- | --- |
-| `presence` | accepted | the canonical presence payload, carried with a bundle |
-| `authority` | accepted | the canonical authority payload, carried with a bundle |
+| `presence` | accepted | the canonical presence payload, carried with an envelope |
+| `authority` | accepted | the canonical authority payload, carried with an envelope |
 | `cross-type` | rejected | an authority payload where a presence document was asked for; the type is attested, inside the signed bytes, not asserted by the carrier |
-| `nominates-key` | rejected | the carrier ships a public key beside its bundle; strict decoding refuses it, so a delivery document can never hand a verifier the material it is checked with |
-| `no-bundle` | rejected | a carrier with no bundle is a document, not a signed one |
-| `bundle-not-an-object` | rejected | the bundle is a base64 string rather than the object a bundle is; one wire form, because two accepted shapes is two code paths in every consumer |
+| `nominates-key` | rejected | the carrier ships a public key beside its envelope; strict decoding refuses it, so a delivery document can never hand a verifier the material it is checked with |
+| `no-envelope` | rejected | a carrier with no envelope is a document, not a signed one |
+| `envelope-not-an-object` | rejected | the envelope is a base64 string rather than the object an envelope is; one wire form, because two accepted shapes is two code paths in every consumer |
 | `non-canonical` | rejected | bytes that are not the canonical encoding of the document they decode to, refused even when the attestation over them is genuine |
 
 `non-canonical` is `json.Marshal` of the struct: keys in Go declaration order,
@@ -174,9 +175,10 @@ collections in delivery order. That is exactly what a signer that reached for
 `encoding/json` instead of `CanonicalBytes` produces, and it parses to the same
 document — which is what makes the round-trip check worth having.
 
-## Nothing to regenerate
+## On-demand signing
 
-There is no generator and no committed signature. The signed carriers are
-derived from the documents, and core produces no attestation at all — signing is
-CI's over a workload identity, and a library that could attest a document that
-grants authority would put that authority in every binary that imports core.
+There is no committed signature to regenerate. `FixtureDocument` derives each
+carrier from the current document and signs its exact payload with
+`SignEnvelope` and `FixtureSigner`. A changed document therefore cannot leave
+behind a carrier describing its old bytes. No network, certificate or log is
+needed to create or verify the kit.

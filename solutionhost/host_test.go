@@ -2,8 +2,11 @@ package solutionhost_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
-	"errors"
+	"encoding/pem"
 	"strings"
 	"testing"
 
@@ -19,28 +22,48 @@ func fixtureHost(t *testing.T) solutionhost.Host {
 	return host
 }
 
-// fixtureDeliveredBy is the signer identity the test bundle verifier attests, and
-// the one FixtureHost and appliedHost let speak for the fixture domain.
+// fixtureDeliveredBy is the key ID pinned by FixtureHost and appliedHost.
 const fixtureDeliveredBy = solutionhost.FixtureDeliveredBy
 
-// testBundleVerifier stands in for the caller's sigstore-go verification. Core
-// implements none, so every test that needs a Delivered document supplies one
-// — which is the property under test as much as a convenience: there is no way
-// to get a Delivered without one.
-type testBundleVerifier struct {
-	signer string
-	err    error
+func fixtureEnvelope(t *testing.T, payload []byte) json.RawMessage {
+	t.Helper()
+	envelope, err := solutionhost.SignEnvelope(payload, solutionhost.FixtureSigner())
+	require.NoError(t, err)
+	return envelope
 }
 
-func (v testBundleVerifier) VerifyBundle(_ context.Context, _ []byte, _ json.RawMessage) (string, error) {
-	if v.err != nil {
-		return "", v.err
-	}
-	signer := v.signer
-	if signer == "" {
-		signer = fixtureDeliveredBy
-	}
-	return signer, nil
+func pinFor(t *testing.T, signer solutionhost.Signer, kind solutionhost.KeyKind, domains ...string) solutionhost.PinnedKey {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(signer.Public())
+	require.NoError(t, err)
+	return solutionhost.PinnedKey{KeyID: signer.KeyID(), PublicKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), Kind: kind, OwnershipDomains: domains}
+}
+
+func verifierFor(t *testing.T, pins ...solutionhost.PinnedKey) *solutionhost.Verifier {
+	t.Helper()
+	keys, err := solutionhost.NewPinnedKeySet(pins...)
+	require.NoError(t, err)
+	verifier, err := solutionhost.NewVerifier(keys)
+	require.NoError(t, err)
+	return verifier
+}
+
+func fixtureVerifier(t *testing.T) *solutionhost.Verifier {
+	t.Helper()
+	keys, err := solutionhost.FixturePinnedKeys()
+	require.NoError(t, err)
+	verifier, err := solutionhost.NewVerifier(keys)
+	require.NoError(t, err)
+	return verifier
+}
+
+func signerFor(t *testing.T, id string) *solutionhost.InMemorySigner {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := solutionhost.NewInMemorySigner(id, key)
+	require.NoError(t, err)
+	return signer
 }
 
 // deliver wraps a parsed document as one whose carrier was verified, by going
@@ -52,13 +75,17 @@ func deliver(t *testing.T, document *solutionhost.SolutionHostBinding) *solution
 	return deliverSignedBy(t, document, fixtureDeliveredBy)
 }
 
-func deliverSignedBy(t *testing.T, document *solutionhost.SolutionHostBinding, signer string) *solutionhost.Delivered {
+func deliverSignedBy(t *testing.T, document *solutionhost.SolutionHostBinding, id string) *solutionhost.Delivered {
 	t.Helper()
+	signer := signerFor(t, id)
 	payload, err := document.CanonicalBytes()
 	require.NoError(t, err)
-	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	envelope, err := solutionhost.SignEnvelope(payload, signer)
 	require.NoError(t, err)
-	delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, testBundleVerifier{signer: signer})
+	carrier, err := solutionhost.Carrier(payload, envelope)
+	require.NoError(t, err)
+	verifier := verifierFor(t, pinFor(t, signer, solutionhost.KeyKindRelease, document.OwnershipDomain))
+	delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, verifier)
 	require.NoError(t, err)
 	return delivered
 }
@@ -532,7 +559,7 @@ func TestATombstonedBindingIsNotResurrectedByAHigherGeneration(t *testing.T) {
 //
 // Domains alone bounded which domains the host accepts at all. It did not
 // bound who may speak for one, so any signer the host accepted could write any
-// accepted domain and take over bindings in it — the keyless form of "a
+// accepted domain and take over bindings in it — another form of "a
 // document nominates its own authority", one layer up from the key.
 func TestADomainIsOnlyDeliverableByASignerTheHostAllows(t *testing.T) {
 	document := parse(t, "valid")
@@ -550,7 +577,7 @@ func TestADomainIsOnlyDeliverableByASignerTheHostAllows(t *testing.T) {
 	// Another identity the host has never heard of, delivering the SAME sound
 	// document under a domain the host DOES accept. Everything about the
 	// document is fine; only the identity that attested it is not.
-	_, err = host.Admit(deliverSignedBy(t, document, "https://signer.example/someone-else@refs/heads/main"))
+	_, err = host.Admit(deliverSignedBy(t, document, "another-release-key"))
 	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
 	require.Contains(t, err.Error(), "does not let speak for it")
 }
@@ -571,27 +598,17 @@ func TestANamedHostMustDeclareWhoMaySpeakForItsDomains(t *testing.T) {
 // workcontext half of this change uses distinct types for exactly this reason;
 // the document half had been relying on "verified" being part of a function
 // name.
-func TestAdmitCannotBeReachedWithoutABundleVerifier(t *testing.T) {
-	document := parse(t, "valid")
-	payload, err := document.CanonicalBytes()
-	require.NoError(t, err)
-	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
-	require.NoError(t, err)
-
-	// No verifier at all: core will not treat its absence as one holding.
-	_, err = solutionhost.VerifyDelivered(context.Background(), carrier, nil)
+func TestAdmitCannotBeReachedWithoutAPinnedKeyVerifier(t *testing.T) {
+	carrier := parseSigned(t, "presence")
+	for _, verifier := range []*solutionhost.Verifier{nil, {}} {
+		_, err := solutionhost.VerifyDelivered(context.Background(), carrier, verifier)
+		require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+	}
+	// A different pin cannot verify the fixture's envelope.
+	verifier := verifierFor(t, pinFor(t, signerFor(t, "another-key"), solutionhost.KeyKindRelease, solutionhost.FixtureDomain))
+	_, err := solutionhost.VerifyDelivered(context.Background(), carrier, verifier)
 	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
-	require.Contains(t, err.Error(), "will not treat its absence as one holding")
-
-	// A verifier that refuses.
-	_, err = solutionhost.VerifyDelivered(context.Background(), carrier,
-		testBundleVerifier{err: errors.New("certificate identity not allowed")})
-	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
-	require.Contains(t, err.Error(), "the attestation does not hold")
-
-	// A verifier that accepts but names nobody: nothing to map to a domain.
-	_, err = solutionhost.VerifyDelivered(context.Background(), carrier, testBundleVerifier{signer: " "})
-	require.NoError(t, err, "a blank-but-present identity is the caller's business")
+	require.ErrorContains(t, err, "untrusted key ID")
 }
 
 // A renderer checks a set it is about to write, over PARSED documents, with no
@@ -728,10 +745,10 @@ func TestADeliveredIsImmutableThroughEveryAccessor(t *testing.T) {
 	document := valid(t)
 	payload, err := document.CanonicalBytes()
 	require.NoError(t, err)
-	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	carrier, err := solutionhost.Carrier(payload, fixtureEnvelope(t, payload))
 	require.NoError(t, err)
 
-	delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, testBundleVerifier{})
+	delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, fixtureVerifier(t))
 	require.NoError(t, err)
 	original, err := delivered.Document()
 	require.NoError(t, err)
@@ -772,9 +789,9 @@ func TestADeliveredIsImmutableThroughEveryAccessor(t *testing.T) {
 	authorityDocument := validAuthority(t)
 	authorityPayload, err := authorityDocument.CanonicalBytes()
 	require.NoError(t, err)
-	authorityCarrier, err := solutionhost.Carrier(authorityPayload, json.RawMessage(solutionhost.FixtureBundle))
+	authorityCarrier, err := solutionhost.Carrier(authorityPayload, fixtureEnvelope(t, authorityPayload))
 	require.NoError(t, err)
-	deliveredAuthority, err := solutionhost.VerifyDeliveredAuthority(context.Background(), authorityCarrier, testBundleVerifier{})
+	deliveredAuthority, err := solutionhost.VerifyDeliveredAuthority(context.Background(), authorityCarrier, fixtureVerifier(t))
 	require.NoError(t, err)
 
 	firstRead, err := deliveredAuthority.Document()
@@ -800,7 +817,7 @@ func TestADeliveredIsImmutableThroughEveryAccessor(t *testing.T) {
 // TestVerifyDeliveredValidatesTheCarrierItself is S10: verifyCarrier calls
 // carrier.validate(), and nothing held it.
 //
-// Without it a hand-built Signed goes straight to a BundleVerifier with
+// Without it a hand-built Signed goes straight to the pinned-key Verifier with
 // whatever shape it likes — which is how a consumer's fixtures would pass
 // locally and fail on a real carrier, since the published path through
 // MarshalSigned/ParseSigned enforces the same rules.
@@ -808,19 +825,17 @@ func TestVerifyDeliveredValidatesTheCarrierItself(t *testing.T) {
 	document := valid(t)
 	payload, err := document.CanonicalBytes()
 	require.NoError(t, err)
-	sound, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	sound, err := solutionhost.Carrier(payload, fixtureEnvelope(t, payload))
 	require.NoError(t, err)
 
 	for name, break_ := range map[string]func(*solutionhost.Signed){
-		"no schema":    func(s *solutionhost.Signed) { s.Schema = "" },
-		"wrong schema": func(s *solutionhost.Signed) { s.Schema = "codefly/not-a-carrier/v1" },
-		"no document":  func(s *solutionhost.Signed) { s.Document = nil },
-		"no bundle":    func(s *solutionhost.Signed) { s.Bundle = nil },
+		"no document": func(s *solutionhost.Signed) { s.Document = nil },
+		"no envelope": func(s *solutionhost.Signed) { s.Envelope = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			broken := *sound
 			break_(&broken)
-			_, err := solutionhost.VerifyDelivered(context.Background(), &broken, testBundleVerifier{})
+			_, err := solutionhost.VerifyDelivered(context.Background(), &broken, fixtureVerifier(t))
 			require.Error(t, err, "a malformed carrier reached the verifier")
 		})
 	}
@@ -923,9 +938,9 @@ func TestADeliveredAuthorityPayloadIsACopy(t *testing.T) {
 	document := validAuthority(t)
 	payload, err := document.CanonicalBytes()
 	require.NoError(t, err)
-	carrier, err := solutionhost.Carrier(payload, json.RawMessage(solutionhost.FixtureBundle))
+	carrier, err := solutionhost.Carrier(payload, fixtureEnvelope(t, payload))
 	require.NoError(t, err)
-	delivered, err := solutionhost.VerifyDeliveredAuthority(context.Background(), carrier, testBundleVerifier{})
+	delivered, err := solutionhost.VerifyDeliveredAuthority(context.Background(), carrier, fixtureVerifier(t))
 	require.NoError(t, err)
 
 	held := delivered.Payload()
