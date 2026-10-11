@@ -271,10 +271,11 @@ the local action. The action resolves the default-branch SHA with an isolated,
 authenticated `ls-remote` in an empty temporary directory, then inspects the
 checkout in a separate step with no credential in its environment. Do not supply
 credentials through workflow/job/composite-call environment. Inspection refuses
-unmerged commits, dirty build contexts, stored credentials, Git filters/filter
-attributes, submodules (including retained metadata), and a different repository
-as `origin`. Its Git calls disable fsmonitor and repository hooks. A default-
-branch tip missing from local history fails closed and requires a fresh run.
+unmerged commits, dirty build contexts, stored credentials, config-defined hooks,
+Git filters/filter attributes, submodules (including retained metadata), and a
+different repository as `origin`. Its Git calls disable fsmonitor and file-based
+repository hooks. A default-branch tip missing from local history fails closed
+and requires a fresh run.
 These guards cannot constrain a branch that changes the workflow file itself.
 
 Restrict who can dispatch this workflow, or put its credential-bearing job in

@@ -507,11 +507,12 @@ func TestThePublishActionNeverExecutesRepositoryFSMonitor(t *testing.T) {
 
 func TestThePublishActionNeverExecutesRepositoryHooks(t *testing.T) {
 	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
-	for _, placement := range []string{".git/hooks", "local", "worktree"} {
+	for _, placement := range []string{".git/hooks", "local", "worktree", "config-local", "config-command"} {
 		t.Run(placement, func(t *testing.T) {
 			fixture := newPublishFixture(t)
 			hooks := filepath.Join(fixture.dir, ".git", "hooks")
-			if placement != ".git/hooks" {
+			configHook := strings.HasPrefix(placement, "config-")
+			if placement != ".git/hooks" && !configHook {
 				hooks = t.TempDir()
 				if placement == "worktree" {
 					publishGit(t, fixture.dir, "config", "extensions.worktreeConfig", "true")
@@ -531,25 +532,48 @@ esac
 exit 0
 `), 0o700))
 			}
-			run := func(script string, mtime time.Time) {
+			if configHook {
+				command := filepath.Join(hooks, "post-index-change")
+				if placement == "config-local" {
+					publishGit(t, fixture.dir, "config", "--local", "hook.fixture.event", "post-index-change")
+					publishGit(t, fixture.dir, "config", "--local", "hook.fixture.command", command)
+				} else {
+					t.Setenv("GIT_CONFIG_COUNT", "2")
+					t.Setenv("GIT_CONFIG_KEY_0", "hook.fixture.event")
+					t.Setenv("GIT_CONFIG_VALUE_0", "post-index-change")
+					t.Setenv("GIT_CONFIG_KEY_1", "hook.fixture.command")
+					t.Setenv("GIT_CONFIG_VALUE_1", command)
+				}
+			}
+			run := func(script string, mtime time.Time, refused bool) {
 				// Force status to refresh the index without changing file content.
 				require.NoError(t, os.Chtimes(filepath.Join(fixture.dir, "Dockerfile"), mtime, mtime))
 				cmd := exec.Command("bash", "-c", script)
 				cmd.Dir = fixture.dir
 				cmd.Env = append(os.Environ(), "GITHUB_SHA="+fixture.tip, "GITHUB_REF_NAME=main")
 				output, err := cmd.CombinedOutput()
-				require.NoError(t, err, "%s", output)
+				if refused {
+					require.Error(t, err, "%s", output)
+					require.Contains(t, string(output), "Git config-defined hooks")
+				} else {
+					require.NoError(t, err, "%s", output)
+				}
 			}
 			script := publishStep(t, publishRefusalStep).Run
 			mtime := time.Now().Add(time.Minute)
-			run(script, mtime)
+			run(script, mtime, configHook)
 			require.NoFileExists(t, marker, "no repository hook may execute inside the guard")
 
 			// Prove the override is load-bearing with actual Git hooks: removing
 			// it executes the status hook. There is no authenticated fetch in this process.
 			mutant := strings.ReplaceAll(script, "-c core.hooksPath=/dev/null ", "")
+			if configHook {
+				// hooksPath does not disable config-defined hooks. Removing only
+				// their config refusal must admit and execute the real command.
+				mutant = strings.ReplaceAll(script, `hook\.|`, "")
+			}
 			require.NotEqual(t, script, mutant)
-			run(mutant, mtime.Add(time.Minute))
+			run(mutant, mtime.Add(time.Minute), false)
 			executed, err := os.ReadFile(marker)
 			require.NoError(t, err)
 			require.NotContains(t, string(executed), "reference-transaction", "inspection performs no fetch")

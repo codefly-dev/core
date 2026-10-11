@@ -96,20 +96,20 @@ runs:
         # repository helpers, fsmonitor or Git hooks to execute during the guard.
         # Do not print config values: they can contain the credential itself.
         # Includes inherit their scope; command scope must not hide a stored
-        # fsmonitor setting. Disable fsmonitor and all Git hooks on every call,
+        # fsmonitor setting. Disable fsmonitor and file-based Git hooks on every call,
         # including default .git/hooks and configured hooksPath directories.
         effective_config=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null config --list --show-scope --includes)
         local_config=$(printf '%s\n' "$effective_config" | awk '$1 == "local" || $1 == "worktree" { sub(/^[^\t]*\t/, ""); print }')
         if [[ "$local_config" =~ (^|$'\n')(http\.(.*\.)?extraheader=|credential\.|include\.|includeif\.|url\.|core\.(sshcommand|fsmonitor)=|[^=]*\.(token|password)=) ]] ||
            [[ "$local_config" =~ ://[^/[:space:]]*@ ]]; then
-          echo "::error::stored credentials or credential indirection, or fsmonitor in local/worktree git config; use persist-credentials: false and remove stored credentials, indirection or fsmonitor settings; hooks are disabled; refusing to publish." >&2
+          echo "::error::stored credentials or credential indirection, or fsmonitor in local/worktree git config; use persist-credentials: false and remove stored credentials, indirection or fsmonitor settings; file-based hooks are disabled; refusing to publish." >&2
           exit 1
         fi
 
-        # Driver names are arbitrary. Refuse every effective filter definition,
+        # Driver names are arbitrary. Refuse every effective filter or hook definition,
         # including includes and command scope, before status can run one.
-        if [[ "$effective_config" =~ (^|$'\n')[^$'\t']+$'\t'(filter\.|core\.attributesfile=) ]]; then
-          echo "::error::Git filter drivers and alternate attributes files are unsupported; refusing to publish." >&2
+        if [[ "$effective_config" =~ (^|$'\n')[^$'\t']+$'\t'(hook\.|filter\.|core\.attributesfile=) ]]; then
+          echo "::error::Git config-defined hooks, filter drivers and alternate attributes files are unsupported; refusing to publish." >&2
           exit 1
         fi
 
@@ -135,7 +135,9 @@ runs:
           fi
           if [ -e "$attributes" ]; then
             attribute_status=0
-            grep -Eq '(^|[[:space:]])filter(=|[[:space:]]|$)' "$attributes" || attribute_status=$?
+            # Skip comments and the (possibly C-quoted) path pattern. Only
+            # attribute tokens can select a driver; names/comments cannot.
+            grep -Eq '^[[:space:]]*("([^"\\]|\\.)*"|[^#"[:space:]][^[:space:]]*)[[:space:]]+([^[:space:]]+[[:space:]]+)*(filter=[^[:space:]]*|[-!]filter)([[:space:]]|$)' "$attributes" || attribute_status=$?
             if [ "$attribute_status" != 1 ]; then
               echo "::error::filter attributes or unreadable attributes file; refusing to publish." >&2
               exit 1
