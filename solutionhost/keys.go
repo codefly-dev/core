@@ -140,28 +140,25 @@ func canonicalEd25519(key ed25519.PublicKey) bool {
 	return new(big.Int).SetBytes(be).Cmp(ed25519P) < 0
 }
 
-// ed25519SmallOrder lists the canonical encodings of the eight points of small
-// order (the identity, the point of order 2, and those of orders 4 and 8). A
-// pin on one of them would accept a fixed signature for every message.
+// ed25519SmallOrder lists the encodings of the points of small order (the
+// identity, the point of order 2, and those of orders 4 and 8) with the sign
+// bit of x cleared. A pin on one of them would accept a fixed signature for
+// every message. The sign bit is cleared before comparing, as libsodium does:
+// the decoder accepts x = 0 with the sign bit set, so the identity and the
+// point of order 2 each have a second encoding that names the same point.
 var ed25519SmallOrder = []string{
 	"0100000000000000000000000000000000000000000000000000000000000000",
 	"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
 	"0000000000000000000000000000000000000000000000000000000000000000",
-	"0000000000000000000000000000000000000000000000000000000000000080",
 	"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
-	"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
 	"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
-	"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
 }
 
 func smallOrderEd25519(key ed25519.PublicKey) bool {
-	encoded := hex.EncodeToString(key)
-	for _, point := range ed25519SmallOrder {
-		if encoded == point {
-			return true
-		}
-	}
-	return false
+	masked := make([]byte, len(key))
+	copy(masked, key)
+	masked[31] &= 0x7f
+	return slices.Contains(ed25519SmallOrder, hex.EncodeToString(masked))
 }
 
 // DomainsBySigner returns a fresh copy of the pinned domain policy for Host or

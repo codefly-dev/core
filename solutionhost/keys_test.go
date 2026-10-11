@@ -355,12 +355,16 @@ func TestPinnedKeySetRefusesWeakEd25519Keys(t *testing.T) {
 		"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
 		"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
 		"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
-		// Non-canonical encodings: y = p, y = p + 1, and the identity with x's sign bit.
+		// The identity and the point of order 2 with x's sign bit set: x = 0,
+		// so each is a second encoding of the same small-order point.
+		"0100000000000000000000000000000000000000000000000000000000000080",
+		"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+		// Non-canonical encodings: y = p, y = p + 1, and y = p with x's sign bit.
 		"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
 		"eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
 		"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 	} {
-		t.Run(encoded[:8], func(t *testing.T) {
+		t.Run(encoded[:8]+"…"+encoded[62:], func(t *testing.T) {
 			raw, err := hex.DecodeString(encoded)
 			require.NoError(t, err)
 			_, err = solutionhost.NewPinnedKeySet(pinFor(t, raw))
