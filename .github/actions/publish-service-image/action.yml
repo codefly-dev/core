@@ -123,27 +123,33 @@ runs:
         fi
 
         # Check all in-tree attributes, even ignored/untracked ones, and Git's
-        # info/default user attributes. Reject symlinks and unreadable files.
+        # info/default user attributes. Reject symlinks and unreadable files:
+        # Git skips both silently, so neither may hide an assignment.
         attribute_list=$(mktemp "${RUNNER_TEMP}/publisher-attributes.XXXXXX")
-        trap 'rm -f "$attribute_list"' EXIT
+        context_paths=$(mktemp "${RUNNER_TEMP}/publisher-paths.XXXXXX")
+        filter_values=$(mktemp "${RUNNER_TEMP}/publisher-filters.XXXXXX")
+        trap 'rm -f "$attribute_list" "$context_paths" "$filter_values"' EXIT
         git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --cached --others -z -- .gitattributes '**/.gitattributes' > "$attribute_list"
         printf '%s\0' "$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --git-path info/attributes)" "${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes" >> "$attribute_list"
         while IFS= read -r -d '' attributes; do
-          if [ -L "$attributes" ]; then
-            echo "::error::symlink attributes file; refusing to publish." >&2
+          if [ -L "$attributes" ] || { [ -e "$attributes" ] && [ ! -r "$attributes" ]; }; then
+            echo "::error::filter attributes, or a symlinked or unreadable attributes file; refusing to publish." >&2
             exit 1
           fi
-          if [ -e "$attributes" ]; then
-            attribute_status=0
-            # Skip comments and the (possibly C-quoted) path pattern. Only
-            # attribute tokens can select a driver; names/comments cannot.
-            grep -Eq '^[[:space:]]*("([^"\\]|\\.)*"|[^#"[:space:]][^[:space:]]*)[[:space:]]+([^[:space:]]+[[:space:]]+)*(filter=[^[:space:]]*|[-!]filter)([[:space:]]|$)' "$attributes" || attribute_status=$?
-            if [ "$attribute_status" != 1 ]; then
-              echo "::error::filter attributes or unreadable attributes file; refusing to publish." >&2
-              exit 1
-            fi
-          fi
         done < "$attribute_list"
+
+        # Ask Git, not a pattern, which filter every path in the build context
+        # gets: its own quoting, macro, whitespace and byte rules decide, so no
+        # spelling of an assignment can differ from what a later Git applies.
+        # Anything but unspecified (a driver name, set or unset) is refused.
+        git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --cached --others -z > "$context_paths"
+        git -c core.fsmonitor=false -c core.hooksPath=/dev/null check-attr -z --stdin filter < "$context_paths" > "$filter_values"
+        while IFS= read -r -d '' _path && IFS= read -r -d '' _attribute && IFS= read -r -d '' value; do
+          if [ "$value" != unspecified ]; then
+            echo "::error::filter attributes, or a symlinked or unreadable attributes file; refusing to publish." >&2
+            exit 1
+          fi
+        done < "$filter_values"
 
         # These variables are set by GitHub, not action inputs; the effective
         # URL (including rewrites) must still name the caller repository.

@@ -153,14 +153,25 @@ func TestThePublishActionMatchesOnlyFilterAttributeTokens(t *testing.T) {
 		attributes string
 		refused    bool
 	}{
+		// Words and patterns that only look like assignments select nothing.
 		{"# a filter comment\n  # filter=lfs\n", false},
 		{"filter text\nfilter=lfs text\n", false},
 		{"\"path filter=lfs\" text\n", false},
+		{"Dockerfile !filter\n", false},
+		{"[attr]custom filter=lfs\n", false},
+		{"other/path filter=lfs\n", false},
+		// Every assignment Git would apply to a build-context path is refused,
+		// however it is spelled.
 		{"* text filter=lfs\n", true},
 		{"* -filter\n", true},
-		{"* !filter\n", true},
-		{"\"path with spaces\" text filter=lfs\n", true},
-		{"[attr]custom filter=lfs\n", true},
+		{"* filter\n", true},
+		{"Dockerfile\ttext\tfilter=lfs\r\n", true},
+		{"\"Dockerfile\" text filter=lfs\n", true},
+		{"\"Dockerfile\"filter=lfs\n", true},
+		{"\"[attr]x\"filter=lfs\n* x\n", true},
+		{"[attr]custom filter=lfs\n* custom\n", true},
+		{"[attr]a b\n[attr]b filter=lfs\n* a\n", true},
+		{"[!\xff]ockerfile filter=lfs\n", true},
 	} {
 		t.Run(tc.attributes, func(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(fixture.dir, ".git/info/attributes"), []byte(tc.attributes), 0o600))

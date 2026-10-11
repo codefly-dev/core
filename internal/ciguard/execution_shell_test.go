@@ -318,7 +318,7 @@ func attributedShell(text string) (leaned bool, why string) {
 				if !isRepositoryConfigRead(call) {
 					why = "unattributed git configuration read"
 				}
-			case "status", "ls-files", "fetch", "ls-remote", "rev-parse", "cat-file", "merge-base", "log", "diff", "bundle", "push", "tag", "remote", "show":
+			case "status", "ls-files", "check-attr", "fetch", "ls-remote", "rev-parse", "cat-file", "merge-base", "log", "diff", "bundle", "push", "tag", "remote", "show":
 			case "switch", "checkout":
 				if len(args) != 3 || args[1].Lit() != "--detach" || !proven[shellArgument(args[2])] {
 					why = "git " + shellText(call) + " puts content in the tree without showing it is reachable from " + theDefaultBranch + " first"

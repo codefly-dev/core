@@ -193,8 +193,12 @@ without logging values. Inspection disables global/system Git config and system
 attributes. Config-defined hooks (`hook.*`), filter drivers and alternate
 attributes files are refused in every remaining effective scope, including
 local/worktree/includes and command config.
-Filter attributes in in-tree `.gitattributes`, Git info attributes or default
-user attributes are also refused. Submodules are unsupported: declarations,
+Any build-context path that Git assigns a `filter` attribute from in-tree
+`.gitattributes`, Git info attributes or default user attributes is also
+refused. The guard asks `git check-attr filter` for every tracked and
+untracked path instead of parsing attribute files, so no spelling Git accepts
+(an unspaced quoted pattern, a macro, a non-UTF-8 byte) can slip past it;
+symlinked or unreadable attribute files are refused. Submodules are unsupported: declarations,
 gitlinks and retained `.git/modules/` metadata all refuse publication, preventing
 unscanned submodule credentials or code from entering inspection or the build.
 

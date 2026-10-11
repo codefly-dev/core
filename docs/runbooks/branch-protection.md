@@ -272,7 +272,8 @@ authenticated `ls-remote` in an empty temporary directory, then inspects the
 checkout in a separate step with no credential in its environment. Do not supply
 credentials through workflow/job/composite-call environment. Inspection refuses
 unmerged commits, dirty build contexts, stored credentials, config-defined hooks,
-Git filters/filter attributes, submodules (including retained metadata), and a
+Git filter drivers, any path Git assigns a `filter` attribute (asked of
+`git check-attr`, not parsed), submodules (including retained metadata), and a
 different repository as `origin`. Its Git calls disable fsmonitor and file-based
 repository hooks. A default-branch tip missing from local history fails closed
 and requires a fresh run.
