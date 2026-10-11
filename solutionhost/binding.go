@@ -77,6 +77,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -181,6 +182,12 @@ var bindingPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,126}[A-Za-
 // a host's reserved namespace ("codefly", "codefly/admin") is a prefix of the
 // aliases it reserves.
 var namePattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$`)
+
+// registryPortPrefix is the registry host of an image repository that names a
+// port, as an OCI reference spells it: "<host>:<port>/". A repository whose
+// registry runs on the default port needs no prefix of its own — its host is an
+// ordinary first path component of namePattern.
+var registryPortPrefix = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*:([0-9]{1,5})/`)
 
 // release publishers and names are single-segment. Identity() joins them with
 // "/" and "@", so a "/" inside either part would let two different releases
@@ -913,13 +920,21 @@ func (document *SolutionHostBinding) validateWorkloads() error {
 }
 
 func (image Image) validate(workload string) error {
-	if !namePattern.MatchString(image.Repository) {
-		return fmt.Errorf("%w: workload %q image repository %q is invalid", ErrInvalid, workload, image.Repository)
-	}
 	// A repository carrying its own tag or digest would give one container two
-	// answers about what it runs, and the mutable one would usually win.
-	if strings.ContainsAny(image.Repository, ":@") {
+	// answers about what it runs, and the mutable one would usually win. Only
+	// a registry port in the first component may carry a ':'.
+	path := image.Repository
+	if match := registryPortPrefix.FindStringSubmatch(path); match != nil {
+		if port, err := strconv.Atoi(match[1]); err != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("%w: workload %q image repository %q names an invalid registry port", ErrInvalid, workload, image.Repository)
+		}
+		path = path[len(match[0]):]
+	}
+	if strings.ContainsAny(path, ":@") {
 		return fmt.Errorf("%w: workload %q image repository %q carries a tag or digest; the approved build is the digest field", ErrInvalid, workload, image.Repository)
+	}
+	if !namePattern.MatchString(path) {
+		return fmt.Errorf("%w: workload %q image repository %q is invalid", ErrInvalid, workload, image.Repository)
 	}
 	if !digestPattern.MatchString(string(image.Digest)) {
 		return fmt.Errorf("%w: workload %q requires a SHA-256 OCI image manifest digest, got %q", ErrInvalid, workload, image.Digest)

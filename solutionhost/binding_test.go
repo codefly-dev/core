@@ -429,7 +429,28 @@ func TestValidationRejectsEachWayTheDocumentCanLie(t *testing.T) {
 		"undeclared exclusion list": func(d *solutionhost.SolutionHostBinding) {
 			d.Workloads[0].NonAuthenticating = nil
 		},
-		"no image repository":  func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Image.Repository = "" },
+		"no image repository": func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Image.Repository = "" },
+		"image repository with a tag": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].Image.Repository = "registry.example/team/api:v1"
+		},
+		"tag after a registry port": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].Image.Repository = "localhost:5001/team/api:v1"
+		},
+		"image repository with a digest": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].Image.Repository = "registry.example/team/api@sha256"
+		},
+		"registry port with no path": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].Image.Repository = "localhost:5001"
+		},
+		"registry port zero": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].Image.Repository = "localhost:0/team/api"
+		},
+		"registry port out of range": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].Image.Repository = "localhost:65536/team/api"
+		},
+		"uppercase registry host": func(d *solutionhost.SolutionHostBinding) {
+			d.Workloads[0].Image.Repository = "Registry:5000/team/api"
+		},
 		"no workload audience": func(d *solutionhost.SolutionHostBinding) { d.Workloads[0].Identity.Audience = "" },
 		"multi-line workload subject": func(d *solutionhost.SolutionHostBinding) {
 			d.Workloads[0].Identity.Subject = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----"
@@ -755,4 +776,24 @@ func TestTheExclusionListMustBeDeclaredExplicitly(t *testing.T) {
 	require.Contains(t, string(canonical), `"non_authenticating":[]`)
 	_, err = solutionhost.Parse(canonical)
 	require.NoError(t, err)
+}
+
+// A registry that serves on a port of its own — a local cluster's registry, an
+// internal mirror — is named as an OCI reference names it, "<host>:<port>/".
+// The port is the only ':' a repository may carry.
+func TestImageRepositoryMayNameARegistryPort(t *testing.T) {
+	for _, repository := range []string{
+		"localhost:5001/platform/saas/accounts",
+		"registry.internal.example:5000/team/api",
+		"k3d-registry:65535/api",
+		"registry.example/team/api",
+	} {
+		t.Run(repository, func(t *testing.T) {
+			document := valid(t)
+			document.Workloads[0].Image.Repository = repository
+			if err := document.Validate(); err != nil {
+				t.Fatalf("a valid repository was refused: %v", err)
+			}
+		})
+	}
 }
