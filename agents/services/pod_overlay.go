@@ -295,6 +295,9 @@ func ProjectServiceAccountOnFS(ctx context.Context, filesystem filesys.FileSyste
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := refuseRemoteKustomizeReferences(filesystem, baseDir); err != nil {
+		return err
+	}
 	if err := emitWorkloadServiceAccountOnFS(ctx, filesystem, baseDir, namespace, overlay.ServiceAccount); err != nil {
 		return err
 	}
