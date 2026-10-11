@@ -28,11 +28,17 @@ func TestCompositePublisherEstablishesExecutionAcrossTheCallBoundary(t *testing.
 		{"conditional composite", strings.Replace(caller, "        id: publish", "        if: success()\n        id: publish", 1), withCheckout, "composite call can skip"},
 		{"nonfatal composite", strings.Replace(caller, "        id: publish", "        continue-on-error: true\n        id: publish", 1), withCheckout, "composite call can skip"},
 		{"composite environment", strings.Replace(caller, "        id: publish", "        env:\n          BASH_ENV: ./hostile.sh\n        id: publish", 1), withCheckout, "execution-changing environment"},
-		{"conditional nested refusal", caller, strings.Replace(withCheckout, "      env:\n", "      if: success()\n      env:\n", 1), "so it can be skipped"},
-		{"nonfatal nested refusal", caller, strings.Replace(withCheckout, "      env:\n", "      continue-on-error: true\n      env:\n", 1), "exit status stops nothing"},
+		{"conditional nested refusal", caller, strings.Replace(withCheckout, "    - name: require", "    - if: success()\n      name: require", 1), "so it can be skipped"},
+		{"nonfatal nested refusal", caller, strings.Replace(withCheckout, "    - name: require", "    - continue-on-error: true\n      name: require", 1), "exit status stops nothing"},
 		{"nested wrong checkout", caller, strings.Replace(withCheckout, "        persist-credentials: false", "        ref: ${{ github.head_ref }}\n        persist-credentials: false", 1), "tree holds a different ref"},
 		{"nested execution before refusal", caller, strings.Replace(withCheckout, "    - name: require", "    - run: ./unreviewed.sh\n      shell: bash\n    - name: require", 1), "refusal ahead of everything"},
 		{"nested repoint after refusal", caller, strings.Replace(withCheckout, "    - name: Validate", "    - run: git checkout FETCH_HEAD\n      shell: bash\n    - name: Validate", 1), "without showing it is reachable"},
+		{"authority must clear inherited Git config", caller, strings.Replace(action, "env -i PATH=", "env PATH=", 1), "unattributed command indirection"},
+		{"authority must not run in the checkout", caller, strings.Replace(action, "working-directory: ${{ runner.temp }}", "working-directory: .", 1), "unattributed command indirection"},
+		{"inspection cannot receive a token", caller, strings.Replace(action, "        DEFAULT_BRANCH_SHA:", "        GH_TOKEN: ${{ github.token }}\n        DEFAULT_BRANCH_SHA:", 1), "no credential in inspection env"},
+		{"authority output cannot be caller selected", caller, strings.Replace(action, "${{ steps.authority.outputs.sha }}", "${{ inputs.version }}", 1), "preceding isolated read"},
+		{"workflow credential cannot leak into inspection", "env:\n  GH_TOKEN: ${{ github.token }}\n" + caller, action, "must not inherit workflow/job environment"},
+		{"composite credential cannot leak into inspection", strings.Replace(caller, "        id: publish", "        env:\n          GH_TOKEN: ${{ github.token }}\n        id: publish", 1), action, "must not inherit composite environment"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			wf := parseIsolatedDocument(t, tc.caller, publishWorkflow)

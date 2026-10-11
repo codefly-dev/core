@@ -33,17 +33,62 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: require the commit to be on the default branch, or refuse
+    # Only this isolated remote read and registry login receive credentials.
+    # Inspecting the checkout happens in a later process with no token in env.
+    - name: Resolve the default branch outside the checkout
+      id: authority
+      working-directory: ${{ runner.temp }}
       env:
         GH_TOKEN: ${{ github.token }}
       shell: bash
       run: |
         set -euo pipefail
-        # Retain the shell variable for remote authentication, but never pass
-        # it in Git's (or another child process's) environment.
-        export -n GH_TOKEN
         if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
           echo "::error::service images may only be published by workflow_dispatch; refusing to publish." >&2
+          exit 1
+        fi
+        # No checkout or inherited Git configuration is consulted by this step.
+        authority_dir=$(mktemp -d "${RUNNER_TEMP}/publisher-authority.XXXXXX")
+        trap 'rmdir "$authority_dir"' EXIT
+        cd "$authority_dir"
+        authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+        remote_head=$(env -i PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+          GIT_CEILING_DIRECTORIES="$RUNNER_TEMP" GIT_TERMINAL_PROMPT=0 \
+          git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+          -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: basic ${authorization}" \
+          ls-remote --symref "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" HEAD)
+        authority=$(printf '%s\n' "$remote_head" | awk '$1 == "ref:" && $3 == "HEAD" { print $2 }')
+        sha=$(printf '%s\n' "$remote_head" | awk '$2 == "HEAD" && $1 != "ref:" { print $1 }')
+        if [[ "$authority" != refs/heads/* ]] || [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::cannot resolve this repository's default branch; refusing to publish." >&2
+          exit 1
+        fi
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+    - name: require the commit to be on the default branch, or refuse
+      env:
+        DEFAULT_BRANCH_SHA: ${{ steps.authority.outputs.sha }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+          echo "::error::service images may only be published by workflow_dispatch; refusing to publish." >&2
+          exit 1
+        fi
+
+        # Inspect only repository configuration. A runner's global/system Git
+        # filters must not become executable policy for this checkout.
+        export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_ATTR_NOSYSTEM=1
+
+        # The SHA comes only from the preceding isolated authority read.
+        # Full checkout history is required; a newer remote tip missing locally
+        # fails closed. Re-run publication with a fresh checkout in that case.
+        if [[ ! "$DEFAULT_BRANCH_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::invalid default-branch authority; refusing to publish." >&2
+          exit 1
+        fi
+        if ! git -c core.fsmonitor=false -c core.hooksPath=/dev/null merge-base --is-ancestor "$GITHUB_SHA" "$DEFAULT_BRANCH_SHA"; then
+          echo "::error::${GITHUB_SHA} is not reachable from the resolved default branch ${DEFAULT_BRANCH_SHA}, or that history is missing locally; refusing to publish." >&2
           exit 1
         fi
 
@@ -53,53 +98,57 @@ runs:
         # Includes inherit their scope; command scope must not hide a stored
         # fsmonitor setting. Disable fsmonitor and all Git hooks on every call,
         # including default .git/hooks and configured hooksPath directories.
-        local_config=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null config --list --show-scope --includes \
-          | awk '$1 == "local" || $1 == "worktree" { sub(/^[^\t]*\t/, ""); print }')
+        effective_config=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null config --list --show-scope --includes)
+        local_config=$(printf '%s\n' "$effective_config" | awk '$1 == "local" || $1 == "worktree" { sub(/^[^\t]*\t/, ""); print }')
         if [[ "$local_config" =~ (^|$'\n')(http\.(.*\.)?extraheader=|credential\.|include\.|includeif\.|url\.|core\.(sshcommand|fsmonitor)=|[^=]*\.(token|password)=) ]] ||
            [[ "$local_config" =~ ://[^/[:space:]]*@ ]]; then
-          echo "::error::stored credentials or credential indirection, or fsmonitor in local/worktree git config; use persist-credentials: false and no repository hooks; refusing to publish." >&2
+          echo "::error::stored credentials or credential indirection, or fsmonitor in local/worktree git config; use persist-credentials: false and remove stored credentials, indirection or fsmonitor settings; hooks are disabled; refusing to publish." >&2
           exit 1
         fi
 
-        # These variables are set by GitHub, not action inputs. Check the
-        # effective URL (including rewrites) before trusting origin's HEAD.
+        # Driver names are arbitrary. Refuse every effective filter definition,
+        # including includes and command scope, before status can run one.
+        if [[ "$effective_config" =~ (^|$'\n')[^$'\t']+$'\t'(filter\.|core\.attributesfile=) ]]; then
+          echo "::error::Git filter drivers and alternate attributes files are unsupported; refusing to publish." >&2
+          exit 1
+        fi
+
+        # No recorded caller needs submodules. Refuse declarations, gitlinks
+        # and retained module metadata, including credentials from old checkouts.
+        modules=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --git-path modules)
+        gitlinks=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --stage | awk '$1 == "160000" { print }')
+        if [ -e .gitmodules ] || [ -L .gitmodules ] || [ -e "$modules" ] || [ -n "$gitlinks" ]; then
+          echo "::error::submodules and retained submodule metadata are unsupported; refusing to publish." >&2
+          exit 1
+        fi
+
+        # Check all in-tree attributes, even ignored/untracked ones, and Git's
+        # info/default user attributes. Reject symlinks and unreadable files.
+        attribute_list=$(mktemp "${RUNNER_TEMP}/publisher-attributes.XXXXXX")
+        trap 'rm -f "$attribute_list"' EXIT
+        git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --cached --others -z -- .gitattributes '**/.gitattributes' > "$attribute_list"
+        printf '%s\0' "$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --git-path info/attributes)" "${XDG_CONFIG_HOME:-$HOME/.config}/git/attributes" >> "$attribute_list"
+        while IFS= read -r -d '' attributes; do
+          if [ -L "$attributes" ]; then
+            echo "::error::symlink attributes file; refusing to publish." >&2
+            exit 1
+          fi
+          if [ -e "$attributes" ]; then
+            attribute_status=0
+            grep -Eq '(^|[[:space:]])filter(=|[[:space:]]|$)' "$attributes" || attribute_status=$?
+            if [ "$attribute_status" != 1 ]; then
+              echo "::error::filter attributes or unreadable attributes file; refusing to publish." >&2
+              exit 1
+            fi
+          fi
+        done < "$attribute_list"
+
+        # These variables are set by GitHub, not action inputs; the effective
+        # URL (including rewrites) must still name the caller repository.
         origin=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null remote get-url origin)
         expected_origin="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
         if [ "$origin" != "$expected_origin" ] && [ "$origin" != "${expected_origin}.git" ]; then
           echo "::error::origin must be the GitHub repository running this job; refusing to publish." >&2
-          exit 1
-        fi
-
-        # Private repositories need authentication for these two remote
-        # reads. Command-scoped config disappears with git; neither the token
-        # nor a credential-bearing config file enters the Docker context.
-        git_remote() {
-          local authorization
-          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
-          git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" "$@"
-        }
-
-        # The authority is the remote's own HEAD, and there is no input that
-        # can name it. A declaration the caller supplies could be omitted,
-        # defaulted or disagreed with, and each of those is a way for the
-        # caller to choose which history counts as reviewed. Whoever may
-        # approve a publication is this repository's decision, so the only
-        # source is the repository.
-        authority=$(git_remote ls-remote --symref origin HEAD \
-          | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2 }')
-        if [ -z "$authority" ]; then
-          echo "::error::cannot read this repository's default branch from origin; refusing to publish." >&2
-          exit 1
-        fi
-
-        git_remote fetch --quiet --no-tags --force origin \
-          "+refs/heads/${authority}:refs/remotes/origin/${authority}"
-
-        # Fully qualified: a bare `origin/<branch>` is an ambiguous rev that a tag
-        # of the same name can win.
-        if ! git -c core.fsmonitor=false -c core.hooksPath=/dev/null merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${authority}"; then
-          echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from refs/remotes/origin/${authority}; refusing to publish it." >&2
-          echo "Publishing builds this repository's Dockerfile with a registry credential, so the commit has to be one that was merged." >&2
           exit 1
         fi
 
@@ -111,7 +160,7 @@ runs:
         fi
 
         # The build consumes the working tree, not just HEAD. Include ignored
-        # files and submodule dirt: Docker can copy either into an image.
+        # files: Docker can copy either into an image. Submodules are refused above.
         # Status trusts these index flags even when the file has changed.
         index_flags=$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files -v)
         if [[ "$index_flags" =~ (^|$'\n')[a-zS][[:space:]] ]]; then
@@ -166,7 +215,6 @@ runs:
           echo "dockerfile must be a tracked relative regular file inside the checkout" >&2
           exit 1
         fi
-        export -n GH_TOKEN
         git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --error-unmatch -- "$DOCKERFILE" > /dev/null
         {
           echo "image=${REGISTRY}/${IMAGE_NAME}"

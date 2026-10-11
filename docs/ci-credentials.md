@@ -172,25 +172,40 @@ triggering-commit refusal must precede execution, exactly as at job level.
 re-records the unsafe mutations before requiring rejection. The execution test
 binding follows the caller through its composite to the exact refusal script.
 
-The publisher's own refusal also checks the build context, because a matching
-HEAD alone says nothing about a modified working tree. Modified/staged,
-untracked and ignored files (including submodule dirt) are refused, as are
-tracked paths marked `assume-unchanged` or `skip-worktree`, which hide changes
-from Git status. The caller must commit its Dockerfile and all generated build
-inputs. Before any remote read, effective local and worktree Git config,
-including included files, is checked for persisted authorization headers, helpers,
-credential includes, token/password keys and URL rewrites or embedded URL
-credentials; a finding fails without printing values. Repository `core.fsmonitor`
-settings are refused, and every guard Git invocation disables fsmonitor and
-Git hooks with command-scoped `core.fsmonitor=false` and
-`core.hooksPath=/dev/null`. This covers both default `.git/hooks/` and configured
-hook directories; hooks cannot inherit the remote-read authorization header.
-`GH_TOKEN` stays a shell variable for remote authentication
-and is removed from child-process environments. `origin` must match the
-GitHub server and repository of the job, so a fork cannot supply the authority.
-The test caller uses a committed Dockerfile fixture through the validated
-`dockerfile` input. See the [dispatch policy](runbooks/branch-protection.md#also-needed-who-may-dispatch)
-for its package-write job.
+The publisher isolates credentials from repository inspection. Its first step
+receives `github.token` only to run `ls-remote --symref` against the GitHub
+server/repository URL, from a fresh empty directory under `runner.temp` with an
+empty inherited Git environment and system/global config disabled. It neither
+fetches nor opens the checkout. The next step receives only the default-branch
+SHA; it never starts with `GH_TOKEN` or another credential in its environment.
+Removing export flags is insufficient because a process's initial environment
+can still be read by its children. Callers must not inject credentials through
+workflow, job or composite-call environment.
+
+The inspection requires the triggering SHA to be reachable from that resolved
+SHA and HEAD to equal the triggering SHA. Full checkout history is required; if
+a concurrent default-branch advance is missing locally, the action refuses and
+needs a fresh run. It rejects modified/staged/untracked/ignored files and
+`assume-unchanged`/`skip-worktree` entries. Callers must commit all build inputs.
+It checks effective local/worktree config and includes for stored credentials,
+helpers, token/password keys, URL rewrites/credentials and credential indirection,
+without logging values. Inspection disables global/system Git config and system
+attributes. Filter drivers and alternate attributes files are refused in every
+remaining effective scope, including local/worktree/includes and command config.
+Filter attributes in in-tree `.gitattributes`, Git info attributes or default
+user attributes are also refused. Submodules are unsupported: declarations,
+gitlinks and retained `.git/modules/` metadata all refuse publication, preventing
+unscanned submodule credentials or code from entering inspection or the build.
+
+Repository fsmonitor settings are refused. Every inspection Git call disables
+fsmonitor and hooks with `core.fsmonitor=false` and `core.hooksPath=/dev/null`.
+`origin` must still match the GitHub server/repository identity. Only the
+isolated remote read and registry login receive tokens; login runs after the
+inspection and input validation. Ciguard attributes the exact isolated reader,
+binds its output to the immediately following refusal, and rejects credential
+injection at that boundary. The test caller uses a committed Dockerfile fixture
+through the validated `dockerfile` input. See the
+[dispatch policy](runbooks/branch-protection.md#also-needed-who-may-dispatch).
 
 The execution check attributes every `uses:` and Git invocation. Checkout
 reads `repository`, `ref`, and `path`: another repository or an additional
@@ -210,7 +225,8 @@ Before a triggering-commit refusal, the parsed commands may only discover and
 fetch the authority, format metadata, or report a refusal. A tree script in an
 assignment is still execution. Workflow, job and step environments are checked
 for interpreter/Git overrides such as `BASH_ENV`, `ENV`, `GIT_CONFIG_*` and
-`PATH`. The publisher's command-scoped read-token wrapper remains admitted.
+`PATH`. The publisher's isolated authority reader has a bounded source contract;
+the historical command-scoped wrapper remains attributed for older fixtures.
 The `executedBy` binding names an exact workflow, job and step; its executing
 test lifts that same binding using its own running test identity. A test for
 another job cannot be borrowed to certify a new refusal.
@@ -235,7 +251,7 @@ happening.
 | `go.yml` | `notify` holds `SLACK_WEBHOOK_URL` | Its own job, gated to a push of `main`, with `permissions: {}` and no checkout at all. It reads the outcome from `needs.build.result`. |
 | `version-tag.yml` | `tag` creates the release tag and publishes the release | Event and head-repository conditions; checks out the default branch; refuses a sha not reachable from it. |
 | `go-service-release.yml` | `goreleaser` receives the **caller's** release PAT | Gated to a pushed tag, which a pull request cannot produce; then refuses a tag whose commit is not reachable from the caller's default branch. The `test` job that runs the caller's suite names no secret. |
-| `test-publish-service-image.yml` | `publish` holds its own **GITHUB_TOKEN** with `contents: read` and `packages: write` and passes it as the composite action's `registry-token` input | Dispatch-only dedicated job, 30-minute timeout, checkout of `main` with `persist-credentials: false` before loading the local action. The action refuses non-dispatch events and commits not reachable from the caller's remote default branch before login or build. Its registry-token input reaches only login; remote reads use command-scoped `github.token` authentication. The token has the caller job's write grant throughout, including checkout and the refusal; it is not a separate read-only token. External services use the same action pinned to a core SHA in their own jobs so GHCR checks the service repository. |
+| `test-publish-service-image.yml` | `publish` holds its own **GITHUB_TOKEN** with `contents: read` and `packages: write` and passes it as the composite action's `registry-token` input | Dispatch-only dedicated job, 30-minute timeout, checkout of `main` with `persist-credentials: false` before loading the local action. The action resolves the caller's remote default-branch SHA from an empty temporary directory using `github.token`, then inspects the checkout in a separate step with no credential in its environment before login/build. Its registry-token input reaches only login. Filters and submodules are unsupported. The token has the caller job's write grant throughout, including checkout and the refusal; it is not a separate read-only token. External services use the same action pinned to a core SHA in their own jobs so GHCR checks the service repository. |
 | `combine-deps.yml` | `publish` holds `DEPS_COMBINE_TOKEN` | A job of its own that never checks the combined tree out: the commits arrive as a git bundle and move into a ref by `git fetch`/`git push`. The `plan` job does the replaying, with the read-only built-in token and no secret. Both checkouts pin `ref: main`. |
 
 Every other job in every other workflow declares `contents: read` and names no

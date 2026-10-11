@@ -125,28 +125,32 @@ Use a dedicated job with no service execution before the action. Checkout must
 select the triggering commit (omit `ref`) at the workspace root, never persist
 credentials, and fetch full history. The caller owns the event gate, permissions
 and 30-minute timeout; a composite action cannot declare job policy. The action
-also refuses events other than `workflow_dispatch`, and refuses a triggering
-commit not reachable from the caller's own remote default branch before login
-or build. It also checks that `HEAD` equals the triggering SHA, so a caller's
-`ref` override cannot publish a different tree. It refuses modified or staged
-files and all untracked or ignored files, including submodule dirt. It also
-refuses tracked paths marked `assume-unchanged` or `skip-worktree`: the Docker
-context must be the committed tree. Commit code generation or version stamps
-before publishing. It checks `origin` against GitHub's server/repository identity
-before reading the default branch, and rejects effective local/worktree Git
-config (including included files) containing HTTP authorization headers,
-credential helpers, credential includes (including
-checkout v6+ `includeIf`), token/password keys, URL rewrites or credentials in
-URLs. It refuses repository `core.fsmonitor` settings and disables fsmonitor and
-Git hooks on every guard Git call (`core.fsmonitor=false`,
-`core.hooksPath=/dev/null`). Both `.git/hooks/` and configured hook directories
-are disabled, so hooks cannot inherit the remote-read authorization header.
-Config values are never logged. Private-repository remote
-reads use command-scoped authentication with `github.token`; `GH_TOKEN` is not
-exported to Git or other child processes, and nothing is stored in the Docker
-context. The `registry-token` input goes only to `docker/login-action`, never a
-shell or a build argument. In this job the built-in token has `packages: write` throughout;
-passing it to one step does not narrow its job-wide permission.
+also refuses events other than `workflow_dispatch`. Its authenticated authority
+step runs only `ls-remote --symref`, from a fresh empty temporary directory with
+inherited Git configuration cleared, to resolve the caller repository's default
+branch. A separate inspection step receives the resulting SHA and **no token**.
+It checks ancestry and HEAD against the triggering commit before login or build.
+If the remote branch advances beyond locally available history, publication
+fails closed; rerun with a fresh full-history checkout.
+
+The inspection refuses modified, staged, untracked or ignored files and tracked
+paths marked `assume-unchanged` or `skip-worktree`. Commit generated inputs before
+publishing. It rejects persisted credentials/indirection in effective local and
+worktree config, including includes, and requires `origin` to match the GitHub
+server/repository identity. System/global Git config and system attributes are
+disabled. Filter drivers and `core.attributesFile` in any remaining config scope,
+plus filter attributes in `.gitattributes`, Git info attributes
+or default user attributes, are unsupported. Submodules are also unsupported:
+`.gitmodules`, gitlinks or retained `.git/modules/` metadata cause refusal.
+
+Fsmonitor configuration in the repository is refused. Fsmonitor and Git hooks
+are disabled on every inspection call, including hooks in `.git/hooks/` or a
+configured `core.hooksPath`. Config values are never logged. Do not inject tokens
+through workflow/job/composite-call environment: repository inspection must
+start without a credential, not merely unexport it from an already credentialed
+process. The `registry-token` input goes only to `docker/login-action`, never a
+shell or build argument. The built-in token retains the caller job's
+`packages: write` grant; step isolation controls where its value is supplied.
 
 Supply a stable `version` without `v`, and optionally `lock-file` and `platforms`
 (defaults: `gateway-image.json` and `linux/amd64,linux/arm64`). The image name

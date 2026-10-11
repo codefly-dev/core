@@ -95,7 +95,7 @@ func ancestryGuard(stmt *syntax.Stmt) string {
 		return ""
 	}
 	args, problem := gitArguments(call)
-	if call.Args[0].Lit() != "git" || problem != "" || len(args) != 4 || args[0].Lit() != "merge-base" || args[1].Lit() != "--is-ancestor" || !strings.HasPrefix(shellArgument(args[3]), "refs/remotes/origin/") {
+	if call.Args[0].Lit() != "git" || problem != "" || len(args) != 4 || args[0].Lit() != "merge-base" || args[1].Lit() != "--is-ancestor" || (!strings.HasPrefix(shellArgument(args[3]), "refs/remotes/origin/") && shellArgument(args[3]) != "$DEFAULT_BRANCH_SHA") {
 		return ""
 	}
 	if len(branch.Then) == 0 {
@@ -187,8 +187,13 @@ func safeRefusalPrelude(stmt *syntax.Stmt, remoteAuth bool) string {
 				why = "an unattributed function before the ancestry refusal"
 			}
 			return false
+		case *syntax.DeclClause:
+			if shellText(n) == "export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_ATTR_NOSYSTEM=1" {
+				return false
+			}
+
 		case *syntax.Assign:
-			if n.Name != nil && (dangerousExecutionEnv(n.Name.Value) || n.Name.Value == "GITHUB_SHA") {
+			if n.Name != nil && (dangerousExecutionEnv(n.Name.Value) || n.Name.Value == "GITHUB_SHA" || n.Name.Value == "DEFAULT_BRANCH_SHA") {
 				why = "assignment to " + n.Name.Value + " before the ancestry refusal"
 			}
 		case *syntax.CallExpr:

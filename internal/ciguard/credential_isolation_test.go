@@ -69,6 +69,7 @@ type isolatedDefaults struct {
 }
 
 type isolatedStep struct {
+	ID               string            `yaml:"id"`
 	Name             string            `yaml:"name"`
 	Uses             string            `yaml:"uses"`
 	If               string            `yaml:"if"`
