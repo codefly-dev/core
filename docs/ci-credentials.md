@@ -174,11 +174,16 @@ binding follows the caller through its composite to the exact refusal script.
 
 The publisher's own refusal also checks the build context, because a matching
 HEAD alone says nothing about a modified working tree. Modified/staged,
-untracked and ignored files (including submodule dirt) are refused. The caller
-must commit its Dockerfile and all generated build inputs. Before any remote
-read, local Git config is checked for persisted authorization headers, helpers,
+untracked and ignored files (including submodule dirt) are refused, as are
+tracked paths marked `assume-unchanged` or `skip-worktree`, which hide changes
+from Git status. The caller must commit its Dockerfile and all generated build
+inputs. Before any remote read, effective local and worktree Git config,
+including included files, is checked for persisted authorization headers, helpers,
 credential includes, token/password keys and URL rewrites or embedded URL
-credentials; a finding fails without printing values. `origin` must match the
+credentials; a finding fails without printing values. Repository `core.fsmonitor`
+settings are refused, and every guard Git invocation disables fsmonitor with
+command-scoped config. `GH_TOKEN` stays a shell variable for remote authentication
+and is removed from child-process environments. `origin` must match the
 GitHub server and repository of the job, so a fork cannot supply the authority.
 The test caller uses a committed Dockerfile fixture through the validated
 `dockerfile` input. See the [dispatch policy](runbooks/branch-protection.md#also-needed-who-may-dispatch)

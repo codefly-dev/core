@@ -39,24 +39,30 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # Retain the shell variable for remote authentication, but never pass
+        # it in Git's (or another child process's) environment.
+        export -n GH_TOKEN
         if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
           echo "::error::service images may only be published by workflow_dispatch; refusing to publish." >&2
           exit 1
         fi
 
         # Never let a checkout credential enter the Docker context, or allow
-        # local helpers/includes to execute while discovering the authority.
+        # repository helpers or fsmonitor hooks to execute during the guard.
         # Do not print config values: they can contain the credential itself.
-        local_config=$(git config --local --no-includes --list)
-        if [[ "$local_config" =~ (^|$'\n')(http\.(.*\.)?extraheader=|credential\.|include\.|includeif\.|url\.|core\.sshcommand=|[^=]*\.(token|password)=) ]] ||
+        # Includes inherit their scope; command scope must not hide a stored
+        # fsmonitor setting. Disable it on every Git invocation as well.
+        local_config=$(git -c core.fsmonitor=false config --list --show-scope --includes \
+          | awk '$1 == "local" || $1 == "worktree" { sub(/^[^\t]*\t/, ""); print }')
+        if [[ "$local_config" =~ (^|$'\n')(http\.(.*\.)?extraheader=|credential\.|include\.|includeif\.|url\.|core\.(sshcommand|fsmonitor)=|[^=]*\.(token|password)=) ]] ||
            [[ "$local_config" =~ ://[^/[:space:]]*@ ]]; then
-          echo "::error::stored credentials or credential indirection in local git config; use persist-credentials: false; refusing to publish." >&2
+          echo "::error::stored credentials or credential indirection, or fsmonitor in local/worktree git config; use persist-credentials: false and no repository hooks; refusing to publish." >&2
           exit 1
         fi
 
         # These variables are set by GitHub, not action inputs. Check the
         # effective URL (including rewrites) before trusting origin's HEAD.
-        origin=$(git remote get-url origin)
+        origin=$(git -c core.fsmonitor=false remote get-url origin)
         expected_origin="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
         if [ "$origin" != "$expected_origin" ] && [ "$origin" != "${expected_origin}.git" ]; then
           echo "::error::origin must be the GitHub repository running this job; refusing to publish." >&2
@@ -69,7 +75,7 @@ runs:
         git_remote() {
           local authorization
           authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" "$@"
+          git -c core.fsmonitor=false -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" "$@"
         }
 
         # The authority is the remote's own HEAD, and there is no input that
@@ -90,7 +96,7 @@ runs:
 
         # Fully qualified: a bare `origin/<branch>` is an ambiguous rev that a tag
         # of the same name can win.
-        if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${authority}"; then
+        if ! git -c core.fsmonitor=false merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${authority}"; then
           echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from refs/remotes/origin/${authority}; refusing to publish it." >&2
           echo "Publishing builds this repository's Dockerfile with a registry credential, so the commit has to be one that was merged." >&2
           exit 1
@@ -98,14 +104,20 @@ runs:
 
         # Checkout belongs to the caller now. A proof about the run's SHA
         # must not bless a different tree selected by a caller's ref override.
-        if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+        if [ "$(git -c core.fsmonitor=false rev-parse HEAD)" != "$GITHUB_SHA" ]; then
           echo "::error::checkout must select the triggering commit ${GITHUB_SHA}; refusing to publish a different tree." >&2
           exit 1
         fi
 
         # The build consumes the working tree, not just HEAD. Include ignored
         # files and submodule dirt: Docker can copy either into an image.
-        tree_status=$(git status --porcelain=v1 --untracked-files=all --ignored --ignore-submodules=none)
+        # Status trusts these index flags even when the file has changed.
+        index_flags=$(git -c core.fsmonitor=false ls-files -v)
+        if [[ "$index_flags" =~ (^|$'\n')[a-zS][[:space:]] ]]; then
+          echo "::error::tracked paths must not use assume-unchanged or skip-worktree; refusing to publish." >&2
+          exit 1
+        fi
+        tree_status=$(git -c core.fsmonitor=false status --porcelain=v1 --untracked-files=all --ignored --ignore-submodules=none)
         if [ -n "$tree_status" ]; then
           echo "::error::build context must be the clean triggering commit, with no modified, staged, untracked or ignored files; refusing to publish." >&2
           exit 1
@@ -153,7 +165,8 @@ runs:
           echo "dockerfile must be a tracked relative regular file inside the checkout" >&2
           exit 1
         fi
-        git ls-files --error-unmatch -- "$DOCKERFILE" > /dev/null
+        export -n GH_TOKEN
+        git -c core.fsmonitor=false ls-files --error-unmatch -- "$DOCKERFILE" > /dev/null
         {
           echo "image=${REGISTRY}/${IMAGE_NAME}"
           echo "version=$VERSION"

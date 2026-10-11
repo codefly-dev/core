@@ -56,7 +56,7 @@ func gitArguments(call *syntax.CallExpr) ([]*syntax.Word, string) {
 				return nil, "git -C selects an unattributed working tree"
 			}
 		case "-c":
-			if value != "advice.detachedHead=false" && !strings.HasPrefix(value, "http.https://github.com/.extraheader=") {
+			if value != "advice.detachedHead=false" && value != "core.fsmonitor=false" && !strings.HasPrefix(value, "http.https://github.com/.extraheader=") {
 				return nil, "unattributed git configuration " + value
 			}
 		default:
@@ -80,7 +80,7 @@ func ancestryGuard(stmt *syntax.Stmt) string {
 	}
 	cond := branch.Cond[0]
 	call, ok := cond.Cmd.(*syntax.CallExpr)
-	if !ok || !cond.Negated || cond.Background || len(call.Assigns) > 0 || len(call.Args) != 5 {
+	if !ok || !cond.Negated || cond.Background || len(call.Assigns) > 0 || len(call.Args) == 0 {
 		return ""
 	}
 	unsafeExpansion := false
@@ -94,7 +94,8 @@ func ancestryGuard(stmt *syntax.Stmt) string {
 	if unsafeExpansion || len(cond.Redirs) > 0 {
 		return ""
 	}
-	if call.Args[0].Lit() != "git" || call.Args[1].Lit() != "merge-base" || call.Args[2].Lit() != "--is-ancestor" || !strings.HasPrefix(shellArgument(call.Args[4]), "refs/remotes/origin/") {
+	args, problem := gitArguments(call)
+	if call.Args[0].Lit() != "git" || problem != "" || len(args) != 4 || args[0].Lit() != "merge-base" || args[1].Lit() != "--is-ancestor" || !strings.HasPrefix(shellArgument(args[3]), "refs/remotes/origin/") {
 		return ""
 	}
 	if len(branch.Then) == 0 {
@@ -123,7 +124,7 @@ func ancestryGuard(stmt *syntax.Stmt) string {
 			return ""
 		}
 	}
-	return shellArgument(call.Args[3])
+	return shellArgument(args[2])
 }
 
 // The one remote-auth wrapper has a bounded implementation and bounded callers.
@@ -133,12 +134,25 @@ func isRemoteAuthWrapper(fn *syntax.FuncDecl) bool {
 	if fn.Name.Value != "git_remote" {
 		return false
 	}
-	expected, err := executionShell(`git_remote() {
+	// Retain the historical wrapper for existing jobs and regression fixtures;
+	// the service publisher additionally disables repository fsmonitor hooks.
+	for _, options := range []string{"", "-c core.fsmonitor=false "} {
+		expected, err := executionShell(`git_remote() {
  local authorization
  authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
- git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" "$@"
+ git ` + options + `-c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" "$@"
  }`)
-	return err == nil && shellText(fn) == shellText(expected.Stmts[0].Cmd)
+		if err == nil && shellText(fn) == shellText(expected.Stmts[0].Cmd) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRepositoryConfigRead(call *syntax.CallExpr) bool {
+	text := shellText(call)
+	return text == "git config --local --no-includes --list" ||
+		text == "git -c core.fsmonitor=false config --list --show-scope --includes"
 }
 
 func dangerousExecutionEnv(name string) bool {
@@ -200,14 +214,15 @@ func safeRefusalPrelude(stmt *syntax.Stmt, remoteAuth bool) string {
 				switch args[0].Lit() {
 				case "fetch", "ls-remote", "cat-file":
 				case "config", "remote":
-					if shellText(n) != "git config --local --no-includes --list" && shellText(n) != "git remote get-url origin" {
+					if !isRepositoryConfigRead(n) && shellText(n) != "git remote get-url origin" && shellText(n) != "git -c core.fsmonitor=false remote get-url origin" {
 						why = "unattributed git configuration or remote read before the ancestry refusal"
 					}
 				default:
 					why = "git " + args[0].Lit() + " before the ancestry refusal"
 				}
 			case "awk":
-				if len(n.Args) != 2 || shellArgument(n.Args[1]) != `$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2 }` {
+				if len(n.Args) != 2 || (shellArgument(n.Args[1]) != `$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2 }` &&
+					shellArgument(n.Args[1]) != `$1 == "local" || $1 == "worktree" { sub(/^[^\t]*\t/, ""); print }`) {
 					why = "unattributed awk before the ancestry refusal"
 				}
 			case "[", "echo", "exit":
@@ -295,7 +310,7 @@ func attributedShell(text string) (leaned bool, why string) {
 			verb := args[0].Lit()
 			switch verb {
 			case "config":
-				if shellText(call) != "git config --local --no-includes --list" {
+				if !isRepositoryConfigRead(call) {
 					why = "unattributed git configuration read"
 				}
 			case "status", "ls-files", "fetch", "ls-remote", "rev-parse", "cat-file", "merge-base", "log", "diff", "bundle", "push", "tag", "remote", "show":

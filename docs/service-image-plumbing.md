@@ -129,16 +129,20 @@ also refuses events other than `workflow_dispatch`, and refuses a triggering
 commit not reachable from the caller's own remote default branch before login
 or build. It also checks that `HEAD` equals the triggering SHA, so a caller's
 `ref` override cannot publish a different tree. It refuses modified or staged
-files and all untracked or ignored files, including submodule dirt: the Docker
+files and all untracked or ignored files, including submodule dirt. It also
+refuses tracked paths marked `assume-unchanged` or `skip-worktree`: the Docker
 context must be the committed tree. Commit code generation or version stamps
 before publishing. It checks `origin` against GitHub's server/repository identity
-before reading the default branch, and rejects local Git config containing
-HTTP authorization headers, credential helpers, credential includes (including
+before reading the default branch, and rejects effective local/worktree Git
+config (including included files) containing HTTP authorization headers,
+credential helpers, credential includes (including
 checkout v6+ `includeIf`), token/password keys, URL rewrites or credentials in
-URLs. Config values are never logged. Private-repository remote reads use command-scoped authentication
-with `github.token`; nothing is stored in the Docker context. The
-`registry-token` input goes only to `docker/login-action`, never a shell or a
-build argument. In this job the built-in token has `packages: write` throughout;
+URLs. It refuses repository `core.fsmonitor` settings and disables fsmonitor on
+every guard Git call. Config values are never logged. Private-repository remote
+reads use command-scoped authentication with `github.token`; `GH_TOKEN` is not
+exported to Git or other child processes, and nothing is stored in the Docker
+context. The `registry-token` input goes only to `docker/login-action`, never a
+shell or a build argument. In this job the built-in token has `packages: write` throughout;
 passing it to one step does not narrow its job-wide permission.
 
 Supply a stable `version` without `v`, and optionally `lock-file` and `platforms`
