@@ -208,7 +208,9 @@ func TestARegisteredJobRunsNoUnpinnedRepositoryFile(t *testing.T) {
 	for _, template := range permittedCredentialJobs {
 		t.Run(template.workflow+"/"+template.job, func(t *testing.T) {
 			wf := workflows[filepath.Join(repoRoot(t), ".github", "workflows", template.workflow)]
-			for _, step := range wf.Jobs[template.job].Steps {
+			steps, unreadable := stepsIncludingLocalActions(t, wf.Jobs[template.job])
+			require.Empty(t, unreadable)
+			for _, step := range steps {
 				for _, script := range scriptReference.FindAllString(step.Run, -1) {
 					require.Contains(t, recordedFileDigests, script,
 						"%s/%s runs %s, which the record does not pin. Either inline it "+

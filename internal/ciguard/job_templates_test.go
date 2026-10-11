@@ -101,9 +101,9 @@ var permittedCredentialJobs = []jobTemplate{
 		why:        "publishes a release for a tag proven to be on the repository's own default branch",
 	},
 	{
-		workflow: "publish-service-image.yml", job: "publish",
+		workflow: "test-publish-service-image.yml", job: "publish",
 		executedBy: "TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch",
-		why:        "pushes a caller's service image by digest with the caller's registry credential, from a commit proven to be on the repository's own default branch",
+		why:        "exercises the composite publisher in a caller job holding packages write, with a scratch image from merged code",
 	},
 	{
 		workflow: "combine-deps.yml", job: "publish",
@@ -148,11 +148,12 @@ func canonicalDigest(t *testing.T, value any) string {
 // The field order here is the digest's input order, so it is fixed by the
 // struct rather than by map iteration.
 type recordedShape struct {
-	On          any `yaml:"on"`
-	Permissions any `yaml:"permissions"`
-	Env         any `yaml:"env"`
-	Defaults    any `yaml:"defaults"`
-	Job         any `yaml:"job"`
+	On           any            `yaml:"on"`
+	Permissions  any            `yaml:"permissions"`
+	Env          any            `yaml:"env"`
+	Defaults     any            `yaml:"defaults"`
+	Job          any            `yaml:"job"`
+	LocalActions map[string]any `yaml:"local-actions,omitempty"`
 }
 
 // workflowScope holds the workflow-level nodes recordedShape needs, read as
@@ -186,12 +187,32 @@ func canonicalJobDigest(t *testing.T, wf isolatedWorkflow, id string) string {
 	var scope workflowScope
 	require.NoError(t, wf.document.Decode(&scope), wf.name)
 
+	// A composite executes inside this job. Record its complete manifest,
+	// including inputs/outputs, and every nested manifest the walker reads.
+	manifests := map[string]any{}
+	steps, unreadable := stepsIncludingLocalActionsUnder(actionRoot(t, wf), wf.Jobs[id])
+	require.Empty(t, unreadable)
+	for _, step := range steps {
+		if !strings.HasPrefix(step.Uses, "./") {
+			continue
+		}
+		for _, path := range manifestsOf(actionRoot(t, wf), step.Uses) {
+			body, err := os.ReadFile(path)
+			require.NoError(t, err)
+			var manifest any
+			require.NoError(t, yaml.Unmarshal(body, &manifest))
+			rel, err := filepath.Rel(actionRoot(t, wf), path)
+			require.NoError(t, err)
+			manifests[rel] = manifest
+		}
+	}
 	return canonicalDigest(t, recordedShape{
-		On:          decodedOrNil(t, scope.On),
-		Permissions: decodedOrNil(t, scope.Permissions),
-		Env:         decodedOrNil(t, scope.Env),
-		Defaults:    decodedOrNil(t, scope.Defaults),
-		Job:         decodedOrNil(t, raw),
+		On:           decodedOrNil(t, scope.On),
+		Permissions:  decodedOrNil(t, scope.Permissions),
+		Env:          decodedOrNil(t, scope.Env),
+		Defaults:     decodedOrNil(t, scope.Defaults),
+		Job:          decodedOrNil(t, raw),
+		LocalActions: manifests,
 	})
 }
 
@@ -289,12 +310,12 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool
 // Re-recording one of these is NOT a way to admit a job the judgement refuses:
 // it is the last of three conjuncts and the only one a constant can satisfy.
 var recordedJobDigests = map[string]string{
-	"publish-service-image.yml/publish": "de6da0675711da839493b8e2f0a7576e0041af12f0f22328208ecf24ec004bfe",
-	"combine-deps.yml/publish":          "96fa1520bff8448fea8f54c7bf6608bda3b218c34099469abeffcf0ab28a9eeb",
-	"go-service-release.yml/goreleaser": "236e993f0419411c4093519708ebe76694d7df482bf98b8c26d8396999fd9f25",
-	"go.yml/coverage-badge":             "f90499145fe994ba99df79a30c275d1be9396e572f853ab1bd4ea7519ec2ebc7",
-	"go.yml/notify":                     "150388315f3784739566d301151e8fc74cc6715e54b2af8420c5fdd6b59aaf75",
-	"version-tag.yml/tag":               "447e0de19e05b354745c839d84f533fcfcb58716d7fa120bdb42846270bf0a65",
+	"test-publish-service-image.yml/publish": "3682b0adee2f6ecc9a85b573d4bfe21f30c5c27ea0a1cc6e54faf27e3c9b2fc1",
+	"combine-deps.yml/publish":               "96fa1520bff8448fea8f54c7bf6608bda3b218c34099469abeffcf0ab28a9eeb",
+	"go-service-release.yml/goreleaser":      "236e993f0419411c4093519708ebe76694d7df482bf98b8c26d8396999fd9f25",
+	"go.yml/coverage-badge":                  "f90499145fe994ba99df79a30c275d1be9396e572f853ab1bd4ea7519ec2ebc7",
+	"go.yml/notify":                          "150388315f3784739566d301151e8fc74cc6715e54b2af8420c5fdd6b59aaf75",
+	"version-tag.yml/tag":                    "447e0de19e05b354745c839d84f533fcfcb58716d7fa120bdb42846270bf0a65",
 }
 
 // recordedFileDigests pins the content of each repository file a registered job
@@ -461,7 +482,7 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 	t.Helper()
 
 	job := wf.Jobs[id]
-	steps, unreadable := stepsIncludingLocalActions(t, job)
+	steps, unreadable := stepsIncludingLocalActionsUnder(actionRoot(t, wf), job)
 	if len(unreadable) > 0 {
 		return false, "it runs " + strings.Join(unreadable, ", ") +
 			", whose steps this package cannot read, so what it executes is not established"
@@ -474,6 +495,18 @@ func acceptedExecution(t *testing.T, wf isolatedWorkflow, id string) (bool, stri
 	origin, unreviewedBecause := treeIsTheDefaultBranch, ""
 
 	for index, step := range steps {
+		if strings.HasPrefix(step.Uses, "./") {
+			if step.If != "" || step.ContinueOnError || step.WorkingDirectory != "" {
+				return false, "composite call can skip or neutralise its refusal"
+			}
+			for key := range step.Env {
+				if dangerousExecutionEnv(key) {
+					return false, "composite call inherits execution-changing environment " + key
+				}
+			}
+			// Loading a local manifest executes the checked-out tree. It must
+			// already be established; its own refusal cannot certify itself.
+		}
 		if strings.HasPrefix(step.Uses, checkoutAction) {
 			if path, named := step.With["path"]; named && path != "" && path != "." {
 				return false, "checkout path is not the workspace root; a later checkout cannot establish that additional tree"
@@ -691,4 +724,12 @@ func sortedTemplateNames() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func actionRoot(t *testing.T, wf isolatedWorkflow) string {
+	t.Helper()
+	if wf.actionRoot != "" {
+		return wf.actionRoot
+	}
+	return repoRoot(t)
 }

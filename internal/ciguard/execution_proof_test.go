@@ -47,7 +47,9 @@ func executionTestStep(t *testing.T) isolatedStep {
 	require.NoError(t, err)
 	wf := parseIsolatedDocument(t, string(raw), proof.workflow)
 	var found []isolatedStep
-	for _, step := range wf.Jobs[proof.job].Steps {
+	steps, unreadable := stepsIncludingLocalActions(t, wf.Jobs[proof.job])
+	require.Empty(t, unreadable)
+	for _, step := range steps {
 		if step.Name == proof.step {
 			found = append(found, step)
 		}

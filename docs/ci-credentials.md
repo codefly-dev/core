@@ -101,12 +101,14 @@ every one that refused:
    it executes. Evaluated — see the parser section above — not matched as text;
    unknown is not false, and a construction the guard cannot read is a refusal.
    Three of the six jobs rest on the second half alone: `goreleaser` is a
-   reusable workflow whose event the caller chooses, the image publisher is
-   also reusable, and dependency `publish` has no `if:` at all. Each pins its
+   reusable workflow whose event the caller chooses, the composite publisher's
+   test caller admits dispatches of arbitrary refs, and dependency `publish`
+   has no `if:` at all. Each pins its
    checkout to the default branch or refuses a commit that is not on it.
 3. **Recorded.** The job's shape — the job block plus the workflow-level `on`,
    `permissions`, `env` and `defaults` in scope for every step in it — matches
-   a digest in `recordedJobDigests`.
+   a digest in `recordedJobDigests`. Every local composite manifest it calls,
+   recursively, is included in that record, including inputs and outputs.
 
 **Why the order matters, stated plainly because this document previously
 described (2) while the code did not perform it.** For one release the decision
@@ -136,7 +138,7 @@ test that runs that refusal against real repositories
 (`jobTemplate.executedBy`); the guard reads that the command is present,
 unconditional and fatal, and reads nothing about whether it works.
 
-A reusable dispatch publisher needs that execution proof too: a
+The historical reusable dispatch publisher fixture retains that execution proof: a
 `workflow_dispatch` condition is not provably false for every possible caller
 of `workflow_call`. With no explicit checkout `ref`, the tree is the triggering
 commit, so the first step after checkout must unconditionally refuse a
@@ -149,6 +151,26 @@ test that executes the refusal. `dispatch_publisher_test.go` exercises this cont
 with the real publisher YAML fixture under `internal/ciguard/testdata/`, runs
 its shell against real repositories, and re-records every unsafe mutation's
 digest before asserting that the judgement still refuses it.
+
+The service-image publisher now runs as a composite action inside the caller's
+own dedicated job. Its credential and `packages: write` permission belong to
+that job; the action cannot declare either permissions or a timeout. The core
+test caller is registered in place of the removed reusable job. External
+service workflows must implement the same contract; core's tests cannot inspect
+those repositories' job policy.
+
+Local composites are expanded in execution order, including repeated calls,
+and recursive/unreadable actions fail closed. Their caller cannot skip or
+neutralise a nested refusal with `if`, `continue-on-error`, or an interpreter
+changing environment. Loading a local manifest is itself tree execution: its
+own refusal cannot make an unreviewed manifest safe to load. The test caller
+therefore checks out `main` before loading its local action. Services use the
+immutable remote action and check out their triggering commit. Once inside a
+reviewed local composite, any nested checkout must be attributed and any
+triggering-commit refusal must precede execution, exactly as at job level.
+`composite_publisher_test.go` proves these boundaries with real manifests and
+re-records the unsafe mutations before requiring rejection. The execution test
+binding follows the caller through its composite to the exact refusal script.
 
 The execution check attributes every `uses:` and Git invocation. Checkout
 reads `repository`, `ref`, and `path`: another repository or an additional
@@ -193,7 +215,7 @@ happening.
 | `go.yml` | `notify` holds `SLACK_WEBHOOK_URL` | Its own job, gated to a push of `main`, with `permissions: {}` and no checkout at all. It reads the outcome from `needs.build.result`. |
 | `version-tag.yml` | `tag` creates the release tag and publishes the release | Event and head-repository conditions; checks out the default branch; refuses a sha not reachable from it. |
 | `go-service-release.yml` | `goreleaser` receives the **caller's** release PAT | Gated to a pushed tag, which a pull request cannot produce; then refuses a tag whose commit is not reachable from the caller's default branch. The `test` job that runs the caller's suite names no secret. |
-| `publish-service-image.yml` | `publish` receives the **caller's** registry credential, passed as the secret `registry-token` | Gated to a `workflow_dispatch`, which a pull request cannot produce; then refuses a commit that is not reachable from the caller's default branch, as the first step after the checkout and before the login that receives the credential or the build that runs the caller's Dockerfile. Checkout never persists its read token; only the refusal receives it, through command-scoped git authentication for private repositories. The job times out after 30 minutes. A reusable workflow declares no write, so the caller's own job is where `packages: write` is granted and its token travels as a value. |
+| `test-publish-service-image.yml` | `publish` holds its own **GITHUB_TOKEN** with `contents: read` and `packages: write` and passes it as the composite action's `registry-token` input | Dispatch-only dedicated job, 30-minute timeout, checkout of `main` with `persist-credentials: false` before loading the local action. The action refuses non-dispatch events and commits not reachable from the caller's remote default branch before login or build. Its registry-token input reaches only login; remote reads use command-scoped `github.token` authentication. The token has the caller job's write grant throughout, including checkout and the refusal; it is not a separate read-only token. External services use the same action pinned to a core SHA in their own jobs so GHCR checks the service repository. |
 | `combine-deps.yml` | `publish` holds `DEPS_COMBINE_TOKEN` | A job of its own that never checks the combined tree out: the commits arrive as a git bundle and move into a ref by `git fetch`/`git push`. The `plan` job does the replaying, with the read-only built-in token and no secret. Both checkouts pin `ref: main`. |
 
 Every other job in every other workflow declares `contents: read` and names no

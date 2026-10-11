@@ -145,6 +145,7 @@ func stepsIncludingLocalActionsUnder(root string, job isolatedJob) (steps []isol
 				continue
 			}
 			if seen[target] {
+				unreadable = append(unreadable, target+" (recursive composite call)")
 				continue
 			}
 			seen[target] = true
@@ -179,6 +180,7 @@ func stepsIncludingLocalActionsUnder(root string, job isolatedJob) (steps []isol
 				}
 				walk(action.Runs.Steps, depth+1)
 			}
+			delete(seen, target) // repeated calls execute again; only cycles are unreadable
 		}
 	}
 	walk(job.Steps, 0)
@@ -204,6 +206,8 @@ type isolatedWorkflow struct {
 	// name is the workflow's file name, so a registry keyed by workflow can be
 	// consulted without threading the path through every call.
 	name string
+	// actionRoot lets regression fixtures supply real composite manifests.
+	actionRoot string
 	// document is the whole workflow as parsed. It is where the recorded
 	// digest's workflow-level half comes from -- `on`, `permissions`, `env`,
 	// `defaults` -- while the job half comes from `raw`. Taken from here
@@ -646,10 +650,9 @@ var localActionReference = regexp.MustCompile(`^\./([A-Za-z0-9_./-]+)$`)
 // flows straight into it, so a secret passed to one is a secret inside it --
 // and a composite action's `runs.steps` can do anything a job step can.
 //
-// There are none here today. That is exactly why this exists: the guards above
-// read workflows and `.github/scripts/*.sh`, so the day somebody adds
-// `.github/actions/x/action.yml` and passes it a credential, nothing would have
-// noticed. Rather than enumerate what such an action may do, this refuses the
+// The service-image publisher is one such action. Its manifest is part of
+// the caller job's record, and its steps participate in execution attribution.
+// Rather than enumerate what such an action may do, this refuses the
 // case it cannot read: a local action must have a definition this package can
 // load, and its definition is then searched for secret references like any
 // other file.

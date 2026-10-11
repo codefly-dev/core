@@ -9,33 +9,36 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/codefly-dev/core/resources"
 )
 
-// publish-service-image.yml hands a registry credential to a job that builds
-// the CALLER's Dockerfile, so it is a registered credential job and the shell
-// that decides whether that is safe is lifted out of the workflow and executed,
+// The composite publisher runs in the CALLER's credential-bearing job. The shell
+// that decides whether that is safe is lifted out of the action and executed,
 // the way go-service-release.yml's release refusal is. Reading shell in a YAML
 // string establishes nothing about what it does.
 
 const (
-	publishWorkflow    = "publish-service-image.yml"
+	publishWorkflow    = "test-publish-service-image.yml"
+	publishAction      = ".github/actions/publish-service-image/action.yml"
 	publishJob         = "publish"
 	publishRefusalStep = "require the commit to be on the default branch, or refuse"
 	publishInputsStep  = "Validate the inputs"
 )
 
-// publishSteps returns the steps of the publish job.
+// publishSteps reads the real composite, not a copy of its scripts.
 func publishSteps(t *testing.T) []isolatedStep {
 	t.Helper()
+	var action localAction
+	require.NoError(t, yaml.Unmarshal([]byte(yamlOf(t, filepath.Join(repoRoot(t), publishAction))), &action))
+	require.Equal(t, "composite", action.Runs.Using)
+	return action.Runs.Steps
+}
 
-	_, workflows := loadIsolatedWorkflows(t)
-	wf, ok := workflows[filepath.Join(repoRoot(t), ".github", "workflows", publishWorkflow)]
-	require.True(t, ok, "%s did not load", publishWorkflow)
-	job, ok := wf.Jobs[publishJob]
-	require.True(t, ok, "%s has no job %q", publishWorkflow, publishJob)
-	return job.Steps
+func publishCaller(t *testing.T) isolatedWorkflow {
+	t.Helper()
+	return parseIsolatedDocument(t, yamlOf(t, filepath.Join(repoRoot(t), ".github/workflows", publishWorkflow)), publishWorkflow)
 }
 
 // publishStep lifts one named step out of the publish job.
@@ -57,6 +60,7 @@ func publishStep(t *testing.T, name string) isolatedStep {
 // runs with the registry credential.
 func TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch(t *testing.T) {
 	t.Setenv("GH_TOKEN", "fixture-read-token")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	script := executionTestStep(t).Run
 
 	for _, tc := range []struct {
@@ -91,6 +95,7 @@ func TestAServiceImageIsPublishedOnlyFromTheRepositorysOwnDefaultBranch(t *testi
 // visible, which makes the test above one of behaviour rather than of text.
 func TestNeutralisingThePublishRefusalIsVisible(t *testing.T) {
 	t.Setenv("GH_TOKEN", "fixture-read-token")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	script := publishStep(t, publishRefusalStep).Run
 	fixture := newReleaseFixture(t)
 
@@ -109,16 +114,16 @@ func TestNeutralisingThePublishRefusalIsVisible(t *testing.T) {
 // receives the credential and the build that runs the Dockerfile.
 func TestThePublishRefusalTakesNoInputAndRunsFirst(t *testing.T) {
 	steps := publishSteps(t)
-	require.GreaterOrEqual(t, len(steps), 2)
-	require.True(t, strings.HasPrefix(steps[0].Uses, "actions/checkout@"), "the first step is the checkout")
-	require.Equal(t, publishRefusalStep, steps[1].Name,
-		"the refusal must be the first thing that runs after the checkout")
-	require.Equal(t, map[string]string{"GH_TOKEN": "${{ github.token }}"}, steps[1].Env,
-		"only the job read token reaches the refusal, never caller inputs or secrets")
-	require.Equal(t, false, steps[0].With["persist-credentials"], "the caller build context must contain no persisted checkout credential")
-	require.Empty(t, steps[1].If, "a condition on the refusal is a way to skip it")
+	require.NotEmpty(t, steps)
+	require.Equal(t, publishRefusalStep, steps[0].Name, "the action refuses before any other step")
+	require.Equal(t, map[string]string{"GH_TOKEN": "${{ github.token }}"}, steps[0].Env,
+		"the registry-token input reaches only login; Git remote reads use the job token")
+	checkout := publishCaller(t).Jobs[publishJob].Steps[0]
+	require.True(t, strings.HasPrefix(checkout.Uses, "actions/checkout@"))
+	require.Equal(t, false, checkout.With["persist-credentials"])
+	require.Empty(t, steps[0].If)
 
-	for _, step := range steps[2:] {
+	for _, step := range steps[1:] {
 		for _, text := range []string{step.Run, step.If} {
 			require.NotContains(t, text, "inputs.",
 				"step %q reads a caller input outside the environment; inputs reach shell only as values", step.Name)
@@ -141,9 +146,7 @@ func TestThePublishJobCannotRunOnAPullRequestOrInAMergeQueue(t *testing.T) {
 // together: an image pushed to one registry and a lock read against another is
 // a service that never starts.
 func TestThePublishWorkflowPushesToCoresImageRegistry(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", publishWorkflow))
-	require.NoError(t, err)
-	require.Contains(t, string(raw), "\n  REGISTRY: "+resources.ImageRegistry+"\n")
+	require.Equal(t, resources.ImageRegistry, publishStep(t, publishInputsStep).Env["REGISTRY"])
 }
 
 // Only the inputs' values reach shell, and each is validated before the login
@@ -240,8 +243,9 @@ func TestThePublishWorkflowValidatesItsInputsBeforeTheCredentialIsUsed(t *testin
 func TestThePublishRefusalLeavesNoCredentialInTheBuildContext(t *testing.T) {
 	const token = "fixture-read-token"
 	t.Setenv("GH_TOKEN", token)
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
 	steps := publishSteps(t)
-	require.Equal(t, false, steps[0].With["persist-credentials"])
+	require.Equal(t, false, publishCaller(t).Jobs[publishJob].Steps[0].With["persist-credentials"])
 	fixture := newReleaseFixture(t)
 	admitted, output := fixture.run(t, publishStep(t, publishRefusalStep).Run, theDefaultBranch, fixture.tip)
 	require.True(t, admitted, output)
@@ -261,7 +265,62 @@ func TestThePublishRefusalLeavesNoCredentialInTheBuildContext(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	for _, step := range steps[2:] {
+	for _, step := range steps[1:] {
 		require.NotContains(t, step.Env, "GH_TOKEN", "only the refusal receives the read token")
 	}
+}
+
+// The action also refuses an incorrectly gated caller, before remote access.
+func TestThePublishActionRefusesNonDispatchEvents(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-read-token")
+	for _, event := range []string{"pull_request", "pull_request_target", "push", "merge_group", ""} {
+		t.Run(event, func(t *testing.T) {
+			t.Setenv("GITHUB_EVENT_NAME", event)
+			cmd := exec.Command("bash", "-c", publishStep(t, publishRefusalStep).Run)
+			cmd.Dir = t.TempDir() // no origin: an event refusal must happen first
+			output, err := cmd.CombinedOutput()
+			require.Error(t, err)
+			require.Contains(t, string(output), "only be published by workflow_dispatch")
+		})
+	}
+}
+
+func TestThePublishActionWritesTheSameLockAsItsOutput(t *testing.T) {
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "output")
+	digest := "sha256:" + strings.Repeat("a", 64)
+	cmd := exec.Command("bash", "-c", publishStep(t, "Record the digest").Run)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"IMAGE="+resources.ImageRegistry+"/service-test", "DIGEST="+digest,
+		"LOCK_FILE=gateway-image.json", "GITHUB_OUTPUT="+outputPath,
+		"GITHUB_STEP_SUMMARY="+filepath.Join(dir, "summary"))
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	artifact, err := os.ReadFile(filepath.Join(dir, "release-evidence/gateway-image.json"))
+	require.NoError(t, err)
+	returned, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(returned), "json="))
+	require.JSONEq(t, string(artifact), strings.TrimPrefix(strings.TrimSpace(string(returned)), "json="))
+	image, err := resources.ParseImageLock(artifact, "service-test")
+	require.NoError(t, err)
+	require.Equal(t, digest, image.Digest)
+}
+
+// Moving checkout into the caller must not let a proof of GITHUB_SHA bless a
+// different checked-out commit, even when that SHA itself was merged.
+func TestThePublishActionRefusesACallerCheckoutOfAnotherCommit(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-read-token")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+	fixture := newReleaseFixture(t)
+	script := publishStep(t, publishRefusalStep).Run
+	admitted, output := fixture.run(t, script, theDefaultBranch, fixture.unmerged)
+	require.False(t, admitted, output) // leaves the unmerged tree checked out
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Dir = fixture.dir
+	cmd.Env = append(os.Environ(), "GITHUB_SHA="+fixture.tip, "GITHUB_REF_NAME=main")
+	outputBytes, err := cmd.CombinedOutput()
+	require.Error(t, err)
+	require.Contains(t, string(outputBytes), "checkout must select the triggering commit")
 }

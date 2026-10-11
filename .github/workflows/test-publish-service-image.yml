@@ -1,0 +1,47 @@
+name: test-publish-service-image
+
+# Manual scratch-package caller. Cross-repository proof uses this same job in
+# a test repository, replacing the local action reference with core@<SHA>.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # A local action's definition must itself be merged before it can hold
+      # this credential. External test repositories use an immutable core SHA
+      # and omit ref so checkout selects their triggering commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare a scratch image without executing service code
+        shell: bash
+        run: |
+          printf 'FROM scratch\nLABEL purpose="publish-service-image-test"\n' > Dockerfile
+      - uses: ./.github/actions/publish-service-image
+        id: publish
+        with:
+          image-name: core-publish-service-image-test
+          version: 0.0.0
+          lock-file: scratch-image.json
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check the returned lock against the artifact's source
+        shell: bash
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          LOCK: ${{ steps.publish.outputs.lock }}
+        run: |
+          set -euo pipefail
+          jq -e --arg digest "$DIGEST" '.digest == $digest and (.name | startswith("ghcr.io/codefly-dev/"))' <<< "$LOCK"
+          diff <(jq -S . <<< "$LOCK") <(jq -S . release-evidence/scratch-image.json)

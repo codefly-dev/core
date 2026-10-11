@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 // A `run:` script is the one workflow field whose content is a PROGRAM. Every
@@ -95,12 +94,9 @@ func partyChosenInterpolations(script string) []string {
 //	  SETUP_RUN: ${{ inputs.setup-run }}
 //	run: eval "$SETUP_RUN"
 func TestNoRunScriptInterpolatesAPartyChosenValue(t *testing.T) {
-	for _, path := range workflowFiles(t) {
-		body, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var parsed workflow
-		require.NoError(t, yaml.Unmarshal(body, &parsed), "%s does not parse", filepath.Base(path))
+	paths, workflows := loadIsolatedWorkflows(t)
+	for _, path := range paths {
+		parsed := workflows[path]
 
 		jobs := make([]string, 0, len(parsed.Jobs))
 		for name := range parsed.Jobs {
@@ -109,7 +105,9 @@ func TestNoRunScriptInterpolatesAPartyChosenValue(t *testing.T) {
 		sort.Strings(jobs)
 
 		for _, name := range jobs {
-			for index, step := range parsed.Jobs[name].Steps {
+			steps, unreadable := stepsIncludingLocalActions(t, parsed.Jobs[name])
+			require.Empty(t, unreadable)
+			for index, step := range steps {
 				if step.Run == "" {
 					continue
 				}
