@@ -268,8 +268,11 @@ this workflow's credential and no other identity's.
 restricted to the default branch: a dispatch names a ref, and the workflow file
 itself comes from that ref. The committed caller selects `main` before loading
 the local action, and the action refuses unmerged commits, dirty build contexts,
-stored credentials and a different repository as `origin`. Those guards cannot
-constrain a branch that changes the workflow file itself.
+stored credentials and a different repository as `origin`. Every guard Git call
+disables fsmonitor and Git hooks, including `.git/hooks/` and configured
+`core.hooksPath` directories, so repository hooks cannot inherit the remote-read
+authorization header. Those guards cannot constrain a branch that changes the
+workflow file itself.
 
 Restrict who can dispatch this workflow, or put its credential-bearing job in
 an environment with required reviewers. This is an operator-owned permissions

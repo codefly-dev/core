@@ -56,7 +56,7 @@ func gitArguments(call *syntax.CallExpr) ([]*syntax.Word, string) {
 				return nil, "git -C selects an unattributed working tree"
 			}
 		case "-c":
-			if value != "advice.detachedHead=false" && value != "core.fsmonitor=false" && !strings.HasPrefix(value, "http.https://github.com/.extraheader=") {
+			if value != "advice.detachedHead=false" && value != "core.fsmonitor=false" && value != "core.hooksPath=/dev/null" && !strings.HasPrefix(value, "http.https://github.com/.extraheader=") {
 				return nil, "unattributed git configuration " + value
 			}
 		default:
@@ -135,8 +135,8 @@ func isRemoteAuthWrapper(fn *syntax.FuncDecl) bool {
 		return false
 	}
 	// Retain the historical wrapper for existing jobs and regression fixtures;
-	// the service publisher additionally disables repository fsmonitor hooks.
-	for _, options := range []string{"", "-c core.fsmonitor=false "} {
+	// the service publisher additionally disables fsmonitor and all repository hooks.
+	for _, options := range []string{"", "-c core.fsmonitor=false -c core.hooksPath=/dev/null "} {
 		expected, err := executionShell(`git_remote() {
  local authorization
  authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
@@ -152,7 +152,7 @@ func isRemoteAuthWrapper(fn *syntax.FuncDecl) bool {
 func isRepositoryConfigRead(call *syntax.CallExpr) bool {
 	text := shellText(call)
 	return text == "git config --local --no-includes --list" ||
-		text == "git -c core.fsmonitor=false config --list --show-scope --includes"
+		text == "git -c core.fsmonitor=false -c core.hooksPath=/dev/null config --list --show-scope --includes"
 }
 
 func dangerousExecutionEnv(name string) bool {
@@ -214,7 +214,7 @@ func safeRefusalPrelude(stmt *syntax.Stmt, remoteAuth bool) string {
 				switch args[0].Lit() {
 				case "fetch", "ls-remote", "cat-file":
 				case "config", "remote":
-					if !isRepositoryConfigRead(n) && shellText(n) != "git remote get-url origin" && shellText(n) != "git -c core.fsmonitor=false remote get-url origin" {
+					if !isRepositoryConfigRead(n) && shellText(n) != "git remote get-url origin" && shellText(n) != "git -c core.fsmonitor=false -c core.hooksPath=/dev/null remote get-url origin" {
 						why = "unattributed git configuration or remote read before the ancestry refusal"
 					}
 				default:

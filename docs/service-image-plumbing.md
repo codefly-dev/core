@@ -137,8 +137,11 @@ before reading the default branch, and rejects effective local/worktree Git
 config (including included files) containing HTTP authorization headers,
 credential helpers, credential includes (including
 checkout v6+ `includeIf`), token/password keys, URL rewrites or credentials in
-URLs. It refuses repository `core.fsmonitor` settings and disables fsmonitor on
-every guard Git call. Config values are never logged. Private-repository remote
+URLs. It refuses repository `core.fsmonitor` settings and disables fsmonitor and
+Git hooks on every guard Git call (`core.fsmonitor=false`,
+`core.hooksPath=/dev/null`). Both `.git/hooks/` and configured hook directories
+are disabled, so hooks cannot inherit the remote-read authorization header.
+Config values are never logged. Private-repository remote
 reads use command-scoped authentication with `github.token`; `GH_TOKEN` is not
 exported to Git or other child processes, and nothing is stored in the Docker
 context. The `registry-token` input goes only to `docker/login-action`, never a

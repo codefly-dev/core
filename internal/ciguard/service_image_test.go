@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -501,6 +502,61 @@ func TestThePublishActionNeverExecutesRepositoryFSMonitor(t *testing.T) {
 			// must prevent execution through ls-files/status and all earlier Git reads.
 			output, err = run(strings.ReplaceAll(script, `core\.(sshcommand|fsmonitor)=`, `core\.sshcommand=`))
 			require.NoError(t, err, output)
+		})
+	}
+}
+
+func TestThePublishActionNeverExecutesRepositoryHooks(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-read-token")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+	for _, placement := range []string{".git/hooks", "local", "worktree"} {
+		t.Run(placement, func(t *testing.T) {
+			fixture := newPublishFixture(t)
+			hooks := filepath.Join(fixture.dir, ".git", "hooks")
+			if placement != ".git/hooks" {
+				hooks = t.TempDir()
+				if placement == "worktree" {
+					publishGit(t, fixture.dir, "config", "extensions.worktreeConfig", "true")
+				}
+				publishGit(t, fixture.dir, "config", "--"+placement, "core.hooksPath", hooks)
+			}
+			require.NoError(t, os.MkdirAll(hooks, 0o700))
+			marker := filepath.Join(t.TempDir(), "executed")
+			t.Setenv("HOOK_MARKER", marker)
+			for _, name := range []string{"reference-transaction", "post-index-change"} {
+				// Record presence only: never write the authorization header value.
+				require.NoError(t, os.WriteFile(filepath.Join(hooks, name), []byte(`#!/bin/sh
+printf '%s\n' "$0" >> "$HOOK_MARKER"
+case "${GIT_CONFIG_PARAMETERS-}" in
+  *http.https://github.com/.extraheader*) printf '%s\n' auth-header-visible >> "$HOOK_MARKER" ;;
+esac
+exit 0
+`), 0o700))
+			}
+			run := func(script string, mtime time.Time) {
+				// Force status to refresh the index without changing file content.
+				require.NoError(t, os.Chtimes(filepath.Join(fixture.dir, "Dockerfile"), mtime, mtime))
+				cmd := exec.Command("bash", "-c", script)
+				cmd.Dir = fixture.dir
+				cmd.Env = append(os.Environ(), "GITHUB_SHA="+fixture.tip, "GITHUB_REF_NAME=main")
+				output, err := cmd.CombinedOutput()
+				require.NoError(t, err, "%s", output)
+			}
+			script := publishStep(t, publishRefusalStep).Run
+			mtime := time.Now().Add(time.Minute)
+			run(script, mtime)
+			require.NoFileExists(t, marker, "no repository hook may execute inside the guard")
+
+			// Prove the override is load-bearing with actual Git hooks: removing
+			// it executes both hooks and exposes the fetch's authorization key.
+			mutant := strings.ReplaceAll(script, "-c core.hooksPath=/dev/null ", "")
+			require.NotEqual(t, script, mutant)
+			run(mutant, mtime.Add(time.Minute))
+			executed, err := os.ReadFile(marker)
+			require.NoError(t, err)
+			require.Contains(t, string(executed), "reference-transaction")
+			require.Contains(t, string(executed), "post-index-change")
+			require.Contains(t, string(executed), "auth-header-visible")
 		})
 	}
 }

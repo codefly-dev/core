@@ -181,8 +181,11 @@ inputs. Before any remote read, effective local and worktree Git config,
 including included files, is checked for persisted authorization headers, helpers,
 credential includes, token/password keys and URL rewrites or embedded URL
 credentials; a finding fails without printing values. Repository `core.fsmonitor`
-settings are refused, and every guard Git invocation disables fsmonitor with
-command-scoped config. `GH_TOKEN` stays a shell variable for remote authentication
+settings are refused, and every guard Git invocation disables fsmonitor and
+Git hooks with command-scoped `core.fsmonitor=false` and
+`core.hooksPath=/dev/null`. This covers both default `.git/hooks/` and configured
+hook directories; hooks cannot inherit the remote-read authorization header.
+`GH_TOKEN` stays a shell variable for remote authentication
 and is removed from child-process environments. `origin` must match the
 GitHub server and repository of the job, so a fork cannot supply the authority.
 The test caller uses a committed Dockerfile fixture through the validated
