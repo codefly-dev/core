@@ -1,11 +1,16 @@
 package services
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/kustomize/api/konfig"
+	"sigs.k8s.io/kustomize/api/types"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 )
 
@@ -15,102 +20,207 @@ import (
 // directory, and an http(s) file reference is fetched over the network. A
 // filesystem confined to a render root says nothing about either. So every
 // kustomization reachable from the base is read through the supplied
-// filesystem first, and a remote reference refuses the projection before
-// Kustomize sees it.
-
-// kustomizationFileNames are the names Kustomize accepts for a kustomization.
-var kustomizationFileNames = []string{"kustomization.yaml", "kustomization.yml", "Kustomization"}
-
-// rootFields name entries Kustomize may open as new roots — the loads it
-// clones when the reference parses as a repository.
-var rootFields = []string{"resources", "bases", "components", "generators", "transformers", "validators"}
-
-// textFields hold data Kustomize never loads, so a URL there is a value, not
-// a reference.
-var textFields = map[string]bool{
-	"commonAnnotations": true, "commonLabels": true, "labels": true, "metadata": true,
-	"patch": true, "buildMetadata": true, "images": true, "literals": true,
-}
+// filesystem first — decoded by Kustomize's own type, so a field is read under
+// every spelling Kustomize accepts — and a remote reference refuses the
+// projection before Kustomize sees it.
 
 func refuseRemoteKustomizeReferences(filesystem filesys.FileSystem, baseDir string) error {
-	seen := map[string]bool{}
-	var walk func(dir string) error
-	walk = func(dir string) error {
-		dir = path.Clean(dir)
-		if seen[dir] {
-			return nil
+	walker := remoteReferenceWalker{filesystem: filesystem, seen: map[string]bool{}}
+	return walker.kustomization(baseDir)
+}
+
+type remoteReferenceWalker struct {
+	filesystem filesys.FileSystem
+	seen       map[string]bool
+}
+
+func (w remoteReferenceWalker) kustomization(dir string) error {
+	dir = path.Clean(dir)
+	if w.seen[dir] {
+		return nil
+	}
+	w.seen[dir] = true
+	file := ""
+	for _, name := range konfig.RecognizedKustomizationFileNames() {
+		if candidate := path.Join(dir, name); w.filesystem.Exists(candidate) {
+			file = candidate
+			break
 		}
-		seen[dir] = true
-		file := ""
-		for _, name := range kustomizationFileNames {
-			if candidate := path.Join(dir, name); filesystem.Exists(candidate) {
-				file = candidate
-				break
+	}
+	if file == "" {
+		return nil
+	}
+	data, err := w.filesystem.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	var k types.Kustomization
+	if err := k.Unmarshal(data); err != nil {
+		return fmt.Errorf("read %s: %w", file, err)
+	}
+	k.FixKustomization()
+	refuse := func(field, value string) error {
+		return fmt.Errorf("%s: %s entry %q is a remote reference; a projection builds only from its render root", file, field, value)
+	}
+	// Resources are tried as a file (fetched when http) and then as a root
+	// (cloned when it reads as a repository); components and bases are roots.
+	for field, entries := range map[string][]string{"resources": k.Resources, "components": k.Components, "bases": k.Bases} {
+		for _, entry := range entries {
+			if remoteFile(entry) || remoteRepository(entry) {
+				return refuse(field, entry)
+			}
+			if err := w.local(dir, entry); err != nil {
+				return err
 			}
 		}
-		if file == "" {
-			return nil
+	}
+	// A plugin entry that parses as configuration is inline; otherwise it is
+	// a path, loaded as a resource is.
+	for field, entries := range map[string][]string{"generators": k.Generators, "transformers": k.Transformers, "validators": k.Validators} {
+		for _, entry := range entries {
+			if documents, inline := inlineConfiguration(entry); inline {
+				if err := refusePluginLoads(file, field, documents); err != nil {
+					return err
+				}
+				continue
+			}
+			if remoteFile(entry) || remoteRepository(entry) {
+				return refuse(field, entry)
+			}
+			if err := w.local(dir, entry); err != nil {
+				return err
+			}
 		}
-		data, err := filesystem.ReadFile(file)
+	}
+	files := map[string][]string{
+		"crds": k.Crds, "configurations": k.Configurations,
+	}
+	for _, patch := range k.PatchesStrategicMerge {
+		files["patchesStrategicMerge"] = append(files["patchesStrategicMerge"], string(patch))
+	}
+	for _, patch := range append(append([]types.Patch{}, k.Patches...), k.PatchesJson6902...) {
+		files["patches"] = append(files["patches"], patch.Path)
+	}
+	for _, replacement := range k.Replacements {
+		files["replacements"] = append(files["replacements"], replacement.Path)
+	}
+	files["openapi"] = append(files["openapi"], k.OpenAPI["path"])
+	sources := func(args types.GeneratorArgs) {
+		for _, source := range args.FileSources {
+			// A file source is [{key}=]{path}.
+			if _, after, found := strings.Cut(source, "="); found {
+				source = after
+			}
+			files["files"] = append(files["files"], source)
+		}
+		files["envs"] = append(append(files["envs"], args.EnvSources...), args.EnvSource)
+	}
+	for _, generator := range k.ConfigMapGenerator {
+		sources(generator.GeneratorArgs)
+	}
+	for _, generator := range k.SecretGenerator {
+		sources(generator.GeneratorArgs)
+	}
+	for field, entries := range files {
+		for _, entry := range entries {
+			if remoteFile(entry) {
+				return refuse(field, entry)
+			}
+		}
+	}
+	return nil
+}
+
+// local follows a reference inside the supplied filesystem: a directory is a
+// kustomization to walk, a file may hold plugin configurations whose own
+// loads must stay local.
+func (w remoteReferenceWalker) local(dir, entry string) error {
+	target := path.Join(dir, entry)
+	if w.filesystem.IsDir(target) {
+		return w.kustomization(target)
+	}
+	if !w.filesystem.Exists(target) {
+		return nil
+	}
+	data, err := w.filesystem.ReadFile(target)
+	if err != nil {
+		return err
+	}
+	documents, _ := decodeDocuments(data)
+	return refusePluginLoads(target, "configuration", documents)
+}
+
+// inlineConfiguration reports whether a plugin entry is configuration rather
+// than a path, as Kustomize decides it: it parses as resources.
+func inlineConfiguration(entry string) ([]any, bool) {
+	documents, err := decodeDocuments([]byte(entry))
+	if err != nil || len(documents) == 0 {
+		return nil, false
+	}
+	for _, document := range documents {
+		mapping, ok := document.(map[string]any)
+		if !ok || mapping["kind"] == nil {
+			return nil, false
+		}
+	}
+	return documents, true
+}
+
+func decodeDocuments(data []byte) ([]any, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	var documents []any
+	for {
+		var document any
+		err := decoder.Decode(&document)
+		if errors.Is(err, io.EOF) {
+			return documents, nil
+		}
 		if err != nil {
-			return err
+			return documents, err
 		}
-		var kustomization map[string]any
-		if err := yaml.Unmarshal(data, &kustomization); err != nil {
-			return fmt.Errorf("read %s: %w", file, err)
+		if document != nil {
+			documents = append(documents, document)
 		}
-		if err := refuseRemoteValues(file, "", kustomization); err != nil {
-			return err
-		}
-		for _, field := range rootFields {
-			entries, _ := kustomization[field].([]any)
-			for _, entry := range entries {
-				reference, ok := entry.(string)
-				if !ok || strings.Contains(reference, "\n") {
-					continue // an inline configuration, not a reference
+	}
+}
+
+// refusePluginLoads refuses an http(s) string in a plugin configuration — a
+// built-in generator or transformer loads its path, files and env files
+// through the same loader — outside its metadata and annotation data.
+func refusePluginLoads(file, field string, documents []any) error {
+	var walk func(key string, value any) error
+	walk = func(key string, value any) error {
+		switch typed := value.(type) {
+		case map[string]any:
+			for child, nested := range typed {
+				if strings.EqualFold(child, "metadata") || strings.EqualFold(child, "annotations") ||
+					strings.EqualFold(child, "labels") || strings.EqualFold(child, "literals") {
+					continue
 				}
-				if remoteRepository(reference) {
-					return fmt.Errorf("%s: %s entry %q is a remote repository; a projection builds only from its render root", file, field, reference)
+				if err := walk(child, nested); err != nil {
+					return err
 				}
-				if child := path.Join(dir, reference); filesystem.IsDir(child) {
-					if err := walk(child); err != nil {
-						return err
-					}
+			}
+		case []any:
+			for _, nested := range typed {
+				if err := walk(key, nested); err != nil {
+					return err
 				}
+			}
+		case string:
+			reference := typed
+			if _, after, found := strings.Cut(reference, "="); found && strings.EqualFold(key, "files") {
+				reference = after
+			}
+			if remoteFile(reference) {
+				return fmt.Errorf("%s: %s value %q is a remote reference; a projection builds only from its render root", file, field, typed)
 			}
 		}
 		return nil
 	}
-	return walk(baseDir)
-}
-
-// refuseRemoteValues refuses any string a kustomization could fetch over
-// http(s), outside the fields that only carry data.
-func refuseRemoteValues(file, field string, value any) error {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			if textFields[key] {
-				continue
-			}
-			if err := refuseRemoteValues(file, key, child); err != nil {
-				return err
-			}
-		}
-	case []any:
-		for _, child := range typed {
-			if err := refuseRemoteValues(file, field, child); err != nil {
-				return err
-			}
-		}
-	case string:
-		// A generator source may be "key=path".
-		reference := typed
-		if _, after, found := strings.Cut(reference, "="); found && (field == "files" || field == "envs") {
-			reference = after
-		}
-		if remoteFile(reference) {
-			return fmt.Errorf("%s: %s value %q is a remote reference; a projection builds only from its render root", file, field, typed)
+	for _, document := range documents {
+		if err := walk("", document); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -132,9 +242,6 @@ func remoteRepository(reference string) bool {
 		strings.HasPrefix(lower, "github.com/") || strings.HasPrefix(lower, "github.com:") {
 		return true
 	}
-	first := trimmed
-	if index := strings.IndexAny(first, "/"); index >= 0 {
-		first = first[:index]
-	}
+	first, _, _ := strings.Cut(trimmed, "/")
 	return strings.Contains(first, "@") || strings.Contains(first, ":")
 }

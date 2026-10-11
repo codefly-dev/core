@@ -60,10 +60,19 @@ func TestProjectServiceAccountOnFSRefusesRemoteReferences(t *testing.T) {
 		"remote patch file":  "resources: [deployment.yaml]\npatches:\n- path: https://example.test/patch.yaml\n",
 		"remote config file": "resources: [deployment.yaml]\nconfigMapGenerator:\n- name: c\n  files: [k=https://example.test/v]\n",
 		"nested remote":      "resources: [deployment.yaml, nested]\n",
+		"capitalised field":  "resources: [deployment.yaml, capital]\n",
+		"capitalised file":   "resources: [deployment.yaml, named]\n",
+		"newline repository": "resources: [deployment.yaml, \"file:///outside/repo.git\\n\"]\n",
+		"plugin file":        "resources: [deployment.yaml]\ntransformers: [plugin.yaml]\n",
+		"inline plugin":      "resources: [deployment.yaml]\ntransformers:\n- |\n  apiVersion: builtin\n  kind: PatchTransformer\n  metadata: {name: p}\n  path: http://example.test/patch.yaml\n",
+		"env file query":     "resources: [deployment.yaml]\nconfigMapGenerator:\n- name: c\n  envs: ['http://example.test/env?x=y']\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			filesystem, base := confinedBase(t, kustomization, map[string]string{
-				"nested/kustomization.yaml": "resources: ['https://example.test/r.yaml']\n",
+				"nested/kustomization.yaml":  "resources: ['https://example.test/r.yaml']\n",
+				"capital/kustomization.yaml": "Resources: ['file:///outside/repo.git']\n",
+				"named/Kustomization":        "resources: ['https://example.test/r.yaml']\n",
+				"plugin.yaml":                "apiVersion: builtin\nkind: PatchTransformer\nmetadata: {name: p}\npath: http://example.test/patch.yaml\n",
 			})
 			err := ProjectServiceAccountOnFS(context.Background(), filesystem, base, "target", "api", confinedOverlay(t))
 			require.ErrorContains(t, err, "remote")
@@ -85,6 +94,14 @@ images:
 configMapGenerator:
 - name: c
   literals: [URL=https://example.test/v]
+  options:
+    annotations:
+      example.test/source: https://example.test/source
+generatorOptions:
+  annotations:
+    example.test/docs: https://example.test/docs
+transformers:
+- '{apiVersion: builtin, kind: LabelTransformer, metadata: {name: label}, labels: {hello: world}, fieldSpecs: [{path: metadata/labels, create: true}]}'
 `, nil)
 	require.NoError(t, ProjectServiceAccountOnFS(context.Background(), filesystem, base, "target", "api", confinedOverlay(t)))
 }
