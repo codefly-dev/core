@@ -341,6 +341,12 @@ func publishGit(t *testing.T, dir string, args ...string) string {
 // supplies. No network or Git command is mocked.
 func newPublishFixture(t *testing.T) releaseFixture {
 	t.Helper()
+	// Commit fixtures under the same baseline as inspection. Hosted runners
+	// can install global LFS filters; those must not transform fixture bytes
+	// before a test deliberately introduces its own filter configuration.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_ATTR_NOSYSTEM", "1")
 	fixture := newReleaseFixture(t)
 	origin := publishGit(t, fixture.dir, "remote", "get-url", "origin")
 	publishGit(t, fixture.dir, "remote", "set-url", "origin", "file://"+origin)
