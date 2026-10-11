@@ -81,6 +81,15 @@ func TestProjectServiceAccountOnFSRefusesRemoteReferences(t *testing.T) {
 	}
 }
 
+// A URL inside a resource manifest is data: only a file named as a plugin
+// configures loads.
+func TestProjectServiceAccountOnFSAcceptsURLsInResourceManifests(t *testing.T) {
+	filesystem, base := confinedBase(t, "resources: [deployment.yaml, config.yaml]\n", map[string]string{
+		"config.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: c}\ndata:\n  ISSUER: https://issuer.example.test/client\n  path: http://example.test/not-a-load\n",
+	})
+	require.NoError(t, ProjectServiceAccountOnFS(context.Background(), filesystem, base, "target", "api", confinedOverlay(t)))
+}
+
 // A URL in a field Kustomize never loads is data, and an image digest or a
 // registry port is not a repository.
 func TestProjectServiceAccountOnFSAcceptsURLsThatAreData(t *testing.T) {
