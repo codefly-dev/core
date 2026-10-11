@@ -69,7 +69,7 @@ func (w remoteReferenceWalker) kustomization(dir string) error {
 			if remoteFile(entry) || remoteRepository(entry) {
 				return refuse(field, entry)
 			}
-			if err := w.local(dir, entry); err != nil {
+			if err := w.local(dir, entry, false); err != nil {
 				return err
 			}
 		}
@@ -87,7 +87,7 @@ func (w remoteReferenceWalker) kustomization(dir string) error {
 			if remoteFile(entry) || remoteRepository(entry) {
 				return refuse(field, entry)
 			}
-			if err := w.local(dir, entry); err != nil {
+			if err := w.local(dir, entry, true); err != nil {
 				return err
 			}
 		}
@@ -132,14 +132,15 @@ func (w remoteReferenceWalker) kustomization(dir string) error {
 }
 
 // local follows a reference inside the supplied filesystem: a directory is a
-// kustomization to walk, a file may hold plugin configurations whose own
-// loads must stay local.
-func (w remoteReferenceWalker) local(dir, entry string) error {
+// kustomization to walk. A file named as a plugin holds configurations whose
+// own loads must stay local; a file named as a resource is a manifest, and a
+// URL in it is data.
+func (w remoteReferenceWalker) local(dir, entry string, plugin bool) error {
 	target := path.Join(dir, entry)
 	if w.filesystem.IsDir(target) {
 		return w.kustomization(target)
 	}
-	if !w.filesystem.Exists(target) {
+	if !plugin || !w.filesystem.Exists(target) {
 		return nil
 	}
 	data, err := w.filesystem.ReadFile(target)
