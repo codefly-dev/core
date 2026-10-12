@@ -29,6 +29,26 @@ unchanged across every hop. A hop is a new *session*, never a mutation:
 | `Authority.Child` | one delegation hop | the hop's scopes attenuate the parent's effective scopes, and the child expires no later than the parent |
 | `Authority.Grant` | the capability an approval justifies | the one hop that may hold authority the previous hop did not |
 
+### The session is the issuer's to assign
+
+`StartInput.SessionID` and `ChildInput.SessionID` let the issuer bind the
+session a capability opens to a session it authenticated — the session of the
+access token the caller presented. Empty mints a fresh one, as before; a child
+may not reuse its parent's session, because a hop is a new session.
+
+It exists for a party that holds *two* credentials and must tell whether one
+was minted under the other: an access token confined to one consumer, and a
+capability presented beside it. Matching the capability's session against the
+token's needs nothing a hop may not read — `Inspected.SessionID` is already
+there — so the pairing never turns a hop into a callee.
+
+That pairing holds only while **every session a capability carries is either
+the authenticated caller's own or a fresh one**. An issuer that signs a
+caller-named id lets anyone mint a capability carrying another credential's
+session, and the pairing admits it. Core cannot see where the issuer got the
+bytes, so — like `Execution` — this rests on the issuer: supply a session you
+authenticated, or leave it empty.
+
 ### The lifetime has an absolute ceiling
 
 `MaxTTLCeiling` is 24 hours and no configuration raises it. `DefaultMaxTTL`
