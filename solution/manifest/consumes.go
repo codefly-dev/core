@@ -28,6 +28,12 @@ type ConsumedAPI struct {
 	Endpoint string `json:"endpoint"`
 	Protocol string `json:"protocol"`
 	As       string `json:"as,omitempty"`
+	// Scopes are the scopes the entry asks for (see APIDeclaration.Scopes),
+	// carried so a runtime can refuse to mint for this module outside them:
+	// the declaration the authority document is rendered from is then the
+	// ceiling the runtime holds its own asks to, written in one place. Absent
+	// when the entry asks for nothing.
+	Scopes []ConsumedScope `json:"scopes,omitempty"`
 }
 
 // ConsumedAPIs returns the runtime projection of the solution's api.consumes, in
@@ -51,6 +57,7 @@ func (m *Manifest) ConsumedAPIs() []ConsumedAPI {
 			Endpoint: declaration.Endpoint,
 			Protocol: declaration.Protocol,
 			As:       declaration.As,
+			Scopes:   sortedConsumedScopes(declaration.Scopes),
 		})
 	}
 	if len(out) == 0 {
