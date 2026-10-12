@@ -81,6 +81,7 @@ package module
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -393,6 +394,13 @@ func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
 // MarshalYAML writes the slot as {from: <group>/<key>}.
 func (slot Slot) MarshalYAML() (any, error) {
 	return map[string]string{fieldFrom: slot.From}, nil
+}
+
+// MarshalJSON writes a slot in the spelling the file uses, {"from": ...}, so a
+// document that carries one as JSON — a solution manifest's canonical bytes —
+// spells it as its YAML does.
+func (slot Slot) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]string{fieldFrom: slot.From})
 }
 
 // Group and Key split the slot's reference into the workspace configuration

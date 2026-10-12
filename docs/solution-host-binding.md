@@ -1220,23 +1220,30 @@ that has no answer — see the resolution rules below. A publisher writes throug
 `Encode`, never by marshaling the model.
 
 **A solution's consumption is the same request, declared where a solution
-already declares it.** A composed solution is a module, but it does not publish a
-module contract: what it calls is declared once, in `solution.codefly.yaml`'s
-`api.consumes`, which also drives its generated client and its runtime's
-upstream map. An `api.consumes` entry may carry `scopes` — `{resource_kind,
-actions}` entries in the consumed module's permission vocabulary, the most it asks
-for there when it calls that module on a person's behalf — and
-`manifest.ConsumptionAuthority(principal)` derives from them the same
-`modulecontract.Resolved` a contract resolves to: one **invoke** binding per scoped
-entry, its ID the entry's, its audience the consumed module's name (that module's
-principal, and the audience a capability for it is addressed to), its ceiling
-exactly the declared scopes. A solution composes modules by name, so the audience
-is written directly rather than through a slot; `as`, when set on a scoped entry,
-must equal the module, because a runtime addresses the module by `as` and the
-binding by its name. An entry without scopes asks for no authority — the solution
-calls that module with the viewer's own credential, or on nobody's behalf — and a
-solution with none returns nil. A renderer reads one source per module: a module
-contract or this derivation, never both.
+already declares it.** A composed solution is a module, but what it calls is
+declared once, in `solution.codefly.yaml`'s `api.consumes`, which also drives its
+generated client and its runtime's upstream map. Under schema
+`codefly.solution-manifest/v1` an entry may ask for authority at the module it
+consumes: `scopes` (`{resource_kind, actions}` in that module's permission
+vocabulary), an `audience` slot (`{from: <group>/<key>}`) and an optional
+`revision`. `Manifest.ConsumptionContract(principal)` turns the scoped entries
+into a **module contract** — one **invoke** binding per entry, its ID the entry's,
+its ceiling exactly the declared scopes — so the request is judged by this
+package's rules and resolved by its `Resolve`, exactly as a module's published
+contract is: the audience a module verifies is the composition's to say and is
+not always the name it is composed under, and a solution cannot spell a kind or
+an action a contract would refuse. The principal is the name the solution is
+composed under. An entry without scopes asks for nothing; `scopes: []` is
+refused, not read as absent; a v0 manifest cannot carry a request, so an older
+reader refuses the version rather than reading a request as nothing.
+
+`LoadConsumption` reads the schema version and `api.consumes` strictly and
+nothing else, for a renderer that derives authority from the consumption alone:
+an unknown or invalid field in a consumption fails, while a section unrelated to
+it never fails a render that asks for no authority. The runtime projection
+(`ConsumedAPI`, `CODEFLY__API_CONSUMES`) carries the declared scopes, so a runtime
+can refuse a mint outside the declaration it was rendered from — written once, in
+the YAML.
 
 **Resolution is core's too, not a provider's.** A contract's slots resolve
 against a composition's workspace configuration, and *which* record answers a

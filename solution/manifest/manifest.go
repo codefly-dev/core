@@ -25,6 +25,7 @@ import (
 	"sort"
 
 	"github.com/Masterminds/semver/v3"
+	modulecontract "github.com/codefly-dev/core/contracts/module"
 	solutionv0 "github.com/codefly-dev/core/generated/go/codefly/services/solution/v0"
 	"github.com/codefly-dev/core/policy"
 	"github.com/codefly-dev/core/resources"
@@ -33,8 +34,14 @@ import (
 )
 
 const (
-	FileName          = "solution.codefly.yaml"
-	SchemaVersionV0   = "codefly.solution-manifest/v0"
+	FileName        = "solution.codefly.yaml"
+	SchemaVersionV0 = "codefly.solution-manifest/v0"
+	// SchemaVersionV1 adds what a solution asks for at the modules it
+	// consumes: an api.consumes entry's audience, revision and scopes. A v0
+	// manifest is still read, and carries none of them; a manifest using them
+	// declares v1, so a reader that predates them refuses the version by name
+	// rather than reading the manifest as one that asks for nothing.
+	SchemaVersionV1   = "codefly.solution-manifest/v1"
 	ProtocolVersionV0 = "codefly.solution/v0"
 )
 
@@ -88,21 +95,34 @@ type APIDeclaration struct {
 	// As is the facade entry-point name (default: the endpoint's package
 	// short name, e.g. "accounts").
 	As string `yaml:"as,omitempty" json:"as,omitempty"`
-	// Scopes are the most authority the solution asks for at the consumed
-	// module when it calls it on a person's behalf (api.consumes only): each a
-	// resource kind in that module's permission vocabulary and the actions on
-	// it. They are what the renderer derives the solution's authority document
-	// from (see ConsumptionAuthority) — the one declaration of what the
-	// solution consumes, so no second file restates it. Absent means the
-	// solution mints no capability for that module: it calls it with the
-	// viewer's own credential, or not on anyone's behalf at all.
+	// Audience, Revision and Scopes are what the solution ASKS FOR at the
+	// consumed module when it calls it on a person's behalf (api.consumes only,
+	// schema v1). They are the one declaration of that request: the renderer
+	// derives the solution's authority document from them (ConsumptionContract),
+	// and a runtime is handed the scopes to hold its own mints to
+	// (ConsumedAPI.Scopes). An entry without scopes asks for nothing: the
+	// solution calls that module with the viewer's own credential, or on
+	// nobody's behalf.
+	//
+	// Audience is a slot into the composition's configuration ({from:
+	// <group>/<key>}), resolved exactly as a module contract's binding
+	// audience is: the audience a module verifies is the composition's to
+	// say, and it is not always the name the module is composed under.
+	Audience *modulecontract.Slot `yaml:"audience,omitempty" json:"audience,omitempty"`
+	// Revision is the binding's revision, at least 1 and 1 when omitted. A
+	// credential seals it, so the solution bumps it when what the binding
+	// means changes.
+	Revision uint64 `yaml:"revision,omitempty" json:"revision,omitempty"`
+	// Scopes are the {resource_kind, actions} the solution asks for, in the
+	// consumed module's permission vocabulary. Present means non-empty:
+	// `scopes: []` is refused, not read as absent.
 	Scopes []ConsumedScope `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 }
 
 // ConsumedScope is one resource kind of a consumed module's permission
 // vocabulary and the actions a solution asks for on it. The kind is written
 // literally: a permission's namespace is fixed by the module that contributes
-// it, as its proto package is, and a solution composes that module by name.
+// it, as its proto package is.
 type ConsumedScope struct {
 	ResourceKind string   `yaml:"resource_kind" json:"resource_kind"`
 	Actions      []string `yaml:"actions" json:"actions"`
@@ -172,8 +192,8 @@ func (m *Manifest) Validate() error {
 	if m == nil {
 		return fmt.Errorf("solution manifest is required")
 	}
-	if m.SchemaVersion != SchemaVersionV0 {
-		return fmt.Errorf("unsupported solution manifest schema version %q", m.SchemaVersion)
+	if err := validateSchemaVersion(m.SchemaVersion); err != nil {
+		return err
 	}
 	if m.ProtocolVersion != ProtocolVersionV0 {
 		return fmt.Errorf("unsupported solution protocol version %q", m.ProtocolVersion)
@@ -203,6 +223,12 @@ func (m *Manifest) Validate() error {
 		return err
 	}
 	if err := validateConsumedAPIs("api.consumes", m.API.Consumes); err != nil {
+		return err
+	}
+	if err := validateConsumptionVersion(m.SchemaVersion, m.API.Consumes); err != nil {
+		return err
+	}
+	if err := validateConsumption(m.API.Consumes); err != nil {
 		return err
 	}
 	if err := validateIDs("events.emits", len(m.Events.Emits), func(i int) string { return m.Events.Emits[i].ID }); err != nil {
@@ -277,7 +303,9 @@ func validateExposedAPIs(name string, declarations []APIDeclaration) error {
 			{"version", declaration.Version != ""},
 			{"services", len(declaration.Services) > 0},
 			{"as", declaration.As != ""},
-			{"scopes", len(declaration.Scopes) > 0},
+			{"audience", declaration.Audience != nil},
+			{"revision", declaration.Revision != 0},
+			{"scopes", declaration.Scopes != nil},
 		} {
 			if field.set {
 				return fmt.Errorf("%s[%d].%s is not allowed", name, i, field.name)
@@ -347,53 +375,53 @@ func validateConsumedAPIs(name string, declarations []APIDeclaration) error {
 	return nil
 }
 
-// scopeKindPattern and scopeActionPattern are the module contract's grammar for
-// a resource kind and an action: a scope is concatenated into
-// "<kind>:<action>", so a kind carrying a colon or a comma would carry scopes
-// nobody declared.
-var (
-	scopeKindPattern   = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
-	scopeActionPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-)
-
-// validateConsumedScopes holds a consumption's scopes to the grammar its
-// authority document is held to, and to the one module they are asked of.
+// validateConsumedScopes holds what an entry asks for to its own shape. The
+// grammar of the request itself — the resource kind, the actions, the audience
+// slot and its key's meaning, the revision — is the module contract's, and is
+// held by it (see validateConsumption), never restated here.
 func validateConsumedScopes(name string, i int, declaration APIDeclaration) error {
-	if len(declaration.Scopes) == 0 {
+	asks := declaration.Scopes != nil
+	if !asks {
+		if declaration.Audience != nil || declaration.Revision != 0 {
+			return fmt.Errorf("%s[%d] names an audience or a revision but asks for no scopes; they address a request, and an entry without scopes asks for nothing", name, i)
+		}
 		return nil
+	}
+	if len(declaration.Scopes) == 0 {
+		return fmt.Errorf("%s[%d].scopes is present and empty; an entry that asks for nothing omits scopes, and one that asks for something names it", name, i)
 	}
 	if declaration.Module == "" {
 		return fmt.Errorf("%s[%d].scopes asks for authority at no module: scopes are asked of a bound consumption (module, service, endpoint)", name, i)
 	}
-	// The audience a capability for a module is addressed to is that module's
-	// name — its principal — and a runtime addresses the module by `as`. A
-	// consumption that asks for authority under two names would render a
-	// binding for one and mint for the other, refused far from here.
-	if declaration.As != "" && declaration.As != declaration.Module {
-		return fmt.Errorf("%s[%d] asks for scopes at module %q but names it %q with as; the audience a capability for a module is addressed to is the module's own name, so a consumption that asks for authority sets as to it or leaves it unset",
-			name, i, declaration.Module, declaration.As)
+	if declaration.Audience == nil {
+		return fmt.Errorf("%s[%d] asks for scopes at module %q and names no audience; the audience a module verifies is the composition's to say, so a scoped entry names it as a slot, audience: {from: <group>/<key>}", name, i, declaration.Module)
 	}
-	kinds := make(map[string]struct{}, len(declaration.Scopes))
 	for j, scope := range declaration.Scopes {
-		if !scopeKindPattern.MatchString(scope.ResourceKind) {
-			return fmt.Errorf("%s[%d].scopes[%d].resource_kind %q is not a resource kind", name, i, j, scope.ResourceKind)
-		}
-		if _, duplicate := kinds[scope.ResourceKind]; duplicate {
-			return fmt.Errorf("%s[%d].scopes[%d].resource_kind %q is declared twice; one kind has one entry", name, i, j, scope.ResourceKind)
-		}
-		kinds[scope.ResourceKind] = struct{}{}
 		if len(scope.Actions) == 0 {
 			return fmt.Errorf("%s[%d].scopes[%d] names no action on %q; a scope permits something", name, i, j, scope.ResourceKind)
 		}
-		actions := make(map[string]struct{}, len(scope.Actions))
-		for _, action := range scope.Actions {
-			if !scopeActionPattern.MatchString(action) {
-				return fmt.Errorf("%s[%d].scopes[%d].actions entry %q is not an action", name, i, j, action)
-			}
-			if _, duplicate := actions[action]; duplicate {
-				return fmt.Errorf("%s[%d].scopes[%d].actions entry %q is declared twice", name, i, j, action)
-			}
-			actions[action] = struct{}{}
+	}
+	return nil
+}
+
+// validateSchemaVersion admits the two versions this package reads.
+func validateSchemaVersion(version string) error {
+	if version != SchemaVersionV0 && version != SchemaVersionV1 {
+		return fmt.Errorf("unsupported solution manifest schema version %q", version)
+	}
+	return nil
+}
+
+// validateConsumptionVersion refuses a request in a manifest that declares the
+// version before requests existed: a reader of v0 would read it as asking for
+// nothing.
+func validateConsumptionVersion(version string, declarations []APIDeclaration) error {
+	if version != SchemaVersionV0 {
+		return nil
+	}
+	for i, declaration := range declarations {
+		if declaration.Scopes != nil || declaration.Audience != nil || declaration.Revision != 0 {
+			return fmt.Errorf("api.consumes[%d] asks for authority, which %s cannot express; declare schema_version: %s", i, SchemaVersionV0, SchemaVersionV1)
 		}
 	}
 	return nil
@@ -524,6 +552,9 @@ func sortedEventDeclarations(values []EventDeclaration) []EventDeclaration {
 }
 
 func sortedConsumedScopes(values []ConsumedScope) []ConsumedScope {
+	if values == nil {
+		return nil
+	}
 	out := make([]ConsumedScope, 0, len(values))
 	for _, scope := range values {
 		actions := append([]string(nil), scope.Actions...)
