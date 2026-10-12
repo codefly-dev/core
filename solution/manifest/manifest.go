@@ -88,6 +88,24 @@ type APIDeclaration struct {
 	// As is the facade entry-point name (default: the endpoint's package
 	// short name, e.g. "accounts").
 	As string `yaml:"as,omitempty" json:"as,omitempty"`
+	// Scopes are the most authority the solution asks for at the consumed
+	// module when it calls it on a person's behalf (api.consumes only): each a
+	// resource kind in that module's permission vocabulary and the actions on
+	// it. They are what the renderer derives the solution's authority document
+	// from (see ConsumptionAuthority) — the one declaration of what the
+	// solution consumes, so no second file restates it. Absent means the
+	// solution mints no capability for that module: it calls it with the
+	// viewer's own credential, or not on anyone's behalf at all.
+	Scopes []ConsumedScope `yaml:"scopes,omitempty" json:"scopes,omitempty"`
+}
+
+// ConsumedScope is one resource kind of a consumed module's permission
+// vocabulary and the actions a solution asks for on it. The kind is written
+// literally: a permission's namespace is fixed by the module that contributes
+// it, as its proto package is, and a solution composes that module by name.
+type ConsumedScope struct {
+	ResourceKind string   `yaml:"resource_kind" json:"resource_kind"`
+	Actions      []string `yaml:"actions" json:"actions"`
 }
 
 // Events declares the events a solution emits and consumes.
@@ -259,6 +277,7 @@ func validateExposedAPIs(name string, declarations []APIDeclaration) error {
 			{"version", declaration.Version != ""},
 			{"services", len(declaration.Services) > 0},
 			{"as", declaration.As != ""},
+			{"scopes", len(declaration.Scopes) > 0},
 		} {
 			if field.set {
 				return fmt.Errorf("%s[%d].%s is not allowed", name, i, field.name)
@@ -320,6 +339,61 @@ func validateConsumedAPIs(name string, declarations []APIDeclaration) error {
 				return fmt.Errorf("%s[%d].as %q is duplicated", name, i, declaration.As)
 			}
 			seenAs[declaration.As] = struct{}{}
+		}
+		if err := validateConsumedScopes(name, i, declaration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// scopeKindPattern and scopeActionPattern are the module contract's grammar for
+// a resource kind and an action: a scope is concatenated into
+// "<kind>:<action>", so a kind carrying a colon or a comma would carry scopes
+// nobody declared.
+var (
+	scopeKindPattern   = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
+	scopeActionPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+)
+
+// validateConsumedScopes holds a consumption's scopes to the grammar its
+// authority document is held to, and to the one module they are asked of.
+func validateConsumedScopes(name string, i int, declaration APIDeclaration) error {
+	if len(declaration.Scopes) == 0 {
+		return nil
+	}
+	if declaration.Module == "" {
+		return fmt.Errorf("%s[%d].scopes asks for authority at no module: scopes are asked of a bound consumption (module, service, endpoint)", name, i)
+	}
+	// The audience a capability for a module is addressed to is that module's
+	// name — its principal — and a runtime addresses the module by `as`. A
+	// consumption that asks for authority under two names would render a
+	// binding for one and mint for the other, refused far from here.
+	if declaration.As != "" && declaration.As != declaration.Module {
+		return fmt.Errorf("%s[%d] asks for scopes at module %q but names it %q with as; the audience a capability for a module is addressed to is the module's own name, so a consumption that asks for authority sets as to it or leaves it unset",
+			name, i, declaration.Module, declaration.As)
+	}
+	kinds := make(map[string]struct{}, len(declaration.Scopes))
+	for j, scope := range declaration.Scopes {
+		if !scopeKindPattern.MatchString(scope.ResourceKind) {
+			return fmt.Errorf("%s[%d].scopes[%d].resource_kind %q is not a resource kind", name, i, j, scope.ResourceKind)
+		}
+		if _, duplicate := kinds[scope.ResourceKind]; duplicate {
+			return fmt.Errorf("%s[%d].scopes[%d].resource_kind %q is declared twice; one kind has one entry", name, i, j, scope.ResourceKind)
+		}
+		kinds[scope.ResourceKind] = struct{}{}
+		if len(scope.Actions) == 0 {
+			return fmt.Errorf("%s[%d].scopes[%d] names no action on %q; a scope permits something", name, i, j, scope.ResourceKind)
+		}
+		actions := make(map[string]struct{}, len(scope.Actions))
+		for _, action := range scope.Actions {
+			if !scopeActionPattern.MatchString(action) {
+				return fmt.Errorf("%s[%d].scopes[%d].actions entry %q is not an action", name, i, j, action)
+			}
+			if _, duplicate := actions[action]; duplicate {
+				return fmt.Errorf("%s[%d].scopes[%d].actions entry %q is declared twice", name, i, j, action)
+			}
+			actions[action] = struct{}{}
 		}
 	}
 	return nil
@@ -435,6 +509,9 @@ func sortedAPIDeclarations(values []APIDeclaration) []APIDeclaration {
 			sort.Strings(services)
 			out[i].Services = services
 		}
+		if len(out[i].Scopes) > 0 {
+			out[i].Scopes = sortedConsumedScopes(out[i].Scopes)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -443,5 +520,16 @@ func sortedAPIDeclarations(values []APIDeclaration) []APIDeclaration {
 func sortedEventDeclarations(values []EventDeclaration) []EventDeclaration {
 	out := append([]EventDeclaration(nil), values...)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func sortedConsumedScopes(values []ConsumedScope) []ConsumedScope {
+	out := make([]ConsumedScope, 0, len(values))
+	for _, scope := range values {
+		actions := append([]string(nil), scope.Actions...)
+		sort.Strings(actions)
+		out = append(out, ConsumedScope{ResourceKind: scope.ResourceKind, Actions: actions})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ResourceKind < out[j].ResourceKind })
 	return out
 }

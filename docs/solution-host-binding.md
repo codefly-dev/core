@@ -1219,6 +1219,25 @@ value: agreeing spellings are one value and resolve, and it is the disagreement
 that has no answer — see the resolution rules below. A publisher writes through
 `Encode`, never by marshaling the model.
 
+**A solution's consumption is the same request, declared where a solution
+already declares it.** A composed solution is a module, but it does not publish a
+module contract: what it calls is declared once, in `solution.codefly.yaml`'s
+`api.consumes`, which also drives its generated client and its runtime's
+upstream map. An `api.consumes` entry may carry `scopes` — `{resource_kind,
+actions}` entries in the consumed module's permission vocabulary, the most it asks
+for there when it calls that module on a person's behalf — and
+`manifest.ConsumptionAuthority(principal)` derives from them the same
+`modulecontract.Resolved` a contract resolves to: one **invoke** binding per scoped
+entry, its ID the entry's, its audience the consumed module's name (that module's
+principal, and the audience a capability for it is addressed to), its ceiling
+exactly the declared scopes. A solution composes modules by name, so the audience
+is written directly rather than through a slot; `as`, when set on a scoped entry,
+must equal the module, because a runtime addresses the module by `as` and the
+binding by its name. An entry without scopes asks for no authority — the solution
+calls that module with the viewer's own credential, or on nobody's behalf — and a
+solution with none returns nil. A renderer reads one source per module: a module
+contract or this derivation, never both.
+
 **Resolution is core's too, not a provider's.** A contract's slots resolve
 against a composition's workspace configuration, and *which* record answers a
 slot is as much a rule of this contract as any refusal of a document: two
