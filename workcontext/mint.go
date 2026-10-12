@@ -115,6 +115,13 @@ type StartInput struct {
 	// asserts over the wire — and it is checked because an unchecked input is
 	// a claim. See workcontext.Execution.
 	Execution Execution
+
+	// SessionID is the session this capability opens, when the ISSUER has one
+	// to bind it to. Empty mints a fresh one, which is what a session no other
+	// credential names should carry.
+	//
+	// See SessionID on ChildInput: the two are the same field on the same terms.
+	SessionID string
 }
 
 // Start mints the first capability of a task, carrying the owner's delegated
@@ -155,7 +162,7 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 		TenantId:              in.TenantID,
 		OwnerPrincipalId:      in.OwnerPrincipalID,
 		TaskId:                in.TaskID,
-		SessionId:             uuid.NewString(),
+		SessionId:             sessionOrFresh(in.SessionID),
 		AuthorityScopes:       cloneScopes(in.AuthorityScopes),
 		AttributionTeamIds:    slices.Clone(in.AttributionTeamIDs),
 		Seal:                  seal,
@@ -195,6 +202,34 @@ type ChildInput struct {
 	// exercises one. Empty carries the parent's; naming one replaces it, and
 	// the replacement's revision and incarnation are read live.
 	OperationBindingID string
+
+	// SessionID is the session this hop opens, when the ISSUER has one to bind
+	// it to. Empty mints a fresh one. It may not be the parent's own session:
+	// a hop is a new session, never a mutation of the one it came from.
+	//
+	// # Why an issuer supplies it at all
+	//
+	// A session id is what lets a party holding SOME OTHER credential tell
+	// whether this capability was minted under it. A host whose access tokens
+	// carry a session can bind a capability to the session of the caller it
+	// authenticated, and a party that later holds both — the access token and
+	// the capability — can check that they agree without reading anything
+	// that makes it act: Inspected exposes the session to a forwarding hop
+	// already. Minting a fresh id every time made that binding inexpressible,
+	// and a host that needed it had no answer but a second encoding.
+	//
+	// # The way to supply it and defeat it at the same time
+	//
+	// The value is the issuer's, from a session IT authenticated — never a
+	// value the caller asked for. A pairing on the session holds only while
+	// every session a capability carries is either the authenticated caller's
+	// own or a fresh one; an issuer that signs a caller-named id lets any
+	// caller mint a capability carrying another credential's session, and the
+	// pairing then admits it. Core cannot detect that — both are strings and it
+	// cannot know where the issuer got the bytes — so it rests on the issuer,
+	// exactly as Execution does. When the issuer has no authenticated session
+	// to bind, leave it empty.
+	SessionID string
 }
 
 // Child exchanges a verified parent capability for a delegated one. The hop's
@@ -233,7 +268,7 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 	}
 	setOptional(&hop.AgentId, in.AgentID)
 	setOptional(&hop.OrganizationId, in.OrganizationID)
-	wc, err := a.derive(parent, in.Audience, replay, a.now().Add(in.TTL), revision)
+	wc, err := a.derive(parent, in.Audience, replay, a.now().Add(in.TTL), revision, in.SessionID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -522,7 +557,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 	if _, err := a.carryForwardRevision(ctx, parent); err != nil {
 		return "", nil, err
 	}
-	wc, err := a.derive(parent, grant.Audience, ReplaySingleUse, expires, grant.AuthorizationRevision)
+	wc, err := a.derive(parent, grant.Audience, ReplaySingleUse, expires, grant.AuthorizationRevision, "")
 	if err != nil {
 		return "", nil, err
 	}
@@ -548,7 +583,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 // mutating the returned message would rewrite what the parent is verified to
 // hold — and a later exchange off that same parent would attenuate against
 // the rewritten authority.
-func (a *Authority) derive(parent *Verified, audience, replay string, expires time.Time, revision uint64) (*basev0.WorkContextV1, error) {
+func (a *Authority) derive(parent *Verified, audience, replay string, expires time.Time, revision uint64, session string) (*basev0.WorkContextV1, error) {
 	now := a.now()
 	parentExpiry := time.Unix(parent.claims().GetExpiresAtUnix(), 0)
 	if parentExpiry.Before(expires) {
@@ -564,6 +599,9 @@ func (a *Authority) derive(parent *Verified, audience, replay string, expires ti
 			ErrInvalid, parentExpiry.UTC().Format(time.RFC3339))
 	}
 	parentSession := parent.Context().GetSessionId()
+	if session != "" && session == parentSession {
+		return nil, fmt.Errorf("%w: a derived capability opens a new session and may not reuse its parent's", ErrInvalid)
+	}
 	wc := cloneClaims(parent.Context())
 	wc.Typ = Typ
 	wc.Algorithm = Algorithm
@@ -576,7 +614,7 @@ func (a *Authority) derive(parent *Verified, audience, replay string, expires ti
 	wc.Nonce = uuid.NewString()
 	wc.AuthorizationRevision = revision
 	wc.ReplayPolicy = replay
-	wc.SessionId = uuid.NewString()
+	wc.SessionId = sessionOrFresh(session)
 	wc.ParentSessionId = &parentSession
 	wc.GrantHop = nil
 	return wc, nil
@@ -715,6 +753,16 @@ func (a *Authority) seal(wc *basev0.WorkContextV1) (string, *basev0.WorkContextV
 			ErrInvalid, err)
 	}
 	return encoded, wc, nil
+}
+
+// sessionOrFresh is the session a capability opens: the one the issuer bound,
+// or a fresh one when it bound none. The schema bounds a supplied value, so an
+// empty or oversized id is refused by the same validation every field is.
+func sessionOrFresh(session string) string {
+	if session == "" {
+		return uuid.NewString()
+	}
+	return session
 }
 
 func setOptional(field **string, value string) {
