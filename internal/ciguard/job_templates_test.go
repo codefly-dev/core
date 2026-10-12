@@ -311,9 +311,9 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool
 // it is the last of three conjuncts and the only one a constant can satisfy.
 var recordedJobDigests = map[string]string{
 	"test-publish-service-image.yml/publish": "2ce352c0cd7b9d3265d098d99ac5800d3d1a8eee9fd891e51827690c6b56df61",
-	"combine-deps.yml/publish":               "96fa1520bff8448fea8f54c7bf6608bda3b218c34099469abeffcf0ab28a9eeb",
+	"combine-deps.yml/publish":               "fcfd1bedfe6a650e26faf14c165c6b6c96809557db594408c33a984e4d7532b1",
 	"go-service-release.yml/goreleaser":      "236e993f0419411c4093519708ebe76694d7df482bf98b8c26d8396999fd9f25",
-	"go.yml/coverage-badge":                  "f90499145fe994ba99df79a30c275d1be9396e572f853ab1bd4ea7519ec2ebc7",
+	"go.yml/coverage-badge":                  "ce7ceb87ecc2b05048a724a4f5fd6fd2a9611c7849eeabd1629a89266e265ac1",
 	"go.yml/notify":                          "150388315f3784739566d301151e8fc74cc6715e54b2af8420c5fdd6b59aaf75",
 	"version-tag.yml/tag":                    "447e0de19e05b354745c839d84f533fcfcb58716d7fa120bdb42846270bf0a65",
 }
