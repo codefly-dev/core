@@ -25,7 +25,7 @@ check-version-tag:
 # because nothing looks broken while they happen to coincide.
 # internal/ciguard's TestWorkflowCoverageToolMatchesTheMakefile fails when this
 # pin and the action pinned in the workflow disagree.
-GO_TEST_COVERAGE_VERSION := v2.19.0
+GO_TEST_COVERAGE_VERSION := v2.20.0
 
 .PHONY: install-go-test-coverage
 install-go-test-coverage:
