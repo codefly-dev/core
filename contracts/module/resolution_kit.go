@@ -54,6 +54,21 @@ type ResolutionFixture struct {
 	// provider that declassified only the OTHER two roles passed all sixteen
 	// cases while putting a secret into a scope.
 	Slot string
+	// Optional is the marker on the binding under test: empty for a required
+	// binding, OmitInLocalDevelopment for one the module may run without.
+	Optional OmissionPolicy
+	// Policy is the policy the contract is resolved under; the zero value is
+	// Strict(). An accepted case also proves RequireStrict passes exactly
+	// the resolutions made under Strict().
+	Policy ResolutionPolicy
+	// Omitted means the accepted outcome is the binding's omission: no
+	// resolved binding, and one Excluded entry naming its binding_key slot.
+	Omitted bool
+
+	// unreadable makes the provider fail for the fixture's group, which no
+	// set of records can express: a provider error is a refusal, never an
+	// absence.
+	unreadable bool
 }
 
 // The keys the resolution fixtures are written against, named once.
@@ -333,6 +348,89 @@ func BindingKeyFixtures() []ResolutionFixture {
 	return fixtures
 }
 
+// OptionalBindingFixtures are the binding_key slot of a binding the module may
+// run without under local development, resolved under both policies. Only an
+// ABSENT key under LocalDevelopment() omits it; the same composition resolved
+// strictly is refused, an unmarked binding is refused under either policy, and
+// a key that is present but empty, secret, ambiguous or unreadable is refused
+// as it is for any binding. A provider that loses the key's record turns a
+// refusal into an omission, and fails here.
+func OptionalBindingFixtures() []ResolutionFixture {
+	const group, key = "assistant", bindingLookup
+	absent := []Record{{Key: "OTHER_BINDING", Value: bindingValue}}
+	configured := []Record{{Key: bindingKey, Value: bindingValue}}
+	unresolved := "binding model binding_key ← " + bindingSlot
+	fixtures := []ResolutionFixture{
+		{
+			Name: "an optional binding whose key is absent, under local development", Group: group, Key: key,
+			Optional: OmitInLocalDevelopment, Policy: LocalDevelopment(), Outcome: OutcomeAccepted, Omitted: true,
+			Rule: ruleOptionalAbsentOmits, Records: absent,
+		},
+		{
+			// The render's negative: the composition above, resolved strictly.
+			Name: "an optional binding whose key is absent, resolved strictly", Group: group, Key: key,
+			Optional: OmitInLocalDevelopment, Policy: Strict(), Outcome: OutcomeRefused,
+			Sentinel: ErrUnresolvedSlot, Message: unresolved, Records: absent,
+		},
+		{
+			// The policy omits only what the module marked.
+			Name: "an unmarked binding whose key is absent, under local development", Group: group, Key: key,
+			Policy: LocalDevelopment(), Outcome: OutcomeRefused,
+			Sentinel: ErrUnresolvedSlot, Message: unresolved, Records: absent,
+		},
+		{
+			Name: "an optional binding whose key is configured, under local development", Group: group, Key: key,
+			Optional: OmitInLocalDevelopment, Policy: LocalDevelopment(), Outcome: OutcomeAccepted, Value: bindingValue,
+			Audience: audienceValue, Kind: kindValue, BindingKey: bindingValue, Scopes: []string{kindScope},
+			Records: configured,
+		},
+		{
+			Name: "an optional binding whose key is configured, resolved strictly", Group: group, Key: key,
+			Optional: OmitInLocalDevelopment, Policy: Strict(), Outcome: OutcomeAccepted, Value: bindingValue,
+			Audience: audienceValue, Kind: kindValue, BindingKey: bindingValue, Scopes: []string{kindScope},
+			Records: configured,
+		},
+		{
+			// Empty is invalid, never "off".
+			Name: "an optional binding whose key is present and empty, under local development", Group: group, Key: key,
+			Optional: OmitInLocalDevelopment, Policy: LocalDevelopment(), Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: notOneLine, Rule: ruleResolvedName,
+			Records: []Record{{Key: bindingKey, Value: ""}},
+		},
+		{
+			Name: "an optional binding whose key is secret, under local development", Group: group, Key: key,
+			Optional: OmitInLocalDevelopment, Policy: LocalDevelopment(), Outcome: OutcomeRefused,
+			Sentinel: ErrSecretSlot, Message: bindingSlot, Rule: ruleSecretPrecedence,
+			Records: []Record{{Key: bindingKey, Value: secretValue, Secret: true}},
+		},
+		{
+			Name: "an optional binding whose key is supplied in two spellings that disagree, under local development", Group: group, Key: key,
+			Optional: OmitInLocalDevelopment, Policy: LocalDevelopment(), Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: noOneValue, Rule: ruleOneValue,
+			Records: []Record{{Key: bindingKey, Value: bindingValue}, {Key: bindingLookup, Value: "other"}},
+		},
+		{
+			Name: "an optional binding whose key cannot be read, under local development", Group: group, Key: key,
+			Optional: OmitInLocalDevelopment, Policy: LocalDevelopment(), Outcome: OutcomeRefused,
+			Sentinel: ErrAmbiguousSlot, Message: "cannot be read", Records: configured, unreadable: true,
+		},
+	}
+	for index := range fixtures {
+		fixtures[index].Records = withCompanion(withCompanion(fixtures[index].Records, companionKind), companionAudience)
+	}
+	// Omitted, the binding's other slots are not resolved: an absent audience
+	// beside the absent key is no refusal.
+	fixtures = append(fixtures, ResolutionFixture{
+		Name: "an optional binding whose key and audience are both absent, under local development", Group: group, Key: key,
+		Optional: OmitInLocalDevelopment, Policy: LocalDevelopment(), Outcome: OutcomeAccepted, Omitted: true,
+		Rule: ruleOptionalAbsentOmits, Records: withCompanion(absent, companionKind),
+	})
+	for index := range fixtures {
+		fixtures[index].Slot = fieldBindingKey
+	}
+	return fixtures
+}
+
 // lossFixtures are the cases that catch a provider DISCARDING a record rather
 // than mis-reading one, generated for EVERY slot role so none can be missed,
 // and generated over EVERY axis so no combination can be missed either:
@@ -517,6 +615,7 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 		ID: "model", Operations: []string{OperationInvoke},
 		ScopeCeiling: map[string]Ceiling{OperationInvoke: {Actions: []string{"read"}}},
 		ResourceKind: &Slot{From: "assistant/model-resource-kind"},
+		Optional:     fixture.Optional,
 	}
 	switch role {
 	case fieldResourceKind:
@@ -534,12 +633,53 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 		Schema: SchemaV1, Principal: "assistant", Namespaces: []string{"assistant"}, Queues: []string{},
 		Bindings: []Binding{binding},
 	}
-	resolved, err := contract.resolve(values, without)
-	switch fixture.Outcome {
-	case OutcomeAccepted:
+	if fixture.unreadable {
+		values = unreadableGroup{Values: values, group: fixture.Group}
+	}
+	resolved, err := contract.resolve(values, without, fixture.Policy)
+	switch {
+	case fixture.Outcome == OutcomeAccepted && fixture.Omitted:
+		if err != nil {
+			t.Errorf("resolution fixture %q must omit binding model, got: %v", fixture.Name, err)
+			return
+		}
+		want := ExcludedBinding{ID: "model", From: fixture.Group + "/" + fixture.Key}
+		if len(resolved.Bindings) != 0 || len(resolved.Excluded) != 1 || resolved.Excluded[0] != want {
+			t.Errorf("resolution fixture %q must omit binding model as %+v, got bindings %+v and excluded %+v", fixture.Name, want, resolved.Bindings, resolved.Excluded)
+			return
+		}
+		if reason := "binding model omitted under local development: binding_key " + want.From + " absent"; resolved.Excluded[0].Reason() != reason {
+			t.Errorf("resolution fixture %q must give the reason %q, got %q", fixture.Name, reason, resolved.Excluded[0].Reason())
+		}
+		if resolved.Policy != LocalDevelopment() {
+			t.Errorf("resolution fixture %q must record the LocalDevelopment() policy, got %+v", fixture.Name, resolved.Policy)
+		}
+		// An omission is never a document's source: RequireStrict refuses
+		// it, naming what was omitted.
+		if err := resolved.RequireStrict(); !errors.Is(err, ErrNotStrict) || !strings.Contains(err.Error(), resolved.Excluded[0].Reason()) {
+			t.Errorf("resolution fixture %q must be refused by RequireStrict with %v naming %q, got: %v", fixture.Name, ErrNotStrict, resolved.Excluded[0].Reason(), err)
+		}
+	case fixture.Outcome == OutcomeAccepted:
 		if err != nil {
 			t.Errorf("resolution fixture %q must resolve, got: %v", fixture.Name, err)
 			return
+		}
+		// A binding omitted where it must resolve is the loss of a record
+		// the provider was given, not an absence the composition chose.
+		if len(resolved.Bindings) != 1 || len(resolved.Excluded) != 0 {
+			t.Errorf("resolution fixture %q must resolve binding model, got bindings %+v and excluded %+v", fixture.Name, resolved.Bindings, resolved.Excluded)
+			return
+		}
+		if resolved.Policy != fixture.Policy {
+			t.Errorf("resolution fixture %q must record the policy it was resolved under, %+v, got %+v", fixture.Name, fixture.Policy, resolved.Policy)
+		}
+		// RequireStrict reads the policy, not the omissions: a local
+		// development resolution that omitted nothing is still refused.
+		switch err := resolved.RequireStrict(); {
+		case fixture.Policy == Strict() && err != nil:
+			t.Errorf("resolution fixture %q resolved strictly must pass RequireStrict, got: %v", fixture.Name, err)
+		case fixture.Policy != Strict() && (!errors.Is(err, ErrNotStrict) || !strings.Contains(err.Error(), "it omitted no binding")):
+			t.Errorf("resolution fixture %q resolved under local development must be refused by RequireStrict with %v, got: %v", fixture.Name, ErrNotStrict, err)
 		}
 		// The WHOLE binding, so a provider cannot corrupt a value the fixture
 		// does not name and still pass.
@@ -558,7 +698,7 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 		if have := strings.Join(got.Scopes[OperationInvoke], ","); have != strings.Join(fixture.Scopes, ",") {
 			t.Errorf("resolution fixture %q must produce scopes %v, got %v", fixture.Name, fixture.Scopes, got.Scopes[OperationInvoke])
 		}
-	case OutcomeRefused:
+	case fixture.Outcome == OutcomeRefused:
 		switch {
 		case err == nil:
 			t.Errorf("resolution fixture %q must be refused with %v (the rule it isolates: %s)", fixture.Name, fixture.Sentinel, fixture.Rule)
@@ -575,6 +715,7 @@ func AllResolutionFixtures() []ResolutionFixture {
 	all := append([]ResolutionFixture(nil), ResolutionFixtures()...)
 	all = append(all, ResolvedKindFixtures()...)
 	all = append(all, BindingKeyFixtures()...)
+	all = append(all, OptionalBindingFixtures()...)
 	for _, role := range lossRoles() {
 		for _, fixture := range lossFixtures(role.label, role.role, "assistant", role.key, role.upper, role.lower, role.value) {
 			fixture.Records = withCompanion(withCompanion(fixture.Records, companionKind), companionAudience)
@@ -596,4 +737,19 @@ func (values recordValues) Records(group string) ([]Record, error) {
 		return nil, nil
 	}
 	return values.records, nil
+}
+
+// unreadableGroup is the consumer's provider with one group it cannot read,
+// for the fixture no set of records can express: what is under test is that
+// core refuses a provider's error rather than reading it as an absence.
+type unreadableGroup struct {
+	Values
+	group string
+}
+
+func (values unreadableGroup) Records(group string) ([]Record, error) {
+	if group == values.group {
+		return nil, errors.New("the " + group + " group cannot be listed")
+	}
+	return values.Values.Records(group)
 }

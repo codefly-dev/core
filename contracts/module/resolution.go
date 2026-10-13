@@ -53,11 +53,16 @@ const (
 	ruleResolvedKind = "resolved-kind-grammar"
 	// ruleResolvedName: a resolved value is one non-empty line.
 	ruleResolvedName = "resolved-single-line"
+	// ruleOptionalAbsentOmits: under the policy a binding is marked optional
+	// for, an ABSENT binding_key record omits the binding rather than
+	// refusing it. Absent only: a present record goes through every rule
+	// above, so empty, secret, ambiguous and unreadable still refuse.
+	ruleOptionalAbsentOmits = "optional-absent-omits"
 )
 
 // resolutionRuleNames is every rule of the resolution half, in apply order.
 func resolutionRuleNames() []string {
-	return []string{ruleSecretPrecedence, ruleOneValue, ruleResolvedName, ruleResolvedKind}
+	return []string{ruleOptionalAbsentOmits, ruleSecretPrecedence, ruleOneValue, ruleResolvedName, ruleResolvedKind}
 }
 
 // resolution is what the rules answer for one slot: the value, or the reason
@@ -68,6 +73,10 @@ type resolution struct {
 	found  bool
 	reason string
 }
+
+// absent is the answer for a key no record carries, in either spelling: not a
+// value, not a secret, and no reason a present record was refused.
+func (answer resolution) absent() bool { return !answer.found && answer.reason == "" }
 
 // resolveSlot is the ONE resolution of one slot against a group's records. It
 // is the whole policy: which records are that key, whether they agree, which
