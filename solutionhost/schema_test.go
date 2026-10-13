@@ -143,7 +143,7 @@ func TestShippedFixtureBytesArePinned(t *testing.T) {
 
 // shippedFixtureDigest covers every document under testdata, by path and
 // content. See TestShippedFixtureBytesArePinned.
-const shippedFixtureDigest = "sha256:ce9044203ae932c20eed91f605bde9a43a123be4f61fd434e0a5ddc61b5223d6"
+const shippedFixtureDigest = "sha256:311ac9438cf31627c36e31ea2a287c6aea1f819b3c2a6c686b32dd5c105e3b43"
 
 // The family version is v1, which is a string earlier shapes of these
 // documents also used. That is safe, and this is what makes it checkable

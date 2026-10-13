@@ -37,6 +37,10 @@ type Workspace struct {
 	Workspaces []*WorkspaceReference `yaml:"workspaces,omitempty"`
 	// Solutions are the product's additions to its composed workspaces.
 	Solutions []*ModuleReference `yaml:"solutions,omitempty"`
+	// SolutionGroups organise the product's solutions for presentation; see
+	// SolutionGroup. Authored by the composing product, validated once the
+	// composition is resolved, and not inherited from composed workspaces.
+	SolutionGroups []*SolutionGroup `yaml:"solution-groups,omitempty"`
 
 	// Services in flat layout (embedded directly, replaces module.codefly.yaml)
 	Services []*ServiceReference `yaml:"services,omitempty"`
@@ -273,6 +277,9 @@ func LoadWorkspaceFromDir(ctx context.Context, dir string) (*Workspace, error) {
 		return nil, w.Wrap(err)
 	}
 	if err := workspace.composeWorkspaces(ctx); err != nil {
+		return nil, w.Wrap(err)
+	}
+	if err := workspace.validateSolutionGroups(); err != nil {
 		return nil, w.Wrap(err)
 	}
 	return workspace, nil

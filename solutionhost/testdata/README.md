@@ -155,6 +155,14 @@ reader drops one, or when its decoder quietly repairs a count.
 | `frontend-dashboard-hex` | rejected, rule `frontend-dashboard-json` | `limit: 0x10` inside the dashboard; JSON spells a number one way — with the rule gone the document is accepted on 16 |
 | `frontend-dashboard-timestamp` | rejected, rule `frontend-dashboard-json` | `since: 2024-01-01` inside the dashboard; yaml reads a timestamp and the signing encoding would write a different string — with the rule gone the document is accepted on a respelled value |
 | `frontend-dashboard-not-an-object` | rejected, rule `frontend-dashboard-json` | a dashboard that is a list; a data graph is an object — with the rule gone the document is accepted |
+| `frontend-generated` | accepted, `DecisionApply` | the `frontend` fixture with its GENERATED half: `payload` (the named runtime artifact of the release the bundle was resolved from, the SHA-256 of its complete bytes, its media type) and `group` (the presentation group the composing product organises the solution under). Neither is authored; both are signed with the generation, and the standalone reader refuses both |
+| `frontend-payload-artifact-invalid` | rejected, rule `frontend-payload-artifact` | `artifact: Web Bundle`; a release artifact's name is the grammar composition declares it under |
+| `frontend-payload-digest-invalid` | rejected, rule `frontend-payload-digest` | `digest: sha256:abc`; a host admits the bundle by this identity, and this admits nothing |
+| `frontend-payload-media-type-invalid` | rejected, rule `frontend-payload-media-type` | `media_type: tar`; the representation is an explicit canonical media type, type and subtype |
+| `frontend-payload-digest-omitted` | rejected, rule `frontend-fields-declared` | a payload without its `digest`; every scalar of a present payload is declared — with the rule gone, `frontend-payload-digest` refuses the empty string, defence in depth |
+| `frontend-group-id-invalid` | rejected, rule `frontend-group-id` | `id: Operations`; the id is held to the grammar the composing workspace spells it in |
+| `frontend-group-order-omitted` | rejected, rule `frontend-fields-declared` | a group without its `order`; with the rule gone the document is accepted on an order nobody wrote |
+| `module-with-frontend-group` | rejected, rule `frontend-group-solution-only` | a module instance carrying a group; a group organises solutions, and a module is grouped by nothing |
 
 ## Authority fixtures
 

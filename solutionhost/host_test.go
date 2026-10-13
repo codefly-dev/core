@@ -137,7 +137,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 71)
+	require.Len(t, fixtures, 79)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -222,24 +222,31 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"build-size-binary-key":               solutionhost.ErrInvalid,
 		// The frontend block's refusals, each one named rule of the same
 		// table; see Frontend.
-		"tombstone-with-frontend":          solutionhost.ErrInvalid,
-		"frontend-title-empty":             solutionhost.ErrInvalid,
-		"frontend-host-contract-zero":      solutionhost.ErrInvalid,
-		"frontend-surface-id-invalid":      solutionhost.ErrInvalid,
-		"frontend-surface-client-invalid":  solutionhost.ErrInvalid,
-		"frontend-surface-twice":           solutionhost.ErrInvalid,
-		"frontend-surface-module-offsite":  solutionhost.ErrInvalid,
-		"frontend-surface-contract-zero":   solutionhost.ErrInvalid,
-		"frontend-surface-applies-invalid": solutionhost.ErrInvalid,
-		"frontend-surface-event-invalid":   solutionhost.ErrInvalid,
-		"frontend-surface-event-twice":     solutionhost.ErrInvalid,
-		"frontend-dashboard-too-large":     solutionhost.ErrInvalid,
-		"frontend-order-omitted":           solutionhost.ErrInvalid,
-		"frontend-host-contract-hex":       solutionhost.ErrInvalid,
-		"frontend-order-too-large":         solutionhost.ErrInvalid,
-		"frontend-dashboard-hex":           solutionhost.ErrInvalid,
-		"frontend-dashboard-timestamp":     solutionhost.ErrInvalid,
-		"frontend-dashboard-not-an-object": solutionhost.ErrInvalid,
+		"tombstone-with-frontend":             solutionhost.ErrInvalid,
+		"frontend-title-empty":                solutionhost.ErrInvalid,
+		"frontend-host-contract-zero":         solutionhost.ErrInvalid,
+		"frontend-surface-id-invalid":         solutionhost.ErrInvalid,
+		"frontend-surface-client-invalid":     solutionhost.ErrInvalid,
+		"frontend-surface-twice":              solutionhost.ErrInvalid,
+		"frontend-surface-module-offsite":     solutionhost.ErrInvalid,
+		"frontend-surface-contract-zero":      solutionhost.ErrInvalid,
+		"frontend-surface-applies-invalid":    solutionhost.ErrInvalid,
+		"frontend-surface-event-invalid":      solutionhost.ErrInvalid,
+		"frontend-surface-event-twice":        solutionhost.ErrInvalid,
+		"frontend-dashboard-too-large":        solutionhost.ErrInvalid,
+		"frontend-order-omitted":              solutionhost.ErrInvalid,
+		"frontend-host-contract-hex":          solutionhost.ErrInvalid,
+		"frontend-order-too-large":            solutionhost.ErrInvalid,
+		"frontend-dashboard-hex":              solutionhost.ErrInvalid,
+		"frontend-dashboard-timestamp":        solutionhost.ErrInvalid,
+		"frontend-dashboard-not-an-object":    solutionhost.ErrInvalid,
+		"frontend-payload-artifact-invalid":   solutionhost.ErrInvalid,
+		"frontend-payload-digest-invalid":     solutionhost.ErrInvalid,
+		"frontend-payload-media-type-invalid": solutionhost.ErrInvalid,
+		"frontend-payload-digest-omitted":     solutionhost.ErrInvalid,
+		"frontend-group-id-invalid":           solutionhost.ErrInvalid,
+		"frontend-group-order-omitted":        solutionhost.ErrInvalid,
+		"module-with-frontend-group":          solutionhost.ErrInvalid,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := solutionhost.Parse(presence(t, name))
