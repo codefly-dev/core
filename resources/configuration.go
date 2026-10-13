@@ -211,20 +211,26 @@ var addressCarrierPrefixes = []string{
 // IsSensitiveEnvironmentVariable classifies an environment variable NAME, as
 // it reaches a process or a rendered ConfigMap/Secret, by what it carries.
 //
-// A codefly carrier name embeds structural identity — the module and service
-// names of a service configuration, the module/service/endpoint/API of an
-// endpoint — and those are names, not configuration keys: a service called
-// auth-gateway does not make its endpoint address a credential, and running the
-// key classifier over the whole name says it does. So:
+// A codefly carrier name embeds structure — the module and service names of a
+// service configuration, the configuration (group) name of a service or
+// workspace configuration, the module/service/endpoint/API of an endpoint —
+// and structure is a name, not a configuration key: a service called
+// auth-gateway does not make its endpoint address a credential, a public
+// group called datasource-oauth does not make its providers list one, and
+// running the key classifier over the whole name says they are. Whether a
+// VALUE is a credential is declared where it is authored — a secret value
+// rides a secret carrier, whatever its key — and the key classifier is the
+// defence in depth over the one thing an author named the value by, its key.
+// So:
 //
 //   - a secret configuration carrier is always sensitive;
 //   - an endpoint, self-endpoint or REST-route carrier is an address, and only
 //     an operator-chosen prefix in front of it (WithPublicEnvironmentVariablePrefix)
 //     is classified;
-//   - a service configuration carrier is classified by its configuration name
-//     and key, without the module and service segments;
-//   - every other name, including a workspace configuration carrier (which has
-//     no identity segments), is classified whole by IsSensitiveKey.
+//   - a service or workspace configuration carrier is classified by its KEY
+//     alone, without the module, service and configuration-name segments —
+//     the same segment the rendered-manifest validator reads;
+//   - every other name is classified whole by IsSensitiveKey.
 func IsSensitiveEnvironmentVariable(name string) bool {
 	canonical := strings.ToUpper(name)
 	for _, prefix := range secretCarrierPrefixes {
@@ -237,13 +243,38 @@ func IsSensitiveEnvironmentVariable(name string) bool {
 			return IsSensitiveKey(canonical[:at])
 		}
 	}
-	if rest, ok := strings.CutPrefix(canonical, ServiceConfigurationPrefix+"__"); ok {
-		// rest is MODULE__SERVICE__NAME__KEY (UniqueToKey, then NameToKey).
-		if segments := strings.SplitN(rest, "__", 3); len(segments) == 3 {
-			return IsSensitiveKey(segments[2])
-		}
+	if key, ok := configurationCarrierKey(canonical); ok {
+		return IsSensitiveKey(key)
 	}
 	return IsSensitiveKey(canonical)
+}
+
+// configurationCarrierKey returns the configuration KEY a public configuration
+// carrier name ends in, and whether the name is one. A service carrier is
+// PREFIX__MODULE__SERVICE__NAME__KEY (UniqueToKey, then NameToKey twice) and a
+// workspace carrier PREFIX__NAME__KEY; the structural segments in front of the
+// key never contain a double underscore, as NameToKey and UniqueToKey spell
+// them, so the key is everything after the fixed number of them, whatever it
+// contains.
+func configurationCarrierKey(canonical string) (string, bool) {
+	for _, carrier := range []struct {
+		prefix    string
+		structure int
+	}{
+		{ServiceConfigurationPrefix + "__", 3},
+		{WorkspaceConfigurationPrefix + "__", 1},
+	} {
+		rest, ok := strings.CutPrefix(canonical, carrier.prefix)
+		if !ok {
+			continue
+		}
+		segments := strings.SplitN(rest, "__", carrier.structure+1)
+		if len(segments) != carrier.structure+1 {
+			return "", false
+		}
+		return segments[carrier.structure], true
+	}
+	return "", false
 }
 
 // configRuntimeKind folds the nix runtime onto native for configuration
