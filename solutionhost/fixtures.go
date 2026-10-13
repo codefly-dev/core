@@ -99,7 +99,8 @@ type Fixture struct {
 	Message string
 
 	// Rule names the table rule a rejected fixture protects (the decoding
-	// rules every field shares and the build-size rules; see BuildSize): the
+	// rules every field shares, the build-size rules and the frontend rules;
+	// see BuildSize and Frontend): the
 	// one a reader cannot drop without this fixture noticing, which the
 	// package's self-check proves by deleting each rule in turn. Empty for an
 	// accepted fixture and for a refusal the table does not hold.
@@ -305,8 +306,8 @@ func Fixtures() []Fixture {
 		},
 		{
 			Name: "missing-identity", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Reason:  "the workload names no SPIFFE ID, so there is nothing a host could verify the destination's SVID against",
-			Message: "requires a SPIFFE ID for the SVID it must present",
+			Reason:  "the workload names no SPIFFE ID, so it has no mesh principal a policy could admit it as or a host could record",
+			Message: "requires a SPIFFE ID for the mesh principal it holds",
 		},
 		{
 			Name: "digest-confusion", Type: DocumentTypePresence, Outcome: OutcomeRejected,
@@ -520,6 +521,88 @@ func Fixtures() []Fixture {
 			Name: "build-size-binary-key", Type: DocumentTypePresence, Outcome: OutcomeRejected,
 			Rule: ruleKeyIsAName, Message: `a key that is not a name ("!!binary`,
 			Reason: "the section's key spelled !!binary; the typed decoder resolves it to build_size while a rule looking for the key by its written text never sees it, so the octal count it hides would be repaired and signed",
+		},
+		{
+			Name: "frontend", Type: DocumentTypePresence,
+			Outcome: OutcomeAccepted, Decision: DecisionApply,
+			Reason: "the valid document at the next generation, carrying the frontend block: the page and the client surfaces the " +
+				"host serves for the solution, as the solution declared them, with an opaque dashboard; the block is OPTIONAL " +
+				"and held to the frontend rules when present",
+		},
+		{
+			Name: "module-with-frontend", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSolutionOnly, Message: "a module declares no frontend",
+			Reason: "a module instance carrying a frontend; a module fronts no page of its own, so the block is allowed on a solution only",
+		},
+		{
+			Name: "tombstone-with-frontend", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendAbsentWhenRemoved, Message: "a removed generation declares no frontend",
+			Reason: "a tombstone carrying a frontend; a removed generation declares nothing to serve",
+		},
+		{
+			Name: "frontend-title-empty", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendTexts, Message: "frontend.title must be a non-empty single-line text",
+			Reason: "an empty title; a host labels its navigation entry with it and renders a blank one without",
+		},
+		{
+			Name: "frontend-host-contract-zero", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendHostContractMajor, Message: "frontend.host_contract is 0, which is not a host contract major",
+			Reason: "host contract major 0; a host serves a remote only when it recognises the major it declares, and 0 is one no host serves",
+		},
+		{
+			Name: "frontend-surface-id-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSurfaceID, Message: `frontend.surfaces[1].id "Footnote" is invalid`,
+			Reason: "a surface id with a capital letter; an id is lowercase letters and digits separated by dashes, as the solution runtime spells it",
+		},
+		{
+			Name: "frontend-surface-client-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSurfaceClient, Message: `frontend.surfaces[1].client "Word" is invalid`,
+			Reason: "a client kind spelled Word; a client kind is a lowercase name, and which names a host's clients answer to is the host client's vocabulary",
+		},
+		{
+			Name: "frontend-surface-twice", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSurfaceUnique, Message: `frontend surface "footnote" is declared twice for client "word"`,
+			Reason: "one surface declared twice for one client; a client addresses a surface by id, so two of its own cannot share one",
+		},
+		{
+			Name: "frontend-surface-module-offsite", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSurfaceModule, Message: `frontend.surfaces[1].module "https://cdn.example/footnote.js" is not a path on the solution's own origin`,
+			Reason: "a surface module on another origin; a module is a path the client resolves against the origin it loaded the solution from",
+		},
+		{
+			Name: "frontend-dashboard-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendDashboardBounded, Message: "more than the 65536 a dashboard may hold",
+			Reason: "a dashboard past the bound; a data graph declares events, metrics and widgets, and a host stores the whole generation",
+		},
+		{
+			Name: "frontend-order-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendFieldsDeclared, Message: "frontend.order must be declared",
+			Reason: "no order; an absent order would decode as zero and be signed as the solution's choice",
+		},
+		{
+			Name: "frontend-host-contract-hex", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendNumbersDecimal, Message: `frontend.host_contract is "0x1", not a whole number written in decimal digits`,
+			Reason: "the host contract major in hexadecimal; a number has one spelling, decimal digits, as this package writes it",
+		},
+		{
+			Name: "frontend-order-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendNumbersFit, Message: "frontend.order is 9223372036854775808, more than the field can hold",
+			Reason: "an order one past int64; refused by name rather than by whatever the typed decoder says about an overflow",
+		},
+		{
+			Name: "frontend-dashboard-hex", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendDashboardJSON, Message: `frontend.dashboard.dashboards[0].widgets[0].limit is "0x10", which is not a whole number written in decimal digits that fits`,
+			Reason: "a number in the dashboard written in hexadecimal; JSON spells a number one way, and yaml would otherwise read 0x10 as 16 and sign a value the author never wrote",
+		},
+		{
+			Name: "frontend-dashboard-timestamp", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendDashboardJSON, Message: "frontend.dashboard.events[0].since is a timestamp, which JSON cannot carry as written",
+			Reason: "a plain date in the dashboard; yaml reads it as a timestamp and the signing encoding would write it back as a different string",
+		},
+		{
+			Name: "frontend-dashboard-not-an-object", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendDashboardJSON, Message: "frontend.dashboard is not an object",
+			Reason: "a dashboard that is a list; a data graph is an object, and another shape is a declaration no host can read",
 		},
 		{
 			Name: "valid", Type: DocumentTypeAuthority, Outcome: OutcomeAccepted,

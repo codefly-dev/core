@@ -137,7 +137,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 48)
+	require.Len(t, fixtures, 64)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"endpoint-exposure-beyond-reach": solutionhost.ErrInvalid,
 		"endpoint-exposure-unknown":      solutionhost.ErrInvalid,
 		// The build-size section's refusals, each one named rule; see
-		// TestEveryBuildSizeRuleIsProtectedByAFixture for the rule each
+		// TestEveryRuleIsProtectedByAFixture for the rule each
 		// protects, and TestEachRejectedPresenceFixtureIsRefusedNamingItsMessage
 		// for the text each carries.
 		"build-size-languages-omitted":        solutionhost.ErrInvalid,
@@ -220,6 +220,23 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"build-size-merge-key":                solutionhost.ErrInvalid,
 		"merge-key-at-top-level":              solutionhost.ErrInvalid,
 		"build-size-binary-key":               solutionhost.ErrInvalid,
+		// The frontend block's refusals, each one named rule of the same
+		// table; see Frontend.
+		"module-with-frontend":             solutionhost.ErrInvalid,
+		"tombstone-with-frontend":          solutionhost.ErrInvalid,
+		"frontend-title-empty":             solutionhost.ErrInvalid,
+		"frontend-host-contract-zero":      solutionhost.ErrInvalid,
+		"frontend-surface-id-invalid":      solutionhost.ErrInvalid,
+		"frontend-surface-client-invalid":  solutionhost.ErrInvalid,
+		"frontend-surface-twice":           solutionhost.ErrInvalid,
+		"frontend-surface-module-offsite":  solutionhost.ErrInvalid,
+		"frontend-dashboard-too-large":     solutionhost.ErrInvalid,
+		"frontend-order-omitted":           solutionhost.ErrInvalid,
+		"frontend-host-contract-hex":       solutionhost.ErrInvalid,
+		"frontend-order-too-large":         solutionhost.ErrInvalid,
+		"frontend-dashboard-hex":           solutionhost.ErrInvalid,
+		"frontend-dashboard-timestamp":     solutionhost.ErrInvalid,
+		"frontend-dashboard-not-an-object": solutionhost.ErrInvalid,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := solutionhost.Parse(presence(t, name))

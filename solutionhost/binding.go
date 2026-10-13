@@ -11,7 +11,8 @@
 //   - SolutionHostBinding is the presence document. It declares one deployment
 //     instance of one solution or one module on one host, at a generation the
 //     host reconciles towards, naming the workloads it runs, the exact build
-//     each must be running, and the workload identity each must present.
+//     each must be running, the mesh principal each holds, and — for a
+//     solution — the frontend the host serves for it.
 //   - AuthorityDocument is the authority document. It declares which bindings
 //     a principal holds, within a ceiling the caller supplies, effective for
 //     one approved build and from one presence generation onwards.
@@ -293,6 +294,15 @@ type SolutionHostBinding struct {
 	// tombstone declares none.
 	BuildSize *BuildSize `yaml:"build_size,omitempty" json:"build_size,omitempty"`
 
+	// Frontend is what the host serves for a solution — its page and its
+	// client surfaces — as the solution declared it in the one file beside
+	// its backend service, carried here and signed with the generation.
+	// Optional, for the reason BuildSize is: a document without it is an
+	// older producer's and is accepted. One that carries it is held to the
+	// frontend rules; see Frontend. Allowed on a solution only: a module and
+	// a tombstone declare none.
+	Frontend *Frontend `yaml:"frontend,omitempty" json:"frontend,omitempty"`
+
 	// Removed marks this generation a tombstone: the binding is declared absent.
 	// Removal is a generation, never the disappearance of a document, so that a
 	// lost or unreadable mount can never be read as "remove everything".
@@ -460,18 +470,24 @@ type Endpoint struct {
 }
 
 // WorkloadIdentity is the identity the host expects a workload's authenticating
-// container to present: the audience a token must be bound to, the subject that
-// must present it, and the SPIFFE ID of the X.509-SVID the destination must
-// show. All three name an identity. None is a credential, and this document has
-// no field that could carry one.
+// container to hold: the audience a token must be bound to, the subject that
+// must present it, and the SPIFFE ID the cell's mesh issues to the workload's
+// ServiceAccount — its mesh principal. All three name an identity. None is a
+// credential, and this document has no field that could carry one.
 type WorkloadIdentity struct {
 	Audience string `yaml:"audience" json:"audience"`
 	Subject  string `yaml:"subject" json:"subject"`
 
-	// SPIFFEID is the SPIFFE ID the workload must present, required. A subject
-	// string is what a host records; an SVID is what it can verify on the
-	// connection, so the document names the thing that is checkable rather than
-	// leaving a host to guess which subject corresponds to which SVID.
+	// SPIFFEID is the workload's MESH PRINCIPAL, required: the SPIFFE ID the
+	// cell's mesh issues to the workload's ServiceAccount and carries as the
+	// peer identity on every connection it brokers. It is what a mesh policy
+	// admits a port from, and what a host records beside the subject. It is
+	// NOT an SVID the workload serves or presents: no workload terminates TLS
+	// or holds an X.509-SVID of its own; inside a cell every hop is plain
+	// HTTP under the mesh's transport security. A subject string is what a
+	// host records; the SPIFFE ID is what the mesh can attest, so the
+	// document names the thing that is checkable rather than leaving a host
+	// to guess which subject corresponds to which principal.
 	SPIFFEID string `yaml:"spiffe_id" json:"spiffe_id"`
 }
 
@@ -486,7 +502,7 @@ func Parse(data []byte) (*SolutionHostBinding, error) { return parse(data, "") }
 // parse is Parse with one named rule deleted, for the self-check that proves
 // each rule is protected by a fixture; "" deletes none.
 func parse(data []byte, without string) (*SolutionHostBinding, error) {
-	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV1, without, checkBuildSizeNodes)
+	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV1, without, checkSectionNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +580,7 @@ func schemaFamily(schema string) string {
 // key hides a duplicate — and a value repaired before validation is one no
 // rule can see. nodes, when given, is the document type's own node check over
 // the fields whose repair the typed decoder would not report at all: the
-// presence document's build_size counts.
+// presence document's build_size counts and its frontend block.
 //
 // without names one rule to leave unenforced, for the self-check; "" is the
 // reader every caller gets.
@@ -728,9 +744,10 @@ func (document *SolutionHostBinding) validate(without string) error {
 				return fmt.Errorf("%w: a removed generation declares no %s", ErrInvalid, declared.label)
 			}
 		}
-		// And no build size, which is a rule of the table so a fixture
-		// protects it by name; see checkBuildSizeAbsentWhenRemoved.
-		return document.validateBuildSize(without)
+		// And no build size and no frontend, which are rules of the table so
+		// a fixture protects each by name; see checkBuildSizeAbsentWhenRemoved
+		// and checkFrontendAbsentWhenRemoved.
+		return document.validateSections(without)
 	}
 	if err := document.validateArtifacts(); err != nil {
 		return err
@@ -747,9 +764,10 @@ func (document *SolutionHostBinding) validate(without string) error {
 	if err := document.validateEndpoints(); err != nil {
 		return err
 	}
-	// The build's size, when the producer wrote one. Optional, for the reason
-	// BuildSize gives; held to every model rule of the table when present.
-	if err := document.validateBuildSize(without); err != nil {
+	// The build's size and the frontend, when the producer wrote them.
+	// Optional, for the reason BuildSize gives; each held to every model rule
+	// of the table when present.
+	if err := document.validateSections(without); err != nil {
 		return err
 	}
 	if err := document.validateDigestKinds(); err != nil {
@@ -959,12 +977,11 @@ func (identity WorkloadIdentity) validate(workload string) error {
 }
 
 // validateSPIFFEID checks a SPIFFE ID as a SPIFFE ID rather than as a generic
-// name. A subject that happens to parse as a URL is not an SVID, and a host
-// that accepted one would verify a connection against something no workload
-// can present.
+// name. A subject that happens to parse as a URL is not a mesh principal, and
+// a policy written against one would admit a peer no mesh can attest.
 func validateSPIFFEID(value string) error {
 	if value == "" {
-		return errors.New("requires a SPIFFE ID for the SVID it must present")
+		return errors.New("requires a SPIFFE ID for the mesh principal it holds")
 	}
 	parsed, err := url.Parse(value)
 	if err != nil {
@@ -1174,6 +1191,11 @@ func (document *SolutionHostBinding) CanonicalBytes() ([]byte, error) {
 	// still holds.
 	if document.BuildSize != nil {
 		normalized.BuildSize = document.BuildSize.canonical()
+	}
+	// The frontend sorts its surfaces by the pair that identifies one, for
+	// the same reason, and is likewise absent from a document without it.
+	if document.Frontend != nil {
+		normalized.Frontend = document.Frontend.canonical()
 	}
 	return canonicalJSON(normalized)
 }
