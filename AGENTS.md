@@ -16,6 +16,11 @@ Fleet standard — [handbook#68](https://github.com/obin-ai/handbook/issues/68).
 These land hard here: core is a *library*, so a defect is observed downstream and
 the temptation is always to absorb it locally rather than fix what owns it.
 
+- **Prove reuse before you build**, and **build the simplest thing that works;
+  size is the signal**: fill a gap on what the platform already has, keep a
+  coding task to about **500 hand-written lines**, and past **2,000** **stop and
+  ask the user**. Both in full, with their tells, in [the
+  handbook](https://github.com/obin-ai/handbook/blob/main/AGENTS.md).
 - **Look for the `codefly` command before doing anything by hand.** The CLI owns
   the fleet verbs — `codefly agent deps --pin`, `codefly agent release --pin`,
   `codefly update deps`, `codefly update workspace`, `codefly generate proto` —
@@ -25,19 +30,16 @@ the temptation is always to absorb it locally rather than fix what owns it.
   command performed is the signal this step was skipped. See
   [`.claude/skills/release-core`](.claude/skills/release-core/SKILL.md) for the
   cascade after a core tag.
-- **A gap in the tooling is a bug in the tooling — never a reason to reach around
-  it.** When something needs a step `codefly`, `buf`, or a companion does not
-  perform, the answer is a capability fixed in whichever tool owns it, and named
-  in the PR. It is never a hand-assembled substitute — not as a "workaround", not
-  "just this once", not "until the capability lands".
+- **A gap in the tooling is a bug in the tooling — never a reason to reach
+  around it.** When something needs a step `codefly`, `buf` or a companion does
+  not perform, the answer is a capability fixed in whichever tool owns it, named
+  in the PR — never a hand-assembled substitute, not "just this once".
 - **Never hack. Provide the best fix, even when it spans repos.** The fix living
-  in `codefly-dev/cli` or an agent repo is not a reason to work around it here.
-  Open the PR there and consume the reviewed result. When it genuinely cannot be
-  fixed now, the deliverable is a precise issue against that owner plus an
-  explicitly labelled stopgap — never an unlabelled one.
-- **Classify every change that makes something work**, in the PR body: a *fix* at
-  the place that owns the behaviour, or a *hack*. A hack does not become a fix by
-  working, by being small, by being local, or by the real fix belonging elsewhere.
+  in `codefly-dev/cli` or an agent repo is no reason to work around it here:
+  open the PR there. When it cannot be fixed now, the deliverable is a precise
+  issue against that owner plus a stopgap labelled as one.
+- **Classify every change that makes something work**, in the PR body: a *fix*
+  at the place that owns the behaviour, or a *hack*.
 - **Never hardcode what the system resolves** — injected environment, derived
   ports, service addresses, credentials copied out of another component. Core is
   where that resolution is *defined*: ports come from `network.ToNamedPort()`,
@@ -49,9 +51,8 @@ the temptation is always to absorb it locally rather than fix what owns it.
   diagnosis — set X back and confirm it breaks. Do not trust an error message
   before checking its claim: a guard here reporting a version contract failure
   has meant a stale embedded file, not a bad package.
-- **Say what you did not verify.** Unverified is not the same as working. A unit
-  run is not the tagged suite, and neither is a boot; if you could not exercise
-  something, the PR says so.
+- **Say what you did not verify.** Unverified is not working: a unit run is not
+  the tagged suite, nor is a boot. If you could not exercise it, the PR says so.
 
 ## Build and test
 
@@ -196,5 +197,4 @@ carried here:
   so CI enforces it with no workflow change.
 - Keep this file under ~150 lines (hard cap 200). Push depth into a nested
   `AGENTS.md` beside what it describes, into `.claude/skills/`, or into `docs/`.
-- `CLAUDE.md` is a pointer to this file. Keep one canonical source.
-- Treat this file as code: the PR that changes a process updates it.
+- `CLAUDE.md` points here, and the PR that changes a process updates this file.
