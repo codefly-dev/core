@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/codefly-dev/core/resources"
@@ -48,7 +49,11 @@ solutions:
 		{"unknown-member", "solution-groups:\n  - id: platform\n    title: Platform\n    order: 1\n    solutions: [billing]\n", `names "billing", which is not a solution of this composition`},
 		{"solution-twice", "solution-groups:\n" + knowledge + "  - id: identity\n    title: Identity\n    order: 1\n    solutions: [wiki]\n", `solution "wiki" is in groups "knowledge" and "identity"`},
 		{"id-invalid", "solution-groups:\n  - id: Knowledge\n    title: Knowledge\n    order: 2\n    solutions: [wiki]\n", `solution group id "Knowledge" must be lowercase letters and digits separated by dashes`},
-		{"title-blank", "solution-groups:\n  - id: knowledge\n    title: \"  \"\n    order: 2\n    solutions: [wiki]\n", `solution group "knowledge" requires a one-line title`},
+		{"title-blank", "solution-groups:\n  - id: knowledge\n    title: \"  \"\n    order: 2\n    solutions: [wiki]\n", `solution group "knowledge": solution group title "  " must be one non-blank line`},
+		{"title-control", "solution-groups:\n  - id: knowledge\n    title: \"Know\\u0085ledge\"\n    order: 2\n    solutions: [wiki]\n", `must be one non-blank line without control characters`},
+		{"title-too-large", "solution-groups:\n  - id: knowledge\n    title: " + strings.Repeat("x", resources.SolutionGroupTextMaxBytes+1) + "\n    order: 2\n    solutions: [wiki]\n", `id and title are each at most 1024 bytes`},
+		{"order-too-large", "solution-groups:\n  - id: knowledge\n    title: Knowledge\n    order: 2147483648\n    solutions: [wiki]\n", `solution group order 2147483648 is outside -2147483648..2147483647`},
+		{"order-too-small", "solution-groups:\n  - id: knowledge\n    title: Knowledge\n    order: -2147483649\n    solutions: [wiki]\n", `solution group order -2147483649 is outside -2147483648..2147483647`},
 		{"no-members", "solution-groups:\n  - id: knowledge\n    title: Knowledge\n    order: 2\n    solutions: []\n", `solution group "knowledge" organises no solution`},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {

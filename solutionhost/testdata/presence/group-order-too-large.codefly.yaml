@@ -1,6 +1,9 @@
-# REJECTED. A group's order one past int64. Refused by name, as more than the
-# field can hold, rather than by whatever the typed decoder says about an
-# overflow.
+# REJECTED. A group's order one past the admitted range. The field is wide,
+# but a group order is a signed 32-bit integer everywhere it travels — the
+# host's wire is an int32 and a client's number represents every admitted
+# value exactly — so the range is held on the written number, by name, before
+# the typed decoder reads it into a wider field; with the rule gone the
+# document is accepted on a value some reader would have to cast.
 schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
@@ -67,4 +70,4 @@ endpoints:
 group:
   id: operations
   title: Operations
-  order: 9223372036854775808
+  order: 2147483648

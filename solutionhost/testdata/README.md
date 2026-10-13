@@ -163,9 +163,10 @@ reader drops one, or when its decoder quietly repairs a count.
 | `group` | accepted, `DecisionApply` | the `valid` document at generation 5, HEADLESS, organised under a top-level `group`: the presentation group the composing product put the solution in, shown in the host's navigation after its entitlement filter and in its catalogue. Generated, **optional** — every other presence fixture is a document without it — and held to the group rules when present |
 | `group-order-omitted` | rejected, rule `group-fields-declared` | a group without its `order`; with the rule gone the document is accepted on an order nobody wrote |
 | `group-order-hex` | rejected, rule `group-order-decimal` | `order: 0x2`; a number has one spelling — with the rule gone the document is accepted on 2 |
-| `group-order-too-large` | rejected, rule `group-order-fits` | `order: 9223372036854775808`, one past int64, refused by name rather than by the typed decoder |
+| `group-order-too-large` | rejected, rule `group-order-fits` | `order: 2147483648`, one past the signed 32-bit range a group order is admitted in — the field is wider, so with the rule gone the document is accepted on a value a host's int32 wire would have to cast |
 | `group-id-invalid` | rejected, rule `group-id` | `id: Operations`; the id is held to the grammar the composing workspace spells it in |
 | `group-title-empty` | rejected, rule `group-title` | `title: ""`; a host labels the group with it, and renders a blank heading without |
+| `group-title-blank` | rejected, rule `group-title` | `title: "   "`; empty to the eye is empty — the composing workspace's `ValidateSolutionGroupTitle` judges both |
 | `group-title-too-large` | rejected, rule `group-text-bounded` | a title past `GroupTextMaxBytes` |
 | `module-with-group` | rejected, rule `group-solution-only` | a module instance carrying a group; a group organises solutions, and a module is grouped by nothing |
 | `tombstone-with-group` | rejected, rule `group-absent-when-removed` | a removed generation declares nothing to show |
