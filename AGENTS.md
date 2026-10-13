@@ -147,10 +147,10 @@ readiness, dependency graph. Read it rather than re-deriving from the tree.
   `approval_required` signal; the approvals engine is product-level.
   **It has exactly one implementation and one strength — this one.** Nothing
   else signs, verifies or re-encodes a capability; the entrypoints share one
-  check path: callees `Verify` or `Authenticate` and refuse what they cannot
-  answer, a forwarding hop `Inspect`s without consuming and forwards what only
-  live state refuses. Needing a weaker check is the owner's question, never a
-  local accommodation. A consumer DEMONSTRATES BEHAVIOUR with
+  check path: callees `Verify`/`Authenticate` and refuse what they cannot answer,
+  a hop `Inspect`s without consuming and forwards what only live state refuses,
+  the issuer `ReadBack`s its own capability. A weaker check is the owner's
+  question, never a local accommodation. A consumer DEMONSTRATES BEHAVIOUR with
   `workcontext/conformance.Run`, `RunAuthenticator` or `RunInspector` — the
   kit proves behaviour and not identity, and the identity proof is the
   consumer's own import gate; a foreign encoding is refused *before* the

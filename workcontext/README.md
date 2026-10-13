@@ -235,6 +235,20 @@ Two more entry points exist, and neither is a strength at all:
   emission killed the stream on its first check; liveness and consumption are
   different operations and only one belongs in a loop. How often to call it is
   the caller's explicit choice, not core's.
+- **`(*Authority).ReadBack(ctx, token, ReadBackCheck) (*ReadBackCapability, error)`**
+  — the ISSUER answering a question its holder asks about a capability it
+  issued ("may it read record R?", "which collections does it reach?"),
+  **without spending it**. It runs `Verify`'s own body — signature under this
+  authority's key, issuer, the audience named, window, structure, revision,
+  seal, epochs, binding, grant record — and never reads or writes the replay
+  store, so a single-use capability its consumer already consumed can still be
+  asked about, on every page of a paginated answer, and asking leaves one not
+  yet consumed for its consumer. It is on `Authority` because only the issuer
+  holds the private key an `Authority` needs; a consumer cannot reach it. The
+  result is a `*ReadBackCapability`, not a `*Verified`, so it can never be
+  derived from (`Child`, `Grant`) or rechecked as a presented credential — an
+  AST test keeps it so. That is why it is not a replay hole: single-use bounds
+  presentations, and a read-back presents nothing and authorizes nothing.
 
 ## What the kit does NOT check
 
