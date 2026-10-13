@@ -216,12 +216,42 @@ message StartStatus {
   // agent reports zero, so equality proves nothing. Read it through
   // services.StartGeneration, which returns that distinction explicitly.
   uint64 generation = 4;
+  // started_artifact names what the agent actually started, so a consumer that
+  // pins the build a process runs reads it from the agent instead of deriving
+  // it from one agent family's on-disk layout.
+  //
+  // Absent means the agent does not implement runtime-started-artifact/v1 and
+  // reports no artifact at all. A consumer that needs one MUST refuse, naming
+  // the agent: there is no path it may guess instead.
+  StartedArtifact started_artifact = 5;
 }
 
 // StartResponse reports whether the service process reached the started state.
 message StartResponse {
   // status reports the lifecycle or operation status.
   StartStatus status = 1;
+}
+
+// StartedArtifact is what one agent started, in the terms a consumer can
+// digest: the program it ran, and the files that program was handed.
+//
+// A compiled runtime starts the service's own build, so the executable alone
+// identifies it. An interpreted runtime starts an interpreter or a launcher,
+// which identifies nothing about the service: there the sources it was handed
+// are the build, and the agent names them beside the program it ran.
+message StartedArtifact {
+  // executable is the absolute path of the program the agent started: the
+  // service's own binary for a compiled runtime, the interpreter or launcher
+  // for an interpreted one. It is the process's program, not a build recipe:
+  // an agent that cannot name the file it ran reports no artifact at all.
+  string executable = 1;
+  // sources are the absolute paths of the files that, together with the
+  // executable, identify what is running: an interpreted runtime's entrypoint,
+  // the modules it loads, and the lock file pinning its dependencies. Empty
+  // for a compiled runtime, whose executable IS the build. Every entry names a
+  // regular file, so a consumer never decides for the agent what a directory's
+  // closure contains.
+  repeated string sources = 2;
 }
 
 // BuildStatus reports the state and message for the build lifecycle phase.

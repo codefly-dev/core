@@ -60,6 +60,20 @@ func StartGeneration(status *runtimev0.StartStatus) (uint64, bool) {
 	return generation, generation > 0
 }
 
+// StartedArtifact returns what the agent reported it started and whether it
+// reported anything at all. A false second return means the agent does not
+// implement runtime-started-artifact/v1 — or reported an artifact naming no
+// program, which names nothing either. A consumer that pins the build a
+// process runs MUST refuse there, naming the agent: an unreported artifact is
+// never a path to derive from the agent's on-disk layout.
+func StartedArtifact(status *runtimev0.StartStatus) (*runtimev0.StartedArtifact, bool) {
+	artifact := status.GetStartedArtifact()
+	if artifact.GetExecutable() == "" {
+		return nil, false
+	}
+	return artifact, true
+}
+
 func runtimeResponseError(operation, message string) error {
 	message = strings.TrimSpace(message)
 	if message == "" {

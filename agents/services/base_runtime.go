@@ -49,6 +49,10 @@ type RuntimeWrapper struct {
 	// a restart as evidence about the process running now.
 	generation uint64
 	health     *basev0.HealthReport
+	// startedArtifact is what this agent last reported it started. It is
+	// stamped on every StartStatus so a consumer reads the same answer from
+	// Start and from Information.
+	startedArtifact *runtimev0.StartedArtifact
 
 	sync.RWMutex
 }
@@ -159,8 +163,30 @@ func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
 	defer s.Unlock()
 	s.generation++
 	s.health = nil
-	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED, Generation: s.generation}
+	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED, Generation: s.generation, StartedArtifact: s.startedArtifact}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
+}
+
+// ReportStartedArtifact records what this agent started — the program it ran
+// and the files that program was handed — for the StartStatus this Start and
+// every later Information reports. An agent that calls it implements
+// runtime-started-artifact/v1 and may advertise the capability; one that never
+// does reports no artifact, and a consumer that needs one refuses by naming it
+// rather than deriving a path from the agent's layout.
+//
+// Call it before StartResponse: a process is started, then described. A nil
+// artifact clears what an earlier start reported, so a restart that cannot say
+// what it ran does not carry the previous answer forward.
+func (s *RuntimeWrapper) ReportStartedArtifact(artifact *runtimev0.StartedArtifact) {
+	s.Lock()
+	defer s.Unlock()
+	if artifact == nil {
+		s.startedArtifact = nil
+		return
+	}
+	// The caller keeps its message: the artifact it holds must not be mutated
+	// underneath it by a later stamp, as ReportHealth's clone exists for.
+	s.startedArtifact, _ = proto.Clone(artifact).(*runtimev0.StartedArtifact)
 }
 
 // ReportHealth records the agent's latest evaluation of the declared health
