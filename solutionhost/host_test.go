@@ -137,7 +137,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 68)
+	require.Len(t, fixtures, 71)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -222,7 +222,6 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"build-size-binary-key":               solutionhost.ErrInvalid,
 		// The frontend block's refusals, each one named rule of the same
 		// table; see Frontend.
-		"module-with-frontend":             solutionhost.ErrInvalid,
 		"tombstone-with-frontend":          solutionhost.ErrInvalid,
 		"frontend-title-empty":             solutionhost.ErrInvalid,
 		"frontend-host-contract-zero":      solutionhost.ErrInvalid,

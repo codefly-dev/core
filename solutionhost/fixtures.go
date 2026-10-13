@@ -531,14 +531,28 @@ func Fixtures() []Fixture {
 				"frontend rules when present",
 		},
 		{
-			Name: "module-with-frontend", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Rule: ruleFrontendSolutionOnly, Message: "a module declares no frontend",
-			Reason: "a module instance carrying a frontend; a module fronts no page of its own, so the block is allowed on a solution only",
+			Name: "module-with-frontend", Type: DocumentTypePresence, Outcome: OutcomeAccepted, Decision: DecisionApply,
+			Reason: "a shared module contributes its own page through the same signed frontend contract as a solution; its kind does not restrict frontend support",
 		},
 		{
 			Name: "tombstone-with-frontend", Type: DocumentTypePresence, Outcome: OutcomeRejected,
 			Rule: ruleFrontendAbsentWhenRemoved, Message: "a removed generation declares no frontend",
 			Reason: "a tombstone carrying a frontend; a removed generation declares nothing to serve",
+		},
+		{
+			Name: "frontend-text-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendTextBounded, Message: "frontend text exceeds 1024 bytes",
+			Reason: "a title exceeds the text byte limit",
+		},
+		{
+			Name: "frontend-surfaces-too-many", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendCollectionsBounded, Message: "frontend collection exceeds 64 items",
+			Reason: "the surface collection exceeds the item limit",
+		},
+		{
+			Name: "frontend-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendBounded, Message: "frontend must encode within 131072 bytes",
+			Reason: "individually valid fields and dashboard exceed the aggregate limit",
 		},
 		{
 			Name: "frontend-title-empty", Type: DocumentTypePresence, Outcome: OutcomeRejected,
@@ -567,7 +581,7 @@ func Fixtures() []Fixture {
 		},
 		{
 			Name: "frontend-surface-module-offsite", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Rule: ruleFrontendSurfaceModule, Message: `frontend.surfaces[1].module "https://cdn.example/footnote.js" is not a path on the solution's own origin`,
+			Rule: ruleFrontendSurfaceModule, Message: `frontend.surfaces[1].module "https://cdn.example/footnote.js" is not a path on the component's own origin`,
 			Reason: "a surface module on another origin; a module is a path the client resolves against the origin it loaded the solution from",
 		},
 		{

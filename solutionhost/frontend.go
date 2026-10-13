@@ -15,15 +15,15 @@ import (
 	"github.com/codefly-dev/core/internal/wire"
 )
 
-// Frontend is what a solution declares about the page and the client surfaces
+// Frontend is what a module or solution declares about the page and the client surfaces
 // a host serves for it: the author-declared half of the manifest the host's
 // registry projects. The host adds its own constants — the asset path, the
 // backend alias, the capability path — and nothing here names an address.
 //
-// It is a DECLARATION, carried from the one file a solution declares it in,
-// beside its backend service, which the solution runtime embeds and serves its
+// It is a DECLARATION, carried from the one file a component declares it in,
+// beside its backend service, which its runtime embeds and serves its
 // manifest route from. The CLI reads the same file into the presence document,
-// so the host learns a solution's frontend from the applied generation and not
+// so the host learns a component's frontend from the applied generation and not
 // from anything the running process reports.
 //
 // The block is OPTIONAL and follows BuildSize's precedent exactly: a document
@@ -31,18 +31,18 @@ import (
 // every digest a host stored still holds; one that carries it is held to every
 // rule in the table. A host older than this block refuses a document carrying
 // it as an unknown field, which is strict decoding doing its job and the
-// reason core releases before the renderer in a cutover. It is allowed only on
-// a solution: a module fronts no page of its own, and a tombstone declares
-// nothing to serve.
+// reason core releases before the renderer in a cutover. Both modules and
+// solutions may contribute a page; their kind describes responsibility, not
+// their mounting mechanism. A tombstone declares nothing to serve.
 type Frontend struct {
-	// Title is what the host's navigation labels the solution with.
+	// Title is what the host's navigation labels the component with.
 	Title string `yaml:"title" json:"title"`
 
-	// Order is where the solution sorts in that navigation. Declared, zero
+	// Order is where the component sorts in that navigation. Declared, zero
 	// included: an omitted order would decode as zero and read as a choice.
 	Order int64 `yaml:"order" json:"order"`
 
-	// ExposedModule is the module the solution's Module Federation remote
+	// ExposedModule is the module the component's Module Federation remote
 	// exposes as its page, "./Page" by convention.
 	ExposedModule string `yaml:"exposed_module" json:"exposed_module"`
 
@@ -51,22 +51,22 @@ type Frontend struct {
 	// major it does not serve, before loading it.
 	HostContract uint64 `yaml:"host_contract" json:"host_contract"`
 
-	// Dashboard is the solution's data graph — the events, metrics and
+	// Dashboard is the component's data graph — the events, metrics and
 	// dashboards the host renders — carried as OPAQUE JSON: an object whose
 	// values are strings, whole numbers written in decimal digits, booleans,
 	// lists and objects, and nothing else, so what is signed is byte for byte
 	// what was written. Its schema is the host's; core bounds its size to
 	// FrontendDashboardMaxBytes of canonical encoding and reads nothing in it.
-	// Absent when the solution declares none, and absent is not an empty
+	// Absent when the component declares none, and absent is not an empty
 	// object: an empty one is carried as declared.
 	Dashboard any `yaml:"dashboard,omitempty" json:"dashboard,omitempty"`
 
-	// Surfaces are what the solution offers inside a client application, each
+	// Surfaces are what the component offers inside a client application, each
 	// one addressed by its client and its id. Absent when it offers none.
 	Surfaces []FrontendSurface `yaml:"surfaces,omitempty" json:"surfaces,omitempty"`
 }
 
-// FrontendSurface is one offering a solution makes inside a client
+// FrontendSurface is one offering a module or solution makes inside a client
 // application: what the client labels it with, and the module it loads.
 type FrontendSurface struct {
 	// ID is unique per client: lowercase letters and digits, dash-separated.
@@ -83,7 +83,7 @@ type FrontendSurface struct {
 	// title. Optional.
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 
-	// Module is the path, on the solution's own origin, of the module the
+	// Module is the path, on the component's own origin, of the module the
 	// client loads: an absolute path, never a URL with a scheme or a host.
 	Module string `yaml:"module" json:"module"`
 
@@ -110,6 +110,15 @@ type FrontendSurface struct {
 // and a host persists the applied generation whole.
 const FrontendDashboardMaxBytes = 64 << 10
 
+// Frontend limits bound the declaration a host persists and projects. Text
+// limits count UTF-8 bytes; collection limits apply to surfaces and to each
+// surface's events and tags. The aggregate includes the dashboard.
+const (
+	FrontendTextMaxBytes       = 1024
+	FrontendCollectionMaxItems = 64
+	FrontendMaxBytes           = 128 << 10
+)
+
 // The frontend rules, by name; see rule.
 const (
 	ruleFrontendFieldsDeclared = "frontend-fields-declared"
@@ -117,19 +126,21 @@ const (
 	ruleFrontendNumbersFit     = "frontend-numbers-fit"
 	ruleFrontendDashboardJSON  = "frontend-dashboard-json"
 
-	ruleFrontendSolutionOnly      = "frontend-solution-only"
-	ruleFrontendAbsentWhenRemoved = "frontend-absent-when-removed"
-	ruleFrontendTexts             = "frontend-texts"
-	ruleFrontendHostContractMajor = "frontend-host-contract-major"
-	ruleFrontendSurfaceID         = "frontend-surface-id"
-	ruleFrontendSurfaceClient     = "frontend-surface-client"
-	ruleFrontendSurfaceUnique     = "frontend-surface-unique"
-	ruleFrontendSurfaceModule     = "frontend-surface-module"
-	ruleFrontendSurfaceContract   = "frontend-surface-contract-major"
-	ruleFrontendSurfaceApplies    = "frontend-surface-applies"
-	ruleFrontendSurfaceEventName  = "frontend-surface-event-name"
-	ruleFrontendSurfaceEventOnce  = "frontend-surface-event-once"
-	ruleFrontendDashboardBounded  = "frontend-dashboard-bounded"
+	ruleFrontendTextBounded        = "frontend-text-bounded"
+	ruleFrontendCollectionsBounded = "frontend-collections-bounded"
+	ruleFrontendBounded            = "frontend-bounded"
+	ruleFrontendAbsentWhenRemoved  = "frontend-absent-when-removed"
+	ruleFrontendTexts              = "frontend-texts"
+	ruleFrontendHostContractMajor  = "frontend-host-contract-major"
+	ruleFrontendSurfaceID          = "frontend-surface-id"
+	ruleFrontendSurfaceClient      = "frontend-surface-client"
+	ruleFrontendSurfaceUnique      = "frontend-surface-unique"
+	ruleFrontendSurfaceModule      = "frontend-surface-module"
+	ruleFrontendSurfaceContract    = "frontend-surface-contract-major"
+	ruleFrontendSurfaceApplies     = "frontend-surface-applies"
+	ruleFrontendSurfaceEventName   = "frontend-surface-event-name"
+	ruleFrontendSurfaceEventOnce   = "frontend-surface-event-once"
+	ruleFrontendDashboardBounded   = "frontend-dashboard-bounded"
 )
 
 // frontendNodeRules run over the frontend node before it is typed, and
@@ -146,8 +157,9 @@ func frontendNodeRules() []rule {
 
 func frontendModelRules() []rule {
 	return []rule{
-		{name: ruleFrontendSolutionOnly, section: sectionFrontend, check: checkFrontendSolutionOnly},
 		{name: ruleFrontendAbsentWhenRemoved, section: sectionFrontend, check: checkFrontendAbsentWhenRemoved},
+		{name: ruleFrontendCollectionsBounded, section: sectionFrontend, check: checkFrontendCollectionsBounded},
+		{name: ruleFrontendTextBounded, section: sectionFrontend, check: checkFrontendTextBounded},
 		{name: ruleFrontendTexts, section: sectionFrontend, check: checkFrontendTexts},
 		{name: ruleFrontendHostContractMajor, section: sectionFrontend, check: checkFrontendHostContractMajor},
 		{name: ruleFrontendSurfaceID, section: sectionFrontend, check: checkFrontendSurfaceID},
@@ -159,6 +171,7 @@ func frontendModelRules() []rule {
 		{name: ruleFrontendSurfaceEventName, section: sectionFrontend, check: checkFrontendSurfaceEventName},
 		{name: ruleFrontendSurfaceEventOnce, section: sectionFrontend, check: checkFrontendSurfaceEventOnce},
 		{name: ruleFrontendDashboardBounded, section: sectionFrontend, check: checkFrontendDashboardBounded},
+		{name: ruleFrontendBounded, section: sectionFrontend, check: checkFrontendBounded},
 	}
 }
 
@@ -318,13 +331,6 @@ func checkFrontendDashboardJSON(section *yaml.Node) error {
 	return nil
 }
 
-func checkFrontendSolutionOnly(document *SolutionHostBinding) error {
-	if document.Kind != KindSolution {
-		return fmt.Errorf("%w: a %s declares no frontend; a frontend is the page and the client surfaces a host serves for a solution, and only a solution instance has one", ErrInvalid, document.Kind)
-	}
-	return nil
-}
-
 func checkFrontendAbsentWhenRemoved(document *SolutionHostBinding) error {
 	if document.Removed {
 		return fmt.Errorf("%w: a removed generation declares no frontend; a frontend is what a host serves for a build, and this generation declares that there is none", ErrInvalid)
@@ -413,7 +419,7 @@ func checkFrontendSurfaceUnique(document *SolutionHostBinding) error {
 	return nil
 }
 
-// isOriginPath reports a path on the solution's own origin: absolute, not
+// isOriginPath reports a path on the component's own origin: absolute, not
 // protocol-relative, free of backslashes and control characters, and parsing
 // as a URL with neither scheme nor host.
 func isOriginPath(value string) bool {
@@ -430,7 +436,7 @@ func isOriginPath(value string) bool {
 func checkFrontendSurfaceModule(document *SolutionHostBinding) error {
 	for index, surface := range document.Frontend.Surfaces {
 		if !isOriginPath(surface.Module) {
-			return fmt.Errorf("%w: frontend.surfaces[%d].module %q is not a path on the solution's own origin: it is absolute, and names no scheme and no host", ErrInvalid, index, surface.Module)
+			return fmt.Errorf("%w: frontend.surfaces[%d].module %q is not a path on the component's own origin: it is absolute, and names no scheme and no host", ErrInvalid, index, surface.Module)
 		}
 	}
 	return nil
@@ -524,6 +530,73 @@ func checkFrontendDashboardBounded(document *SolutionHostBinding) error {
 	}
 	if defect := dashboardBound(document.Frontend.Dashboard); defect != "" {
 		return fmt.Errorf("%w: frontend.dashboard %s; a data graph declares events, metrics and widgets, and a host stores the whole generation", ErrInvalid, defect)
+	}
+	return nil
+}
+
+// boundedTexts includes identifiers and selectors as well as displayed text.
+// Error messages name the field without echoing an oversized value.
+func (frontend *Frontend) boundedTexts() []frontendText {
+	texts := frontend.texts()
+	for index, surface := range frontend.Surfaces {
+		at := fmt.Sprintf("frontend.surfaces[%d]", index)
+		texts = append(texts,
+			frontendText{path: at + ".id", value: surface.ID},
+			frontendText{path: at + ".client", value: surface.Client},
+			frontendText{path: at + ".module", value: surface.Module})
+		for i, event := range surface.Events {
+			texts = append(texts, frontendText{path: fmt.Sprintf("%s.events[%d]", at, i), value: event})
+		}
+		if object, ok := surface.Applies.(map[string]any); ok {
+			if tags, ok := object["tagged"].([]any); ok {
+				for i, tag := range tags {
+					if value, ok := tag.(string); ok {
+						texts = append(texts, frontendText{path: fmt.Sprintf("%s.applies.tagged[%d]", at, i), value: value})
+					}
+				}
+			}
+		}
+	}
+	return texts
+}
+
+func checkFrontendTextBounded(document *SolutionHostBinding) error {
+	for _, text := range document.Frontend.boundedTexts() {
+		if len(text.value) > FrontendTextMaxBytes {
+			return fmt.Errorf("%w: frontend text exceeds %d bytes at %s", ErrInvalid, FrontendTextMaxBytes, text.path)
+		}
+	}
+	return nil
+}
+
+func frontendCollectionOverflow(frontend *Frontend) string {
+	if len(frontend.Surfaces) > FrontendCollectionMaxItems {
+		return "frontend.surfaces"
+	}
+	for index, surface := range frontend.Surfaces {
+		if len(surface.Events) > FrontendCollectionMaxItems {
+			return fmt.Sprintf("frontend.surfaces[%d].events", index)
+		}
+		if object, ok := surface.Applies.(map[string]any); ok {
+			if tags, ok := object["tagged"].([]any); ok && len(tags) > FrontendCollectionMaxItems {
+				return fmt.Sprintf("frontend.surfaces[%d].applies.tagged", index)
+			}
+		}
+	}
+	return ""
+}
+
+func checkFrontendCollectionsBounded(document *SolutionHostBinding) error {
+	if path := frontendCollectionOverflow(document.Frontend); path != "" {
+		return fmt.Errorf("%w: frontend collection exceeds %d items at %s", ErrInvalid, FrontendCollectionMaxItems, path)
+	}
+	return nil
+}
+
+func checkFrontendBounded(document *SolutionHostBinding) error {
+	encoded, err := canonicalJSON(document.Frontend)
+	if err != nil || len(encoded) > FrontendMaxBytes {
+		return fmt.Errorf("%w: frontend must encode within %d bytes", ErrInvalid, FrontendMaxBytes)
 	}
 	return nil
 }

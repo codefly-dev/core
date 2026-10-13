@@ -1,6 +1,7 @@
 package solutionhost_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -120,25 +121,45 @@ func TestFrontendCanonicalOrderIsIndependentOfDeliveryOrder(t *testing.T) {
 	require.Equal(t, reordered.Frontend.Dashboard, verified.Frontend.Dashboard)
 }
 
-// Only a solution declares a frontend: a module and a tombstone carrying one
-// are refused by name, from the shipped fixtures and from a document built
-// in Go.
-func TestOnlyASolutionDeclaresAFrontend(t *testing.T) {
-	_, err := solutionhost.Parse(presence(t, "module-with-frontend"))
-	require.ErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Contains(t, err.Error(), "a module declares no frontend")
-
+// Both component kinds use one frontend contract, including the signed reader
+// and writer. A shared module's page does not change its kind or grant authority.
+func TestModulesAndSolutionsDeclareFrontends(t *testing.T) {
+	for _, fixture := range []string{"frontend", "module-with-frontend"} {
+		t.Run(fixture, func(t *testing.T) {
+			document := parse(t, fixture)
+			require.NotNil(t, document.Frontend)
+			require.NoError(t, document.Validate())
+			written, err := solutionhost.Marshal(document)
+			require.NoError(t, err)
+			again, err := solutionhost.Parse(written)
+			require.NoError(t, err)
+			require.Equal(t, document.Kind, again.Kind)
+			require.Equal(t, document.Frontend, again.Frontend)
+			canonical, err := document.CanonicalBytes()
+			require.NoError(t, err)
+			verified, err := solutionhost.PresenceFromVerified(canonical)
+			require.NoError(t, err)
+			require.Equal(t, document.Kind, verified.Kind)
+			require.Equal(t, document.Frontend.Title, verified.Frontend.Title)
+		})
+	}
 	module := parse(t, "module-presence")
 	module.Frontend = parse(t, "frontend").Frontend
+	require.NoError(t, module.Validate())
+	module.Frontend.HostContract = 0
 	require.ErrorIs(t, module.Validate(), solutionhost.ErrInvalid)
+}
 
-	_, err = solutionhost.Parse(presence(t, "tombstone-with-frontend"))
+func TestTombstonesDeclareNoFrontendForEitherKind(t *testing.T) {
+	_, err := solutionhost.Parse(presence(t, "tombstone-with-frontend"))
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.Contains(t, err.Error(), "a removed generation declares no frontend")
-
-	tombstone := parse(t, "tombstone")
-	tombstone.Frontend = parse(t, "frontend").Frontend
-	require.ErrorIs(t, tombstone.Validate(), solutionhost.ErrInvalid)
+	for _, kind := range []solutionhost.Kind{solutionhost.KindModule, solutionhost.KindSolution} {
+		tombstone := parse(t, "tombstone")
+		tombstone.Kind = kind
+		tombstone.Frontend = parse(t, "frontend").Frontend
+		require.ErrorIs(t, tombstone.Validate(), solutionhost.ErrInvalid)
+	}
 }
 
 // The writer reads a frontend back as it wrote it: the dashboard's strings
@@ -281,5 +302,50 @@ func TestASurfaceCarriesWhatTheClientReads(t *testing.T) {
 		_, err := solutionhost.Parse([]byte(written))
 		require.ErrorIs(t, err, solutionhost.ErrInvalid)
 		require.Contains(t, err.Error(), "frontend.surfaces[0]."+field+" must be declared")
+	}
+}
+
+// Limits are identical for both kinds, and byte limits do not count runes.
+func TestFrontendLimitsForBothKinds(t *testing.T) {
+	for _, fixture := range []string{"frontend", "module-with-frontend"} {
+		t.Run(fixture, func(t *testing.T) {
+			d := parse(t, fixture)
+			d.Frontend.Title = strings.Repeat("é", solutionhost.FrontendTextMaxBytes/2)
+			require.NoError(t, d.Validate())
+			d.Frontend.Title += "x"
+			require.ErrorContains(t, d.Validate(), "frontend text exceeds")
+		})
+	}
+}
+
+func TestFrontendCollectionLimits(t *testing.T) {
+	for _, collection := range []string{"surfaces", "events", "tags"} {
+		t.Run(collection, func(t *testing.T) {
+			d := parse(t, "frontend")
+			surface := d.Frontend.Surfaces[0]
+			set := func(n int) {
+				names := make([]string, n)
+				tags := make([]any, n)
+				surfaces := make([]solutionhost.FrontendSurface, n)
+				for i := range n {
+					names[i] = fmt.Sprintf("example.item-%d", i)
+					tags[i] = names[i]
+					surfaces[i] = surface
+					surfaces[i].ID = fmt.Sprintf("page-%d", i)
+				}
+				switch collection {
+				case "surfaces":
+					d.Frontend.Surfaces = surfaces
+				case "events":
+					d.Frontend.Surfaces[0].Events = names
+				case "tags":
+					d.Frontend.Surfaces[0].Applies = map[string]any{"tagged": tags}
+				}
+			}
+			set(solutionhost.FrontendCollectionMaxItems)
+			require.NoError(t, d.Validate())
+			set(solutionhost.FrontendCollectionMaxItems + 1)
+			require.ErrorContains(t, d.Validate(), "frontend collection exceeds")
+		})
 	}
 }
