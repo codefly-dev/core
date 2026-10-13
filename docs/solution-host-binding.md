@@ -1515,3 +1515,23 @@ document. Runtimes and delivery tools use this reader instead of implementing
 another validator. A component may omit the file when it has no frontend; a
 present empty or malformed file is refused. Parsing the file grants no authority:
 the complete presence still goes through signed delivery and host admission.
+
+
+## Live endpoint delivery
+
+`solutionhost.MarshalEndpointDelivery` encodes the CLI's selected endpoint
+carriers separately from presence, under `codefly/endpoint-delivery/v1`.
+`ParseEndpointDelivery` joins that projection to the complete canonical digest
+of an applied presence: binding, host target, generation, release and declarations
+must all agree. It rejects undeclared carrier keys and duplicate or malformed
+input, using the same strict decoder and endpoint encoding as the existing
+contracts. An empty carrier subset authorizes no route.
+
+The CLI/cell delivery owner writes one atomically replaceable file per binding
+in the stable directory named by `resources.EndpointDeliveryDirectoryKey`.
+`EndpointDeliveryFilename` derives a path-safe filename from the host target and
+binding; an upgrade replaces that file. The SDK must reread it and refuse missing,
+withdrawn or mismatched delivery without consulting a startup environment
+carrier. This projection supplies addressing, not authority or frontend asset
+integrity; the host still requires applied presence and live installation grants,
+and immutable assets require the published artifact's integrity evidence.
