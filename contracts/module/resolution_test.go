@@ -1,6 +1,7 @@
 package module
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -22,11 +23,15 @@ func TestEveryResolutionFixtureReachesItsOutcome(t *testing.T) {
 // turn — the records still read, the refusal not raised — and the fixture that
 // isolates it must notice. A resolution rule that could be dropped silently is
 // a rule a consumer could resolve differently without failing the kit.
+//
+// A rule is isolated by a refused fixture, or — for the one rule that turns a
+// refusal into an outcome, optional-absent-omits — by the omitted fixture that
+// deleting it turns back into a refusal.
 func TestEveryResolutionRuleIsProtectedByAFixture(t *testing.T) {
 	all := AllResolutionFixtures()
 	protected := map[string][]ResolutionFixture{}
 	for _, fixture := range all {
-		if fixture.Outcome == OutcomeRefused && fixture.Rule != "" {
+		if fixture.Rule != "" {
 			protected[fixture.Rule] = append(protected[fixture.Rule], fixture)
 		}
 	}
@@ -44,7 +49,7 @@ func TestEveryResolutionRuleIsProtectedByAFixture(t *testing.T) {
 			t.Errorf("resolution rule %s can be deleted and the kit still passes: %d fixture(s) name it but none notices", rule, len(fixtures))
 		}
 		for _, fixture := range fixtures {
-			if !strings.Contains(recorder.messages, "fixture "+quote(fixture.Name)+" must be refused") {
+			if !strings.Contains(recorder.messages, "fixture "+quote(fixture.Name)+" must") {
 				t.Errorf("deleting resolution rule %s did not change the outcome of %q, the fixture that isolates it:\n%s", rule, fixture.Name, recorder.messages)
 			}
 		}
@@ -400,6 +405,16 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 		"an audience carrying a zero-width space",
 		"an empty value",
 		"an upper-case kind",
+		"an optional binding whose key and audience are both absent, under local development",
+		"an optional binding whose key cannot be read, under local development",
+		"an optional binding whose key is absent, resolved strictly",
+		"an optional binding whose key is absent, under local development",
+		"an optional binding whose key is configured, resolved strictly",
+		"an optional binding whose key is configured, under local development",
+		"an optional binding whose key is present and empty, under local development",
+		"an optional binding whose key is secret, under local development",
+		"an optional binding whose key is supplied in two spellings that disagree, under local development",
+		"an unmarked binding whose key is absent, under local development",
 		"audience (_PREFIX convention): one spelling supplied twice with different values",
 		"audience (_PREFIX convention): public then secret, a different value, both written lower",
 		"audience (_PREFIX convention): public then secret, a different value, both written upper",
@@ -607,5 +622,102 @@ func TestTheKitRefusesAProviderItCannotBuild(t *testing.T) {
 	RunResolution(recorder, nil)
 	if recorder.failures == 0 {
 		t.Fatal("a nil provider passed the resolution kit; it would be substituted by the reference provider and certify core against itself")
+	}
+}
+
+// TestOnlyLocalDevelopmentOmitsAnAbsentOptionalBinding drives the public
+// entrypoints over the shipped document that marks a binding optional: Resolve
+// stays strict, ResolveUnder(LocalDevelopment) omits the binding whose key is
+// absent and nothing else, and SlotGroups still names the selector's group, so
+// installing or removing the key changes a consumer's group digest.
+func TestOnlyLocalDevelopmentOmitsAnAbsentOptionalBinding(t *testing.T) {
+	document, err := fixtures.ReadFile("testdata/binding-optional-local-development.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := Parse(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Every slot of the annotations binding lives in a group no other binding
+	// reads, so SlotGroups can name it only because of the optional binding.
+	contract.Bindings[2].Audience = Slot{From: "annotations/annotations-prefix"}
+	contract.Bindings[2].BindingKey = &Slot{From: "annotations/annotations-binding"}
+	groups := strings.Join(contract.SlotGroups(), ",")
+	if groups != "annotations,assistant" {
+		t.Fatalf("slot groups %q must name the optional binding's group", groups)
+	}
+
+	without := values()
+	_, err = contract.Resolve(without)
+	if !errors.Is(err, ErrUnresolvedSlot) || !strings.Contains(err.Error(), "binding annotations binding_key ← annotations/annotations-binding") {
+		t.Fatalf("Resolve must refuse an absent key whatever the marker says, got: %v", err)
+	}
+	strict, err := contract.ResolveUnder(without, Strict)
+	if !errors.Is(err, ErrUnresolvedSlot) || strict != nil {
+		t.Fatalf("ResolveUnder(Strict) must be Resolve, got %+v and %v", strict, err)
+	}
+
+	local, err := contract.ResolveUnder(without, LocalDevelopment)
+	if err != nil {
+		t.Fatalf("ResolveUnder(LocalDevelopment) must omit the absent optional binding, got: %v", err)
+	}
+	if local.Policy != LocalDevelopment || len(local.Bindings) != 2 || local.Bindings[0].ID != "model" || local.Bindings[1].ID != "evidence" {
+		t.Fatalf("the required bindings must resolve in order under LocalDevelopment, got %+v", local)
+	}
+	want := []ExcludedBinding{{ID: "annotations", From: "annotations/annotations-binding"}}
+	if len(local.Excluded) != 1 || local.Excluded[0] != want[0] {
+		t.Fatalf("excluded %+v, want %+v", local.Excluded, want)
+	}
+	if reason := local.Excluded[0].Reason(); reason != "binding annotations omitted under local development: binding_key annotations/annotations-binding absent" {
+		t.Fatalf("reason %q", reason)
+	}
+	if after := strings.Join(contract.SlotGroups(), ","); after != groups {
+		t.Fatalf("slot groups changed after an omission: %q, was %q", after, groups)
+	}
+
+	// Installed, the key resolves the binding under both policies, unchanged.
+	with := values()
+	with.Public["annotations"] = map[string]string{"ANNOTATIONS_PREFIX": "annotations", "ANNOTATIONS_BINDING": "annotations"}
+	for _, policy := range []ResolutionPolicy{Strict, LocalDevelopment} {
+		resolved, err := contract.ResolveUnder(with, policy)
+		if err != nil {
+			t.Fatalf("an installed key must resolve under %+v: %v", policy, err)
+		}
+		if resolved.Policy != policy || len(resolved.Excluded) != 0 || len(resolved.Bindings) != 3 || resolved.Bindings[2].BindingKey != "annotations" {
+			t.Fatalf("under %+v the optional binding must resolve in place, got %+v", policy, resolved)
+		}
+	}
+	strictly, err := contract.Resolve(with)
+	if err != nil || strictly.Policy != Strict {
+		t.Fatalf("Resolve must record Strict, got %+v and %v", strictly, err)
+	}
+}
+
+// TestTheWriterCarriesTheOptionalMarker: Encode writes the marker it reads and
+// writes nothing for a required binding, so a publisher cannot drop the policy
+// or invent one.
+func TestTheWriterCarriesTheOptionalMarker(t *testing.T) {
+	document, err := fixtures.ReadFile("testdata/binding-optional-local-development.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := Parse(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := contract.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(string(encoded), "optional: local-development"); count != 1 {
+		t.Fatalf("the encoded contract carries the marker %d times, not once:\n%s", count, encoded)
+	}
+	again, err := Parse(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Bindings[2].Optional != OmitInLocalDevelopment || again.Bindings[0].Optional != "" {
+		t.Fatalf("the marker did not read back on the binding that carried it: %+v", again.Bindings)
 	}
 }

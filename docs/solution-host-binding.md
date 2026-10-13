@@ -1267,6 +1267,43 @@ occurrence, a missing key, a kind carrying a comma or a colon — so a provider
 that collapses two spellings, drops the secret occurrence or deduplicates fails
 by name.
 
+**An optional binding, under a policy.** A module may mark a binding it can
+run without in local development — `optional: local-development` — and that
+is the only value: the marker is an `OmissionPolicy` naming the one policy the
+binding may be omitted under, never a bool that would read as "optional
+everywhere", so any other value is refused by name
+(`binding-optional-policy-known`). A marked binding declares a `binding_key`
+slot (`binding-optional-has-binding-key`), because the installed key is the
+selector. The marker changes nothing for `Resolve`, which is
+`ResolveUnder(values, Strict)`: every binding is required, and an absent key
+is `ErrUnresolvedSlot` as it always was. The policy is the caller's, chosen by
+its code path and never read from a value or an environment name:
+`ResolutionPolicy` is opaque and comparable, with exactly two values,
+`modulecontract.Strict` (the zero value) and `modulecontract.LocalDevelopment`.
+Under `LocalDevelopment`, and only there, a marked binding whose `binding_key`
+record is **absent** — no record in either spelling — is left out of
+`Resolved.Bindings`, none of its other slots is resolved, and it is recorded
+in `Resolved.Excluded` in the contract's order, each entry's `Reason()` being
+`binding <id> omitted under local development: binding_key <group>/<key>
+absent` (resolution rule `optional-absent-omits`). Absent only: a key that is
+present and empty, not one line, secret, supplied in two disagreeing
+spellings or unreadable fails closed under the existing sentinels under either
+policy — empty is invalid, never "off" — a configured key resolves the binding
+unchanged, and an unmarked binding is never omitted. `Resolved.Policy`
+records the policy that produced the resolution, and `Excluded` is evidence
+for the caller to narrate, never part of a delivered document: the authority
+document derived from an omission simply carries no unit for the binding, its
+schema unchanged, and the module observes only the absence. `SlotGroups()` is
+unchanged and names the selector's group whether or not the binding is
+omitted, so installing or removing the key changes a consumer's group digest.
+`OptionalBindingFixtures()` carries the negative pair into every consumer's
+`RunResolution`: the same composition omitted under `LocalDevelopment` and
+refused under `Strict`, and an unmarked binding refused under
+`LocalDevelopment` — so a provider that loses the key's record turns a refusal
+into an omission and fails by name. A reader older than the marker refuses the
+`optional` field (`KnownFields`), so the consumers move to this core line
+together.
+
 **A writer gets bytes or an error.** `Contract.Encode` is the only way to
 write a contract: it validates, marshals, and reads the bytes back through its
 own reader, returning them only when what comes back is what went in.
@@ -1341,10 +1378,10 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (79 documents) ships
+`modulecontract.Fixtures()` (82 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
-reader's own entrypoint through them. `AllResolutionFixtures()` (117
+reader's own entrypoint through them. `AllResolutionFixtures()` (127
 configurations) does the same for resolution, driven by `RunResolution(t,
 provider)`. **Both counts are pinned by a test**, and the resolution kit
 is pinned by NAME and by cases-per-role as well: a documented count written by
@@ -1366,4 +1403,5 @@ lands, the second copies of this model still exist. What each one owes:
 | Consumer | What it does, and where it stands |
 | --- | --- |
 | `codefly-dev/cli` | delete `pkg/modulecontract`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every contract through `modulecontract.Load`; replace its `Values` adapter with a **duplicate-preserving** `Records(group) ([]Record, error)` provider that keeps repeated records, original key spellings and every secret classification; write through `Encode` rather than marshaling the model; and run **both** kits — the document kit and `RunResolution` — through the render's and the publisher's own entrypoints, never a test-only wrapper. The deletions are done at `b77f5806`, which PREDATES the `Records` API and the resolution kit, so that commit does not establish adoption of this head; the tested consumer commit is still to be named. Its cell model stays its own until core ships one. |
+| `codefly-dev/cli`, the resolution policy | resolve under `LocalDevelopment` only from the native run's delivery (`NativeDeliverer.Render`), narrating each `Excluded` entry's `Reason()` in the run's delivery log; the render and the publish resolve under `Strict` and refuse a `Resolved` whose `Policy` is not `Strict`. Not started in this repository: the CLI owns that integration. |
 | the runtimes that publish contracts | run `modulecontract.Run` against the publisher's output, so a contract they emit is one this reader accepts. Not started. |
