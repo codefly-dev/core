@@ -11,7 +11,7 @@ import (
 // The canonical encoding of the frontend fixture, pinned for the reason
 // regression_test.go pins the others: the block travels inside the signed
 // bytes, so its encoding is a compatibility surface from the day it ships.
-const frontendFixtureDigest = "sha256:5bb75404a754605c06d2756f6fe9a32add994b0401651e76234313e9ac7b6b51"
+const frontendFixtureDigest = "sha256:c988cb392cc063ec4a8e20793c2db8aad9c62a0d2afb5aaf10ce5708a4cd018d"
 
 func TestTheFrontendFixtureCarriesEveryDeclaredField(t *testing.T) {
 	document := parse(t, "frontend")
@@ -23,8 +23,11 @@ func TestTheFrontendFixtureCarriesEveryDeclaredField(t *testing.T) {
 	require.Equal(t, "./Page", frontend.ExposedModule)
 	require.Equal(t, uint64(1), frontend.HostContract)
 	require.Equal(t, []solutionhost.FrontendSurface{
-		{ID: "summary", Client: "slack", Title: "Summary", Module: "/surfaces/slack/summary.js"},
-		{ID: "footnote", Client: "word", Title: "Footnote", Description: "Insert a footnote from the catalogue.", Module: "/surfaces/word/footnote.js"},
+		{ID: "summary", Client: "slack", Title: "Summary", Module: "/surfaces/slack/summary.js", Contract: 1, Applies: "always"},
+		{
+			ID: "footnote", Client: "word", Title: "Footnote", Description: "Insert a footnote from the catalogue.", Module: "/surfaces/word/footnote.js",
+			Contract: 2, Applies: map[string]any{"tagged": []any{"contract", "brief"}}, Events: []string{"example.item", "example.citation"},
+		},
 	}, frontend.Surfaces)
 
 	// The dashboard is opaque: decoded as the JSON it is, nothing more.
@@ -63,7 +66,7 @@ func TestTheFrontendIsInsideTheSignedBytes(t *testing.T) {
 	document := parse(t, "frontend")
 	canonical, err := document.CanonicalBytes()
 	require.NoError(t, err)
-	require.Contains(t, string(canonical), `"frontend":{"dashboard":{"dashboards":[{"id":"overview","layout":"grid","title":"Overview","widgets":[{"enabled":true,"id":"items-per-day","limit":100,"metric":"items","title":"Items per day","version":"1.0","visualization":"line"}]}],"events":[{"description":"An item was created.","name":"item-created","type":"example.item.created"}],"metrics":[{"aggregation":"count","bucket":"day","event":"item-created","groupBy":"time","id":"items"}]},"exposed_module":"./Page","host_contract":1,"order":10,"surfaces":[{"client":"slack","id":"summary","module":"/surfaces/slack/summary.js","title":"Summary"},{"client":"word","description":"Insert a footnote from the catalogue.","id":"footnote","module":"/surfaces/word/footnote.js","title":"Footnote"}],"title":"Alpha"}`)
+	require.Contains(t, string(canonical), `"frontend":{"dashboard":{"dashboards":[{"id":"overview","layout":"grid","title":"Overview","widgets":[{"enabled":true,"id":"items-per-day","limit":100,"metric":"items","title":"Items per day","version":"1.0","visualization":"line"}]}],"events":[{"description":"An item was created.","name":"item-created","type":"example.item.created"}],"metrics":[{"aggregation":"count","bucket":"day","event":"item-created","groupBy":"time","id":"items"}]},"exposed_module":"./Page","host_contract":1,"order":10,"surfaces":[{"applies":"always","client":"slack","contract":1,"id":"summary","module":"/surfaces/slack/summary.js","title":"Summary"},{"applies":{"tagged":["contract","brief"]},"client":"word","contract":2,"description":"Insert a footnote from the catalogue.","events":["example.citation","example.item"],"id":"footnote","module":"/surfaces/word/footnote.js","title":"Footnote"}],"title":"Alpha"}`)
 
 	before, err := document.Digest()
 	require.NoError(t, err)
@@ -73,9 +76,10 @@ func TestTheFrontendIsInsideTheSignedBytes(t *testing.T) {
 	require.NotEqual(t, before, after, "a changed field must change what was signed")
 }
 
-// The surfaces are a set to the digest: a producer emitting them from a Go
-// map must not move the digest per process. The dashboard's lists keep their
-// order, as JSON lists do, so reordering one IS a different dashboard.
+// The surfaces, and each surface's events, are sets to the digest: a producer
+// emitting either from a Go map must not move the digest per process. The
+// dashboard's lists, and the tags a surface applies to, keep their order, as
+// JSON lists do, so reordering one IS a different declaration.
 func TestFrontendCanonicalOrderIsIndependentOfDeliveryOrder(t *testing.T) {
 	document := parse(t, "frontend")
 	expected, err := document.Digest()
@@ -83,19 +87,29 @@ func TestFrontendCanonicalOrderIsIndependentOfDeliveryOrder(t *testing.T) {
 
 	shuffled := parse(t, "frontend")
 	shuffled.Frontend.Surfaces[0], shuffled.Frontend.Surfaces[1] = shuffled.Frontend.Surfaces[1], shuffled.Frontend.Surfaces[0]
+	names := shuffled.Frontend.Surfaces[0].Events
+	names[0], names[1] = names[1], names[0]
 	actual, err := shuffled.Digest()
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
 	require.Equal(t, "slack", shuffled.Frontend.Surfaces[1].Client, "the document itself is not reordered")
+	require.Equal(t, []string{"example.citation", "example.item"}, shuffled.Frontend.Surfaces[0].Events)
+
+	retagged := parse(t, "frontend")
+	tags := retagged.Frontend.Surfaces[1].Applies.(map[string]any)["tagged"].([]any)
+	tags[0], tags[1] = tags[1], tags[0]
+	moved, err := retagged.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, expected, moved, "the tags are read in order, so their order is signed")
 
 	reordered := parse(t, "frontend")
 	events := reordered.Frontend.Dashboard.(map[string]any)["events"].([]any)
 	events = append(events, map[string]any{"name": "item-deleted", "type": "example.item.deleted"})
 	events[0], events[1] = events[1], events[0]
 	reordered.Frontend.Dashboard.(map[string]any)["events"] = events
-	moved, err := reordered.Digest()
+	moved, err = reordered.Digest()
 	require.NoError(t, err)
-	require.NotEqual(t, expected, moved)
+	require.NotEqual(t, expected, moved, "a dashboard's lists are read in order, so their order is signed")
 
 	// And the canonical bytes are a document the reader accepts, which is
 	// what makes them signable: the dashboard comes back as it went in.
@@ -229,4 +243,43 @@ func TestFrontendTextsAreSingleLine(t *testing.T) {
 	require.NoError(t, document.Validate(), "a description may be absent")
 	document.Frontend.Title = "Widgets · GO"
 	require.NoError(t, document.Validate(), "a title may carry spaces and any printable rune")
+}
+
+// A surface carries what the client reads — its contract major, what it
+// applies to, the namespaces it reconciles on — held to exactly the shapes
+// the client has a branch for, from a document built in Go as from one read.
+func TestASurfaceCarriesWhatTheClientReads(t *testing.T) {
+	for name, applies := range map[string]any{
+		"a third word":           "sometimes",
+		"an empty tag list":      map[string]any{"tagged": []any{}},
+		"a second key":           map[string]any{"tagged": []any{"brief"}, "also": true},
+		"a tag that is not text": map[string]any{"tagged": []any{"brief", 7}},
+		"an empty tag":           map[string]any{"tagged": []any{""}},
+		"nothing":                nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := parse(t, "frontend")
+			document.Frontend.Surfaces[0].Applies = applies
+			err := document.Validate()
+			require.ErrorIs(t, err, solutionhost.ErrInvalid)
+			require.Contains(t, err.Error(), `frontend.surfaces[0].applies is neither "always" nor {tagged: [one or more tags]}`)
+		})
+	}
+	document := parse(t, "frontend")
+	document.Frontend.Surfaces[0].Events = []string{"example.item", "acme-widgets.v2"}
+	require.NoError(t, document.Validate())
+	document.Frontend.Surfaces[0].Events = []string{""}
+	require.ErrorIs(t, document.Validate(), solutionhost.ErrInvalid)
+
+	// An omitted contract or applies is refused on the node, before the typed
+	// decoder reads a zero or a nil into it.
+	for field, without := range map[string]string{
+		"contract": "      applies: always\n",
+		"applies":  "      contract: 1\n",
+	} {
+		written := strings.Replace(string(presence(t, "frontend")), "      contract: 1\n      applies: always\n", without, 1)
+		_, err := solutionhost.Parse([]byte(written))
+		require.ErrorIs(t, err, solutionhost.ErrInvalid)
+		require.Contains(t, err.Error(), "frontend.surfaces[0]."+field+" must be declared")
+	}
 }

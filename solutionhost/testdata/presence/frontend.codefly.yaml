@@ -6,6 +6,9 @@
 # producer's and is accepted (every other presence fixture is one); a document
 # that carries it is held to the frontend rules. The dashboard is opaque JSON
 # the host interprets; this document bounds its size and holds its spelling.
+# Each surface carries what the client reads: the contract major it is built
+# against, which documents it applies to, and the journal namespaces it
+# reconciles on.
 schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
@@ -102,8 +105,18 @@ frontend:
       client: slack
       title: Summary
       module: /surfaces/slack/summary.js
+      contract: 1
+      applies: always
     - id: footnote
       client: word
       title: Footnote
       description: Insert a footnote from the catalogue.
       module: /surfaces/word/footnote.js
+      contract: 2
+      applies:
+        tagged:
+          - contract
+          - brief
+      events:
+        - example.item
+        - example.citation

@@ -137,7 +137,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 64)
+	require.Len(t, fixtures, 68)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -230,6 +230,10 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"frontend-surface-client-invalid":  solutionhost.ErrInvalid,
 		"frontend-surface-twice":           solutionhost.ErrInvalid,
 		"frontend-surface-module-offsite":  solutionhost.ErrInvalid,
+		"frontend-surface-contract-zero":   solutionhost.ErrInvalid,
+		"frontend-surface-applies-invalid": solutionhost.ErrInvalid,
+		"frontend-surface-event-invalid":   solutionhost.ErrInvalid,
+		"frontend-surface-event-twice":     solutionhost.ErrInvalid,
 		"frontend-dashboard-too-large":     solutionhost.ErrInvalid,
 		"frontend-order-omitted":           solutionhost.ErrInvalid,
 		"frontend-host-contract-hex":       solutionhost.ErrInvalid,
