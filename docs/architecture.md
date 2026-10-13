@@ -368,6 +368,19 @@ except a closed list of public words — `AUTHOR(S)`, `AUTHORITY`/`AUTHORITIES`,
 word (`CERTIFICATE_AUTHORITY_KEY`) keeps the key sensitive. A new public word
 is added with a test, never inferred.
 
+An environment variable NAME is classified by
+`resources.IsSensitiveEnvironmentVariable`, which reads a codefly carrier by
+what it carries rather than by its whole spelling: a secret carrier
+(`CODEFLY__*_SECRET_CONFIGURATION__…`) is always sensitive; an endpoint or
+route carrier is an address; a service or workspace configuration carrier is
+classified by its configuration KEY alone — the module, service and
+configuration-group segments are structure, so a public group named
+`datasource-oauth` does not make its `PROVIDERS` or `CLIENT_ID` a credential,
+while a `CLIENT_SECRET` key in that group, and any value that rides a secret
+carrier, stays sensitive. The rendered-manifest validator reads the same
+segment, and a renderer refusing a public value by its group name is a
+defect here, never a reason to rename the group.
+
 ## Runtime Contexts
 
 The same code runs in four contexts:
