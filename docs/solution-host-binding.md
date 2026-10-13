@@ -1506,3 +1506,12 @@ lands, the second copies of this model still exist. What each one owes:
 | --- | --- |
 | `codefly-dev/cli` | delete `pkg/modulecontract`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every contract through `modulecontract.Load`; replace its `Values` adapter with a **duplicate-preserving** `Records(group) ([]Record, error)` provider that keeps repeated records, original key spellings and every secret classification; write through `Encode` rather than marshaling the model; and run **both** kits — the document kit and `RunResolution` — through the render's and the publisher's own entrypoints, never a test-only wrapper. The deletions are done at `b77f5806`, which PREDATES the `Records` API and the resolution kit, so that commit does not establish adoption of this head; the tested consumer commit is still to be named. Its cell model stays its own until core ships one. |
 | the runtimes that publish contracts | run `modulecontract.Run` against the publisher's output, so a contract they emit is one this reader accepts. Not started. |
+
+### Standalone frontend declarations
+
+`solutionhost.ParseFrontend` reads the component's frontend file using the same
+strict decoding, required fields and bounds as the frontend block in a presence
+document. Runtimes and delivery tools use this reader instead of implementing
+another validator. A component may omit the file when it has no frontend; a
+present empty or malformed file is refused. Parsing the file grants no authority:
+the complete presence still goes through signed delivery and host admission.

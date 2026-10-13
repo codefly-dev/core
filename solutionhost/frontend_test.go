@@ -7,6 +7,7 @@ import (
 
 	"github.com/codefly-dev/core/solutionhost"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // The canonical encoding of the frontend fixture, pinned for the reason
@@ -347,5 +348,48 @@ func TestFrontendCollectionLimits(t *testing.T) {
 			set(solutionhost.FrontendCollectionMaxItems + 1)
 			require.ErrorContains(t, d.Validate(), "frontend collection exceeds")
 		})
+	}
+}
+
+// Every section fixture drives both readers. The full-presence tombstone rule
+// remains the document's responsibility; the standalone section has no kind or
+// removal flag with which to decide admission.
+func TestStandaloneFrontendUsesPresenceRules(t *testing.T) {
+	count := 0
+	for _, fixture := range solutionhost.FixturesOf(solutionhost.DocumentTypePresence) {
+		if !strings.Contains(fixture.Name, "frontend") || strings.Contains(fixture.Name, "tombstone") {
+			continue
+		}
+		var tree yaml.Node
+		require.NoError(t, yaml.Unmarshal(fixture.Document, &tree))
+		var section *yaml.Node
+		for i := 0; i < len(tree.Content[0].Content); i += 2 {
+			if tree.Content[0].Content[i].Value == "frontend" {
+				section = tree.Content[0].Content[i+1]
+				break
+			}
+		}
+		if section == nil {
+			continue
+		}
+		count++
+		t.Run(fixture.Name, func(t *testing.T) {
+			raw, err := yaml.Marshal(section)
+			require.NoError(t, err)
+			parsed, err := solutionhost.ParseFrontend(raw)
+			if fixture.Outcome == solutionhost.OutcomeRejected {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			document, err := solutionhost.Parse(fixture.Document)
+			require.NoError(t, err)
+			require.Equal(t, document.Frontend, parsed)
+		})
+	}
+	require.Equal(t, 22, count, "the complete shipped frontend section fixture family must run")
+	for _, raw := range []string{"", "[]", "null", "title: Example\norder: 0\nexposed_module: ./Page\nhost_contract: 1\nunknown: true", "title: Example\norder: 0\nexposed_module: ./Page\nhost_contract: 1\n---\n{}"} {
+		_, err := solutionhost.ParseFrontend([]byte(raw))
+		require.Error(t, err)
 	}
 }
