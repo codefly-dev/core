@@ -92,10 +92,25 @@ func TestDeletingARuleAdmitsItsWitness(t *testing.T) {
 	// Not listed: build-size-count-fractional (with the whole-number rule
 	// deleted the decimal node rule still refuses "12416.9"),
 	// build-size-count-too-large (with the fit rule deleted the typed decoder
-	// refuses an explicit !!int past uint64) and build-size-count-negative
-	// (the typed decoder refuses a negative uint64) — each is defence in depth
+	// refuses an explicit !!int past uint64), build-size-count-negative (the
+	// typed decoder refuses a negative uint64) and frontend-order-too-large
+	// (the typed decoder refuses an int64 overflow) — each is defence in depth
 	// and is held by TestEveryRuleIsProtectedByAFixture as refused differently.
 	for fixture, rule := range map[string]string{
+		"module-with-frontend":                ruleFrontendSolutionOnly,
+		"tombstone-with-frontend":             ruleFrontendAbsentWhenRemoved,
+		"frontend-title-empty":                ruleFrontendTexts,
+		"frontend-host-contract-zero":         ruleFrontendHostContractMajor,
+		"frontend-surface-id-invalid":         ruleFrontendSurfaceID,
+		"frontend-surface-client-invalid":     ruleFrontendSurfaceClient,
+		"frontend-surface-twice":              ruleFrontendSurfaceUnique,
+		"frontend-surface-module-offsite":     ruleFrontendSurfaceModule,
+		"frontend-dashboard-too-large":        ruleFrontendDashboardBounded,
+		"frontend-order-omitted":              ruleFrontendFieldsDeclared,
+		"frontend-host-contract-hex":          ruleFrontendNumbersDecimal,
+		"frontend-dashboard-hex":              ruleFrontendDashboardJSON,
+		"frontend-dashboard-timestamp":        ruleFrontendDashboardJSON,
+		"frontend-dashboard-not-an-object":    ruleFrontendDashboardJSON,
 		"build-size-binary-key":               ruleKeyIsAName,
 		"build-size-merge-key":                ruleNoMergeKeys,
 		"merge-key-at-top-level":              ruleNoMergeKeys,
@@ -138,13 +153,17 @@ func checkFuncName(check any) string {
 	return full[strings.LastIndex(full, ".")+1:]
 }
 
+// ruleFiles are the files the rule table's checks are written in: a node or
+// model rule is a function in one of them holding exactly one refusal.
+var ruleFiles = map[string]bool{"buildsize.go": true, "frontend.go": true}
+
 // TestEveryTableRuleHoldsExactlyOneCondition is the construction that keeps
 // "every condition has a witness" true going forward: a node or model rule is
-// a function in buildsize.go holding exactly one refusal, so a second
-// condition added inside an existing rule fails here, and a refusal written
-// in a function that is no rule's check fails too, because no fixture could
-// be required to protect it. The one refusal outside the table in that file
-// is Validate's nil check, named and held to exactly one.
+// a function in buildsize.go or frontend.go holding exactly one refusal, so a
+// second condition added inside an existing rule fails here, and a refusal
+// written in a function that is no rule's check fails too, because no fixture
+// could be required to protect it. The one refusal outside the table in those
+// files is BuildSize.Validate's nil check, named and held to exactly one.
 func TestEveryTableRuleHoldsExactlyOneCondition(t *testing.T) {
 	sites, err := conditions.Sites(".", "ErrInvalid", "ErrSchema")
 	if err != nil {
@@ -152,7 +171,7 @@ func TestEveryTableRuleHoldsExactlyOneCondition(t *testing.T) {
 	}
 	inFile := map[string][]conditions.Site{}
 	for _, site := range sites {
-		if site.File != "buildsize.go" {
+		if !ruleFiles[site.File] {
 			continue
 		}
 		if site.Func == "" {
@@ -162,7 +181,7 @@ func TestEveryTableRuleHoldsExactlyOneCondition(t *testing.T) {
 		inFile[site.Func] = append(inFile[site.Func], site)
 	}
 	if len(inFile) == 0 {
-		t.Fatal("no refusal sites found in buildsize.go: the enumeration itself is broken")
+		t.Fatal("no refusal sites found in the rule files: the enumeration itself is broken")
 	}
 	const outsideTheTable = "Validate"
 	if held := len(inFile[outsideTheTable]); held != 1 {
@@ -199,14 +218,14 @@ func TestEveryTableRuleHoldsExactlyOneCondition(t *testing.T) {
 				continue
 			}
 			if len(inFile[checkFuncName(fn)]) == 0 {
-				t.Errorf("rule %s (%s) refuses nothing in buildsize.go: either its condition moved and the row is stale, or the row never had one", r.name, checkFuncName(fn))
+				t.Errorf("rule %s (%s) refuses nothing in the rule files: either its condition moved and the row is stale, or the row never had one", r.name, checkFuncName(fn))
 			}
 		}
 	}
 }
 
 // TestEveryNewRefusalIsReachedByAFixture holds the refusals this change added
-// to the SOURCE rather than to a list: every refusal in buildsize.go, and
+// to the SOURCE rather than to a list: every refusal in the rule files, and
 // every refusal in the decoder (decodeStrict) and in the schema refusal it
 // defers to (schemaRefusal), must be the refusal some rejected presence
 // fixture actually receives. A condition added without a counterexample fails
@@ -229,7 +248,7 @@ func TestEveryNewRefusalIsReachedByAFixture(t *testing.T) {
 		": trailing input after the document:": "a decoder error after the first document that is not a second document; two-documents reaches the sibling condition, and yaml.v3 yields no other error there for well-formed input",
 	}
 	for _, site := range sites {
-		if site.File != "buildsize.go" && site.Func != "decodeStrict" && site.Func != "schemaRefusal" {
+		if !ruleFiles[site.File] && site.Func != "decodeStrict" && site.Func != "schemaRefusal" {
 			continue
 		}
 		if site.Literal == "" {

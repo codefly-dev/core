@@ -88,11 +88,11 @@ decoding means a document carrying a field the reader does not know is refused
 as malformed rather than read with the field dropped, so a *required* field
 added under an unchanged schema string makes two Cores read that string
 differently — a skew nothing can detect, because the string is what the fleet
-pins. `build_size` is the one addition that did not step, and it is the
-boundary rather than a counter-example: it is optional, so no document that was
-valid stopped being valid and no stored digest moved. The presence document's
-`exposure` and the authority document's three subject declarations are
-required, so both stepped.
+pins. `build_size` and `frontend` are the two additions that did not step, and
+each is the boundary rather than a counter-example: both are optional, so no
+document that was valid stopped being valid and no stored digest moved. The
+presence document's `exposure` and the authority document's three subject
+declarations are required, so both stepped.
 
 ### What a step costs, and who pays it
 
@@ -166,7 +166,7 @@ workloads:                         # what the host runs, and what must be true o
     identity:
       audience: https://prod.region-a.example/solutions
       subject: system:serviceaccount:alpha-region-a-01:alpha-api
-      spiffe_id: spiffe://prod.region-a.example/ns/alpha-region-a-01/sa/alpha-api
+      spiffe_id: spiffe://prod.region-a.example/ns/alpha-region-a-01/sa/alpha-api   # the mesh principal: what the mesh issues to its ServiceAccount
     non_authenticating: [envoy, migrate]   # must never be accepted as the authenticator
 modules:
   - {module: alpha, package: example/alpha-core, version: 1.4.0}
@@ -181,12 +181,21 @@ build_size:                        # OPTIONAL: the build's size, counted by the 
   frontend: 8102
   total: 20518
   vendored: [web/src/clients]      # the manifest's declaration, as applied; `[]` when it declares none
+frontend:                          # OPTIONAL, solution only: what the host serves for it, as the solution declared it
+  title: Alpha                     # the navigation label
+  order: 10                        # where it sorts; declared, zero included
+  exposed_module: ./Page           # the module its Module Federation remote exposes
+  host_contract: 1                 # the host page contract major it is built against, at least 1
+  dashboard:                       # OPTIONAL: its data graph, opaque JSON the host interprets, bounded in size
+    events: [{name: item-created, type: example.item.created}]
+  surfaces:                        # OPTIONAL: what it offers inside a client application, by client and id
+    - {id: footnote, client: word, title: Footnote, module: /surfaces/word/footnote.js}
 ```
 
 A tombstone is the same document with `removed: true`, a higher generation, and
-no routes, artifacts, workloads, modules, endpoints or build size. It still
-names the release it removes **and the ownership domain it was applied under**,
-which is what makes the removal attributable.
+no routes, artifacts, workloads, modules, endpoints, build size or frontend. It
+still names the release it removes **and the ownership domain it was applied
+under**, which is what makes the removal attributable.
 
 ### The build's size is a build fact
 
@@ -372,6 +381,93 @@ with two declared-empty lists. A producer that marshals the model by hand can
 write `vendored: null` for a list it meant as empty, and the failure then
 surfaces at whoever reads the file, or at admission, rather than at publish.
 
+### The frontend block is the solution's declaration
+
+`frontend` is what a host serves for a solution: the page its navigation
+opens and the surfaces it offers inside a client application. It holds the
+author-declared half of the manifest the host's registry projects — `title`,
+`order`, `exposed_module`, `host_contract`, an opaque `dashboard` and the
+`surfaces` — and nothing the host adds itself (the asset path, the backend
+alias, the capability path) and nothing that is an address.
+
+**Where it comes from.** A solution declares these fields in **one file beside
+its backend service**, which the solution runtime embeds (`go:embed`, as it
+embeds its assets) and serves its manifest route from; the runtime's docs name
+the file. The CLI reads the same file into this block when it renders the
+generation. So the host learns a solution's frontend from the applied presence
+document — verified, signed, and attributable to a generation — and from
+nothing the running process reports: there is no mint-time manifest report,
+and a solution is active once its presence is applied with the block (and,
+per the install lifecycle, once its installation is acknowledged).
+
+**Solution only.** A module fronts no page of its own and a tombstone declares
+nothing to serve, so the block is refused by name on `kind: module` and on a
+removed generation (`frontend-solution-only`, `frontend-absent-when-removed`),
+the way a tombstone's build size is.
+
+**Optional, for `build_size`'s reason, and with its consequence.** A document
+without the block is an older producer's and is accepted; it encodes exactly as
+it did before the block existed, so every digest a host stored still holds. A
+document that carries it is held to every frontend rule. And a host OLDER than
+the block refuses a document carrying it as an unknown field — `ErrInvalid`,
+from strict decoding — which is not a defect to work around: it is why core
+merges and releases before the renderer in a cutover, and why a fleet pins the
+schema string rather than reading past a field it does not know.
+
+**The dashboard is opaque JSON, bounded, and signed as written.** Its schema —
+events, metrics computed over them, dashboards binding widgets to metrics — is
+the host's, and core reads nothing in it. What core holds is that it is an
+object, that it is at most `FrontendDashboardMaxBytes` (64 KiB) of canonical
+encoding, which is the size a host stores with the generation, and that every
+value in it is one JSON spells exactly one way: a string, a boolean, a whole
+number in decimal digits that fits, a list or an object. That last rule is a
+node rule, judged before the typed decoder sees the tree, for the reason the
+build-size counts are: yaml would otherwise read `0x10` as 16, a plain
+`2024-01-01` as a timestamp the signing encoding writes back as a different
+string, and `!!binary` bytes as a string JSON rewrites — and each would be
+signed as a value the author never wrote. The shared wire check already refuses
+a fraction, a null and a key that is not a name anywhere in the document. A
+producer that builds the dashboard in Go rather than reading it is held to the
+same bound and, through `Marshal`'s read-back, to the same spelling: a fraction
+fails at the writer and at verification, loudly, rather than being signed as
+something else. The dashboard is the one place in the document a value is not
+a name core knows the shape of; it is bounded, it is a declaration the host's
+validator admits or refuses, and it is not a slot for a credential — the
+schema test that holds every FIELD name to that still does, and the host's
+data graph "never carries data, credentials, or deployment addresses" by its
+own definition.
+
+**The surfaces are a set, keyed by client and id.** A client addresses a
+surface by id, so the pair is unique; an id is lowercase letters and digits
+separated by dashes and a module is a path on the solution's own origin — both
+as the solution runtime spells them, so a declaration the runtime refuses at
+boot is refused here at render, by name. A client kind is held to the shape of
+a lowercase name and not to a closed set: which kinds a host's clients answer
+to is the host client's vocabulary, and it is held where the clients are.
+The canonical encoding sorts the surfaces by that pair, so a producer emitting
+them from a Go map cannot move the digest per process; the dashboard's object
+keys are sorted by the encoding at every depth, and its lists keep their order,
+as JSON lists do.
+
+**Every scalar of the block is declared, zero included, and a number has one
+spelling.** `order` is where a solution sorts; an omitted one would decode as
+zero and be signed as a choice, so `frontend-fields-declared` requires every
+scalar field of the block and of every surface on the node, before typing,
+and `frontend-numbers-decimal` and `frontend-numbers-fit` hold `order` and
+`host_contract` to decimal digits that fit, the way the build-size counts are
+held. Every text is one non-empty line (`frontend-texts`); a surface's
+description is the one text that may be absent. `host_contract` is a major,
+at least 1: a host serves a remote only when it recognises the major it
+declares, and the zero an author leaves behind is a page every host refuses in
+a render that otherwise looks healthy.
+
+Every one of these is a rule of the same table as the build-size rules, in
+`frontend.go`, each a function holding exactly one condition with a shipped
+fixture that notices when the rule is dropped — the self-check deletes each in
+turn — and the fixtures that witness a repair (an omitted order, a hexadecimal
+number, a timestamp, a list where an object was declared) are accepted
+outright with their rule gone, which is the hole each closes.
+
 ### An endpoint's reach and its addressing, and why this document holds both to core's vocabulary
 
 An endpoint here is **named, never addressed**: a declared address would be a
@@ -510,11 +606,17 @@ Three further refusals, each choosing a refusal over a guess:
 - `Image.Repository` may carry neither a tag nor a digest. Either would give one
   container two answers about what it runs, and the mutable one usually wins.
 
-`spiffe_id` is validated as a SPIFFE ID and not as a name: scheme `spiffe`, a
+`spiffe_id` names the workload's **mesh principal**: the SPIFFE ID the cell's
+mesh issues to the workload's ServiceAccount and carries as the peer identity
+on every connection it brokers. It is what a mesh policy admits a port from
+and what a host records beside the subject. It is **not** an SVID the workload
+serves or presents: no workload terminates TLS or holds an X.509-SVID of its
+own, and inside a cell every hop is plain HTTP under the mesh's transport
+security. It is validated as a SPIFFE ID and not as a name: scheme `spiffe`, a
 lowercase non-empty trust domain, no userinfo, query, fragment or port, and a
-non-empty normalized path. A subject that happens to parse as a URL is not an
-SVID, and a trust domain alone would let every workload in the domain present
-the same ID.
+non-empty normalized path. A subject that happens to parse as a URL is not a
+principal any mesh attests, and a trust domain alone would admit every
+workload in the domain as one.
 
 ### The ownership domain is enforced, not merely carried
 
@@ -1039,7 +1141,7 @@ payload that survives a round trip through it.
 | Two digests of different kinds are never the same string | `Validate`, `ErrDigestConfusion` |
 | Workloads iff a backend artifact; each names a backend artifact it declares | `Validate`, `ErrInvalid` |
 | One authenticating container, which is not also excluded | `Validate`, `ErrInvalid` |
-| A SPIFFE ID is an SVID name, not a generic name | `Validate`, `ErrInvalid` |
+| A SPIFFE ID is the workload's mesh principal, validated as a SPIFFE ID and not as a generic name | `Validate`, `ErrInvalid` |
 | Generations are strictly monotonic per binding ID | `Host.Admit`, `ErrStaleGeneration` |
 | An applied generation is immutable | `Host.Admit`, `ErrRewrittenGeneration` |
 | The host's own applied record must be usable, and saying so is not an accusation of delivery | `Host.Admit`, `ErrAppliedUnusable` |
@@ -1053,6 +1155,9 @@ payload that survives a round trip through it.
 | Every vendored prefix a producer signs covered a path it offered | `Counter.Result`, refused by name |
 | A build size, when present, counts known languages once each with at least one line, excludes canonical UTF-8 paths, distinct and non-nested, and states totals whose parts fit and sum to them | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
 | A tombstone declares no build size | `Validate` → the rule table, `ErrInvalid` |
+| A frontend is declared on a solution only, never on a module or a tombstone | `Validate` → the rule table, `ErrInvalid` |
+| A frontend's scalars are declared, its numbers decimal and fitting, its dashboard an object of values JSON spells one way, judged on the node before the typed decoder can repair them | `Parse` → the node rules, `ErrInvalid` |
+| A frontend, when present, has one-line texts, a host contract major of at least 1, surfaces unique per client with runtime-spelled ids and same-origin modules, and a dashboard within `FrontendDashboardMaxBytes` | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
 | A module manifest carries only keys it declares, is held to the shared node checks, and a composition descriptor is not one | `resources.LoadModuleFromDir`, the node checks and the kind dispatched from the node before strict decoding |
 | A presence document is written through `Marshal`, which reads back what it wrote | `Marshal`, `ErrInvalid` |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
@@ -1173,7 +1278,11 @@ is pinned by test against the shipped fixtures, so it cannot move by accident.
 The build-size section sorts its two collections the same way and keeps an
 empty one an empty list, and a document without the section encodes exactly as
 it did before the section existed, so the pins of the older fixtures did not
-move when it was added; the `build-size` fixture carries its own pin.
+move when it was added; the `build-size` fixture carries its own pin. The
+frontend block sorts its surfaces by client and id, its dashboard's keys are
+sorted by the encoding at every depth, and a document without the block
+encodes as before, for the same reason; the `frontend` fixture carries its own
+pin.
 
 ## Fixtures
 
