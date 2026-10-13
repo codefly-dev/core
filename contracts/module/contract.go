@@ -542,8 +542,9 @@ type Resolved struct {
 	ScopeCeilings []ScopeCeiling
 	Bindings      []ResolvedBinding
 	Destinations  []Destination
-	// Policy is the policy that produced this resolution. A render or a
-	// publish refuses one that is not Strict.
+	// Policy is the policy that produced this resolution. Core enforces
+	// nothing with it by itself: a consumer that derives a rendered or
+	// published document calls RequireStrict, which refuses any but Strict().
 	Policy ResolutionPolicy
 	// Excluded are the bindings omitted under Policy and left out of
 	// Bindings, in the contract's order. Empty under Strict. It is evidence
@@ -554,19 +555,51 @@ type Resolved struct {
 
 // ResolutionPolicy is the policy a contract is resolved under, chosen by the
 // caller's code path and never read from a value or an environment name. It
-// is opaque and comparable, with exactly two values: Strict and
-// LocalDevelopment.
+// is opaque and comparable, with exactly two values, Strict() and
+// LocalDevelopment().
+//
+// They are functions and not package variables: an exported variable is
+// assignable from any importing package, so `Strict = LocalDevelopment`
+// would make every strict resolution in the process omit bindings while its
+// Policy still compared equal to Strict.
 type ResolutionPolicy struct{ omits OmissionPolicy }
 
-var (
-	// Strict is the zero policy: every binding is required, marker or not.
-	// Resolve resolves under it, and a render or a publish accepts nothing
-	// else.
-	Strict ResolutionPolicy
-	// LocalDevelopment omits a binding marked local-development whose
-	// binding_key record is absent. Only a native local run resolves under it.
-	LocalDevelopment = ResolutionPolicy{omits: OmitInLocalDevelopment}
-)
+// Strict is the zero policy: every binding is required, marker or not.
+// Resolve resolves under it, and RequireStrict accepts nothing else.
+func Strict() ResolutionPolicy { return ResolutionPolicy{} }
+
+// LocalDevelopment omits a binding marked local-development whose binding_key
+// record is absent. Only a native local run resolves under it.
+func LocalDevelopment() ResolutionPolicy {
+	return ResolutionPolicy{omits: OmitInLocalDevelopment}
+}
+
+// ErrNotStrict means a resolution was produced under a policy other than
+// Strict, and so cannot be derived into a rendered or published document.
+var ErrNotStrict = errors.New("module contract resolution is not strict")
+
+// RequireStrict is the ONE refusal of a resolution a rendered or published
+// document cannot be derived from: one produced under any policy but Strict,
+// naming every binding it omitted. A consumer that renders or publishes calls
+// it on every Resolved it derives from; only a native local run's delivery
+// does not.
+func (resolved *Resolved) RequireStrict() error {
+	if resolved == nil {
+		return fmt.Errorf("%w: there is no resolution", ErrNotStrict)
+	}
+	if resolved.Policy == (ResolutionPolicy{}) {
+		return nil
+	}
+	omitted := "it omitted no binding"
+	if len(resolved.Excluded) > 0 {
+		reasons := make([]string, 0, len(resolved.Excluded))
+		for _, excluded := range resolved.Excluded {
+			reasons = append(reasons, excluded.Reason())
+		}
+		omitted = strings.Join(reasons, "; ")
+	}
+	return fmt.Errorf("%w: resolved under local development (%s); a rendered or published document is derived from a strict resolution only", ErrNotStrict, omitted)
+}
 
 // ExcludedBinding is one binding omitted from a resolution, and the slot whose
 // absence omitted it.
@@ -607,10 +640,11 @@ type ResolvedBinding struct {
 // that applies, so a composition is fixed in one pass rather than one slot per
 // render; a secret's value is never part of the message.
 //
-// It is ResolveUnder(values, Strict): every binding is required, and a binding
+// It is ResolveUnder(values, Strict()): every binding is required, and a binding
 // marked optional whose key is absent is refused like any other.
 func (contract *Contract) Resolve(values Values) (*Resolved, error) {
-	return contract.resolve(values, "", Strict)
+	// The zero literal, not Strict(): nothing outside this line decides it.
+	return contract.resolve(values, "", ResolutionPolicy{})
 }
 
 // ResolveUnder resolves the contract under a policy. Under LocalDevelopment,

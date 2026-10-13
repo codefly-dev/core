@@ -1275,11 +1275,16 @@ everywhere", so any other value is refused by name
 (`binding-optional-policy-known`). A marked binding declares a `binding_key`
 slot (`binding-optional-has-binding-key`), because the installed key is the
 selector. The marker changes nothing for `Resolve`, which is
-`ResolveUnder(values, Strict)`: every binding is required, and an absent key
+`ResolveUnder(values, Strict())`: every binding is required, and an absent key
 is `ErrUnresolvedSlot` as it always was. The policy is the caller's, chosen by
 its code path and never read from a value or an environment name:
 `ResolutionPolicy` is opaque and comparable, with exactly two values,
-`modulecontract.Strict` (the zero value) and `modulecontract.LocalDevelopment`.
+`modulecontract.Strict()` (the zero value) and
+`modulecontract.LocalDevelopment()`. They are functions, not package
+variables: an exported variable is assignable from any importer, and
+`Strict = LocalDevelopment` would make every strict resolution in the process
+omit bindings while its `Policy` still compared equal to `Strict`. A test
+type-checks the package and refuses any exported variable holding a policy.
 Under `LocalDevelopment`, and only there, a marked binding whose `binding_key`
 record is **absent** — no record in either spelling — is left out of
 `Resolved.Bindings`, none of its other slots is resolved, and it is recorded
@@ -1293,13 +1298,18 @@ unchanged, and an unmarked binding is never omitted. `Resolved.Policy`
 records the policy that produced the resolution, and `Excluded` is evidence
 for the caller to narrate, never part of a delivered document: the authority
 document derived from an omission simply carries no unit for the binding, its
-schema unchanged, and the module observes only the absence. `SlotGroups()` is
+schema unchanged, and the module observes only the absence. A consumer that renders
+or publishes calls `Resolved.RequireStrict()` on every resolution it derives
+from: it passes only a resolution made under `Strict()`, and refuses any other
+with `ErrNotStrict`, naming each omission's `Reason()` — or saying it omitted
+none, because it reads the policy, not the omissions. `SlotGroups()` is
 unchanged and names the selector's group whether or not the binding is
 omitted, so installing or removing the key changes a consumer's group digest.
 `OptionalBindingFixtures()` carries the negative pair into every consumer's
-`RunResolution`: the same composition omitted under `LocalDevelopment` and
-refused under `Strict`, and an unmarked binding refused under
-`LocalDevelopment` — so a provider that loses the key's record turns a refusal
+`RunResolution`: the same composition omitted under `LocalDevelopment()` and
+refused under `Strict()`, and an unmarked binding refused under
+`LocalDevelopment()`, every accepted case also checked against
+`RequireStrict` — so a provider that loses the key's record turns a refusal
 into an omission and fails by name. A reader older than the marker refuses the
 `optional` field (`KnownFields`), so the consumers move to this core line
 together.
@@ -1403,5 +1413,5 @@ lands, the second copies of this model still exist. What each one owes:
 | Consumer | What it does, and where it stands |
 | --- | --- |
 | `codefly-dev/cli` | delete `pkg/modulecontract`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every contract through `modulecontract.Load`; replace its `Values` adapter with a **duplicate-preserving** `Records(group) ([]Record, error)` provider that keeps repeated records, original key spellings and every secret classification; write through `Encode` rather than marshaling the model; and run **both** kits — the document kit and `RunResolution` — through the render's and the publisher's own entrypoints, never a test-only wrapper. The deletions are done at `b77f5806`, which PREDATES the `Records` API and the resolution kit, so that commit does not establish adoption of this head; the tested consumer commit is still to be named. Its cell model stays its own until core ships one. |
-| `codefly-dev/cli`, the resolution policy | resolve under `LocalDevelopment` only from the native run's delivery (`NativeDeliverer.Render`), narrating each `Excluded` entry's `Reason()` in the run's delivery log; the render and the publish resolve under `Strict` and refuse a `Resolved` whose `Policy` is not `Strict`. Not started in this repository: the CLI owns that integration. |
+| `codefly-dev/cli`, the resolution policy | resolve under `LocalDevelopment()` only from the native run's delivery (`NativeDeliverer.Render`), narrating each `Excluded` entry's `Reason()` in the run's delivery log; the render and the publish resolve under `Strict()` and call `RequireStrict()` on every `Resolved` they derive from. Not started in this repository: the CLI owns that integration. |
 | the runtimes that publish contracts | run `modulecontract.Run` against the publisher's output, so a contract they emit is one this reader accepts. Not started. |

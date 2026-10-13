@@ -3,6 +3,10 @@ package module
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
 	"strings"
 	"testing"
@@ -627,7 +631,7 @@ func TestTheKitRefusesAProviderItCannotBuild(t *testing.T) {
 
 // TestOnlyLocalDevelopmentOmitsAnAbsentOptionalBinding drives the public
 // entrypoints over the shipped document that marks a binding optional: Resolve
-// stays strict, ResolveUnder(LocalDevelopment) omits the binding whose key is
+// stays strict, ResolveUnder(LocalDevelopment()) omits the binding whose key is
 // absent and nothing else, and SlotGroups still names the selector's group, so
 // installing or removing the key changes a consumer's group digest.
 func TestOnlyLocalDevelopmentOmitsAnAbsentOptionalBinding(t *testing.T) {
@@ -653,17 +657,17 @@ func TestOnlyLocalDevelopmentOmitsAnAbsentOptionalBinding(t *testing.T) {
 	if !errors.Is(err, ErrUnresolvedSlot) || !strings.Contains(err.Error(), "binding annotations binding_key ← annotations/annotations-binding") {
 		t.Fatalf("Resolve must refuse an absent key whatever the marker says, got: %v", err)
 	}
-	strict, err := contract.ResolveUnder(without, Strict)
+	strict, err := contract.ResolveUnder(without, Strict())
 	if !errors.Is(err, ErrUnresolvedSlot) || strict != nil {
-		t.Fatalf("ResolveUnder(Strict) must be Resolve, got %+v and %v", strict, err)
+		t.Fatalf("ResolveUnder(Strict()) must be Resolve, got %+v and %v", strict, err)
 	}
 
-	local, err := contract.ResolveUnder(without, LocalDevelopment)
+	local, err := contract.ResolveUnder(without, LocalDevelopment())
 	if err != nil {
-		t.Fatalf("ResolveUnder(LocalDevelopment) must omit the absent optional binding, got: %v", err)
+		t.Fatalf("ResolveUnder(LocalDevelopment()) must omit the absent optional binding, got: %v", err)
 	}
-	if local.Policy != LocalDevelopment || len(local.Bindings) != 2 || local.Bindings[0].ID != "model" || local.Bindings[1].ID != "evidence" {
-		t.Fatalf("the required bindings must resolve in order under LocalDevelopment, got %+v", local)
+	if local.Policy != LocalDevelopment() || len(local.Bindings) != 2 || local.Bindings[0].ID != "model" || local.Bindings[1].ID != "evidence" {
+		t.Fatalf("the required bindings must resolve in order under LocalDevelopment(), got %+v", local)
 	}
 	want := []ExcludedBinding{{ID: "annotations", From: "annotations/annotations-binding"}}
 	if len(local.Excluded) != 1 || local.Excluded[0] != want[0] {
@@ -679,7 +683,7 @@ func TestOnlyLocalDevelopmentOmitsAnAbsentOptionalBinding(t *testing.T) {
 	// Installed, the key resolves the binding under both policies, unchanged.
 	with := values()
 	with.Public["annotations"] = map[string]string{"ANNOTATIONS_PREFIX": "annotations", "ANNOTATIONS_BINDING": "annotations"}
-	for _, policy := range []ResolutionPolicy{Strict, LocalDevelopment} {
+	for _, policy := range []ResolutionPolicy{Strict(), LocalDevelopment()} {
 		resolved, err := contract.ResolveUnder(with, policy)
 		if err != nil {
 			t.Fatalf("an installed key must resolve under %+v: %v", policy, err)
@@ -689,8 +693,18 @@ func TestOnlyLocalDevelopmentOmitsAnAbsentOptionalBinding(t *testing.T) {
 		}
 	}
 	strictly, err := contract.Resolve(with)
-	if err != nil || strictly.Policy != Strict {
-		t.Fatalf("Resolve must record Strict, got %+v and %v", strictly, err)
+	if err != nil || strictly.Policy != Strict() {
+		t.Fatalf("Resolve must record Strict(), got %+v and %v", strictly, err)
+	}
+	if err := strictly.RequireStrict(); err != nil {
+		t.Fatalf("a strict resolution must pass RequireStrict, got: %v", err)
+	}
+	if err := local.RequireStrict(); !errors.Is(err, ErrNotStrict) || !strings.Contains(err.Error(), local.Excluded[0].Reason()) {
+		t.Fatalf("RequireStrict must refuse the local development resolution naming its omission, got: %v", err)
+	}
+	var none *Resolved
+	if err := none.RequireStrict(); !errors.Is(err, ErrNotStrict) {
+		t.Fatalf("RequireStrict must refuse a missing resolution, got: %v", err)
 	}
 }
 
@@ -721,3 +735,67 @@ func TestTheWriterCarriesTheOptionalMarker(t *testing.T) {
 		t.Fatalf("the marker did not read back on the binding that carried it: %+v", again.Bindings)
 	}
 }
+
+// TestNoExportedStateDecidesAPolicy type-checks this package's own source and
+// refuses any exported package variable that holds a ResolutionPolicy: one
+// would be assignable from any importer, so `Strict = LocalDevelopment` could
+// turn every strict resolution lenient while its Policy still compared equal
+// to Strict. Strict and LocalDevelopment must stay functions, and Resolve
+// reads neither.
+func TestNoExportedStateDecidesAPolicy(t *testing.T) {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []*ast.File
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	// Imports are stubbed: only this package's own declarations are read, and
+	// their types do not depend on another package's.
+	config := types.Config{
+		Importer: importerFunc(func(path string) (*types.Package, error) {
+			stub := types.NewPackage(path, path[strings.LastIndex(path, "/")+1:])
+			stub.MarkComplete()
+			return stub, nil
+		}),
+		Error: func(error) {},
+	}
+	pkg, _ := config.Check("module", fset, files, nil)
+	policy := pkg.Scope().Lookup("ResolutionPolicy")
+	if policy == nil {
+		t.Fatal("ResolutionPolicy is not declared in this package")
+	}
+	for _, name := range pkg.Scope().Names() {
+		object := pkg.Scope().Lookup(name)
+		variable, ok := object.(*types.Var)
+		if !ok || !object.Exported() {
+			continue
+		}
+		held := variable.Type()
+		if pointer, ok := held.(*types.Pointer); ok {
+			held = pointer.Elem()
+		}
+		if types.Identical(held, policy.Type()) {
+			t.Errorf("exported variable %s holds a ResolutionPolicy, which any importer can reassign; make it a function", name)
+		}
+	}
+	for _, name := range []string{"Strict", "LocalDevelopment"} {
+		if _, ok := pkg.Scope().Lookup(name).(*types.Func); !ok {
+			t.Errorf("%s must be a function, so no importer can change what it returns", name)
+		}
+	}
+}
+
+type importerFunc func(path string) (*types.Package, error)
+
+func (importer importerFunc) Import(path string) (*types.Package, error) { return importer(path) }
