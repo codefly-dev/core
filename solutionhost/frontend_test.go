@@ -386,7 +386,7 @@ func TestStandaloneFrontendUsesPresenceRules(t *testing.T) {
 			}
 			document, err := solutionhost.Parse(fixture.Document)
 			require.NoError(t, err)
-			if document.Frontend.Payload == nil && document.Frontend.Group == nil {
+			if document.Frontend.Payload == nil {
 				require.NoError(t, parseErr)
 				require.Equal(t, document.Frontend, parsed)
 				return
@@ -397,16 +397,16 @@ func TestStandaloneFrontendUsesPresenceRules(t *testing.T) {
 			generated++
 			require.ErrorIs(t, parseErr, solutionhost.ErrInvalid)
 			require.Contains(t, parseErr.Error(), "a field no frontend declaration declares")
-			raw, err = yaml.Marshal(withoutKeys(section, "payload", "group"))
+			raw, err = yaml.Marshal(withoutKeys(section, "payload"))
 			require.NoError(t, err)
 			parsed, err = solutionhost.ParseFrontend(raw)
 			require.NoError(t, err)
 			expected := *document.Frontend
-			expected.Payload, expected.Group = nil, nil
+			expected.Payload = nil
 			require.Equal(t, &expected, parsed)
 		})
 	}
-	require.Equal(t, 30, count, "the complete shipped frontend section fixture family must run")
+	require.Equal(t, 27, count, "the complete shipped frontend section fixture family must run")
 	require.Equal(t, 1, generated, "the fixture carrying the generated half is refused by the authored reader")
 	for _, raw := range []string{"", "[]", "null", "title: Example\norder: 0\nexposed_module: ./Page\nhost_contract: 1\nunknown: true", "title: Example\norder: 0\nexposed_module: ./Page\nhost_contract: 1\n---\n{}"} {
 		_, err := solutionhost.ParseFrontend([]byte(raw))
@@ -434,11 +434,9 @@ func TestTheGeneratedHalfIsCarriedAndSigned(t *testing.T) {
 	document := parse(t, "frontend-generated")
 	digest := "sha256:" + hex.EncodeToString(func() []byte { sum := sha256.Sum256([]byte("example web bundle")); return sum[:] }())
 	require.Equal(t, &solutionhost.FrontendPayload{Artifact: "web-bundle", Digest: solutionhost.PayloadDigest(digest), MediaType: "application/x-tar"}, document.Frontend.Payload)
-	require.Equal(t, &solutionhost.FrontendGroup{ID: "operations", Title: "Operations", Order: 2}, document.Frontend.Group)
 
 	canonical, err := document.CanonicalBytes()
 	require.NoError(t, err)
-	require.Contains(t, string(canonical), `"group":{"id":"operations","order":2,"title":"Operations"}`)
 	require.Contains(t, string(canonical), `"payload":{"artifact":"web-bundle","digest":"`+digest+`","media_type":"application/x-tar"}`)
 	signed, err := document.Digest()
 	require.NoError(t, err)
@@ -446,7 +444,6 @@ func TestTheGeneratedHalfIsCarriedAndSigned(t *testing.T) {
 	verified, err := solutionhost.PresenceFromVerified(canonical)
 	require.NoError(t, err)
 	require.Equal(t, document.Frontend.Payload, verified.Frontend.Payload)
-	require.Equal(t, document.Frontend.Group, verified.Frontend.Group)
 
 	written, err := solutionhost.Marshal(document)
 	require.NoError(t, err)
@@ -474,15 +471,12 @@ func TestAPayloadDigestMayEqualARenderedDigest(t *testing.T) {
 	require.ErrorIs(t, document.Validate(), solutionhost.ErrDigestConfusion, "the three that are read stay read")
 }
 
-// A group is a solution's: the composing product organises solutions, and a
-// module is grouped by nothing. A payload is either kind's.
-func TestAGroupIsASolutionsAndAPayloadIsEitherKinds(t *testing.T) {
-	_, err := solutionhost.Parse(presence(t, "module-with-frontend-group"))
-	require.ErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Contains(t, err.Error(), `frontend.group is declared on a "module"`)
+// A payload is either kind's: a module's page has executable output to admit
+// exactly as a solution's does.
+func TestAPayloadIsEitherKinds(t *testing.T) {
 	module := parse(t, "module-with-frontend")
 	module.Frontend.Payload = parse(t, "frontend-generated").Frontend.Payload
 	require.NoError(t, module.Validate())
-	module.Frontend.Group = &solutionhost.FrontendGroup{ID: "operations", Title: "Operations", Order: 2}
+	module.Frontend.Payload.MediaType = "tar"
 	require.ErrorIs(t, module.Validate(), solutionhost.ErrInvalid)
 }

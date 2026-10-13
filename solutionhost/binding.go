@@ -300,6 +300,13 @@ type SolutionHostBinding struct {
 	// either kind; a tombstone declares none.
 	Frontend *Frontend `yaml:"frontend,omitempty" json:"frontend,omitempty"`
 
+	// Group is the presentation group this solution is organised under on its
+	// host, in the navigation and in the catalogue alike; see SolutionGroup.
+	// Generated from the composing product's solution groups, optional,
+	// solutions only, and independent of Frontend: a headless solution is
+	// organised too. A tombstone declares none.
+	Group *SolutionGroup `yaml:"group,omitempty" json:"group,omitempty"`
+
 	// Removed marks this generation a tombstone: the binding is declared absent.
 	// Removal is a generation, never the disappearance of a document, so that a
 	// lost or unreadable mount can never be read as "remove everything".

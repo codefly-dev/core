@@ -45,9 +45,9 @@ loop proves the reason and not only the outcome.
 `Fixture.Rule` is set on the fixtures that protect a **table rule**: the
 decoding rules every field of the document shares (`well-formed`, `schema`,
 `mapping-keys-once`, `no-merge-keys`, `no-explicit-nulls`, `numbers-are-whole`,
-`key-is-a-name`, `known-fields`, `one-document`), the node rules over `build_size` and
-`frontend` before they are typed, and the build-size and frontend model rules (see
-`solutionhost.BuildSize` and `solutionhost.Frontend`). Each
+`key-is-a-name`, `known-fields`, `one-document`), the node rules over `build_size`,
+`frontend` and `group` before they are typed, and the build-size, frontend and group model rules (see
+`solutionhost.BuildSize`, `solutionhost.Frontend` and `solutionhost.SolutionGroup`). Each
 names the one rule a reader cannot drop without that fixture noticing, and the
 package's self-check (`TestEveryRuleIsProtectedByAFixture`) deletes each rule
 in turn — in the decoder, before typing, or in validation, as its kind requires
@@ -155,14 +155,20 @@ reader drops one, or when its decoder quietly repairs a count.
 | `frontend-dashboard-hex` | rejected, rule `frontend-dashboard-json` | `limit: 0x10` inside the dashboard; JSON spells a number one way — with the rule gone the document is accepted on 16 |
 | `frontend-dashboard-timestamp` | rejected, rule `frontend-dashboard-json` | `since: 2024-01-01` inside the dashboard; yaml reads a timestamp and the signing encoding would write a different string — with the rule gone the document is accepted on a respelled value |
 | `frontend-dashboard-not-an-object` | rejected, rule `frontend-dashboard-json` | a dashboard that is a list; a data graph is an object — with the rule gone the document is accepted |
-| `frontend-generated` | accepted, `DecisionApply` | the `frontend` fixture with its GENERATED half: `payload` (the named runtime artifact of the release the bundle was resolved from, the SHA-256 of its complete bytes, its media type) and `group` (the presentation group the composing product organises the solution under). Neither is authored; both are signed with the generation, and the standalone reader refuses both |
+| `frontend-generated` | accepted, `DecisionApply` | the `frontend` fixture with its GENERATED half: `payload`, the named runtime artifact of the release the bundle was resolved from, the SHA-256 of its complete bytes and its media type. It is not authored; it is signed with the generation, and the standalone reader refuses it |
 | `frontend-payload-artifact-invalid` | rejected, rule `frontend-payload-artifact` | `artifact: Web Bundle`; a release artifact's name is the grammar composition declares it under |
 | `frontend-payload-digest-invalid` | rejected, rule `frontend-payload-digest` | `digest: sha256:abc`; a host admits the bundle by this identity, and this admits nothing |
 | `frontend-payload-media-type-invalid` | rejected, rule `frontend-payload-media-type` | `media_type: tar`; the representation is an explicit canonical media type, type and subtype |
 | `frontend-payload-digest-omitted` | rejected, rule `frontend-fields-declared` | a payload without its `digest`; every scalar of a present payload is declared — with the rule gone, `frontend-payload-digest` refuses the empty string, defence in depth |
-| `frontend-group-id-invalid` | rejected, rule `frontend-group-id` | `id: Operations`; the id is held to the grammar the composing workspace spells it in |
-| `frontend-group-order-omitted` | rejected, rule `frontend-fields-declared` | a group without its `order`; with the rule gone the document is accepted on an order nobody wrote |
-| `module-with-frontend-group` | rejected, rule `frontend-group-solution-only` | a module instance carrying a group; a group organises solutions, and a module is grouped by nothing |
+| `group` | accepted, `DecisionApply` | the `valid` document at generation 5, HEADLESS, organised under a top-level `group`: the presentation group the composing product put the solution in, shown in the host's navigation after its entitlement filter and in its catalogue. Generated, **optional** — every other presence fixture is a document without it — and held to the group rules when present |
+| `group-order-omitted` | rejected, rule `group-fields-declared` | a group without its `order`; with the rule gone the document is accepted on an order nobody wrote |
+| `group-order-hex` | rejected, rule `group-order-decimal` | `order: 0x2`; a number has one spelling — with the rule gone the document is accepted on 2 |
+| `group-order-too-large` | rejected, rule `group-order-fits` | `order: 9223372036854775808`, one past int64, refused by name rather than by the typed decoder |
+| `group-id-invalid` | rejected, rule `group-id` | `id: Operations`; the id is held to the grammar the composing workspace spells it in |
+| `group-title-empty` | rejected, rule `group-title` | `title: ""`; a host labels the group with it, and renders a blank heading without |
+| `group-title-too-large` | rejected, rule `group-text-bounded` | a title past `GroupTextMaxBytes` |
+| `module-with-group` | rejected, rule `group-solution-only` | a module instance carrying a group; a group organises solutions, and a module is grouped by nothing |
+| `tombstone-with-group` | rejected, rule `group-absent-when-removed` | a removed generation declares nothing to show |
 
 ## Authority fixtures
 

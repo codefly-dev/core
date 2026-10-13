@@ -118,9 +118,14 @@ func TestDeletingARuleAdmitsItsWitness(t *testing.T) {
 		"frontend-payload-digest-invalid":     ruleFrontendPayloadDigest,
 		"frontend-payload-media-type-invalid": ruleFrontendPayloadMediaType,
 		"frontend-payload-digest-omitted":     "", // with fields-declared gone, frontend-payload-digest refuses the empty digest
-		"frontend-group-id-invalid":           ruleFrontendGroupID,
-		"frontend-group-order-omitted":        ruleFrontendFieldsDeclared,
-		"module-with-frontend-group":          ruleFrontendGroupSolutionOnly,
+		"group-order-omitted":                 ruleGroupFieldsDeclared,
+		"group-order-hex":                     ruleGroupOrderDecimal,
+		"group-order-too-large":               "", // defence in depth: the typed decoder refuses the overflow once the rule is gone
+		"group-id-invalid":                    ruleGroupID,
+		"group-title-empty":                   ruleGroupTitle,
+		"group-title-too-large":               ruleGroupTextBounded,
+		"module-with-group":                   ruleGroupSolutionOnly,
+		"tombstone-with-group":                ruleGroupAbsentWhenRemoved,
 		"build-size-binary-key":               ruleKeyIsAName,
 		"build-size-merge-key":                ruleNoMergeKeys,
 		"merge-key-at-top-level":              ruleNoMergeKeys,
@@ -165,11 +170,11 @@ func checkFuncName(check any) string {
 
 // ruleFiles are the files the rule table's checks are written in: a node or
 // model rule is a function in one of them holding exactly one refusal.
-var ruleFiles = map[string]bool{"buildsize.go": true, "frontend.go": true}
+var ruleFiles = map[string]bool{"buildsize.go": true, "frontend.go": true, "group.go": true}
 
 // TestEveryTableRuleHoldsExactlyOneCondition is the construction that keeps
 // "every condition has a witness" true going forward: a node or model rule is
-// a function in buildsize.go or frontend.go holding exactly one refusal, so a
+// a function in buildsize.go, frontend.go or group.go holding exactly one refusal, so a
 // second condition added inside an existing rule fails here, and a refusal
 // written in a function that is no rule's check fails too, because no fixture
 // could be required to protect it. The one refusal outside the table in those

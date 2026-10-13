@@ -1,7 +1,6 @@
-# REJECTED. A group whose id is "Operations". A group id is as the composing
-# workspace spells it — lowercase letters and digits separated by dashes, the
-# shape a host keys a navigation group by — and the presence holds it to the
-# same grammar the workspace does.
+# REJECTED. A group's order one past int64. Refused by name, as more than the
+# field can hold, rather than by whatever the typed decoder says about an
+# overflow.
 schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
@@ -65,59 +64,7 @@ endpoints:
     api: http
     visibility: public
     exposure: public
-frontend:
-  title: Alpha
-  order: 10
-  exposed_module: ./Page
-  host_contract: 1
-  dashboard:
-    events:
-      - name: item-created
-        type: example.item.created
-        description: An item was created.
-    metrics:
-      - id: items
-        event: item-created
-        aggregation: count
-        groupBy: time
-        bucket: day
-    dashboards:
-      - id: overview
-        title: Overview
-        layout: grid
-        widgets:
-          - id: items-per-day
-            metric: items
-            visualization: line
-            title: Items per day
-            version: "1.0"
-            enabled: true
-            limit: 100
-  surfaces:
-    - id: summary
-      client: slack
-      title: Summary
-      module: /surfaces/slack/summary.js
-      contract: 1
-      applies: always
-    - id: footnote
-      client: word
-      title: Footnote
-      description: Insert a footnote from the catalogue.
-      module: /surfaces/word/footnote.js
-      contract: 2
-      applies:
-        tagged:
-          - contract
-          - brief
-      events:
-        - example.item
-        - example.citation
-  payload:
-    artifact: web-bundle
-    digest: sha256:145b87d35bfb62443d77d7c408a6381744f6c4c808c1e6587b6ddb797314c19f
-    media_type: application/x-tar
-  group:
-    id: Operations
-    title: Operations
-    order: 2
+group:
+  id: operations
+  title: Operations
+  order: 9223372036854775808

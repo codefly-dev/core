@@ -154,8 +154,8 @@ type LanguageSize struct {
 type rule struct {
 	name string
 	// section is the optional top-level block a node or model rule reads —
-	// build_size or frontend — and "" for a decoding rule, which reads the
-	// whole document. A rule runs only when its section is present: a document
+	// build_size, frontend or group — and "" for a decoding rule, which reads
+	// the whole document. A rule runs only when its section is present: a document
 	// without the block is an older producer's, and the rules read the block
 	// unguarded.
 	section string
@@ -174,6 +174,7 @@ type rule struct {
 const (
 	sectionBuildSize = "build_size"
 	sectionFrontend  = "frontend"
+	sectionGroup     = "group"
 )
 
 // The rules, by name. A refused fixture names one of these; a reader that
@@ -231,6 +232,7 @@ func rules() []rule {
 		{name: ruleBuildSizeCountsFit, section: sectionBuildSize, node: checkBuildSizeCountsFit},
 	}
 	all = append(all, frontendNodeRules()...)
+	all = append(all, groupNodeRules()...)
 	all = append(all,
 		rule{name: ruleKnownFields, decoding: true},
 		rule{name: ruleOneDocument, decoding: true},
@@ -250,7 +252,8 @@ func rules() []rule {
 		rule{name: ruleBuildSizeTotalFits, section: sectionBuildSize, check: checkBuildSizeTotalFits},
 		rule{name: ruleBuildSizeTotal, section: sectionBuildSize, check: checkBuildSizeTotal},
 	)
-	return append(all, frontendModelRules()...)
+	all = append(all, frontendModelRules()...)
+	return append(all, groupModelRules()...)
 }
 
 // ruleNames lists every rule, in order.
@@ -310,6 +313,8 @@ func (document *SolutionHostBinding) declares(section string) bool {
 		return document.BuildSize != nil
 	case sectionFrontend:
 		return document.Frontend != nil
+	case sectionGroup:
+		return document.Group != nil
 	}
 	return false
 }

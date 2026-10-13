@@ -137,7 +137,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 79)
+	require.Len(t, fixtures, 85)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -244,9 +244,14 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"frontend-payload-digest-invalid":     solutionhost.ErrInvalid,
 		"frontend-payload-media-type-invalid": solutionhost.ErrInvalid,
 		"frontend-payload-digest-omitted":     solutionhost.ErrInvalid,
-		"frontend-group-id-invalid":           solutionhost.ErrInvalid,
-		"frontend-group-order-omitted":        solutionhost.ErrInvalid,
-		"module-with-frontend-group":          solutionhost.ErrInvalid,
+		"group-order-omitted":                 solutionhost.ErrInvalid,
+		"group-order-hex":                     solutionhost.ErrInvalid,
+		"group-order-too-large":               solutionhost.ErrInvalid,
+		"group-id-invalid":                    solutionhost.ErrInvalid,
+		"group-title-empty":                   solutionhost.ErrInvalid,
+		"group-title-too-large":               solutionhost.ErrInvalid,
+		"module-with-group":                   solutionhost.ErrInvalid,
+		"tombstone-with-group":                solutionhost.ErrInvalid,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := solutionhost.Parse(presence(t, name))

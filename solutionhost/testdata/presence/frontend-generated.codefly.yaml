@@ -1,15 +1,13 @@
 # ACCEPTED, DecisionApply. The frontend fixture with its GENERATED half: the
 # payload — the named runtime artifact of the release the bundle was resolved
-# from, the digest of its complete bytes and their media type — and the group
-# the composing product organises this solution under. An author writes
-# neither: the renderer derives the payload from the release's own artifact
-# metadata and projects the group from the workspace's solution groups, and the
-# standalone frontend file refuses both as fields no declaration declares. Both
-# are signed with the generation. The payload digest is a fourth digest type,
-# held apart from the release, rendered and image digests by TYPE and not by
-# value: a frontend-only generation's rendered artifact can be the bundle
-# itself, so equality with a rendered digest is the same bytes hashed once and
-# not a confusion.
+# from, the digest of its complete bytes and their media type. An author writes
+# none of it: the renderer derives the payload from the release's own artifact
+# metadata, and the standalone frontend file refuses it as a field no
+# declaration declares. It is signed with the generation. The payload digest is
+# a fourth digest type, held apart from the release, rendered and image digests
+# by TYPE and not by value: a frontend-only generation's rendered artifact can
+# be the bundle itself, so equality with a rendered digest is the same bytes
+# hashed once and not a confusion.
 schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
@@ -125,7 +123,3 @@ frontend:
     artifact: web-bundle
     digest: sha256:145b87d35bfb62443d77d7c408a6381744f6c4c808c1e6587b6ddb797314c19f
     media_type: application/x-tar
-  group:
-    id: operations
-    title: Operations
-    order: 2

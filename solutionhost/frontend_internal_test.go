@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// The authored half is Frontend minus exactly the generated fields, so a field
+// The authored half is Frontend minus exactly the generated field, so a field
 // added to the block is classified here — authored, and the standalone file
 // accepts it, or generated, and the file refuses it — rather than drifting
 // into one half by omission.
 func TestTheAuthoredHalfIsTheFrontendMinusItsGeneratedFields(t *testing.T) {
-	generated := map[string]bool{"payload": true, "group": true}
+	generated := map[string]bool{"payload": true}
 	yamlName := func(field reflect.StructField) string {
 		name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
 		return name
