@@ -23,6 +23,13 @@ const RuntimeInitDependencyMappings = "runtime-init-dependency-mappings/v1"
 // Init when the manifest names none, preserving their image-reference refusals.
 const RuntimeInitImage = "runtime-init-image/v1"
 
+// RuntimeStartedArtifact identifies runtimes that report what they started —
+// the program they ran and the files it was handed — on StartStatus, so a
+// consumer pinning the build a process runs reads it from the agent instead of
+// deriving a path from that agent family's layout. A runtime that never calls
+// ReportStartedArtifact must not advertise it.
+const RuntimeStartedArtifact = "runtime-started-artifact/v1"
+
 // DeploymentCompositionProvenance identifies builders that judge deployment
 // dependency edges with the request's resolved composition membership.
 const DeploymentCompositionProvenance = "deployment-composition-provenance/v1"
