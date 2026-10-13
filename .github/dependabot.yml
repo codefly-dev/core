@@ -71,6 +71,15 @@ updates:
       # (managedfields/internal/typeconverter.go: a v7 TypeDef where v6 is
       # expected) — module-runtime's tasks module is the one that found it.
       #
+      # What the hold gives up, from kustomize v0.21.2/v0.21.3: (a) Helm
+      # chart and release names starting with '-' are refused — unreachable
+      # here, since core renders with krusty.MakeDefaultOptions(), where Helm
+      # is disabled; (b) a resource path segment containing '..' is refused,
+      # so a mis-indented `resources:` list that parses as one entry
+      # ('../../base - ../../shared/prod') is rejected rather than rendered
+      # as a different base. Core loses (b) until the hold lifts; it guards
+      # an operator's own typo, and no advisory names it.
+      #
       # TestCoreModuleGraphStaysOnStructuredMergeDiffV6 is the gate: it fails
       # on the graph, whoever moves it. Lift these entries in the same pull
       # request that lifts that test, once a stable apimachinery is built on
