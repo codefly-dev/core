@@ -86,6 +86,23 @@ type FrontendSurface struct {
 	// Module is the path, on the solution's own origin, of the module the
 	// client loads: an absolute path, never a URL with a scheme or a host.
 	Module string `yaml:"module" json:"module"`
+
+	// Contract is the major of the surface contract the client owns, which
+	// the module is built against, at least 1: a client runs a surface only
+	// when it recognises the major it declares. The host never reads it.
+	Contract uint64 `yaml:"contract" json:"contract"`
+
+	// Applies is which documents the surface applies to, as the client
+	// understands them: the string "always", or an object {tagged: [...]} of
+	// one or more non-empty tags — exactly the two shapes the client has a
+	// branch for, and declared, never defaulted. It is carried as the JSON it
+	// is (a string, or map[string]any{"tagged": []any{...}}), since the host
+	// projects it to the client verbatim.
+	Applies any `yaml:"applies" json:"applies"`
+
+	// Events are the journal namespaces the client reconciles the surface on,
+	// each a lowercase dotted name, once. Absent when there are none.
+	Events []string `yaml:"events,omitempty" json:"events,omitempty"`
 }
 
 // FrontendDashboardMaxBytes bounds a dashboard's canonical encoding. A data
@@ -108,6 +125,10 @@ const (
 	ruleFrontendSurfaceClient     = "frontend-surface-client"
 	ruleFrontendSurfaceUnique     = "frontend-surface-unique"
 	ruleFrontendSurfaceModule     = "frontend-surface-module"
+	ruleFrontendSurfaceContract   = "frontend-surface-contract-major"
+	ruleFrontendSurfaceApplies    = "frontend-surface-applies"
+	ruleFrontendSurfaceEventName  = "frontend-surface-event-name"
+	ruleFrontendSurfaceEventOnce  = "frontend-surface-event-once"
 	ruleFrontendDashboardBounded  = "frontend-dashboard-bounded"
 )
 
@@ -133,16 +154,21 @@ func frontendModelRules() []rule {
 		{name: ruleFrontendSurfaceClient, section: sectionFrontend, check: checkFrontendSurfaceClient},
 		{name: ruleFrontendSurfaceUnique, section: sectionFrontend, check: checkFrontendSurfaceUnique},
 		{name: ruleFrontendSurfaceModule, section: sectionFrontend, check: checkFrontendSurfaceModule},
+		{name: ruleFrontendSurfaceContract, section: sectionFrontend, check: checkFrontendSurfaceContract},
+		{name: ruleFrontendSurfaceApplies, section: sectionFrontend, check: checkFrontendSurfaceApplies},
+		{name: ruleFrontendSurfaceEventName, section: sectionFrontend, check: checkFrontendSurfaceEventName},
+		{name: ruleFrontendSurfaceEventOnce, section: sectionFrontend, check: checkFrontendSurfaceEventOnce},
 		{name: ruleFrontendDashboardBounded, section: sectionFrontend, check: checkFrontendDashboardBounded},
 	}
 }
 
-// frontendFields lists the required scalar fields of the block and of every
-// surface that is a mapping, by the path a refusal names: the four fields of
-// the block, and each surface's id, client, title and module. The two numbers
-// are returned apart, for the rules that read a number's spelling. A block or
-// surface that is not a mapping, and a surfaces value that is not a list, are
-// left to the typed decoder, which refuses their shape.
+// frontendFields lists the required fields of the block and of every surface
+// that is a mapping, by the path a refusal names: the four fields of the
+// block, and each surface's id, client, title, module, contract and applies.
+// The numbers are returned apart, for the rules that read a number's
+// spelling; order is the one signed number, by its path. A block or surface
+// that is not a mapping, and a surfaces value that is not a list, are left to
+// the typed decoder, which refuses their shape.
 func frontendFields(section *yaml.Node) (numbers, others []countField) {
 	for _, name := range []string{"title", "exposed_module"} {
 		others = append(others, countField{path: "frontend." + name, node: mappingValue(section, name)})
@@ -159,12 +185,18 @@ func frontendFields(section *yaml.Node) (numbers, others []countField) {
 		if row == nil || row.Kind != yaml.MappingNode {
 			continue
 		}
-		for _, name := range []string{"id", "client", "title", "module"} {
-			others = append(others, countField{path: fmt.Sprintf("frontend.surfaces[%d].%s", index, name), node: mappingValue(row, name)})
+		at := fmt.Sprintf("frontend.surfaces[%d]", index)
+		for _, name := range []string{"id", "client", "title", "module", "applies"} {
+			others = append(others, countField{path: at + "." + name, node: mappingValue(row, name)})
 		}
+		numbers = append(numbers, countField{path: at + ".contract", node: mappingValue(row, "contract")})
 	}
 	return numbers, others
 }
+
+// signedNumber reports whether a number of the block may carry a sign: only
+// the navigation order; a contract major and a surface's contract are counts.
+func signedNumber(path string) bool { return path == "frontend.order" }
 
 func checkFrontendFieldsDeclared(section *yaml.Node) error {
 	numbers, others := frontendFields(section)
@@ -199,7 +231,7 @@ func isDecimalInteger(node *yaml.Node, signed bool) bool {
 func checkFrontendNumbersDecimal(section *yaml.Node) error {
 	numbers, _ := frontendFields(section)
 	for _, field := range numbers {
-		if field.node != nil && !isDecimalInteger(field.node, field.path == "frontend.order") {
+		if field.node != nil && !isDecimalInteger(field.node, signedNumber(field.path)) {
 			return fmt.Errorf("%w: %s is %q, not a whole number written in decimal digits; a number has one spelling here, and yaml would otherwise read a base prefix, a leading zero, a plus sign or a string into a number nobody wrote", ErrInvalid, field.path, wire.Resolve(field.node).Value)
 		}
 	}
@@ -222,7 +254,7 @@ func fitsInteger(node *yaml.Node, signed bool) bool {
 func checkFrontendNumbersFit(section *yaml.Node) error {
 	numbers, _ := frontendFields(section)
 	for _, field := range numbers {
-		signed := field.path == "frontend.order"
+		signed := signedNumber(field.path)
 		if field.node == nil || !isDecimalInteger(field.node, signed) {
 			continue
 		}
@@ -404,6 +436,73 @@ func checkFrontendSurfaceModule(document *SolutionHostBinding) error {
 	return nil
 }
 
+func checkFrontendSurfaceContract(document *SolutionHostBinding) error {
+	for index, surface := range document.Frontend.Surfaces {
+		if surface.Contract < 1 {
+			return fmt.Errorf("%w: frontend.surfaces[%d].contract is %d, which is not a surface contract major; a client runs a surface only when it recognises the major it declares, and 0 is one no client runs", ErrInvalid, index, surface.Contract)
+		}
+	}
+	return nil
+}
+
+// isApplies reports one of the two shapes a client has a branch for: the
+// string "always", or an object with the one key tagged holding a non-empty
+// list of non-empty one-line tags. The reader types a YAML mapping as
+// map[string]any and a list as []any, which is also what a producer decoding
+// the declared file builds, so both are the one shape judged here.
+func isApplies(value any) bool {
+	if text, ok := value.(string); ok {
+		return text == "always"
+	}
+	object, ok := value.(map[string]any)
+	if !ok || len(object) != 1 {
+		return false
+	}
+	tags, ok := object["tagged"].([]any)
+	if !ok || len(tags) == 0 {
+		return false
+	}
+	for _, tag := range tags {
+		if text, ok := tag.(string); !ok || !isText(text) {
+			return false
+		}
+	}
+	return true
+}
+
+func checkFrontendSurfaceApplies(document *SolutionHostBinding) error {
+	for index, surface := range document.Frontend.Surfaces {
+		if !isApplies(surface.Applies) {
+			return fmt.Errorf("%w: frontend.surfaces[%d].applies is neither \"always\" nor {tagged: [one or more tags]}; a client has a branch for exactly those two shapes, and the host hands it nothing else", ErrInvalid, index)
+		}
+	}
+	return nil
+}
+
+func checkFrontendSurfaceEventName(document *SolutionHostBinding) error {
+	for index, surface := range document.Frontend.Surfaces {
+		for _, event := range surface.Events {
+			if !segmentPattern.MatchString(event) {
+				return fmt.Errorf("%w: frontend.surfaces[%d].events names %q, which is not a journal namespace: a lowercase dotted name", ErrInvalid, index, event)
+			}
+		}
+	}
+	return nil
+}
+
+func checkFrontendSurfaceEventOnce(document *SolutionHostBinding) error {
+	for index, surface := range document.Frontend.Surfaces {
+		seen := make(map[string]struct{}, len(surface.Events))
+		for _, event := range surface.Events {
+			if _, exists := seen[event]; exists {
+				return fmt.Errorf("%w: frontend.surfaces[%d].events names %q twice; a namespace reconciled on once is reconciled on", ErrInvalid, index, event)
+			}
+			seen[event] = struct{}{}
+		}
+	}
+	return nil
+}
+
 // dashboardBound measures a dashboard as the signing encoding carries it,
 // which is the size a host stores, and names the defect when it is past the
 // bound — or cannot be encoded at all, which no document decodes to and only a
@@ -430,13 +529,20 @@ func checkFrontendDashboardBounded(document *SolutionHostBinding) error {
 }
 
 // canonical returns a copy with the surfaces in the document's canonical
-// order — by client, then id, the pair that identifies one — so a producer
-// emitting them from a Go map cannot move the digest per process. The
-// dashboard's object keys are sorted by the canonical encoding itself, at
-// every depth, and its lists keep their order, as JSON lists do.
+// order — by client, then id, the pair that identifies one — and each
+// surface's events sorted, so a producer emitting either from a Go map
+// cannot move the digest per process. The dashboard's object keys, and the
+// tags a surface applies to, are sorted by the canonical encoding itself at
+// every depth where they are keys; lists keep their order, as JSON lists do,
+// and a tag list is one, since the client reads it in order.
 func (frontend *Frontend) canonical() *Frontend {
 	normalized := *frontend
 	normalized.Surfaces = slices.Clone(frontend.Surfaces)
+	for index, surface := range normalized.Surfaces {
+		if surface.Events != nil {
+			normalized.Surfaces[index].Events = slices.Sorted(slices.Values(surface.Events))
+		}
+	}
 	sort.Slice(normalized.Surfaces, func(i, j int) bool {
 		left, right := normalized.Surfaces[i], normalized.Surfaces[j]
 		if left.Client != right.Client {

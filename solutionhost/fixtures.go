@@ -526,8 +526,9 @@ func Fixtures() []Fixture {
 			Name: "frontend", Type: DocumentTypePresence,
 			Outcome: OutcomeAccepted, Decision: DecisionApply,
 			Reason: "the valid document at the next generation, carrying the frontend block: the page and the client surfaces the " +
-				"host serves for the solution, as the solution declared them, with an opaque dashboard; the block is OPTIONAL " +
-				"and held to the frontend rules when present",
+				"host serves for the solution, as the solution declared them, with an opaque dashboard and, per surface, the " +
+				"contract major, what it applies to and the namespaces it reconciles on; the block is OPTIONAL and held to the " +
+				"frontend rules when present",
 		},
 		{
 			Name: "module-with-frontend", Type: DocumentTypePresence, Outcome: OutcomeRejected,
@@ -568,6 +569,26 @@ func Fixtures() []Fixture {
 			Name: "frontend-surface-module-offsite", Type: DocumentTypePresence, Outcome: OutcomeRejected,
 			Rule: ruleFrontendSurfaceModule, Message: `frontend.surfaces[1].module "https://cdn.example/footnote.js" is not a path on the solution's own origin`,
 			Reason: "a surface module on another origin; a module is a path the client resolves against the origin it loaded the solution from",
+		},
+		{
+			Name: "frontend-surface-contract-zero", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSurfaceContract, Message: "frontend.surfaces[1].contract is 0, which is not a surface contract major",
+			Reason: "a surface declaring contract major 0; a client runs a surface only when it recognises the major it declares, and 0 is one no client runs",
+		},
+		{
+			Name: "frontend-surface-applies-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSurfaceApplies, Message: `frontend.surfaces[0].applies is neither "always" nor {tagged: [one or more tags]}`,
+			Reason: "a surface that applies \"sometimes\"; a client has a branch for exactly two shapes, and the host hands it nothing else",
+		},
+		{
+			Name: "frontend-surface-event-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSurfaceEventName, Message: `frontend.surfaces[1].events names "Example Item", which is not a journal namespace`,
+			Reason: "a surface reconciling on a value with a space and a capital; a journal namespace is a lowercase dotted name",
+		},
+		{
+			Name: "frontend-surface-event-twice", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendSurfaceEventOnce, Message: `frontend.surfaces[1].events names "example.item" twice`,
+			Reason: "a surface naming one namespace twice; the repeat widens nothing and moves the canonical bytes",
 		},
 		{
 			Name: "frontend-dashboard-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,

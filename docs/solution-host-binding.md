@@ -189,7 +189,13 @@ frontend:                          # OPTIONAL, solution only: what the host serv
   dashboard:                       # OPTIONAL: its data graph, opaque JSON the host interprets, bounded in size
     events: [{name: item-created, type: example.item.created}]
   surfaces:                        # OPTIONAL: what it offers inside a client application, by client and id
-    - {id: footnote, client: word, title: Footnote, module: /surfaces/word/footnote.js}
+    - id: footnote
+      client: word
+      title: Footnote
+      module: /surfaces/word/footnote.js   # a path on the solution's own origin
+      contract: 1                          # the surface contract major the client owns, at least 1
+      applies: {tagged: [contract]}        # or `always`: the two shapes the client reads
+      events: [example.item]               # OPTIONAL: the journal namespaces it reconciles on
 ```
 
 A tombstone is the same document with `removed: true`, a higher generation, and
@@ -437,17 +443,29 @@ schema test that holds every FIELD name to that still does, and the host's
 data graph "never carries data, credentials, or deployment addresses" by its
 own definition.
 
-**The surfaces are a set, keyed by client and id.** A client addresses a
-surface by id, so the pair is unique; an id is lowercase letters and digits
-separated by dashes and a module is a path on the solution's own origin — both
-as the solution runtime spells them, so a declaration the runtime refuses at
-boot is refused here at render, by name. A client kind is held to the shape of
-a lowercase name and not to a closed set: which kinds a host's clients answer
-to is the host client's vocabulary, and it is held where the clients are.
-The canonical encoding sorts the surfaces by that pair, so a producer emitting
-them from a Go map cannot move the digest per process; the dashboard's object
-keys are sorted by the encoding at every depth, and its lists keep their order,
-as JSON lists do.
+**The surfaces are a set, keyed by client and id, and carry everything the
+client reads.** A client addresses a surface by id, so the pair is unique; an
+id is lowercase letters and digits separated by dashes and a module is a path
+on the solution's own origin — both as the solution runtime spells them, so a
+declaration the runtime refuses at boot is refused here at render, by name. A
+client kind is held to the shape of a lowercase name and not to a closed set:
+which kinds a host's clients answer to is the host client's vocabulary, and it
+is held where the clients are. Each surface also carries its `contract` — the
+major of the surface contract the client owns, at least 1, which the host never
+reads — what it `applies` to, and the journal namespaces (`events`) the client
+reconciles it on. `applies` is declared, never defaulted, and is exactly one of
+the two shapes the client has a branch for: the string `always`, or an object
+`{tagged: [...]}` naming one or more non-empty tags; it is carried as the JSON
+it is, since the host hands it to the client verbatim. `events` is a set of
+lowercase dotted names, each once, absent when there are none. The host's
+registry projection is built from the applied presence alone, so a field the
+block omitted would never reach a client add-in — which is why the block holds
+the whole declaration and not the half a page needs. The canonical encoding
+sorts the surfaces by (client, id) and each surface's events by name, so a
+producer emitting either from a Go map cannot move the digest per process;
+the dashboard's object keys are sorted by the encoding at every depth, and
+every list — the dashboard's, and the tags a surface applies to — keeps its
+order, as JSON lists do, because the client reads it in order.
 
 **Every scalar of the block is declared, zero included, and a number has one
 spelling.** `order` is where a solution sorts; an omitted one would decode as
@@ -1157,7 +1175,7 @@ payload that survives a round trip through it.
 | A tombstone declares no build size | `Validate` → the rule table, `ErrInvalid` |
 | A frontend is declared on a solution only, never on a module or a tombstone | `Validate` → the rule table, `ErrInvalid` |
 | A frontend's scalars are declared, its numbers decimal and fitting, its dashboard an object of values JSON spells one way, judged on the node before the typed decoder can repair them | `Parse` → the node rules, `ErrInvalid` |
-| A frontend, when present, has one-line texts, a host contract major of at least 1, surfaces unique per client with runtime-spelled ids and same-origin modules, and a dashboard within `FrontendDashboardMaxBytes` | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
+| A frontend, when present, has one-line texts, a host contract major of at least 1, surfaces unique per client with runtime-spelled ids, same-origin modules, a contract major of at least 1, one of the two `applies` shapes and distinct namespace events, and a dashboard within `FrontendDashboardMaxBytes` | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
 | A module manifest carries only keys it declares, is held to the shared node checks, and a composition descriptor is not one | `resources.LoadModuleFromDir`, the node checks and the kind dispatched from the node before strict decoding |
 | A presence document is written through `Marshal`, which reads back what it wrote | `Marshal`, `ErrInvalid` |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |

@@ -98,8 +98,18 @@ frontend:
       client: slack
       title: Summary
       module: /surfaces/slack/summary.js
+      contract: 1
+      applies: always
     - id: footnote
       client: word
       title: Footnote
       description: Insert a footnote from the catalogue.
       module: /surfaces/word/footnote.js
+      contract: 2
+      applies:
+        tagged:
+          - contract
+          - brief
+      events:
+        - example.item
+        - example.citation
