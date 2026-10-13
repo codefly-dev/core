@@ -181,12 +181,14 @@ func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
 // does reports no artifact, and a consumer that needs one refuses by naming it
 // rather than deriving a path from the agent's layout.
 //
-// It applies to ONE start. Call it before every StartResponse that has an
-// artifact to name: a process is started, then described, and StartResponse
-// consumes what was reported. An agent that reports at its first start and not
-// at its restart reports nothing for the restart, which is a refusal
-// downstream rather than the previous process's answer approved for this one.
-// Passing nil withdraws a report not yet stamped.
+// It applies to ONE start attempt. Call it before every StartResponse that has
+// an artifact to name: a process is started, then described, and StartResponse
+// consumes what was reported — as StartError discards it, so an artifact named
+// for a process that never started is not stamped on the retry that does. An
+// agent that reports at its first start and not at its restart reports nothing
+// for the restart, which is a refusal downstream rather than the previous
+// process's answer approved for this one. Passing nil withdraws a report not
+// yet stamped.
 func (s *RuntimeWrapper) ReportStartedArtifact(artifact *runtimev0.StartedArtifact) {
 	s.Lock()
 	defer s.Unlock()
@@ -220,6 +222,9 @@ func (s *RuntimeWrapper) ReportHealth(report *basev0.HealthReport) {
 func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
+	// The attempt is over, so its report is too: an artifact named for a
+	// process that never started must not be stamped on the retry that does.
+	s.startedArtifact = nil
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: err.Error(), Failure: operationFailure("runtime.start", err, err.Error()), Generation: s.generation}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
@@ -227,6 +232,8 @@ func (s *RuntimeWrapper) StartError(err error) (*runtimev0.StartResponse, error)
 func (s *RuntimeWrapper) StartErrorf(err error, msg string, args ...any) (*runtimev0.StartResponse, error) {
 	s.Lock()
 	defer s.Unlock()
+	// See StartError: a failed attempt's report does not outlive it.
+	s.startedArtifact = nil
 	message := ErrorMessage(err, msg, args...)
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_ERROR, Message: message, Failure: operationFailure("runtime.start", err, message), Generation: s.generation}
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil

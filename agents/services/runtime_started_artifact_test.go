@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
@@ -60,6 +61,18 @@ func TestAStartedArtifactIsReportedByTheAgentAndSurvivesToInformation(t *testing
 	// already handed out for the one before it.
 	if second.GetStatus().GetStartedArtifact().GetExecutable() != "/opt/venv/bin/python" {
 		t.Fatal("clearing rewrote the status of the start that did report an artifact")
+	}
+
+	// A start that failed takes its report with it. The agent named an
+	// artifact, the process never came up, and the retry must not have that
+	// artifact approved for the process it does bring up.
+	wrapper.ReportStartedArtifact(&runtimev0.StartedArtifact{Executable: "/opt/venv-old/bin/python"})
+	if _, err = wrapper.StartError(errors.New("port already in use")); err != nil {
+		t.Fatalf("StartError: %v", err)
+	}
+	retry, _ := wrapper.StartResponse()
+	if _, reported = StartedArtifact(retry.GetStatus()); reported {
+		t.Fatalf("a report made for an attempt that never started was stamped on the start that did: %+v", retry.GetStatus().GetStartedArtifact())
 	}
 
 	// An explicit nil withdraws a report that has not been stamped yet.
