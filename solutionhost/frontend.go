@@ -105,6 +105,37 @@ type FrontendSurface struct {
 	Events []string `yaml:"events,omitempty" json:"events,omitempty"`
 }
 
+// ParseFrontend reads the standalone frontend file embedded by a component and
+// delivered by the CLI. It uses the same strict decoder and frontend rules as
+// Parse, so accepting a local file cannot disagree with signing its presence.
+// A missing file is the caller's headless component; an empty file is invalid.
+func ParseFrontend(data []byte) (*Frontend, error) {
+	frontend, err := decodeStrict[Frontend](data, "frontend declaration", "", "", func(tree *yaml.Node, _ string) error {
+		section := tree
+		if tree.Kind == yaml.DocumentNode && len(tree.Content) == 1 {
+			section = tree.Content[0]
+		}
+		for _, rule := range frontendNodeRules() {
+			if err := rule.node(section); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	// These are the section rules, not presence admission. No binding, build or
+	// identity is fabricated to validate a component's standalone declaration.
+	document := &SolutionHostBinding{Frontend: frontend}
+	for _, rule := range frontendModelRules() {
+		if err := rule.check(document); err != nil {
+			return nil, err
+		}
+	}
+	return frontend, nil
+}
+
 // FrontendDashboardMaxBytes bounds a dashboard's canonical encoding. A data
 // graph is a declaration of events, metrics and widgets, not a store of data,
 // and a host persists the applied generation whole.
