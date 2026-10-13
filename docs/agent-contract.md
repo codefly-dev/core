@@ -177,6 +177,43 @@ The CLI producer is sequenced after Core in
 [cli#937](https://github.com/codefly-dev/cli/issues/937). Core tests do
 not qualify that handoff, downstream agent adoption, or a staging render.
 
+### The artifact a runtime started
+
+`StartStatus.started_artifact` (field 5) names what the agent actually ran:
+`executable`, the absolute path of the program it started, and `sources`, the
+absolute paths of the files that program was handed. A compiled runtime starts
+the service's own build, so the executable alone identifies it and `sources` is
+empty. An interpreted runtime starts an interpreter or a launcher, which
+identifies nothing about the service: there the entrypoint, the modules it
+loads and the lock file pinning its dependencies are the build, and the agent
+names them. Every entry is a regular file — a consumer never decides for the
+agent what a directory's closure contains.
+
+A runtime reports it with `RuntimeWrapper.ReportStartedArtifact` before
+`StartResponse`, which stamps it on the StartStatus that Start and every later
+Information carry — and **consumes** it, the way it clears the health report
+beside it. A report describes one process, so it applies to one start: an
+agent that reports at its first start and not at its restart reports nothing
+for the restart, rather than having the previous process's answer approved for
+the one now running. Consumers read it through `services.StartedArtifact`,
+which separates "the agent reported one" from "the agent reports none" — an
+artifact naming no executable is the latter.
+
+This exists because a consumer that pins the build a running process is at
+otherwise has to guess one: the CLI's native run derived every workload's
+build from the Go agents' `.cache/native/main`, so a service on any other
+agent was never delivered ([cli#989](https://github.com/codefly-dev/cli/issues/989)).
+The answer is the agent's to give. A consumer that needs an artifact and is
+reported none MUST refuse, naming the agent; there is no path it may derive
+instead.
+
+`runtime-started-artifact/v1` names this optional operation contract. It is
+host support here: a runtime advertises it in its own capabilities only once
+it calls `ReportStartedArtifact`, and the shared contract never advertises it
+for every agent built on this Core — that would be the false promise a
+consumer then trusts. Wire protocol 1 and startup protocol 2 are unchanged.
+Core tests do not qualify any agent's adoption.
+
 ### Compatibility reporting
 
 - Incompatible lifecycle semantics increment `protocol_version`. Both peers

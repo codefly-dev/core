@@ -368,7 +368,7 @@ func (x BuildStatus_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use BuildStatus_Status.Descriptor instead.
 func (BuildStatus_Status) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{9, 0}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{10, 0}
 }
 
 // Status enumerates lifecycle status values.
@@ -421,7 +421,7 @@ func (x TestStatus_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TestStatus_Status.Descriptor instead.
 func (TestStatus_Status) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{15, 0}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{16, 0}
 }
 
 // State enumerates run-level outcomes.
@@ -484,7 +484,7 @@ func (x TestRunResult_State) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TestRunResult_State.Descriptor instead.
 func (TestRunResult_State) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{25, 0}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{26, 0}
 }
 
 // Status enumerates lifecycle status values.
@@ -537,7 +537,7 @@ func (x LintStatus_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LintStatus_Status.Descriptor instead.
 func (LintStatus_Status) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{35, 0}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{36, 0}
 }
 
 // Severity classifies the finding without exposing a tool-specific level.
@@ -594,7 +594,7 @@ func (x LintDiagnostic_Severity) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LintDiagnostic_Severity.Descriptor instead.
 func (LintDiagnostic_Severity) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{36, 0}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{37, 0}
 }
 
 // Status enumerates lifecycle status values.
@@ -647,7 +647,7 @@ func (x StopStatus_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use StopStatus_Status.Descriptor instead.
 func (StopStatus_Status) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{40, 0}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{41, 0}
 }
 
 // Status enumerates lifecycle status values.
@@ -700,7 +700,7 @@ func (x DestroyStatus_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DestroyStatus_Status.Descriptor instead.
 func (DestroyStatus_Status) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{43, 0}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{44, 0}
 }
 
 // Stage enumerates stage values.
@@ -761,7 +761,7 @@ func (x DesiredState_Stage) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DesiredState_Stage.Descriptor instead.
 func (DesiredState_Stage) EnumDescriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{46, 0}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{47, 0}
 }
 
 // LoadStatus reports the state and message for the load lifecycle phase.
@@ -1346,9 +1346,17 @@ type StartStatus struct {
 	// A consumer MUST NOT compare zero across restarts: every start of such an
 	// agent reports zero, so equality proves nothing. Read it through
 	// services.StartGeneration, which returns that distinction explicitly.
-	Generation    uint64 `protobuf:"varint,4,opt,name=generation,proto3" json:"generation,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Generation uint64 `protobuf:"varint,4,opt,name=generation,proto3" json:"generation,omitempty"`
+	// started_artifact names what the agent actually started, so a consumer that
+	// pins the build a process runs reads it from the agent instead of deriving
+	// it from one agent family's on-disk layout.
+	//
+	// Absent means the agent does not implement runtime-started-artifact/v1 and
+	// reports no artifact at all. A consumer that needs one MUST refuse, naming
+	// the agent: there is no path it may guess instead.
+	StartedArtifact *StartedArtifact `protobuf:"bytes,5,opt,name=started_artifact,json=startedArtifact,proto3" json:"started_artifact,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *StartStatus) Reset() {
@@ -1409,6 +1417,13 @@ func (x *StartStatus) GetGeneration() uint64 {
 	return 0
 }
 
+func (x *StartStatus) GetStartedArtifact() *StartedArtifact {
+	if x != nil {
+		return x.StartedArtifact
+	}
+	return nil
+}
+
 // StartResponse reports whether the service process reached the started state.
 type StartResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1455,6 +1470,75 @@ func (x *StartResponse) GetStatus() *StartStatus {
 	return nil
 }
 
+// StartedArtifact is what one agent started, in the terms a consumer can
+// digest: the program it ran, and the files that program was handed.
+//
+// A compiled runtime starts the service's own build, so the executable alone
+// identifies it. An interpreted runtime starts an interpreter or a launcher,
+// which identifies nothing about the service: there the sources it was handed
+// are the build, and the agent names them beside the program it ran.
+type StartedArtifact struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// executable is the absolute path of the program the agent started: the
+	// service's own binary for a compiled runtime, the interpreter or launcher
+	// for an interpreted one. It is the process's program, not a build recipe:
+	// an agent that cannot name the file it ran reports no artifact at all.
+	Executable string `protobuf:"bytes,1,opt,name=executable,proto3" json:"executable,omitempty"`
+	// sources are the absolute paths of the files that, together with the
+	// executable, identify what is running: an interpreted runtime's entrypoint,
+	// the modules it loads, and the lock file pinning its dependencies. Empty
+	// for a compiled runtime, whose executable IS the build. Every entry names a
+	// regular file, so a consumer never decides for the agent what a directory's
+	// closure contains.
+	Sources       []string `protobuf:"bytes,2,rep,name=sources,proto3" json:"sources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartedArtifact) Reset() {
+	*x = StartedArtifact{}
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartedArtifact) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartedArtifact) ProtoMessage() {}
+
+func (x *StartedArtifact) ProtoReflect() protoreflect.Message {
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartedArtifact.ProtoReflect.Descriptor instead.
+func (*StartedArtifact) Descriptor() ([]byte, []int) {
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *StartedArtifact) GetExecutable() string {
+	if x != nil {
+		return x.Executable
+	}
+	return ""
+}
+
+func (x *StartedArtifact) GetSources() []string {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
 // BuildStatus reports the state and message for the build lifecycle phase.
 type BuildStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1470,7 +1554,7 @@ type BuildStatus struct {
 
 func (x *BuildStatus) Reset() {
 	*x = BuildStatus{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[9]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1482,7 +1566,7 @@ func (x *BuildStatus) String() string {
 func (*BuildStatus) ProtoMessage() {}
 
 func (x *BuildStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[9]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1495,7 +1579,7 @@ func (x *BuildStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildStatus.ProtoReflect.Descriptor instead.
 func (*BuildStatus) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{9}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *BuildStatus) GetState() BuildStatus_Status {
@@ -1536,7 +1620,7 @@ type ValidationSelection struct {
 
 func (x *ValidationSelection) Reset() {
 	*x = ValidationSelection{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[10]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1548,7 +1632,7 @@ func (x *ValidationSelection) String() string {
 func (*ValidationSelection) ProtoMessage() {}
 
 func (x *ValidationSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[10]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1561,7 +1645,7 @@ func (x *ValidationSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidationSelection.ProtoReflect.Descriptor instead.
 func (*ValidationSelection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{10}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ValidationSelection) GetScope() isValidationSelection_Scope {
@@ -1618,7 +1702,7 @@ type ValidationPackageSelection struct {
 
 func (x *ValidationPackageSelection) Reset() {
 	*x = ValidationPackageSelection{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[11]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1630,7 +1714,7 @@ func (x *ValidationPackageSelection) String() string {
 func (*ValidationPackageSelection) ProtoMessage() {}
 
 func (x *ValidationPackageSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[11]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1643,7 +1727,7 @@ func (x *ValidationPackageSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidationPackageSelection.ProtoReflect.Descriptor instead.
 func (*ValidationPackageSelection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{11}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ValidationPackageSelection) GetPath() string {
@@ -1664,7 +1748,7 @@ type ValidationFileSelection struct {
 
 func (x *ValidationFileSelection) Reset() {
 	*x = ValidationFileSelection{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[12]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1676,7 +1760,7 @@ func (x *ValidationFileSelection) String() string {
 func (*ValidationFileSelection) ProtoMessage() {}
 
 func (x *ValidationFileSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[12]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1689,7 +1773,7 @@ func (x *ValidationFileSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidationFileSelection.ProtoReflect.Descriptor instead.
 func (*ValidationFileSelection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{12}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ValidationFileSelection) GetPath() string {
@@ -1716,7 +1800,7 @@ type BuildRequest struct {
 
 func (x *BuildRequest) Reset() {
 	*x = BuildRequest{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[13]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1728,7 +1812,7 @@ func (x *BuildRequest) String() string {
 func (*BuildRequest) ProtoMessage() {}
 
 func (x *BuildRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[13]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1741,7 +1825,7 @@ func (x *BuildRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildRequest.ProtoReflect.Descriptor instead.
 func (*BuildRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{13}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *BuildRequest) GetTarget() string {
@@ -1782,7 +1866,7 @@ type BuildResponse struct {
 
 func (x *BuildResponse) Reset() {
 	*x = BuildResponse{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[14]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1794,7 +1878,7 @@ func (x *BuildResponse) String() string {
 func (*BuildResponse) ProtoMessage() {}
 
 func (x *BuildResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[14]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1807,7 +1891,7 @@ func (x *BuildResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildResponse.ProtoReflect.Descriptor instead.
 func (*BuildResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{14}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BuildResponse) GetStatus() *BuildStatus {
@@ -1853,7 +1937,7 @@ type TestStatus struct {
 
 func (x *TestStatus) Reset() {
 	*x = TestStatus{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[15]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1865,7 +1949,7 @@ func (x *TestStatus) String() string {
 func (*TestStatus) ProtoMessage() {}
 
 func (x *TestStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[15]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1878,7 +1962,7 @@ func (x *TestStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestStatus.ProtoReflect.Descriptor instead.
 func (*TestStatus) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{15}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *TestStatus) GetState() TestStatus_Status {
@@ -1923,7 +2007,7 @@ type TestSelection struct {
 
 func (x *TestSelection) Reset() {
 	*x = TestSelection{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[16]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1935,7 +2019,7 @@ func (x *TestSelection) String() string {
 func (*TestSelection) ProtoMessage() {}
 
 func (x *TestSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[16]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1948,7 +2032,7 @@ func (x *TestSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestSelection.ProtoReflect.Descriptor instead.
 func (*TestSelection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{16}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TestSelection) GetScope() isTestSelection_Scope {
@@ -2038,7 +2122,7 @@ type TestPackageSelection struct {
 
 func (x *TestPackageSelection) Reset() {
 	*x = TestPackageSelection{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[17]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2050,7 +2134,7 @@ func (x *TestPackageSelection) String() string {
 func (*TestPackageSelection) ProtoMessage() {}
 
 func (x *TestPackageSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[17]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2063,7 +2147,7 @@ func (x *TestPackageSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestPackageSelection.ProtoReflect.Descriptor instead.
 func (*TestPackageSelection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{17}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *TestPackageSelection) GetPackage() string {
@@ -2084,7 +2168,7 @@ type TestFileSelection struct {
 
 func (x *TestFileSelection) Reset() {
 	*x = TestFileSelection{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[18]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2096,7 +2180,7 @@ func (x *TestFileSelection) String() string {
 func (*TestFileSelection) ProtoMessage() {}
 
 func (x *TestFileSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[18]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2109,7 +2193,7 @@ func (x *TestFileSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestFileSelection.ProtoReflect.Descriptor instead.
 func (*TestFileSelection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{18}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *TestFileSelection) GetPath() string {
@@ -2131,7 +2215,7 @@ type TestSuiteSelection struct {
 
 func (x *TestSuiteSelection) Reset() {
 	*x = TestSuiteSelection{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[19]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2143,7 +2227,7 @@ func (x *TestSuiteSelection) String() string {
 func (*TestSuiteSelection) ProtoMessage() {}
 
 func (x *TestSuiteSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[19]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2156,7 +2240,7 @@ func (x *TestSuiteSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestSuiteSelection.ProtoReflect.Descriptor instead.
 func (*TestSuiteSelection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{19}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *TestSuiteSelection) GetName() string {
@@ -2187,7 +2271,7 @@ type TestCaseSelection struct {
 
 func (x *TestCaseSelection) Reset() {
 	*x = TestCaseSelection{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[20]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2199,7 +2283,7 @@ func (x *TestCaseSelection) String() string {
 func (*TestCaseSelection) ProtoMessage() {}
 
 func (x *TestCaseSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[20]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2212,7 +2296,7 @@ func (x *TestCaseSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestCaseSelection.ProtoReflect.Descriptor instead.
 func (*TestCaseSelection) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{20}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *TestCaseSelection) GetPackage() string {
@@ -2309,7 +2393,7 @@ type TestRequest struct {
 
 func (x *TestRequest) Reset() {
 	*x = TestRequest{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[21]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2321,7 +2405,7 @@ func (x *TestRequest) String() string {
 func (*TestRequest) ProtoMessage() {}
 
 func (x *TestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[21]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2334,7 +2418,7 @@ func (x *TestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRequest.ProtoReflect.Descriptor instead.
 func (*TestRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{21}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *TestRequest) GetTarget() string {
@@ -2450,7 +2534,7 @@ type TestFormula struct {
 
 func (x *TestFormula) Reset() {
 	*x = TestFormula{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[22]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2462,7 +2546,7 @@ func (x *TestFormula) String() string {
 func (*TestFormula) ProtoMessage() {}
 
 func (x *TestFormula) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[22]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2475,7 +2559,7 @@ func (x *TestFormula) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestFormula.ProtoReflect.Descriptor instead.
 func (*TestFormula) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{22}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *TestFormula) GetCommand() []string {
@@ -2577,7 +2661,7 @@ type TestResponse struct {
 
 func (x *TestResponse) Reset() {
 	*x = TestResponse{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[23]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2589,7 +2673,7 @@ func (x *TestResponse) String() string {
 func (*TestResponse) ProtoMessage() {}
 
 func (x *TestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[23]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2602,7 +2686,7 @@ func (x *TestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestResponse.ProtoReflect.Descriptor instead.
 func (*TestResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{23}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{24}
 }
 
 // Deprecated: Marked as deprecated in codefly/services/runtime/v0/runtime.proto.
@@ -2740,7 +2824,7 @@ type TestRun struct {
 
 func (x *TestRun) Reset() {
 	*x = TestRun{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[24]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2752,7 +2836,7 @@ func (x *TestRun) String() string {
 func (*TestRun) ProtoMessage() {}
 
 func (x *TestRun) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[24]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2765,7 +2849,7 @@ func (x *TestRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRun.ProtoReflect.Descriptor instead.
 func (*TestRun) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{24}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *TestRun) GetRunner() string {
@@ -2821,7 +2905,7 @@ type TestRunResult struct {
 
 func (x *TestRunResult) Reset() {
 	*x = TestRunResult{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[25]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2833,7 +2917,7 @@ func (x *TestRunResult) String() string {
 func (*TestRunResult) ProtoMessage() {}
 
 func (x *TestRunResult) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[25]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2846,7 +2930,7 @@ func (x *TestRunResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRunResult.ProtoReflect.Descriptor instead.
 func (*TestRunResult) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{25}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *TestRunResult) GetState() TestRunResult_State {
@@ -2894,7 +2978,7 @@ type TestCounts struct {
 
 func (x *TestCounts) Reset() {
 	*x = TestCounts{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[26]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2906,7 +2990,7 @@ func (x *TestCounts) String() string {
 func (*TestCounts) ProtoMessage() {}
 
 func (x *TestCounts) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[26]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2919,7 +3003,7 @@ func (x *TestCounts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestCounts.ProtoReflect.Descriptor instead.
 func (*TestCounts) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{26}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *TestCounts) GetTotal() int32 {
@@ -2993,7 +3077,7 @@ type TestSuite struct {
 
 func (x *TestSuite) Reset() {
 	*x = TestSuite{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[27]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3005,7 +3089,7 @@ func (x *TestSuite) String() string {
 func (*TestSuite) ProtoMessage() {}
 
 func (x *TestSuite) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[27]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3018,7 +3102,7 @@ func (x *TestSuite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestSuite.ProtoReflect.Descriptor instead.
 func (*TestSuite) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{27}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *TestSuite) GetName() string {
@@ -3106,7 +3190,7 @@ type TestCase struct {
 
 func (x *TestCase) Reset() {
 	*x = TestCase{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[28]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3118,7 +3202,7 @@ func (x *TestCase) String() string {
 func (*TestCase) ProtoMessage() {}
 
 func (x *TestCase) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[28]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3131,7 +3215,7 @@ func (x *TestCase) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestCase.ProtoReflect.Descriptor instead.
 func (*TestCase) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{28}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *TestCase) GetName() string {
@@ -3220,7 +3304,7 @@ type TestFailure struct {
 
 func (x *TestFailure) Reset() {
 	*x = TestFailure{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[29]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3232,7 +3316,7 @@ func (x *TestFailure) String() string {
 func (*TestFailure) ProtoMessage() {}
 
 func (x *TestFailure) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[29]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3245,7 +3329,7 @@ func (x *TestFailure) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestFailure.ProtoReflect.Descriptor instead.
 func (*TestFailure) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{29}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *TestFailure) GetMessage() string {
@@ -3301,7 +3385,7 @@ type TestLocation struct {
 
 func (x *TestLocation) Reset() {
 	*x = TestLocation{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[30]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3313,7 +3397,7 @@ func (x *TestLocation) String() string {
 func (*TestLocation) ProtoMessage() {}
 
 func (x *TestLocation) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[30]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3326,7 +3410,7 @@ func (x *TestLocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestLocation.ProtoReflect.Descriptor instead.
 func (*TestLocation) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{30}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *TestLocation) GetFile() string {
@@ -3374,7 +3458,7 @@ type TestRetry struct {
 
 func (x *TestRetry) Reset() {
 	*x = TestRetry{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[31]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3386,7 +3470,7 @@ func (x *TestRetry) String() string {
 func (*TestRetry) ProtoMessage() {}
 
 func (x *TestRetry) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[31]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3399,7 +3483,7 @@ func (x *TestRetry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRetry.ProtoReflect.Descriptor instead.
 func (*TestRetry) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{31}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *TestRetry) GetAttempt() int32 {
@@ -3452,7 +3536,7 @@ type TestCoverage struct {
 
 func (x *TestCoverage) Reset() {
 	*x = TestCoverage{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[32]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3464,7 +3548,7 @@ func (x *TestCoverage) String() string {
 func (*TestCoverage) ProtoMessage() {}
 
 func (x *TestCoverage) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[32]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3477,7 +3561,7 @@ func (x *TestCoverage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestCoverage.ProtoReflect.Descriptor instead.
 func (*TestCoverage) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{32}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *TestCoverage) GetTotalPct() float32 {
@@ -3525,7 +3609,7 @@ type TestFileCoverage struct {
 
 func (x *TestFileCoverage) Reset() {
 	*x = TestFileCoverage{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[33]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3537,7 +3621,7 @@ func (x *TestFileCoverage) String() string {
 func (*TestFileCoverage) ProtoMessage() {}
 
 func (x *TestFileCoverage) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[33]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3550,7 +3634,7 @@ func (x *TestFileCoverage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestFileCoverage.ProtoReflect.Descriptor instead.
 func (*TestFileCoverage) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{33}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *TestFileCoverage) GetFile() string {
@@ -3603,7 +3687,7 @@ type TestTruncation struct {
 
 func (x *TestTruncation) Reset() {
 	*x = TestTruncation{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[34]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3615,7 +3699,7 @@ func (x *TestTruncation) String() string {
 func (*TestTruncation) ProtoMessage() {}
 
 func (x *TestTruncation) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[34]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3628,7 +3712,7 @@ func (x *TestTruncation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestTruncation.ProtoReflect.Descriptor instead.
 func (*TestTruncation) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{34}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *TestTruncation) GetHappened() bool {
@@ -3681,7 +3765,7 @@ type LintStatus struct {
 
 func (x *LintStatus) Reset() {
 	*x = LintStatus{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[35]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3693,7 +3777,7 @@ func (x *LintStatus) String() string {
 func (*LintStatus) ProtoMessage() {}
 
 func (x *LintStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[35]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3706,7 +3790,7 @@ func (x *LintStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LintStatus.ProtoReflect.Descriptor instead.
 func (*LintStatus) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{35}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *LintStatus) GetState() LintStatus_Status {
@@ -3757,7 +3841,7 @@ type LintDiagnostic struct {
 
 func (x *LintDiagnostic) Reset() {
 	*x = LintDiagnostic{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[36]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3769,7 +3853,7 @@ func (x *LintDiagnostic) String() string {
 func (*LintDiagnostic) ProtoMessage() {}
 
 func (x *LintDiagnostic) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[36]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3782,7 +3866,7 @@ func (x *LintDiagnostic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LintDiagnostic.ProtoReflect.Descriptor instead.
 func (*LintDiagnostic) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{36}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *LintDiagnostic) GetFile() string {
@@ -3866,7 +3950,7 @@ type LintRequest struct {
 
 func (x *LintRequest) Reset() {
 	*x = LintRequest{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[37]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3878,7 +3962,7 @@ func (x *LintRequest) String() string {
 func (*LintRequest) ProtoMessage() {}
 
 func (x *LintRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[37]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3891,7 +3975,7 @@ func (x *LintRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LintRequest.ProtoReflect.Descriptor instead.
 func (*LintRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{37}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *LintRequest) GetTarget() string {
@@ -3936,7 +4020,7 @@ type LintResponse struct {
 
 func (x *LintResponse) Reset() {
 	*x = LintResponse{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[38]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3948,7 +4032,7 @@ func (x *LintResponse) String() string {
 func (*LintResponse) ProtoMessage() {}
 
 func (x *LintResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[38]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3961,7 +4045,7 @@ func (x *LintResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LintResponse.ProtoReflect.Descriptor instead.
 func (*LintResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{38}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *LintResponse) GetStatus() *LintStatus {
@@ -4015,7 +4099,7 @@ type StopRequest struct {
 
 func (x *StopRequest) Reset() {
 	*x = StopRequest{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[39]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4027,7 +4111,7 @@ func (x *StopRequest) String() string {
 func (*StopRequest) ProtoMessage() {}
 
 func (x *StopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[39]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4040,7 +4124,7 @@ func (x *StopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
 func (*StopRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{39}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{40}
 }
 
 // StopStatus reports the state and message for the stop lifecycle phase.
@@ -4058,7 +4142,7 @@ type StopStatus struct {
 
 func (x *StopStatus) Reset() {
 	*x = StopStatus{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[40]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4070,7 +4154,7 @@ func (x *StopStatus) String() string {
 func (*StopStatus) ProtoMessage() {}
 
 func (x *StopStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[40]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4083,7 +4167,7 @@ func (x *StopStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopStatus.ProtoReflect.Descriptor instead.
 func (*StopStatus) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{40}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *StopStatus) GetState() StopStatus_Status {
@@ -4118,7 +4202,7 @@ type StopResponse struct {
 
 func (x *StopResponse) Reset() {
 	*x = StopResponse{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[41]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4130,7 +4214,7 @@ func (x *StopResponse) String() string {
 func (*StopResponse) ProtoMessage() {}
 
 func (x *StopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[41]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4143,7 +4227,7 @@ func (x *StopResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopResponse.ProtoReflect.Descriptor instead.
 func (*StopResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{41}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *StopResponse) GetStatus() *StopStatus {
@@ -4162,7 +4246,7 @@ type DestroyRequest struct {
 
 func (x *DestroyRequest) Reset() {
 	*x = DestroyRequest{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[42]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4174,7 +4258,7 @@ func (x *DestroyRequest) String() string {
 func (*DestroyRequest) ProtoMessage() {}
 
 func (x *DestroyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[42]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4187,7 +4271,7 @@ func (x *DestroyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyRequest.ProtoReflect.Descriptor instead.
 func (*DestroyRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{42}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{43}
 }
 
 // DestroyStatus reports the state and message for the destroy lifecycle phase.
@@ -4205,7 +4289,7 @@ type DestroyStatus struct {
 
 func (x *DestroyStatus) Reset() {
 	*x = DestroyStatus{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[43]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4217,7 +4301,7 @@ func (x *DestroyStatus) String() string {
 func (*DestroyStatus) ProtoMessage() {}
 
 func (x *DestroyStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[43]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4230,7 +4314,7 @@ func (x *DestroyStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyStatus.ProtoReflect.Descriptor instead.
 func (*DestroyStatus) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{43}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *DestroyStatus) GetState() DestroyStatus_Status {
@@ -4265,7 +4349,7 @@ type DestroyResponse struct {
 
 func (x *DestroyResponse) Reset() {
 	*x = DestroyResponse{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[44]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4277,7 +4361,7 @@ func (x *DestroyResponse) String() string {
 func (*DestroyResponse) ProtoMessage() {}
 
 func (x *DestroyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[44]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4290,7 +4374,7 @@ func (x *DestroyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyResponse.ProtoReflect.Descriptor instead.
 func (*DestroyResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{44}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *DestroyResponse) GetStatus() *DestroyStatus {
@@ -4309,7 +4393,7 @@ type InformationRequest struct {
 
 func (x *InformationRequest) Reset() {
 	*x = InformationRequest{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[45]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4321,7 +4405,7 @@ func (x *InformationRequest) String() string {
 func (*InformationRequest) ProtoMessage() {}
 
 func (x *InformationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[45]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4334,7 +4418,7 @@ func (x *InformationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InformationRequest.ProtoReflect.Descriptor instead.
 func (*InformationRequest) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{45}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{46}
 }
 
 // DesiredState tells the orchestrator which lifecycle transition is still needed.
@@ -4348,7 +4432,7 @@ type DesiredState struct {
 
 func (x *DesiredState) Reset() {
 	*x = DesiredState{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[46]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4360,7 +4444,7 @@ func (x *DesiredState) String() string {
 func (*DesiredState) ProtoMessage() {}
 
 func (x *DesiredState) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[46]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4373,7 +4457,7 @@ func (x *DesiredState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesiredState.ProtoReflect.Descriptor instead.
 func (*DesiredState) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{46}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *DesiredState) GetStage() DesiredState_Stage {
@@ -4414,7 +4498,7 @@ type InformationResponse struct {
 
 func (x *InformationResponse) Reset() {
 	*x = InformationResponse{}
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[47]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4426,7 +4510,7 @@ func (x *InformationResponse) String() string {
 func (*InformationResponse) ProtoMessage() {}
 
 func (x *InformationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[47]
+	mi := &file_codefly_services_runtime_v0_runtime_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4439,7 +4523,7 @@ func (x *InformationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InformationResponse.ProtoReflect.Descriptor instead.
 func (*InformationResponse) Descriptor() ([]byte, []int) {
-	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{47}
+	return file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *InformationResponse) GetDesiredState() *DesiredState {
@@ -4571,20 +4655,26 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\toverrides\x18\x04 \x03(\v28.codefly.services.runtime.v0.StartRequest.OverridesEntryR\toverrides\x1a<\n" +
 	"\x0eOverridesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf1\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xca\x02\n" +
 	"\vStartStatus\x12E\n" +
 	"\x05state\x18\x01 \x01(\x0e2/.codefly.services.runtime.v0.StartStatus.StatusR\x05state\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x122\n" +
 	"\afailure\x18\x03 \x01(\v2\x18.codefly.base.v0.FailureR\afailure\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x04 \x01(\x04R\n" +
-	"generation\"-\n" +
+	"generation\x12W\n" +
+	"\x10started_artifact\x18\x05 \x01(\v2,.codefly.services.runtime.v0.StartedArtifactR\x0fstartedArtifact\"-\n" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSTARTED\x10\x01\x12\t\n" +
 	"\x05ERROR\x10\x02\"Q\n" +
 	"\rStartResponse\x12@\n" +
-	"\x06status\x18\x01 \x01(\v2(.codefly.services.runtime.v0.StartStatusR\x06status\"\xd1\x01\n" +
+	"\x06status\x18\x01 \x01(\v2(.codefly.services.runtime.v0.StartStatusR\x06status\"K\n" +
+	"\x0fStartedArtifact\x12\x1e\n" +
+	"\n" +
+	"executable\x18\x01 \x01(\tR\n" +
+	"executable\x12\x18\n" +
+	"\asources\x18\x02 \x03(\tR\asources\"\xd1\x01\n" +
 	"\vBuildStatus\x12E\n" +
 	"\x05state\x18\x01 \x01(\x0e2/.codefly.services.runtime.v0.BuildStatus.StatusR\x05state\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x122\n" +
@@ -4882,7 +4972,7 @@ func file_codefly_services_runtime_v0_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_codefly_services_runtime_v0_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
-var file_codefly_services_runtime_v0_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
+var file_codefly_services_runtime_v0_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_codefly_services_runtime_v0_runtime_proto_goTypes = []any{
 	(TestCaseState)(0),                 // 0: codefly.services.runtime.v0.TestCaseState
 	(TestFailureKind)(0),               // 1: codefly.services.runtime.v0.TestFailureKind
@@ -4906,183 +4996,185 @@ var file_codefly_services_runtime_v0_runtime_proto_goTypes = []any{
 	(*StartRequest)(nil),               // 19: codefly.services.runtime.v0.StartRequest
 	(*StartStatus)(nil),                // 20: codefly.services.runtime.v0.StartStatus
 	(*StartResponse)(nil),              // 21: codefly.services.runtime.v0.StartResponse
-	(*BuildStatus)(nil),                // 22: codefly.services.runtime.v0.BuildStatus
-	(*ValidationSelection)(nil),        // 23: codefly.services.runtime.v0.ValidationSelection
-	(*ValidationPackageSelection)(nil), // 24: codefly.services.runtime.v0.ValidationPackageSelection
-	(*ValidationFileSelection)(nil),    // 25: codefly.services.runtime.v0.ValidationFileSelection
-	(*BuildRequest)(nil),               // 26: codefly.services.runtime.v0.BuildRequest
-	(*BuildResponse)(nil),              // 27: codefly.services.runtime.v0.BuildResponse
-	(*TestStatus)(nil),                 // 28: codefly.services.runtime.v0.TestStatus
-	(*TestSelection)(nil),              // 29: codefly.services.runtime.v0.TestSelection
-	(*TestPackageSelection)(nil),       // 30: codefly.services.runtime.v0.TestPackageSelection
-	(*TestFileSelection)(nil),          // 31: codefly.services.runtime.v0.TestFileSelection
-	(*TestSuiteSelection)(nil),         // 32: codefly.services.runtime.v0.TestSuiteSelection
-	(*TestCaseSelection)(nil),          // 33: codefly.services.runtime.v0.TestCaseSelection
-	(*TestRequest)(nil),                // 34: codefly.services.runtime.v0.TestRequest
-	(*TestFormula)(nil),                // 35: codefly.services.runtime.v0.TestFormula
-	(*TestResponse)(nil),               // 36: codefly.services.runtime.v0.TestResponse
-	(*TestRun)(nil),                    // 37: codefly.services.runtime.v0.TestRun
-	(*TestRunResult)(nil),              // 38: codefly.services.runtime.v0.TestRunResult
-	(*TestCounts)(nil),                 // 39: codefly.services.runtime.v0.TestCounts
-	(*TestSuite)(nil),                  // 40: codefly.services.runtime.v0.TestSuite
-	(*TestCase)(nil),                   // 41: codefly.services.runtime.v0.TestCase
-	(*TestFailure)(nil),                // 42: codefly.services.runtime.v0.TestFailure
-	(*TestLocation)(nil),               // 43: codefly.services.runtime.v0.TestLocation
-	(*TestRetry)(nil),                  // 44: codefly.services.runtime.v0.TestRetry
-	(*TestCoverage)(nil),               // 45: codefly.services.runtime.v0.TestCoverage
-	(*TestFileCoverage)(nil),           // 46: codefly.services.runtime.v0.TestFileCoverage
-	(*TestTruncation)(nil),             // 47: codefly.services.runtime.v0.TestTruncation
-	(*LintStatus)(nil),                 // 48: codefly.services.runtime.v0.LintStatus
-	(*LintDiagnostic)(nil),             // 49: codefly.services.runtime.v0.LintDiagnostic
-	(*LintRequest)(nil),                // 50: codefly.services.runtime.v0.LintRequest
-	(*LintResponse)(nil),               // 51: codefly.services.runtime.v0.LintResponse
-	(*StopRequest)(nil),                // 52: codefly.services.runtime.v0.StopRequest
-	(*StopStatus)(nil),                 // 53: codefly.services.runtime.v0.StopStatus
-	(*StopResponse)(nil),               // 54: codefly.services.runtime.v0.StopResponse
-	(*DestroyRequest)(nil),             // 55: codefly.services.runtime.v0.DestroyRequest
-	(*DestroyStatus)(nil),              // 56: codefly.services.runtime.v0.DestroyStatus
-	(*DestroyResponse)(nil),            // 57: codefly.services.runtime.v0.DestroyResponse
-	(*InformationRequest)(nil),         // 58: codefly.services.runtime.v0.InformationRequest
-	(*DesiredState)(nil),               // 59: codefly.services.runtime.v0.DesiredState
-	(*InformationResponse)(nil),        // 60: codefly.services.runtime.v0.InformationResponse
-	nil,                                // 61: codefly.services.runtime.v0.InitRequest.OverridesEntry
-	nil,                                // 62: codefly.services.runtime.v0.StartRequest.OverridesEntry
-	nil,                                // 63: codefly.services.runtime.v0.TestFormula.EnvEntry
-	nil,                                // 64: codefly.services.runtime.v0.TestFormula.ProvisioningEntry
-	(*v0.Failure)(nil),                 // 65: codefly.base.v0.Failure
-	(*v0.ServiceIdentity)(nil),         // 66: codefly.base.v0.ServiceIdentity
-	(*v0.Environment)(nil),             // 67: codefly.base.v0.Environment
-	(*v0.Version)(nil),                 // 68: codefly.base.v0.Version
-	(*v0.Endpoint)(nil),                // 69: codefly.base.v0.Endpoint
-	(*v0.RuntimeContext)(nil),          // 70: codefly.base.v0.RuntimeContext
-	(*v0.Configuration)(nil),           // 71: codefly.base.v0.Configuration
-	(*v0.NetworkMapping)(nil),          // 72: codefly.base.v0.NetworkMapping
-	(*v0.Specs)(nil),                   // 73: codefly.base.v0.Specs
-	(*durationpb.Duration)(nil),        // 74: google.protobuf.Duration
-	(*v0.HealthReport)(nil),            // 75: codefly.base.v0.HealthReport
-	(*v01.Answer)(nil),                 // 76: codefly.services.agent.v0.Answer
-	(*v01.Question)(nil),               // 77: codefly.services.agent.v0.Question
+	(*StartedArtifact)(nil),            // 22: codefly.services.runtime.v0.StartedArtifact
+	(*BuildStatus)(nil),                // 23: codefly.services.runtime.v0.BuildStatus
+	(*ValidationSelection)(nil),        // 24: codefly.services.runtime.v0.ValidationSelection
+	(*ValidationPackageSelection)(nil), // 25: codefly.services.runtime.v0.ValidationPackageSelection
+	(*ValidationFileSelection)(nil),    // 26: codefly.services.runtime.v0.ValidationFileSelection
+	(*BuildRequest)(nil),               // 27: codefly.services.runtime.v0.BuildRequest
+	(*BuildResponse)(nil),              // 28: codefly.services.runtime.v0.BuildResponse
+	(*TestStatus)(nil),                 // 29: codefly.services.runtime.v0.TestStatus
+	(*TestSelection)(nil),              // 30: codefly.services.runtime.v0.TestSelection
+	(*TestPackageSelection)(nil),       // 31: codefly.services.runtime.v0.TestPackageSelection
+	(*TestFileSelection)(nil),          // 32: codefly.services.runtime.v0.TestFileSelection
+	(*TestSuiteSelection)(nil),         // 33: codefly.services.runtime.v0.TestSuiteSelection
+	(*TestCaseSelection)(nil),          // 34: codefly.services.runtime.v0.TestCaseSelection
+	(*TestRequest)(nil),                // 35: codefly.services.runtime.v0.TestRequest
+	(*TestFormula)(nil),                // 36: codefly.services.runtime.v0.TestFormula
+	(*TestResponse)(nil),               // 37: codefly.services.runtime.v0.TestResponse
+	(*TestRun)(nil),                    // 38: codefly.services.runtime.v0.TestRun
+	(*TestRunResult)(nil),              // 39: codefly.services.runtime.v0.TestRunResult
+	(*TestCounts)(nil),                 // 40: codefly.services.runtime.v0.TestCounts
+	(*TestSuite)(nil),                  // 41: codefly.services.runtime.v0.TestSuite
+	(*TestCase)(nil),                   // 42: codefly.services.runtime.v0.TestCase
+	(*TestFailure)(nil),                // 43: codefly.services.runtime.v0.TestFailure
+	(*TestLocation)(nil),               // 44: codefly.services.runtime.v0.TestLocation
+	(*TestRetry)(nil),                  // 45: codefly.services.runtime.v0.TestRetry
+	(*TestCoverage)(nil),               // 46: codefly.services.runtime.v0.TestCoverage
+	(*TestFileCoverage)(nil),           // 47: codefly.services.runtime.v0.TestFileCoverage
+	(*TestTruncation)(nil),             // 48: codefly.services.runtime.v0.TestTruncation
+	(*LintStatus)(nil),                 // 49: codefly.services.runtime.v0.LintStatus
+	(*LintDiagnostic)(nil),             // 50: codefly.services.runtime.v0.LintDiagnostic
+	(*LintRequest)(nil),                // 51: codefly.services.runtime.v0.LintRequest
+	(*LintResponse)(nil),               // 52: codefly.services.runtime.v0.LintResponse
+	(*StopRequest)(nil),                // 53: codefly.services.runtime.v0.StopRequest
+	(*StopStatus)(nil),                 // 54: codefly.services.runtime.v0.StopStatus
+	(*StopResponse)(nil),               // 55: codefly.services.runtime.v0.StopResponse
+	(*DestroyRequest)(nil),             // 56: codefly.services.runtime.v0.DestroyRequest
+	(*DestroyStatus)(nil),              // 57: codefly.services.runtime.v0.DestroyStatus
+	(*DestroyResponse)(nil),            // 58: codefly.services.runtime.v0.DestroyResponse
+	(*InformationRequest)(nil),         // 59: codefly.services.runtime.v0.InformationRequest
+	(*DesiredState)(nil),               // 60: codefly.services.runtime.v0.DesiredState
+	(*InformationResponse)(nil),        // 61: codefly.services.runtime.v0.InformationResponse
+	nil,                                // 62: codefly.services.runtime.v0.InitRequest.OverridesEntry
+	nil,                                // 63: codefly.services.runtime.v0.StartRequest.OverridesEntry
+	nil,                                // 64: codefly.services.runtime.v0.TestFormula.EnvEntry
+	nil,                                // 65: codefly.services.runtime.v0.TestFormula.ProvisioningEntry
+	(*v0.Failure)(nil),                 // 66: codefly.base.v0.Failure
+	(*v0.ServiceIdentity)(nil),         // 67: codefly.base.v0.ServiceIdentity
+	(*v0.Environment)(nil),             // 68: codefly.base.v0.Environment
+	(*v0.Version)(nil),                 // 69: codefly.base.v0.Version
+	(*v0.Endpoint)(nil),                // 70: codefly.base.v0.Endpoint
+	(*v0.RuntimeContext)(nil),          // 71: codefly.base.v0.RuntimeContext
+	(*v0.Configuration)(nil),           // 72: codefly.base.v0.Configuration
+	(*v0.NetworkMapping)(nil),          // 73: codefly.base.v0.NetworkMapping
+	(*v0.Specs)(nil),                   // 74: codefly.base.v0.Specs
+	(*durationpb.Duration)(nil),        // 75: google.protobuf.Duration
+	(*v0.HealthReport)(nil),            // 76: codefly.base.v0.HealthReport
+	(*v01.Answer)(nil),                 // 77: codefly.services.agent.v0.Answer
+	(*v01.Question)(nil),               // 78: codefly.services.agent.v0.Question
 }
 var file_codefly_services_runtime_v0_runtime_proto_depIdxs = []int32{
 	2,   // 0: codefly.services.runtime.v0.LoadStatus.state:type_name -> codefly.services.runtime.v0.LoadStatus.Status
-	65,  // 1: codefly.services.runtime.v0.LoadStatus.failure:type_name -> codefly.base.v0.Failure
-	66,  // 2: codefly.services.runtime.v0.LoadRequest.identity:type_name -> codefly.base.v0.ServiceIdentity
-	67,  // 3: codefly.services.runtime.v0.LoadRequest.environment:type_name -> codefly.base.v0.Environment
-	68,  // 4: codefly.services.runtime.v0.LoadResponse.version:type_name -> codefly.base.v0.Version
+	66,  // 1: codefly.services.runtime.v0.LoadStatus.failure:type_name -> codefly.base.v0.Failure
+	67,  // 2: codefly.services.runtime.v0.LoadRequest.identity:type_name -> codefly.base.v0.ServiceIdentity
+	68,  // 3: codefly.services.runtime.v0.LoadRequest.environment:type_name -> codefly.base.v0.Environment
+	69,  // 4: codefly.services.runtime.v0.LoadResponse.version:type_name -> codefly.base.v0.Version
 	13,  // 5: codefly.services.runtime.v0.LoadResponse.status:type_name -> codefly.services.runtime.v0.LoadStatus
-	69,  // 6: codefly.services.runtime.v0.LoadResponse.endpoints:type_name -> codefly.base.v0.Endpoint
+	70,  // 6: codefly.services.runtime.v0.LoadResponse.endpoints:type_name -> codefly.base.v0.Endpoint
 	3,   // 7: codefly.services.runtime.v0.InitStatus.state:type_name -> codefly.services.runtime.v0.InitStatus.Status
-	65,  // 8: codefly.services.runtime.v0.InitStatus.failure:type_name -> codefly.base.v0.Failure
-	70,  // 9: codefly.services.runtime.v0.InitRequest.runtime_context:type_name -> codefly.base.v0.RuntimeContext
-	71,  // 10: codefly.services.runtime.v0.InitRequest.configuration:type_name -> codefly.base.v0.Configuration
-	72,  // 11: codefly.services.runtime.v0.InitRequest.proposed_network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	69,  // 12: codefly.services.runtime.v0.InitRequest.dependencies_endpoints:type_name -> codefly.base.v0.Endpoint
-	71,  // 13: codefly.services.runtime.v0.InitRequest.dependencies_configurations:type_name -> codefly.base.v0.Configuration
-	71,  // 14: codefly.services.runtime.v0.InitRequest.workspace_configurations:type_name -> codefly.base.v0.Configuration
-	61,  // 15: codefly.services.runtime.v0.InitRequest.overrides:type_name -> codefly.services.runtime.v0.InitRequest.OverridesEntry
-	72,  // 16: codefly.services.runtime.v0.InitRequest.dependencies_network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	66,  // 8: codefly.services.runtime.v0.InitStatus.failure:type_name -> codefly.base.v0.Failure
+	71,  // 9: codefly.services.runtime.v0.InitRequest.runtime_context:type_name -> codefly.base.v0.RuntimeContext
+	72,  // 10: codefly.services.runtime.v0.InitRequest.configuration:type_name -> codefly.base.v0.Configuration
+	73,  // 11: codefly.services.runtime.v0.InitRequest.proposed_network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	70,  // 12: codefly.services.runtime.v0.InitRequest.dependencies_endpoints:type_name -> codefly.base.v0.Endpoint
+	72,  // 13: codefly.services.runtime.v0.InitRequest.dependencies_configurations:type_name -> codefly.base.v0.Configuration
+	72,  // 14: codefly.services.runtime.v0.InitRequest.workspace_configurations:type_name -> codefly.base.v0.Configuration
+	62,  // 15: codefly.services.runtime.v0.InitRequest.overrides:type_name -> codefly.services.runtime.v0.InitRequest.OverridesEntry
+	73,  // 16: codefly.services.runtime.v0.InitRequest.dependencies_network_mappings:type_name -> codefly.base.v0.NetworkMapping
 	16,  // 17: codefly.services.runtime.v0.InitResponse.status:type_name -> codefly.services.runtime.v0.InitStatus
-	70,  // 18: codefly.services.runtime.v0.InitResponse.runtime_context:type_name -> codefly.base.v0.RuntimeContext
-	72,  // 19: codefly.services.runtime.v0.InitResponse.network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	71,  // 20: codefly.services.runtime.v0.InitResponse.runtime_configurations:type_name -> codefly.base.v0.Configuration
-	73,  // 21: codefly.services.runtime.v0.StartRequest.specs:type_name -> codefly.base.v0.Specs
-	72,  // 22: codefly.services.runtime.v0.StartRequest.dependencies_network_mappings:type_name -> codefly.base.v0.NetworkMapping
-	62,  // 23: codefly.services.runtime.v0.StartRequest.overrides:type_name -> codefly.services.runtime.v0.StartRequest.OverridesEntry
+	71,  // 18: codefly.services.runtime.v0.InitResponse.runtime_context:type_name -> codefly.base.v0.RuntimeContext
+	73,  // 19: codefly.services.runtime.v0.InitResponse.network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	72,  // 20: codefly.services.runtime.v0.InitResponse.runtime_configurations:type_name -> codefly.base.v0.Configuration
+	74,  // 21: codefly.services.runtime.v0.StartRequest.specs:type_name -> codefly.base.v0.Specs
+	73,  // 22: codefly.services.runtime.v0.StartRequest.dependencies_network_mappings:type_name -> codefly.base.v0.NetworkMapping
+	63,  // 23: codefly.services.runtime.v0.StartRequest.overrides:type_name -> codefly.services.runtime.v0.StartRequest.OverridesEntry
 	4,   // 24: codefly.services.runtime.v0.StartStatus.state:type_name -> codefly.services.runtime.v0.StartStatus.Status
-	65,  // 25: codefly.services.runtime.v0.StartStatus.failure:type_name -> codefly.base.v0.Failure
-	20,  // 26: codefly.services.runtime.v0.StartResponse.status:type_name -> codefly.services.runtime.v0.StartStatus
-	5,   // 27: codefly.services.runtime.v0.BuildStatus.state:type_name -> codefly.services.runtime.v0.BuildStatus.Status
-	65,  // 28: codefly.services.runtime.v0.BuildStatus.failure:type_name -> codefly.base.v0.Failure
-	24,  // 29: codefly.services.runtime.v0.ValidationSelection.package:type_name -> codefly.services.runtime.v0.ValidationPackageSelection
-	25,  // 30: codefly.services.runtime.v0.ValidationSelection.file:type_name -> codefly.services.runtime.v0.ValidationFileSelection
-	23,  // 31: codefly.services.runtime.v0.BuildRequest.selection:type_name -> codefly.services.runtime.v0.ValidationSelection
-	22,  // 32: codefly.services.runtime.v0.BuildResponse.status:type_name -> codefly.services.runtime.v0.BuildStatus
-	23,  // 33: codefly.services.runtime.v0.BuildResponse.requested_selection:type_name -> codefly.services.runtime.v0.ValidationSelection
-	6,   // 34: codefly.services.runtime.v0.TestStatus.state:type_name -> codefly.services.runtime.v0.TestStatus.Status
-	65,  // 35: codefly.services.runtime.v0.TestStatus.failure:type_name -> codefly.base.v0.Failure
-	30,  // 36: codefly.services.runtime.v0.TestSelection.package:type_name -> codefly.services.runtime.v0.TestPackageSelection
-	31,  // 37: codefly.services.runtime.v0.TestSelection.file:type_name -> codefly.services.runtime.v0.TestFileSelection
-	32,  // 38: codefly.services.runtime.v0.TestSelection.suite:type_name -> codefly.services.runtime.v0.TestSuiteSelection
-	33,  // 39: codefly.services.runtime.v0.TestSelection.test_case:type_name -> codefly.services.runtime.v0.TestCaseSelection
-	35,  // 40: codefly.services.runtime.v0.TestRequest.formula:type_name -> codefly.services.runtime.v0.TestFormula
-	29,  // 41: codefly.services.runtime.v0.TestRequest.selection:type_name -> codefly.services.runtime.v0.TestSelection
-	63,  // 42: codefly.services.runtime.v0.TestFormula.env:type_name -> codefly.services.runtime.v0.TestFormula.EnvEntry
-	64,  // 43: codefly.services.runtime.v0.TestFormula.provisioning:type_name -> codefly.services.runtime.v0.TestFormula.ProvisioningEntry
-	28,  // 44: codefly.services.runtime.v0.TestResponse.status:type_name -> codefly.services.runtime.v0.TestStatus
-	37,  // 45: codefly.services.runtime.v0.TestResponse.run:type_name -> codefly.services.runtime.v0.TestRun
-	38,  // 46: codefly.services.runtime.v0.TestResponse.result:type_name -> codefly.services.runtime.v0.TestRunResult
-	39,  // 47: codefly.services.runtime.v0.TestResponse.counts:type_name -> codefly.services.runtime.v0.TestCounts
-	40,  // 48: codefly.services.runtime.v0.TestResponse.suites:type_name -> codefly.services.runtime.v0.TestSuite
-	45,  // 49: codefly.services.runtime.v0.TestResponse.coverage:type_name -> codefly.services.runtime.v0.TestCoverage
-	47,  // 50: codefly.services.runtime.v0.TestResponse.truncation:type_name -> codefly.services.runtime.v0.TestTruncation
-	74,  // 51: codefly.services.runtime.v0.TestRun.duration:type_name -> google.protobuf.Duration
-	29,  // 52: codefly.services.runtime.v0.TestRun.requested_selection:type_name -> codefly.services.runtime.v0.TestSelection
-	7,   // 53: codefly.services.runtime.v0.TestRunResult.state:type_name -> codefly.services.runtime.v0.TestRunResult.State
-	65,  // 54: codefly.services.runtime.v0.TestRunResult.failure:type_name -> codefly.base.v0.Failure
-	74,  // 55: codefly.services.runtime.v0.TestSuite.duration:type_name -> google.protobuf.Duration
-	39,  // 56: codefly.services.runtime.v0.TestSuite.counts:type_name -> codefly.services.runtime.v0.TestCounts
-	40,  // 57: codefly.services.runtime.v0.TestSuite.suites:type_name -> codefly.services.runtime.v0.TestSuite
-	41,  // 58: codefly.services.runtime.v0.TestSuite.cases:type_name -> codefly.services.runtime.v0.TestCase
-	0,   // 59: codefly.services.runtime.v0.TestCase.state:type_name -> codefly.services.runtime.v0.TestCaseState
-	74,  // 60: codefly.services.runtime.v0.TestCase.duration:type_name -> google.protobuf.Duration
-	43,  // 61: codefly.services.runtime.v0.TestCase.location:type_name -> codefly.services.runtime.v0.TestLocation
-	42,  // 62: codefly.services.runtime.v0.TestCase.failure:type_name -> codefly.services.runtime.v0.TestFailure
-	44,  // 63: codefly.services.runtime.v0.TestCase.retries:type_name -> codefly.services.runtime.v0.TestRetry
-	1,   // 64: codefly.services.runtime.v0.TestFailure.kind:type_name -> codefly.services.runtime.v0.TestFailureKind
-	43,  // 65: codefly.services.runtime.v0.TestFailure.source_location:type_name -> codefly.services.runtime.v0.TestLocation
-	0,   // 66: codefly.services.runtime.v0.TestRetry.state:type_name -> codefly.services.runtime.v0.TestCaseState
-	74,  // 67: codefly.services.runtime.v0.TestRetry.duration:type_name -> google.protobuf.Duration
-	42,  // 68: codefly.services.runtime.v0.TestRetry.failure:type_name -> codefly.services.runtime.v0.TestFailure
-	46,  // 69: codefly.services.runtime.v0.TestCoverage.files:type_name -> codefly.services.runtime.v0.TestFileCoverage
-	8,   // 70: codefly.services.runtime.v0.LintStatus.state:type_name -> codefly.services.runtime.v0.LintStatus.Status
-	65,  // 71: codefly.services.runtime.v0.LintStatus.failure:type_name -> codefly.base.v0.Failure
-	9,   // 72: codefly.services.runtime.v0.LintDiagnostic.severity:type_name -> codefly.services.runtime.v0.LintDiagnostic.Severity
-	23,  // 73: codefly.services.runtime.v0.LintRequest.selection:type_name -> codefly.services.runtime.v0.ValidationSelection
-	48,  // 74: codefly.services.runtime.v0.LintResponse.status:type_name -> codefly.services.runtime.v0.LintStatus
-	49,  // 75: codefly.services.runtime.v0.LintResponse.diagnostics:type_name -> codefly.services.runtime.v0.LintDiagnostic
-	23,  // 76: codefly.services.runtime.v0.LintResponse.requested_selection:type_name -> codefly.services.runtime.v0.ValidationSelection
-	10,  // 77: codefly.services.runtime.v0.StopStatus.state:type_name -> codefly.services.runtime.v0.StopStatus.Status
-	65,  // 78: codefly.services.runtime.v0.StopStatus.failure:type_name -> codefly.base.v0.Failure
-	53,  // 79: codefly.services.runtime.v0.StopResponse.status:type_name -> codefly.services.runtime.v0.StopStatus
-	11,  // 80: codefly.services.runtime.v0.DestroyStatus.state:type_name -> codefly.services.runtime.v0.DestroyStatus.Status
-	65,  // 81: codefly.services.runtime.v0.DestroyStatus.failure:type_name -> codefly.base.v0.Failure
-	56,  // 82: codefly.services.runtime.v0.DestroyResponse.status:type_name -> codefly.services.runtime.v0.DestroyStatus
-	12,  // 83: codefly.services.runtime.v0.DesiredState.stage:type_name -> codefly.services.runtime.v0.DesiredState.Stage
-	59,  // 84: codefly.services.runtime.v0.InformationResponse.desired_state:type_name -> codefly.services.runtime.v0.DesiredState
-	13,  // 85: codefly.services.runtime.v0.InformationResponse.load_status:type_name -> codefly.services.runtime.v0.LoadStatus
-	16,  // 86: codefly.services.runtime.v0.InformationResponse.init_status:type_name -> codefly.services.runtime.v0.InitStatus
-	20,  // 87: codefly.services.runtime.v0.InformationResponse.start_status:type_name -> codefly.services.runtime.v0.StartStatus
-	53,  // 88: codefly.services.runtime.v0.InformationResponse.stop_status:type_name -> codefly.services.runtime.v0.StopStatus
-	56,  // 89: codefly.services.runtime.v0.InformationResponse.destroy_status:type_name -> codefly.services.runtime.v0.DestroyStatus
-	28,  // 90: codefly.services.runtime.v0.InformationResponse.test_status:type_name -> codefly.services.runtime.v0.TestStatus
-	22,  // 91: codefly.services.runtime.v0.InformationResponse.build_status:type_name -> codefly.services.runtime.v0.BuildStatus
-	48,  // 92: codefly.services.runtime.v0.InformationResponse.lint_status:type_name -> codefly.services.runtime.v0.LintStatus
-	75,  // 93: codefly.services.runtime.v0.InformationResponse.health:type_name -> codefly.base.v0.HealthReport
-	14,  // 94: codefly.services.runtime.v0.Runtime.Load:input_type -> codefly.services.runtime.v0.LoadRequest
-	17,  // 95: codefly.services.runtime.v0.Runtime.Init:input_type -> codefly.services.runtime.v0.InitRequest
-	19,  // 96: codefly.services.runtime.v0.Runtime.Start:input_type -> codefly.services.runtime.v0.StartRequest
-	52,  // 97: codefly.services.runtime.v0.Runtime.Stop:input_type -> codefly.services.runtime.v0.StopRequest
-	55,  // 98: codefly.services.runtime.v0.Runtime.Destroy:input_type -> codefly.services.runtime.v0.DestroyRequest
-	26,  // 99: codefly.services.runtime.v0.Runtime.Build:input_type -> codefly.services.runtime.v0.BuildRequest
-	34,  // 100: codefly.services.runtime.v0.Runtime.Test:input_type -> codefly.services.runtime.v0.TestRequest
-	50,  // 101: codefly.services.runtime.v0.Runtime.Lint:input_type -> codefly.services.runtime.v0.LintRequest
-	58,  // 102: codefly.services.runtime.v0.Runtime.Information:input_type -> codefly.services.runtime.v0.InformationRequest
-	76,  // 103: codefly.services.runtime.v0.Runtime.Communicate:input_type -> codefly.services.agent.v0.Answer
-	15,  // 104: codefly.services.runtime.v0.Runtime.Load:output_type -> codefly.services.runtime.v0.LoadResponse
-	18,  // 105: codefly.services.runtime.v0.Runtime.Init:output_type -> codefly.services.runtime.v0.InitResponse
-	21,  // 106: codefly.services.runtime.v0.Runtime.Start:output_type -> codefly.services.runtime.v0.StartResponse
-	54,  // 107: codefly.services.runtime.v0.Runtime.Stop:output_type -> codefly.services.runtime.v0.StopResponse
-	57,  // 108: codefly.services.runtime.v0.Runtime.Destroy:output_type -> codefly.services.runtime.v0.DestroyResponse
-	27,  // 109: codefly.services.runtime.v0.Runtime.Build:output_type -> codefly.services.runtime.v0.BuildResponse
-	36,  // 110: codefly.services.runtime.v0.Runtime.Test:output_type -> codefly.services.runtime.v0.TestResponse
-	51,  // 111: codefly.services.runtime.v0.Runtime.Lint:output_type -> codefly.services.runtime.v0.LintResponse
-	60,  // 112: codefly.services.runtime.v0.Runtime.Information:output_type -> codefly.services.runtime.v0.InformationResponse
-	77,  // 113: codefly.services.runtime.v0.Runtime.Communicate:output_type -> codefly.services.agent.v0.Question
-	104, // [104:114] is the sub-list for method output_type
-	94,  // [94:104] is the sub-list for method input_type
-	94,  // [94:94] is the sub-list for extension type_name
-	94,  // [94:94] is the sub-list for extension extendee
-	0,   // [0:94] is the sub-list for field type_name
+	66,  // 25: codefly.services.runtime.v0.StartStatus.failure:type_name -> codefly.base.v0.Failure
+	22,  // 26: codefly.services.runtime.v0.StartStatus.started_artifact:type_name -> codefly.services.runtime.v0.StartedArtifact
+	20,  // 27: codefly.services.runtime.v0.StartResponse.status:type_name -> codefly.services.runtime.v0.StartStatus
+	5,   // 28: codefly.services.runtime.v0.BuildStatus.state:type_name -> codefly.services.runtime.v0.BuildStatus.Status
+	66,  // 29: codefly.services.runtime.v0.BuildStatus.failure:type_name -> codefly.base.v0.Failure
+	25,  // 30: codefly.services.runtime.v0.ValidationSelection.package:type_name -> codefly.services.runtime.v0.ValidationPackageSelection
+	26,  // 31: codefly.services.runtime.v0.ValidationSelection.file:type_name -> codefly.services.runtime.v0.ValidationFileSelection
+	24,  // 32: codefly.services.runtime.v0.BuildRequest.selection:type_name -> codefly.services.runtime.v0.ValidationSelection
+	23,  // 33: codefly.services.runtime.v0.BuildResponse.status:type_name -> codefly.services.runtime.v0.BuildStatus
+	24,  // 34: codefly.services.runtime.v0.BuildResponse.requested_selection:type_name -> codefly.services.runtime.v0.ValidationSelection
+	6,   // 35: codefly.services.runtime.v0.TestStatus.state:type_name -> codefly.services.runtime.v0.TestStatus.Status
+	66,  // 36: codefly.services.runtime.v0.TestStatus.failure:type_name -> codefly.base.v0.Failure
+	31,  // 37: codefly.services.runtime.v0.TestSelection.package:type_name -> codefly.services.runtime.v0.TestPackageSelection
+	32,  // 38: codefly.services.runtime.v0.TestSelection.file:type_name -> codefly.services.runtime.v0.TestFileSelection
+	33,  // 39: codefly.services.runtime.v0.TestSelection.suite:type_name -> codefly.services.runtime.v0.TestSuiteSelection
+	34,  // 40: codefly.services.runtime.v0.TestSelection.test_case:type_name -> codefly.services.runtime.v0.TestCaseSelection
+	36,  // 41: codefly.services.runtime.v0.TestRequest.formula:type_name -> codefly.services.runtime.v0.TestFormula
+	30,  // 42: codefly.services.runtime.v0.TestRequest.selection:type_name -> codefly.services.runtime.v0.TestSelection
+	64,  // 43: codefly.services.runtime.v0.TestFormula.env:type_name -> codefly.services.runtime.v0.TestFormula.EnvEntry
+	65,  // 44: codefly.services.runtime.v0.TestFormula.provisioning:type_name -> codefly.services.runtime.v0.TestFormula.ProvisioningEntry
+	29,  // 45: codefly.services.runtime.v0.TestResponse.status:type_name -> codefly.services.runtime.v0.TestStatus
+	38,  // 46: codefly.services.runtime.v0.TestResponse.run:type_name -> codefly.services.runtime.v0.TestRun
+	39,  // 47: codefly.services.runtime.v0.TestResponse.result:type_name -> codefly.services.runtime.v0.TestRunResult
+	40,  // 48: codefly.services.runtime.v0.TestResponse.counts:type_name -> codefly.services.runtime.v0.TestCounts
+	41,  // 49: codefly.services.runtime.v0.TestResponse.suites:type_name -> codefly.services.runtime.v0.TestSuite
+	46,  // 50: codefly.services.runtime.v0.TestResponse.coverage:type_name -> codefly.services.runtime.v0.TestCoverage
+	48,  // 51: codefly.services.runtime.v0.TestResponse.truncation:type_name -> codefly.services.runtime.v0.TestTruncation
+	75,  // 52: codefly.services.runtime.v0.TestRun.duration:type_name -> google.protobuf.Duration
+	30,  // 53: codefly.services.runtime.v0.TestRun.requested_selection:type_name -> codefly.services.runtime.v0.TestSelection
+	7,   // 54: codefly.services.runtime.v0.TestRunResult.state:type_name -> codefly.services.runtime.v0.TestRunResult.State
+	66,  // 55: codefly.services.runtime.v0.TestRunResult.failure:type_name -> codefly.base.v0.Failure
+	75,  // 56: codefly.services.runtime.v0.TestSuite.duration:type_name -> google.protobuf.Duration
+	40,  // 57: codefly.services.runtime.v0.TestSuite.counts:type_name -> codefly.services.runtime.v0.TestCounts
+	41,  // 58: codefly.services.runtime.v0.TestSuite.suites:type_name -> codefly.services.runtime.v0.TestSuite
+	42,  // 59: codefly.services.runtime.v0.TestSuite.cases:type_name -> codefly.services.runtime.v0.TestCase
+	0,   // 60: codefly.services.runtime.v0.TestCase.state:type_name -> codefly.services.runtime.v0.TestCaseState
+	75,  // 61: codefly.services.runtime.v0.TestCase.duration:type_name -> google.protobuf.Duration
+	44,  // 62: codefly.services.runtime.v0.TestCase.location:type_name -> codefly.services.runtime.v0.TestLocation
+	43,  // 63: codefly.services.runtime.v0.TestCase.failure:type_name -> codefly.services.runtime.v0.TestFailure
+	45,  // 64: codefly.services.runtime.v0.TestCase.retries:type_name -> codefly.services.runtime.v0.TestRetry
+	1,   // 65: codefly.services.runtime.v0.TestFailure.kind:type_name -> codefly.services.runtime.v0.TestFailureKind
+	44,  // 66: codefly.services.runtime.v0.TestFailure.source_location:type_name -> codefly.services.runtime.v0.TestLocation
+	0,   // 67: codefly.services.runtime.v0.TestRetry.state:type_name -> codefly.services.runtime.v0.TestCaseState
+	75,  // 68: codefly.services.runtime.v0.TestRetry.duration:type_name -> google.protobuf.Duration
+	43,  // 69: codefly.services.runtime.v0.TestRetry.failure:type_name -> codefly.services.runtime.v0.TestFailure
+	47,  // 70: codefly.services.runtime.v0.TestCoverage.files:type_name -> codefly.services.runtime.v0.TestFileCoverage
+	8,   // 71: codefly.services.runtime.v0.LintStatus.state:type_name -> codefly.services.runtime.v0.LintStatus.Status
+	66,  // 72: codefly.services.runtime.v0.LintStatus.failure:type_name -> codefly.base.v0.Failure
+	9,   // 73: codefly.services.runtime.v0.LintDiagnostic.severity:type_name -> codefly.services.runtime.v0.LintDiagnostic.Severity
+	24,  // 74: codefly.services.runtime.v0.LintRequest.selection:type_name -> codefly.services.runtime.v0.ValidationSelection
+	49,  // 75: codefly.services.runtime.v0.LintResponse.status:type_name -> codefly.services.runtime.v0.LintStatus
+	50,  // 76: codefly.services.runtime.v0.LintResponse.diagnostics:type_name -> codefly.services.runtime.v0.LintDiagnostic
+	24,  // 77: codefly.services.runtime.v0.LintResponse.requested_selection:type_name -> codefly.services.runtime.v0.ValidationSelection
+	10,  // 78: codefly.services.runtime.v0.StopStatus.state:type_name -> codefly.services.runtime.v0.StopStatus.Status
+	66,  // 79: codefly.services.runtime.v0.StopStatus.failure:type_name -> codefly.base.v0.Failure
+	54,  // 80: codefly.services.runtime.v0.StopResponse.status:type_name -> codefly.services.runtime.v0.StopStatus
+	11,  // 81: codefly.services.runtime.v0.DestroyStatus.state:type_name -> codefly.services.runtime.v0.DestroyStatus.Status
+	66,  // 82: codefly.services.runtime.v0.DestroyStatus.failure:type_name -> codefly.base.v0.Failure
+	57,  // 83: codefly.services.runtime.v0.DestroyResponse.status:type_name -> codefly.services.runtime.v0.DestroyStatus
+	12,  // 84: codefly.services.runtime.v0.DesiredState.stage:type_name -> codefly.services.runtime.v0.DesiredState.Stage
+	60,  // 85: codefly.services.runtime.v0.InformationResponse.desired_state:type_name -> codefly.services.runtime.v0.DesiredState
+	13,  // 86: codefly.services.runtime.v0.InformationResponse.load_status:type_name -> codefly.services.runtime.v0.LoadStatus
+	16,  // 87: codefly.services.runtime.v0.InformationResponse.init_status:type_name -> codefly.services.runtime.v0.InitStatus
+	20,  // 88: codefly.services.runtime.v0.InformationResponse.start_status:type_name -> codefly.services.runtime.v0.StartStatus
+	54,  // 89: codefly.services.runtime.v0.InformationResponse.stop_status:type_name -> codefly.services.runtime.v0.StopStatus
+	57,  // 90: codefly.services.runtime.v0.InformationResponse.destroy_status:type_name -> codefly.services.runtime.v0.DestroyStatus
+	29,  // 91: codefly.services.runtime.v0.InformationResponse.test_status:type_name -> codefly.services.runtime.v0.TestStatus
+	23,  // 92: codefly.services.runtime.v0.InformationResponse.build_status:type_name -> codefly.services.runtime.v0.BuildStatus
+	49,  // 93: codefly.services.runtime.v0.InformationResponse.lint_status:type_name -> codefly.services.runtime.v0.LintStatus
+	76,  // 94: codefly.services.runtime.v0.InformationResponse.health:type_name -> codefly.base.v0.HealthReport
+	14,  // 95: codefly.services.runtime.v0.Runtime.Load:input_type -> codefly.services.runtime.v0.LoadRequest
+	17,  // 96: codefly.services.runtime.v0.Runtime.Init:input_type -> codefly.services.runtime.v0.InitRequest
+	19,  // 97: codefly.services.runtime.v0.Runtime.Start:input_type -> codefly.services.runtime.v0.StartRequest
+	53,  // 98: codefly.services.runtime.v0.Runtime.Stop:input_type -> codefly.services.runtime.v0.StopRequest
+	56,  // 99: codefly.services.runtime.v0.Runtime.Destroy:input_type -> codefly.services.runtime.v0.DestroyRequest
+	27,  // 100: codefly.services.runtime.v0.Runtime.Build:input_type -> codefly.services.runtime.v0.BuildRequest
+	35,  // 101: codefly.services.runtime.v0.Runtime.Test:input_type -> codefly.services.runtime.v0.TestRequest
+	51,  // 102: codefly.services.runtime.v0.Runtime.Lint:input_type -> codefly.services.runtime.v0.LintRequest
+	59,  // 103: codefly.services.runtime.v0.Runtime.Information:input_type -> codefly.services.runtime.v0.InformationRequest
+	77,  // 104: codefly.services.runtime.v0.Runtime.Communicate:input_type -> codefly.services.agent.v0.Answer
+	15,  // 105: codefly.services.runtime.v0.Runtime.Load:output_type -> codefly.services.runtime.v0.LoadResponse
+	18,  // 106: codefly.services.runtime.v0.Runtime.Init:output_type -> codefly.services.runtime.v0.InitResponse
+	21,  // 107: codefly.services.runtime.v0.Runtime.Start:output_type -> codefly.services.runtime.v0.StartResponse
+	55,  // 108: codefly.services.runtime.v0.Runtime.Stop:output_type -> codefly.services.runtime.v0.StopResponse
+	58,  // 109: codefly.services.runtime.v0.Runtime.Destroy:output_type -> codefly.services.runtime.v0.DestroyResponse
+	28,  // 110: codefly.services.runtime.v0.Runtime.Build:output_type -> codefly.services.runtime.v0.BuildResponse
+	37,  // 111: codefly.services.runtime.v0.Runtime.Test:output_type -> codefly.services.runtime.v0.TestResponse
+	52,  // 112: codefly.services.runtime.v0.Runtime.Lint:output_type -> codefly.services.runtime.v0.LintResponse
+	61,  // 113: codefly.services.runtime.v0.Runtime.Information:output_type -> codefly.services.runtime.v0.InformationResponse
+	78,  // 114: codefly.services.runtime.v0.Runtime.Communicate:output_type -> codefly.services.agent.v0.Question
+	105, // [105:115] is the sub-list for method output_type
+	95,  // [95:105] is the sub-list for method input_type
+	95,  // [95:95] is the sub-list for extension type_name
+	95,  // [95:95] is the sub-list for extension extendee
+	0,   // [0:95] is the sub-list for field type_name
 }
 
 func init() { file_codefly_services_runtime_v0_runtime_proto_init() }
@@ -5090,11 +5182,11 @@ func file_codefly_services_runtime_v0_runtime_proto_init() {
 	if File_codefly_services_runtime_v0_runtime_proto != nil {
 		return
 	}
-	file_codefly_services_runtime_v0_runtime_proto_msgTypes[10].OneofWrappers = []any{
+	file_codefly_services_runtime_v0_runtime_proto_msgTypes[11].OneofWrappers = []any{
 		(*ValidationSelection_Package)(nil),
 		(*ValidationSelection_File)(nil),
 	}
-	file_codefly_services_runtime_v0_runtime_proto_msgTypes[16].OneofWrappers = []any{
+	file_codefly_services_runtime_v0_runtime_proto_msgTypes[17].OneofWrappers = []any{
 		(*TestSelection_Package)(nil),
 		(*TestSelection_File)(nil),
 		(*TestSelection_Suite)(nil),
@@ -5106,7 +5198,7 @@ func file_codefly_services_runtime_v0_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codefly_services_runtime_v0_runtime_proto_rawDesc), len(file_codefly_services_runtime_v0_runtime_proto_rawDesc)),
 			NumEnums:      13,
-			NumMessages:   52,
+			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
