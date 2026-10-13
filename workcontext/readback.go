@@ -32,7 +32,7 @@ import (
 // is not a presentation: the issuer is reading its own signed statement back,
 // on the holder's behalf, to answer a question, and the answer authorizes
 // nothing. That is held by the type. A ReadBackCapability is not a *Verified
-// and cannot become one, so it cannot be passed to Child or Grant to derive a
+// and cannot become one, so it cannot be passed to Child, Grant or Reissue to derive a
 // capability, nor to Recheck — the only things core lets a verified capability
 // do. What the caller does with the answer is the caller's: an issuer that
 // performed the capability's effect itself on the strength of a read-back

@@ -28,6 +28,63 @@ unchanged across every hop. A hop is a new *session*, never a mutation:
 | `Authority.Start` | the first session of a task | the owner acts directly, so the actor chain is empty |
 | `Authority.Child` | one delegation hop | the hop's scopes attenuate the parent's effective scopes, and the child expires no later than the parent |
 | `Authority.Grant` | the capability an approval justifies | the one hop that may hold authority the previous hop did not |
+| `Authority.Reissue` | the same authority re-pointed at another audience | **no hop**: the holder is the principal the capability already names, and `parent_session_id` is the parent's session |
+
+### A re-issue adds no hop, and that is why it needs one
+
+`Child` and `Grant` hand authority to a principal, and each appends a hop that
+says so. A re-issue hands it to nobody: the holder is the principal the
+capability already names, and only the callee and the reach change. Expressing
+that as a hop made the chain record a delegation that never happened and grew it
+by a link on every exchange — and because core writes `parent_session_id` only
+when it appends a hop, an issuer had no way to re-issue and still say which
+session the result descends from.
+
+Issuers answered by minting the chain afresh from the owner. That drops the link
+to the presented parent altogether: the result's `parent_session_id` names an
+internal capability the caller never saw, or nothing at all when the chain is
+empty, because a `Start` carries no parent link. A callee that pairs the
+capability it is handed with the session it admitted then has nothing to pair on,
+and refusing is its only safe answer
+([module-saas-starter#1108](https://github.com/codefly-dev/module-saas-starter/issues/1108)).
+
+`Reissue` keeps everything that says whose authority this is and how far it
+reaches — tenant, owner and its kind, agent, organization, task, authorization
+revision, attribution, workspace, project, the whole actor chain with every hop's
+epoch and execution, the seal and the operation binding — and moves only the
+audience, key, nonce, window, session, lineage and, when asked, the effective
+scopes. `ReissueInput.Scopes` attenuate the final hop's granted scopes, or the
+owner's authority when no hop has narrowed them; empty keeps what the parent
+holds. Nothing is re-read and re-stamped: the inherited seal is HELD against live
+state through the verifier's own check, so a parent that would not verify right
+now re-issues nothing.
+
+`ReissueInput.InstallationID` is the one piece of issuer state it does move,
+and only because an issuer may hold authority THROUGH an audience's
+installation: a person's authority to call a module is held through the
+organization's installation of that module, so a capability addressed to it is
+sealed to that installation and an uninstall revokes it. A re-issue for another
+audience has to follow, or uninstalling the new callee would revoke nothing.
+That is not the restamping `carryForwardSeal` refuses: the parent's seal is held
+against live state **first**, only the named installation's own revision is then
+read, the epoch and the owner's execution stay the parent's because the owner is
+the same principal, and the id is the issuer's — resolved from the audience,
+never supplied by the caller, which like `Execution` rests on the issuer. A
+capability that exercises an operation binding may not move at all, because a
+binding is granted within an installation and carrying one across would mint a
+capability every verifier refuses.
+
+It follows that a re-issue attests no execution and names no new operation
+binding. Both belong to a principal and this adds none — an issuer that needs a
+different principal, build or binding is delegating, and `Child` is the mint for
+that. A grant capability re-issues for no audience at all: it authorizes one call
+at one callee, and re-pointing it would spend an approval somewhere nobody
+approved.
+
+A re-issue never extends a window either, since `derive` clamps to the parent's
+expiry. An issuer that must outlive the presented capability — a renewal of
+long-running delegated work — is not deriving from it and mints the chain afresh
+from the owner, which is why that path keeps no lineage and should not claim one.
 
 ### The session is the issuer's to assign
 
@@ -35,6 +92,8 @@ unchanged across every hop. A hop is a new *session*, never a mutation:
 session a capability opens to a session it authenticated — the session of the
 access token the caller presented. Empty mints a fresh one, as before; a child
 may not reuse its parent's session, because a hop is a new session.
+`Reissue` takes no such field: its session is always fresh, and the lineage in
+`parent_session_id` is what a holder of the parent pairs on instead.
 
 It exists for a party that holds *two* credentials and must tell whether one
 was minted under the other: an access token confined to one consumer, and a
@@ -603,7 +662,8 @@ strength does not exist:
 - **The result type carries which question was answered.** `Authenticate`
   returns `*Authenticated`, never `*Verified`. `policy.PrincipalFromWorkContext`
   takes a `*Verified`, so an authenticated capability cannot become a
-  `Principal` by accident; `Authority.Child` and `Authority.Grant` take one too,
+  `Principal` by accident; `Authority.Child`, `Authority.Grant` and
+  `Authority.Reissue` take one too,
   so it cannot be exchanged for a derived capability — which is right beyond
   types, since deriving holds the parent's inherited seal against live state and
   that is the issuer's to answer. There is no conversion in either direction and

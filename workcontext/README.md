@@ -148,7 +148,8 @@ still required, because no entrypoint skips the seal comparison or assumes the
 authorization revision — it is per tenant, and an earlier draft's stated number
 silently stopped enforcing revocation for every tenant but one; and the result
 is `*Authenticated`, which
-`policy.PrincipalFromWorkContext`, `Authority.Child` and `Authority.Grant` will
+`policy.PrincipalFromWorkContext`, `Authority.Child`, `Authority.Grant` and
+`Authority.Reissue` will
 not take. `RunAuthenticator` is stricter than `Run`, not laxer: identical
 outcomes everywhere except the fixtures marked `NeedsIssuer`, which must be
 refused — the one assertion a downgraded authenticator fails.
@@ -188,7 +189,8 @@ way `Authenticate` is, so it is not a third strength:
   which it could consume, read a revision, resolve a grant or compare a seal —
   held by reflection. The result, `*Inspected`, carries only what a hop routes
   on (audience, tenant, installation, task, session; every one a bare string)
-  and nothing takes it: not `policy`, not `Authority.Child`, not `Grant`. A
+  and nothing takes it: not `policy`, not `Authority.Child`, not `Grant`, not
+  `Reissue`. A
   hop routes; it never acts. And nothing in it is for stamping onto the
   forwarded request — the callee verifies the token itself.
 
@@ -246,7 +248,7 @@ Two more entry points exist, and neither is a strength at all:
   yet consumed for its consumer. It is on `Authority` because only the issuer
   holds the private key an `Authority` needs; a consumer cannot reach it. The
   result is a `*ReadBackCapability`, not a `*Verified`, so it can never be
-  derived from (`Child`, `Grant`) or rechecked as a presented credential — an
+  derived from (`Child`, `Grant`, `Reissue`) or rechecked as a presented credential — an
   AST test keeps it so. That is why it is not a replay hole: single-use bounds
   presentations, and a read-back presents nothing and authorizes nothing.
 

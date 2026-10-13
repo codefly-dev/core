@@ -279,6 +279,185 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 	return a.seal(wc)
 }
 
+// ReissueInput describes a re-issue: the same authority, re-pointed at another
+// audience, in a new session under the parent's.
+type ReissueInput struct {
+	// Audience is required: the service allowed to consume the re-issued
+	// capability. It may be the parent's own, which is a window refresh within
+	// the parent's remaining life rather than a move to another callee.
+	Audience string
+
+	// Scopes attenuate the capability's EFFECTIVE authority — the final hop's
+	// granted scopes, or the owner's when no hop has narrowed them. Empty keeps
+	// what the parent holds. They must attenuate, exactly as a child hop's must:
+	// a re-issue narrows authority or leaves it alone, never the reverse.
+	Scopes []*basev0.WorkScopeV1
+
+	// ReplayPolicy is "" for idempotent.
+	ReplayPolicy string
+
+	// TTL is required; clamped to the parent's expiry.
+	TTL time.Duration
+
+	// InstallationID moves the installation the capability is sealed to. Empty
+	// keeps the parent's, which is what a re-point within one installation is.
+	//
+	// It exists because an issuer may hold authority THROUGH an audience's
+	// installation: a person's authority to call a module is held through the
+	// organization's installation of that module, so the capability addressed to
+	// it is sealed to that installation, and an uninstall revokes it. A re-issue
+	// for another audience therefore has to move, or an uninstall of the new
+	// callee would revoke nothing and an organization that never installed it
+	// would be reachable anyway.
+	//
+	// It is not the restamping carryForwardSeal refuses, and the difference is
+	// exact. The parent's seal is held against live state FIRST, so a parent
+	// whose installation revision, epoch, hop execution or binding has moved
+	// re-issues nothing. Only then is the named installation's own revision read
+	// — the epoch and the owner's execution stay the parent's, because the owner
+	// is the same principal — and the id is the ISSUER's, resolved from the
+	// audience it is re-issuing for, never a value the caller supplied. Like
+	// Execution, core cannot see where the issuer got it, so that rests on the
+	// issuer.
+	//
+	// A capability that exercises an operation binding may not move: a binding is
+	// granted WITHIN an installation, so carrying one across would mint a
+	// capability every verifier refuses. That is refused here instead.
+	InstallationID string
+}
+
+// Reissue re-points a verified capability at another audience WITHOUT adding an
+// actor hop: the same owner, task, actor chain, revision and seal, in a new
+// session whose parent_session_id is the parent's.
+//
+// # Why this is not Child
+//
+// Child and Grant are the two derivations that hand authority to a principal,
+// and each appends a hop that says so. A re-issue hands authority to nobody: the
+// holder is the principal the capability already names, and all that changes is
+// which callee may consume it and how far it reaches. Expressing that as a hop
+// made the chain record a delegation that never happened, grew the chain by one
+// link on every exchange, and — because core writes parent_session_id only when
+// it appends a hop — left an issuer with no way to re-issue and still say which
+// session the result descends from. Issuers answered by minting the chain afresh
+// from the owner, which drops the link to the presented parent altogether: the
+// result's parent_session_id named an internal capability the caller never saw,
+// or nothing at all when the chain was empty. A callee that pairs the capability
+// it is handed with the session it admitted then has nothing to pair on, and
+// refusing is its only safe answer (module-saas-starter#1108).
+//
+// # What it keeps, and why keeping it is the security content
+//
+// Everything that says whose authority this is and how far it reaches is the
+// parent's: tenant, owner and its kind, agent, organization, task,
+// authorization revision, attribution, workspace, project, the whole actor
+// chain with every hop's epoch and execution, the seal, and the operation
+// binding. Nothing is re-read and re-stamped, because a seal is compared for
+// equality and a change to it is a revocation — see carryForwardSeal. The
+// inherited state is instead HELD against live state through the same check the
+// verifier makes, so a parent that would not verify right now re-issues
+// nothing.
+//
+// It follows that a re-issue attests no execution and names no new operation
+// binding. Both belong to a principal, and this adds none: the hops carry their
+// own executions already, carryForwardSeal holds each against the build the
+// issuer approves for that principal, and the carried binding is held against
+// the principal that exercises the capability. An issuer that needs a different
+// principal, build or binding is delegating, and Child is the mint for that.
+func (a *Authority) Reissue(ctx context.Context, parent *Verified, in ReissueInput) (string, *basev0.WorkContextV1, error) {
+	if parent == nil {
+		return "", nil, fmt.Errorf("%w: reissue needs a verified parent", ErrInvalid)
+	}
+	if parent.claims().GetGrantHop() != nil {
+		return "", nil, fmt.Errorf("%w: a grant capability authorizes one call and is re-issued for no other audience", ErrInvalid)
+	}
+	if in.Audience == "" {
+		return "", nil, fmt.Errorf("%w: reissue needs the audience allowed to consume it", ErrInvalid)
+	}
+	if len(in.Scopes) > 0 && !ScopesAttenuate(in.Scopes, parent.EffectiveScopes()) {
+		return "", nil, fmt.Errorf("%w: reissued capability widens authority beyond its parent", ErrInvalid)
+	}
+	if err := a.checkTTL("reissue", in.TTL); err != nil {
+		return "", nil, err
+	}
+	if err := a.requireTrustedParent(parent); err != nil {
+		return "", nil, err
+	}
+	if err := a.carryForwardSeal(ctx, parent.claims()); err != nil {
+		return "", nil, err
+	}
+	replay := in.ReplayPolicy
+	if replay == "" {
+		replay = ReplayIdempotent
+	}
+	revision, err := a.carryForwardRevision(ctx, parent)
+	if err != nil {
+		return "", nil, err
+	}
+	// Always a fresh session, never one the issuer names. A re-issue's session
+	// is the one field that cannot be the parent's — core refuses a derived
+	// capability that reuses it — and the lineage the parent_session_id carries
+	// is what takes its place: a party holding the parent pairs on the link
+	// rather than on equality, and a fresh session cannot be borrowed from
+	// another parent.
+	wc, err := a.derive(parent, in.Audience, replay, a.now().Add(in.TTL), revision, "")
+	if err != nil {
+		return "", nil, err
+	}
+	if len(in.Scopes) > 0 {
+		// The EFFECTIVE authority, which is the final hop's when there is one.
+		// Narrowing authority_scopes under a hop that still holds the wider set
+		// would attenuate nothing: a verifier reads the last hop.
+		if hops := wc.GetActorChain(); len(hops) > 0 {
+			hops[len(hops)-1].GrantedScopes = cloneScopes(in.Scopes)
+		} else {
+			wc.AuthorityScopes = cloneScopes(in.Scopes)
+		}
+	}
+	if err := a.reseal(ctx, wc, in.InstallationID); err != nil {
+		return "", nil, err
+	}
+	return a.seal(wc)
+}
+
+// reseal moves a re-issued capability onto the installation the issuer resolved
+// for the audience it is now addressed to. It is a no-op for an empty id or the
+// one the parent already carries.
+//
+// Only the installation and its own revision move. The epoch and the owner's
+// execution are the parent's, held against live state by carryForwardSeal
+// before this runs, because the owner is the same principal running the same
+// build — nothing about who is acting changed.
+func (a *Authority) reseal(ctx context.Context, wc *basev0.WorkContextV1, installationID string) error {
+	if installationID == "" || installationID == wc.GetSeal().GetInstallationId() {
+		return nil
+	}
+	if binding := wc.GetOperationBinding(); binding != nil {
+		return fmt.Errorf("%w: this capability exercises binding %q, which is granted within installation %q, and a re-issue onto %q would carry it across installations; a binding does not travel, so re-issue within the installation or not at all",
+			ErrInvalid, binding.GetBindingId(), wc.GetSeal().GetInstallationId(), installationID)
+	}
+	if a.Seals == nil {
+		return fmt.Errorf("work context: authority has no seal source")
+	}
+	owner := wc.GetOwnerPrincipalId()
+	live, err := a.Seals.Seal(ctx, owner, installationID)
+	if err != nil {
+		if errors.Is(err, ErrNoSeal) {
+			return fmt.Errorf("%w: installation %q, which principal %q does not hold", ErrRevoked, installationID, owner)
+		}
+		return fmt.Errorf("work context: seal for principal %q installation %q: %w", owner, installationID, err)
+	}
+	// A source answering for a different installation than the one asked about
+	// would seal the capability to something nobody named, so it is checked
+	// rather than assumed — the same check carryForwardSeal makes.
+	if live.InstallationID != installationID {
+		return fmt.Errorf("work context: seal source answered for installation %q, not %q", live.InstallationID, installationID)
+	}
+	wc.Seal.InstallationId = live.InstallationID
+	wc.Seal.InstallationRevision = live.InstallationRevision
+	return nil
+}
+
 // deriveSeal prepares a derived capability's seal: it holds the INHERITED seal
 // against live state and refuses the derivation if any of it has moved, stamps
 // the new hop's own epoch, and resolves a replacement operation binding when

@@ -145,7 +145,7 @@ func TestReadBack_NeedsWhatItChecksAgainst(t *testing.T) {
 
 // A read-back answers a question; it is not a credential. There is no exported
 // declaration taking a ReadBackCapability and returning a *Verified, so one can
-// never be derived from (Child, Grant) or rechecked (Recheck) as a capability
+// never be derived from (Child, Grant, Reissue) or rechecked (Recheck) as a capability
 // somebody presented. The same guard as the Authenticated one, for the same
 // reason: one such function would be the silent upgrade the type exists to
 // make unreachable.
