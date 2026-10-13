@@ -1,6 +1,12 @@
-# REJECTED. A group declaring no order. An absent order would decode as zero and
-# be signed as the product's choice; every scalar of the group is declared, zero
-# included, as the block's own order is.
+# ACCEPTED, DecisionApply. The valid document at the next generation, HEADLESS,
+# organised under a group: the presentation group the composing product put
+# this solution in, which the host shows in its navigation — after its own
+# entitlement filter — and in its catalogue, where a headless solution is
+# organised too. That is why the group is a block of the document and not of
+# the frontend. It is GENERATED, projected by the renderer from the workspace's
+# solution groups; an author writes it nowhere in a solution. It grants nothing
+# and installs nothing. The block is OPTIONAL: every other presence fixture is
+# a document without it; one that carries it is held to the group rules.
 schema: codefly/solution-host-binding/v1
 kind: solution
 binding: alpha-region-a-01
@@ -64,58 +70,7 @@ endpoints:
     api: http
     visibility: public
     exposure: public
-frontend:
-  title: Alpha
-  order: 10
-  exposed_module: ./Page
-  host_contract: 1
-  dashboard:
-    events:
-      - name: item-created
-        type: example.item.created
-        description: An item was created.
-    metrics:
-      - id: items
-        event: item-created
-        aggregation: count
-        groupBy: time
-        bucket: day
-    dashboards:
-      - id: overview
-        title: Overview
-        layout: grid
-        widgets:
-          - id: items-per-day
-            metric: items
-            visualization: line
-            title: Items per day
-            version: "1.0"
-            enabled: true
-            limit: 100
-  surfaces:
-    - id: summary
-      client: slack
-      title: Summary
-      module: /surfaces/slack/summary.js
-      contract: 1
-      applies: always
-    - id: footnote
-      client: word
-      title: Footnote
-      description: Insert a footnote from the catalogue.
-      module: /surfaces/word/footnote.js
-      contract: 2
-      applies:
-        tagged:
-          - contract
-          - brief
-      events:
-        - example.item
-        - example.citation
-  payload:
-    artifact: web-bundle
-    digest: sha256:145b87d35bfb62443d77d7c408a6381744f6c4c808c1e6587b6ddb797314c19f
-    media_type: application/x-tar
-  group:
-    id: operations
-    title: Operations
+group:
+  id: operations
+  title: Operations
+  order: 2

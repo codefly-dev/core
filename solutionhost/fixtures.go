@@ -537,8 +537,8 @@ func Fixtures() []Fixture {
 		{
 			Name: "frontend-generated", Type: DocumentTypePresence, Outcome: OutcomeAccepted, Decision: DecisionApply,
 			Reason: "the frontend fixture with its generated half: the payload a renderer derives from the release's own artifact " +
-				"metadata (the named runtime artifact, the digest of the complete bundle, its media type) and the group the " +
-				"composing product organises the solution under; neither is authored, both are signed with the generation",
+				"metadata (the named runtime artifact, the digest of the complete bundle, its media type); it is not authored, " +
+				"and it is signed with the generation",
 		},
 		{
 			Name: "frontend-payload-artifact-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
@@ -561,19 +561,50 @@ func Fixtures() []Fixture {
 			Reason: "a payload without its digest; the identity a host serves by is not one a decoder fills in with an empty string",
 		},
 		{
-			Name: "frontend-group-id-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Rule: ruleFrontendGroupID, Message: `frontend.group.id "Operations" is invalid`,
-			Reason: "a group id with a capital; the presence holds the id to the grammar the composing workspace spells it in",
+			Name: "group", Type: DocumentTypePresence, Outcome: OutcomeAccepted, Decision: DecisionApply,
+			Reason: "the valid document at the next generation, headless, organised under a group: the presentation group the " +
+				"composing product put the solution in, shown in the host's navigation after its entitlement filter and in its " +
+				"catalogue, where a headless solution is organised too; generated, OPTIONAL, and held to the group rules when present",
 		},
 		{
-			Name: "frontend-group-order-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Rule: ruleFrontendFieldsDeclared, Message: "frontend.group.order must be declared",
+			Name: "group-order-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupFieldsDeclared, Message: "group.order must be declared",
 			Reason: "a group without its order; an absent one would decode as zero and be signed as the product's choice",
 		},
 		{
-			Name: "module-with-frontend-group", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Rule: ruleFrontendGroupSolutionOnly, Message: `frontend.group is declared on a "module"`,
-			Reason: "a module instance carrying a frontend group; a group organises solutions, and a module is grouped by nothing",
+			Name: "group-order-hex", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupOrderDecimal, Message: `group.order is "0x2", not a whole number written in decimal digits`,
+			Reason: "a group's order in hexadecimal; a number has one spelling, and with the rule gone the document is accepted on 2",
+		},
+		{
+			Name: "group-order-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupOrderFits, Message: "group.order is 9223372036854775808, more than the field can hold",
+			Reason: "a group's order one past int64, refused by name rather than by the typed decoder",
+		},
+		{
+			Name: "group-id-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupID, Message: `group.id "Operations" is invalid`,
+			Reason: "a group id with a capital; the presence holds the id to the grammar the composing workspace spells it in",
+		},
+		{
+			Name: "group-title-empty", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupTitle, Message: "group.title must be a non-empty single-line text",
+			Reason: "an empty group title; a host labels the group with it and renders a blank heading without",
+		},
+		{
+			Name: "group-title-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupTextBounded, Message: "group text exceeds 1024 bytes at group.title",
+			Reason: "a group title past the text bound a host persists and projects",
+		},
+		{
+			Name: "module-with-group", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupSolutionOnly, Message: `group is declared on a "module"`,
+			Reason: "a module instance carrying a group; a group organises solutions, and a module is grouped by nothing",
+		},
+		{
+			Name: "tombstone-with-group", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupAbsentWhenRemoved, Message: "a removed generation declares no group",
+			Reason: "a tombstone carrying a group; a removed generation declares nothing to show",
 		},
 		{
 			Name: "tombstone-with-frontend", Type: DocumentTypePresence, Outcome: OutcomeRejected,

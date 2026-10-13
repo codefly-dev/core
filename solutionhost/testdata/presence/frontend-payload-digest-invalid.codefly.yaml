@@ -116,7 +116,3 @@ frontend:
     artifact: web-bundle
     digest: sha256:abc
     media_type: application/x-tar
-  group:
-    id: operations
-    title: Operations
-    order: 2

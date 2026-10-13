@@ -115,7 +115,3 @@ frontend:
   payload:
     artifact: web-bundle
     media_type: application/x-tar
-  group:
-    id: operations
-    title: Operations
-    order: 2

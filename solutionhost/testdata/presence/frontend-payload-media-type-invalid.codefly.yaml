@@ -116,7 +116,3 @@ frontend:
     artifact: web-bundle
     digest: sha256:145b87d35bfb62443d77d7c408a6381744f6c4c808c1e6587b6ddb797314c19f
     media_type: tar
-  group:
-    id: operations
-    title: Operations
-    order: 2
