@@ -61,6 +61,44 @@ updates:
           - version-update:semver-major
           - version-update:semver-minor
           - version-update:semver-patch
+      # Holds kustomize at v0.21.1, and kube-openapi at the release stable
+      # client-go builds against, because core is a LIBRARY: its pins are a
+      # floor every consumer's build is raised to. kustomize v0.21.3 (taken in
+      # #779, shipped in v0.19.2) requires a kube-openapi built on
+      # sigs.k8s.io/structured-merge-diff/v7, while every stable
+      # k8s.io/apimachinery (v0.35 through v0.37.1) is built on v6. Any
+      # consumer that also compiles client-go then fails inside apimachinery
+      # (managedfields/internal/typeconverter.go: a v7 TypeDef where v6 is
+      # expected) — module-runtime's tasks module is the one that found it.
+      #
+      # What the hold gives up, from kustomize v0.21.2/v0.21.3: (a) Helm
+      # chart and release names starting with '-' are refused — unreachable
+      # here, since core renders with krusty.MakeDefaultOptions(), where Helm
+      # is disabled; (b) a resource path segment containing '..' is refused,
+      # so a mis-indented `resources:` list that parses as one entry
+      # ('../../base - ../../shared/prod') is rejected rather than rendered
+      # as a different base. Core loses (b) until the hold lifts; it guards
+      # an operator's own typo, and no advisory names it.
+      #
+      # TestCoreModuleGraphStaysOnStructuredMergeDiffV6 is the gate: it fails
+      # on the graph, whoever moves it. Lift these entries in the same pull
+      # request that lifts that test, once a stable apimachinery is built on
+      # structured-merge-diff/v7.
+      - dependency-name: sigs.k8s.io/kustomize/api
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: sigs.k8s.io/kustomize/kyaml
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: k8s.io/kube-openapi
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
   - package-ecosystem: npm
     directories:
       - /companions/proto/facades/ts
