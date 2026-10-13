@@ -49,9 +49,10 @@ type RuntimeWrapper struct {
 	// a restart as evidence about the process running now.
 	generation uint64
 	health     *basev0.HealthReport
-	// startedArtifact is what this agent last reported it started. It is
-	// stamped on every StartStatus so a consumer reads the same answer from
-	// Start and from Information.
+	// startedArtifact is what this agent reported it started for the start in
+	// flight. StartResponse stamps it on the StartStatus — so a consumer reads
+	// the same answer from Start and from Information — and clears it, because
+	// it describes one process and the next start is another.
 	startedArtifact *runtimev0.StartedArtifact
 
 	sync.RWMutex
@@ -164,19 +165,28 @@ func (s *RuntimeWrapper) StartResponse() (*runtimev0.StartResponse, error) {
 	s.generation++
 	s.health = nil
 	s.StartStatus = &runtimev0.StartStatus{State: runtimev0.StartStatus_STARTED, Generation: s.generation, StartedArtifact: s.startedArtifact}
+	// Consumed, like the health report this clears beside it. What was started
+	// is a fact about one process, and the next Start is a different one: an
+	// agent that does not say what it ran this time must report nothing, not
+	// the previous process's answer. The status keeps the pointer, so
+	// Information still answers for the process that is running.
+	s.startedArtifact = nil
 	return &runtimev0.StartResponse{Status: s.StartStatus}, nil
 }
 
 // ReportStartedArtifact records what this agent started — the program it ran
-// and the files that program was handed — for the StartStatus this Start and
-// every later Information reports. An agent that calls it implements
+// and the files that program was handed — for the StartStatus the next Start
+// and every Information after it reports. An agent that calls it implements
 // runtime-started-artifact/v1 and may advertise the capability; one that never
 // does reports no artifact, and a consumer that needs one refuses by naming it
 // rather than deriving a path from the agent's layout.
 //
-// Call it before StartResponse: a process is started, then described. A nil
-// artifact clears what an earlier start reported, so a restart that cannot say
-// what it ran does not carry the previous answer forward.
+// It applies to ONE start. Call it before every StartResponse that has an
+// artifact to name: a process is started, then described, and StartResponse
+// consumes what was reported. An agent that reports at its first start and not
+// at its restart reports nothing for the restart, which is a refusal
+// downstream rather than the previous process's answer approved for this one.
+// Passing nil withdraws a report not yet stamped.
 func (s *RuntimeWrapper) ReportStartedArtifact(artifact *runtimev0.StartedArtifact) {
 	s.Lock()
 	defer s.Unlock()

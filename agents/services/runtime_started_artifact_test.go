@@ -46,13 +46,28 @@ func TestAStartedArtifactIsReportedByTheAgentAndSurvivesToInformation(t *testing
 		t.Fatalf("information reported sources %v, want the one the agent reported at Start", got)
 	}
 
-	// A restart that cannot say what it ran must not carry the previous
-	// answer forward: the build then goes unreported, and the consumer
-	// refuses rather than approving the process before it.
-	wrapper.ReportStartedArtifact(nil)
+	// A restart that does not say what it ran must not carry the previous
+	// answer forward, and saying nothing is simply not calling again — the
+	// path an agent takes when its resolution is skipped or fails. The build
+	// then goes unreported and the consumer refuses, rather than approving
+	// the process before this one for the process running now.
 	third, _ := wrapper.StartResponse()
 	if _, reported = StartedArtifact(third.GetStatus()); reported {
-		t.Fatal("a cleared artifact was still reported after a restart")
+		t.Fatalf("a restart that reported nothing carried the previous process's artifact: %+v", third.GetStatus().GetStartedArtifact())
+	}
+	// What the earlier start reported is still the earlier start's answer:
+	// clearing is about the next process, not about rewriting the status
+	// already handed out for the one before it.
+	if second.GetStatus().GetStartedArtifact().GetExecutable() != "/opt/venv/bin/python" {
+		t.Fatal("clearing rewrote the status of the start that did report an artifact")
+	}
+
+	// An explicit nil withdraws a report that has not been stamped yet.
+	wrapper.ReportStartedArtifact(&runtimev0.StartedArtifact{Executable: "/opt/venv/bin/python"})
+	wrapper.ReportStartedArtifact(nil)
+	fourth, _ := wrapper.StartResponse()
+	if _, reported = StartedArtifact(fourth.GetStatus()); reported {
+		t.Fatal("a withdrawn artifact was still reported")
 	}
 }
 

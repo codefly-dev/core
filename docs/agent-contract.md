@@ -190,11 +190,14 @@ names them. Every entry is a regular file — a consumer never decides for the
 agent what a directory's closure contains.
 
 A runtime reports it with `RuntimeWrapper.ReportStartedArtifact` before
-`StartResponse`; the wrapper stamps it on the StartStatus that Start and every
-later Information carry, and a restart that reports nothing clears it rather
-than carrying the previous process's answer forward. Consumers read it through
-`services.StartedArtifact`, which separates "the agent reported one" from "the
-agent reports none" — an artifact naming no executable is the latter.
+`StartResponse`, which stamps it on the StartStatus that Start and every later
+Information carry — and **consumes** it, the way it clears the health report
+beside it. A report describes one process, so it applies to one start: an
+agent that reports at its first start and not at its restart reports nothing
+for the restart, rather than having the previous process's answer approved for
+the one now running. Consumers read it through `services.StartedArtifact`,
+which separates "the agent reported one" from "the agent reports none" — an
+artifact naming no executable is the latter.
 
 This exists because a consumer that pins the build a running process is at
 otherwise has to guess one: the CLI's native run derived every workload's
