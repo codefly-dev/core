@@ -471,14 +471,22 @@ alone — a module is grouped by nothing, so a group on one is refused
 none (`group-absent-when-removed`). Its id is held to the grammar the
 workspace authors it in (`group-id`, through
 `resources.ValidateSolutionGroupID`: lowercase letters and digits,
-dash-separated); its title is one non-empty line (`group-title`); id and
-title are each at most `GroupTextMaxBytes` (1 KiB, the frontend text bound:
-`group-text-bounded`). Every scalar is declared, zero included
+dash-separated); its title is one non-blank line without control characters
+(`group-title`, through `resources.ValidateSolutionGroupTitle`: a title of
+spaces is as empty as `""`); id and title are each at most `GroupTextMaxBytes`
+(1 KiB, `resources.SolutionGroupTextMaxBytes`, which is also the frontend
+text bound: `group-text-bounded`). Every scalar is declared, zero included
 (`group-fields-declared`), and the order — the one signed number — is written
-in decimal digits that fit an `int64` (`group-order-decimal`,
-`group-order-fits`), judged on the node before the typed decoder can repair
-them, as the build-size counts and the frontend's numbers are. The block is
-inside the signed bytes as the top-level key `group`.
+in decimal digits (`group-order-decimal`) within the range a group order is
+admitted in everywhere it travels: a **signed 32-bit integer**,
+`resources.SolutionGroupOrderMin..SolutionGroupOrderMax`
+(`group-order-fits`, through `resources.ValidateSolutionGroupOrder`). The Go
+field is wider; the bound is held on the written number, before the typed
+decoder reads it, so a host's `int32` wire and a client's number represent
+every admitted value exactly and nothing casts. The three bounds are defined
+once, where the group is authored, and the presence is held to the same
+functions, so a host parser aligns with one definition. The block is inside
+the signed bytes as the top-level key `group`.
 
 **Optional, for `build_size`'s reason, and with its consequence.** A document
 without the block is an older producer's and is accepted; it encodes exactly as

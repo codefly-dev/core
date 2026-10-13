@@ -578,8 +578,8 @@ func Fixtures() []Fixture {
 		},
 		{
 			Name: "group-order-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Rule: ruleGroupOrderFits, Message: "group.order is 9223372036854775808, more than the field can hold",
-			Reason: "a group's order one past int64, refused by name rather than by the typed decoder",
+			Rule: ruleGroupOrderFits, Message: "group.order is 2147483648, outside -2147483648..2147483647",
+			Reason: "a group's order one past the signed 32-bit range every host represents exactly; with the rule gone the wider field accepts it",
 		},
 		{
 			Name: "group-id-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
@@ -588,8 +588,13 @@ func Fixtures() []Fixture {
 		},
 		{
 			Name: "group-title-empty", Type: DocumentTypePresence, Outcome: OutcomeRejected,
-			Rule: ruleGroupTitle, Message: "group.title must be a non-empty single-line text",
+			Rule: ruleGroupTitle, Message: "group.title must be a non-blank single-line text",
 			Reason: "an empty group title; a host labels the group with it and renders a blank heading without",
+		},
+		{
+			Name: "group-title-blank", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleGroupTitle, Message: `group.title must be a non-blank single-line text: solution group title "   " must be one non-blank line`,
+			Reason: "a group title of spaces only; empty to the eye is empty, as the composing workspace holds it with the same function",
 		},
 		{
 			Name: "group-title-too-large", Type: DocumentTypePresence, Outcome: OutcomeRejected,

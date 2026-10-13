@@ -120,9 +120,10 @@ func TestDeletingARuleAdmitsItsWitness(t *testing.T) {
 		"frontend-payload-digest-omitted":     "", // with fields-declared gone, frontend-payload-digest refuses the empty digest
 		"group-order-omitted":                 ruleGroupFieldsDeclared,
 		"group-order-hex":                     ruleGroupOrderDecimal,
-		"group-order-too-large":               "", // defence in depth: the typed decoder refuses the overflow once the rule is gone
+		"group-order-too-large":               ruleGroupOrderFits,
 		"group-id-invalid":                    ruleGroupID,
 		"group-title-empty":                   ruleGroupTitle,
+		"group-title-blank":                   ruleGroupTitle,
 		"group-title-too-large":               ruleGroupTextBounded,
 		"module-with-group":                   ruleGroupSolutionOnly,
 		"tombstone-with-group":                ruleGroupAbsentWhenRemoved,

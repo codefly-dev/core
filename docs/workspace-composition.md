@@ -90,10 +90,15 @@ own view and say nothing about the product's. Groups are optional and flat.
 They are validated once the composition is resolved, against the composed set
 (`resources.SolutionGroup`): an id of the grammar
 `resources.ValidateSolutionGroupID` holds — lowercase letters and digits,
-dash-separated — once per workspace; a one-line title; at least one member;
-and every member an **effective solution** of this composition (a module of
-the product or of a composed workspace is not groupable) that no other group
-names. `Workspace.SolutionGroupOf(name)` answers a solution's group after
+dash-separated — once per workspace; a title that is one non-blank line
+without control characters (`ValidateSolutionGroupTitle`); id and title each
+within `SolutionGroupTextMaxBytes` (1 KiB); an order within
+`SolutionGroupOrderMin..SolutionGroupOrderMax`, a signed 32-bit integer, which
+every host wire and client number represents exactly
+(`ValidateSolutionGroupOrder`); at least one member; and every member an
+**effective solution** of this composition (a module of the product or of a
+composed workspace is not groupable) that no other group names. The presence
+document holds its `group` block to the same three functions. `Workspace.SolutionGroupOf(name)` answers a solution's group after
 loading, which is what the renderer projects into the solution's presence as
 its top-level `group` block — independent of any frontend, so a headless
 solution is organised in the host's catalogue too; see

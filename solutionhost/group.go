@@ -2,6 +2,7 @@ package solutionhost
 
 import (
 	"fmt"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 
@@ -27,17 +28,24 @@ type SolutionGroup struct {
 	// letters and digits, dash-separated (resources.ValidateSolutionGroupID).
 	ID string `yaml:"id" json:"id"`
 
-	// Title is what the host labels the group with: one non-empty line.
+	// Title is what the host labels the group with: one non-blank line, no
+	// control characters (resources.ValidateSolutionGroupTitle).
 	Title string `yaml:"title" json:"title"`
 
 	// Order is where the group sorts among groups. Declared, zero included:
-	// an omitted order would decode as zero and read as a choice.
+	// an omitted order would decode as zero and read as a choice. The field
+	// is wide; the admitted range is a signed 32-bit integer
+	// (resources.ValidateSolutionGroupOrder), held on the written number
+	// before it is typed, so a host's int32 wire and a client's number
+	// represent every admitted value exactly and nothing casts.
 	Order int64 `yaml:"order" json:"order"`
 }
 
-// GroupTextMaxBytes bounds a group's id and title, in UTF-8 bytes: the
-// frontend text bound, since a host persists and projects both the same way.
-const GroupTextMaxBytes = FrontendTextMaxBytes
+// GroupTextMaxBytes bounds a group's id and title, in UTF-8 bytes: the bound
+// the group is authored within (resources.SolutionGroupTextMaxBytes), which
+// is also the frontend text bound, since a host persists and projects both
+// the same way.
+const GroupTextMaxBytes = resources.SolutionGroupTextMaxBytes
 
 // The group rules, by name; see rule.
 const (
@@ -99,9 +107,16 @@ func checkGroupOrderDecimal(section *yaml.Node) error {
 	return nil
 }
 
+// fitsGroupOrder reports whether a decimal order scalar is within the range
+// the group is authored within, read as the number it is written as.
+func fitsGroupOrder(node *yaml.Node) bool {
+	value, err := strconv.ParseInt(node.Value, 10, 64)
+	return err == nil && resources.ValidateSolutionGroupOrder(value) == nil
+}
+
 func checkGroupOrderFits(section *yaml.Node) error {
-	if order, _ := groupFields(section); order.node != nil && isDecimalInteger(order.node, true) && !fitsInteger(order.node, true) {
-		return fmt.Errorf("%w: %s is %s, more than the field can hold", ErrInvalid, order.path, order.node.Value)
+	if order, _ := groupFields(section); order.node != nil && isDecimalInteger(order.node, true) && !fitsGroupOrder(order.node) {
+		return fmt.Errorf("%w: %s is %s, outside %d..%d, the range every host represents exactly", ErrInvalid, order.path, order.node.Value, resources.SolutionGroupOrderMin, resources.SolutionGroupOrderMax)
 	}
 	return nil
 }
@@ -141,8 +156,8 @@ func checkGroupID(document *SolutionHostBinding) error {
 }
 
 func checkGroupTitle(document *SolutionHostBinding) error {
-	if !isText(document.Group.Title) {
-		return fmt.Errorf("%w: group.title must be a non-empty single-line text, got %q", ErrInvalid, document.Group.Title)
+	if err := resources.ValidateSolutionGroupTitle(document.Group.Title); err != nil {
+		return fmt.Errorf("%w: group.title must be a non-blank single-line text: %v", ErrInvalid, err)
 	}
 	return nil
 }

@@ -137,7 +137,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 85)
+	require.Len(t, fixtures, 86)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -249,6 +249,7 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"group-order-too-large":               solutionhost.ErrInvalid,
 		"group-id-invalid":                    solutionhost.ErrInvalid,
 		"group-title-empty":                   solutionhost.ErrInvalid,
+		"group-title-blank":                   solutionhost.ErrInvalid,
 		"group-title-too-large":               solutionhost.ErrInvalid,
 		"module-with-group":                   solutionhost.ErrInvalid,
 		"tombstone-with-group":                solutionhost.ErrInvalid,

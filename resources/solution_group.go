@@ -2,6 +2,7 @@ package resources
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -24,9 +25,14 @@ type SolutionGroup struct {
 	// ID is the group's id: lowercase letters and digits, dash-separated,
 	// unique within the workspace. See ValidateSolutionGroupID.
 	ID string `yaml:"id"`
-	// Title is what a host labels the group with: one non-empty line.
+	// Title is what a host labels the group with: one non-blank line, no
+	// control characters (ValidateSolutionGroupTitle).
 	Title string `yaml:"title"`
-	// Order is where the group sorts among groups. Declared, zero included.
+	// Order is where the group sorts among groups. Declared, zero included,
+	// and within SolutionGroupOrderMin..SolutionGroupOrderMax
+	// (ValidateSolutionGroupOrder): the field is wide, the admitted range is
+	// a signed 32-bit integer, so every host wire and every client number
+	// represents it exactly.
 	Order int64 `yaml:"order"`
 	// Solutions names the group's members by the name the composition carries
 	// each under (Member.Name): every one an effective solution of this
@@ -34,12 +40,26 @@ type SolutionGroup struct {
 	Solutions []string `yaml:"solutions"`
 }
 
+// The bounds a solution group is authored within and carried within: the
+// presence document's group block is held to these same values, so what a
+// composition authors is what a host reads, and a host parser aligns with one
+// definition rather than two.
+const (
+	// SolutionGroupTextMaxBytes bounds a group's id and title, in UTF-8 bytes.
+	SolutionGroupTextMaxBytes = 1024
+	// SolutionGroupOrderMin and SolutionGroupOrderMax are the admitted order
+	// range: a signed 32-bit integer, which every host wire (an int32) and
+	// every client number represents exactly. Nothing casts: a value outside
+	// is refused by name wherever it is read.
+	SolutionGroupOrderMin int64 = math.MinInt32
+	SolutionGroupOrderMax int64 = math.MaxInt32
+)
+
 var solutionGroupIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // ValidateSolutionGroupID holds a group id to its grammar: lowercase letters
-// and digits separated by single dashes, the shape a host keys a navigation
-// group by. A presence document's frontend.group.id is held to this same
-// function, so what a composition authors is what a host reads.
+// and digits separated by single dashes, the shape a host keys a group by. A
+// presence document's group.id is held to this same function.
 func ValidateSolutionGroupID(id string) error {
 	if !solutionGroupIDPattern.MatchString(id) {
 		return fmt.Errorf("solution group id %q must be lowercase letters and digits separated by dashes", id)
@@ -47,10 +67,32 @@ func ValidateSolutionGroupID(id string) error {
 	return nil
 }
 
+// ValidateSolutionGroupTitle holds a group title to one line a host can show:
+// not blank, and free of control characters (C0 and C1 alike), so a heading
+// cannot be empty to the eye or carry a newline. A presence document's
+// group.title is held to this same function; the byte bound is held apart.
+func ValidateSolutionGroupTitle(title string) error {
+	if strings.TrimSpace(title) == "" || strings.ContainsFunc(title, unicode.IsControl) {
+		return fmt.Errorf("solution group title %q must be one non-blank line without control characters", title)
+	}
+	return nil
+}
+
+// ValidateSolutionGroupOrder holds a group order to the admitted range. A
+// presence document's group.order is held to this same function, on the
+// written number before it is typed.
+func ValidateSolutionGroupOrder(order int64) error {
+	if order < SolutionGroupOrderMin || order > SolutionGroupOrderMax {
+		return fmt.Errorf("solution group order %d is outside %d..%d, the range every host represents exactly", order, SolutionGroupOrderMin, SolutionGroupOrderMax)
+	}
+	return nil
+}
+
 // validateSolutionGroups runs after composition, since a member is judged
 // against the composed set: every group has an id of the grammar, once, a
-// one-line title and at least one member, and every member is an effective
-// solution of this composition that no other group names.
+// one-line title, both within the text bound, an order within the admitted
+// range, and at least one member, and every member is an effective solution
+// of this composition that no other group names.
 func (workspace *Workspace) validateSolutionGroups() error {
 	ids := make(map[string]bool, len(workspace.SolutionGroups))
 	grouped := make(map[string]string)
@@ -65,8 +107,14 @@ func (workspace *Workspace) validateSolutionGroups() error {
 			return fmt.Errorf("solution group %q is declared twice", group.ID)
 		}
 		ids[group.ID] = true
-		if strings.TrimSpace(group.Title) == "" || strings.ContainsFunc(group.Title, unicode.IsControl) {
-			return fmt.Errorf("solution group %q requires a one-line title", group.ID)
+		if err := ValidateSolutionGroupTitle(group.Title); err != nil {
+			return fmt.Errorf("solution group %q: %w", group.ID, err)
+		}
+		if len(group.ID) > SolutionGroupTextMaxBytes || len(group.Title) > SolutionGroupTextMaxBytes {
+			return fmt.Errorf("solution group %q: id and title are each at most %d bytes", group.ID, SolutionGroupTextMaxBytes)
+		}
+		if err := ValidateSolutionGroupOrder(group.Order); err != nil {
+			return fmt.Errorf("solution group %q: %w", group.ID, err)
 		}
 		if len(group.Solutions) == 0 {
 			return fmt.Errorf("solution group %q organises no solution", group.ID)
@@ -88,8 +136,9 @@ func (workspace *Workspace) validateSolutionGroups() error {
 // SolutionGroupOf answers the group a solution of this composition is
 // organised under, by the name the composition carries it under, and false
 // when it is in none — a module always is, since nothing groups one. It is
-// what a renderer projects into the solution's presence as frontend.group,
-// once the composition is resolved; the record is the workspace's own.
+// what a renderer projects into the solution's presence as its top-level
+// group block, once the composition is resolved; the record is the
+// workspace's own.
 func (workspace *Workspace) SolutionGroupOf(solution string) (*SolutionGroup, bool) {
 	for _, group := range workspace.SolutionGroups {
 		if group != nil && slices.Contains(group.Solutions, solution) {
