@@ -214,6 +214,20 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 	if v.Revisions == nil || v.Replay == nil || v.Grants == nil || v.Seals == nil {
 		return nil, fmt.Errorf("work context: verifier is missing a revision source, replay store, grant source or seal source")
 	}
+	wc, err := v.check(ctx, encoded, true)
+	if err != nil {
+		return nil, err
+	}
+	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded)}, nil
+}
+
+// check is THE verification body, shared by Verify and by the issuer's
+// ReadBack: everything inspect checks, then the authorization revision, the
+// seal and the grant hop against live state, and — only when consume is set —
+// the single-use consumption. One body, because a second copy of these checks
+// is where this package has grown a hole every time; the only thing the two
+// entrypoints may differ in is whether the capability is spent.
+func (v *Verifier) check(ctx context.Context, encoded string, consume bool) (*basev0.WorkContextV1, error) {
 	wc, now, err := v.inspect(encoded)
 	if err != nil {
 		return nil, err
@@ -250,13 +264,12 @@ func (v *Verifier) Verify(ctx context.Context, encoded string) (*Verified, error
 			return nil, err
 		}
 	}
-	if wc.GetReplayPolicy() == ReplaySingleUse {
+	if consume && wc.GetReplayPolicy() == ReplaySingleUse {
 		if err := v.Replay.Consume(ctx, wc.GetNonce(), expires.Add(skew)); err != nil {
 			return nil, err
 		}
 	}
-
-	return &Verified{context: wc, encoded: encoded, sha256: Fingerprint(encoded)}, nil
+	return wc, nil
 }
 
 // CheckEncoding reports whether a payload is in another format entirely,

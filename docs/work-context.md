@@ -709,3 +709,43 @@ a JSON-signing SDK to this encoding — a cutover that is *atomic* (core refuses
 a JSON token as `ErrNotACoreToken` before the signature, so there is no
 dual-read window) and is the host's to make, in one move for its mint and
 every verifier. Core's encoding does not change for it.
+
+### The issuer reads back; it does not consume
+
+A fourth party asks a fourth question. A capability's **holder** — usually the
+consumer that has just verified it — asks the **issuer** something about it:
+"may this capability read record R?", "which collections does it reach?",
+"page two of that listing, please". The capability is the subject of the
+question, not a credential presented for an effect. `Verify` cannot answer: it
+consumes a single-use capability, so the consumer that verified first could no
+longer ask, and a paginated answer died on its second page — a host shipped
+exactly that. `Recheck` cannot answer either: it needs the `*Verified` only the
+consumer holds.
+
+`(*Authority).ReadBack(ctx, token, ReadBackCheck{Audience, Grants})` is that
+entrypoint, and it is again one body, not a new strength:
+
+- **Everything `Verify` checks, by `Verify`'s body.** `Verify` and `ReadBack`
+  share one function; the only argument they differ in is whether the
+  capability is consumed. The signature is checked under the authority's own
+  key and key id, the audience is the one the caller names, and the revision,
+  seal, epochs, execution, binding and grant record are held against the
+  authority's live state. A test holds that every refusal is `Verify`'s, with
+  the same message.
+- **It consumes nothing, structurally.** No replay store is reachable from a
+  read-back: a single-use capability its consumer already consumed can still
+  be asked about, and one not yet consumed is left for its consumer, whose
+  `Verify` then consumes it exactly once. A test asserts both.
+- **Only the issuer can call it.** It is a method on `Authority`, and an
+  `Authority` is built with the issuer's private key or signer. A consumer
+  holds public keys and cannot construct one, so the question of a consumer
+  "reading back" instead of verifying does not arise.
+- **It authorizes nothing.** The result is a `*ReadBackCapability`: its claims
+  are readable, and nothing else is available. It is not a `*Verified`, so it
+  cannot be passed to `Child`, `Grant` or `Recheck`, and an AST test keeps any
+  function from converting one. This is why it is not a replay hole: single-use
+  bounds how often a capability is *presented and acted on*, and a read-back is
+  the issuer reading its own signed statement back to answer its holder. An
+  issuer that performed the capability's effect on the strength of a read-back
+  would have used the capability without consuming it — that is a misuse of
+  this entrypoint, and the reason it returns a type that can do nothing.
