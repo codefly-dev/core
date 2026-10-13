@@ -12,7 +12,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/codefly-dev/core/artifactexecution"
+	"github.com/codefly-dev/core/composition"
 	"github.com/codefly-dev/core/internal/wire"
+	"github.com/codefly-dev/core/resources"
 )
 
 // Frontend is what a module or solution declares about the page and the client surfaces
@@ -64,6 +67,72 @@ type Frontend struct {
 	// Surfaces are what the component offers inside a client application, each
 	// one addressed by its client and its id. Absent when it offers none.
 	Surfaces []FrontendSurface `yaml:"surfaces,omitempty" json:"surfaces,omitempty"`
+
+	// Payload is the GENERATED identity of the frontend's complete executable
+	// output: which named runtime artifact of the release it is, the digest of
+	// its bytes and their representation. A renderer derives it from the
+	// release's own artifact metadata; an author never writes it, and the
+	// standalone file refuses it. Absent while a generation's frontend has no
+	// published bundle — whether to serve such a frontend is the host's
+	// decision: core holds what a present payload says, never whether one
+	// must be present.
+	Payload *FrontendPayload `yaml:"payload,omitempty" json:"payload,omitempty"`
+
+	// Group is the GENERATED presentation group a solution is organised
+	// under, projected from the composing workspace's solution groups
+	// (resources.SolutionGroup). Solutions only: a module is grouped by
+	// nothing. It grants nothing; a host groups a navigation after each
+	// solution's own entitlements.
+	Group *FrontendGroup `yaml:"group,omitempty" json:"group,omitempty"`
+}
+
+// PayloadDigest pins the bytes of a frontend's complete executable output —
+// the archive a host materialises and serves by content identity. It is the
+// fourth digest type of the document (the package comment names the other
+// three), distinct so that a renderer cannot hand a host a release, rendered
+// or image digest where the bundle's is expected. It is NOT held apart from
+// them by value: ErrDigestConfusion reads the three whose equality can only
+// be a mix-up, and a frontend's rendered artifact can legitimately be the
+// bundle itself, in which case the rendered digest and the payload digest are
+// the same bytes hashed once. What this digest means is established by the
+// field it sits in and by the host checking the bytes it serves against it,
+// never by inequality with another field.
+type PayloadDigest string
+
+// FrontendPayload is the generated identity of a frontend's executable output,
+// carried beside the authored declaration and signed with it. A host admits
+// the bundle it serves by this identity, and by nothing a running process
+// reports; a locator is transport and is not here.
+type FrontendPayload struct {
+	// Artifact names the runtime artifact of the release the bundle was
+	// resolved from, as the release's artifact metadata names it
+	// (composition.ReleaseArtifact.Name): a name, never a locator.
+	Artifact string `yaml:"artifact" json:"artifact"`
+
+	// Digest is the SHA-256 of the complete bundle bytes.
+	Digest PayloadDigest `yaml:"digest" json:"digest"`
+
+	// MediaType is the bundle's representation, the explicit canonical media
+	// type the release artifact declares; core holds its form and reads
+	// nothing into it.
+	MediaType string `yaml:"media_type" json:"media_type"`
+}
+
+// FrontendGroup is the presentation group a solution is organised under in a
+// host's navigation: a heading, where it sorts, and the id the solutions of
+// one group share. It is projected from the composing workspace's declaration
+// and is presentation only — not an identity anything is granted or installed
+// under.
+type FrontendGroup struct {
+	// ID is the group's id as the composing workspace spells it: lowercase
+	// letters and digits, dash-separated (resources.ValidateSolutionGroupID).
+	ID string `yaml:"id" json:"id"`
+
+	// Title is what the host labels the group with.
+	Title string `yaml:"title" json:"title"`
+
+	// Order is where the group sorts among groups. Declared, zero included.
+	Order int64 `yaml:"order" json:"order"`
 }
 
 // FrontendSurface is one offering a module or solution makes inside a client
@@ -105,12 +174,28 @@ type FrontendSurface struct {
 	Events []string `yaml:"events,omitempty" json:"events,omitempty"`
 }
 
+// authoredFrontend is the half of Frontend an author writes: every field of
+// the standalone file, and none a renderer generates. ParseFrontend decodes
+// the file into it strictly, so payload and group are refused there by the
+// known-fields rule every document shares — the one place the two halves
+// part, held by a test that this type is Frontend minus exactly those two.
+type authoredFrontend struct {
+	Title         string            `yaml:"title"`
+	Order         int64             `yaml:"order"`
+	ExposedModule string            `yaml:"exposed_module"`
+	HostContract  uint64            `yaml:"host_contract"`
+	Dashboard     any               `yaml:"dashboard,omitempty"`
+	Surfaces      []FrontendSurface `yaml:"surfaces,omitempty"`
+}
+
 // ParseFrontend reads the standalone frontend file embedded by a component and
 // delivered by the CLI. It uses the same strict decoder and frontend rules as
 // Parse, so accepting a local file cannot disagree with signing its presence.
 // A missing file is the caller's headless component; an empty file is invalid.
+// The file holds the AUTHORED half only: a payload or a group in it is a
+// field no frontend declaration declares, refused as every unknown field is.
 func ParseFrontend(data []byte) (*Frontend, error) {
-	frontend, err := decodeStrict[Frontend](data, "frontend declaration", "", "", func(tree *yaml.Node, _ string) error {
+	authored, err := decodeStrict[authoredFrontend](data, "frontend declaration", "", "", func(tree *yaml.Node, _ string) error {
 		section := tree
 		if tree.Kind == yaml.DocumentNode && len(tree.Content) == 1 {
 			section = tree.Content[0]
@@ -124,6 +209,10 @@ func ParseFrontend(data []byte) (*Frontend, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	frontend := &Frontend{
+		Title: authored.Title, Order: authored.Order, ExposedModule: authored.ExposedModule,
+		HostContract: authored.HostContract, Dashboard: authored.Dashboard, Surfaces: authored.Surfaces,
 	}
 	// These are the section rules, not presence admission. No binding, build or
 	// identity is fabricated to validate a component's standalone declaration.
@@ -172,6 +261,11 @@ const (
 	ruleFrontendSurfaceEventName   = "frontend-surface-event-name"
 	ruleFrontendSurfaceEventOnce   = "frontend-surface-event-once"
 	ruleFrontendDashboardBounded   = "frontend-dashboard-bounded"
+	ruleFrontendPayloadArtifact    = "frontend-payload-artifact"
+	ruleFrontendPayloadDigest      = "frontend-payload-digest"
+	ruleFrontendPayloadMediaType   = "frontend-payload-media-type"
+	ruleFrontendGroupSolutionOnly  = "frontend-group-solution-only"
+	ruleFrontendGroupID            = "frontend-group-id"
 )
 
 // frontendNodeRules run over the frontend node before it is typed, and
@@ -201,6 +295,11 @@ func frontendModelRules() []rule {
 		{name: ruleFrontendSurfaceApplies, section: sectionFrontend, check: checkFrontendSurfaceApplies},
 		{name: ruleFrontendSurfaceEventName, section: sectionFrontend, check: checkFrontendSurfaceEventName},
 		{name: ruleFrontendSurfaceEventOnce, section: sectionFrontend, check: checkFrontendSurfaceEventOnce},
+		{name: ruleFrontendPayloadArtifact, section: sectionFrontend, check: checkFrontendPayloadArtifact},
+		{name: ruleFrontendPayloadDigest, section: sectionFrontend, check: checkFrontendPayloadDigest},
+		{name: ruleFrontendPayloadMediaType, section: sectionFrontend, check: checkFrontendPayloadMediaType},
+		{name: ruleFrontendGroupSolutionOnly, section: sectionFrontend, check: checkFrontendGroupSolutionOnly},
+		{name: ruleFrontendGroupID, section: sectionFrontend, check: checkFrontendGroupID},
 		{name: ruleFrontendDashboardBounded, section: sectionFrontend, check: checkFrontendDashboardBounded},
 		{name: ruleFrontendBounded, section: sectionFrontend, check: checkFrontendBounded},
 	}
@@ -208,17 +307,30 @@ func frontendModelRules() []rule {
 
 // frontendFields lists the required fields of the block and of every surface
 // that is a mapping, by the path a refusal names: the four fields of the
-// block, and each surface's id, client, title, module, contract and applies.
-// The numbers are returned apart, for the rules that read a number's
-// spelling; order is the one signed number, by its path. A block or surface
-// that is not a mapping, and a surfaces value that is not a list, are left to
-// the typed decoder, which refuses their shape.
+// block; a present payload's artifact, digest and media type; a present
+// group's id, title and order; and each surface's id, client, title, module,
+// contract and applies. The numbers are returned apart, for the rules that
+// read a number's spelling; the two orders are the signed numbers, by their
+// paths. A block, payload, group or surface that is not a mapping, and a
+// surfaces value that is not a list, are left to the typed decoder, which
+// refuses their shape.
 func frontendFields(section *yaml.Node) (numbers, others []countField) {
 	for _, name := range []string{"title", "exposed_module"} {
 		others = append(others, countField{path: "frontend." + name, node: mappingValue(section, name)})
 	}
 	for _, name := range []string{"order", "host_contract"} {
 		numbers = append(numbers, countField{path: "frontend." + name, node: mappingValue(section, name)})
+	}
+	if payload := mappingValue(section, "payload"); payload != nil && payload.Kind == yaml.MappingNode {
+		for _, name := range []string{"artifact", "digest", "media_type"} {
+			others = append(others, countField{path: "frontend.payload." + name, node: mappingValue(payload, name)})
+		}
+	}
+	if group := mappingValue(section, "group"); group != nil && group.Kind == yaml.MappingNode {
+		for _, name := range []string{"id", "title"} {
+			others = append(others, countField{path: "frontend.group." + name, node: mappingValue(group, name)})
+		}
+		numbers = append(numbers, countField{path: "frontend.group.order", node: mappingValue(group, "order")})
 	}
 	rows := wire.Resolve(mappingValue(section, "surfaces"))
 	if rows == nil || rows.Kind != yaml.SequenceNode {
@@ -238,9 +350,11 @@ func frontendFields(section *yaml.Node) (numbers, others []countField) {
 	return numbers, others
 }
 
-// signedNumber reports whether a number of the block may carry a sign: only
-// the navigation order; a contract major and a surface's contract are counts.
-func signedNumber(path string) bool { return path == "frontend.order" }
+// signedNumber reports whether a number of the block may carry a sign: the
+// two navigation orders; a contract major and a surface's contract are counts.
+func signedNumber(path string) bool {
+	return path == "frontend.order" || path == "frontend.group.order"
+}
 
 func checkFrontendFieldsDeclared(section *yaml.Node) error {
 	numbers, others := frontendFields(section)
@@ -380,6 +494,9 @@ func (frontend *Frontend) texts() []frontendText {
 	texts := []frontendText{
 		{path: "frontend.title", value: frontend.Title},
 		{path: "frontend.exposed_module", value: frontend.ExposedModule},
+	}
+	if frontend.Group != nil {
+		texts = append(texts, frontendText{path: "frontend.group.title", value: frontend.Group.Title})
 	}
 	for index, surface := range frontend.Surfaces {
 		at := fmt.Sprintf("frontend.surfaces[%d]", index)
@@ -540,6 +657,47 @@ func checkFrontendSurfaceEventOnce(document *SolutionHostBinding) error {
 	return nil
 }
 
+func checkFrontendPayloadArtifact(document *SolutionHostBinding) error {
+	if payload := document.Frontend.Payload; payload != nil {
+		if err := composition.ValidateReleaseArtifactName(payload.Artifact); err != nil {
+			return fmt.Errorf("%w: frontend.payload.artifact %q does not name a release artifact: %v; the payload is resolved from the release's own artifact metadata, by name", ErrInvalid, payload.Artifact, err)
+		}
+	}
+	return nil
+}
+
+func checkFrontendPayloadDigest(document *SolutionHostBinding) error {
+	if payload := document.Frontend.Payload; payload != nil && !digestPattern.MatchString(string(payload.Digest)) {
+		return fmt.Errorf("%w: frontend.payload.digest %q is not a SHA-256 digest; a host admits the bundle it serves by this identity, and a value of another shape admits nothing", ErrInvalid, payload.Digest)
+	}
+	return nil
+}
+
+func checkFrontendPayloadMediaType(document *SolutionHostBinding) error {
+	if payload := document.Frontend.Payload; payload != nil {
+		if err := artifactexecution.ValidateMediaType(payload.MediaType); err != nil {
+			return fmt.Errorf("%w: frontend.payload.media_type is not the explicit canonical media type a release artifact declares: %v", ErrInvalid, err)
+		}
+	}
+	return nil
+}
+
+func checkFrontendGroupSolutionOnly(document *SolutionHostBinding) error {
+	if document.Frontend.Group != nil && document.Kind != KindSolution {
+		return fmt.Errorf("%w: frontend.group is declared on a %q; a group organises solutions, and a module is grouped by nothing", ErrInvalid, document.Kind)
+	}
+	return nil
+}
+
+func checkFrontendGroupID(document *SolutionHostBinding) error {
+	if group := document.Frontend.Group; group != nil {
+		if err := resources.ValidateSolutionGroupID(group.ID); err != nil {
+			return fmt.Errorf("%w: frontend.group.id %q is invalid: %v", ErrInvalid, group.ID, err)
+		}
+	}
+	return nil
+}
+
 // dashboardBound measures a dashboard as the signing encoding carries it,
 // which is the size a host stores, and names the defect when it is past the
 // bound — or cannot be encoded at all, which no document decodes to and only a
@@ -569,6 +727,15 @@ func checkFrontendDashboardBounded(document *SolutionHostBinding) error {
 // Error messages name the field without echoing an oversized value.
 func (frontend *Frontend) boundedTexts() []frontendText {
 	texts := frontend.texts()
+	if payload := frontend.Payload; payload != nil {
+		texts = append(texts,
+			frontendText{path: "frontend.payload.artifact", value: payload.Artifact},
+			frontendText{path: "frontend.payload.digest", value: string(payload.Digest)},
+			frontendText{path: "frontend.payload.media_type", value: payload.MediaType})
+	}
+	if frontend.Group != nil {
+		texts = append(texts, frontendText{path: "frontend.group.id", value: frontend.Group.ID})
+	}
 	for index, surface := range frontend.Surfaces {
 		at := fmt.Sprintf("frontend.surfaces[%d]", index)
 		texts = append(texts,

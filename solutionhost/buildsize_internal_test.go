@@ -114,6 +114,13 @@ func TestDeletingARuleAdmitsItsWitness(t *testing.T) {
 		"frontend-dashboard-hex":              ruleFrontendDashboardJSON,
 		"frontend-dashboard-timestamp":        ruleFrontendDashboardJSON,
 		"frontend-dashboard-not-an-object":    ruleFrontendDashboardJSON,
+		"frontend-payload-artifact-invalid":   ruleFrontendPayloadArtifact,
+		"frontend-payload-digest-invalid":     ruleFrontendPayloadDigest,
+		"frontend-payload-media-type-invalid": ruleFrontendPayloadMediaType,
+		"frontend-payload-digest-omitted":     "", // with fields-declared gone, frontend-payload-digest refuses the empty digest
+		"frontend-group-id-invalid":           ruleFrontendGroupID,
+		"frontend-group-order-omitted":        ruleFrontendFieldsDeclared,
+		"module-with-frontend-group":          ruleFrontendGroupSolutionOnly,
 		"build-size-binary-key":               ruleKeyIsAName,
 		"build-size-merge-key":                ruleNoMergeKeys,
 		"merge-key-at-top-level":              ruleNoMergeKeys,

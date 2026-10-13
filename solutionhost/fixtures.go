@@ -535,6 +535,47 @@ func Fixtures() []Fixture {
 			Reason: "a shared module contributes its own page through the same signed frontend contract as a solution; its kind does not restrict frontend support",
 		},
 		{
+			Name: "frontend-generated", Type: DocumentTypePresence, Outcome: OutcomeAccepted, Decision: DecisionApply,
+			Reason: "the frontend fixture with its generated half: the payload a renderer derives from the release's own artifact " +
+				"metadata (the named runtime artifact, the digest of the complete bundle, its media type) and the group the " +
+				"composing product organises the solution under; neither is authored, both are signed with the generation",
+		},
+		{
+			Name: "frontend-payload-artifact-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendPayloadArtifact, Message: `frontend.payload.artifact "Web Bundle" does not name a release artifact`,
+			Reason: "a payload naming its release artifact in a shape composition declares none under",
+		},
+		{
+			Name: "frontend-payload-digest-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendPayloadDigest, Message: `frontend.payload.digest "sha256:abc" is not a SHA-256 digest`,
+			Reason: "a payload digest that is not a SHA-256 digest; a host admits the bundle by this identity, and this admits nothing",
+		},
+		{
+			Name: "frontend-payload-media-type-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendPayloadMediaType, Message: "frontend.payload.media_type is not the explicit canonical media type",
+			Reason: `a payload whose media type is "tar", which names no type and subtype`,
+		},
+		{
+			Name: "frontend-payload-digest-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendFieldsDeclared, Message: "frontend.payload.digest must be declared",
+			Reason: "a payload without its digest; the identity a host serves by is not one a decoder fills in with an empty string",
+		},
+		{
+			Name: "frontend-group-id-invalid", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendGroupID, Message: `frontend.group.id "Operations" is invalid`,
+			Reason: "a group id with a capital; the presence holds the id to the grammar the composing workspace spells it in",
+		},
+		{
+			Name: "frontend-group-order-omitted", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendFieldsDeclared, Message: "frontend.group.order must be declared",
+			Reason: "a group without its order; an absent one would decode as zero and be signed as the product's choice",
+		},
+		{
+			Name: "module-with-frontend-group", Type: DocumentTypePresence, Outcome: OutcomeRejected,
+			Rule: ruleFrontendGroupSolutionOnly, Message: `frontend.group is declared on a "module"`,
+			Reason: "a module instance carrying a frontend group; a group organises solutions, and a module is grouped by nothing",
+		},
+		{
 			Name: "tombstone-with-frontend", Type: DocumentTypePresence, Outcome: OutcomeRejected,
 			Rule: ruleFrontendAbsentWhenRemoved, Message: "a removed generation declares no frontend",
 			Reason: "a tombstone carrying a frontend; a removed generation declares nothing to serve",
