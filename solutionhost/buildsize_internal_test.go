@@ -97,7 +97,6 @@ func TestDeletingARuleAdmitsItsWitness(t *testing.T) {
 	// (the typed decoder refuses an int64 overflow) — each is defence in depth
 	// and is held by TestEveryRuleIsProtectedByAFixture as refused differently.
 	for fixture, rule := range map[string]string{
-		"module-with-frontend":                ruleFrontendSolutionOnly,
 		"tombstone-with-frontend":             ruleFrontendAbsentWhenRemoved,
 		"frontend-title-empty":                ruleFrontendTexts,
 		"frontend-host-contract-zero":         ruleFrontendHostContractMajor,

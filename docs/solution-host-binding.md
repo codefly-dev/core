@@ -181,7 +181,7 @@ build_size:                        # OPTIONAL: the build's size, counted by the 
   frontend: 8102
   total: 20518
   vendored: [web/src/clients]      # the manifest's declaration, as applied; `[]` when it declares none
-frontend:                          # OPTIONAL, solution only: what the host serves for it, as the solution declared it
+frontend:                          # OPTIONAL, either kind: what the host serves, as the component declared it
   title: Alpha                     # the navigation label
   order: 10                        # where it sorts; declared, zero included
   exposed_module: ./Page           # the module its Module Federation remote exposes
@@ -387,9 +387,9 @@ with two declared-empty lists. A producer that marshals the model by hand can
 write `vendored: null` for a list it meant as empty, and the failure then
 surfaces at whoever reads the file, or at admission, rather than at publish.
 
-### The frontend block is the solution's declaration
+### Modules and solutions share the frontend declaration
 
-`frontend` is what a host serves for a solution: the page its navigation
+`frontend` is what a host serves for a module or solution: the page its navigation
 opens and the surfaces it offers inside a client application. It holds the
 author-declared half of the manifest the host's registry projects — `title`,
 `order`, `exposed_module`, `host_contract`, an opaque `dashboard` and the
@@ -400,16 +400,20 @@ alias, the capability path) and nothing that is an address.
 its backend service**, which the solution runtime embeds (`go:embed`, as it
 embeds its assets) and serves its manifest route from; the runtime's docs name
 the file. The CLI reads the same file into this block when it renders the
-generation. So the host learns a solution's frontend from the applied presence
+generation. So the host learns a component's frontend from the applied presence
 document — verified, signed, and attributable to a generation — and from
 nothing the running process reports: there is no mint-time manifest report,
 and a solution is active once its presence is applied with the block (and,
 per the install lifecycle, once its installation is acknowledged).
 
-**Solution only.** A module fronts no page of its own and a tombstone declares
-nothing to serve, so the block is refused by name on `kind: module` and on a
-removed generation (`frontend-solution-only`, `frontend-absent-when-removed`),
-the way a tombstone's build size is.
+**Both component kinds.** A shared module and a solution can each contribute
+pages through this same contract. The host loads their declared frontend
+without compiling component-specific imports into itself. `kind` describes the
+component's responsibility; it does not select a different frontend mechanism.
+Deployment sharing grants no organisation access: installation and live request
+authority remain the host's separate checks. A headless component omits the block.
+A removed generation declares nothing to serve, so a tombstone's frontend is
+refused by `frontend-absent-when-removed`, regardless of kind.
 
 **Optional, for `build_size`'s reason, and with its consequence.** A document
 without the block is an older producer's and is accepted; it encodes exactly as
@@ -466,6 +470,14 @@ producer emitting either from a Go map cannot move the digest per process;
 the dashboard's object keys are sorted by the encoding at every depth, and
 every list — the dashboard's, and the tags a surface applies to — keeps its
 order, as JSON lists do, because the client reads it in order.
+
+**Size limits apply to both kinds.** Every text field, identifier, event and tag
+is at most 1 KiB in UTF-8 bytes (`FrontendTextMaxBytes`). Surfaces, and each
+surface's events and tags, contain at most 64 items (`FrontendCollectionMaxItems`).
+The entire frontend is at most 128 KiB of canonical JSON (`FrontendMaxBytes`),
+including its separately bounded 64 KiB dashboard. The shared validator refuses
+oversize declarations before they reach the host projection; consumers reuse
+these limits rather than choosing different limits per component kind.
 
 **Every scalar of the block is declared, zero included, and a number has one
 spelling.** `order` is where a solution sorts; an omitted one would decode as
@@ -1173,7 +1185,7 @@ payload that survives a round trip through it.
 | Every vendored prefix a producer signs covered a path it offered | `Counter.Result`, refused by name |
 | A build size, when present, counts known languages once each with at least one line, excludes canonical UTF-8 paths, distinct and non-nested, and states totals whose parts fit and sum to them | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
 | A tombstone declares no build size | `Validate` → the rule table, `ErrInvalid` |
-| A frontend is declared on a solution only, never on a module or a tombstone | `Validate` → the rule table, `ErrInvalid` |
+| A module or solution may declare a frontend; a tombstone of either kind must not | `Validate` → the rule table, `ErrInvalid` |
 | A frontend's scalars are declared, its numbers decimal and fitting, its dashboard an object of values JSON spells one way, judged on the node before the typed decoder can repair them | `Parse` → the node rules, `ErrInvalid` |
 | A frontend, when present, has one-line texts, a host contract major of at least 1, surfaces unique per client with runtime-spelled ids, same-origin modules, a contract major of at least 1, one of the two `applies` shapes and distinct namespace events, and a dashboard within `FrontendDashboardMaxBytes` | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
 | A module manifest carries only keys it declares, is held to the shared node checks, and a composition descriptor is not one | `resources.LoadModuleFromDir`, the node checks and the kind dispatched from the node before strict decoding |

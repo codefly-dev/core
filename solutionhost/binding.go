@@ -12,7 +12,7 @@
 //     instance of one solution or one module on one host, at a generation the
 //     host reconciles towards, naming the workloads it runs, the exact build
 //     each must be running, the mesh principal each holds, and — for a
-//     solution — the frontend the host serves for it.
+//     module or solution — the frontend the host serves for it.
 //   - AuthorityDocument is the authority document. It declares which bindings
 //     a principal holds, within a ceiling the caller supplies, effective for
 //     one approved build and from one presence generation onwards.
@@ -294,13 +294,10 @@ type SolutionHostBinding struct {
 	// tombstone declares none.
 	BuildSize *BuildSize `yaml:"build_size,omitempty" json:"build_size,omitempty"`
 
-	// Frontend is what the host serves for a solution — its page and its
-	// client surfaces — as the solution declared it in the one file beside
-	// its backend service, carried here and signed with the generation.
-	// Optional, for the reason BuildSize is: a document without it is an
-	// older producer's and is accepted. One that carries it is held to the
-	// frontend rules; see Frontend. Allowed on a solution only: a module and
-	// a tombstone declare none.
+	// Frontend is the page and client surfaces a module or solution contributes
+	// to the host, carried in the signed generation. It is optional: a component
+	// may be headless. A present block is held to the same frontend rules for
+	// either kind; a tombstone declares none.
 	Frontend *Frontend `yaml:"frontend,omitempty" json:"frontend,omitempty"`
 
 	// Removed marks this generation a tombstone: the binding is declared absent.
