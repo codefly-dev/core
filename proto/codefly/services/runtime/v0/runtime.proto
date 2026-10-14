@@ -74,6 +74,16 @@ message LoadResponse {
   // endpoints are logical endpoints exposed by the service implementation.
   repeated codefly.base.v0.Endpoint endpoints = 3;
 
+  // build_runtime_image requests native local image preparation through the
+  // agent's Builder before Init. The agent owns this decision after loading
+  // its settings; an explicit image selection must leave it false, including
+  // an invalid selection that Init will refuse. False (the default) causes no
+  // build. Only native execution may honor this request, and only when the
+  // agent advertises runtime-load-build-image/v1 and runtime-init-image/v1.
+  // Deployed execution never builds
+  // from this response. The resulting image is delivered in Init.runtime_image.
+  bool build_runtime_image = 4;
+
 }
 
 

@@ -909,9 +909,18 @@ type LoadResponse struct {
 	// status reports the lifecycle or operation status.
 	Status *LoadStatus `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	// endpoints are logical endpoints exposed by the service implementation.
-	Endpoints     []*v0.Endpoint `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Endpoints []*v0.Endpoint `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	// build_runtime_image requests native local image preparation through the
+	// agent's Builder before Init. The agent owns this decision after loading
+	// its settings; an explicit image selection must leave it false, including
+	// an invalid selection that Init will refuse. False (the default) causes no
+	// build. Only native execution may honor this request, and only when the
+	// agent advertises runtime-load-build-image/v1 and runtime-init-image/v1.
+	// Deployed execution never builds
+	// from this response. The resulting image is delivered in Init.runtime_image.
+	BuildRuntimeImage bool `protobuf:"varint,4,opt,name=build_runtime_image,json=buildRuntimeImage,proto3" json:"build_runtime_image,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *LoadResponse) Reset() {
@@ -963,6 +972,13 @@ func (x *LoadResponse) GetEndpoints() []*v0.Endpoint {
 		return x.Endpoints
 	}
 	return nil
+}
+
+func (x *LoadResponse) GetBuildRuntimeImage() bool {
+	if x != nil {
+		return x.BuildRuntimeImage
+	}
+	return false
 }
 
 // InitStatus reports the state and message for the init lifecycle phase.
@@ -4614,11 +4630,12 @@ const file_codefly_services_runtime_v0_runtime_proto_rawDesc = "" +
 	"\x0fdeveloper_debug\x18\x01 \x01(\bR\x0edeveloperDebug\x12#\n" +
 	"\rdisable_catch\x18\x02 \x01(\bR\fdisableCatch\x12<\n" +
 	"\bidentity\x18\x03 \x01(\v2 .codefly.base.v0.ServiceIdentityR\bidentity\x12>\n" +
-	"\venvironment\x18\x04 \x01(\v2\x1c.codefly.base.v0.EnvironmentR\venvironment\"\xbc\x01\n" +
+	"\venvironment\x18\x04 \x01(\v2\x1c.codefly.base.v0.EnvironmentR\venvironment\"\xec\x01\n" +
 	"\fLoadResponse\x122\n" +
 	"\aversion\x18\x01 \x01(\v2\x18.codefly.base.v0.VersionR\aversion\x12?\n" +
 	"\x06status\x18\x02 \x01(\v2'.codefly.services.runtime.v0.LoadStatusR\x06status\x127\n" +
-	"\tendpoints\x18\x03 \x03(\v2\x19.codefly.base.v0.EndpointR\tendpoints\"\xcd\x01\n" +
+	"\tendpoints\x18\x03 \x03(\v2\x19.codefly.base.v0.EndpointR\tendpoints\x12.\n" +
+	"\x13build_runtime_image\x18\x04 \x01(\bR\x11buildRuntimeImage\"\xcd\x01\n" +
 	"\n" +
 	"InitStatus\x12D\n" +
 	"\x05state\x18\x01 \x01(\x0e2..codefly.services.runtime.v0.InitStatus.StatusR\x05state\x12\x18\n" +
