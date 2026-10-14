@@ -1279,6 +1279,9 @@ payload that survives a round trip through it.
 | The standalone frontend file holds the authored half only: `payload` is refused in it as an unknown field | `ParseFrontend`, strict decoding into the authored half, `ErrInvalid` |
 | A solution's generated `group`, when present, is a solution's alone and a present generation's, with an id of the composing workspace's grammar, a one-line title, both within `GroupTextMaxBytes`, and a declared decimal order that fits | `Parse` → the node rules, `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
 | A `PayloadDigest` is never compared with the release, rendered or image digest | there is no such rule, by decision: a rendered artifact can be the bundle itself |
+| An endpoint delivery names the applied presence it joins — host target, binding, generation, domain, canonical digest — and a signed one binds exactly those bytes | `MarshalEndpointDelivery` / `CanonicalBytes`, `SignEnvelope` with the delivery payload type, `ParseEndpointDelivery` |
+| A host verifies, joins and stores a signed delivery by its identity alone, never reading an address | `VerifyDeliveredEndpoints`, `DeliveredEndpoints.Identity`, `Host.AdmitEndpoints`, `EndpointDeliveryIdentity.Key` |
+| A resolver verifies a signed delivery against its own pins before reading an address, and never falls back | `ResolveSignedEndpointDelivery`, `ErrUnsigned` / `ErrInvalid` |
 | A module manifest carries only keys it declares, is held to the shared node checks, and a composition descriptor is not one | `resources.LoadModuleFromDir`, the node checks and the kind dispatched from the node before strict decoding |
 | A presence document is written through `Marshal`, which reads back what it wrote | `Marshal`, `ErrInvalid` |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
@@ -1615,12 +1618,48 @@ presence still goes through signed delivery and host admission.
 ## Live endpoint delivery
 
 `solutionhost.MarshalEndpointDelivery` encodes the CLI's selected endpoint
-carriers separately from presence, under `codefly/endpoint-delivery/v1`.
-`ParseEndpointDelivery` joins that projection to the complete canonical digest
-of an applied presence: binding, host target, generation, release and declarations
-must all agree. It rejects undeclared carrier keys and duplicate or malformed
-input, using the same strict decoder and endpoint encoding as the existing
-contracts. An empty carrier subset authorizes no route.
+carriers separately from presence, under `codefly/endpoint-delivery/v1`. The
+delivery names the applied declaration it joins — `host {coordinate,
+component}`, `binding`, `generation`, `ownership_domain` and the complete
+canonical `presence_digest` — beside its `carriers`, and its bytes are
+canonical (`CanonicalBytes`: keys sorted at every depth, as a presence is
+encoded). `ParseEndpointDelivery` joins that projection to the applied
+presence: every named fact and the digest must agree. It rejects undeclared
+carrier keys and duplicate or malformed input, using the same strict decoder
+and endpoint encoding as the existing contracts. An empty carrier subset
+authorizes no route. The presence stays address-free: this is the one document
+an address travels in.
+
+### Signed, mountless delivery
+
+Where no filesystem is shared with the workload, the same bytes travel as a
+**signed delivery document**, through the host's existing durable inbox and
+applied state, with no new registry, server or mount:
+
+- The writer signs the delivery's canonical bytes exactly as it signs a
+  presence: `SignEnvelope` (payload type
+  `application/vnd.codefly.endpoint-delivery+json`, fixed by the schema),
+  `Carrier`, `MarshalSigned`. The signature covers the exact bytes, which
+  carry the host target, binding, generation, domain and presence digest, so
+  the delivery is bound to one applied presence and nothing else.
+- The host verifies it with the same pinned-key `Verifier`:
+  `VerifyDeliveredEndpoints` returns an opaque `DeliveredEndpoints` — the
+  attested bytes and the signer — whose `Identity()` is re-derived from those
+  bytes and reads no address (`EndpointDeliveryFromVerified`: strict decoding,
+  schema, canonical round-trip). `Host.AdmitEndpoints` joins that identity to
+  the host's applied record with the existing sentinels (`ErrWrongHost`,
+  `ErrEndpointsUnapplied` for a binding or generation not applied,
+  `ErrStaleGeneration`, `ErrRewrittenGeneration`, `ErrWrongDomain` for the
+  record's domain and the signer's, `ErrTombstoned`) and returns the
+  **storage identity**, `EndpointDeliveryIdentity.Key()`: a digest of the host
+  target and the binding — the same digest `EndpointDeliveryFilename` names a
+  native file by — under which the host keeps the attested bytes, a later
+  generation replacing the same slot. The host parses no address, ever.
+- The resolver (the SDK) receives the raw signed value explicitly and calls
+  `ResolveSignedEndpointDelivery`: `ParseSigned`, `VerifyDeliveredEndpoints`
+  against its own pins, then `ParseEndpointDelivery` over the attested bytes
+  against the applied presence it holds. A delivery that fails any step
+  resolves nothing; there is no fallback to an environment carrier.
 
 The CLI/cell delivery owner writes one atomically replaceable file per binding
 in the stable directory named by `resources.EndpointDeliveryDirectoryKey`.

@@ -18,6 +18,9 @@ const (
 	PayloadTypePresence = "application/vnd.codefly.solution-presence+json"
 	// PayloadTypeAuthority identifies canonical solution authority JSON in DSSE.
 	PayloadTypeAuthority = "application/vnd.codefly.solution-authority+json"
+	// PayloadTypeEndpointDelivery identifies a canonical endpoint delivery in
+	// DSSE: the signed, mountless carrier of a binding's live addresses.
+	PayloadTypeEndpointDelivery = "application/vnd.codefly.endpoint-delivery+json"
 )
 
 // Strings enforce base64 on the wire: encoding/json also accepts byte arrays
@@ -39,6 +42,8 @@ func payloadTypeFor(document []byte) (string, error) {
 		return PayloadTypePresence, nil
 	case SchemaAuthorityV1:
 		return PayloadTypeAuthority, nil
+	case EndpointDeliverySchema:
+		return PayloadTypeEndpointDelivery, nil
 	default:
 		return "", fmt.Errorf("%w: no DSSE payload type for document schema %q", ErrSchema, schema)
 	}
