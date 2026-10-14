@@ -189,7 +189,7 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 		return nil, wool.Get(ctx).In("mod.NewService").NewError("service action is nil")
 	}
 	w := wool.Get(ctx).In("mod.NewService", wool.NameField(action.Name))
-	if err := validateResourcePathComponent("service", action.Name); err != nil {
+	if err := validateCarrierName("service", action.Name); err != nil {
 		return nil, w.Wrap(err)
 	}
 	hadReference := mod.ExistsService(ctx, action.Name)
