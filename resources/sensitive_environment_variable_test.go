@@ -1,6 +1,9 @@
 package resources_test
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -33,6 +36,9 @@ func TestSensitiveEnvironmentVariableIgnoresCarrierStructure(t *testing.T) {
 		"CODEFLY__WORKSPACE_CONFIGURATION__PASSWORD_POLICY__CLIENT_ID",
 		"CODEFLY__WORKSPACE_CONFIGURATION__CLIENT_SECRET_POLICY__CLIENT_ID",
 		"CODEFLY__SERVICE_CONFIGURATION__SAAS__AUTH_GATEWAY__PASSWORD_POLICY__MIN_LENGTH",
+		// A configuration key that spells a public address carrier is a key,
+		// classified whole, with no credential word in it.
+		"CODEFLY__WORKSPACE_CONFIGURATION__SETTINGS__CODEFLY__ENDPOINT__APP__SVC__REST__REST",
 		// Endpoint addresses of a service whose name trips the AUTH word.
 		"CODEFLY__ENDPOINT__SAAS__AUTH_GATEWAY__GRPC__GRPC",
 		"CODEFLY__ENDPOINT__SAAS__AUTH_GATEWAY__REST__REST",
@@ -83,6 +89,14 @@ func TestSensitiveEnvironmentVariableIgnoresCarrierStructure(t *testing.T) {
 		"CODEFLY__SECRET_CONFIGURATION_DOCUMENT_V1__0123456789abcdef",
 		// A credential-named operator prefix is still classified.
 		"ACCESS_TOKEN_CODEFLY__ENDPOINT__SAAS__AUTH_GATEWAY__REST__REST",
+		// The outermost carrier is read first: a configuration key spelled as
+		// an address carrier is still a key, so a token cannot hide behind an
+		// address spelling inside a public configuration carrier.
+		"CODEFLY__WORKSPACE_CONFIGURATION__SETTINGS__CODEFLY__ENDPOINT__APP__SVC__REST__ACCESS_TOKEN",
+		"CODEFLY__SERVICE_CONFIGURATION__APP__SVC__SETTINGS__CODEFLY__ENDPOINT__APP__SVC__REST__ACCESS_TOKEN",
+		// An operator prefix is a plain prefix; one carrying a double underscore
+		// is no prefix of an address carrier, and the name is read whole.
+		"X__Y_CODEFLY__ENDPOINT__SAAS__AUTH_GATEWAY__REST__REST",
 	}
 	for _, name := range secret {
 		require.Truef(t, resources.IsSensitiveEnvironmentVariable(name), "%s must stay sensitive", name)
@@ -118,6 +132,54 @@ func TestSensitiveEnvironmentVariableMatchesProducedCarriers(t *testing.T) {
 
 	require.False(t, resources.IsSensitiveEnvironmentVariable(resources.ConfigurationDocumentKey("saas/auth-gateway", "identity", "staging", false)))
 	require.True(t, resources.IsSensitiveEnvironmentVariable(resources.ConfigurationDocumentKey("saas/auth-gateway", "identity", "staging", true)))
+
+	// Built by the real producers: a public configuration whose key spells an
+	// address carrier ending in a token. The key is sensitive, and so is every
+	// carrier that carries it, whichever carrier the key spells inside.
+	smuggled := "CODEFLY__ENDPOINT__APP__SVC__REST__ACCESS_TOKEN"
+	require.True(t, resources.IsSensitiveKey(smuggled))
+	for _, carrier := range []string{
+		resources.ConfigurationValueEnvironmentKey(workspace, "settings", &basev0.ConfigurationValue{Key: smuggled}),
+		resources.ServiceConfigurationKeyFromUnique("app/svc", "settings", smuggled),
+	} {
+		require.True(t, resources.IsSensitiveEnvironmentVariable(carrier), carrier)
+	}
+}
+
+// A module or service name is a structural segment of every carrier built
+// from it, and is held to the same grammar as a configuration name where it
+// is loaded: "public--auth" and "public__auth" both spell PUBLIC__AUTH, and a
+// service carrier built from either reads the first segment of its key as
+// structure — a public client id classified by its password-policy group.
+func TestModuleAndServiceNamesWithConsecutiveSeparatorsAreRefused(t *testing.T) {
+	ctx := context.Background()
+	manifest := func(name string) string {
+		return "name: " + name + "\nversion: 0.0.0\nagent:\n  kind: service\n  publisher: codefly.dev\n  name: go\n  version: 0.0.0\n"
+	}
+	for _, name := range []string{"public--auth", "public__auth", "public-_auth"} {
+		t.Run("service/"+name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, resources.ServiceConfigurationName), []byte(manifest(name)), 0o600))
+			_, err := resources.LoadServiceFromDir(ctx, dir)
+			require.ErrorContains(t, err, "carries consecutive separators")
+		})
+		t.Run("module/"+name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, resources.ModuleConfigurationName), []byte("kind: module\nname: "+name+"\nservices: []\n"), 0o600))
+			_, err := resources.LoadModuleFromDir(ctx, dir)
+			require.ErrorContains(t, err, "carries consecutive separators")
+		})
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.ServiceConfigurationName), []byte(manifest("public-auth")), 0o600))
+	service, err := resources.LoadServiceFromDir(ctx, dir)
+	require.NoError(t, err)
+	require.Equal(t, "public-auth", service.Name)
+
+	// The ambiguity the grammar prevents, at the real producer.
+	key, ok := resources.ConfigurationCarrierKey(resources.ServiceConfigurationKeyFromUnique("mod/public--auth", "password-policy", "client-id"))
+	require.True(t, ok)
+	require.Equal(t, "PASSWORD_POLICY__CLIENT_ID", key, "a service spelled PUBLIC__AUTH shifts the group into the key")
 }
 
 // The one parser of a carrier's key, for every reader that scans a carrier

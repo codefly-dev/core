@@ -221,15 +221,20 @@ var addressCarrierPrefixes = []string{
 // VALUE is a credential is declared where it is authored — a secret value
 // rides a secret carrier, whatever its key — and the key classifier is the
 // defence in depth over the one thing an author named the value by, its key.
-// So:
+// The OUTERMOST structure is read first, by its own grammar, before anything
+// inside it is looked at: a configuration key that happens to spell an
+// address carrier is still a key, and cannot select the address rule for the
+// name that carries it. So, in this order:
 //
 //   - a secret configuration carrier is always sensitive;
-//   - an endpoint, self-endpoint or REST-route carrier is an address, and only
-//     an operator-chosen prefix in front of it (WithPublicEnvironmentVariablePrefix)
-//     is classified;
-//   - a service or workspace configuration carrier is classified by its KEY
-//     alone, without the module, service and configuration-name segments —
-//     the same segment the rendered-manifest validator reads;
+//   - a service or workspace configuration carrier is classified by its
+//     complete KEY alone, without the module, service and configuration-name
+//     segments — the same segment the rendered-manifest validator reads;
+//   - an endpoint, self-endpoint or REST-route carrier is an address: at the
+//     start of the name, or behind an operator-chosen prefix
+//     (WithPublicEnvironmentVariablePrefix) that is a plain prefix — one with
+//     no double underscore, so it is no carrier of its own — and only that
+//     prefix is classified;
 //   - every other name is classified whole by IsSensitiveKey.
 func IsSensitiveEnvironmentVariable(name string) bool {
 	canonical := strings.ToUpper(name)
@@ -238,13 +243,13 @@ func IsSensitiveEnvironmentVariable(name string) bool {
 			return true
 		}
 	}
-	for _, prefix := range addressCarrierPrefixes {
-		if at := strings.Index(canonical, prefix); at >= 0 {
-			return IsSensitiveKey(canonical[:at])
-		}
-	}
 	if key, ok := ConfigurationCarrierKey(canonical); ok {
 		return IsSensitiveKey(key)
+	}
+	for _, prefix := range addressCarrierPrefixes {
+		if at := strings.Index(canonical, prefix); at >= 0 && !strings.Contains(canonical[:at], "__") {
+			return IsSensitiveKey(canonical[:at])
+		}
 	}
 	return IsSensitiveKey(canonical)
 }
@@ -254,10 +259,10 @@ func IsSensitiveEnvironmentVariable(name string) bool {
 // PREFIX__MODULE__SERVICE__NAME__KEY (UniqueToKey, then NameToKey twice), a
 // workspace carrier PREFIX__NAME__KEY, under the public or the secret prefix.
 // The structural segments in front of the key never contain a double
-// underscore — a module name is lowercase letters, digits and single dashes,
-// and a configuration name is refused where it is loaded if its spelling
-// would carry one — so the key is everything after the fixed number of them,
-// whatever it contains. It is the one parser of a carrier's key: a reader that
+// underscore — a module name, a service name and a configuration name are
+// each refused where they are loaded if their spelling would carry one
+// (validateCarrierName, ConfigurationNameHasAmbiguousSpelling) — so the key
+// is everything after the fixed number of them, whatever it contains. It is the one parser of a carrier's key: a reader that
 // scans a carrier for credential words scans this segment, never the whole
 // name, so the module, service and configuration-name segments cannot trip it.
 func ConfigurationCarrierKey(name string) (string, bool) {

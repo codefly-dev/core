@@ -377,16 +377,22 @@ classified by its configuration KEY alone — the module, service and
 configuration-group segments are structure, so a public group named
 `datasource-oauth` does not make its `PROVIDERS` or `CLIENT_ID` a credential,
 while a `CLIENT_SECRET` key in that group, and any value that rides a secret
-carrier, stays sensitive. `resources.ConfigurationCarrierKey` is the one
-parser of that segment, for every reader that scans a carrier for credential
-words — the rendered-manifest validator and the CLI's render scan included —
-so no reader runs a word list over the whole name. The parser is unambiguous
-because no structural segment spells a double underscore: a module name is
-lowercase letters, digits and single dashes, and a configuration file whose
-name carries consecutive separators (`policy--auth.env`, `policy__auth.env`)
-is refused where it is loaded, since both would spell `POLICY__AUTH` and read
-as configuration `policy` with key `AUTH__…`. A renderer refusing a public
-value by its group name is a defect here, never a reason to rename the group.
+carrier, stays sensitive. The OUTERMOST carrier is read first, by its own
+grammar: a configuration key that happens to spell an address carrier
+(`…__SETTINGS__CODEFLY__ENDPOINT__APP__SVC__REST__ACCESS_TOKEN`) is still a
+key, classified whole, so a token cannot hide behind an address spelling; an
+address carrier is one at the start of the name or behind an operator prefix
+that is a plain prefix (no double underscore). `resources.ConfigurationCarrierKey`
+is the one parser of the key segment, for every reader that scans a carrier
+for credential words — the rendered-manifest validator and the CLI's render
+scan included — so no reader runs a word list over the whole name. The parser
+is unambiguous because no structural segment spells a double underscore: a
+module name, a service name and a configuration file name that carry
+consecutive separators (`public--auth`, `policy__auth.env`) are refused where
+they are loaded, since both spellings become `…__AUTH` and shift the first
+segment of the key into the structure or the group into the key. A renderer
+refusing a public value by its group name is a defect here, never a reason to
+rename the group.
 
 ## Runtime Contexts
 

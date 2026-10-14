@@ -40,6 +40,9 @@ func TestRestrictedValidatorHoldsTheCarrierBoundary(t *testing.T) {
 		"CODEFLY__WORKSPACE_CONFIGURATION__POLICY__ACCESS_TOKEN__FORMAT",
 		"CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH__CLIENT_SECRET",
 		"DATABASE_PASSWORD",
+		// A token behind an address spelling inside a public configuration
+		// carrier: the outermost carrier is read first, and the key whole.
+		"CODEFLY__WORKSPACE_CONFIGURATION__SETTINGS__CODEFLY__ENDPOINT__APP__SVC__REST__ACCESS_TOKEN",
 	} {
 		t.Run("refused/"+key, func(t *testing.T) {
 			require.True(t, resources.IsSensitiveEnvironmentVariable(key), "the classifier calls it sensitive")
