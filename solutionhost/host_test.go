@@ -137,7 +137,7 @@ func appliedHost(applied ...solutionhost.Applied) solutionhost.Host {
 func TestShippedFixturesReachTheirDeclaredOutcome(t *testing.T) {
 	host := fixtureHost(t)
 	fixtures := solutionhost.FixturesOf(solutionhost.DocumentTypePresence)
-	require.Len(t, fixtures, 48)
+	require.Len(t, fixtures, 86)
 
 	for _, shipped := range fixtures {
 		t.Run(shipped.Name, func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"endpoint-exposure-beyond-reach": solutionhost.ErrInvalid,
 		"endpoint-exposure-unknown":      solutionhost.ErrInvalid,
 		// The build-size section's refusals, each one named rule; see
-		// TestEveryBuildSizeRuleIsProtectedByAFixture for the rule each
+		// TestEveryRuleIsProtectedByAFixture for the rule each
 		// protects, and TestEachRejectedPresenceFixtureIsRefusedNamingItsMessage
 		// for the text each carries.
 		"build-size-languages-omitted":        solutionhost.ErrInvalid,
@@ -220,6 +220,39 @@ func TestEachRejectedFixtureNamesWhyItWasRejected(t *testing.T) {
 		"build-size-merge-key":                solutionhost.ErrInvalid,
 		"merge-key-at-top-level":              solutionhost.ErrInvalid,
 		"build-size-binary-key":               solutionhost.ErrInvalid,
+		// The frontend block's refusals, each one named rule of the same
+		// table; see Frontend.
+		"tombstone-with-frontend":             solutionhost.ErrInvalid,
+		"frontend-title-empty":                solutionhost.ErrInvalid,
+		"frontend-host-contract-zero":         solutionhost.ErrInvalid,
+		"frontend-surface-id-invalid":         solutionhost.ErrInvalid,
+		"frontend-surface-client-invalid":     solutionhost.ErrInvalid,
+		"frontend-surface-twice":              solutionhost.ErrInvalid,
+		"frontend-surface-module-offsite":     solutionhost.ErrInvalid,
+		"frontend-surface-contract-zero":      solutionhost.ErrInvalid,
+		"frontend-surface-applies-invalid":    solutionhost.ErrInvalid,
+		"frontend-surface-event-invalid":      solutionhost.ErrInvalid,
+		"frontend-surface-event-twice":        solutionhost.ErrInvalid,
+		"frontend-dashboard-too-large":        solutionhost.ErrInvalid,
+		"frontend-order-omitted":              solutionhost.ErrInvalid,
+		"frontend-host-contract-hex":          solutionhost.ErrInvalid,
+		"frontend-order-too-large":            solutionhost.ErrInvalid,
+		"frontend-dashboard-hex":              solutionhost.ErrInvalid,
+		"frontend-dashboard-timestamp":        solutionhost.ErrInvalid,
+		"frontend-dashboard-not-an-object":    solutionhost.ErrInvalid,
+		"frontend-payload-artifact-invalid":   solutionhost.ErrInvalid,
+		"frontend-payload-digest-invalid":     solutionhost.ErrInvalid,
+		"frontend-payload-media-type-invalid": solutionhost.ErrInvalid,
+		"frontend-payload-digest-omitted":     solutionhost.ErrInvalid,
+		"group-order-omitted":                 solutionhost.ErrInvalid,
+		"group-order-hex":                     solutionhost.ErrInvalid,
+		"group-order-too-large":               solutionhost.ErrInvalid,
+		"group-id-invalid":                    solutionhost.ErrInvalid,
+		"group-title-empty":                   solutionhost.ErrInvalid,
+		"group-title-blank":                   solutionhost.ErrInvalid,
+		"group-title-too-large":               solutionhost.ErrInvalid,
+		"module-with-group":                   solutionhost.ErrInvalid,
+		"tombstone-with-group":                solutionhost.ErrInvalid,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := solutionhost.Parse(presence(t, name))

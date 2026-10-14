@@ -1,0 +1,66 @@
+# REJECTED. A tombstone that still carries a frontend. A removed generation
+# declares nothing to serve: a frontend is what a host serves for a build, and
+# this generation declares that there is none.
+schema: codefly/solution-host-binding/v1
+kind: solution
+binding: alpha-region-a-01
+generation: 5
+ownership_domain: alpha
+envelope_revision: 7
+host:
+  coordinate: example/prod/region-a
+  component: solution-host
+release:
+  publisher: example
+  name: alpha
+  version: 1.4.0
+  digest: sha256:5b1cbf059fa244a163e6f443417e5259db2392b95ae25a9d3aa03496c180eaef
+removed: true
+frontend:
+  title: Alpha
+  order: 10
+  exposed_module: ./Page
+  host_contract: 1
+  dashboard:
+    events:
+      - name: item-created
+        type: example.item.created
+        description: An item was created.
+    metrics:
+      - id: items
+        event: item-created
+        aggregation: count
+        groupBy: time
+        bucket: day
+    dashboards:
+      - id: overview
+        title: Overview
+        layout: grid
+        widgets:
+          - id: items-per-day
+            metric: items
+            visualization: line
+            title: Items per day
+            version: "1.0"
+            enabled: true
+            limit: 100
+  surfaces:
+    - id: summary
+      client: slack
+      title: Summary
+      module: /surfaces/slack/summary.js
+      contract: 1
+      applies: always
+    - id: footnote
+      client: word
+      title: Footnote
+      description: Insert a footnote from the catalogue.
+      module: /surfaces/word/footnote.js
+      contract: 2
+      applies:
+        tagged:
+          - contract
+          - brief
+      events:
+        - example.item
+        - example.citation

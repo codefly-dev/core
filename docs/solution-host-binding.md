@@ -88,11 +88,11 @@ decoding means a document carrying a field the reader does not know is refused
 as malformed rather than read with the field dropped, so a *required* field
 added under an unchanged schema string makes two Cores read that string
 differently — a skew nothing can detect, because the string is what the fleet
-pins. `build_size` is the one addition that did not step, and it is the
-boundary rather than a counter-example: it is optional, so no document that was
-valid stopped being valid and no stored digest moved. The presence document's
-`exposure` and the authority document's three subject declarations are
-required, so both stepped.
+pins. `build_size` and `frontend` are the two additions that did not step, and
+each is the boundary rather than a counter-example: both are optional, so no
+document that was valid stopped being valid and no stored digest moved. The
+presence document's `exposure` and the authority document's three subject
+declarations are required, so both stepped.
 
 ### What a step costs, and who pays it
 
@@ -166,7 +166,7 @@ workloads:                         # what the host runs, and what must be true o
     identity:
       audience: https://prod.region-a.example/solutions
       subject: system:serviceaccount:alpha-region-a-01:alpha-api
-      spiffe_id: spiffe://prod.region-a.example/ns/alpha-region-a-01/sa/alpha-api
+      spiffe_id: spiffe://prod.region-a.example/ns/alpha-region-a-01/sa/alpha-api   # the mesh principal: what the mesh issues to its ServiceAccount
     non_authenticating: [envoy, migrate]   # must never be accepted as the authenticator
 modules:
   - {module: alpha, package: example/alpha-core, version: 1.4.0}
@@ -181,12 +181,27 @@ build_size:                        # OPTIONAL: the build's size, counted by the 
   frontend: 8102
   total: 20518
   vendored: [web/src/clients]      # the manifest's declaration, as applied; `[]` when it declares none
+frontend:                          # OPTIONAL, either kind: what the host serves, as the component declared it
+  title: Alpha                     # the navigation label
+  order: 10                        # where it sorts; declared, zero included
+  exposed_module: ./Page           # the module its Module Federation remote exposes
+  host_contract: 1                 # the host page contract major it is built against, at least 1
+  dashboard:                       # OPTIONAL: its data graph, opaque JSON the host interprets, bounded in size
+    events: [{name: item-created, type: example.item.created}]
+  surfaces:                        # OPTIONAL: what it offers inside a client application, by client and id
+    - id: footnote
+      client: word
+      title: Footnote
+      module: /surfaces/word/footnote.js   # a path on the solution's own origin
+      contract: 1                          # the surface contract major the client owns, at least 1
+      applies: {tagged: [contract]}        # or `always`: the two shapes the client reads
+      events: [example.item]               # OPTIONAL: the journal namespaces it reconciles on
 ```
 
 A tombstone is the same document with `removed: true`, a higher generation, and
-no routes, artifacts, workloads, modules, endpoints or build size. It still
-names the release it removes **and the ownership domain it was applied under**,
-which is what makes the removal attributable.
+no routes, artifacts, workloads, modules, endpoints, build size or frontend. It
+still names the release it removes **and the ownership domain it was applied
+under**, which is what makes the removal attributable.
 
 ### The build's size is a build fact
 
@@ -372,6 +387,190 @@ with two declared-empty lists. A producer that marshals the model by hand can
 write `vendored: null` for a list it meant as empty, and the failure then
 surfaces at whoever reads the file, or at admission, rather than at publish.
 
+### Modules and solutions share the frontend declaration
+
+`frontend` is what a host serves for a module or solution: the page its navigation
+opens and the surfaces it offers inside a client application. It holds the
+author-declared half of the manifest the host's registry projects — `title`,
+`order`, `exposed_module`, `host_contract`, an opaque `dashboard` and the
+`surfaces` — and nothing the host adds itself (the asset path, the backend
+alias, the capability path) and nothing that is an address.
+
+**Where it comes from.** A solution declares these fields in **one file beside
+its backend service**, which the solution runtime embeds (`go:embed`, as it
+embeds its assets) and serves its manifest route from; the runtime's docs name
+the file. The CLI reads the same file into this block when it renders the
+generation. So the host learns a component's frontend from the applied presence
+document — verified, signed, and attributable to a generation — and from
+nothing the running process reports: there is no mint-time manifest report,
+and a solution is active once its presence is applied with the block (and,
+per the install lifecycle, once its installation is acknowledged).
+
+**Both component kinds.** A shared module and a solution can each contribute
+pages through this same contract. The host loads their declared frontend
+without compiling component-specific imports into itself. `kind` describes the
+component's responsibility; it does not select a different frontend mechanism.
+Deployment sharing grants no organisation access: installation and live request
+authority remain the host's separate checks. A headless component omits the block.
+A removed generation declares nothing to serve, so a tombstone's frontend is
+refused by `frontend-absent-when-removed`, regardless of kind.
+
+**Two halves: authored, and generated.** Everything above is what the author
+wrote in the declared file. One field of the block is GENERATED by the
+renderer and never written by an author — and the standalone reader,
+`ParseFrontend`, refuses it as a field no frontend declaration declares,
+through the same known-fields rule every document shares, so the file cannot
+grow a digest that only exists after a build:
+
+- `payload` is the identity of the frontend's complete executable output:
+  `artifact`, the name of the runtime artifact of the release the bundle was
+  resolved from, held to the grammar a `composition.ReleaseArtifact` is named
+  under (`frontend-payload-artifact`, through `composition.ValidateReleaseArtifactName`);
+  `digest`, the SHA-256 of the complete bundle bytes, a `PayloadDigest`
+  (`frontend-payload-digest`); and `media_type`, the bundle's representation
+  as the release artifact declares it, an explicit canonical media type
+  (`frontend-payload-media-type`, through `artifactexecution.ValidateMediaType`).
+  The renderer derives all three from the release's own artifact metadata —
+  the bundle is an ordinary named runtime `ReleaseArtifact`, its digest
+  computed over the deterministic archive `composition.CanonicalArchive`
+  writes — and the host admits the bundle it serves by this identity and by
+  nothing a running process reports. A locator is transport and is not here.
+  The payload is optional in the document: whether a frontend without one is
+  served is the host's activation decision, and core holds only what a
+  present payload says. It is either kind's.
+
+Both halves are inside the signed bytes, and the node rules reach into both:
+a present payload's scalars are declared, exactly as the block's are. The
+group a solution is organised under is NOT part of the frontend — a headless
+solution is organised too — and is the document's own block, next.
+
+### A solution's group
+
+`group` is the presentation group a SOLUTION is organised under on its host:
+`id`, `title` and `order`. The host shows it in its navigation, after its own
+entitlement filter, and in its administrative catalogue — where a headless
+solution is organised too, which is why the group is a block of the document
+beside `frontend` and not inside it, independent of whether a frontend is
+declared at all.
+
+It is GENERATED: the renderer projects it from the composing product's
+`solution-groups` ([workspace composition](workspace-composition.md#solution-groups))
+through `Workspace.SolutionGroupOf`, and an author writes it nowhere in a
+solution — not in the frontend file, not in the package. It is presentation
+only: nothing is granted or installed under a group, a solution's stable
+identity is unchanged by it, and no group identifier enters any grant,
+installation or credential field (the schema guard that holds every field
+name of the document still does).
+
+It is OPTIONAL, for `build_size`'s reason: a document without it encodes as it
+did before the block existed, so every stored digest holds; one that carries
+it is held to the group rules, a third section of the one table, in
+`group.go`, each rule one condition with its fixture. It is a solution's
+alone — a module is grouped by nothing, so a group on one is refused
+(`group-solution-only`) — and a present generation's: a tombstone declares
+none (`group-absent-when-removed`). Its id is held to the grammar the
+workspace authors it in (`group-id`, through
+`resources.ValidateSolutionGroupID`: lowercase letters and digits,
+dash-separated); its title is one non-blank line without control characters
+(`group-title`, through `resources.ValidateSolutionGroupTitle`: a title of
+spaces is as empty as `""`); id and title are each at most `GroupTextMaxBytes`
+(1 KiB, `resources.SolutionGroupTextMaxBytes`, which is also the frontend
+text bound: `group-text-bounded`). Every scalar is declared, zero included
+(`group-fields-declared`), and the order — the one signed number — is written
+in decimal digits (`group-order-decimal`) within the range a group order is
+admitted in everywhere it travels: a **signed 32-bit integer**,
+`resources.SolutionGroupOrderMin..SolutionGroupOrderMax`
+(`group-order-fits`, through `resources.ValidateSolutionGroupOrder`). The Go
+field is wider; the bound is held on the written number, before the typed
+decoder reads it, so a host's `int32` wire and a client's number represent
+every admitted value exactly and nothing casts. The three bounds are defined
+once, where the group is authored, and the presence is held to the same
+functions, so a host parser aligns with one definition. The block is inside
+the signed bytes as the top-level key `group`.
+
+**Optional, for `build_size`'s reason, and with its consequence.** A document
+without the block is an older producer's and is accepted; it encodes exactly as
+it did before the block existed, so every digest a host stored still holds. A
+document that carries it is held to every frontend rule. And a host OLDER than
+the block refuses a document carrying it as an unknown field — `ErrInvalid`,
+from strict decoding — which is not a defect to work around: it is why core
+merges and releases before the renderer in a cutover, and why a fleet pins the
+schema string rather than reading past a field it does not know.
+
+**The dashboard is opaque JSON, bounded, and signed as written.** Its schema —
+events, metrics computed over them, dashboards binding widgets to metrics — is
+the host's, and core reads nothing in it. What core holds is that it is an
+object, that it is at most `FrontendDashboardMaxBytes` (64 KiB) of canonical
+encoding, which is the size a host stores with the generation, and that every
+value in it is one JSON spells exactly one way: a string, a boolean, a whole
+number in decimal digits that fits, a list or an object. That last rule is a
+node rule, judged before the typed decoder sees the tree, for the reason the
+build-size counts are: yaml would otherwise read `0x10` as 16, a plain
+`2024-01-01` as a timestamp the signing encoding writes back as a different
+string, and `!!binary` bytes as a string JSON rewrites — and each would be
+signed as a value the author never wrote. The shared wire check already refuses
+a fraction, a null and a key that is not a name anywhere in the document. A
+producer that builds the dashboard in Go rather than reading it is held to the
+same bound and, through `Marshal`'s read-back, to the same spelling: a fraction
+fails at the writer and at verification, loudly, rather than being signed as
+something else. The dashboard is the one place in the document a value is not
+a name core knows the shape of; it is bounded, it is a declaration the host's
+validator admits or refuses, and it is not a slot for a credential — the
+schema test that holds every FIELD name to that still does, and the host's
+data graph "never carries data, credentials, or deployment addresses" by its
+own definition.
+
+**The surfaces are a set, keyed by client and id, and carry everything the
+client reads.** A client addresses a surface by id, so the pair is unique; an
+id is lowercase letters and digits separated by dashes and a module is a path
+on the solution's own origin — both as the solution runtime spells them, so a
+declaration the runtime refuses at boot is refused here at render, by name. A
+client kind is held to the shape of a lowercase name and not to a closed set:
+which kinds a host's clients answer to is the host client's vocabulary, and it
+is held where the clients are. Each surface also carries its `contract` — the
+major of the surface contract the client owns, at least 1, which the host never
+reads — what it `applies` to, and the journal namespaces (`events`) the client
+reconciles it on. `applies` is declared, never defaulted, and is exactly one of
+the two shapes the client has a branch for: the string `always`, or an object
+`{tagged: [...]}` naming one or more non-empty tags; it is carried as the JSON
+it is, since the host hands it to the client verbatim. `events` is a set of
+lowercase dotted names, each once, absent when there are none. The host's
+registry projection is built from the applied presence alone, so a field the
+block omitted would never reach a client add-in — which is why the block holds
+the whole declaration and not the half a page needs. The canonical encoding
+sorts the surfaces by (client, id) and each surface's events by name, so a
+producer emitting either from a Go map cannot move the digest per process;
+the dashboard's object keys are sorted by the encoding at every depth, and
+every list — the dashboard's, and the tags a surface applies to — keeps its
+order, as JSON lists do, because the client reads it in order.
+
+**Size limits apply to both kinds.** Every text field, identifier, event and tag
+is at most 1 KiB in UTF-8 bytes (`FrontendTextMaxBytes`). Surfaces, and each
+surface's events and tags, contain at most 64 items (`FrontendCollectionMaxItems`).
+The entire frontend is at most 128 KiB of canonical JSON (`FrontendMaxBytes`),
+including its separately bounded 64 KiB dashboard. The shared validator refuses
+oversize declarations before they reach the host projection; consumers reuse
+these limits rather than choosing different limits per component kind.
+
+**Every scalar of the block is declared, zero included, and a number has one
+spelling.** `order` is where a solution sorts; an omitted one would decode as
+zero and be signed as a choice, so `frontend-fields-declared` requires every
+scalar field of the block and of every surface on the node, before typing,
+and `frontend-numbers-decimal` and `frontend-numbers-fit` hold `order` and
+`host_contract` to decimal digits that fit, the way the build-size counts are
+held. Every text is one non-empty line (`frontend-texts`); a surface's
+description is the one text that may be absent. `host_contract` is a major,
+at least 1: a host serves a remote only when it recognises the major it
+declares, and the zero an author leaves behind is a page every host refuses in
+a render that otherwise looks healthy.
+
+Every one of these is a rule of the same table as the build-size rules, in
+`frontend.go`, each a function holding exactly one condition with a shipped
+fixture that notices when the rule is dropped — the self-check deletes each in
+turn — and the fixtures that witness a repair (an omitted order, a hexadecimal
+number, a timestamp, a list where an object was declared) are accepted
+outright with their rule gone, which is the hole each closes.
+
 ### An endpoint's reach and its addressing, and why this document holds both to core's vocabulary
 
 An endpoint here is **named, never addressed**: a declared address would be a
@@ -486,6 +685,20 @@ SHA-256 collision between rendered bytes, an OCI manifest and a release, so
 equality is evidence of a confusion, caught where a renderer assembling YAML by
 hand is outside the compiler's reach.
 
+**A fourth type, held apart by type and not by value.** `PayloadDigest`
+(`frontend.payload.digest`) pins the bytes of a frontend's complete executable
+output, the archive a host materialises and serves by content identity. It is
+its own type for the reason the other three are: a renderer cannot hand a host
+a release, rendered or image digest where the bundle's is expected. It is
+deliberately NOT read by `ErrDigestConfusion`. That rule's premise — equality
+can only be a mix-up — holds for the three it reads and not for this one: a
+frontend-only generation's rendered artifact can be the bundle itself, in
+which case the rendered digest and the payload digest are the same bytes
+hashed once. What the payload digest means is established by the field it sits
+in and by the host checking the bytes it serves against it, never by
+inequality with another field; extending the confusion rule to it would refuse
+a true document on an assumption.
+
 ### Workloads, and the biconditional
 
 A present generation declares workloads **if and only if** it renders a
@@ -510,11 +723,17 @@ Three further refusals, each choosing a refusal over a guess:
 - `Image.Repository` may carry neither a tag nor a digest. Either would give one
   container two answers about what it runs, and the mutable one usually wins.
 
-`spiffe_id` is validated as a SPIFFE ID and not as a name: scheme `spiffe`, a
+`spiffe_id` names the workload's **mesh principal**: the SPIFFE ID the cell's
+mesh issues to the workload's ServiceAccount and carries as the peer identity
+on every connection it brokers. It is what a mesh policy admits a port from
+and what a host records beside the subject. It is **not** an SVID the workload
+serves or presents: no workload terminates TLS or holds an X.509-SVID of its
+own, and inside a cell every hop is plain HTTP under the mesh's transport
+security. It is validated as a SPIFFE ID and not as a name: scheme `spiffe`, a
 lowercase non-empty trust domain, no userinfo, query, fragment or port, and a
-non-empty normalized path. A subject that happens to parse as a URL is not an
-SVID, and a trust domain alone would let every workload in the domain present
-the same ID.
+non-empty normalized path. A subject that happens to parse as a URL is not a
+principal any mesh attests, and a trust domain alone would admit every
+workload in the domain as one.
 
 ### The ownership domain is enforced, not merely carried
 
@@ -1039,7 +1258,7 @@ payload that survives a round trip through it.
 | Two digests of different kinds are never the same string | `Validate`, `ErrDigestConfusion` |
 | Workloads iff a backend artifact; each names a backend artifact it declares | `Validate`, `ErrInvalid` |
 | One authenticating container, which is not also excluded | `Validate`, `ErrInvalid` |
-| A SPIFFE ID is an SVID name, not a generic name | `Validate`, `ErrInvalid` |
+| A SPIFFE ID is the workload's mesh principal, validated as a SPIFFE ID and not as a generic name | `Validate`, `ErrInvalid` |
 | Generations are strictly monotonic per binding ID | `Host.Admit`, `ErrStaleGeneration` |
 | An applied generation is immutable | `Host.Admit`, `ErrRewrittenGeneration` |
 | The host's own applied record must be usable, and saying so is not an accusation of delivery | `Host.Admit`, `ErrAppliedUnusable` |
@@ -1053,6 +1272,16 @@ payload that survives a round trip through it.
 | Every vendored prefix a producer signs covered a path it offered | `Counter.Result`, refused by name |
 | A build size, when present, counts known languages once each with at least one line, excludes canonical UTF-8 paths, distinct and non-nested, and states totals whose parts fit and sum to them | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
 | A tombstone declares no build size | `Validate` → the rule table, `ErrInvalid` |
+| A module or solution may declare a frontend; a tombstone of either kind must not | `Validate` → the rule table, `ErrInvalid` |
+| A frontend's scalars are declared, its numbers decimal and fitting, its dashboard an object of values JSON spells one way, judged on the node before the typed decoder can repair them | `Parse` → the node rules, `ErrInvalid` |
+| A frontend, when present, has one-line texts, a host contract major of at least 1, surfaces unique per client with runtime-spelled ids, same-origin modules, a contract major of at least 1, one of the two `applies` shapes and distinct namespace events, and a dashboard within `FrontendDashboardMaxBytes` | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
+| A frontend's generated `payload` names a release artifact, carries a SHA-256 `PayloadDigest` and an explicit canonical media type | `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
+| The standalone frontend file holds the authored half only: `payload` is refused in it as an unknown field | `ParseFrontend`, strict decoding into the authored half, `ErrInvalid` |
+| A solution's generated `group`, when present, is a solution's alone and a present generation's, with an id of the composing workspace's grammar, a one-line title, both within `GroupTextMaxBytes`, and a declared decimal order that fits | `Parse` → the node rules, `Validate` → the model rules, `ErrInvalid`; each rule one named condition with its fixture |
+| A `PayloadDigest` is never compared with the release, rendered or image digest | there is no such rule, by decision: a rendered artifact can be the bundle itself |
+| An endpoint delivery names the applied presence it joins — host target, binding, generation, domain, canonical digest — and a signed one binds exactly those bytes | `MarshalEndpointDelivery` / `CanonicalBytes`, `SignEnvelope` with the delivery payload type, `ParseEndpointDelivery` |
+| A host verifies, joins and stores a signed delivery by its identity alone, never reading an address | `VerifyDeliveredEndpoints`, `DeliveredEndpoints.Identity`, `Host.AdmitEndpoints`, `EndpointDeliveryIdentity.Key` |
+| A resolver reads addresses only from attested bytes joined to the presence it holds, and never falls back | `ParseEndpointDelivery` over `DeliveredEndpoints.Payload()`, `ErrInvalid` |
 | A module manifest carries only keys it declares, is held to the shared node checks, and a composition descriptor is not one | `resources.LoadModuleFromDir`, the node checks and the kind dispatched from the node before strict decoding |
 | A presence document is written through `Marshal`, which reads back what it wrote | `Marshal`, `ErrInvalid` |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
@@ -1173,7 +1402,11 @@ is pinned by test against the shipped fixtures, so it cannot move by accident.
 The build-size section sorts its two collections the same way and keeps an
 empty one an empty list, and a document without the section encodes exactly as
 it did before the section existed, so the pins of the older fixtures did not
-move when it was added; the `build-size` fixture carries its own pin.
+move when it was added; the `build-size` fixture carries its own pin. The
+frontend block sorts its surfaces by client and id, its dashboard's keys are
+sorted by the encoding at every depth, and a document without the block
+encodes as before, for the same reason; the `frontend` fixture carries its own
+pin.
 
 ## Fixtures
 
@@ -1367,3 +1600,93 @@ lands, the second copies of this model still exist. What each one owes:
 | --- | --- |
 | `codefly-dev/cli` | delete `pkg/modulecontract`, `docs/wire/` and `TestWireShapesArePinnedByDigest`; read every contract through `modulecontract.Load`; replace its `Values` adapter with a **duplicate-preserving** `Records(group) ([]Record, error)` provider that keeps repeated records, original key spellings and every secret classification; write through `Encode` rather than marshaling the model; and run **both** kits — the document kit and `RunResolution` — through the render's and the publisher's own entrypoints, never a test-only wrapper. The deletions are done at `b77f5806`, which PREDATES the `Records` API and the resolution kit, so that commit does not establish adoption of this head; the tested consumer commit is still to be named. Its cell model stays its own until core ships one. |
 | the runtimes that publish contracts | run `modulecontract.Run` against the publisher's output, so a contract they emit is one this reader accepts. Not started. |
+
+### Standalone frontend declarations
+
+`solutionhost.ParseFrontend` reads the component's frontend file using the same
+strict decoding, required fields and bounds as the frontend block in a presence
+document. Runtimes and delivery tools use this reader instead of implementing
+another validator. A component may omit the file when it has no frontend; a
+present empty or malformed file is refused. The file holds the AUTHORED half
+only: a `payload` in it is refused as a field no frontend declaration
+declares, since it is generated by the renderer from the release's artifact
+metadata after the author is done; a solution's `group` is a block of the
+presence document, never of the file. Parsing the file grants no authority: the complete
+presence still goes through signed delivery and host admission.
+
+
+## Live endpoint delivery
+
+`solutionhost.MarshalEndpointDelivery` encodes the CLI's selected endpoint
+carriers separately from presence, under `codefly/endpoint-delivery/v1`. The
+delivery names the applied declaration it joins — `host {coordinate,
+component}`, `binding`, `generation`, `ownership_domain` and the complete
+canonical `presence_digest` — beside its `carriers`, and its bytes are
+canonical (`CanonicalBytes`: keys sorted at every depth, as a presence is
+encoded). `ParseEndpointDelivery` joins that projection to the applied
+presence: every named fact and the digest must agree. It rejects undeclared
+carrier keys and duplicate or malformed input, using the same strict decoder
+and endpoint encoding as the existing contracts. An empty carrier subset
+authorizes no route. The presence stays address-free: this is the one document
+an address travels in.
+
+### Signed, mountless delivery
+
+Where no filesystem is shared with the workload, the same bytes travel as a
+**signed delivery document**, through the host's existing durable inbox and
+applied state, with no new registry, server or mount:
+
+- The writer signs the delivery's canonical bytes exactly as it signs a
+  presence: `SignEnvelope` (payload type
+  `application/vnd.codefly.endpoint-delivery+json`, fixed by the schema),
+  `Carrier`, `MarshalSigned`. The signature covers the exact bytes, which
+  carry the host target, binding, generation, domain and presence digest, so
+  the delivery is bound to one applied presence and nothing else.
+- The host verifies it with the same pinned-key `Verifier`:
+  `VerifyDeliveredEndpoints` returns an opaque `DeliveredEndpoints` — the
+  attested bytes and the signer — whose `Identity()` is re-derived from those
+  bytes and reads no address (`EndpointDeliveryFromVerified`: strict decoding,
+  schema, canonical round-trip). `Host.AdmitEndpoints` joins that identity to
+  the host's applied record with the existing sentinels (`ErrWrongHost`,
+  `ErrEndpointsUnapplied` for a binding or generation not applied,
+  `ErrStaleGeneration`, `ErrRewrittenGeneration`, `ErrWrongDomain` for the
+  record's domain and the signer's, `ErrTombstoned`) and returns the
+  **storage identity**, `EndpointDeliveryIdentity.Key()`: a digest of the host
+  target and the binding — the same digest `EndpointDeliveryFilename` names a
+  native file by — under which the host keeps the attested bytes, a later
+  generation replacing the same slot. The host parses no address, ever.
+- The resolver (the SDK) receives the attested bytes — `Payload()`, as the
+  host stored them — through the host's authenticated applied read, and
+  calls `ParseEndpointDelivery` over them against the applied presence it
+  holds: every identity fact and the digest must agree, only declared
+  endpoints are read, and an address is parsed there and nowhere else. A
+  delivery that fails any step resolves nothing; there is no fallback to an
+  environment carrier, and no second verifier lives in the host's gateway or
+  the resolver. `EndpointDeliveryFromVerified` reads the identity from stored
+  bytes without a verifier, for a host that needs it on a read.
+
+The CLI/cell delivery owner writes one atomically replaceable file per binding
+in the stable directory named by `resources.EndpointDeliveryDirectoryKey`.
+`EndpointDeliveryFilename` derives a path-safe filename from the host target and
+binding; an upgrade replaces that file. The SDK must reread it and refuse missing,
+withdrawn or mismatched delivery without consulting a startup environment
+carrier. This projection supplies addressing, not authority or frontend asset
+integrity; the host still requires applied presence and live installation grants,
+and immutable assets require the published artifact's integrity evidence.
+
+
+### Admission with no consumed permissions
+
+A declared principal may carry `bindings: []` in an authority document. The
+explicit empty list grants no operation; absent/null is invalid. Containment
+requires an exact `EnvelopeAdmission{Principal, PresenceBinding}` supplied by the
+operator-owned envelope. A document cannot admit its own principal or choose
+another presence binding. Approved build, envelope revision, signed activation,
+generation and workload checks remain unchanged. Nonempty bindings still require
+exact `EnvelopeGrant` inclusion; an admission never substitutes for a grant.
+
+`Manifest.ConsumptionContract` returns a named contract with empty bindings for
+an unscoped solution. Renderers carry that declaration through their existing
+admission path. When a module also publishes a contract, an empty consumption
+request does not compete with that contract; nonempty competing requests remain
+an authoring conflict.

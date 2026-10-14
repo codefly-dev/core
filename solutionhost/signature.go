@@ -203,8 +203,10 @@ func Carrier(payload []byte, envelope json.RawMessage) (*Signed, error) {
 	// render that produced it rather than the host that received it.
 	if _, presence := PresenceFromVerified(payload); presence != nil {
 		if _, authority := AuthorityFromVerified(payload); authority != nil {
-			return nil, fmt.Errorf("%w: the payload is neither a canonical presence document (%v) nor a canonical authority document (%v)",
-				ErrUnsigned, presence, authority)
+			if _, endpoints := EndpointDeliveryFromVerified(payload); endpoints != nil {
+				return nil, fmt.Errorf("%w: the payload is neither a canonical presence document (%v), nor a canonical authority document (%v), nor a canonical endpoint delivery (%v)",
+					ErrUnsigned, presence, authority, endpoints)
+			}
 		}
 	}
 	return signed, nil

@@ -52,6 +52,29 @@ Unsupported formats, malformed input, absent scope and documents or encoded
 carriers exceeding 64 KiB fail explicitly. Error messages exclude content. The
 directory loader's existing `.yaml` and `.secret.yaml` names are unchanged.
 
+A configuration's **name** is its file stem (`datasource-oauth.env` declares
+the group `datasource-oauth`), and it is a structural segment of every carrier
+built from it, spelled by `NameToKey` with `__` separating it from the key. A
+stem that carries consecutive separators (`--`, `__`, `-_`, `_-`) is refused
+where the file is loaded, public and secret files alike, because its spelling
+would carry `__` of its own: `policy--auth.env` and `policy__auth.env` both
+spell `POLICY__AUTH`, and a carrier built from either reads as the group
+`policy` with the key `AUTH__…`. Single dashes are the name's grammar, and the
+same grammar holds a **module name** and a **service name**, the other
+structural segments of a carrier (`public--auth` would spell `PUBLIC__AUTH`
+and shift a service carrier's first key segment into its structure); both are
+refused where they are loaded. No configuration file, module or service in
+the fleet's checkouts carried such a name when the restriction landed
+(2026-10-13); one that does fails to load with a message naming it and its
+spelling. Every reader of a carrier's key uses
+`resources.ConfigurationCarrierKey`, and every classification of a carrier
+name — the resources classifier, the restricted-manifest validator, a
+deployment consumer's scan — goes through `resources.IsSensitiveEnvironmentVariable`,
+so a secret carrier is sensitive whatever its key, a configuration carrier is
+read by its complete key — the outermost carrier first, so a key that spells
+an address carrier is still a key — and a group's or service's name never
+classifies a public value.
+
 `EnvironmentVariableManager.Configurations` never emits secret documents;
 `Secrets` returns them separately with error propagation. Raw configuration
 injection refuses structured data because it has no document identity. Restricted

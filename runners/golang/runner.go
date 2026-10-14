@@ -591,6 +591,23 @@ func (r *GoRunnerEnvironment) WithLocalCacheDir(dir string) {
 	r.localCacheDir = dir
 }
 
+// Executable is the absolute path of the executable the last successful
+// BuildBinary produced — the one Runner starts — for a runtime to report as
+// the artifact it started (runtime-started-artifact/v1, through
+// RuntimeWrapper.ReportStartedArtifact; a compiled runtime names no sources).
+// It is empty, with an error, until a build has succeeded and again after one
+// has failed, exactly as Runner refuses: BuildBinary clears the path before
+// its first fallible step, so an agent never reports the previous build for a
+// process that runs nothing. There is no other way to learn the path — a
+// consumer that derives one from the runner's layout guesses, which is what
+// the protocol exists to end.
+func (r *GoRunnerEnvironment) Executable() (string, error) {
+	if r.targetPath == "" {
+		return "", fmt.Errorf("no executable: BuildBinary has not succeeded")
+	}
+	return filepath.Abs(r.targetPath)
+}
+
 // Runner is a process for the executable of the last successful BuildBinary.
 func (r *GoRunnerEnvironment) Runner(args ...string) (runners.Proc, error) {
 	if r.targetPath == "" {

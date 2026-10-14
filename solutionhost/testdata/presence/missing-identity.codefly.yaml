@@ -1,12 +1,13 @@
 # REJECTED, ErrInvalid. The workload names an audience and a subject but no
-# SPIFFE ID, so there is nothing the destination's SVID can be verified
-# against.
+# SPIFFE ID, so it has no mesh principal: nothing a mesh policy could admit a
+# port from, and nothing a host could record beside the subject.
 #
-# A subject is what a host records; an SVID is what it can check on the
-# connection. Treating the subject as sufficient would leave the host
-# verifying a name it was handed against a name it was handed, so the document
-# names the thing that is checkable and admission refuses a presence entry
-# whose identity is absent.
+# A subject is what a host records; the SPIFFE ID is what the cell's mesh
+# attests, as the identity it issues to the workload's ServiceAccount.
+# Treating the subject as sufficient would leave the host holding a name it
+# was handed against a name it was handed, so the document names the thing
+# that is checkable and admission refuses a presence entry whose identity is
+# absent.
 schema: codefly/solution-host-binding/v1
 kind: module
 binding: gamma-region-a-02

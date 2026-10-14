@@ -139,22 +139,29 @@ type LanguageSize struct {
 //   - a DECODING rule is enforced where the bytes are read (decodeStrict),
 //     before any typed field exists, and is listed here with no check of its
 //     own so the fixture table and the self-check cover it like any other;
-//   - a NODE rule runs over the build_size node of the YAML tree before the
+//   - a NODE rule runs over its section's node of the YAML tree before the
 //     typed decoder sees it, because yaml.v3 REPAIRS what it cannot represent
 //     — a fraction is truncated, a null and an absent field become zero, a
 //     number past uint64 saturates — and a count repaired before validation
 //     is a total that agrees with rows it was never written to agree with;
 //   - a MODEL rule runs over the decoded document.
 //
-// The table holds the build-size section's rules and the decoding rules every
-// field of the document shares. The presence document's older rules — kind,
+// The table holds the rules of the two optional sections — the build's size
+// here, the frontend block in frontend.go — and the decoding rules every field
+// of the document shares. The presence document's older rules — kind,
 // identifiers, digests, the workload biconditional — predate the table and are
 // not in it; moving them is a change to a package whose digests are pinned.
 type rule struct {
 	name string
+	// section is the optional top-level block a node or model rule reads —
+	// build_size, frontend or group — and "" for a decoding rule, which reads
+	// the whole document. A rule runs only when its section is present: a document
+	// without the block is an older producer's, and the rules read the block
+	// unguarded.
+	section string
 	// decoding marks a rule decodeStrict enforces by name; it has no check.
 	decoding bool
-	// node is a rule over the build_size node, run before typed decoding.
+	// node is a rule over the section's node, run before typed decoding.
 	node func(section *yaml.Node) error
 	// check is a rule over the decoded document.
 	check func(document *SolutionHostBinding) error
@@ -163,8 +170,16 @@ type rule struct {
 	inherent bool
 }
 
+// The sections a rule reads, by the key each is written under.
+const (
+	sectionBuildSize = "build_size"
+	sectionFrontend  = "frontend"
+	sectionGroup     = "group"
+)
+
 // The rules, by name. A refused fixture names one of these; a reader that
-// drops one fails the kit on that fixture.
+// drops one fails the kit on that fixture. The frontend block's rules are
+// named in frontend.go.
 const (
 	ruleWellFormed      = "well-formed"
 	ruleSchema          = "schema"
@@ -198,11 +213,13 @@ const (
 )
 
 // rules is the order a document is held to: how the bytes read, then what the
-// build_size node says before it is typed, then the decoded section — each
-// list's presence, then its entries, then the totals over them, a sum that
-// does not fit refused before one that disagrees.
+// build_size and frontend nodes say before they are typed, then the decoded
+// sections — the build's size first (each list's presence, then its entries,
+// then the totals over them, a sum that does not fit refused before one that
+// disagrees), then the frontend block (its place in the document, then its
+// fields, then its surfaces, then its dashboard).
 func rules() []rule {
-	return []rule{
+	all := []rule{
 		{name: ruleWellFormed, decoding: true, inherent: true},
 		{name: ruleSchema, decoding: true},
 		{name: ruleMappingKeysOnce, decoding: true},
@@ -210,27 +227,33 @@ func rules() []rule {
 		{name: ruleNoNulls, decoding: true},
 		{name: ruleWholeNumbers, decoding: true},
 		{name: ruleKeyIsAName, decoding: true},
-		{name: ruleBuildSizeFieldsDeclared, node: checkBuildSizeFieldsDeclared},
-		{name: ruleBuildSizeCountsDecimal, node: checkBuildSizeCountsDecimal},
-		{name: ruleBuildSizeCountsFit, node: checkBuildSizeCountsFit},
-		{name: ruleKnownFields, decoding: true},
-		{name: ruleOneDocument, decoding: true},
-		{name: ruleBuildSizeAbsentWhenRemoved, check: checkBuildSizeAbsentWhenRemoved},
-		{name: ruleBuildSizeLanguagesDeclared, check: checkBuildSizeLanguagesDeclared},
-		{name: ruleBuildSizeLanguageKnown, check: checkBuildSizeLanguagesKnown},
-		{name: ruleBuildSizeLanguageUnique, check: checkBuildSizeLanguagesUnique},
-		{name: ruleBuildSizeLanguageCounts, check: checkBuildSizeLanguagesCount},
-		{name: ruleBuildSizeVendoredDeclared, check: checkBuildSizeVendoredDeclared},
-		{name: ruleBuildSizeVendoredCanonical, check: checkBuildSizeVendoredCanonical},
-		{name: ruleBuildSizeVendoredUnique, check: checkBuildSizeVendoredUnique},
-		{name: ruleBuildSizeVendoredDisjoint, check: checkBuildSizeVendoredDisjoint},
-		{name: ruleBuildSizeBackendSumFits, check: checkBuildSizeBackendSumFits},
-		{name: ruleBuildSizeBackendTotal, check: checkBuildSizeBackendTotal},
-		{name: ruleBuildSizeFrontendSumFits, check: checkBuildSizeFrontendSumFits},
-		{name: ruleBuildSizeFrontendTotal, check: checkBuildSizeFrontendTotal},
-		{name: ruleBuildSizeTotalFits, check: checkBuildSizeTotalFits},
-		{name: ruleBuildSizeTotal, check: checkBuildSizeTotal},
+		{name: ruleBuildSizeFieldsDeclared, section: sectionBuildSize, node: checkBuildSizeFieldsDeclared},
+		{name: ruleBuildSizeCountsDecimal, section: sectionBuildSize, node: checkBuildSizeCountsDecimal},
+		{name: ruleBuildSizeCountsFit, section: sectionBuildSize, node: checkBuildSizeCountsFit},
 	}
+	all = append(all, frontendNodeRules()...)
+	all = append(all, groupNodeRules()...)
+	all = append(all,
+		rule{name: ruleKnownFields, decoding: true},
+		rule{name: ruleOneDocument, decoding: true},
+		rule{name: ruleBuildSizeAbsentWhenRemoved, section: sectionBuildSize, check: checkBuildSizeAbsentWhenRemoved},
+		rule{name: ruleBuildSizeLanguagesDeclared, section: sectionBuildSize, check: checkBuildSizeLanguagesDeclared},
+		rule{name: ruleBuildSizeLanguageKnown, section: sectionBuildSize, check: checkBuildSizeLanguagesKnown},
+		rule{name: ruleBuildSizeLanguageUnique, section: sectionBuildSize, check: checkBuildSizeLanguagesUnique},
+		rule{name: ruleBuildSizeLanguageCounts, section: sectionBuildSize, check: checkBuildSizeLanguagesCount},
+		rule{name: ruleBuildSizeVendoredDeclared, section: sectionBuildSize, check: checkBuildSizeVendoredDeclared},
+		rule{name: ruleBuildSizeVendoredCanonical, section: sectionBuildSize, check: checkBuildSizeVendoredCanonical},
+		rule{name: ruleBuildSizeVendoredUnique, section: sectionBuildSize, check: checkBuildSizeVendoredUnique},
+		rule{name: ruleBuildSizeVendoredDisjoint, section: sectionBuildSize, check: checkBuildSizeVendoredDisjoint},
+		rule{name: ruleBuildSizeBackendSumFits, section: sectionBuildSize, check: checkBuildSizeBackendSumFits},
+		rule{name: ruleBuildSizeBackendTotal, section: sectionBuildSize, check: checkBuildSizeBackendTotal},
+		rule{name: ruleBuildSizeFrontendSumFits, section: sectionBuildSize, check: checkBuildSizeFrontendSumFits},
+		rule{name: ruleBuildSizeFrontendTotal, section: sectionBuildSize, check: checkBuildSizeFrontendTotal},
+		rule{name: ruleBuildSizeTotalFits, section: sectionBuildSize, check: checkBuildSizeTotalFits},
+		rule{name: ruleBuildSizeTotal, section: sectionBuildSize, check: checkBuildSizeTotal},
+	)
+	all = append(all, frontendModelRules()...)
+	return append(all, groupModelRules()...)
 }
 
 // ruleNames lists every rule, in order.
@@ -243,16 +266,16 @@ func ruleNames() []string {
 	return out
 }
 
-// checkBuildSizeNodes runs every node rule but the one named over the
-// build_size node of a parsed tree, before the typed decoder reads it; ""
-// deletes none. A document without the section has nothing to check.
-func checkBuildSizeNodes(tree *yaml.Node, without string) error {
-	section := buildSizeNode(tree)
-	if section == nil {
-		return nil
-	}
+// checkSectionNodes runs every node rule but the one named over its section's
+// node of a parsed tree, before the typed decoder reads it; "" deletes none.
+// A document without a section has nothing of that section's to check.
+func checkSectionNodes(tree *yaml.Node, without string) error {
 	for _, r := range rules() {
 		if r.node == nil || r.name == without {
+			continue
+		}
+		section := sectionNode(tree, r.section)
+		if section == nil {
 			continue
 		}
 		if err := r.node(section); err != nil {
@@ -262,18 +285,18 @@ func checkBuildSizeNodes(tree *yaml.Node, without string) error {
 	return nil
 }
 
-// validateBuildSize runs every model rule but the one named, in order; ""
-// deletes none. The rules read the section through the document, so a rule
-// about the section's place in the document — a tombstone declaring one — is
-// a rule like the others.
-func (document *SolutionHostBinding) validateBuildSize(without string) error {
+// validateSections runs every model rule but the one named, in order; ""
+// deletes none. The rules read their section through the document, so a rule
+// about the section's place in the document — a tombstone declaring one, a
+// module declaring a frontend — is a rule like the others.
+func (document *SolutionHostBinding) validateSections(without string) error {
 	for _, r := range rules() {
 		if r.check == nil || r.name == without {
 			continue
 		}
 		// A document without the section is an older producer's: nothing
 		// here applies to it, and the rules read the section unguarded.
-		if document.BuildSize == nil && r.name != ruleBuildSizeAbsentWhenRemoved {
+		if !document.declares(r.section) {
 			continue
 		}
 		if err := r.check(document); err != nil {
@@ -281,6 +304,19 @@ func (document *SolutionHostBinding) validateBuildSize(without string) error {
 		}
 	}
 	return nil
+}
+
+// declares reports whether the document carries the named optional section.
+func (document *SolutionHostBinding) declares(section string) bool {
+	switch section {
+	case sectionBuildSize:
+		return document.BuildSize != nil
+	case sectionFrontend:
+		return document.Frontend != nil
+	case sectionGroup:
+		return document.Group != nil
+	}
+	return false
 }
 
 // Validate holds a section to every model rule, so a producer can check what
@@ -291,17 +327,17 @@ func (size *BuildSize) Validate() error {
 	if size == nil {
 		return fmt.Errorf("%w: build size is required", ErrInvalid)
 	}
-	return (&SolutionHostBinding{BuildSize: size}).validateBuildSize("")
+	return (&SolutionHostBinding{BuildSize: size}).validateSections("")
 }
 
-// buildSizeNode finds the build_size value of the document's top-level
-// mapping, aliases resolved, or nil when the document carries none.
-func buildSizeNode(tree *yaml.Node) *yaml.Node {
+// sectionNode finds the named value of the document's top-level mapping,
+// aliases resolved, or nil when the document carries none.
+func sectionNode(tree *yaml.Node, section string) *yaml.Node {
 	root := wire.Resolve(tree)
 	if root != nil && root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
 		root = wire.Resolve(root.Content[0])
 	}
-	return mappingValue(root, "build_size")
+	return mappingValue(root, section)
 }
 
 // mappingValue returns the value a mapping holds under key, aliases resolved
