@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -123,12 +124,29 @@ func readDarwinProcessInfo(pid int) (*unix.KinfoProc, error) {
 	return info, nil
 }
 
+// darwinBootID names the running boot.
+//
+// It has to hold still for as long as the machine stays up. Every recorded
+// identity is compared against it, and a record whose boot id no longer matches
+// is dropped as a reused group without signaling it, so a boot id that moves
+// strands every live group on the machine at once: none of them can be reaped
+// after their owner dies.
+//
+// kern.boottime is such a value. It is not a timestamp taken at boot but the
+// wall clock minus the uptime, and the kernel re-derives it whenever the clock
+// is set (xnu's clock_set_calendar_microtime "also adjusts the boottime to keep
+// the value consistent"). timed steps the clock several times a day.
+// kern.bootsessionuuid is minted once per boot and never rewritten.
 func darwinBootID() (string, error) {
-	bootTime, err := unix.SysctlTimeval("kern.boottime")
+	session, err := unix.Sysctl("kern.bootsessionuuid")
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%d:%d", bootTime.Sec, bootTime.Usec), nil
+	bootID := strings.TrimSpace(session)
+	if bootID == "" {
+		return "", errors.New("boot identity is empty")
+	}
+	return bootID, nil
 }
 
 // readProcessGroupAuthentication reads pid's start credential and reports
