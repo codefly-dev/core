@@ -1346,3 +1346,32 @@ func TestActivationDomainContinuityWithNoAuthorityRecord(t *testing.T) {
 	require.Contains(t, err.Error(), solutionhost.FixtureDomain)
 	require.Contains(t, err.Error(), "beta")
 }
+
+func TestEmptyAuthorityRequiresExactPrincipalAndPresenceAdmission(t *testing.T) {
+	document := validAuthority(t)
+	document.Principals = []solutionhost.PrincipalAuthority{{Principal: "principal:ui", Bindings: []solutionhost.AuthorityBinding{}}}
+	envelope := solutionhost.Envelope{Revision: document.EnvelopeRevision, ApprovedBuilds: []solutionhost.ImageDigest{document.ApprovedBuild}, Queues: document.Queues, Namespaces: document.Namespaces, ScopeCeilings: document.ScopeCeilings}
+	require.NoError(t, document.Validate())
+	require.ErrorIs(t, document.ValidateAgainst(envelope), solutionhost.ErrOutsideEnvelope)
+	for _, admission := range []solutionhost.EnvelopeAdmission{
+		{Principal: "principal:other", PresenceBinding: document.PresenceBinding},
+		{Principal: "principal:ui", PresenceBinding: "another-binding"},
+	} {
+		envelope.Admissions = []solutionhost.EnvelopeAdmission{admission}
+		require.ErrorIs(t, document.ValidateAgainst(envelope), solutionhost.ErrOutsideEnvelope)
+	}
+	envelope.Admissions = []solutionhost.EnvelopeAdmission{{Principal: "principal:ui", PresenceBinding: document.PresenceBinding}}
+	require.NoError(t, document.ValidateAgainst(envelope))
+	_, _, held := document.Binding("anything")
+	require.False(t, held)
+	raw, err := solutionhost.MarshalAuthority(document)
+	require.NoError(t, err)
+	roundtrip, err := solutionhost.ParseAuthority(raw)
+	require.NoError(t, err)
+	require.NotNil(t, roundtrip.Principals[0].Bindings)
+	require.NoError(t, roundtrip.ValidateAgainst(envelope))
+	envelope.ApprovedBuilds = nil
+	require.ErrorIs(t, document.ValidateAgainst(envelope), solutionhost.ErrOutsideEnvelope)
+	document.Principals[0].Bindings = nil
+	require.ErrorIs(t, document.Validate(), solutionhost.ErrInvalid)
+}
