@@ -142,7 +142,9 @@ func TestASignedEndpointDeliveryIsVerifiedStoredAndResolvedWithoutReadingAnAddre
 	require.Equal(t, filename, slot+".json", "the host's slot and the native file name the same identity")
 	require.Equal(t, slot, identity.Key())
 
-	projection, err := solutionhost.ResolveSignedEndpointDelivery(ctx, encoded, verifier, document)
+	// The resolver receives the attested bytes through the host's
+	// authenticated read and joins them to the presence it holds.
+	projection, err := solutionhost.ParseEndpointDelivery(delivered.Payload(), document)
 	require.NoError(t, err)
 	require.Equal(t, "http://component.example.svc.cluster.local:8080", projection.Carriers[key])
 	require.Equal(t, identity, projection.Identity())
@@ -168,8 +170,9 @@ func TestASignedEndpointDeliveryIsRefusedWhereverItsBindingFails(t *testing.T) {
 	// Verification: a tampered carrier, an envelope made for the presence,
 	// an unsigned delivery, a key not pinned for the domain, and bytes that
 	// are not canonical never reach a host or a resolver.
-	tampered := []byte(strings.Replace(string(encoded), ":8080", ":8081", 1))
-	_, err = solutionhost.ResolveSignedEndpointDelivery(ctx, tampered, verifier, document)
+	tampered, err := solutionhost.ParseSigned([]byte(strings.Replace(string(encoded), ":8080", ":8081", 1)))
+	require.NoError(t, err)
+	_, err = solutionhost.VerifyDeliveredEndpoints(ctx, tampered, verifier)
 	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
 	presencePayload, err := document.CanonicalBytes()
 	require.NoError(t, err)
@@ -177,7 +180,7 @@ func TestASignedEndpointDeliveryIsRefusedWhereverItsBindingFails(t *testing.T) {
 	require.NoError(t, err)
 	_, err = solutionhost.VerifyDeliveredEndpoints(ctx, &solutionhost.Signed{Document: raw, Envelope: presenceEnvelope}, verifier)
 	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
-	_, err = solutionhost.ResolveSignedEndpointDelivery(ctx, raw, verifier, document)
+	_, err = solutionhost.ParseSigned(raw)
 	require.ErrorIs(t, err, solutionhost.ErrUnsigned, "a bare delivery is no signed delivery")
 	elsewhere := verifierFor(t, pinFor(t, signer, solutionhost.KeyKindRelease, "beta"))
 	_, err = solutionhost.VerifyDeliveredEndpoints(ctx, carrier, elsewhere)
@@ -236,9 +239,12 @@ func TestASignedEndpointDeliveryIsRefusedWhereverItsBindingFails(t *testing.T) {
 	_, err = solutionhost.Host{}.AdmitEndpoints(delivered)
 	require.ErrorIs(t, err, solutionhost.ErrWrongHost, "an unnamed host admits no endpoints")
 
-	// Resolution: the resolver's own applied presence must be the one named.
+	// Resolution: the resolver's own applied presence must be the one named,
+	// and the attested bytes it receives must be the canonical ones.
 	next := *document
 	next.Generation++
-	_, err = solutionhost.ResolveSignedEndpointDelivery(ctx, encoded, verifier, &next)
+	_, err = solutionhost.ParseEndpointDelivery(delivered.Payload(), &next)
 	require.ErrorContains(t, err, "active applied presence")
+	_, err = solutionhost.EndpointDeliveryFromVerified(delivered.Payload())
+	require.NoError(t, err, "the identity is readable from the stored bytes without a verifier")
 }

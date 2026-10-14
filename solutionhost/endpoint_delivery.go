@@ -214,8 +214,9 @@ func EndpointDeliveryFromVerified(payload []byte) (*EndpointDelivery, error) {
 // DeliveredEndpoints is an endpoint delivery whose carrier was verified, held
 // as its attested bytes for the reason Delivered is. A host stores these
 // bytes opaquely under Identity().Key() once AdmitEndpoints has joined them to
-// the applied presence; it never reads an address from them, and a resolver
-// re-verifies the same bytes before it does.
+// the applied presence, and never reads an address from them; the resolver
+// that receives Payload() through the host's authenticated read joins and
+// reads it with ParseEndpointDelivery against the presence it holds.
 type DeliveredEndpoints struct {
 	payload []byte
 	signer  SignerIdentity
@@ -303,23 +304,4 @@ func (host Host) AdmitEndpoints(delivered *DeliveredEndpoints) (string, error) {
 		return "", fmt.Errorf("%w: endpoint delivery for domain %q was signed by %q, which this host does not accept for it", ErrWrongDomain, identity.OwnershipDomain, delivered.DeliveredBy())
 	}
 	return identity.Key(), nil
-}
-
-// ResolveSignedEndpointDelivery is the resolver's entry: it verifies a signed
-// delivery against the pinned keys, then joins it to the applied presence the
-// resolver holds and reads its addresses — ParseEndpointDelivery over the
-// attested bytes. A delivery that fails any step resolves nothing, and the
-// resolver never falls back to an environment carrier. The raw value is the
-// signed carrier as MarshalSigned wrote it, handed to the resolver explicitly;
-// no directory is read.
-func ResolveSignedEndpointDelivery(ctx context.Context, raw []byte, verifier *Verifier, document *SolutionHostBinding) (*EndpointDelivery, error) {
-	carrier, err := ParseSigned(raw)
-	if err != nil {
-		return nil, err
-	}
-	delivered, err := VerifyDeliveredEndpoints(ctx, carrier, verifier)
-	if err != nil {
-		return nil, err
-	}
-	return ParseEndpointDelivery(delivered.Payload(), document)
 }
