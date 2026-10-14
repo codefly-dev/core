@@ -175,3 +175,69 @@ var Text string
 	_, err := env.Runner()
 	require.Error(t, err, "and the previous executable is not offered to run")
 }
+
+// Executable names the built binary for the started-artifact report, from the
+// same field Runner starts: nothing before a build, the absolute path of the
+// file `go build -o` wrote after one, nothing again after a build fails, and
+// the path again once a build succeeds — the toolchain reusing the file in
+// place does not change what the agent reports.
+func TestExecutableNamesTheBuiltBinaryAndNothingBeforeOrAfterAFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/started-artifact\n\ngo 1.21\n")
+	writeFile(t, root, "cmd/server/main.go", `package main
+
+import (
+	"fmt"
+
+	"example.com/started-artifact/config"
+)
+
+func main() { fmt.Print(config.Text) }
+`)
+	writeFile(t, root, "config/config.go", `package config
+
+import _ "embed"
+
+//go:embed policy.yaml
+var Text string
+`)
+	writeFile(t, root, "config/policy.yaml", "policy: first\n")
+	env := newNativeRunner(t, ctx, root, "cmd/server", "")
+
+	executable, err := env.Executable()
+	require.Error(t, err, "nothing is built yet")
+	require.Empty(t, executable)
+
+	require.NoError(t, env.BuildBinary(ctx))
+	executable, err = env.Executable()
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(executable), "the started artifact is an absolute path")
+	info, err := os.Stat(executable)
+	require.NoError(t, err)
+	require.True(t, info.Mode().IsRegular() && info.Mode()&0o111 != 0, "a regular, executable file")
+	require.Equal(t, "policy: first", runOutput(t, ctx, env), "the path is the executable Runner starts")
+
+	writeFile(t, root, "config/policy.yaml", "policy: other\n")
+	require.NoError(t, env.BuildBinary(ctx))
+	rebuilt, err := env.Executable()
+	require.NoError(t, err)
+	require.Equal(t, executable, rebuilt, "a rebuild keeps the same path")
+	require.Equal(t, "policy: other", runOutput(t, ctx, env))
+
+	require.NoError(t, os.Remove(filepath.Join(root, "config/policy.yaml")))
+	require.Error(t, env.BuildBinary(ctx), "a missing embedded input fails the build")
+	executable, err = env.Executable()
+	require.Error(t, err, "a failed build names no executable, though the previous file still exists")
+	require.Empty(t, executable)
+	_, err = env.Runner()
+	require.Error(t, err)
+
+	writeFile(t, root, "config/policy.yaml", "policy: first\n")
+	require.NoError(t, env.BuildBinary(ctx))
+	executable, err = env.Executable()
+	require.NoError(t, err)
+	require.Equal(t, rebuilt, executable)
+	require.Equal(t, "policy: first", runOutput(t, ctx, env))
+}
