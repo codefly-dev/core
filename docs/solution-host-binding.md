@@ -1281,7 +1281,7 @@ payload that survives a round trip through it.
 | A `PayloadDigest` is never compared with the release, rendered or image digest | there is no such rule, by decision: a rendered artifact can be the bundle itself |
 | An endpoint delivery names the applied presence it joins — host target, binding, generation, domain, canonical digest — and a signed one binds exactly those bytes | `MarshalEndpointDelivery` / `CanonicalBytes`, `SignEnvelope` with the delivery payload type, `ParseEndpointDelivery` |
 | A host verifies, joins and stores a signed delivery by its identity alone, never reading an address | `VerifyDeliveredEndpoints`, `DeliveredEndpoints.Identity`, `Host.AdmitEndpoints`, `EndpointDeliveryIdentity.Key` |
-| A resolver verifies a signed delivery against its own pins before reading an address, and never falls back | `ResolveSignedEndpointDelivery`, `ErrUnsigned` / `ErrInvalid` |
+| A resolver reads addresses only from attested bytes joined to the presence it holds, and never falls back | `ParseEndpointDelivery` over `DeliveredEndpoints.Payload()`, `ErrInvalid` |
 | A module manifest carries only keys it declares, is held to the shared node checks, and a composition descriptor is not one | `resources.LoadModuleFromDir`, the node checks and the kind dispatched from the node before strict decoding |
 | A presence document is written through `Marshal`, which reads back what it wrote | `Marshal`, `ErrInvalid` |
 | A withdrawn binding ID is never reapplied | `Host.Admit` → `decide`, `ErrTombstoned` |
@@ -1655,11 +1655,15 @@ applied state, with no new registry, server or mount:
   target and the binding — the same digest `EndpointDeliveryFilename` names a
   native file by — under which the host keeps the attested bytes, a later
   generation replacing the same slot. The host parses no address, ever.
-- The resolver (the SDK) receives the raw signed value explicitly and calls
-  `ResolveSignedEndpointDelivery`: `ParseSigned`, `VerifyDeliveredEndpoints`
-  against its own pins, then `ParseEndpointDelivery` over the attested bytes
-  against the applied presence it holds. A delivery that fails any step
-  resolves nothing; there is no fallback to an environment carrier.
+- The resolver (the SDK) receives the attested bytes — `Payload()`, as the
+  host stored them — through the host's authenticated applied read, and
+  calls `ParseEndpointDelivery` over them against the applied presence it
+  holds: every identity fact and the digest must agree, only declared
+  endpoints are read, and an address is parsed there and nowhere else. A
+  delivery that fails any step resolves nothing; there is no fallback to an
+  environment carrier, and no second verifier lives in the host's gateway or
+  the resolver. `EndpointDeliveryFromVerified` reads the identity from stored
+  bytes without a verifier, for a host that needs it on a read.
 
 The CLI/cell delivery owner writes one atomically replaceable file per binding
 in the stable directory named by `resources.EndpointDeliveryDirectoryKey`.
