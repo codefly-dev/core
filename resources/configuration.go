@@ -243,26 +243,33 @@ func IsSensitiveEnvironmentVariable(name string) bool {
 			return IsSensitiveKey(canonical[:at])
 		}
 	}
-	if key, ok := configurationCarrierKey(canonical); ok {
+	if key, ok := ConfigurationCarrierKey(canonical); ok {
 		return IsSensitiveKey(key)
 	}
 	return IsSensitiveKey(canonical)
 }
 
-// configurationCarrierKey returns the configuration KEY a public configuration
-// carrier name ends in, and whether the name is one. A service carrier is
-// PREFIX__MODULE__SERVICE__NAME__KEY (UniqueToKey, then NameToKey twice) and a
-// workspace carrier PREFIX__NAME__KEY; the structural segments in front of the
-// key never contain a double underscore, as NameToKey and UniqueToKey spell
-// them, so the key is everything after the fixed number of them, whatever it
-// contains.
-func configurationCarrierKey(canonical string) (string, bool) {
+// ConfigurationCarrierKey returns the configuration KEY a configuration
+// carrier name ends in, and whether the name is one: a service carrier is
+// PREFIX__MODULE__SERVICE__NAME__KEY (UniqueToKey, then NameToKey twice), a
+// workspace carrier PREFIX__NAME__KEY, under the public or the secret prefix.
+// The structural segments in front of the key never contain a double
+// underscore — a module name is lowercase letters, digits and single dashes,
+// and a configuration name is refused where it is loaded if its spelling
+// would carry one — so the key is everything after the fixed number of them,
+// whatever it contains. It is the one parser of a carrier's key: a reader that
+// scans a carrier for credential words scans this segment, never the whole
+// name, so the module, service and configuration-name segments cannot trip it.
+func ConfigurationCarrierKey(name string) (string, bool) {
+	canonical := strings.ToUpper(name)
 	for _, carrier := range []struct {
 		prefix    string
 		structure int
 	}{
 		{ServiceConfigurationPrefix + "__", 3},
+		{ServiceSecretConfigurationPrefix + "__", 3},
 		{WorkspaceConfigurationPrefix + "__", 1},
+		{WorkspaceSecretConfigurationPrefix + "__", 1},
 	} {
 		rest, ok := strings.CutPrefix(canonical, carrier.prefix)
 		if !ok {
@@ -275,6 +282,17 @@ func configurationCarrierKey(canonical string) (string, bool) {
 		return segments[carrier.structure], true
 	}
 	return "", false
+}
+
+// ConfigurationNameHasAmbiguousSpelling reports a configuration name whose
+// carrier spelling (NameToKey) would carry a double underscore — consecutive
+// dashes or underscores in the name — and so could not be told apart from the
+// structure/key separator by ConfigurationCarrierKey: "policy--auth" and
+// "policy__auth" both spell POLICY__AUTH, and a carrier built from either reads
+// as configuration "policy" with key "AUTH__…". The loader refuses such a name
+// where the file is read, so no carrier is ever ambiguous.
+func ConfigurationNameHasAmbiguousSpelling(name string) bool {
+	return strings.Contains(NameToKey(name), "__")
 }
 
 // configRuntimeKind folds the nix runtime onto native for configuration

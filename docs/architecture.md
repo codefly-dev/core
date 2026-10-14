@@ -377,9 +377,16 @@ classified by its configuration KEY alone — the module, service and
 configuration-group segments are structure, so a public group named
 `datasource-oauth` does not make its `PROVIDERS` or `CLIENT_ID` a credential,
 while a `CLIENT_SECRET` key in that group, and any value that rides a secret
-carrier, stays sensitive. The rendered-manifest validator reads the same
-segment, and a renderer refusing a public value by its group name is a
-defect here, never a reason to rename the group.
+carrier, stays sensitive. `resources.ConfigurationCarrierKey` is the one
+parser of that segment, for every reader that scans a carrier for credential
+words — the rendered-manifest validator and the CLI's render scan included —
+so no reader runs a word list over the whole name. The parser is unambiguous
+because no structural segment spells a double underscore: a module name is
+lowercase letters, digits and single dashes, and a configuration file whose
+name carries consecutive separators (`policy--auth.env`, `policy__auth.env`)
+is refused where it is loaded, since both would spell `POLICY__AUTH` and read
+as configuration `policy` with key `AUTH__…`. A renderer refusing a public
+value by its group name is a defect here, never a reason to rename the group.
 
 ## Runtime Contexts
 

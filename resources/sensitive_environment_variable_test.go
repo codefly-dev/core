@@ -27,6 +27,12 @@ func TestSensitiveEnvironmentVariableIgnoresCarrierStructure(t *testing.T) {
 		"CODEFLY__SERVICE_CONFIGURATION__APP__SVC__AUTH__HEADER",
 		// A key may carry a double underscore of its own; it is still the key.
 		"CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH__PROVIDERS__LIST",
+		// Public groups whose names are credential words outright; the key is
+		// what is classified, and a CLIENT_ID is an identifier.
+		"CODEFLY__WORKSPACE_CONFIGURATION__CREDENTIAL_POLICY__CLIENT_ID",
+		"CODEFLY__WORKSPACE_CONFIGURATION__PASSWORD_POLICY__CLIENT_ID",
+		"CODEFLY__WORKSPACE_CONFIGURATION__CLIENT_SECRET_POLICY__CLIENT_ID",
+		"CODEFLY__SERVICE_CONFIGURATION__SAAS__AUTH_GATEWAY__PASSWORD_POLICY__MIN_LENGTH",
 		// Endpoint addresses of a service whose name trips the AUTH word.
 		"CODEFLY__ENDPOINT__SAAS__AUTH_GATEWAY__GRPC__GRPC",
 		"CODEFLY__ENDPOINT__SAAS__AUTH_GATEWAY__REST__REST",
@@ -61,8 +67,10 @@ func TestSensitiveEnvironmentVariableIgnoresCarrierStructure(t *testing.T) {
 		"CODEFLY__SERVICE_CONFIGURATION__SAAS__AUTH_GATEWAY__IDENTITY__CLIENT_SECRET",
 		"CODEFLY__SERVICE_CONFIGURATION__APP__SVC__WEBHOOK__WEBHOOK_SECRET",
 		"CODEFLY__WORKSPACE_CONFIGURATION__IDENTITY__ACCESS_TOKEN",
-		// A raw credential key in the group that tripped the OAUTH word.
+		// A raw credential key in the group that tripped the OAUTH word, and in
+		// a group whose own name is public.
 		"CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH__CLIENT_SECRET",
+		"CODEFLY__WORKSPACE_CONFIGURATION__PASSWORD_POLICY__ADMIN_PASSWORD",
 		"CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH__ACCESS_TOKEN",
 		"CODEFLY__SERVICE_CONFIGURATION__SAAS__AUTH_GATEWAY__DATASOURCE_OAUTH__CLIENT_SECRET",
 		"CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH__PROVIDERS__TOKEN",
@@ -110,4 +118,45 @@ func TestSensitiveEnvironmentVariableMatchesProducedCarriers(t *testing.T) {
 
 	require.False(t, resources.IsSensitiveEnvironmentVariable(resources.ConfigurationDocumentKey("saas/auth-gateway", "identity", "staging", false)))
 	require.True(t, resources.IsSensitiveEnvironmentVariable(resources.ConfigurationDocumentKey("saas/auth-gateway", "identity", "staging", true)))
+}
+
+// The one parser of a carrier's key, for every reader that scans a carrier
+// for credential words: the key is everything after the structure, and a
+// name that is no configuration carrier has no key.
+func TestConfigurationCarrierKeyIsTheOneParser(t *testing.T) {
+	for name, expected := range map[string]string{
+		"CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH__PROVIDERS":                      "PROVIDERS",
+		"codefly__workspace_configuration__datasource_oauth__client_id":                      "CLIENT_ID",
+		"CODEFLY__WORKSPACE_SECRET_CONFIGURATION__DATASOURCE_OAUTH__CLIENT_SECRET":           "CLIENT_SECRET",
+		"CODEFLY__SERVICE_CONFIGURATION__SAAS__AUTH_GATEWAY__DATASOURCE_OAUTH__PROVIDERS":    "PROVIDERS",
+		"CODEFLY__SERVICE_SECRET_CONFIGURATION__SAAS__AUTH_GATEWAY__IDENTITY__CLIENT_SECRET": "CLIENT_SECRET",
+		"CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH__PROVIDERS__LIST":                "PROVIDERS__LIST",
+	} {
+		key, ok := resources.ConfigurationCarrierKey(name)
+		require.True(t, ok, name)
+		require.Equal(t, expected, key, name)
+	}
+	for _, name := range []string{
+		"CODEFLY__ENDPOINT__SAAS__AUTH_GATEWAY__REST__REST",
+		"CODEFLY__WORKSPACE_CONFIGURATION__DATASOURCE_OAUTH",
+		"CODEFLY__SERVICE_CONFIGURATION__SAAS__AUTH_GATEWAY__IDENTITY",
+		"CLIENT_SECRET",
+	} {
+		_, ok := resources.ConfigurationCarrierKey(name)
+		require.False(t, ok, name)
+	}
+
+	// Why the loader refuses a configuration name with consecutive separators:
+	// "policy--auth" and "policy__auth" both spell POLICY__AUTH, and a carrier
+	// built from either reads as configuration "policy" with key "AUTH__…".
+	for _, name := range []string{"policy--auth", "policy__auth", "policy-_auth"} {
+		require.True(t, resources.ConfigurationNameHasAmbiguousSpelling(name), name)
+		key, ok := resources.ConfigurationCarrierKey(resources.ConfigurationValueEnvironmentKey(
+			&basev0.Configuration{Origin: resources.ConfigurationWorkspace}, name, &basev0.ConfigurationValue{Key: "client-id"}))
+		require.True(t, ok)
+		require.Equal(t, "AUTH__CLIENT_ID", key, "the ambiguity the loader exists to refuse")
+	}
+	for _, name := range []string{"policy-auth", "datasource-oauth", "policy_auth", "identity"} {
+		require.False(t, resources.ConfigurationNameHasAmbiguousSpelling(name), name)
+	}
 }
