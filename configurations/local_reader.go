@@ -1205,6 +1205,14 @@ func classifyConfigurationFile(dir, p string) (*configurationFile, bool, error) 
 	default:
 		return nil, false, nil
 	}
+	// A configuration name is a structural segment of every carrier built from
+	// it, spelled by NameToKey with "__" separating it from the key. A name
+	// whose spelling would carry "__" of its own is ambiguous to every reader
+	// of a carrier (resources.ConfigurationCarrierKey) and is refused here,
+	// where the name enters, rather than mis-read downstream.
+	if resources.ConfigurationNameHasAmbiguousSpelling(file.name) {
+		return nil, false, fmt.Errorf("configuration file %q: the name %q carries consecutive separators, which its carrier would spell as %q, where \"__\" separates the name from the key; use single dashes", relative, file.name, resources.NameToKey(file.name))
+	}
 	return file, true, nil
 }
 
