@@ -30,6 +30,10 @@ const RuntimeInitImage = "runtime-init-image/v1"
 // ReportStartedArtifact must not advertise it.
 const RuntimeStartedArtifact = "runtime-started-artifact/v1"
 
+// RuntimeLoadBuildImage identifies runtimes that decide at Load whether native
+// execution needs a Builder-produced image delivered through RuntimeInitImage.
+const RuntimeLoadBuildImage = "runtime-load-build-image/v1"
+
 // DeploymentCompositionProvenance identifies builders that judge deployment
 // dependency edges with the request's resolved composition membership.
 const DeploymentCompositionProvenance = "deployment-composition-provenance/v1"

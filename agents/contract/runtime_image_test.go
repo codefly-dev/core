@@ -43,3 +43,14 @@ func TestRuntimeInitImageWire(t *testing.T) {
 	adopted.Capabilities = append(adopted.Capabilities, RuntimeInitImage)
 	require.NoError(t, Check(adopted, RuntimeInitImage))
 }
+
+func TestRuntimeBuildRequestWire(t *testing.T) {
+	wire, err := proto.Marshal(&runtimev0.LoadResponse{BuildRuntimeImage: true})
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x20, 0x01}, wire)
+	var restored runtimev0.LoadResponse
+	require.NoError(t, proto.Unmarshal(wire, &restored))
+	require.True(t, restored.GetBuildRuntimeImage())
+	require.False(t, (&runtimev0.LoadResponse{}).GetBuildRuntimeImage())
+	require.ErrorIs(t, Check(Current(), RuntimeLoadBuildImage), ErrIncompatible)
+}

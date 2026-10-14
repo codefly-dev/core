@@ -127,6 +127,17 @@ refusals; linking generated bindings or Core's shared server does not advertise
 adoption. The release manifest records the operation contract while wire
 protocol 1, startup protocol 2 and shared server capabilities remain unchanged.
 
+`runtime-load-build-image/v1` adds the agent-owned preparation decision:
+`LoadResponse.build_runtime_image` requests a Builder recipe/build before native
+Init. The CLI requires both this capability and `runtime-init-image/v1` before
+any builder work. The build plan must contain exactly one recipe with a named
+image; absent or ambiguous image output is refused. False or omitted means no
+build, even for an agent advertising
+the capabilities. An explicit manifest image (valid or invalid) leaves the
+request false so Init selects or refuses it without unrelated build effects.
+Container and deployed execution do not honor this native request. This extends
+the optional operation contracts without changing the shared wire protocol.
+
 The proposal was opened first in
 [handbook#260](https://github.com/obin-ai/handbook/pull/260).
 This is the Core transport for
