@@ -214,6 +214,13 @@ for every agent built on this Core — that would be the false promise a
 consumer then trusts. Wire protocol 1 and startup protocol 2 are unchanged.
 Core tests do not qualify any agent's adoption.
 
+A Go runtime built on `runners/golang` names its executable with
+`GoRunnerEnvironment.Executable()`: the absolute path of the last successful
+`BuildBinary`, the one `Runner` starts, empty with an error before a build and
+again after a failed one. It reports `StartedArtifact{Executable: path}` with
+no sources, since the executable is the build; it never derives the path from
+the cache directory's layout.
+
 ### Compatibility reporting
 
 - Incompatible lifecycle semantics increment `protocol_version`. Both peers
