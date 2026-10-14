@@ -1673,3 +1673,20 @@ withdrawn or mismatched delivery without consulting a startup environment
 carrier. This projection supplies addressing, not authority or frontend asset
 integrity; the host still requires applied presence and live installation grants,
 and immutable assets require the published artifact's integrity evidence.
+
+
+### Admission with no consumed permissions
+
+A declared principal may carry `bindings: []` in an authority document. The
+explicit empty list grants no operation; absent/null is invalid. Containment
+requires an exact `EnvelopeAdmission{Principal, PresenceBinding}` supplied by the
+operator-owned envelope. A document cannot admit its own principal or choose
+another presence binding. Approved build, envelope revision, signed activation,
+generation and workload checks remain unchanged. Nonempty bindings still require
+exact `EnvelopeGrant` inclusion; an admission never substitutes for a grant.
+
+`Manifest.ConsumptionContract` returns a named contract with empty bindings for
+an unscoped solution. Renderers carry that declaration through their existing
+admission path. When a module also publishes a contract, an empty consumption
+request does not compete with that contract; nonempty competing requests remain
+an authoring conflict.

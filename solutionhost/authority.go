@@ -178,9 +178,8 @@ type PrincipalAuthority struct {
 	// Principal is the principal's ID, opaque here.
 	Principal string `yaml:"principal" json:"principal"`
 
-	// Bindings are the units of authority this principal holds. At least one:
-	// a principal listed with no binding is a row that grants nothing and
-	// reads as if it grants something.
+	// Bindings are the units of authority this principal holds. Required; []
+	// declares no consumed permission and needs an explicit EnvelopeAdmission.
 	Bindings []AuthorityBinding `yaml:"bindings" json:"bindings"`
 }
 
@@ -293,6 +292,10 @@ type Envelope struct {
 	// the exact thing a ceiling exists to bound.
 	Grants []EnvelopeGrant
 
+	// Admissions explicitly admit a principal over one presence binding without
+	// granting a permission unit. Empty binding declarations require an exact pair.
+	Admissions []EnvelopeAdmission
+
 	// ApprovedBuilds are the builds this envelope has approved.
 	ApprovedBuilds []ImageDigest
 
@@ -333,6 +336,25 @@ type AppliedStateReader interface {
 
 	// PresenceRecord answers the presence record for this binding.
 	PresenceRecord(binding string) (Applied, bool, error)
+}
+
+// EnvelopeAdmission is an operator-approved principal and deployment binding.
+// It grants no operation; build, generation and workload checks remain separate.
+type EnvelopeAdmission struct {
+	Principal       string
+	PresenceBinding string
+}
+
+// Validate checks the same principal and presence identifiers used by authority
+// documents, so envelope producers need no second identifier grammar.
+func (a EnvelopeAdmission) Validate() error {
+	if !opaqueIDPattern.MatchString(a.Principal) {
+		return fmt.Errorf("%w: admission principal ID %q is invalid", ErrInvalid, a.Principal)
+	}
+	if !bindingPattern.MatchString(a.PresenceBinding) || a.PresenceBinding == reservedOwner {
+		return fmt.Errorf("%w: admission presence binding %q is invalid", ErrInvalid, a.PresenceBinding)
+	}
+	return nil
 }
 
 // EnvelopeGrant is one (principal, binding) pair a platform administrator
@@ -460,8 +482,8 @@ func (document *AuthorityDocument) validatePrincipals() error {
 			return fmt.Errorf("%w: principal %q is declared twice", ErrInvalid, principal.Principal)
 		}
 		seenPrincipal[principal.Principal] = struct{}{}
-		if len(principal.Bindings) == 0 {
-			return fmt.Errorf("%w: principal %q holds no binding; a principal that grants nothing is not declared", ErrInvalid, principal.Principal)
+		if principal.Bindings == nil {
+			return fmt.Errorf("%w: principal %q must declare bindings explicitly; [] requests admission without consumed permissions", ErrInvalid, principal.Principal)
 		}
 		for _, binding := range principal.Bindings {
 			if err := binding.validate(principal.Principal); err != nil {
@@ -595,6 +617,9 @@ func (document *AuthorityDocument) ValidateAgainst(envelope Envelope) error {
 		}
 	}
 	for _, principal := range document.Principals {
+		if len(principal.Bindings) == 0 && !slices.Contains(envelope.Admissions, EnvelopeAdmission{Principal: principal.Principal, PresenceBinding: document.PresenceBinding}) {
+			return fmt.Errorf("%w: principal %q has no explicit admission over presence binding %q", ErrOutsideEnvelope, principal.Principal, document.PresenceBinding)
+		}
 		for _, binding := range principal.Bindings {
 			// The PAIR, not the binding alone. A binding moved to another
 			// principal is a grant of somebody else's authority, and the
