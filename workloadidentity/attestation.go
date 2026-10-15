@@ -55,8 +55,14 @@ var ErrUnavailable = errors.New("workload attestation unavailable")
 type Attester interface {
 	// Mechanism is how this attester proves a credential.
 	Mechanism() Mechanism
-	// Attest verifies credential for audience and reports what it proves. A
-	// refusal wraps ErrRejected; an inability to decide wraps ErrUnavailable.
+	// Authenticate verifies credential for audience and reports the account
+	// and instance it was issued to, without establishing what that instance
+	// runs: Phase and Containers are left empty. It is for a caller that only
+	// needs to know who signed, such as a delivery carrier.
+	Authenticate(ctx context.Context, credential, audience string) (*Attestation, error)
+	// Attest verifies credential for audience and reports what it proves,
+	// including the instance's live phase and containers. A refusal wraps
+	// ErrRejected; an inability to decide wraps ErrUnavailable.
 	Attest(ctx context.Context, credential, audience string) (*Attestation, error)
 }
 

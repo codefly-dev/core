@@ -268,6 +268,17 @@ func (a *Attester) Anchor() Anchor { return a.anchor }
 // Mechanism is workloadidentity.Native.
 func (a *Attester) Mechanism() workloadidentity.Mechanism { return workloadidentity.Native }
 
+// Authenticate verifies a native credential for audience and reports its
+// account and instance.
+func (a *Attester) Authenticate(ctx context.Context, credential, audience string) (*workloadidentity.Attestation, error) {
+	attested, err := a.Attest(ctx, credential, audience)
+	if err != nil {
+		return nil, err
+	}
+	attested.Phase, attested.Containers = "", nil
+	return attested, nil
+}
+
 // Attest verifies a native credential for audience.
 func (a *Attester) Attest(_ context.Context, credential, audience string) (*workloadidentity.Attestation, error) {
 	reject := func(format string, args ...any) error {
