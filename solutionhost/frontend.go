@@ -24,18 +24,14 @@ import (
 //
 // It is a DECLARATION, carried from the one file a component declares it in,
 // beside its backend service, which its runtime embeds and serves its
-// manifest route from. The CLI reads the same file into the presence document,
+// manifest route from. The CLI reads the same file into the module manifest,
 // so the host learns a component's frontend from the applied generation and not
 // from anything the running process reports.
 //
-// The block is OPTIONAL and follows BuildSize's precedent exactly: a document
-// without it is accepted and encodes as it did before the block existed, so
-// every digest a host stored still holds; one that carries it is held to every
-// rule in the table. A host older than this block refuses a document carrying
-// it as an unknown field, which is strict decoding doing its job and the
-// reason core releases before the renderer in a cutover. Both modules and
-// solutions may contribute a page; their kind describes responsibility, not
-// their mounting mechanism. A tombstone declares nothing to serve.
+// The block is OPTIONAL: a headless component declares none, and one that
+// carries it is held to every rule in the table. Both modules and solutions
+// may contribute a page; their kind describes responsibility, not their
+// mounting mechanism. A withdrawn manifest declares nothing to serve.
 type Frontend struct {
 	// Title is what the host's navigation labels the component with.
 	Title string `yaml:"title" json:"title"`
@@ -79,16 +75,8 @@ type Frontend struct {
 }
 
 // PayloadDigest pins the bytes of a frontend's complete executable output —
-// the archive a host materialises and serves by content identity. It is the
-// fourth digest type of the document (the package comment names the other
-// three), distinct so that a renderer cannot hand a host a release, rendered
-// or image digest where the bundle's is expected. It is NOT held apart from
-// them by value: ErrDigestConfusion reads the three whose equality can only
-// be a mix-up, and a frontend's rendered artifact can legitimately be the
-// bundle itself, in which case the rendered digest and the payload digest are
-// the same bytes hashed once. What this digest means is established by the
-// field it sits in and by the host checking the bytes it serves against it,
-// never by inequality with another field.
+// the archive a host materialises and serves by content identity, checking
+// the bytes it serves against this digest.
 type PayloadDigest string
 
 // FrontendPayload is the generated identity of a frontend's executable output,
@@ -165,12 +153,12 @@ type authoredFrontend struct {
 
 // ParseFrontend reads the standalone frontend file embedded by a component and
 // delivered by the CLI. It uses the same strict decoder and frontend rules as
-// Parse, so accepting a local file cannot disagree with signing its presence.
+// Parse, so accepting a local file cannot disagree with signing its manifest.
 // A missing file is the caller's headless component; an empty file is invalid.
 // The file holds the AUTHORED half only: a payload in it is a field no
 // frontend declaration declares, refused as every unknown field is.
 func ParseFrontend(data []byte) (*Frontend, error) {
-	authored, err := decodeStrict[authoredFrontend](data, "frontend declaration", "", "", func(tree *yaml.Node, _ string) error {
+	authored, err := decodeStrict[authoredFrontend](data, "frontend declaration", "", func(tree *yaml.Node) error {
 		section := tree
 		if tree.Kind == yaml.DocumentNode && len(tree.Content) == 1 {
 			section = tree.Content[0]
@@ -189,9 +177,9 @@ func ParseFrontend(data []byte) (*Frontend, error) {
 		Title: authored.Title, Order: authored.Order, ExposedModule: authored.ExposedModule,
 		HostContract: authored.HostContract, Dashboard: authored.Dashboard, Surfaces: authored.Surfaces,
 	}
-	// These are the section rules, not presence admission. No binding, build or
-	// identity is fabricated to validate a component's standalone declaration.
-	document := &SolutionHostBinding{Frontend: frontend}
+	// These are the block's rules, not manifest validation: no binding or
+	// workload is fabricated to validate a component's standalone declaration.
+	document := &ModuleManifest{Frontend: frontend}
 	for _, rule := range frontendModelRules() {
 		if err := rule.check(document); err != nil {
 			return nil, err
@@ -224,7 +212,6 @@ const (
 	ruleFrontendTextBounded        = "frontend-text-bounded"
 	ruleFrontendCollectionsBounded = "frontend-collections-bounded"
 	ruleFrontendBounded            = "frontend-bounded"
-	ruleFrontendAbsentWhenRemoved  = "frontend-absent-when-removed"
 	ruleFrontendTexts              = "frontend-texts"
 	ruleFrontendHostContractMajor  = "frontend-host-contract-major"
 	ruleFrontendSurfaceID          = "frontend-surface-id"
@@ -255,7 +242,6 @@ func frontendNodeRules() []rule {
 
 func frontendModelRules() []rule {
 	return []rule{
-		{name: ruleFrontendAbsentWhenRemoved, section: sectionFrontend, check: checkFrontendAbsentWhenRemoved},
 		{name: ruleFrontendCollectionsBounded, section: sectionFrontend, check: checkFrontendCollectionsBounded},
 		{name: ruleFrontendTextBounded, section: sectionFrontend, check: checkFrontendTextBounded},
 		{name: ruleFrontendTexts, section: sectionFrontend, check: checkFrontendTexts},
@@ -438,13 +424,6 @@ func checkFrontendDashboardJSON(section *yaml.Node) error {
 	return nil
 }
 
-func checkFrontendAbsentWhenRemoved(document *SolutionHostBinding) error {
-	if document.Removed {
-		return fmt.Errorf("%w: a removed generation declares no frontend; a frontend is what a host serves for a build, and this generation declares that there is none", ErrInvalid)
-	}
-	return nil
-}
-
 // frontendText is one text field of the block, by the path a refusal names,
 // its value, and whether it may be empty.
 type frontendText struct {
@@ -473,7 +452,7 @@ func isText(value string) bool {
 	return value != "" && !strings.ContainsFunc(value, unicode.IsControl)
 }
 
-func checkFrontendTexts(document *SolutionHostBinding) error {
+func checkFrontendTexts(document *ModuleManifest) error {
 	for _, text := range document.Frontend.texts() {
 		if text.optional && text.value == "" {
 			continue
@@ -485,7 +464,7 @@ func checkFrontendTexts(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkFrontendHostContractMajor(document *SolutionHostBinding) error {
+func checkFrontendHostContractMajor(document *ModuleManifest) error {
 	if document.Frontend.HostContract < 1 {
 		return fmt.Errorf("%w: frontend.host_contract is %d, which is not a host contract major; a host serves a remote only when it recognises the major it declares, and 0 is one no host serves", ErrInvalid, document.Frontend.HostContract)
 	}
@@ -496,7 +475,7 @@ func checkFrontendHostContractMajor(document *SolutionHostBinding) error {
 // by single dashes, as the solution runtime spells it.
 var surfaceIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-func checkFrontendSurfaceID(document *SolutionHostBinding) error {
+func checkFrontendSurfaceID(document *ModuleManifest) error {
 	for index, surface := range document.Frontend.Surfaces {
 		if !surfaceIDPattern.MatchString(surface.ID) {
 			return fmt.Errorf("%w: frontend.surfaces[%d].id %q is invalid: lowercase letters and digits, separated by dashes", ErrInvalid, index, surface.ID)
@@ -505,7 +484,7 @@ func checkFrontendSurfaceID(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkFrontendSurfaceClient(document *SolutionHostBinding) error {
+func checkFrontendSurfaceClient(document *ModuleManifest) error {
 	for index, surface := range document.Frontend.Surfaces {
 		if !segmentPattern.MatchString(surface.Client) {
 			return fmt.Errorf("%w: frontend.surfaces[%d].client %q is invalid: a client kind is a lowercase name", ErrInvalid, index, surface.Client)
@@ -514,7 +493,7 @@ func checkFrontendSurfaceClient(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkFrontendSurfaceUnique(document *SolutionHostBinding) error {
+func checkFrontendSurfaceUnique(document *ModuleManifest) error {
 	seen := make(map[string]struct{}, len(document.Frontend.Surfaces))
 	for _, surface := range document.Frontend.Surfaces {
 		key := surface.Client + "/" + surface.ID
@@ -540,7 +519,7 @@ func isOriginPath(value string) bool {
 	return err == nil && parsed.Scheme == "" && parsed.Host == ""
 }
 
-func checkFrontendSurfaceModule(document *SolutionHostBinding) error {
+func checkFrontendSurfaceModule(document *ModuleManifest) error {
 	for index, surface := range document.Frontend.Surfaces {
 		if !isOriginPath(surface.Module) {
 			return fmt.Errorf("%w: frontend.surfaces[%d].module %q is not a path on the component's own origin: it is absolute, and names no scheme and no host", ErrInvalid, index, surface.Module)
@@ -549,7 +528,7 @@ func checkFrontendSurfaceModule(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkFrontendSurfaceContract(document *SolutionHostBinding) error {
+func checkFrontendSurfaceContract(document *ModuleManifest) error {
 	for index, surface := range document.Frontend.Surfaces {
 		if surface.Contract < 1 {
 			return fmt.Errorf("%w: frontend.surfaces[%d].contract is %d, which is not a surface contract major; a client runs a surface only when it recognises the major it declares, and 0 is one no client runs", ErrInvalid, index, surface.Contract)
@@ -583,7 +562,7 @@ func isApplies(value any) bool {
 	return true
 }
 
-func checkFrontendSurfaceApplies(document *SolutionHostBinding) error {
+func checkFrontendSurfaceApplies(document *ModuleManifest) error {
 	for index, surface := range document.Frontend.Surfaces {
 		if !isApplies(surface.Applies) {
 			return fmt.Errorf("%w: frontend.surfaces[%d].applies is neither \"always\" nor {tagged: [one or more tags]}; a client has a branch for exactly those two shapes, and the host hands it nothing else", ErrInvalid, index)
@@ -592,7 +571,7 @@ func checkFrontendSurfaceApplies(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkFrontendSurfaceEventName(document *SolutionHostBinding) error {
+func checkFrontendSurfaceEventName(document *ModuleManifest) error {
 	for index, surface := range document.Frontend.Surfaces {
 		for _, event := range surface.Events {
 			if !segmentPattern.MatchString(event) {
@@ -603,7 +582,7 @@ func checkFrontendSurfaceEventName(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkFrontendSurfaceEventOnce(document *SolutionHostBinding) error {
+func checkFrontendSurfaceEventOnce(document *ModuleManifest) error {
 	for index, surface := range document.Frontend.Surfaces {
 		seen := make(map[string]struct{}, len(surface.Events))
 		for _, event := range surface.Events {
@@ -616,7 +595,7 @@ func checkFrontendSurfaceEventOnce(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkFrontendPayloadArtifact(document *SolutionHostBinding) error {
+func checkFrontendPayloadArtifact(document *ModuleManifest) error {
 	if payload := document.Frontend.Payload; payload != nil {
 		if err := composition.ValidateReleaseArtifactName(payload.Artifact); err != nil {
 			return fmt.Errorf("%w: frontend.payload.artifact %q does not name a release artifact: %v; the payload is resolved from the release's own artifact metadata, by name", ErrInvalid, payload.Artifact, err)
@@ -625,14 +604,14 @@ func checkFrontendPayloadArtifact(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkFrontendPayloadDigest(document *SolutionHostBinding) error {
+func checkFrontendPayloadDigest(document *ModuleManifest) error {
 	if payload := document.Frontend.Payload; payload != nil && !digestPattern.MatchString(string(payload.Digest)) {
 		return fmt.Errorf("%w: frontend.payload.digest %q is not a SHA-256 digest; a host admits the bundle it serves by this identity, and a value of another shape admits nothing", ErrInvalid, payload.Digest)
 	}
 	return nil
 }
 
-func checkFrontendPayloadMediaType(document *SolutionHostBinding) error {
+func checkFrontendPayloadMediaType(document *ModuleManifest) error {
 	if payload := document.Frontend.Payload; payload != nil {
 		if err := artifactexecution.ValidateMediaType(payload.MediaType); err != nil {
 			return fmt.Errorf("%w: frontend.payload.media_type is not the explicit canonical media type a release artifact declares: %v", ErrInvalid, err)
@@ -656,7 +635,7 @@ func dashboardBound(dashboard any) string {
 	return ""
 }
 
-func checkFrontendDashboardBounded(document *SolutionHostBinding) error {
+func checkFrontendDashboardBounded(document *ModuleManifest) error {
 	if document.Frontend.Dashboard == nil {
 		return nil
 	}
@@ -698,7 +677,7 @@ func (frontend *Frontend) boundedTexts() []frontendText {
 	return texts
 }
 
-func checkFrontendTextBounded(document *SolutionHostBinding) error {
+func checkFrontendTextBounded(document *ModuleManifest) error {
 	for _, text := range document.Frontend.boundedTexts() {
 		if len(text.value) > FrontendTextMaxBytes {
 			return fmt.Errorf("%w: frontend text exceeds %d bytes at %s", ErrInvalid, FrontendTextMaxBytes, text.path)
@@ -724,14 +703,14 @@ func frontendCollectionOverflow(frontend *Frontend) string {
 	return ""
 }
 
-func checkFrontendCollectionsBounded(document *SolutionHostBinding) error {
+func checkFrontendCollectionsBounded(document *ModuleManifest) error {
 	if path := frontendCollectionOverflow(document.Frontend); path != "" {
 		return fmt.Errorf("%w: frontend collection exceeds %d items at %s", ErrInvalid, FrontendCollectionMaxItems, path)
 	}
 	return nil
 }
 
-func checkFrontendBounded(document *SolutionHostBinding) error {
+func checkFrontendBounded(document *ModuleManifest) error {
 	encoded, err := canonicalJSON(document.Frontend)
 	if err != nil || len(encoded) > FrontendMaxBytes {
 		return fmt.Errorf("%w: frontend must encode within %d bytes", ErrInvalid, FrontendMaxBytes)

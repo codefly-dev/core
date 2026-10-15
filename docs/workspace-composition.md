@@ -97,12 +97,12 @@ within `SolutionGroupTextMaxBytes` (1 KiB); an order within
 every host wire and client number represents exactly
 (`ValidateSolutionGroupOrder`); at least one member; and every member an
 **effective solution** of this composition (a module of the product or of a
-composed workspace is not groupable) that no other group names. The presence
-document holds its `group` block to the same three functions. `Workspace.SolutionGroupOf(name)` answers a solution's group after
-loading, which is what the renderer projects into the solution's presence as
+composed workspace is not groupable) that no other group names. The module
+manifest holds its `group` block to the same three functions. `Workspace.SolutionGroupOf(name)` answers a solution's group after
+loading, which is what the renderer projects into the solution's manifest as
 its top-level `group` block — independent of any frontend, so a headless
 solution is organised in the host's catalogue too; see
-[the presence document](solution-host-binding.md#a-solutions-group),
+[the module manifest](module-manifest.md#the-document),
 where the same id grammar is held and a group on a module is refused.
 
 ### Overriding a composed module's group

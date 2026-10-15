@@ -214,17 +214,20 @@ the issuer for that one build. A module that runs as more than one workload —
 each its own build — could be approved for one of them only, so its other
 workloads could never mint.
 
-The property they carried is kept, by the two parties that own it:
+Build approval then left the runtime path altogether: a module manifest
+carries no digest ([module-manifest.md](module-manifest.md)), and "only approved
+images run" is deploy-time admission. What remains is kept by the parties that
+own it:
 
-- **The host checks the build at the mint.** It attests the caller's workload
-  (core `workloadidentity`), finds the declared workload that credential names,
-  and refuses unless the running build is that workload's approved build. A
-  superseded pod is refused there, before it holds anything.
-- **A change of approved builds revokes through the seal's own counters.** For a
-  module principal the issuer derives the installation revision from the whole
-  grant — its workloads and their builds included — and advances the principal
-  epoch with the applied generation, so a redeploy invalidates every capability
-  the replaced builds held, owner position and actor hops alike.
+- **The host checks who is calling at the mint, not what it runs.** It attests
+  the caller's workload (core `workloadidentity`), finds the one workload of one
+  applied module manifest that the attested account names, and mints only for
+  an organisation with an active installation of that module.
+- **A redeploy revokes through the seal's own counters.** For a module
+  principal the issuer derives the installation revision from the whole grant —
+  its workloads and the manifest generation included — and advances the
+  principal epoch with the applied generation, so a redeploy invalidates every
+  capability the replaced generation held, owner position and actor hops alike.
 
 
 ### Where the binding's incarnation comes from — a seam core does not close
@@ -235,7 +238,7 @@ ID. **Nothing in core derives either.** An issuer holds them, and the only
 rules core states are the monotonicity ones: both only advance, a withdrawal
 is terminal, and a reassignment between principals advances the revision.
 
-This is worth naming because the presence generation in `solutionhost` is
+This is worth naming because the manifest generation in `solutionhost` is
 *derived* from the delivered document, so a reader may assume a binding's
 counters are too. A binding has no document — there is no carrier for one — so
 the issuer is the only source. A host that re-creates a binding under a reused
@@ -590,7 +593,7 @@ it is built the way `Authenticate` is so that it is not a third **strength**:
   kit's `empty-audience` fixture holds that no capability can match one: the
   schema refuses an empty audience in the decode path, before any comparison.
 - **What it cannot see, it forwards.** The authorization revision, the sealed
-  installation's revision, every principal's epoch, the approved build, an
+  installation's revision, every principal's epoch, an
   operation binding's revision, incarnation, withdrawal and association, and
   the issuer's record of a grant are the callee's to hold a capability
   against. A hop that refused on any of them would be claiming a check it

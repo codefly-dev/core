@@ -161,8 +161,9 @@ func smallOrderEd25519(key ed25519.PublicKey) bool {
 	return slices.Contains(ed25519SmallOrder, hex.EncodeToString(masked))
 }
 
-// DomainsBySigner returns a fresh copy of the pinned domain policy for Host or
-// ActivationRequest. Mutating it cannot change the pins or an existing verifier.
+// DomainsBySigner returns a fresh copy of the pinned domain policy: which
+// ownership domains each key may deliver under. Mutating it cannot change the
+// pins or an existing verifier.
 func (set *PinnedKeySet) DomainsBySigner() map[string][]string {
 	policy := make(map[string][]string)
 	if set != nil {
@@ -194,8 +195,8 @@ func NewVerifier(keys *PinnedKeySet) (*Verifier, error) {
 // The payloadType must match the document's schema, and the decoded payload
 // must be byte-identical to document. Identity is returned only after the
 // signature over DSSE's PAE verifies. The envelope supplies no trust material.
-// Use VerifyDelivered or VerifyDeliveredAuthority to also check the canonical
-// document and its ownership domain.
+// Use VerifyDelivered to also check the canonical manifest and its ownership
+// domain.
 func (v *Verifier) VerifyEnvelope(ctx context.Context, document []byte, encoded json.RawMessage) (SignerIdentity, error) {
 	if err := ctx.Err(); err != nil {
 		return SignerIdentity{}, err

@@ -156,14 +156,14 @@ The three instances, so the shape is recognisable rather than abstract:
 | --- | --- | --- |
 | the attested execution digest a mint once took (removed) | the orchestrator's record of what is RUNNING | the issuer's record of what is APPROVED — so approved is compared against approved, and the superseded pod the field exists to refuse passes |
 | the same field, in the conformance kit (removed) | a pod | `Seals.Seal`, read and attested straight back, because a fixture has no pod |
-| `solutionhost.RenderedActivationRequest.Envelope` | the platform's ceiling | the document under check — so `ValidateAgainst` tested a document's own approved build against a list built from that build |
+| the envelope of a renderer's activation request (removed with the authority document) | the platform's ceiling | the document under check — so containment tested a document's own approved build against a list built from that build |
 
 **The one place this was recognised first**, and therefore the mitigation:
-`Activate` takes the build as an explicit parameter rather than reading it out
-of the authority document, and says why — "reading the build out of the
-document that approves it would make the question answer itself"
-(`solutionhost/authority.go`). The same sentence applies to all three rows
-above. It was written before any of them.
+the authority document's activation took the build as an explicit parameter
+rather than reading it out of the document, and said why — "reading the build
+out of the document that approves it would make the question answer itself".
+The same sentence applies to all three rows above. It was written before any
+of them.
 
 So the test for a new required input is not "is it checked". It is: **name the
 caller, and name where that caller gets this value from.** If the answer is
@@ -172,10 +172,10 @@ wrong, or the check belongs to a different party — which is how the envelope
 ended up back with the host and the renderer ended up taking a revision
 number. If no caller can answer, say so in the doc rather than requiring it in
 the indicative. The first two rows were resolved by moving the check to the
-party that holds both sources: core no longer seals a build into a capability,
-and the host compares the build its workload attester reports (core
-`workloadidentity`) with the build its declared workload is approved for — the
-running record and the approval, never one read back as the other.
+party that holds both sources: core no longer seals a build into a capability.
+All three then ended when build approval left the runtime path altogether: a
+module manifest carries no digest, and "only approved images run" is
+deploy-time admission ([module-manifest.md](module-manifest.md)).
 
 The pattern was named by a client consumer after the third instance, which
 is itself the finding: three single bugs looked like three bugs, and only
@@ -208,7 +208,7 @@ layout: modules     # or "flat"
 kind: module         # a `composed-module` here is a composition descriptor, read by composition.LoadDescriptor
 name: backend
 vendored:            # path prefixes this module vendors rather than authors (client kits);
-  - web/src/clients  # the build's size excludes them and records the list, see docs/solution-host-binding.md
+  - web/src/clients  # declared, strictly loaded; core itself no longer counts a build's size
 
 # service.codefly.yaml — inside each service directory
 name: api-server

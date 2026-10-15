@@ -536,7 +536,7 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 const lossCasesPerRole = 2 + 2 + 2*2*(2*2)
 
 func TestTheDocumentedResolutionCountIsTheKit(t *testing.T) {
-	const path = "../../docs/solution-host-binding.md"
+	const path = "../../docs/module-contract.md"
 	document, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

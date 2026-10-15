@@ -15,9 +15,8 @@ import (
 	"github.com/codefly-dev/core/internal/wire"
 )
 
-// The manifest's vendored-path declaration is the input to a signed build fact
-// (solutionhost.BuildSize records the list a build excluded), so it is held to
-// one spelling at the manifest and round-trips through save and load intact.
+// The manifest's vendored-path declaration is held to one spelling and
+// round-trips through save and load intact.
 func TestModuleVendoredPathsRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

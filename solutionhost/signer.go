@@ -24,9 +24,9 @@ type Signer interface {
 }
 
 // SignEnvelope produces a DSSE envelope with exactly one signature over PAE.
-// The payloadType is fixed by the document's schema. Only the key ID travels
-// with the signature; the host must already pin the public key. Payload should
-// come from SignedPayload or SignedPayloadFor; Carrier enforces canonical form.
+// The payloadType is PayloadTypeModuleManifest. Only the key ID travels with
+// the signature; the host must already pin the public key. Payload should come
+// from SignedPayload; Carrier enforces canonical form.
 func SignEnvelope(payload []byte, signer Signer) (json.RawMessage, error) {
 	if signer == nil || !keyName(signer.KeyID()) {
 		return nil, fmt.Errorf("sign envelope: a signer with a valid key ID is required")

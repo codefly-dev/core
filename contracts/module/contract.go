@@ -2,7 +2,7 @@
 // codefly/module-contract/v1, the file a module publishes beside its manifest
 // as module.contract.codefly.yaml: its Go model, its strict decoder, every
 // refusal rule, and the resolution of its slots against a composition. The
-// CLI renders an authority document from it, the runtimes publish it, and the
+// CLI renders a module manifest's authority from it, the runtimes publish it, and the
 // host's loader reads it: all three read it THROUGH this package, and the
 // fixtures it ships (Fixtures) are what each of them is driven through, so a
 // decoder that started accepting an invalid ceiling would fail here first and
@@ -11,25 +11,25 @@
 // says what it is; the docs spell it that way too.
 //
 // It belongs to the lifecycle solutionhost owns, because the contract is the
-// request the authority document grants: the envelope bounds it, the authority
-// document the CLI derives from it is signed and delivered to the host, and
-// the host activates it.
+// request a module manifest carries: the CLI resolves it into the manifest's
+// authority block, which is signed and delivered to the host, and the host
+// grants its intersection with the administrator's approval.
 //
 // The contract is a REQUEST, not a grant. It says what the module asks to be
 // able to do on a host: the principal its credentials are issued to, the
 // operation bindings it redeems, the queues and namespaces it declares, the
-// scope ceilings it contributes, and the destinations it exposes. Three records
-// narrow it in order — the host's envelope (the ceiling a platform
-// administrator writes), the authority document the render derives from this
-// file and the delivery pipeline signs, and an organisation's installation — so
+// scope ceilings it contributes, and the destinations it exposes. Records
+// narrow it — the signed manifest the render derives from this file, the
+// approval a platform administrator writes, and an organisation's
+// installation — so
 // nothing here is wider than what the module exercises, and nothing here grants
 // anything by itself.
 //
 // Four things never appear in a contract, because they are not the module's to
 // assert: tenancy and cross-tenant reach (the envelope is the only record that
-// may name an organisation), the approved build digest (the render's: the OCI
-// image manifest digest of the container it pins), and the expected workload
-// identity (the platform's: it issues SVIDs and owns the trust domain). The
+// may name an organisation), a build digest (no runtime record approves a
+// build), and the expected workload identity (the platform's: it issues SVIDs
+// and owns the trust domain). The
 // decoder is strict, so a contract that tries to carry one is refused rather
 // than silently honoured.
 //
@@ -47,7 +47,7 @@
 // ANOTHER module's vocabulary, which a module repository must not spell. They
 // are declared as slots — {from: <group>/<key>} — pointing at a workspace
 // configuration value the composition supplies, and the render resolves them
-// when it derives the authority document. A slot resolves PUBLIC configuration
+// when it derives the manifest's authority. A slot resolves PUBLIC configuration
 // only: an audience and a resource kind are names, and a render carries secrets
 // only as references, so a slot that resolves to a secret-classified value fails
 // the derivation rather than inlining it into a delivered document. A bare
@@ -349,7 +349,7 @@ type Slot struct {
 
 // SlotGroups lists the workspace configuration groups the contract's slots
 // resolve from, each once, sorted: what a render of the module bakes into its
-// delivered authority document beside what its services consume.
+// delivered manifest's authority beside what its services consume.
 func (contract *Contract) SlotGroups() []string {
 	seen := map[string]struct{}{}
 	for _, binding := range contract.Bindings {
@@ -519,7 +519,7 @@ func parse(data []byte, without string) (*Contract, error) {
 func (contract *Contract) Validate() error { return contract.validate("") }
 
 // Resolved is a contract with every slot resolved to the value the composition
-// supplies, ready to be derived into an authority document.
+// supplies, ready to be derived into a manifest's authority.
 type Resolved struct {
 	Principal     string
 	Namespaces    []string

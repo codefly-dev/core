@@ -18,11 +18,9 @@ import (
 // and an author writes it nowhere else. It grants nothing and installs
 // nothing: a group is a heading, where it sorts, and the id the solutions
 // under it share, and a solution's own identity is unchanged by it. Solutions
-// only — a module is grouped by nothing — and a tombstone declares none.
+// only — a module is grouped by nothing — and a withdrawal declares none.
 //
-// The block is OPTIONAL, for BuildSize's reason: a document without it encodes
-// as it did before the block existed, so every stored digest holds, and one
-// that carries it is held to every group rule.
+// The block is OPTIONAL, and one that carries it is held to every group rule.
 type SolutionGroup struct {
 	// ID is the group's id as the composing workspace spells it: lowercase
 	// letters and digits, dash-separated (resources.ValidateSolutionGroupID).
@@ -49,14 +47,13 @@ const GroupTextMaxBytes = resources.SolutionGroupTextMaxBytes
 
 // The group rules, by name; see rule.
 const (
-	ruleGroupFieldsDeclared    = "group-fields-declared"
-	ruleGroupOrderDecimal      = "group-order-decimal"
-	ruleGroupOrderFits         = "group-order-fits"
-	ruleGroupAbsentWhenRemoved = "group-absent-when-removed"
-	ruleGroupSolutionOnly      = "group-solution-only"
-	ruleGroupTextBounded       = "group-text-bounded"
-	ruleGroupID                = "group-id"
-	ruleGroupTitle             = "group-title"
+	ruleGroupFieldsDeclared = "group-fields-declared"
+	ruleGroupOrderDecimal   = "group-order-decimal"
+	ruleGroupOrderFits      = "group-order-fits"
+	ruleGroupSolutionOnly   = "group-solution-only"
+	ruleGroupTextBounded    = "group-text-bounded"
+	ruleGroupID             = "group-id"
+	ruleGroupTitle          = "group-title"
 )
 
 // groupNodeRules run over the group node before it is typed, and
@@ -72,7 +69,6 @@ func groupNodeRules() []rule {
 
 func groupModelRules() []rule {
 	return []rule{
-		{name: ruleGroupAbsentWhenRemoved, section: sectionGroup, check: checkGroupAbsentWhenRemoved},
 		{name: ruleGroupSolutionOnly, section: sectionGroup, check: checkGroupSolutionOnly},
 		{name: ruleGroupTextBounded, section: sectionGroup, check: checkGroupTextBounded},
 		{name: ruleGroupID, section: sectionGroup, check: checkGroupID},
@@ -121,14 +117,7 @@ func checkGroupOrderFits(section *yaml.Node) error {
 	return nil
 }
 
-func checkGroupAbsentWhenRemoved(document *SolutionHostBinding) error {
-	if document.Removed {
-		return fmt.Errorf("%w: a removed generation declares no group; a group is where a host shows a solution, and this generation declares that there is nothing to show", ErrInvalid)
-	}
-	return nil
-}
-
-func checkGroupSolutionOnly(document *SolutionHostBinding) error {
+func checkGroupSolutionOnly(document *ModuleManifest) error {
 	if document.Kind != KindSolution {
 		return fmt.Errorf("%w: group is declared on a %q; a group organises solutions, and a module is grouped by nothing", ErrInvalid, document.Kind)
 	}
@@ -139,7 +128,7 @@ func (group *SolutionGroup) texts() []frontendText {
 	return []frontendText{{path: "group.id", value: group.ID}, {path: "group.title", value: group.Title}}
 }
 
-func checkGroupTextBounded(document *SolutionHostBinding) error {
+func checkGroupTextBounded(document *ModuleManifest) error {
 	for _, text := range document.Group.texts() {
 		if len(text.value) > GroupTextMaxBytes {
 			return fmt.Errorf("%w: group text exceeds %d bytes at %s", ErrInvalid, GroupTextMaxBytes, text.path)
@@ -148,14 +137,14 @@ func checkGroupTextBounded(document *SolutionHostBinding) error {
 	return nil
 }
 
-func checkGroupID(document *SolutionHostBinding) error {
+func checkGroupID(document *ModuleManifest) error {
 	if err := resources.ValidateSolutionGroupID(document.Group.ID); err != nil {
 		return fmt.Errorf("%w: group.id %q is invalid: %v", ErrInvalid, document.Group.ID, err)
 	}
 	return nil
 }
 
-func checkGroupTitle(document *SolutionHostBinding) error {
+func checkGroupTitle(document *ModuleManifest) error {
 	if err := resources.ValidateSolutionGroupTitle(document.Group.Title); err != nil {
 		return fmt.Errorf("%w: group.title must be a non-blank single-line text: %v", ErrInvalid, err)
 	}
