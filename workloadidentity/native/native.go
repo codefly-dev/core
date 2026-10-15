@@ -70,10 +70,14 @@ type Subject struct {
 	Instance    string `json:"instance"`
 	InstanceUID string `json:"instance_uid"`
 	// Container is the declared authenticating container the process is.
-	Container string `json:"container"`
+	// Empty for an identity that runs no declared workload (a delivery
+	// carrier): its attestation reports no container, and a mint refuses it.
+	Container string `json:"container,omitempty"`
 	// Build is the digest of the executable the launcher started
-	// ("sha256:<hex>"), compared by the host with the approved build.
-	Build string `json:"build"`
+	// ("sha256:<hex>"), compared by the host with the approved build. Empty
+	// until the launcher knows it: the attestation then reports a container
+	// with no image, which a host reads as "not established yet".
+	Build string `json:"build,omitempty"`
 	// DeclaredImage is the reference the declaration names for that build.
 	DeclaredImage string `json:"declared_image,omitempty"`
 }
@@ -81,7 +85,7 @@ type Subject struct {
 func (s Subject) validate() error {
 	for name, value := range map[string]string{
 		"namespace": s.Namespace, "account": s.Account, "instance": s.Instance,
-		"instance_uid": s.InstanceUID, "container": s.Container, "build": s.Build,
+		"instance_uid": s.InstanceUID,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("native subject names no %s", name)
@@ -346,15 +350,22 @@ func (a *Attester) Attest(_ context.Context, credential, audience string) (*work
 		ExpiresAt:    expires,
 		// The launcher issues only while the process it started runs: a
 		// credential it vouches for is a running process's.
-		Phase: workloadidentity.PhaseRunning,
-		Containers: []workloadidentity.Container{{
-			Name:          subject.Container,
-			Kind:          workloadidentity.ContainerRegular,
-			State:         workloadidentity.ContainerRunning,
-			ImageID:       subject.Build,
-			DeclaredImage: subject.DeclaredImage,
-		}},
+		Phase:      workloadidentity.PhaseRunning,
+		Containers: containersOf(subject),
 	}, nil
+}
+
+func containersOf(subject Subject) []workloadidentity.Container {
+	if subject.Container == "" {
+		return nil
+	}
+	return []workloadidentity.Container{{
+		Name:          subject.Container,
+		Kind:          workloadidentity.ContainerRegular,
+		State:         workloadidentity.ContainerRunning,
+		ImageID:       subject.Build,
+		DeclaredImage: subject.DeclaredImage,
+	}}
 }
 
 func contains(values []string, want string) bool {

@@ -131,9 +131,37 @@ func TestAClusterTokenShapeIsNotANativeCredential(t *testing.T) {
 func TestAnIncompleteSubjectIsNeverIssued(t *testing.T) {
 	issuer, _ := issuerAndAttester(t)
 	incomplete := subject()
-	incomplete.Build = ""
+	incomplete.InstanceUID = ""
 	if _, err := issuer.Issue(incomplete, "accounts"); err == nil {
-		t.Fatal("issued a credential naming no build")
+		t.Fatal("issued a credential naming no instance")
+	}
+}
+
+func TestABuildNotYetKnownAttestsAContainerWithNoImage(t *testing.T) {
+	issuer, attester := issuerAndAttester(t)
+	early := subject()
+	early.Build = ""
+	token, _ := issuer.Issue(early, "accounts")
+	got, err := attester.Attest(context.Background(), token, "accounts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Containers) != 1 || got.Containers[0].ImageID != "" {
+		t.Fatalf("containers = %+v", got.Containers)
+	}
+}
+
+func TestACarrierIdentityAttestsNoContainer(t *testing.T) {
+	issuer, attester := issuerAndAttester(t)
+	carrier := subject()
+	carrier.Container, carrier.Build = "", ""
+	token, _ := issuer.Issue(carrier, "accounts")
+	got, err := attester.Attest(context.Background(), token, "accounts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Containers) != 0 {
+		t.Fatalf("a carrier attested containers %+v", got.Containers)
 	}
 }
 
