@@ -347,6 +347,12 @@ func decodeStrict[T any](data []byte, label, schema string, nodes func(tree *yam
 	if err := yaml.Unmarshal(data, &tree); err != nil {
 		return nil, fmt.Errorf("%w: decode %s: not a YAML document: %v", ErrInvalid, label, err)
 	}
+	// Every document this package reads is a mapping. Anything else is refused
+	// here, by what it is, rather than decoded into an empty value whose first
+	// missing field would be reported as the defect.
+	if root := &tree; root.Kind == yaml.DocumentNode && len(root.Content) == 1 && root.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%w: decode %s: the document is not a mapping", ErrInvalid, label)
+	}
 	switch defect := wire.Check(&tree); defect.Kind {
 	case wire.DuplicateKey:
 		return nil, fmt.Errorf("%w: the mapping at %s names the key %q twice; a repeated key makes the decoded document depend on order",

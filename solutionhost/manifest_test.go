@@ -1,6 +1,7 @@
 package solutionhost_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -282,5 +283,17 @@ func TestTheStandaloneFrontendIsTheAuthoredHalf(t *testing.T) {
 	} {
 		_, err := solutionhost.ParseFrontend([]byte(document))
 		require.ErrorIs(t, err, solutionhost.ErrInvalid, name)
+	}
+}
+
+// A frontend declaration or a manifest that is a list, or a bare scalar, is
+// refused as what it is, naming the declaration, rather than decoded into an
+// empty value whose first missing field would be blamed.
+func TestADocumentThatIsNotAMappingIsRefusedAsSuch(t *testing.T) {
+	for name, data := range map[string]string{"a list": "- title: Notes\n", "a scalar": "notes\n"} {
+		if _, err := solutionhost.ParseFrontend([]byte(data)); err == nil || !errors.Is(err, solutionhost.ErrInvalid) ||
+			!strings.Contains(err.Error(), "frontend declaration") || !strings.Contains(err.Error(), "not a mapping") {
+			t.Errorf("a frontend that is %s: got %v", name, err)
+		}
 	}
 }
