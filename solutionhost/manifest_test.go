@@ -44,10 +44,10 @@ func TestValidateRefusesEachBrokenRule(t *testing.T) {
 		"no workload":               {func(m *solutionhost.ModuleManifest) { m.Workloads, m.Endpoints = nil, nil }, "declares no workload"},
 		"service twice":             {func(m *solutionhost.ModuleManifest) { m.Workloads[1].Service = "backend" }, "declared twice"},
 		"no container":              {func(m *solutionhost.ModuleManifest) { m.Workloads[0].Container = "" }, "container"},
-		"spiffe not kubernetes":     {func(m *solutionhost.ModuleManifest) { m.Workloads[0].SPIFFEID = "spiffe://cluster.local/backend" }, "/ns/<namespace>/sa/<account>"},
-		"one account two workloads": {func(m *solutionhost.ModuleManifest) { m.Workloads[1].SPIFFEID = m.Workloads[0].SPIFFEID }, "run as one account"},
+		"kubernetes pair invalid":   {func(m *solutionhost.ModuleManifest) { m.Workloads[0].Kubernetes.Account = "Backend" }, "DNS-1123"},
+		"one account two workloads": {func(m *solutionhost.ModuleManifest) { m.Workloads[1].Kubernetes = m.Workloads[0].Kubernetes }, "run as one account"},
 		"one account two trust domains": {func(m *solutionhost.ModuleManifest) {
-			m.Workloads[1].SPIFFEID = "spiffe://other.local/ns/platform-obin-wiki/sa/backend"
+			m.Workloads[1].Kubernetes = &solutionhost.WorkloadAccount{TrustDomain: "other.local", Namespace: "platform-obin-wiki", Account: "backend"}
 		}, "run as one account"},
 		"endpoint to no workload":     {func(m *solutionhost.ModuleManifest) { m.Endpoints[0].Service = "frontend" }, "no declared workload"},
 		"endpoint without address":    {func(m *solutionhost.ModuleManifest) { m.Endpoints[0].Address = "" }, "address"},

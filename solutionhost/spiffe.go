@@ -11,9 +11,29 @@ import (
 // credential authenticates (workloadidentity.Attestation's Namespace and
 // Account), under the trust domain that issued it.
 type WorkloadAccount struct {
-	TrustDomain string
-	Namespace   string
-	Account     string
+	TrustDomain string `yaml:"trust_domain" json:"trust_domain"`
+	Namespace   string `yaml:"namespace" json:"namespace"`
+	Account     string `yaml:"service_account" json:"service_account"`
+}
+
+// Validate holds the three to the shape a SPIFFE ID would carry them in: a
+// lowercase trust domain and two DNS-1123 labels.
+func (account WorkloadAccount) Validate() error {
+	switch {
+	case account.TrustDomain == "" || account.TrustDomain != strings.ToLower(account.TrustDomain) || strings.ContainsAny(account.TrustDomain, "/:?#%\\@"):
+		return fmt.Errorf("trust domain %q is not a lowercase trust domain", account.TrustDomain)
+	case !dns1123Label.MatchString(account.Namespace):
+		return fmt.Errorf("namespace %q is not a DNS-1123 label", account.Namespace)
+	case !dns1123Label.MatchString(account.Account):
+		return fmt.Errorf("service account %q is not a DNS-1123 label", account.Account)
+	}
+	return nil
+}
+
+// SPIFFEID is the mesh principal the pair runs as, derived and never typed:
+// spiffe://<trust domain>/ns/<namespace>/sa/<account>.
+func (account WorkloadAccount) SPIFFEID() string {
+	return "spiffe://" + account.TrustDomain + "/ns/" + account.Namespace + "/sa/" + account.Account
 }
 
 // dns1123Label is a Kubernetes namespace or ServiceAccount name.

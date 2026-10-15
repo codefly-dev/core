@@ -1,12 +1,21 @@
 // Package workloadidentity is how a host learns which declared workload is
 // calling it, whatever proved it.
 //
+// A workload's identity is the composition's declaration: the module and
+// service it was composed as — the same CODEFLY__MODULE and CODEFLY__SERVICE
+// every process is started with — and the one instance of it that is running.
+// That is the identity a host keys on, the identity a manifest names, and the
+// identity every mechanism attests. No environment's vocabulary is the
+// identity: a namespace, a ServiceAccount or a pod is how one environment
+// proves which declared workload a process is, and it is carried as that
+// environment's facts, never read as who the caller is.
+//
 // A workload presents a credential: a token it reads from a file it was handed
 // and re-reads before every use, so rotation needs nothing from it. A host
 // hands the credential to an Attester, which answers with one Attestation:
-// the account the credential authenticates, the instance it was issued to,
-// its lifetime, and the containers that instance runs. Policy — which
-// principal that account belongs to, how long a credential may live — stays
+// the declared workload the credential proves, the credential's lifetime, and
+// the facts the mechanism can vouch for about the instance. Policy — which
+// principal that workload belongs to, how long a credential may live — stays
 // with the host. This package only establishes facts.
 //
 // There is one Attester per mechanism, and the mechanism is the environment's,
@@ -14,11 +23,15 @@
 //
 //   - kubernetes: a projected ServiceAccount token, reviewed by the cluster's
 //     API server (TokenReview), and the pod it names, read from that server.
+//     The pair (namespace, ServiceAccount) the review yields is resolved to the
+//     declared workload through the Declaration the render made — a pair the
+//     render never declared is refused — and the pod becomes Facts.
 //     Implemented where the cluster client lives.
 //   - native: a token the CLI signs for a process it started on a laptop,
-//     verified against the run's anchor (package native). Nothing imitates a
-//     cluster: there is no API server, pod or ServiceAccount, only the facts
-//     the process's launcher can vouch for.
+//     verified against the run's anchor (package native). The launcher is the
+//     one party that knows which declared workload it started, so the
+//     credential names the declaration directly. Nothing is invented: no
+//     namespace, no account, no pod, no UID.
 //
 // Both answer the same Attestation, so the host's checks run unchanged under
 // either, and a gap in one mechanism cannot hide behind the other's shape.
@@ -27,6 +40,8 @@ package workloadidentity
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -34,76 +49,122 @@ import (
 type Mechanism string
 
 const (
-	// Kubernetes is a projected ServiceAccount token reviewed by a cluster.
+	// Kubernetes proves a credential through the cluster that issued it.
 	Kubernetes Mechanism = "kubernetes"
-	// Native is a token the CLI signed for a process it started.
+	// Native proves a credential through the run that issued it.
 	Native Mechanism = "native"
 )
 
-// ErrRejected reports that the credential was examined and refused: another
-// audience, another issuer, expired, malformed, or not signed by the anchor.
-// It is a verdict about the caller, so a caller hearing it must not retry with
-// the same credential.
+// ErrRejected is the attester's answer to a credential it would not accept:
+// the host refuses the caller. The wrapped reason names what failed.
 var ErrRejected = errors.New("workload credential rejected")
 
-// ErrUnavailable reports that the attestation could not be established — the
-// API server unreachable, the instance not yet running. Nothing has been
-// decided about the caller.
+// ErrUnavailable means nothing was decided: the mechanism could not be
+// consulted. The host must not read it as a refusal.
 var ErrUnavailable = errors.New("workload attestation unavailable")
 
-// Attester establishes an Attestation from a presented credential.
+// Attester proves credentials under one mechanism.
 type Attester interface {
-	// Mechanism is how this attester proves a credential.
 	Mechanism() Mechanism
-	// Authenticate verifies credential for audience and reports the account
-	// and instance it was issued to, without establishing what that instance
-	// runs: Phase and Containers are left empty. It is for a caller that only
-	// needs to know who signed, such as a delivery carrier.
+	// Authenticate establishes who signed the credential and for whom, without
+	// reading what the instance runs: it answers an Attestation with nil Facts.
 	Authenticate(ctx context.Context, credential, audience string) (*Attestation, error)
-	// Attest verifies credential for audience and reports what it proves,
-	// including the instance's live phase and containers. A refusal wraps
-	// ErrRejected; an inability to decide wraps ErrUnavailable.
+	// Attest is Authenticate plus what the mechanism can vouch for about the
+	// instance: its Facts.
 	Attest(ctx context.Context, credential, audience string) (*Attestation, error)
 }
 
-// Attestation is what a credential proves about the workload presenting it.
-type Attestation struct {
-	Mechanism Mechanism
-
-	// Namespace and Account are the workload's account: in a cell its
-	// ServiceAccount, natively the account its declaration names. A module
-	// manifest workload's SPIFFE ID names the same pair.
-	Namespace string
-	Account   string
-
-	// Instance and InstanceUID name the one running instance the credential
-	// was issued to: the pod and its UID in a cell, the process the CLI
-	// started natively. A replacement at the same name has another UID.
-	Instance    string
-	InstanceUID string
-
-	// CredentialID is the credential's own identifier (its JTI), which a host
-	// records to make each credential single-use.
-	CredentialID string
-
-	IssuedAt  time.Time
-	ExpiresAt time.Time
-
-	// Phase is the instance's lifecycle phase; PhaseRunning is the one that
-	// may mint. Terminating reports an instance being deleted.
-	Phase       string
-	Terminating bool
-
-	// Containers are what the instance runs. A host selects the one container
-	// the workload declares as authenticating and refuses any other it does
-	// not cover. Natively there is exactly one: the process.
-	Containers []Container
+// Workload is a declared workload: the identity every mechanism attests and
+// every host keys on. TrustDomain is the composition's; Module and Service are
+// as the composition declares them; Instance names the one running copy a
+// credential was issued to, and is empty where only the declaration is named
+// (a manifest declares a service, not a copy of it).
+type Workload struct {
+	TrustDomain string `json:"trust_domain"`
+	Module      string `json:"module"`
+	Service     string `json:"service"`
+	Instance    string `json:"instance,omitempty"`
 }
 
-// PhaseRunning is the phase in which an instance may be issued authority.
+// Validate refuses a declaration that names less than a workload: a host
+// cannot key authority on a blank. The instance is validated by whoever needs
+// one (an attestation does; a manifest does not).
+func (w Workload) Validate() error {
+	for name, value := range map[string]string{"trust domain": w.TrustDomain, "module": w.Module, "service": w.Service} {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("workload names no %s", name)
+		}
+	}
+	return nil
+}
+
+// Unique is the declared identity without its instance, as the composition
+// spells a service: module/service. Every instance of one declared service
+// shares it; "one declared workload, one principal" keys on it.
+func (w Workload) Unique() string { return w.Module + "/" + w.Service }
+
+// Declared is the workload with its instance removed: the declaration a
+// credential's attestation is matched against.
+func (w Workload) Declared() Workload { w.Instance = ""; return w }
+
+// String is the whole identity, instance included when there is one.
+func (w Workload) String() string {
+	if w.Instance == "" {
+		return w.Unique()
+	}
+	return w.Unique() + "@" + w.Instance
+}
+
+// Declaration resolves what a Kubernetes environment proves — the namespace
+// and ServiceAccount a reviewed token names — to the declared workload the
+// render gave that pair to. A pair the render never declared resolves to
+// nothing, and a mechanism must refuse it: a token for an account nothing
+// declared is not a workload of the composition.
+type Declaration interface {
+	WorkloadFor(namespace, account string) (Workload, bool)
+}
+
+// Credential is what the attester can say about the token itself.
+type Credential struct {
+	// ID is the credential's own identifier, unique per issued token.
+	ID        string
+	IssuedAt  time.Time
+	ExpiresAt time.Time
+}
+
+// Attestation is one mechanism's proof of one declared workload.
+type Attestation struct {
+	Mechanism  Mechanism
+	Workload   Workload
+	Credential Credential
+	// Facts is what the mechanism can vouch for about the instance beyond its
+	// identity: nil when Authenticate was asked. A host reads Facts to bind an
+	// execution to one instance and for audit, never for who the caller is.
+	Facts *Facts
+}
+
+// Facts is the mechanism's own vocabulary for the running instance. Under
+// kubernetes they are the pod's; under native they are what the launcher
+// vouched for. None of them is identity.
+type Facts struct {
+	// Namespace and Account are the Kubernetes pair the credential proved,
+	// kept for audit; the Declaration already turned them into the Workload.
+	Namespace string
+	Account   string
+	// InstanceUID distinguishes one incarnation of the instance from a later
+	// one under the same name.
+	InstanceUID string
+	// Phase and Terminating are the instance's lifecycle as the mechanism
+	// reports it. Native reports PhaseRunning: the launcher started it.
+	Phase       string
+	Terminating bool
+	Containers  []Container
+}
+
+// PhaseRunning is the one phase a workload may act in.
 const PhaseRunning = "Running"
 
-// ContainerKind is how a container participates in the instance.
+// ContainerKind is why a container is in the instance.
 type ContainerKind string
 
 const (
@@ -112,7 +173,7 @@ const (
 	ContainerEphemeral ContainerKind = "ephemeral"
 )
 
-// ContainerState is a container's lifecycle state.
+// ContainerState is where the container is in its own lifecycle.
 type ContainerState string
 
 const (
@@ -122,11 +183,12 @@ const (
 	ContainerStateUnknown ContainerState = "unknown"
 )
 
-// Container is one container of an instance as its attester reports it.
+// Container is one container of the instance, as the mechanism saw it. It
+// reports no image: what runs is not attested, by decision.
 type Container struct {
 	Name  string
 	Kind  ContainerKind
 	State ContainerState
-	// Restartable marks an init container that keeps running (a native sidecar).
+	// Restartable says the container may be restarted in place.
 	Restartable bool
 }

@@ -15,8 +15,8 @@ import (
 
 func subject() Subject {
 	return Subject{
-		Namespace: "platform-obin-runtime", Account: "worker", Instance: "worker-1",
-		InstanceUID: "uid-1", Container: "worker",
+		Workload:  workloadidentity.Workload{TrustDomain: "cluster.local", Module: "runtime", Service: "worker", Instance: "worker-1"},
+		Container: "worker",
 	}
 }
 
@@ -43,15 +43,16 @@ func TestAttestReportsWhatTheLauncherVouchedFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Mechanism != workloadidentity.Native || got.Namespace != "platform-obin-runtime" || got.Account != "worker" ||
-		got.Instance != "worker-1" || got.InstanceUID != "uid-1" || got.CredentialID == "" || got.Phase != workloadidentity.PhaseRunning {
+	if got.Mechanism != workloadidentity.Native || got.Workload != subject().Workload || got.Credential.ID == "" ||
+		got.Facts == nil || got.Facts.Phase != workloadidentity.PhaseRunning || got.Facts.InstanceUID != got.Credential.ID ||
+		got.Facts.Namespace != "" || got.Facts.Account != "" {
 		t.Fatalf("attestation = %+v", got)
 	}
-	if len(got.Containers) != 1 || got.Containers[0].Name != "worker" ||
-		got.Containers[0].State != workloadidentity.ContainerRunning || got.Containers[0].Kind != workloadidentity.ContainerRegular {
-		t.Fatalf("containers = %+v", got.Containers)
+	if len(got.Facts.Containers) != 1 || got.Facts.Containers[0].Name != "worker" ||
+		got.Facts.Containers[0].State != workloadidentity.ContainerRunning || got.Facts.Containers[0].Kind != workloadidentity.ContainerRegular {
+		t.Fatalf("containers = %+v", got.Facts.Containers)
 	}
-	if lifetime := got.ExpiresAt.Sub(got.IssuedAt); lifetime != TokenLifetime {
+	if lifetime := got.Credential.ExpiresAt.Sub(got.Credential.IssuedAt); lifetime != TokenLifetime {
 		t.Fatalf("lifetime = %s", lifetime)
 	}
 }
@@ -62,7 +63,7 @@ func TestEachCredentialHasItsOwnID(t *testing.T) {
 	second, _ := issuer.Issue(subject(), "accounts")
 	a, _ := attester.Attest(context.Background(), first, "accounts")
 	b, _ := attester.Attest(context.Background(), second, "accounts")
-	if a.CredentialID == b.CredentialID {
+	if a.Credential.ID == b.Credential.ID {
 		t.Fatal("two credentials share an id, so a host could not make them single-use")
 	}
 }
@@ -131,7 +132,7 @@ func TestAClusterTokenShapeIsNotANativeCredential(t *testing.T) {
 func TestAnIncompleteSubjectIsNeverIssued(t *testing.T) {
 	issuer, _ := issuerAndAttester(t)
 	incomplete := subject()
-	incomplete.InstanceUID = ""
+	incomplete.Workload.Instance = ""
 	if _, err := issuer.Issue(incomplete, "accounts"); err == nil {
 		t.Fatal("issued a credential naming no instance")
 	}
@@ -146,8 +147,8 @@ func TestACarrierIdentityAttestsNoContainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Containers) != 0 {
-		t.Fatalf("a carrier attested containers %+v", got.Containers)
+	if len(got.Facts.Containers) != 0 {
+		t.Fatalf("a carrier attested containers %+v", got.Facts.Containers)
 	}
 }
 

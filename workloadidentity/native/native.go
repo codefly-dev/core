@@ -62,27 +62,20 @@ var ErrInPod = errors.New("a pod proves its identity through its cluster, never 
 
 // Subject is what the launcher vouches for about one process.
 type Subject struct {
-	// Namespace and Account are the workload's account, the pair its module
-	// manifest's SPIFFE ID names.
-	Namespace string `json:"namespace"`
-	Account   string `json:"account"`
-	// Instance and InstanceUID name this process; a restart is a new UID.
-	Instance    string `json:"instance"`
-	InstanceUID string `json:"instance_uid"`
-	// Container is the declared authenticating container the process is.
-	// Empty for an identity that runs no declared workload (a delivery
-	// carrier): its attestation reports no container, and a mint refuses it.
+	// Workload is the declaration the launcher started — trust domain, module,
+	// service — and the one instance of it. It is the whole identity.
+	Workload workloadidentity.Workload `json:"workload"`
+	// Container is the declared container the process is, when the subject is
+	// a workload's container rather than a carrier identity.
 	Container string `json:"container,omitempty"`
 }
 
 func (s Subject) validate() error {
-	for name, value := range map[string]string{
-		"namespace": s.Namespace, "account": s.Account, "instance": s.Instance,
-		"instance_uid": s.InstanceUID,
-	} {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("native subject names no %s", name)
-		}
+	if err := s.Workload.Validate(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(s.Workload.Instance) == "" {
+		return fmt.Errorf("native subject names no instance")
 	}
 	return nil
 }
@@ -181,7 +174,7 @@ func (i *Issuer) Issue(subject Subject, audience string) (string, error) {
 	now := i.now()
 	body := claims{
 		Issuer:    i.name,
-		Subject:   "native:" + subject.Namespace + ":" + subject.Account,
+		Subject:   "native:" + subject.Workload.String(),
 		Audience:  []string{audience},
 		IssuedAt:  now.Unix(),
 		NotBefore: now.Unix(),
@@ -272,7 +265,7 @@ func (a *Attester) Authenticate(ctx context.Context, credential, audience string
 	if err != nil {
 		return nil, err
 	}
-	attested.Phase, attested.Containers = "", nil
+	attested.Facts = nil
 	return attested, nil
 }
 
@@ -333,18 +326,13 @@ func (a *Attester) Attest(_ context.Context, credential, audience string) (*work
 		return nil, reject("%v", err)
 	}
 	return &workloadidentity.Attestation{
-		Mechanism:    workloadidentity.Native,
-		Namespace:    subject.Namespace,
-		Account:      subject.Account,
-		Instance:     subject.Instance,
-		InstanceUID:  subject.InstanceUID,
-		CredentialID: body.ID,
-		IssuedAt:     issued,
-		ExpiresAt:    expires,
-		// The launcher issues only while the process it started runs: a
-		// credential it vouches for is a running process's.
-		Phase:      workloadidentity.PhaseRunning,
-		Containers: containersOf(subject),
+		Mechanism:  workloadidentity.Native,
+		Workload:   subject.Workload,
+		Credential: workloadidentity.Credential{ID: body.ID, IssuedAt: issued, ExpiresAt: expires},
+		// The launcher issues only while the process it started runs, so the
+		// instance is running; nothing else about it is invented. The
+		// credential's own id is the incarnation: a restart is a new one.
+		Facts: &workloadidentity.Facts{InstanceUID: body.ID, Phase: workloadidentity.PhaseRunning, Containers: containersOf(subject)},
 	}, nil
 }
 

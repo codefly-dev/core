@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/codefly-dev/core/workloadidentity"
 	"io"
 	"regexp"
 	"slices"
@@ -205,15 +206,30 @@ type Workload struct {
 	// same instance never holds the workload's authority.
 	Container string `yaml:"container" json:"container"`
 
-	// SPIFFEID is the workload's identity:
-	// spiffe://<trust domain>/ns/<namespace>/sa/<account>. Its (namespace,
-	// account) pair is what an attested credential is matched against.
-	SPIFFEID string `yaml:"spiffe_id" json:"spiffe_id"`
+	// Kubernetes is what a cell's render declares about where this workload
+	// runs: the trust domain, namespace and ServiceAccount of its pod. A
+	// reviewed token names that pair, and the host resolves it back to this
+	// declaration through it. It is a fact about one environment, not the
+	// identity: the identity is the module and Service. A native run, whose
+	// credential names the declaration directly, declares none.
+	Kubernetes *WorkloadAccount `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
+}
+
+// Declared is the workload's identity: the module the manifest is for and
+// the service, as the composition declares them.
+func (workload Workload) Declared(trustDomain, module string) workloadidentity.Workload {
+	return workloadidentity.Workload{TrustDomain: trustDomain, Module: module, Service: workload.Service}
 }
 
 // Account is the workload's attested account, read from its SPIFFE ID.
-func (workload Workload) Account() (WorkloadAccount, error) {
-	return ParseWorkloadSPIFFEID(workload.SPIFFEID)
+// Account is the Kubernetes pair the workload declares it runs as, when it
+// declares one. A workload with no Kubernetes block runs natively and has no
+// account: a host that needs one is asking the wrong question.
+func (workload Workload) Account() (WorkloadAccount, bool) {
+	if workload.Kubernetes == nil {
+		return WorkloadAccount{}, false
+	}
+	return *workload.Kubernetes, true
 }
 
 // Endpoint is one endpoint a host or gateway may route to.
@@ -479,13 +495,16 @@ func (manifest *ModuleManifest) validateWorkloads() error {
 		if !segmentPattern.MatchString(workload.Container) {
 			return fmt.Errorf("%w: workload %q container %q is invalid", ErrInvalid, workload.Service, workload.Container)
 		}
-		account, err := workload.Account()
-		if err != nil {
-			return fmt.Errorf("%w: workload %q: %v", ErrInvalid, workload.Service, err)
+		account, declared := workload.Account()
+		if !declared {
+			continue
 		}
-		// One account is one workload: the attested (namespace, account) is
-		// all a mint has to find a workload by, so two with one account would
-		// make the lookup a choice.
+		if err := account.Validate(); err != nil {
+			return fmt.Errorf("%w: workload %q kubernetes: %v", ErrInvalid, workload.Service, err)
+		}
+		// One Kubernetes pair resolves to one workload: the pair is all a
+		// reviewed token names, so two workloads on one pair would make the
+		// resolution a choice.
 		key := WorkloadAccount{Namespace: account.Namespace, Account: account.Account}
 		if other, exists := accounts[key]; exists {
 			return fmt.Errorf("%w: workloads %q and %q run as one account (%s/%s)", ErrInvalid, other, workload.Service, account.Namespace, account.Account)
@@ -667,14 +686,27 @@ func (manifest *ModuleManifest) Digest() (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// WorkloadFor answers the workload that runs as the attested account, if this
-// manifest declares one. It is the lookup a mint makes: a credential
-// authenticates a (namespace, account), and a workload is found by exactly
-// that pair. A withdrawn manifest declares none.
+// WorkloadFor answers the workload this manifest declares as running on the
+// attested Kubernetes pair, if any. It is the manifest's half of a
+// workloadidentity.Declaration: a reviewed token names a (namespace, account)
+// and this is where the render said which declared workload runs there. A
+// workload that declares no Kubernetes pair is never found this way: a native
+// credential names its service directly (WorkloadNamed). A withdrawn manifest
+// declares none.
 func (manifest *ModuleManifest) WorkloadFor(namespace, account string) (Workload, bool) {
 	for _, workload := range manifest.Workloads {
-		parsed, err := workload.Account()
-		if err == nil && parsed.Namespace == namespace && parsed.Account == account {
+		if declared, ok := workload.Account(); ok && declared.Namespace == namespace && declared.Account == account {
+			return workload, true
+		}
+	}
+	return Workload{}, false
+}
+
+// WorkloadNamed answers the workload this manifest declares under service: the
+// lookup for a credential that names its declaration.
+func (manifest *ModuleManifest) WorkloadNamed(service string) (Workload, bool) {
+	for _, workload := range manifest.Workloads {
+		if workload.Service == service {
 			return workload, true
 		}
 	}
