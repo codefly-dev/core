@@ -62,8 +62,8 @@ var ErrInPod = errors.New("a pod proves its identity through its cluster, never 
 
 // Subject is what the launcher vouches for about one process.
 type Subject struct {
-	// Namespace and Account are the workload's account, the pair its presence
-	// document's identity names.
+	// Namespace and Account are the workload's account, the pair its module
+	// manifest's SPIFFE ID names.
 	Namespace string `json:"namespace"`
 	Account   string `json:"account"`
 	// Instance and InstanceUID name this process; a restart is a new UID.
@@ -73,13 +73,6 @@ type Subject struct {
 	// Empty for an identity that runs no declared workload (a delivery
 	// carrier): its attestation reports no container, and a mint refuses it.
 	Container string `json:"container,omitempty"`
-	// Build is the digest of the executable the launcher started
-	// ("sha256:<hex>"), compared by the host with the approved build. Empty
-	// until the launcher knows it: the attestation then reports a container
-	// with no image, which a host reads as "not established yet".
-	Build string `json:"build,omitempty"`
-	// DeclaredImage is the reference the declaration names for that build.
-	DeclaredImage string `json:"declared_image,omitempty"`
 }
 
 func (s Subject) validate() error {
@@ -360,11 +353,9 @@ func containersOf(subject Subject) []workloadidentity.Container {
 		return nil
 	}
 	return []workloadidentity.Container{{
-		Name:          subject.Container,
-		Kind:          workloadidentity.ContainerRegular,
-		State:         workloadidentity.ContainerRunning,
-		ImageID:       subject.Build,
-		DeclaredImage: subject.DeclaredImage,
+		Name:  subject.Container,
+		Kind:  workloadidentity.ContainerRegular,
+		State: workloadidentity.ContainerRunning,
 	}}
 }
 

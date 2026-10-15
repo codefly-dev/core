@@ -16,7 +16,7 @@ import (
 func subject() Subject {
 	return Subject{
 		Namespace: "platform-obin-runtime", Account: "worker", Instance: "worker-1",
-		InstanceUID: "uid-1", Container: "worker", Build: "sha256:" + strings.Repeat("ab", 32),
+		InstanceUID: "uid-1", Container: "worker",
 	}
 }
 
@@ -47,7 +47,7 @@ func TestAttestReportsWhatTheLauncherVouchedFor(t *testing.T) {
 		got.Instance != "worker-1" || got.InstanceUID != "uid-1" || got.CredentialID == "" || got.Phase != workloadidentity.PhaseRunning {
 		t.Fatalf("attestation = %+v", got)
 	}
-	if len(got.Containers) != 1 || got.Containers[0].Name != "worker" || got.Containers[0].ImageID != subject().Build ||
+	if len(got.Containers) != 1 || got.Containers[0].Name != "worker" ||
 		got.Containers[0].State != workloadidentity.ContainerRunning || got.Containers[0].Kind != workloadidentity.ContainerRegular {
 		t.Fatalf("containers = %+v", got.Containers)
 	}
@@ -137,24 +137,10 @@ func TestAnIncompleteSubjectIsNeverIssued(t *testing.T) {
 	}
 }
 
-func TestABuildNotYetKnownAttestsAContainerWithNoImage(t *testing.T) {
-	issuer, attester := issuerAndAttester(t)
-	early := subject()
-	early.Build = ""
-	token, _ := issuer.Issue(early, "accounts")
-	got, err := attester.Attest(context.Background(), token, "accounts")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Containers) != 1 || got.Containers[0].ImageID != "" {
-		t.Fatalf("containers = %+v", got.Containers)
-	}
-}
-
 func TestACarrierIdentityAttestsNoContainer(t *testing.T) {
 	issuer, attester := issuerAndAttester(t)
 	carrier := subject()
-	carrier.Container, carrier.Build = "", ""
+	carrier.Container = ""
 	token, _ := issuer.Issue(carrier, "accounts")
 	got, err := attester.Attest(context.Background(), token, "accounts")
 	if err != nil {

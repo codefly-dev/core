@@ -1,13 +1,13 @@
 // Package workloadidentity is how a host learns which declared workload is
-// calling it and what that workload is running, whatever proved it.
+// calling it, whatever proved it.
 //
 // A workload presents a credential: a token it reads from a file it was handed
 // and re-reads before every use, so rotation needs nothing from it. A host
 // hands the credential to an Attester, which answers with one Attestation:
 // the account the credential authenticates, the instance it was issued to,
-// its lifetime, and what that instance is running. Policy — which principal
-// that account belongs to, which build is approved, how long a credential may
-// live — stays with the host. This package only establishes facts.
+// its lifetime, and the containers that instance runs. Policy — which
+// principal that account belongs to, how long a credential may live — stays
+// with the host. This package only establishes facts.
 //
 // There is one Attester per mechanism, and the mechanism is the environment's,
 // never the caller's:
@@ -71,8 +71,8 @@ type Attestation struct {
 	Mechanism Mechanism
 
 	// Namespace and Account are the workload's account: in a cell its
-	// ServiceAccount, natively the account its declaration names. A presence
-	// document's SPIFFE ID names the same pair.
+	// ServiceAccount, natively the account its declaration names. A module
+	// manifest workload's SPIFFE ID names the same pair.
 	Namespace string
 	Account   string
 
@@ -127,13 +127,6 @@ type Container struct {
 	Name  string
 	Kind  ContainerKind
 	State ContainerState
-	// ImageID is the digest of what the container is running: the resolved
-	// image in a cell, the executable's digest natively. It is what a host
-	// compares with the approved build.
-	ImageID string
-	// DeclaredImage is the reference the instance asked for, reported so a
-	// refusal can name a moved tag.
-	DeclaredImage string
 	// Restartable marks an init container that keeps running (a native sidecar).
 	Restartable bool
 }
