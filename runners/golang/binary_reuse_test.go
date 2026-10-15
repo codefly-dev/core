@@ -175,3 +175,27 @@ var Text string
 	_, err := env.Runner()
 	require.Error(t, err, "and the previous executable is not offered to run")
 }
+
+// Executable names nothing until a build succeeds, then the host file the
+// native build wrote, which is what an agent reports as the program it
+// started (runtime-started-artifact/v1). A failed build withdraws it.
+func TestNativeExecutableIsTheBuiltFileAndOnlyAfterSuccess(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/started-artifact\n\ngo 1.21\n")
+	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
+	env := newNativeRunner(t, ctx, root, ".", "")
+
+	require.Empty(t, env.Executable(), "nothing was built yet")
+	require.NoError(t, env.BuildBinary(ctx))
+	exe := env.Executable()
+	require.True(t, filepath.IsAbs(exe), "a native build names a host path: %q", exe)
+	info, err := os.Stat(exe)
+	require.NoError(t, err)
+	require.True(t, info.Mode().IsRegular())
+
+	writeFile(t, root, "main.go", "package main\n\nfunc main() { undefined() }\n")
+	require.Error(t, env.BuildBinary(ctx))
+	require.Empty(t, env.Executable(), "a failed build leaves nothing to report")
+}
