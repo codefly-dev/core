@@ -2,7 +2,7 @@
 # workspace spells it — lowercase letters and digits separated by dashes, the
 # shape a host keys a group by — and the presence holds it to the same grammar
 # the workspace does.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

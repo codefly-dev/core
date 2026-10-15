@@ -92,7 +92,7 @@ const (
 	// FileName is the conventional name of a rendered presence document.
 	FileName = "solution-host-binding.codefly.yaml"
 
-	// SchemaPresenceV1 is the only presence schema this package accepts. It
+	// SchemaPresenceV4 is the only presence schema this package accepts. It
 	// requires the kind, the ownership domain, the envelope revision, the
 	// release digest, and — for a generation that renders anything the host
 	// runs — the workloads, their image digests and their workload identities.
@@ -103,7 +103,7 @@ const (
 	// it is part of the canonical encoding that is signed, so a presence
 	// document cannot be presented as an authority document under a signature
 	// that verifies. See PresenceFromVerified.
-	SchemaPresenceV1 = "codefly/solution-host-binding/v1"
+	SchemaPresenceV4 = "codefly/solution-host-binding/v4"
 )
 
 // Kind is what a presence document declares the presence of. A module and a
@@ -506,7 +506,7 @@ func Parse(data []byte) (*SolutionHostBinding, error) { return parse(data, "") }
 // parse is Parse with one named rule deleted, for the self-check that proves
 // each rule is protected by a fixture; "" deletes none.
 func parse(data []byte, without string) (*SolutionHostBinding, error) {
-	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV1, without, checkSectionNodes)
+	document, err := decodeStrict[SolutionHostBinding](data, "solution host binding", SchemaPresenceV4, without, checkSectionNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -534,6 +534,9 @@ func parse(data []byte, without string) (*SolutionHostBinding, error) {
 var retiredSchemas = map[string]string{
 	"codefly/solution-host-binding/v2": "Core v0.9.0 through v0.14.0, which the Codefly CLI shipped up to v0.1.180",
 	"codefly/solution-host-binding/v3": "a build of Core main on 2026-10-07, after the presence document gained exposure and before the three documents were aligned at one family version; it reached no release",
+	"codefly/solution-host-binding/v1": "Core v0.15.0 through v0.19, before the family moved to v4 with the authority document's approved_builds",
+	"codefly/solution-authority/v1":    "Core v0.15.0 through v0.19, which approved one build per authority (approved_build)",
+	"codefly/endpoint-delivery/v1":     "Core up to v0.19, before the family moved to v4",
 }
 
 // schemaRefusal is the one refusal for a document whose declared schema is not
@@ -694,8 +697,8 @@ func (document *SolutionHostBinding) validate(without string) error {
 	if document == nil {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
-	if document.Schema != SchemaPresenceV1 && without != ruleSchema {
-		return schemaRefusal(document.Schema, SchemaPresenceV1)
+	if document.Schema != SchemaPresenceV4 && without != ruleSchema {
+		return schemaRefusal(document.Schema, SchemaPresenceV4)
 	}
 	if !slices.Contains(kinds, document.Kind) {
 		return fmt.Errorf("%w: kind %q is not one of %v", ErrInvalid, document.Kind, kinds)

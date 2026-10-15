@@ -22,7 +22,6 @@ import (
 func (h *harness) operationSession(aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID:     installation,
 		OperationBindingID: bindingID,
 		TenantID:           tenant,
@@ -49,7 +48,6 @@ func TestStart_SealsToTheIssuersLiveState(t *testing.T) {
 	require.Equal(t, installation, seal.GetInstallationId())
 	require.Equal(t, uint64(2), seal.GetPrincipalEpoch())
 	require.Equal(t, uint64(3), seal.GetInstallationRevision())
-	require.Equal(t, uint64(11), seal.GetBuildIncarnation())
 	require.Nil(t, owner.Context().GetOperationBinding(), "this session exercises no binding")
 }
 
@@ -59,7 +57,6 @@ func TestStart_SealsToTheIssuersLiveState(t *testing.T) {
 func TestStart_RefusesWithoutAnInstallation(t *testing.T) {
 	h := newHarness(t)
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,
 		OwnerPrincipalKind: "human",
@@ -174,21 +171,6 @@ func TestMemorySealSource_WritersAreMonotoneAndWithdrawalIsTerminal(t *testing.T
 		InstallationRevision: 4,
 	}))
 
-	// The INCARNATION is monotone through its own writer now, because the
-	// execution moved off the installation seal and onto the principal.
-	require.NoError(t, seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 11))
-	err = seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 10)
-	require.ErrorIs(t, err, workcontext.ErrInvalid)
-	require.ErrorContains(t, err, "re-admit every capability sealed to the earlier run")
-
-	// A new DIGEST at an advancing incarnation is approving a new build, not a
-	// rewind, so it is accepted.
-	require.NoError(t, seals.PutApprovedBuild(ownerID, "sha256:"+strings.Repeat("d", 64), 12))
-
-	// Neither half alone is an execution.
-	require.ErrorIs(t, seals.PutApprovedBuild(ownerID, "", 13), workcontext.ErrInvalid)
-	require.ErrorIs(t, seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 0), workcontext.ErrInvalid)
-
 	require.NoError(t, seals.PutBinding(workcontext.OperationBinding{
 		ID: bindingID, PrincipalID: ownerID, InstallationID: installation,
 		Revision: 4, Incarnation: 2, Revoked: true,
@@ -226,7 +208,6 @@ func TestChild_RefusesAParentFromAnotherIssuer(t *testing.T) {
 	require.NoError(t, err, "the other issuer's own verifier accepts its own capability")
 
 	_, _, err = h.authority.Child(context.Background(), verified, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-foreign",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
@@ -259,25 +240,6 @@ func TestVerify_RefusesEverySealedFieldIndependently(t *testing.T) {
 			require.NoError(h.t, h.seals.Put(ownerID, workcontext.Seal{
 				InstallationID: installation, InstallationRevision: 4,
 			}))
-		}},
-		// The incarnation moves through PutApprovedBuild now: the execution is
-		// held per PRINCIPAL rather than on the installation seal, which is
-		// what lets a delegated hop attest its own.
-		"build incarnation": {because: "this execution has been replaced", apply: func(h *harness) {
-			require.NoError(h.t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 12))
-		}},
-		// The APPROVED BUILD. This case was missing, and a reviewer found it
-		// by mutation: deleting the verifier's image-digest comparison left
-		// the whole suite AND the conformance kit green. I added the check for
-		// B3 and never added the lever that moves it, so the newest sealed
-		// field was the only one nothing held the verifier to.
-		// A conforming source cannot hold a NEW digest at the SAME incarnation
-		// — that is the swap-back C8 closed — so the incarnation advances with
-		// it. The digest is compared BEFORE the incarnation, so the expected
-		// phrase names the build: that is what makes deleting the digest
-		// comparison fail here instead of passing on the incarnation check.
-		"approved build": {because: "the issuer approves", apply: func(h *harness) {
-			require.NoError(h.t, h.seals.PutApprovedBuild(ownerID, "sha256:"+strings.Repeat("c", 64), 12))
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -375,7 +337,6 @@ func TestStart_RefusesWithNoSealSource(t *testing.T) {
 	h.authority.Seals = nil
 
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID:     installation,
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,
@@ -444,7 +405,6 @@ func TestVerify_RefusesABindingTheIssuerDoesNotHold(t *testing.T) {
 	}))
 	// The execution has to match, or THAT is what refuses and this test would
 	// be asserting the binding rule while exercising the execution rule.
-	require.NoError(t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 11))
 	require.NoError(t, h.seals.PutEpoch(ownerID, 2))
 
 	_, err := h.verify(audience, token)
@@ -482,12 +442,6 @@ func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 		"principal epoch": func(h *harness) {
 			require.NoError(h.t, h.seals.PutEpoch(ownerID, 3))
 		},
-		"build incarnation": func(h *harness) {
-			// The incarnation moves through PutApprovedBuild now: the execution
-			// is held per PRINCIPAL rather than on the installation seal, which
-			// is what lets a delegated hop attest its own.
-			require.NoError(h.t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 12))
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
@@ -496,7 +450,6 @@ func TestChild_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 			move(h)
 
 			_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-				Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 				PrincipalID:   agentID,
 				PrincipalKind: "agent",
 				AgentID:       "fixture.test/agent:1.0.0",
@@ -522,7 +475,6 @@ func TestChild_RefusesToDeriveFromAParentWhoseInstallationIsGone(t *testing.T) {
 	h.authority.Seals = h.seals
 
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -553,7 +505,6 @@ func TestGrant_RefusesToDeriveFromAParentWhoseSealHasMoved(t *testing.T) {
 	}))
 
 	_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
-		Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		Grant:     grant, TTL: time.Minute,
 	})
 	require.ErrorIs(t, err, workcontext.ErrRevoked)
@@ -569,7 +520,6 @@ func TestChild_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 
 	_, child, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -583,7 +533,6 @@ func TestChild_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 	require.Equal(t, owner.Context().GetSeal().GetInstallationId(), child.GetSeal().GetInstallationId())
 	require.Equal(t, owner.Context().GetSeal().GetInstallationRevision(), child.GetSeal().GetInstallationRevision())
 	require.Equal(t, owner.Context().GetSeal().GetPrincipalEpoch(), child.GetSeal().GetPrincipalEpoch())
-	require.Equal(t, owner.Context().GetSeal().GetBuildIncarnation(), child.GetSeal().GetBuildIncarnation())
 
 	// The hop carries its OWN epoch, read live — new authority for a new
 	// principal, so current by construction, unlike the inherited seal.
@@ -602,7 +551,6 @@ func TestChild_ResolvesTheBindingItNames(t *testing.T) {
 	}))
 
 	_, child, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:          workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:        agentID,
 		PrincipalKind:      "agent",
 		AgentID:            "fixture.test/agent:1.0.0",
@@ -629,11 +577,9 @@ func TestGrant_CarriesTheParentsSealForwardUnchanged(t *testing.T) {
 	grant := h.approvedGrant("g-1")
 
 	_, elevated, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
-		Execution: workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		Grant:     grant, TTL: time.Minute,
 	})
 	require.NoError(t, err)
-	require.Equal(t, agent.Context().GetSeal().GetBuildIncarnation(), elevated.GetSeal().GetBuildIncarnation())
 	require.Equal(t, agent.Context().GetSeal().GetInstallationRevision(), elevated.GetSeal().GetInstallationRevision())
 
 	chain := elevated.GetActorChain()
@@ -668,9 +614,6 @@ func (answersElsewhere) Seal(context.Context, string, string) (workcontext.Seal,
 
 func (answersElsewhere) PrincipalEpoch(context.Context, string) (uint64, error) { return 2, nil }
 
-func (answersElsewhere) ApprovedBuild(context.Context, string) (string, uint64, error) {
-	return workcontext.FixtureImageDigest, 11, nil
-}
 
 func (answersElsewhere) OperationBinding(context.Context, string) (workcontext.OperationBinding, error) {
 	return workcontext.OperationBinding{}, workcontext.ErrNoBinding
@@ -897,50 +840,6 @@ func mustMarshal(t *testing.T, h *harness) []byte {
 	return claims
 }
 
-// Minting is bound to ONE EXECUTION, which the caller attests and the issuer
-// checks.
-//
-// Before this, StartInput said nothing about which execution was asking:
-// sealFor read the CURRENT build incarnation for (principal, installation) and
-// stamped it, so any caller able to mint for that principal — including a pod
-// from a superseded generation — received a capability sealed to the current
-// execution. That is precisely the threat the build_incarnation field's own
-// comment names as the thing to prevent, left wide open at the mint. And the
-// credential carried no approved-build digest at all, so nothing downstream
-// could tell which build an authority had been exercised by.
-func TestStart_BindsTheMintToTheAttestedExecution(t *testing.T) {
-	h := newHarness(t)
-	start := func(e workcontext.Execution) error {
-		_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-			Execution: e, InstallationID: installation, TenantID: tenant,
-			OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human", TaskID: taskID,
-			Audience: audience, TTL: time.Minute,
-		})
-		return err
-	}
-	sound := workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}
-	require.NoError(t, start(sound), "the approved execution mints")
-
-	// A pod from a superseded generation: right build, stale incarnation.
-	err := start(workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 10})
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "this execution has been replaced")
-
-	// An unapproved build, right incarnation.
-	err = start(workcontext.Execution{ImageDigest: "sha256:" + strings.Repeat("b", 64), BuildIncarnation: 11})
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "the issuer approves")
-	require.ErrorContains(t, err, "for principal", "the approved build is keyed on the principal now, not the installation")
-
-	// Attesting nothing at all.
-	require.ErrorIs(t, start(workcontext.Execution{}), workcontext.ErrInvalid)
-
-	// And the credential CARRIES the approved build digest.
-	token, _ := h.ownerSession(audience)
-	inspected, err := workcontext.Decode(token)
-	require.NoError(t, err)
-	require.Equal(t, workcontext.FixtureImageDigest, inspected.Seal().GetImageDigest())
-}
 
 // A revision AHEAD of the issuer's is refused, exactly as a seal ahead of it
 // is. The package already made this argument for the seal — "there is no
@@ -1065,7 +964,6 @@ func TestAHeldVerifiedCannotBeEditedIntoValidity(t *testing.T) {
 
 	require.ErrorIs(t, verifier.Recheck(context.Background(), owner), workcontext.ErrRevoked)
 	_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-immutable",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
@@ -1109,7 +1007,6 @@ func TestABindingDoesNotTravelWithADelegation(t *testing.T) {
 	require.Equal(t, bindingID, owner.Context().GetOperationBinding().GetBindingId())
 
 	child := workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -1148,143 +1045,12 @@ func TestABindingDoesNotTravelWithADelegation(t *testing.T) {
 	self.AgentID = ""
 	// The hop is now the OWNER, so it attests the owner's build — which is
 	// the point of distinct builds per principal: a hop attests ITS OWN.
-	self.Execution = workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}
 	selfToken, _, err := h.authority.Child(context.Background(), owner, self)
 	require.NoError(t, err)
 	require.Equal(t, bindingID, h.mustVerify(audience, selfToken).OperationBindingID())
 }
 
-// TestADerivationAttestsItsOwnExecution is the blocker C1 named: minting was
-// execution-bound only at Start.
-//
-// A derivation inherited the parent's execution and attested nothing, so a
-// caller holding a parent capability minted children whatever IT was running.
-// The old comment called that "the same execution continuing", which is true
-// only when the hop is the same workload; for a new principal it was an
-// assumption with nothing behind it. Worse, the execution was read from the
-// OWNER's installation record, and a delegated hop's principal does not hold
-// the owner's installation at all — so there was nothing a derivation could
-// have been attested against even if it had tried.
-func TestADerivationAttestsItsOwnExecution(t *testing.T) {
-	h := newHarness(t)
-	_, owner := h.ownerSession(audience)
 
-	child := workcontext.ChildInput{
-		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
-		DelegationID: "d-1", Audience: audience, TTL: 30 * time.Minute,
-		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
-	}
-
-	// Attesting nothing, for a principal the issuer holds a build for: refused
-	// at the mint, naming the input.
-	_, _, err := h.authority.Child(context.Background(), owner, child)
-	require.ErrorIs(t, err, workcontext.ErrInvalid)
-	require.ErrorContains(t, err, "must attest the execution it is running")
-
-	// Attesting a build the issuer does not approve FOR THIS HOP.
-	wrongBuild := child
-	wrongBuild.Execution = workcontext.Execution{
-		ImageDigest: "sha256:" + strings.Repeat("e", 64), BuildIncarnation: 11,
-	}
-	_, _, err = h.authority.Child(context.Background(), owner, wrongBuild)
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "the issuer approves")
-
-	// A pod from a superseded generation: right build, stale incarnation. This
-	// is the case the whole mechanism exists for, now reachable at a hop.
-	// The agent's approved run advances under it.
-	require.NoError(t, h.seals.PutApprovedBuild(agentID, workcontext.FixtureImageDigest, 12))
-	superseded := child
-	superseded.Execution = workcontext.Execution{
-		ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11,
-	}
-	_, _, err = h.authority.Child(context.Background(), owner, superseded)
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "this execution has been replaced")
-
-	// And the sound hop mints, carrying ITS OWN execution rather than the
-	// owner's — which is the half that makes the refusals above a correction
-	// rather than a prohibition.
-	sound := child
-	sound.Execution = workcontext.Execution{
-		ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 12,
-	}
-	token, claims, err := h.authority.Child(context.Background(), owner, sound)
-	require.NoError(t, err)
-	// THE HOP carries the hop's execution; the SEAL still carries the owner's.
-	// One slot on the seal was the N1 regression: a derivation overwrote the
-	// owner's execution with the last hop's, so superseding the owner's build
-	// refused the owner's own capability and every child of it verified.
-	require.Len(t, claims.GetActorChain(), 1)
-	require.Equal(t, uint64(12), claims.GetActorChain()[0].GetBuildIncarnation(),
-		"the hop records its own run")
-	require.Equal(t, uint64(11), claims.GetSeal().GetBuildIncarnation(),
-		"and the owner's is untouched, so replacing it still revokes this child")
-	require.NotNil(t, h.mustVerify(audience, token))
-}
-
-// TestAHumanSessionBearsNoExecution is the human-session half of C2.
-//
-// sealFor required a non-empty image digest and a non-zero incarnation for
-// EVERY mint, and the schema required the digest outright. A person at a
-// terminal runs no approved build, so every human session had to invent a
-// value — and an invented value is precisely what this field exists to refuse.
-//
-// The requirement is not weakened, it is made conditional on something the
-// issuer knows and the schema cannot: ApprovedBuild answers whether a
-// principal bears an execution at all. The correspondence is enforced in BOTH
-// directions, which is what keeps the optionality honest rather than a hedge.
-func TestAHumanSessionBearsNoExecution(t *testing.T) {
-	h := newHarness(t)
-	const human = "person-ada"
-	require.NoError(t, h.seals.Put(human, workcontext.Seal{
-		InstallationID: installation, InstallationRevision: 3,
-	}))
-	require.NoError(t, h.seals.PutEpoch(human, 1))
-	// Bearing no execution is RECORDED, explicitly. This test used to record
-	// nothing and say that was how it is expressed — which made "the issuer
-	// has no record" and "this principal is a person" the same answer, so a
-	// service principal with a missing build record was minted a capability
-	// carrying no execution that every verifier accepted. An unknown
-	// principal is a refusal now; only this is "bears none".
-	require.NoError(t, h.seals.PutBearsNoExecution(human))
-
-	start := func(e workcontext.Execution) (string, error) {
-		token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-			Execution: e, InstallationID: installation, TenantID: tenant,
-			OwnerPrincipalID: human, OwnerPrincipalKind: "human", TaskID: taskID,
-			OrganizationID: organization, Audience: audience, TTL: time.Minute,
-			AuthorityScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
-		})
-		return token, err
-	}
-
-	// A human mints attesting nothing, and the capability carries no execution.
-	token, err := start(workcontext.Execution{})
-	require.NoError(t, err)
-	verified := h.mustVerify(audience, token)
-	require.Empty(t, verified.Context().GetSeal().GetImageDigest())
-	require.Zero(t, verified.Context().GetSeal().GetBuildIncarnation())
-
-	// The OTHER direction, which is the half that makes this a rule rather
-	// than a gap: a principal bearing no execution cannot CLAIM one. Without
-	// this check a process could present itself as a workload and be sealed to
-	// a build nobody approved for it.
-	_, err = start(workcontext.Execution{
-		ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11,
-	})
-	require.ErrorIs(t, err, workcontext.ErrInvalid)
-	require.ErrorContains(t, err, "bears no execution")
-
-	// And a verifier refuses a human's capability that has acquired one.
-	forged := proto.Clone(verified.Context()).(*basev0.WorkContextV1)
-	digest, incarnation := workcontext.FixtureImageDigest, uint64(11)
-	forged.Seal.ImageDigest, forged.Seal.BuildIncarnation = &digest, &incarnation
-	forged.Nonce = "n-forged"
-	_, err = h.verify(audience, h.resign(forged))
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "bears no execution")
-}
 
 // TestTheSealSourcesWritersRefuseEveryRewind covers the writers whose guards
 // had no committed test — W4 and W5 in a round-four review, which found them
@@ -1359,20 +1125,6 @@ func TestTheSealSourcesWritersRefuseEveryRewind(t *testing.T) {
 		Revision: 7, Incarnation: 2,
 	})
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
-
-	// C8: a digest change at a FIXED incarnation is a rewind in disguise.
-	// Approve B at 5, approve A again at 5, and every capability sealed to A
-	// at 5 that the move to B revoked verifies again. This guard was added
-	// with a comment arguing the digest "may change freely"; the comment was
-	// wrong and the counterexample is two writes.
-	require.NoError(t, source.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 5))
-	err = source.PutApprovedBuild(ownerID, "sha256:"+strings.Repeat("b", 64), 5)
-	require.ErrorIs(t, err, workcontext.ErrInvalid)
-	require.ErrorContains(t, err, "a new build is a new run")
-	// With the incarnation advancing, approving a different build is fine.
-	require.NoError(t, source.PutApprovedBuild(ownerID, "sha256:"+strings.Repeat("b", 64), 6))
-	// And swapping back now needs another advance, so A at 6 is refused.
-	require.ErrorIs(t, source.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 6), workcontext.ErrInvalid)
 }
 
 // TestAHeldActorCannotBeEditedIntoWiderAuthority is W7, which had no committed
@@ -1398,7 +1150,6 @@ func TestAHeldActorCannotBeEditedIntoWiderAuthority(t *testing.T) {
 
 	// And the edit cannot widen a derivation either.
 	_, claims, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: subBuildDigest, BuildIncarnation: 11},
 		PrincipalID: "a-sub", PrincipalKind: "agent", AgentID: "fixture.test/sub:1.0.0",
 		DelegationID: "d-2", Audience: audience, TTL: 10 * time.Minute,
 		// Exactly what the parent holds: the point is the aliasing, so the
@@ -1431,7 +1182,6 @@ func TestTheMintRefusesACapabilityTooLargeToPresent(t *testing.T) {
 			[]string{strings.Repeat("r", 100) + string(rune('a'+index%26))}))
 	}
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
 		Audience: audience, AuthorityScopes: scopes, TTL: time.Minute,
@@ -1440,102 +1190,7 @@ func TestTheMintRefusesACapabilityTooLargeToPresent(t *testing.T) {
 	require.ErrorContains(t, err, "too many scopes, hops or identifiers")
 }
 
-// TestSupersedingAnyLinksBuildRevokesTheWholeChain is N1, a regression my own
-// C1 fix introduced and the reason an execution lives on every link.
-//
-// WorkSealV1 had ONE execution slot, and a derivation wrote the hop's
-// execution into it. So the OWNER's execution stopped being recorded the
-// moment anything was derived: superseding the owner's build refused the
-// owner's own capability (ErrRevoked) while every child of it verified, and
-// those children went on minting grandchildren. At the commit before the C1
-// fix the same child WAS refused, so this is strictly a regression.
-//
-// Why it matters beyond tidiness: a host bumps build_incarnation per applied
-// generation, so supersession IS how a rollout revokes. A superseded pod could
-// pre-mint delegations that outlive its own replacement.
-//
-// The fix mirrors principal_epoch exactly — the owner's on the seal, each
-// hop's on its own WorkActorV1, every one of them checked in one loop.
-func TestSupersedingAnyLinksBuildRevokesTheWholeChain(t *testing.T) {
-	newChain := func(t *testing.T) (*harness, string, string) {
-		t.Helper()
-		h := newHarness(t)
-		_, owner := h.ownerSession(audience)
-		childToken, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-			Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
-			PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
-			DelegationID: "d-1", Audience: audience, TTL: 30 * time.Minute,
-			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
-		})
-		require.NoError(t, err)
-		child := h.mustVerify(audience, childToken)
-		grandToken, _, err := h.authority.Child(context.Background(), child, workcontext.ChildInput{
-			Execution:   workcontext.Execution{ImageDigest: subBuildDigest, BuildIncarnation: 11},
-			PrincipalID: "a-sub", PrincipalKind: "agent", AgentID: "fixture.test/sub:1.0.0",
-			DelegationID: "d-2", Audience: audience, TTL: 10 * time.Minute,
-			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
-		})
-		require.NoError(t, err)
-		return h, childToken, grandToken
-	}
 
-	// Superseding the OWNER's build revokes the child and the grandchild.
-	h, childToken, grandToken := newChain(t)
-	require.NoError(t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 12))
-	for name, token := range map[string]string{"child": childToken, "grandchild": grandToken} {
-		_, err := h.verify(audience, token)
-		require.ErrorIsf(t, err, workcontext.ErrRevoked, "%s survived the owner's supersession", name)
-		require.Contains(t, err.Error(), "the task owner")
-	}
-
-	// Superseding an INTERMEDIATE delegator's build revokes the grandchild.
-	h, childToken, grandToken = newChain(t)
-	require.NoError(t, h.seals.PutApprovedBuild(agentID, workcontext.FixtureImageDigest, 12))
-	_, err := h.verify(audience, grandToken)
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.Contains(t, err.Error(), "actor hop 0")
-	_, err = h.verify(audience, childToken)
-	require.ErrorIs(t, err, workcontext.ErrRevoked, "the child IS that hop, so it goes too")
-
-	// Superseding the LAST hop's build revokes only what that hop exercises.
-	h, childToken, grandToken = newChain(t)
-	require.NoError(t, h.seals.PutApprovedBuild("a-sub", workcontext.FixtureImageDigest, 12))
-	_, err = h.verify(audience, grandToken)
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.NotNil(t, h.mustVerify(audience, childToken),
-		"a later hop's supersession does not reach back up the chain")
-}
-
-// TestAnUnknownPrincipalIsARefusalAndBearingNoneIsRecorded is N3: "nothing
-// recorded" was the most permissive answer the source gives.
-//
-// ApprovedBuild returned ErrNoApprovedBuild for ANY unknown principal, so a
-// service principal whose build record was simply missing got a capability
-// carrying no execution and every verifier accepted it — nothing can then
-// revoke it by replacing its build. The kit's own delegated fixtures had an
-// agent hop with an empty execution for exactly this reason.
-//
-// This is the FOURTH time this shape appeared here: an empty signer policy
-// meaning "a renderer", an empty digest meaning "bears no execution", a zero
-// applied record meaning "first generation", and this.
-func TestAnUnknownPrincipalIsARefusalAndBearingNoneIsRecorded(t *testing.T) {
-	source := workcontext.NewMemorySealSource()
-
-	_, _, err := source.ApprovedBuild(context.Background(), "nobody-recorded-me")
-	require.Error(t, err)
-	require.NotErrorIs(t, err, workcontext.ErrNoApprovedBuild,
-		"an unknown principal is an issuer that cannot say, not a principal that bears none")
-	require.ErrorContains(t, err, "PutBearsNoExecution")
-
-	require.NoError(t, source.PutBearsNoExecution("person-ada"))
-	_, _, err = source.ApprovedBuild(context.Background(), "person-ada")
-	require.ErrorIs(t, err, workcontext.ErrNoApprovedBuild)
-
-	// A workload does not become a human: declaring it bears none would
-	// re-admit every capability that carries none.
-	require.NoError(t, source.PutApprovedBuild("svc", workcontext.FixtureImageDigest, 3))
-	require.ErrorIs(t, source.PutBearsNoExecution("svc"), workcontext.ErrInvalid)
-}
 
 // TestAMissingInputNamesItselfRatherThanPanicking covers the two panics round
 // five found, and they are the same defect in two places: an input that is
@@ -1552,7 +1207,6 @@ func TestAMissingInputNamesItselfRatherThanPanicking(t *testing.T) {
 	}
 	require.NotPanics(t, func() {
 		_, _, err := keyless.Start(context.Background(), workcontext.StartInput{
-			Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 			InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 			OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
 			Audience: audience, TTL: time.Minute,
@@ -1573,129 +1227,8 @@ func TestAMissingInputNamesItselfRatherThanPanicking(t *testing.T) {
 	})
 }
 
-// TestAWorkloadCapabilityCarryingNoExecutionIsRefused is the !carried branch,
-// which had no test in EITHER direction and no kit fixture.
-//
-// The correspondence is enforced both ways — a principal bearing no execution
-// whose capability carries one, and an execution-bearing principal whose
-// capability carries none. Only the first had a test; this is the second, and
-// it is the half that matters more, because it is the shape a minter that
-// simply forgot to stamp the execution would produce.
-func TestAWorkloadCapabilityCarryingNoExecutionIsRefused(t *testing.T) {
-	h := newHarness(t)
-	_, owner := h.ownerSession(audience)
 
-	stripped := proto.Clone(owner.Context()).(*basev0.WorkContextV1)
-	stripped.Seal.ImageDigest, stripped.Seal.BuildIncarnation = nil, nil
-	stripped.Nonce = "n-stripped"
 
-	_, err := h.verify(audience, h.resign(stripped))
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "carries no execution")
-	require.ErrorContains(t, err, "the task owner")
-
-	// And at a HOP, where the minter stamps it per link.
-	_, agent := h.agentSession(owner, audience)
-	strippedHop := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
-	strippedHop.ActorChain[0].ImageDigest = nil
-	strippedHop.ActorChain[0].BuildIncarnation = nil
-	strippedHop.Nonce = "n-stripped-hop"
-
-	_, err = h.verify(audience, h.resign(strippedHop))
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "actor hop 0")
-	require.ErrorContains(t, err, "carries no execution")
-}
-
-// TestAHalfExecutionIsARefusalBySCHEMA holds the CEL pairing rule, which had
-// no test: one execution field without the other names a run nothing can
-// check, and the rule is on BOTH messages.
-func TestAHalfExecutionIsARefusalBySCHEMA(t *testing.T) {
-	h := newHarness(t)
-	_, owner := h.ownerSession(audience)
-	_, agent := h.agentSession(owner, audience)
-
-	digest, incarnation := workcontext.FixtureImageDigest, uint64(11)
-	for name, maim := range map[string]func(*basev0.WorkContextV1){
-		"seal digest without incarnation": func(wc *basev0.WorkContextV1) {
-			wc.Seal.ImageDigest, wc.Seal.BuildIncarnation = &digest, nil
-		},
-		"seal incarnation without digest": func(wc *basev0.WorkContextV1) {
-			wc.Seal.ImageDigest, wc.Seal.BuildIncarnation = nil, &incarnation
-		},
-		"hop digest without incarnation": func(wc *basev0.WorkContextV1) {
-			wc.ActorChain[0].ImageDigest, wc.ActorChain[0].BuildIncarnation = &digest, nil
-		},
-		"hop incarnation without digest": func(wc *basev0.WorkContextV1) {
-			wc.ActorChain[0].ImageDigest, wc.ActorChain[0].BuildIncarnation = nil, &incarnation
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			claims := proto.Clone(agent.Context()).(*basev0.WorkContextV1)
-			maim(claims)
-			claims.Nonce = "n-" + name
-			_, err := h.verify(audience, h.resign(claims))
-			require.ErrorIs(t, err, workcontext.ErrInvalid)
-			require.ErrorContains(t, err, "set together or not at all")
-		})
-	}
-}
-
-// TestReplacingABindingKeepsTheHopsOwnExecution is the edge the per-hop
-// execution fix left behind, found by round six.
-//
-// deriveSeal passed the SEAL's execution — the owner's — into sealFor while
-// naming the HOP as exercising, so a child that replaces a binding re-attested
-// the owner's execution as its own. It is invisible whenever both principals
-// run the same build, which is what TestChild_ResolvesTheBindingItNames does,
-// so nothing caught it.
-//
-// Different builds per principal is what lets this test see it, and is the
-// shape a real fleet has: an agent is not the same image as a human's session.
-func TestReplacingABindingKeepsTheHopsOwnExecution(t *testing.T) {
-	h := newHarness(t)
-	agentDigest := "sha256:" + strings.Repeat("a", 64)
-
-	// The agent runs a DIFFERENT build from the owner. The incarnation
-	// advances with the digest, which is the rule C8 added: the harness
-	// already holds the agent at 11.
-	require.NoError(t, h.seals.PutApprovedBuild(agentID, agentDigest, 12))
-	require.NoError(t, h.seals.PutBinding(workcontext.OperationBinding{
-		ID: "binding:alpha:agent", PrincipalID: agentID, InstallationID: installation,
-		Revision: 1, Incarnation: 1,
-	}))
-
-	_, owner := h.operationSession(audience)
-	require.Equal(t, workcontext.FixtureImageDigest, owner.Context().GetSeal().GetImageDigest())
-
-	token, claims, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:          workcontext.Execution{ImageDigest: agentDigest, BuildIncarnation: 12},
-		PrincipalID:        agentID,
-		PrincipalKind:      "agent",
-		AgentID:            "fixture.test/agent:1.0.0",
-		DelegationID:       "d-1",
-		OperationBindingID: "binding:alpha:agent",
-		Audience:           audience,
-		TTL:                30 * time.Minute,
-		GrantedScopes:      []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
-	})
-	require.NoError(t, err, "the hop attests ITS OWN build, so replacing a binding mints")
-
-	// The hop carries the agent's execution; the seal still carries the
-	// owner's. Both, separately, which is what per-hop is for.
-	require.Equal(t, agentDigest, claims.GetActorChain()[0].GetImageDigest())
-	require.Equal(t, uint64(12), claims.GetActorChain()[0].GetBuildIncarnation())
-	require.Equal(t, workcontext.FixtureImageDigest, claims.GetSeal().GetImageDigest())
-	require.Equal(t, uint64(11), claims.GetSeal().GetBuildIncarnation())
-	require.NotNil(t, h.mustVerify(audience, token))
-
-	// And superseding EITHER one revokes it, which is what recording them
-	// separately buys.
-	require.NoError(t, h.seals.PutApprovedBuild(agentID, agentDigest, 13))
-	_, err = h.verify(audience, token)
-	require.ErrorIs(t, err, workcontext.ErrRevoked)
-	require.ErrorContains(t, err, "actor hop 0")
-}
 
 // TestADerivationRefusesAParentItsIssuerDidNotSign is round seven's second
 // finding: a *Verified proves somebody verified those bytes, not that the
@@ -1711,7 +1244,6 @@ func TestADerivationRefusesAParentItsIssuerDidNotSign(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 
 	child := workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID: "d-1", Audience: audience, TTL: 30 * time.Minute,
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
@@ -1803,7 +1335,6 @@ func TestTheMintNeverEmitsWhatItsOwnDecoderRefuses(t *testing.T) {
 	require.NotEmpty(t, polluted.ProtoReflect().GetUnknown(), "the scope really does carry an unknown field")
 
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
 		Audience: audience, AuthorityScopes: []*basev0.WorkScopeV1{polluted}, TTL: time.Minute,
@@ -1814,7 +1345,6 @@ func TestTheMintNeverEmitsWhatItsOwnDecoderRefuses(t *testing.T) {
 	// And the sound case still mints, so this is a refusal of the undecodable
 	// rather than of everything.
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", OrganizationID: organization, TaskID: taskID,
 		Audience: audience, AuthorityScopes: []*basev0.WorkScopeV1{sound}, TTL: time.Minute,
@@ -1827,46 +1357,7 @@ func TestTheMintNeverEmitsWhatItsOwnDecoderRefuses(t *testing.T) {
 // written. Four of the five are guards I added in this PR and claimed were
 // held.
 func TestFiveLoadBearingGuardsThatHadNoTest(t *testing.T) {
-	// (1) Grant's execution attestation. Grant with Execution{} minted.
-	t.Run("grant attests its execution", func(t *testing.T) {
-		h := newHarness(t)
-		_, owner := h.ownerSession(audience)
-		_, agent := h.agentSession(owner, audience)
-		_, _, err := h.authority.Grant(context.Background(), agent, workcontext.GrantInput{
-			Grant: h.approvedGrant("g-f3"), TTL: time.Minute,
-		})
-		require.ErrorIs(t, err, workcontext.ErrInvalid)
-		require.ErrorContains(t, err, "must attest the execution it is running")
-	})
 
-	// (2) Child refusing a HUMAN hop that attests an execution. Flagged three
-	// rounds running; the commit claiming TestAHumanSessionBearsNoExecution
-	// covered it was wrong — that test exercises Start only.
-	t.Run("a human hop cannot attest an execution", func(t *testing.T) {
-		h := newHarness(t)
-		const human = "person-ada"
-		require.NoError(t, h.seals.PutEpoch(human, 1))
-		require.NoError(t, h.seals.PutBearsNoExecution(human))
-		_, owner := h.ownerSession(audience)
-
-		_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-			Execution:   workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
-			PrincipalID: human, PrincipalKind: "human",
-			DelegationID: "d-human", Audience: audience, TTL: time.Minute,
-			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
-		})
-		require.ErrorIs(t, err, workcontext.ErrInvalid)
-		require.ErrorContains(t, err, "bears no execution")
-
-		// And with nothing attested it mints, so the refusal is of the claim
-		// rather than of human hops.
-		_, _, err = h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-			PrincipalID: human, PrincipalKind: "human",
-			DelegationID: "d-human-2", Audience: audience, TTL: time.Minute,
-			GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, []string{"codefly/core"})},
-		})
-		require.NoError(t, err)
-	})
 
 	// (3) Recheck's fixture-key refusal.
 	t.Run("recheck refuses the fixture key", func(t *testing.T) {

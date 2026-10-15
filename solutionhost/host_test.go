@@ -830,12 +830,12 @@ func TestADeliveredIsImmutableThroughEveryAccessor(t *testing.T) {
 	firstRead, err := deliveredAuthority.Document()
 	require.NoError(t, err)
 	firstRead.Generation += 7
-	firstRead.ApprovedBuild = solutionhost.ImageDigest("sha256:" + strings.Repeat("f", 64))
+	firstRead.ApprovedBuilds = []solutionhost.ImageDigest{solutionhost.ImageDigest("sha256:" + strings.Repeat("f", 64))}
 	secondRead, err := deliveredAuthority.Document()
 	require.NoError(t, err)
 	require.Equal(t, authorityDocument.Generation, secondRead.Generation,
 		"DeliveredAuthority.Document() returned a shared message")
-	require.Equal(t, authorityDocument.ApprovedBuild, secondRead.ApprovedBuild)
+	require.Equal(t, authorityDocument.ApprovedBuilds, secondRead.ApprovedBuilds)
 
 	// Same correction on the authority half: scribble the carrier's buffer,
 	// not the one Carrier already copied.
@@ -985,7 +985,7 @@ func TestADeliveredAuthorityPayloadIsACopy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, document.Authority, again.Authority,
 		"DeliveredAuthority.Payload() handed out the attested bytes themselves")
-	require.Equal(t, document.ApprovedBuild, again.ApprovedBuild)
+	require.Equal(t, document.ApprovedBuilds, again.ApprovedBuilds)
 
 	// Two reads are two copies, so one caller's edit cannot reach another's.
 	first := delivered.Payload()

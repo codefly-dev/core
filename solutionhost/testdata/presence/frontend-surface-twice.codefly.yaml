@@ -1,7 +1,7 @@
 # REJECTED. The same surface declared twice for the same client. A client
 # addresses a surface by id, so two of its own cannot share one; the same id
 # offered to another client is a different surface.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

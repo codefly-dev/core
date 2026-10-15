@@ -116,7 +116,7 @@ func (signed *Signed) validate() error {
 //     about what was approved — and the digest the host stores would not match
 //     the bytes that were attested.
 func PresenceFromVerified(payload []byte) (*SolutionHostBinding, error) {
-	return fromVerified(payload, Parse, SchemaPresenceV1, func(document *SolutionHostBinding) ([]byte, error) {
+	return fromVerified(payload, Parse, SchemaPresenceV4, func(document *SolutionHostBinding) ([]byte, error) {
 		return document.CanonicalBytes()
 	})
 }
@@ -128,7 +128,7 @@ func PresenceFromVerified(payload []byte) (*SolutionHostBinding, error) {
 // a build, are separate steps: see (*AuthorityDocument).ValidateAgainst and
 // Activate.
 func AuthorityFromVerified(payload []byte) (*AuthorityDocument, error) {
-	return fromVerified(payload, ParseAuthority, SchemaAuthorityV1, func(document *AuthorityDocument) ([]byte, error) {
+	return fromVerified(payload, ParseAuthority, SchemaAuthorityV4, func(document *AuthorityDocument) ([]byte, error) {
 		return document.CanonicalBytes()
 	})
 }

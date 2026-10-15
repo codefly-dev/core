@@ -1,6 +1,6 @@
 # REJECTED. A dashboard that is a list rather than an object. A data graph is
 # an object; a value of another shape is a declaration no host can read.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

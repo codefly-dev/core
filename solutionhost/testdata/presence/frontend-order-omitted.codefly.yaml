@@ -1,7 +1,7 @@
 # REJECTED. The frontend declares no order. An absent order would decode as
 # zero and be signed as the solution's choice; every scalar field of the block is
 # declared, zero included.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

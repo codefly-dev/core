@@ -1,7 +1,7 @@
 # REJECTED. A group's order written in hexadecimal. A number has one spelling
 # here, decimal digits, as this package writes it; yaml would otherwise read a
 # base prefix, a leading zero or a plus sign into a number nobody wrote.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

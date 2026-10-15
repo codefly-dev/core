@@ -7,7 +7,7 @@
 # solution groups; an author writes it nowhere in a solution. It grants nothing
 # and installs nothing. The block is OPTIONAL: every other presence fixture is
 # a document without it; one that carries it is held to the group rules.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

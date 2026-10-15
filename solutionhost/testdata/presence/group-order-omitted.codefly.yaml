@@ -1,7 +1,7 @@
 # REJECTED. A group declaring no order. An absent order would decode as zero and
 # be signed as the product's choice; every scalar of the group is declared, zero
 # included.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

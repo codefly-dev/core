@@ -1,7 +1,7 @@
 # REJECTED. A surface that applies "sometimes". A client has a branch for
 # exactly two shapes — the string "always", or an object {tagged: [...]} naming
 # one or more tags — and the host hands it nothing else.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

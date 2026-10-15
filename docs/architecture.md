@@ -154,8 +154,8 @@ The three instances, so the shape is recognisable rather than abstract:
 
 | input | the independent source it needs | what the only reachable source was |
 | --- | --- | --- |
-| `workcontext.Execution.ImageDigest` | the orchestrator's record of what is RUNNING | the issuer's record of what is APPROVED — so approved is compared against approved, and the superseded pod the field exists to refuse passes |
-| the same field, in the conformance kit | a pod | `Seals.Seal`, read and attested straight back, because a fixture has no pod |
+| the attested execution digest a mint once took (removed) | the orchestrator's record of what is RUNNING | the issuer's record of what is APPROVED — so approved is compared against approved, and the superseded pod the field exists to refuse passes |
+| the same field, in the conformance kit (removed) | a pod | `Seals.Seal`, read and attested straight back, because a fixture has no pod |
 | `solutionhost.RenderedActivationRequest.Envelope` | the platform's ceiling | the document under check — so `ValidateAgainst` tested a document's own approved build against a list built from that build |
 
 **The one place this was recognised first**, and therefore the mitigation:
@@ -171,9 +171,11 @@ caller, and name where that caller gets this value from.** If the answer is
 wrong, or the check belongs to a different party — which is how the envelope
 ended up back with the host and the renderer ended up taking a revision
 number. If no caller can answer, say so in the doc rather than requiring it in
-the indicative: `Execution.ImageDigest` stays required because dropping it
-would be a worse trade, and its comment now states plainly that no consumer can
-source it correctly yet.
+the indicative. The first two rows were resolved by moving the check to the
+party that holds both sources: core no longer seals a build into a capability,
+and the host compares the build its workload attester reports (core
+`workloadidentity`) with the build its declared workload is approved for — the
+running record and the approval, never one read back as the other.
 
 The pattern was named by a client consumer after the third instance, which
 is itself the finding: three single bugs looked like three bugs, and only

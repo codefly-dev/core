@@ -1,7 +1,7 @@
 # REJECTED. A payload declaring no digest. Every scalar of a present payload is
 # declared, as every scalar of the block is: an absent digest would decode as
 # empty, and the identity a host serves by is not one a decoder fills in.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

@@ -2,7 +2,7 @@
 # is resolved from the release's own artifact metadata by name, and a release
 # artifact's name is the grammar composition declares it under — lowercase, no
 # spaces — so a name of another shape resolves to no artifact.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

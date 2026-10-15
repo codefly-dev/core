@@ -2,7 +2,7 @@
 # it and renders a blank heading; a title is one non-blank line, as the
 # composing workspace holds it — the same function judges both — and a value
 # that is empty to the eye is refused with the empty one.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

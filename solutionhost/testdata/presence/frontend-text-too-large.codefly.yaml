@@ -1,5 +1,5 @@
 # REJECTED. A title larger than the shared text limit is refused.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

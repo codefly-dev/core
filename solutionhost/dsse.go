@@ -38,9 +38,9 @@ type dsseSignature struct {
 
 func payloadTypeFor(document []byte) (string, error) {
 	switch schema := documentSchema(document); schema {
-	case SchemaPresenceV1:
+	case SchemaPresenceV4:
 		return PayloadTypePresence, nil
-	case SchemaAuthorityV1:
+	case SchemaAuthorityV4:
 		return PayloadTypeAuthority, nil
 	case EndpointDeliverySchema:
 		return PayloadTypeEndpointDelivery, nil

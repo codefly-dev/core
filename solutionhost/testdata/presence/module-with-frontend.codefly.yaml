@@ -1,5 +1,5 @@
 # A shared module contributes a page through the same frontend contract as a solution.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: module
 binding: gamma-region-a-01
 generation: 1

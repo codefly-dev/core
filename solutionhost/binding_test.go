@@ -34,7 +34,7 @@ func authority(t *testing.T, name string) []byte {
 func TestValidDocumentCarriesEveryDeclaredField(t *testing.T) {
 	document := valid(t)
 
-	require.Equal(t, solutionhost.SchemaPresenceV1, document.Schema)
+	require.Equal(t, solutionhost.SchemaPresenceV4, document.Schema)
 	require.Equal(t, solutionhost.KindSolution, document.Kind)
 	require.Equal(t, solutionhost.FixtureBindingID, document.Binding)
 	require.Equal(t, uint64(4), document.Generation)
@@ -305,12 +305,12 @@ func TestOnlyOneSchemaStringIsReadAndEveryOtherIsVersionSkew(t *testing.T) {
 	_, err := solutionhost.Parse(presence(t, "other-document-type"))
 	require.ErrorIs(t, err, solutionhost.ErrSchema)
 	require.NotErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV1)
+	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV4)
 
 	document := valid(t)
 	for _, schema := range []string{
-		"", "codefly/solution-host-binding", "codefly/solution-host-binding/v4",
-		solutionhost.SchemaAuthorityV1, "codefly/solution-host-signed/v1",
+		"", "codefly/solution-host-binding", "codefly/solution-host-binding/v9",
+		solutionhost.SchemaAuthorityV4, "codefly/solution-host-signed/v1",
 	} {
 		document.Schema = schema
 		require.ErrorIsf(t, document.Validate(), solutionhost.ErrSchema, "schema %q", schema)
@@ -347,10 +347,10 @@ func TestARetiredSchemaIsRefusedAsOlderAndNotAsAReasonToDowngradeCore(t *testing
 // against a history that never happened.
 func TestAnUnknownSchemaIsRefusedWithoutInventingAGeneration(t *testing.T) {
 	document := valid(t)
-	document.Schema = "codefly/solution-host-binding/v4"
+	document.Schema = "codefly/solution-host-binding/v9"
 	err := document.Validate()
 	require.ErrorIs(t, err, solutionhost.ErrSchema)
-	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV1)
+	require.Contains(t, err.Error(), solutionhost.SchemaPresenceV4)
 	require.NotContains(t, err.Error(), "re-render")
 	require.NotContains(t, err.Error(), "was written by")
 }
@@ -366,7 +366,7 @@ func TestARetiredStringOfAnotherFamilyIsRefusedAsTheWrongDocumentType(t *testing
 	document.Schema = "codefly/solution-host-binding/v2"
 	err := document.Validate()
 	require.ErrorIs(t, err, solutionhost.ErrSchema)
-	require.Contains(t, err.Error(), solutionhost.SchemaAuthorityV1)
+	require.Contains(t, err.Error(), solutionhost.SchemaAuthorityV4)
 	require.NotContains(t, err.Error(), "re-render")
 	require.NotContains(t, err.Error(), "was written by")
 }
@@ -378,7 +378,7 @@ func TestUnknownFieldIsRejectedSoANewFieldIsAVersionStep(t *testing.T) {
 }
 
 func TestSecondYAMLDocumentIsRejected(t *testing.T) {
-	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV1+"\n")...)
+	data := append(presence(t, "valid"), []byte("\n---\nschema: "+solutionhost.SchemaPresenceV4+"\n")...)
 	_, err := solutionhost.Parse(data)
 	require.ErrorIs(t, err, solutionhost.ErrInvalid)
 	require.ErrorContains(t, err, "holds more than one document")

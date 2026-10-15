@@ -1,7 +1,7 @@
 # REJECTED. The frontend's title is empty. A host labels its navigation entry
 # with it, and renders a blank entry without one; a title is a non-empty
 # single-line text.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

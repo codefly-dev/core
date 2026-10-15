@@ -6,7 +6,7 @@
 # presence entry naming build A activates nothing, however sound each document
 # is on its own. It is what makes "approved for one exact build" a property of
 # the running system rather than of a field.
-schema: codefly/solution-authority/v1
+schema: codefly/solution-authority/v4
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 4
@@ -15,7 +15,8 @@ host:
   component: solution-host
 ownership_domain: alpha
 envelope_revision: 7
-approved_build: sha256:4d74ea6aba3e66053c0ad32dfe5dc033d7556197f39f6db4f72270b1f63d8218
+approved_builds:
+  - sha256:4d74ea6aba3e66053c0ad32dfe5dc033d7556197f39f6db4f72270b1f63d8218
 effective_from: 4
 queues:
   - reconcile.default

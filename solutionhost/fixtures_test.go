@@ -127,7 +127,7 @@ func TestFixtureEnvelopeIsNotShippedAsADocument(t *testing.T) {
 	require.Len(t, envelope.ApprovedBuilds, 2)
 
 	for _, shipped := range solutionhost.Fixtures() {
-		require.NotContainsf(t, string(shipped.Document), "approved_builds",
+		require.NotContainsf(t, string(shipped.Document), "\ngrants:",
 			"%s/%s carries an envelope", shipped.Type, shipped.Name)
 	}
 }

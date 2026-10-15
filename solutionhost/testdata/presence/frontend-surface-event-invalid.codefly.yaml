@@ -1,7 +1,7 @@
 # REJECTED. A surface reconciling on "Example Item". A journal namespace is a
 # lowercase dotted name; a value with a space or a capital is one no journal
 # names.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

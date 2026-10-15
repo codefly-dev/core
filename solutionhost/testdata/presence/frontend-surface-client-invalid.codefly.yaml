@@ -1,7 +1,7 @@
 # REJECTED. A surface offered to a client spelled "Word". A client kind is a
 # lowercase name; which names a host's clients answer to is the host client's
 # vocabulary, and this document holds the shape.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

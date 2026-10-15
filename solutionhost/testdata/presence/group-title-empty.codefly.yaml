@@ -1,6 +1,6 @@
 # REJECTED. A group whose title is empty. A host labels the group with it, and
 # renders a blank heading without one; a title is a non-empty single-line text.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

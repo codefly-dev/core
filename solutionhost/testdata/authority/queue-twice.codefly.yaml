@@ -6,7 +6,7 @@
 # effect is on the canonical bytes, so two renders of one contract would digest
 # differently and a host would read the second as a rewritten generation: an
 # error that accuses delivery of tampering.
-schema: codefly/solution-authority/v1
+schema: codefly/solution-authority/v4
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -15,7 +15,8 @@ host:
   component: solution-host
 ownership_domain: alpha
 envelope_revision: 7
-approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+approved_builds:
+  - sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
 effective_from: 4
 queues:
   - reconcile.default

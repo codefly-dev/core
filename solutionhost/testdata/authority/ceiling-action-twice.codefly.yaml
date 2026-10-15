@@ -3,7 +3,7 @@
 # permitted twice on the same resource kind — the duplicate rule applied one
 # level down, and refused for the same reason: it widens nothing and moves the
 # canonical bytes, so two renders of one contract would not digest alike.
-schema: codefly/solution-authority/v1
+schema: codefly/solution-authority/v4
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -12,7 +12,8 @@ host:
   component: solution-host
 ownership_domain: alpha
 envelope_revision: 7
-approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+approved_builds:
+  - sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
 effective_from: 4
 queues:
   - reconcile.default

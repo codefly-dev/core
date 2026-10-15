@@ -28,8 +28,8 @@ import (
 // rewrite. That is the migration, and a schema step is the only reason these
 // may move.
 const (
-	validFixtureDigest     = "sha256:4a8ed1bea464770db4d63a6fb74fe5cafc56b60e9463a4df4819222e7ca230e7"
-	tombstoneFixtureDigest = "sha256:e095c1d5ded6f71c9c53e2650c1d269d126b9209da0a57969c9155549c2f719e"
+	validFixtureDigest     = "sha256:30863e108363cd9bd76dd761763e32e50b9148671edb92254199fa7b521ca94c"
+	tombstoneFixtureDigest = "sha256:a23273a5f7f699df7debe4c53e981decd72bf1c80e984b7e7681161197f7348c"
 )
 
 func TestCanonicalEncodingIsPinnedAgainstTheShippedFixtures(t *testing.T) {

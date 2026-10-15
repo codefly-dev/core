@@ -2,7 +2,7 @@
 # schema string, which is the same pin from the other side: the string is the
 # document's type, it is covered by the signature, and each reader reads exactly
 # one.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -11,7 +11,8 @@ host:
   component: solution-host
 ownership_domain: alpha
 envelope_revision: 7
-approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+approved_builds:
+  - sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
 effective_from: 4
 queues:
   - reconcile.default

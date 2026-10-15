@@ -1,7 +1,7 @@
 # REJECTED. A payload whose digest is "sha256:abc". A host admits the bundle it
 # serves by this identity; a value that is not a SHA-256 digest admits nothing,
 # and is refused by name here rather than failing at the host.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

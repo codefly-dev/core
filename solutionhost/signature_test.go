@@ -174,7 +174,7 @@ func TestParseSignedRefusesWhatIsNotACarrier(t *testing.T) {
 		"a trailing array close":  []byte(`{"document":{"a":1},"envelope":{"b":2}}]`),
 		"a trailing object close": []byte(`{"document":{"a":1},"envelope":{"b":2}}}`),
 		"trailing garbage":        []byte(`{"document":{"a":1},"envelope":{"b":2}} not json`),
-		"a bare document":         []byte(`{"schema":"codefly/solution-host-binding/v1"}`),
+		"a bare document":         []byte(`{"schema":"codefly/solution-host-binding/v4"}`),
 		"another schema":          []byte(`{"schema":"codefly/solution-host-signed/v2","document":{"a":1},"envelope":{"b":2}}`),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -223,7 +223,7 @@ func TestCarrierRefusesWhatCannotBeRoundTripped(t *testing.T) {
 	_, err := solutionhost.Carrier(nil, envelope)
 	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
 
-	_, err = solutionhost.Carrier([]byte(`{"schema":"codefly/solution-host-binding/v1"}`), envelope)
+	_, err = solutionhost.Carrier([]byte(`{"schema":"codefly/solution-host-binding/v4"}`), envelope)
 	require.Error(t, err)
 
 	// Declaration-order bytes of a real document: they parse, and they are not

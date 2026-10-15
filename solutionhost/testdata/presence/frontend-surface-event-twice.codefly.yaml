@@ -1,7 +1,7 @@
 # REJECTED. A surface naming the same journal namespace twice. A namespace
 # reconciled on once is reconciled on; the repeat widens nothing and moves the
 # canonical bytes.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

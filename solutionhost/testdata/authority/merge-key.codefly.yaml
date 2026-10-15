@@ -2,7 +2,7 @@
 # authority reader shares the presence reader's node checks, so the refusal of
 # a merge key — a mapping the typed decoder would apply after every rule had
 # run — is inherited here rather than implemented twice.
-schema: codefly/solution-authority/v1
+schema: codefly/solution-authority/v4
 <<: {}
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
@@ -12,7 +12,8 @@ host:
   component: solution-host
 ownership_domain: alpha
 envelope_revision: 7
-approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+approved_builds:
+  - sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
 effective_from: 4
 queues:
   - reconcile.default

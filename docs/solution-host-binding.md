@@ -44,8 +44,8 @@ two carry **one version number**, stepped as a family:
 
 | document | schema string |
 | --- | --- |
-| presence | `codefly/solution-host-binding/v1` |
-| authority | `codefly/solution-authority/v1` |
+| presence | `codefly/solution-host-binding/v4` |
+| authority | `codefly/solution-authority/v4` |
 
 The *names* differ and must. The string is inside the signed canonical
 encoding, which is what binds a signature to the document TYPE: with one shared
@@ -137,7 +137,7 @@ declarations are required, so both stepped.
 ## The presence document
 
 ```yaml
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution                     # or module — declared, never inferred
 binding: alpha-region-a-01          # stable ID of one deployment instance
 generation: 4                      # strictly monotonic per binding ID
@@ -799,13 +799,13 @@ a new document type, not a grouping of the ones here.
 ## The authority document
 
 ```yaml
-schema: codefly/solution-authority/v1
+schema: codefly/solution-authority/v4
 authority: alpha-region-a-01-authority
 generation: 2                      # monotonic per authority ID
 host: {coordinate: example/prod/region-a, component: solution-host}
 ownership_domain: alpha
 envelope_revision: 7
-approved_build: sha256:…           # one exact OCI image manifest
+approved_builds: [sha256:…]        # the OCI image manifest of each workload it runs, sorted
 effective_from: 4                  # the presence generation it is effective from
 queues: [reconcile.default, report.batch]        # REQUIRED, [] when none
 namespaces: [alpha-region-a-01, alpha-region-a-audit]  # REQUIRED, [] when none
@@ -977,7 +977,7 @@ those would be a withdrawal that still says what it grants.
 ### Inside the envelope means exact element inclusion
 
 `(*AuthorityDocument).ValidateAgainst(envelope)` checks that the envelope
-revisions agree, that `approved_build` is one the envelope approved, and that
+revisions agree, that every one of `approved_builds` is one the envelope approved, and that
 every binding granted is one the envelope **holds exactly** — same ID, same
 revision, and the same audience, scope, queue, namespace, binding key and
 lookup method — and that each of the subject's own declarations is one the
@@ -1014,8 +1014,8 @@ domain they claim, the authority inside `Envelope`, the generation fold against
 **both** `Applied` and `AppliedPresence`,
 `authority.PresenceBinding == presence.Binding`, the same host coordinate *and*
 component, the same ownership domain, both halves naming the caller's envelope
-revision, neither document withdrawn, `authority.ApprovedBuild == build`,
-`build ∈ presence.Builds()`, and
+revision, neither document withdrawn, `build ∈ authority.ApprovedBuilds`,
+`build ∈ presence.Builds()`, every approved build one the presence runs, and
 `presence.Generation >= authority.EffectiveFrom`.
 
 **Both folds, because a fold on one signed half is a fold on neither.** The
@@ -1034,7 +1034,7 @@ binding, so a withdrawal over that binding refuses every later authority ID.
 no records and no marker is refused. The zero value could not be told from a
 caller that forgot the records, and "nothing applied" is the most permissive
 input this call takes — the same conflation as an empty signer policy meaning
-"a renderer", and an empty digest meaning "bears no execution".
+"a renderer".
 
 `DomainsBySigner` is **required**. It was consulted only when non-empty, with
 the field documented as "empty means a renderer", which made a security check
@@ -1074,7 +1074,7 @@ at apply — a composition carries `host.envelope_revision` and nothing else of
 the envelope, and `Envelope.ApprovedBuilds` is the platform's approval record
 that a publish is *proposing* a build to, not reading. So the only `Envelope` a
 renderer could pass is one assembled from the document under check, and
-`ValidateAgainst` tests that document's own `ApprovedBuild` against the
+`ValidateAgainst` tests that document's own `ApprovedBuilds` against the
 envelope's approved list and its own bindings against the envelope's. The call
 would answer itself — the shape this page's `Envelope` rule already refuses,
 "an envelope a document carried would be a document declaring its own
@@ -1136,10 +1136,12 @@ do:
   Naming one authenticating container says which container *should* present the
   credential; it does not prove which one did, and two workloads running the
   same approved build are not distinguished by anything in these documents. The
-  `build_incarnation` sealed into a credential is what separates two executions,
-  and it is the host that must bump it per applied generation — never resolve it
-  from the workload's own attributes, which is what would let a pod from a
-  superseded generation mint into the current one.
+  host separates two executions: it attests the caller's workload, holds its
+  running build against that workload's approved build, and advances the
+  principal's epoch per applied generation so a capability minted under a
+  replaced generation stops verifying — never resolving the approval from the
+  workload's own attributes, which is what would let a pod from a superseded
+  generation mint into the current one.
 
 ## The signature envelope
 
@@ -1618,7 +1620,7 @@ presence still goes through signed delivery and host admission.
 ## Live endpoint delivery
 
 `solutionhost.MarshalEndpointDelivery` encodes the CLI's selected endpoint
-carriers separately from presence, under `codefly/endpoint-delivery/v1`. The
+carriers separately from presence, under `codefly/endpoint-delivery/v4`. The
 delivery names the applied declaration it joins — `host {coordinate,
 component}`, `binding`, `generation`, `ownership_domain` and the complete
 canonical `presence_digest` — beside its `carriers`, and its bytes are

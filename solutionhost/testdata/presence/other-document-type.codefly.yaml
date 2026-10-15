@@ -9,7 +9,7 @@
 #
 # ErrSchema and not ErrInvalid: nothing here is malformed. The reader is being
 # handed a document it does not read.
-schema: codefly/solution-authority/v1
+schema: codefly/solution-authority/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 4

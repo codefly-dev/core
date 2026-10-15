@@ -6,7 +6,7 @@
 # producer's and is accepted (every other presence fixture is one); a document
 # that carries it is held to the build-size rules, and a producer writes it
 # through Marshal, which reads it back, never by hand.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

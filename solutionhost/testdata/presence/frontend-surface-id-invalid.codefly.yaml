@@ -1,7 +1,7 @@
 # REJECTED. A surface whose id is spelled with a capital letter. A client
 # addresses a surface by id, and an id is lowercase letters and digits separated
 # by dashes, as the solution runtime spells it.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

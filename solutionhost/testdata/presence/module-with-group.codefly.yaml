@@ -1,7 +1,7 @@
 # REJECTED. A module instance carrying a group. A group organises the solutions
 # of a composing product; a module is grouped by nothing, and a group on one
 # would be a heading the host has no solution to show under.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: module
 binding: gamma-region-a-01
 generation: 1

@@ -58,7 +58,7 @@ func TestEndpointDeliveryRefusesAmbiguousOrUndeclaredCarriers(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &projection))
 	for name, mutate := range map[string]func() []byte{
 		"duplicate key": func() []byte {
-			return []byte(strings.Replace(string(raw), `"schema":`, `"schema":"codefly/endpoint-delivery/v1","schema":`, 1))
+			return []byte(strings.Replace(string(raw), `"schema":`, `"schema":"codefly/endpoint-delivery/v4","schema":`, 1))
 		},
 		"unknown":            func() []byte { return append([]byte(`{"extra":true,`), raw[1:]...) },
 		"multiple documents": func() []byte { return append(append([]byte{}, raw...), []byte("\n---\n{}")...) },

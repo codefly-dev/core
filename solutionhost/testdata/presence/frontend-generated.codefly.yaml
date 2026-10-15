@@ -8,7 +8,7 @@
 # by TYPE and not by value: a frontend-only generation's rendered artifact can
 # be the bundle itself, so equality with a rendered digest is the same bytes
 # hashed once and not a confusion.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

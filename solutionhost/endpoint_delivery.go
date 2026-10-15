@@ -16,7 +16,7 @@ import (
 // EndpointDeliverySchema is the CLI's replaceable host route projection. This
 // is a transport carrier, not a presence or authority document: the protected
 // delivery writer owns it, and the SDK joins it to the host's applied presence.
-const EndpointDeliverySchema = "codefly/endpoint-delivery/v1"
+const EndpointDeliverySchema = "codefly/endpoint-delivery/v4"
 
 // EndpointDeliveryMaxBytes bounds one component's projection before decoding.
 const EndpointDeliveryMaxBytes = 1 << 20

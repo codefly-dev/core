@@ -33,7 +33,6 @@ func TestPrincipalFromWorkContext_OwnerActingDirectly(t *testing.T) {
 func TestPrincipalFromWorkContext_AgentOwnerCarriesItsManifestIdentity(t *testing.T) {
 	h := newIdentityHarness(t)
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:          workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1},
 		InstallationID:     installation,
 		TenantID:           tenantID,
 		OwnerPrincipalID:   agentPrincipalID,
@@ -102,7 +101,6 @@ func TestPrincipalFromWorkContext_RejectsAnAgentWithoutItsManifestIdentity(t *te
 	owner := h.ownerSession()
 
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: policyBuildDigest(agentPrincipalID), BuildIncarnation: 1},
 		PrincipalID:   agentPrincipalID,
 		PrincipalKind: policy.KindAgent,
 		DelegationID:  delegationID,

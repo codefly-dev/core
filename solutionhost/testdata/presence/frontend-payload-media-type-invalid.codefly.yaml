@@ -1,7 +1,7 @@
 # REJECTED. A payload whose media type is "tar". The bundle's representation is
 # the explicit canonical media type the release artifact declares — a type and a
 # subtype — which "tar" is not.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

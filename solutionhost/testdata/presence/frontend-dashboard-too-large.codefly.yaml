@@ -1,7 +1,7 @@
 # REJECTED. A dashboard whose canonical encoding is past the bound. A data graph
 # declares events, metrics and widgets, and a host stores the whole generation;
 # the bound is FrontendDashboardMaxBytes of the encoding that is signed.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

@@ -19,14 +19,17 @@ func validAuthority(t *testing.T) *solutionhost.AuthorityDocument {
 func TestAuthorityDocumentCarriesEveryDeclaredField(t *testing.T) {
 	document := validAuthority(t)
 
-	require.Equal(t, solutionhost.SchemaAuthorityV1, document.Schema)
+	require.Equal(t, solutionhost.SchemaAuthorityV4, document.Schema)
 	require.Equal(t, "alpha-region-a-01-authority", document.Authority)
 	require.Equal(t, uint64(2), document.Generation)
 	require.Equal(t, solutionhost.FixtureCoordinate, document.Host.Coordinate)
 	require.Equal(t, solutionhost.FixtureDomain, document.OwnershipDomain)
 	require.Equal(t, uint64(solutionhost.FixtureEnvelopeRevision), document.EnvelopeRevision)
 	require.Equal(t, uint64(4), document.EffectiveFrom)
-	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, string(document.ApprovedBuild))
+	require.NotEmpty(t, document.ApprovedBuilds)
+	for _, build := range document.ApprovedBuilds {
+		require.Regexp(t, `^sha256:[0-9a-f]{64}$`, string(build))
+	}
 	require.Len(t, document.Principals, 2)
 
 	// What the SUBJECT module declares about itself: two queues and two audit
@@ -266,9 +269,9 @@ func TestAuthorityForAnotherBuildDoesNotActivate(t *testing.T) {
 	// the envelope approved. What it is not is the build that is present.
 	require.NoError(t, otherBuild.ValidateAgainst(solutionhost.FixtureEnvelope()))
 
-	_, err = solutionhost.Activate(activationOf(t, otherBuild, presenceDocument, otherBuild.ApprovedBuild))
+	_, err = solutionhost.Activate(activationOf(t, otherBuild, presenceDocument, otherBuild.ApprovedBuilds[0]))
 	require.ErrorIs(t, err, solutionhost.ErrNotActivated)
-	require.Contains(t, err.Error(), "and not "+string(otherBuild.ApprovedBuild))
+	require.Contains(t, err.Error(), "approves build "+string(otherBuild.ApprovedBuilds[0])+", which no workload")
 
 	// And asking about the build that IS present does not rescue it either: the
 	// authority approves a different one.
@@ -429,7 +432,7 @@ func TestWithdrawnAuthorityActivatesNothing(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, tombstone.Removed)
 	require.Empty(t, tombstone.Principals)
-	require.Empty(t, tombstone.ApprovedBuild)
+	require.Empty(t, tombstone.ApprovedBuilds)
 	require.Zero(t, tombstone.EffectiveFrom)
 
 	presenceDocument := valid(t)
@@ -439,7 +442,7 @@ func TestWithdrawnAuthorityActivatesNothing(t *testing.T) {
 
 	// A withdrawal that still named what it grants would be a half-removal a
 	// host would have to pick a side on.
-	tombstone.ApprovedBuild = presenceDocument.Workloads[0].Image.Digest
+	tombstone.ApprovedBuilds = []solutionhost.ImageDigest{presenceDocument.Workloads[0].Image.Digest}
 	require.ErrorIs(t, tombstone.Validate(), solutionhost.ErrInvalid)
 }
 
@@ -485,7 +488,7 @@ func TestBindingsOutsideTheEnvelopeAreRefused(t *testing.T) {
 // document runs.
 func TestAnUnapprovedBuildIsOutsideTheEnvelope(t *testing.T) {
 	document := validAuthority(t)
-	document.ApprovedBuild = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	document.ApprovedBuilds = []solutionhost.ImageDigest{"sha256:1111111111111111111111111111111111111111111111111111111111111111"}
 
 	err := document.ValidateAgainst(solutionhost.FixtureEnvelope())
 	require.ErrorIs(t, err, solutionhost.ErrOutsideEnvelope)
@@ -524,9 +527,9 @@ func TestAuthorityValidationRejectsEachWayItCanLie(t *testing.T) {
 		"no component":           func(d *solutionhost.AuthorityDocument) { d.Host.Component = "" },
 		"no ownership domain":    func(d *solutionhost.AuthorityDocument) { d.OwnershipDomain = "" },
 		"envelope revision zero": func(d *solutionhost.AuthorityDocument) { d.EnvelopeRevision = 0 },
-		"no approved build":      func(d *solutionhost.AuthorityDocument) { d.ApprovedBuild = "" },
+		"no approved build":      func(d *solutionhost.AuthorityDocument) { d.ApprovedBuilds = nil },
 		"approved build is a tag": func(d *solutionhost.AuthorityDocument) {
-			d.ApprovedBuild = "1.4.0"
+			d.ApprovedBuilds = []solutionhost.ImageDigest{"1.4.0"}
 		},
 		"effective from zero": func(d *solutionhost.AuthorityDocument) { d.EffectiveFrom = 0 },
 		"no principals":       func(d *solutionhost.AuthorityDocument) { d.Principals = nil },
@@ -635,7 +638,7 @@ func TestAuthorityCanonicalEncodingIgnoresDeclarationOrder(t *testing.T) {
 // every signature over a v1 document is stale by construction and the schema
 // string inside the canonical bytes is what says so. That is the migration,
 // and it is the only reason this may move.
-const authorityFixtureDigest = "sha256:d2db00ee32ecbddfda1b9781b8061a6526c048428085a62c4a27248f0008e770"
+const authorityFixtureDigest = "sha256:8af65c257335dee3a519ea4928cf98bca79bd1a664e9bda35354fbb0c75913e7"
 
 // A module that owns no queue is a real case, so Queue and Namespace are
 // optional. Absence means this binding grants NO authority on that dimension —
@@ -835,7 +838,7 @@ func TestARendererGetsTheMatchAndNotAnActivation(t *testing.T) {
 // apply. A composition carries host.envelope_revision and nothing else of the
 // envelope. So the only Envelope a renderer could pass is one assembled from
 // the document under check, and ValidateAgainst tests that document's own
-// ApprovedBuild against the envelope's approved list and its own bindings
+// ApprovedBuilds against the envelope's approved list and its own bindings
 // against the envelope's. The call would answer itself, which is the shape
 // Envelope's own doc refuses: "an envelope a document carried would be a
 // document declaring its own ceiling."
@@ -981,7 +984,7 @@ func TestAWithdrawnAuthorityCannotBeRenamedBackIntoLife(t *testing.T) {
 	// A withdrawal claims nothing: no principals, no approved build, and
 	// nothing about the module it withdraws.
 	withdrawnDocument.Principals = nil
-	withdrawnDocument.ApprovedBuild = ""
+	withdrawnDocument.ApprovedBuilds = nil
 	withdrawnDocument.EffectiveFrom = 0
 	withdrawnDocument.Queues, withdrawnDocument.Namespaces = []string{}, []string{}
 	withdrawnDocument.ScopeCeilings = []solutionhost.ScopeCeiling{}
@@ -1026,7 +1029,7 @@ func TestCoreReadsTheAppliedStateItselfSoAbsenceCannotBeAsserted(t *testing.T) {
 	withdrawn.Removed = true
 	withdrawn.Generation = 3
 	withdrawn.Principals = nil
-	withdrawn.ApprovedBuild = ""
+	withdrawn.ApprovedBuilds = nil
 	withdrawn.EffectiveFrom = 0
 	withdrawn.Queues, withdrawn.Namespaces = []string{}, []string{}
 	withdrawn.ScopeCeilings = []solutionhost.ScopeCeiling{}
@@ -1350,7 +1353,7 @@ func TestActivationDomainContinuityWithNoAuthorityRecord(t *testing.T) {
 func TestEmptyAuthorityRequiresExactPrincipalAndPresenceAdmission(t *testing.T) {
 	document := validAuthority(t)
 	document.Principals = []solutionhost.PrincipalAuthority{{Principal: "principal:ui", Bindings: []solutionhost.AuthorityBinding{}}}
-	envelope := solutionhost.Envelope{Revision: document.EnvelopeRevision, ApprovedBuilds: []solutionhost.ImageDigest{document.ApprovedBuild}, Queues: document.Queues, Namespaces: document.Namespaces, ScopeCeilings: document.ScopeCeilings}
+	envelope := solutionhost.Envelope{Revision: document.EnvelopeRevision, ApprovedBuilds: document.ApprovedBuilds, Queues: document.Queues, Namespaces: document.Namespaces, ScopeCeilings: document.ScopeCeilings}
 	require.NoError(t, document.Validate())
 	require.ErrorIs(t, document.ValidateAgainst(envelope), solutionhost.ErrOutsideEnvelope)
 	for _, admission := range []solutionhost.EnvelopeAdmission{

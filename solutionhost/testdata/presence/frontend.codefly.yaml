@@ -9,7 +9,7 @@
 # Each surface carries what the client reads: the contract major it is built
 # against, which documents it applies to, and the journal namespaces it
 # reconciles on.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

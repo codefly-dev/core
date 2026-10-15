@@ -11,19 +11,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SchemaAuthorityV1 is the only authority schema this package accepts. Like the
+// SchemaAuthorityV4 is the only authority schema this package accepts. Like the
 // presence schema it is part of the signed canonical encoding, which is what
 // binds a signature to the document TYPE: an authority document cannot be
 // presented as a presence document under a signature that verifies.
 //
-// v1 is NOT accepted. It carried one queue and one namespace per binding and
-// had no field for the subject module's own scope ceilings, so a module
-// contract declaring a second queue, a second namespace or a ceiling of its
-// own could not be rendered at all — the renderer refused it rather than drop
-// it. The declarations are required here, which is what makes the step
-// unavoidable: two Cores reading one schema string differently is skew no pin
-// can detect, because the string is what the fleet pins.
-const SchemaAuthorityV1 = "codefly/solution-authority/v1"
+// v1 is NOT accepted. It approved exactly one build per authority, so a module
+// running as more than one workload — each its own build — could be approved
+// for only one of them, and the others could never mint. v4 approves the set
+// of builds its presence's workloads run (approved_builds). The whole document
+// family moved to v4 together (presence v2 and v3 are retired generations), so
+// a reader is never half-upgraded across it.
+const SchemaAuthorityV4 = "codefly/solution-authority/v4"
 
 // AuthorityFileName is the conventional name of a rendered authority document.
 const AuthorityFileName = "solution-authority.codefly.yaml"
@@ -56,8 +55,8 @@ var opaqueIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}[A-Z
 //
 // It grants nothing on its own. Authority is active only as part of a matched
 // (authority, presence, build) tuple: see Activate. That is what makes
-// "approved for one exact build" a property of the system rather than of a
-// field — an authority document for a build the host is not running, or a
+// "approved for exactly these builds" a property of the system rather than of
+// a field — an authority document for a build the host is not running, or a
 // presence document with no authority behind it, both activate nothing.
 //
 // It is also not the dynamic half. The envelope — the ceiling a platform
@@ -112,12 +111,14 @@ type AuthorityDocument struct {
 	// cannot activate presence validated against a narrower one.
 	EnvelopeRevision uint64 `yaml:"envelope_revision" json:"envelope_revision"`
 
-	// ApprovedBuild is the OCI image manifest digest this authority is
-	// effective for — one exact build, reviewed and approved. Authority is
-	// never held for "the solution"; it is held for the build that was
-	// approved, so shipping a new build does not silently carry the old
-	// build's authority forward.
-	ApprovedBuild ImageDigest `yaml:"approved_build" json:"approved_build"`
+	// ApprovedBuilds are the OCI image manifest digests this authority is
+	// effective for: the build of each serving workload of its presence,
+	// reviewed and approved, sorted and without repeats. A module runs as one
+	// or more workloads, and each runs its own build. Authority is never held
+	// for "the solution"; it is held for the builds that were approved, so
+	// shipping a new build does not silently carry the old build's authority
+	// forward.
+	ApprovedBuilds []ImageDigest `yaml:"approved_builds" json:"approved_builds"`
 
 	// EffectiveFrom is the presence generation this authority is effective
 	// from. A presence document at an earlier generation does not activate it,
@@ -377,7 +378,7 @@ func ParseAuthority(data []byte) (*AuthorityDocument, error) { return parseAutho
 // parseAuthority is ParseAuthority with one named rule deleted, for the
 // self-check that proves each rule is protected by a fixture; "" deletes none.
 func parseAuthority(data []byte, without string) (*AuthorityDocument, error) {
-	document, err := decodeStrict[AuthorityDocument](data, "solution authority", SchemaAuthorityV1, without, nil)
+	document, err := decodeStrict[AuthorityDocument](data, "solution authority", SchemaAuthorityV4, without, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -406,8 +407,8 @@ func (document *AuthorityDocument) validate(without string) error {
 	if document == nil {
 		return fmt.Errorf("%w: document is required", ErrInvalid)
 	}
-	if document.Schema != SchemaAuthorityV1 && without != ruleSchema {
-		return schemaRefusal(document.Schema, SchemaAuthorityV1)
+	if document.Schema != SchemaAuthorityV4 && without != ruleSchema {
+		return schemaRefusal(document.Schema, SchemaAuthorityV4)
 	}
 	if !opaqueIDPattern.MatchString(document.Authority) {
 		return fmt.Errorf("%w: authority ID %q is invalid", ErrInvalid, document.Authority)
@@ -446,7 +447,7 @@ func (document *AuthorityDocument) validate(without string) error {
 		// A tombstone withdraws authority, so it is effective for no build and
 		// from no generation. Carrying either would be a withdrawal that still
 		// names what it grants.
-		if document.ApprovedBuild != "" {
+		if len(document.ApprovedBuilds) != 0 {
 			return fmt.Errorf("%w: a removed generation approves no build", ErrInvalid)
 		}
 		if document.EffectiveFrom != 0 {
@@ -454,9 +455,18 @@ func (document *AuthorityDocument) validate(without string) error {
 		}
 		return nil
 	}
-	if !digestPattern.MatchString(string(document.ApprovedBuild)) {
-		return fmt.Errorf("%w: authority %q requires the SHA-256 OCI image manifest digest of the build it is approved for, got %q",
-			ErrInvalid, document.Authority, document.ApprovedBuild)
+	if len(document.ApprovedBuilds) == 0 {
+		return fmt.Errorf("%w: authority %q approves no build; it is held for the builds its workloads run", ErrInvalid, document.Authority)
+	}
+	for index, build := range document.ApprovedBuilds {
+		if !digestPattern.MatchString(string(build)) {
+			return fmt.Errorf("%w: authority %q requires the SHA-256 OCI image manifest digest of each build it is approved for, got %q",
+				ErrInvalid, document.Authority, build)
+		}
+		if index > 0 && document.ApprovedBuilds[index-1] >= build {
+			return fmt.Errorf("%w: authority %q lists its approved builds out of order or repeated; they are sorted and unique so two renders of one approval are one document",
+				ErrInvalid, document.Authority)
+		}
 	}
 	if document.EffectiveFrom == 0 {
 		return fmt.Errorf("%w: authority %q must name the presence generation it is effective from", ErrInvalid, document.Authority)
@@ -591,9 +601,11 @@ func (document *AuthorityDocument) ValidateAgainst(envelope Envelope) error {
 	if document.Removed {
 		return nil
 	}
-	if !slices.Contains(envelope.ApprovedBuilds, document.ApprovedBuild) {
-		return fmt.Errorf("%w: authority %q is approved for build %s, which envelope revision %d has not approved",
-			ErrOutsideEnvelope, document.Authority, document.ApprovedBuild, envelope.Revision)
+	for _, build := range document.ApprovedBuilds {
+		if !slices.Contains(envelope.ApprovedBuilds, build) {
+			return fmt.Errorf("%w: authority %q is approved for build %s, which envelope revision %d has not approved",
+				ErrOutsideEnvelope, document.Authority, build, envelope.Revision)
+		}
 	}
 	for _, declared := range []struct {
 		label    string
@@ -664,6 +676,8 @@ func (document *AuthorityDocument) CanonicalBytes() ([]byte, error) {
 	normalized := *document
 	normalized.Queues = sortedClone(document.Queues)
 	normalized.Namespaces = sortedClone(document.Namespaces)
+	normalized.ApprovedBuilds = append(make([]ImageDigest, 0, len(document.ApprovedBuilds)), document.ApprovedBuilds...)
+	slices.Sort(normalized.ApprovedBuilds)
 	normalized.ScopeCeilings = make([]ScopeCeiling, 0, len(document.ScopeCeilings))
 	for _, ceiling := range document.ScopeCeilings {
 		ceiling.Actions = sortedClone(ceiling.Actions)
@@ -982,7 +996,7 @@ func Activate(request ActivationRequest) (Activation, error) {
 	}
 	// The ceiling is the HOST's, and it is checked here rather than in the
 	// shared body, because a renderer cannot answer it: ValidateAgainst tests
-	// the document's own ApprovedBuild against the envelope's approved list
+	// the document's own ApprovedBuilds against the envelope's approved list
 	// and its bindings against the envelope's, so an envelope assembled from
 	// the document under check answers itself. Envelope's own doc already
 	// says why that is not allowed to happen — "an envelope a document
@@ -1335,9 +1349,18 @@ func activate(authority *AuthorityDocument, presence *SolutionHostBinding, build
 		return Activation{}, fmt.Errorf("%w: authority %q speaks for domain %q and binding %q for %q",
 			ErrNotActivated, authority.Authority, authority.OwnershipDomain, presence.Binding, presence.OwnershipDomain)
 	}
-	if authority.ApprovedBuild != build {
-		return Activation{}, fmt.Errorf("%w: authority %q is approved for build %s, not %s",
-			ErrNotActivated, authority.Authority, authority.ApprovedBuild, build)
+	if !slices.Contains(authority.ApprovedBuilds, build) {
+		return Activation{}, fmt.Errorf("%w: authority %q is approved for builds %v, not %s",
+			ErrNotActivated, authority.Authority, authority.ApprovedBuilds, build)
+	}
+	// Every build the authority approves is one the presence runs. Authority
+	// approving a build no declared workload runs is authority for nothing
+	// present, which a later generation could quietly start running.
+	for _, approved := range authority.ApprovedBuilds {
+		if !slices.Contains(presence.Builds(), approved) {
+			return Activation{}, fmt.Errorf("%w: authority %q approves build %s, which no workload of binding %q at generation %d runs",
+				ErrNotActivated, authority.Authority, approved, presence.Binding, presence.Generation)
+		}
 	}
 	// The presence document must name the build as one of its workloads'. This
 	// is the acceptance case: authority for build B against a presence entry

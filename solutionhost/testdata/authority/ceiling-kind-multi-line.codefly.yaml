@@ -6,7 +6,7 @@
 # "<kind>:<action>" — so a kind nothing can compare is a ceiling that bounds
 # nothing while reading as a bound. That is the failure mode a ceiling exists to
 # foreclose, which is why it is refused here and not normalized.
-schema: codefly/solution-authority/v1
+schema: codefly/solution-authority/v4
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -15,7 +15,8 @@ host:
   component: solution-host
 ownership_domain: alpha
 envelope_revision: 7
-approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+approved_builds:
+  - sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
 effective_from: 4
 queues:
   - reconcile.default

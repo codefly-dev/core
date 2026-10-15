@@ -17,7 +17,7 @@
 # refused the contract rather than deliver a module narrower than it described.
 # They are the module's inventory, held against the envelope element by
 # element — never a claim on "any queue".
-schema: codefly/solution-authority/v1
+schema: codefly/solution-authority/v4
 authority: alpha-region-a-01-authority
 binding: alpha-region-a-01
 generation: 2
@@ -26,7 +26,8 @@ host:
   component: solution-host
 ownership_domain: alpha
 envelope_revision: 7
-approved_build: sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
+approved_builds:
+  - sha256:3880ab5504a3f436fead6e19fb23b641443747ab55faa3f63c7b7f91b610e28f
 effective_from: 4
 queues:
   - reconcile.default

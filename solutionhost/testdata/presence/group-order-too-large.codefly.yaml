@@ -4,7 +4,7 @@
 # value exactly — so the range is held on the written number, by name, before
 # the typed decoder reads it into a wider field; with the rule gone the
 # document is accepted on a value some reader would have to cast.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

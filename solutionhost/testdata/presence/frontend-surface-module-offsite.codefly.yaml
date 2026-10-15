@@ -1,7 +1,7 @@
 # REJECTED. A surface whose module is a URL on another origin. A module is a
 # path on the solution's own origin, which the client resolves against the
 # origin it loaded the solution from; a scheme or a host names somewhere else.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

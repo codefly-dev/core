@@ -338,7 +338,7 @@ func Fixtures() []Fixture {
 			Reason: "a sound presence document declaring the authority schema string; the string is the document's " +
 				"TYPE and is covered by the signature, so each reader reads exactly one and refuses every other " +
 				"rather than deciding what an unfamiliar string was meant to be",
-			Message: `"codefly/solution-authority/v1" (this Core reads`,
+			Message: `"codefly/solution-authority/v4" (this Core reads`,
 		},
 		{
 			Name: "retired-generation", Type: DocumentTypePresence, Outcome: OutcomeRejected,
@@ -728,7 +728,7 @@ func Fixtures() []Fixture {
 			Name: "other-document-type", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
 			Rule:    ruleSchema,
 			Reason:  "the same pin from the other side: an authority document declaring the presence schema string",
-			Message: `"codefly/solution-host-binding/v1" (this Core reads`,
+			Message: `"codefly/solution-host-binding/v4" (this Core reads`,
 		},
 		{
 			Name: "subject-queues-omitted", Type: DocumentTypeAuthority, Outcome: OutcomeRejected,
@@ -847,7 +847,7 @@ func Fixtures() []Fixture {
 			Name: "cross-type", Type: DocumentTypeSigned, Outcome: OutcomeRejected,
 			Reason: "an authority payload presented where a presence document was asked for; the schema is inside the " +
 				"signed bytes, so the document type is attested rather than asserted by the carrier",
-			Message: `"codefly/solution-authority/v1" (this Core reads`,
+			Message: `"codefly/solution-authority/v4" (this Core reads`,
 		},
 		{
 			Name: "non-canonical", Type: DocumentTypeSigned, Outcome: OutcomeRejected,

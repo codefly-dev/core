@@ -2,7 +2,7 @@
 # only when it recognises the major it declares, and 0 is one no host serves —
 # the zero an author leaves behind is not a lenient default but a page every
 # host refuses, in a render that otherwise looks healthy.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

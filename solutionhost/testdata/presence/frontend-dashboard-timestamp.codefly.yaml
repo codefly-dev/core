@@ -1,7 +1,7 @@
 # REJECTED. A date inside the dashboard written as a plain scalar. yaml reads it
 # as a timestamp and the signing encoding would write it back as a different
 # string; a value JSON cannot carry as written is refused rather than respelled.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

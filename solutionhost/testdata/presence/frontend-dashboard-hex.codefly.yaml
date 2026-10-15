@@ -2,7 +2,7 @@
 # is opaque JSON, signed byte for byte as it was written, and JSON spells a
 # number one way; yaml would otherwise read 0x10 as 16 and sign a value the
 # author never wrote.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

@@ -46,7 +46,7 @@ That pairing holds only while **every session a capability carries is either
 the authenticated caller's own or a fresh one**. An issuer that signs a
 caller-named id lets anyone mint a capability carrying another credential's
 session, and the pairing admits it. Core cannot see where the issuer got the
-bytes, so — like `Execution` — this rests on the issuer: supply a session you
+bytes, so this rests on the issuer: supply a session you
 authenticated, or leave it empty.
 
 ### The lifetime has an absolute ceiling
@@ -179,26 +179,19 @@ attested. The requirement lives where the identity is built:
 `PrincipalFromWorkContext` refuses a capability it cannot derive a kind or an
 organization from, naming what is missing. Minting always fills them.
 
-## The seal: one installation, one execution
+## The seal: one installation, and the principal's epoch
 
 A capability's scopes say what it may do. The **seal** says which installation
-and which running build it was minted for, so that authority cannot outlive
-either one. `WorkSealV1` is on every capability and carries five fields, three
-always and two only when the exercising principal bears an execution. They are
-read from two sources — `SealSource.Seal` for the installation, and
-`SealSource.ApprovedBuild` for the execution, keyed per principal:
+it was minted against and which epoch of its principal, so that authority
+cannot outlive either one. `WorkSealV1` is on every capability and carries three
+fields, read from `SealSource.Seal` for the installation and
+`SealSource.PrincipalEpoch` for the epoch:
 
 | field | what moving it invalidates |
 | --- | --- |
 | `principal_epoch` | every capability minted for that principal, at once |
 | `installation_id` | — it is identity, not a counter |
 | `installation_revision` | every capability minted against the installation's previous terms |
-| `build_incarnation` | every capability minted on a replaced run of the build |
-
-`build_incarnation` and `image_digest` are **optional and paired** — absent for
-a principal that bears no execution. See "A principal that bears no execution"
-below; they are read from `SealSource.ApprovedBuild`, keyed on the principal,
-not from the installation seal.
 
 `WorkOperationBindingV1` is on a capability that exercises one unit of
 authority, and carries `binding_id`, `revision` and `incarnation`. The
@@ -212,56 +205,27 @@ missing one refuses every capability rather than reading its absence as "sealing
 off", because that would make the strongest check in the model the easiest one
 to omit.
 
-### The execution belongs to the principal, not to the installation
+### What a workload runs is checked where it mints, not sealed
 
-`SealSource.ApprovedBuild(ctx, principalID) (digest string, incarnation uint64, err error)`
-answers the execution the issuer approves for ONE PRINCIPAL. `Seal` answers
-installation state and nothing else.
+A seal carries **no build**. Fields 4 and 5 of `WorkSealV1` and 8 and 9 of
+`WorkActorV1` (`build_incarnation`, `image_digest`) are reserved: they sealed one
+approved build per principal into every capability and made every verifier ask
+the issuer for that one build. A module that runs as more than one workload —
+each its own build — could be approved for one of them only, so its other
+workloads could never mint.
 
-They were one method, and the split is the fix for a blocker rather than a
-tidy-up. The execution was read from the **owner's** installation record, so a
-capability's execution binding described the owner's workload however many
-delegation hops had been added and whoever was actually exercising it. And a
-delegated hop's principal does not hold the owner's installation at all — so
-there was nothing a derivation could have been attested against even in
-principle. The consequence: **minting was execution-bound only at `Start`.** A
-caller holding a parent capability derived children whatever it was running,
-which is the threat the execution fields exist to stop, left open at every hop
-but the first.
+The property they carried is kept, by the two parties that own it:
 
-So `Child` and `Grant` take an `Execution` too, required on the same terms as
-`Start`'s, and the seal's execution describes whoever will EXERCISE the
-capability. `ApprovedBuild` takes no attribute of the workload, deliberately:
-resolving by (service account, image digest) would answer "approved" for
-whatever a superseded pod presents, which is the hole it exists to close.
+- **The host checks the build at the mint.** It attests the caller's workload
+  (core `workloadidentity`), finds the declared workload that credential names,
+  and refuses unless the running build is that workload's approved build. A
+  superseded pod is refused there, before it holds anything.
+- **A change of approved builds revokes through the seal's own counters.** For a
+  module principal the issuer derives the installation revision from the whole
+  grant — its workloads and their builds included — and advances the principal
+  epoch with the applied generation, so a redeploy invalidates every capability
+  the replaced builds held, owner position and actor hops alike.
 
-### A principal that bears no execution
-
-`ApprovedBuild` returns `ErrNoApprovedBuild` when a principal bears no
-execution. **That is an answer, not a failure** — it is the correct answer for
-a human session, because a person at a terminal runs no approved build.
-
-`build_incarnation` and `image_digest` are therefore `optional` on the wire,
-set as a pair or not at all (a schema message rule, not a convention). This is
-**not** the compatibility hedge two reviews rejected for the seal itself and
-for the actor epochs: that hedge made a field optional so ARCHIVED data would
-still parse, trading every live credential's strength for old bytes. This is
-optional because the field does not APPLY to a whole class of principal, and
-requiring it of a human would force every human session to invent a value —
-which is exactly what the field exists to refuse.
-
-The requirement is not weakened, it is made conditional on something the issuer
-knows and the schema cannot. A capability carries an execution **exactly when**
-its exercising principal bears one, and the verifier enforces the
-correspondence in **both** directions:
-
-- an execution-bearing principal whose capability carries none is refused;
-- a principal that bears none whose capability carries one is refused too,
-  because that is a process claiming to be a workload.
-
-Only the first direction is obvious, and checking only the first is what would
-make the optionality a hole: a human's capability could then be sealed to a
-build nobody approved for it, and nothing would object.
 
 ### Where the binding's incarnation comes from — a seam core does not close
 
@@ -362,12 +326,6 @@ So the fields are schema-required and `ErrUnsealed` is **deleted** — a
 sentinel no branch can produce is worse than no sentinel. The two
 `executionreceipt` goldens moved with it, deliberately, and the test says why.
 
-The one exception is the EXECUTION pair, `image_digest` and
-`build_incarnation`, which are `optional` and set together or not at all. That
-is not the hedge returning: the field does not **apply** to a principal that
-bears no execution, and requiring it of a human session would force every one
-of them to invent the value the field exists to refuse. See "A principal that
-bears no execution".
 
 ### One implementation, and the gate that keeps it that way
 
@@ -481,32 +439,6 @@ that fails on a second implementation; a host switches its call sites to this
 package and runs the conformance helper in its own suites. The
 cutover is cold — every token changes format at once, and an old token is
 refused with `ErrNotACoreToken` rather than accepted.
-
-### The one requirement that rests on the implementer
-
-`WorkSealV1.image_digest` is the **approved** build the issuer holds;
-`StartInput.Execution.ImageDigest` is what the caller **attests it is
-running**. The mint refuses unless they match, which is what binds a
-credential to one execution and refuses a pod from a superseded generation.
-
-**A host that fills the attested execution from the same record it sealed has
-written a tautology.** The mint then compares approved against approved, so the
-check passes for every caller — including the superseded pod the field exists
-to refuse. The defect it closes is reintroduced by the field that closes it.
-
-**Core cannot detect that.** It cannot know where a caller got the bytes, both
-fields are strings, and the tautology type-checks. This is the one requirement
-in the model that rests on the implementer rather than on a check, and it is
-written down here because the first implementer reported that the shortcut was
-the only option available to it — the approved digest, from the admitted
-presence document, is the only image digest its host can currently reach. That
-is how the shortcut gets taken: not carelessly, but because the correct source
-needs workload authentication that is not running yet.
-
-So the test that matters is **not** "does a sound execution mint". It is: take
-a pod from a **superseded generation** and confirm the mint refuses. If that
-passes while the approved build is the only digest the host can reach, the
-digest is being read from the wrong place.
 
 ### One encoding, enforced at the wire
 

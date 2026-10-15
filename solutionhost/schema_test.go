@@ -82,13 +82,13 @@ func TestEveryFieldIsTaggedForBothEncodings(t *testing.T) {
 func TestSchemaConstantIsTheVersionedName(t *testing.T) {
 	// Held explicitly: two document names, one version.
 	for _, schema := range []string{
-		solutionhost.SchemaPresenceV1, solutionhost.SchemaAuthorityV1,
+		solutionhost.SchemaPresenceV4, solutionhost.SchemaAuthorityV4,
 	} {
-		require.True(t, strings.HasSuffix(schema, "/v1"), "schema %q is not at the family version", schema)
+		require.True(t, strings.HasSuffix(schema, "/v4"), "schema %q is not at the family version", schema)
 	}
 
-	require.Equal(t, "codefly/solution-host-binding/v1", solutionhost.SchemaPresenceV1)
-	require.Equal(t, "codefly/solution-authority/v1", solutionhost.SchemaAuthorityV1)
+	require.Equal(t, "codefly/solution-host-binding/v4", solutionhost.SchemaPresenceV4)
+	require.Equal(t, "codefly/solution-authority/v4", solutionhost.SchemaAuthorityV4)
 	require.Equal(t, "solution-host-binding.codefly.yaml", solutionhost.FileName)
 	require.Equal(t, "solution-authority.codefly.yaml", solutionhost.AuthorityFileName)
 }
@@ -143,17 +143,12 @@ func TestShippedFixtureBytesArePinned(t *testing.T) {
 
 // shippedFixtureDigest covers every document under testdata, by path and
 // content. See TestShippedFixtureBytesArePinned.
-const shippedFixtureDigest = "sha256:3cffe8853a27b8c25509923db33fd54995020797299273592dcab236cf1e4e77"
+const shippedFixtureDigest = "sha256:b76ef1f992481f128ba6bda5eaf2205831d2d05ca9570e2d8e7c54484a0a8883"
 
-// The family version is v1, which is a string earlier shapes of these
-// documents also used. That is safe, and this is what makes it checkable
-// rather than asserted: bytes written against an earlier shape reach the
-// current rules instead of the schema check, and every one of them is REFUSED.
-//
-// What the reuse costs is the quality of one diagnosis — `ErrInvalid`
-// ("malformed") where a distinct string would have said `ErrSchema` ("older
-// than me, re-render"). It does not cost admission, which is the property that
-// would matter.
+// The family version is v4. Every earlier family string is a retired
+// generation, so bytes written against an earlier shape are refused as the
+// older documents they are — ErrSchema, naming the generation and asking for a
+// re-render — rather than reaching the current rules.
 func TestBytesFromAnEarlierShapeAreRefusedRatherThanAdmitted(t *testing.T) {
 	// A presence document as the earliest shape wrote one: no release digest,
 	// no ownership domain, and a workload with no identity to present.
@@ -173,7 +168,8 @@ workload:
 `)
 	_, err := solutionhost.Parse(earlierPresence)
 	require.Error(t, err)
-	require.NotErrorIs(t, err, solutionhost.ErrSchema, "it declares the string this Core reads")
+	require.ErrorIs(t, err, solutionhost.ErrSchema, "it declares a retired generation")
+	require.Contains(t, err.Error(), "re-render it")
 
 	// An authority document as the earlier shape wrote one: one queue and one
 	// namespace on the unit, and nothing the subject declares about itself.
@@ -199,6 +195,6 @@ principals:
         namespace: alpha-region-a-01
 `)
 	_, err = solutionhost.ParseAuthority(earlierAuthority)
-	require.ErrorIs(t, err, solutionhost.ErrInvalid)
-	require.Contains(t, err.Error(), "declares no queues")
+	require.ErrorIs(t, err, solutionhost.ErrSchema, "it declares a retired generation")
+	require.Contains(t, err.Error(), "approved one build per authority")
 }

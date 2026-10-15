@@ -1,7 +1,7 @@
 # REJECTED. A tombstone that still carries a group. A removed generation
 # declares nothing to show: a group is where a host shows a solution, and this
 # generation declares that there is none.
-schema: codefly/solution-host-binding/v1
+schema: codefly/solution-host-binding/v4
 kind: solution
 binding: alpha-region-a-01
 generation: 5

@@ -16,7 +16,7 @@ import (
 // The canonical encoding of the frontend fixture, pinned for the reason
 // regression_test.go pins the others: the block travels inside the signed
 // bytes, so its encoding is a compatibility surface from the day it ships.
-const frontendFixtureDigest = "sha256:c988cb392cc063ec4a8e20793c2db8aad9c62a0d2afb5aaf10ce5708a4cd018d"
+const frontendFixtureDigest = "sha256:6f12867e9d0ec0801e26169b082fa6ead5860f133fb7f93cc0046414c5e3b7e0"
 
 func TestTheFrontendFixtureCarriesEveryDeclaredField(t *testing.T) {
 	document := parse(t, "frontend")
