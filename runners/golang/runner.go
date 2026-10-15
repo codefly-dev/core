@@ -591,6 +591,17 @@ func (r *GoRunnerEnvironment) WithLocalCacheDir(dir string) {
 	r.localCacheDir = dir
 }
 
+// Executable is the host path of the last successful BuildBinary's output, or
+// empty when none succeeded or the build ran inside a Docker companion (whose
+// /build path names nothing on the host). It is what an agent reports as its
+// runtime-started-artifact/v1 executable for a native start.
+func (r *GoRunnerEnvironment) Executable() string {
+	if r.targetPath == "" || (r.companion != nil && r.companion.Backend() == companion.BackendDocker) {
+		return ""
+	}
+	return r.targetPath
+}
+
 // Runner is a process for the executable of the last successful BuildBinary.
 func (r *GoRunnerEnvironment) Runner(args ...string) (runners.Proc, error) {
 	if r.targetPath == "" {
