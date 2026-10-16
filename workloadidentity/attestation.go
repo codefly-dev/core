@@ -120,6 +120,17 @@ func (w Workload) String() string {
 // render gave that pair to. A pair the render never declared resolves to
 // nothing, and a mechanism must refuse it: a token for an account nothing
 // declared is not a workload of the composition.
+// DeliveryService is the declared service of a module's delivery carrier: the
+// workload {module, delivery} delivers that module's manifests. A launcher
+// signs a credential naming it; a cell runs it as the delivery account of the
+// module's namespace, which the host's declaration resolves back to it.
+const DeliveryService = "delivery"
+
+// AppliedObserver is the declared workload of the protected applied-state
+// observer, the host's own. It is named here, once, so a launcher and a host
+// agree on it without either spelling the other's environment.
+var AppliedObserver = Workload{Module: "solution-host", Service: "applied-observer"}
+
 type Declaration interface {
 	WorkloadFor(namespace, account string) (Workload, bool)
 }

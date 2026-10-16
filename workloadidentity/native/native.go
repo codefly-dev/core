@@ -84,6 +84,23 @@ func (s Subject) validate() error {
 type Anchor struct {
 	Issuer    string `json:"issuer"`
 	PublicKey string `json:"public_key"` // base64url, unpadded Ed25519
+	// Subjects are the declared workloads this launcher vouches for: the
+	// identity workloads it started, their delivery carriers, and the applied
+	// observer. A credential naming any other workload is refused under this
+	// anchor, so a launcher's key is never authority over a module it did not
+	// launch.
+	Subjects []workloadidentity.Workload `json:"subjects"`
+}
+
+// Vouches reports whether the anchor declares workload (instance ignored).
+func (a Anchor) Vouches(workload workloadidentity.Workload) bool {
+	declared := workload.Declared()
+	for _, subject := range a.Subjects {
+		if subject.Declared() == declared {
+			return true
+		}
+	}
+	return false
 }
 
 // Fingerprint is the lowercase hex SHA-256 of the anchor's public key: what a
@@ -132,9 +149,21 @@ func ReadAnchor(path string) (Anchor, error) {
 
 // Issuer signs credentials for one run. Its key never leaves the CLI.
 type Issuer struct {
-	name string
-	key  ed25519.PrivateKey
-	now  func() time.Time
+	name     string
+	key      ed25519.PrivateKey
+	now      func() time.Time
+	subjects []workloadidentity.Workload
+}
+
+// Declare adds workloads this launcher vouches for. Each is recorded once,
+// without its instance; the anchor written after a Declare carries it.
+func (i *Issuer) Declare(workloads ...workloadidentity.Workload) {
+	for _, workload := range workloads {
+		declared := workload.Declared()
+		if !i.Anchor().Vouches(declared) {
+			i.subjects = append(i.subjects, declared)
+		}
+	}
 }
 
 // NewIssuer makes a fresh key for a run.
@@ -149,7 +178,7 @@ func NewIssuer() (*Issuer, error) {
 // Anchor is the issuer's public half, for verifiers.
 func (i *Issuer) Anchor() Anchor {
 	public, _ := i.key.Public().(ed25519.PublicKey)
-	return Anchor{Issuer: i.name, PublicKey: base64.RawURLEncoding.EncodeToString(public)}
+	return Anchor{Issuer: i.name, PublicKey: base64.RawURLEncoding.EncodeToString(public), Subjects: append([]workloadidentity.Workload(nil), i.subjects...)}
 }
 
 type claims struct {
@@ -170,6 +199,9 @@ func (i *Issuer) Issue(subject Subject, audience string) (string, error) {
 	}
 	if audience == "" {
 		return "", errors.New("a native credential names an audience")
+	}
+	if !i.Anchor().Vouches(subject.Workload) {
+		return "", fmt.Errorf("this launcher did not declare %s, so it issues no credential for it", subject.Workload.Unique())
 	}
 	now := i.now()
 	body := claims{
@@ -324,6 +356,9 @@ func (a *Attester) Attest(_ context.Context, credential, audience string) (*work
 	subject := *body.Native
 	if err := subject.validate(); err != nil {
 		return nil, reject("%v", err)
+	}
+	if !a.anchor.Vouches(subject.Workload) {
+		return nil, reject("names %s, which the launcher behind this anchor never declared", subject.Workload.Unique())
 	}
 	return &workloadidentity.Attestation{
 		Mechanism:  workloadidentity.Native,

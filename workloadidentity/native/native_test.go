@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ func issuerAndAttester(t *testing.T) (*Issuer, *Attester) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	issuer.Declare(subject().Workload)
 	attester, err := NewAttester(issuer.Anchor())
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +164,7 @@ func TestAnchorRoundTripsThroughItsFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if anchor != issuer.Anchor() || len(anchor.Fingerprint()) != 64 {
+	if !reflect.DeepEqual(anchor, issuer.Anchor()) || len(anchor.Fingerprint()) != 64 {
 		t.Fatalf("anchor = %+v", anchor)
 	}
 }
@@ -191,5 +193,25 @@ func TestLoadAttesterRefusesARelativeAnchor(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	if _, err := LoadAttester(); err == nil {
 		t.Fatal("accepted a relative anchor path")
+	}
+}
+
+func TestAnUndeclaredSubjectIsNeitherIssuedNorAttested(t *testing.T) {
+	issuer, attester := issuerAndAttester(t)
+	other := subject()
+	other.Workload.Module = "elsewhere"
+	if _, err := issuer.Issue(other, "accounts"); err == nil {
+		t.Fatal("a launcher issues no credential for a workload it did not declare")
+	}
+	// A second launcher that did declare it signs under its own key; this
+	// anchor refuses the subject before it refuses the signature only when the
+	// key matches, so forge the declaration on a copy of the trusted issuer.
+	issuer.Declare(other.Workload)
+	token, err := issuer.Issue(other, "accounts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attester.Attest(context.Background(), token, "accounts"); err == nil || !errors.Is(err, workloadidentity.ErrRejected) {
+		t.Fatalf("an anchor that never declared the subject must refuse it: %v", err)
 	}
 }
