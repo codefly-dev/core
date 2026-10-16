@@ -215,3 +215,47 @@ func TestAnUndeclaredSubjectIsNeitherIssuedNorAttested(t *testing.T) {
 		t.Fatalf("an anchor that never declared the subject must refuse it: %v", err)
 	}
 }
+
+func TestALoadedAttesterFollowsItsRunsLaterDeclarations(t *testing.T) {
+	issuer, err := NewIssuer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer.Declare(subject().Workload)
+	path := filepath.Join(t.TempDir(), "anchor.json")
+	if err := issuer.Anchor().WriteFile(path); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(AnchorEnvironment, path)
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	attester, err := LoadAttester()
+	if err != nil || attester == nil {
+		t.Fatalf("load: %v", err)
+	}
+	later := subject()
+	later.Workload.Module = "admitted-later"
+	issuer.Declare(later.Workload)
+	token, err := issuer.Issue(later, "accounts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attester.Attest(context.Background(), token, "accounts"); !errors.Is(err, workloadidentity.ErrRejected) {
+		t.Fatalf("before the anchor is rewritten the later workload is undeclared: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := issuer.Anchor().WriteFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attester.Attest(context.Background(), token, "accounts"); err != nil {
+		t.Fatalf("after the run rewrote its anchor the later workload is declared: %v", err)
+	}
+	other, _ := NewIssuer()
+	other.Declare(later.Workload)
+	time.Sleep(10 * time.Millisecond)
+	if err := other.Anchor().WriteFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attester.Attest(context.Background(), token, "accounts"); !errors.Is(err, workloadidentity.ErrUnavailable) {
+		t.Fatalf("an anchor rewritten by another run is refused, not followed: %v", err)
+	}
+}

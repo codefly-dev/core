@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/codefly-dev/core/workloadidentity"
@@ -241,6 +242,13 @@ type Attester struct {
 	anchor Anchor
 	key    ed25519.PublicKey
 	now    func() time.Time
+	// path is the anchor file this attester was loaded from, when it was: the
+	// launcher rewrites it as it declares workloads admitted after the host
+	// booted, and the attester re-reads it under the same issuer and key.
+	path    string
+	mu      sync.Mutex
+	modTime time.Time
+	size    int64
 }
 
 var _ workloadidentity.Attester = (*Attester)(nil)
@@ -272,7 +280,40 @@ func LoadAttester() (*Attester, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewAttester(anchor)
+	attester, err := NewAttester(anchor)
+	if err != nil {
+		return nil, err
+	}
+	attester.path = path
+	if info, statErr := os.Stat(path); statErr == nil {
+		attester.modTime, attester.size = info.ModTime(), info.Size()
+	}
+	return attester, nil
+}
+
+// current is the anchor as the launcher last wrote it. A rewrite that changes
+// the issuer or the key is not a rewrite of this anchor, and is refused rather
+// than followed: the host trusts the run it was started under, not whatever
+// is at the path now.
+func (a *Attester) current() (Anchor, error) {
+	if a.path == "" {
+		return a.anchor, nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	info, err := os.Stat(a.path)
+	if err != nil || (info.ModTime().Equal(a.modTime) && info.Size() == a.size) {
+		return a.anchor, nil
+	}
+	anchor, err := ReadAnchor(a.path)
+	if err != nil {
+		return Anchor{}, fmt.Errorf("the native anchor at %s was rewritten and is unreadable: %w", a.path, err)
+	}
+	if anchor.Issuer != a.anchor.Issuer || anchor.PublicKey != a.anchor.PublicKey {
+		return Anchor{}, fmt.Errorf("the native anchor at %s now names issuer %q, and this host trusts %q; a host follows its run's declarations, never another run", a.path, anchor.Issuer, a.anchor.Issuer)
+	}
+	a.anchor, a.modTime, a.size = anchor, info.ModTime(), info.Size()
+	return a.anchor, nil
 }
 
 // InPod reports whether this process carries what a kubelet puts in a pod.
@@ -285,7 +326,13 @@ func InPod() bool {
 }
 
 // Anchor is the anchor this attester verifies against.
-func (a *Attester) Anchor() Anchor { return a.anchor }
+func (a *Attester) Anchor() Anchor {
+	anchor, err := a.current()
+	if err != nil {
+		return a.anchor
+	}
+	return anchor
+}
 
 // Mechanism is workloadidentity.Native.
 func (a *Attester) Mechanism() workloadidentity.Mechanism { return workloadidentity.Native }
@@ -305,6 +352,10 @@ func (a *Attester) Authenticate(ctx context.Context, credential, audience string
 func (a *Attester) Attest(_ context.Context, credential, audience string) (*workloadidentity.Attestation, error) {
 	reject := func(format string, args ...any) error {
 		return fmt.Errorf("%w: %s", workloadidentity.ErrRejected, fmt.Sprintf(format, args...))
+	}
+	anchor, err := a.current()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", workloadidentity.ErrUnavailable, err)
 	}
 	parts := strings.Split(strings.TrimSpace(credential), ".")
 	if len(parts) != 3 {
@@ -333,7 +384,7 @@ func (a *Attester) Attest(_ context.Context, credential, audience string) (*work
 	if err := json.Unmarshal(payload, &body); err != nil {
 		return nil, reject("unreadable claims")
 	}
-	if body.Issuer != a.anchor.Issuer {
+	if body.Issuer != anchor.Issuer {
 		return nil, reject("issued by %q, not this run", body.Issuer)
 	}
 	if !contains(body.Audience, audience) {
@@ -357,7 +408,7 @@ func (a *Attester) Attest(_ context.Context, credential, audience string) (*work
 	if err := subject.validate(); err != nil {
 		return nil, reject("%v", err)
 	}
-	if !a.anchor.Vouches(subject.Workload) {
+	if !anchor.Vouches(subject.Workload) {
 		return nil, reject("names %s, which the launcher behind this anchor never declared", subject.Workload.Unique())
 	}
 	return &workloadidentity.Attestation{
