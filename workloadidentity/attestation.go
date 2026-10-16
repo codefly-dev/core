@@ -103,6 +103,29 @@ func (w Workload) Validate() error {
 // shares it; "one declared workload, one principal" keys on it.
 func (w Workload) Unique() string { return w.Module + "/" + w.Service }
 
+// A cell spells a workload with the same two words: its pod runs in the
+// namespace named after the module, as the ServiceAccount named after the
+// service. That is a rule, never a declaration — nothing writes a namespace
+// or an account down, and a reviewed pair reads straight back to the workload.
+
+// KubernetesNamespace is the namespace a cell runs this workload in.
+func (w Workload) KubernetesNamespace() string { return w.Module }
+
+// KubernetesAccount is the ServiceAccount a cell runs this workload as.
+func (w Workload) KubernetesAccount() string { return w.Service }
+
+// SPIFFEID is the mesh identity a cell issues this workload.
+func (w Workload) SPIFFEID() string {
+	return "spiffe://" + w.TrustDomain + "/ns/" + w.Module + "/sa/" + w.Service
+}
+
+// FromKubernetes is the workload a reviewed (namespace, account) pair is, by
+// the rule above. It validates nothing: the caller decides whether that
+// workload is one it knows.
+func FromKubernetes(trustDomain, namespace, account string) Workload {
+	return Workload{TrustDomain: trustDomain, Module: namespace, Service: account}
+}
+
 // Declared is the workload with its instance removed: the declaration a
 // credential's attestation is matched against.
 func (w Workload) Declared() Workload { w.Instance = ""; return w }

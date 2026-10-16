@@ -205,31 +205,12 @@ type Workload struct {
 	// Container is the one container that authenticates, so a sidecar in the
 	// same instance never holds the workload's authority.
 	Container string `yaml:"container" json:"container"`
-
-	// Kubernetes is what a cell's render declares about where this workload
-	// runs: the trust domain, namespace and ServiceAccount of its pod. A
-	// reviewed token names that pair, and the host resolves it back to this
-	// declaration through it. It is a fact about one environment, not the
-	// identity: the identity is the module and Service. A native run, whose
-	// credential names the declaration directly, declares none.
-	Kubernetes *WorkloadAccount `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
 }
 
 // Declared is the workload's identity: the module the manifest is for and
 // the service, as the composition declares them.
 func (workload Workload) Declared(trustDomain, module string) workloadidentity.Workload {
 	return workloadidentity.Workload{TrustDomain: trustDomain, Module: module, Service: workload.Service}
-}
-
-// Account is the workload's attested account, read from its SPIFFE ID.
-// Account is the Kubernetes pair the workload declares it runs as, when it
-// declares one. A workload with no Kubernetes block runs natively and has no
-// account: a host that needs one is asking the wrong question.
-func (workload Workload) Account() (WorkloadAccount, bool) {
-	if workload.Kubernetes == nil {
-		return WorkloadAccount{}, false
-	}
-	return *workload.Kubernetes, true
 }
 
 // Endpoint is one endpoint a host or gateway may route to.
@@ -483,7 +464,6 @@ func (manifest *ModuleManifest) validateWorkloads() error {
 		return fmt.Errorf("%w: binding %q is live and declares no workload; a module with no workload has nothing that can act as it", ErrInvalid, manifest.Binding)
 	}
 	services := map[string]bool{}
-	accounts := map[WorkloadAccount]string{}
 	for _, workload := range manifest.Workloads {
 		if !segmentPattern.MatchString(workload.Service) {
 			return fmt.Errorf("%w: workload service %q is invalid", ErrInvalid, workload.Service)
@@ -495,21 +475,6 @@ func (manifest *ModuleManifest) validateWorkloads() error {
 		if !segmentPattern.MatchString(workload.Container) {
 			return fmt.Errorf("%w: workload %q container %q is invalid", ErrInvalid, workload.Service, workload.Container)
 		}
-		account, declared := workload.Account()
-		if !declared {
-			continue
-		}
-		if err := account.Validate(); err != nil {
-			return fmt.Errorf("%w: workload %q kubernetes: %v", ErrInvalid, workload.Service, err)
-		}
-		// One Kubernetes pair resolves to one workload: the pair is all a
-		// reviewed token names, so two workloads on one pair would make the
-		// resolution a choice.
-		key := WorkloadAccount{Namespace: account.Namespace, Account: account.Account}
-		if other, exists := accounts[key]; exists {
-			return fmt.Errorf("%w: workloads %q and %q run as one account (%s/%s)", ErrInvalid, other, workload.Service, account.Namespace, account.Account)
-		}
-		accounts[key] = workload.Service
 	}
 	return nil
 }
@@ -684,22 +649,6 @@ func (manifest *ModuleManifest) Digest() (string, error) {
 	}
 	sum := sha256.Sum256(canonical)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
-// WorkloadFor answers the workload this manifest declares as running on the
-// attested Kubernetes pair, if any. It is the manifest's half of a
-// workloadidentity.Declaration: a reviewed token names a (namespace, account)
-// and this is where the render said which declared workload runs there. A
-// workload that declares no Kubernetes pair is never found this way: a native
-// credential names its service directly (WorkloadNamed). A withdrawn manifest
-// declares none.
-func (manifest *ModuleManifest) WorkloadFor(namespace, account string) (Workload, bool) {
-	for _, workload := range manifest.Workloads {
-		if declared, ok := workload.Account(); ok && declared.Namespace == namespace && declared.Account == account {
-			return workload, true
-		}
-	}
-	return Workload{}, false
 }
 
 // WorkloadNamed answers the workload this manifest declares under service: the

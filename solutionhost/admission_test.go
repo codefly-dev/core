@@ -151,7 +151,6 @@ func TestCheckAlias(t *testing.T) {
 		manifest.Binding = "acme.local.notes"
 		manifest.Alias = "notes"
 		manifest.Workloads = manifest.Workloads[:1]
-		manifest.Workloads[0].Kubernetes = &solutionhost.WorkloadAccount{TrustDomain: "cluster.local", Namespace: "platform-obin-notes", Account: "backend"}
 		manifest.Endpoints = manifest.Endpoints[:1]
 		if change != nil {
 			change(manifest)

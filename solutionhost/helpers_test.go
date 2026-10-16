@@ -37,16 +37,8 @@ frontend:
 workloads:
   - service: backend
     container: backend
-    kubernetes:
-      trust_domain: cluster.local
-      namespace: platform-obin-wiki
-      service_account: backend
   - service: indexer
     container: indexer
-    kubernetes:
-      trust_domain: cluster.local
-      namespace: platform-obin-wiki
-      service_account: indexer
 endpoints:
   - {name: rest, service: backend, api: rest, address: "http://localhost:5123"}
   - {name: grpc, service: indexer, api: grpc, address: "localhost:5124"}

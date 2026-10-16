@@ -31,24 +31,19 @@ func TestValidateRefusesEachBrokenRule(t *testing.T) {
 		change func(*solutionhost.ModuleManifest)
 		want   string
 	}{
-		"binding reserved":          {func(m *solutionhost.ModuleManifest) { m.Binding = "base" }, "instance id"},
-		"binding with a slash":      {func(m *solutionhost.ModuleManifest) { m.Binding = "acme/wiki" }, "instance id"},
-		"alias is a path":           {func(m *solutionhost.ModuleManifest) { m.Alias = "wiki/pages" }, "one lowercase path segment"},
-		"alias uppercase":           {func(m *solutionhost.ModuleManifest) { m.Alias = "Wiki" }, "one lowercase path segment"},
-		"unknown kind":              {func(m *solutionhost.ModuleManifest) { m.Kind = "service" }, "kind"},
-		"generation zero":           {func(m *solutionhost.ModuleManifest) { m.Generation = 0 }, "generation starts at 1"},
-		"no coordinate":             {func(m *solutionhost.ModuleManifest) { m.Host.Coordinate = "" }, "host coordinate"},
-		"no domain":                 {func(m *solutionhost.ModuleManifest) { m.Host.Domain = "" }, "host domain"},
-		"publisher is a path":       {func(m *solutionhost.ModuleManifest) { m.Release.Publisher = "obin/x" }, "release publisher"},
-		"version is a range":        {func(m *solutionhost.ModuleManifest) { m.Release.Version = "^0.1.0" }, "not semantic"},
-		"no workload":               {func(m *solutionhost.ModuleManifest) { m.Workloads, m.Endpoints = nil, nil }, "declares no workload"},
-		"service twice":             {func(m *solutionhost.ModuleManifest) { m.Workloads[1].Service = "backend" }, "declared twice"},
-		"no container":              {func(m *solutionhost.ModuleManifest) { m.Workloads[0].Container = "" }, "container"},
-		"kubernetes pair invalid":   {func(m *solutionhost.ModuleManifest) { m.Workloads[0].Kubernetes.Account = "Backend" }, "DNS-1123"},
-		"one account two workloads": {func(m *solutionhost.ModuleManifest) { m.Workloads[1].Kubernetes = m.Workloads[0].Kubernetes }, "run as one account"},
-		"one account two trust domains": {func(m *solutionhost.ModuleManifest) {
-			m.Workloads[1].Kubernetes = &solutionhost.WorkloadAccount{TrustDomain: "other.local", Namespace: "platform-obin-wiki", Account: "backend"}
-		}, "run as one account"},
+		"binding reserved":            {func(m *solutionhost.ModuleManifest) { m.Binding = "base" }, "instance id"},
+		"binding with a slash":        {func(m *solutionhost.ModuleManifest) { m.Binding = "acme/wiki" }, "instance id"},
+		"alias is a path":             {func(m *solutionhost.ModuleManifest) { m.Alias = "wiki/pages" }, "one lowercase path segment"},
+		"alias uppercase":             {func(m *solutionhost.ModuleManifest) { m.Alias = "Wiki" }, "one lowercase path segment"},
+		"unknown kind":                {func(m *solutionhost.ModuleManifest) { m.Kind = "service" }, "kind"},
+		"generation zero":             {func(m *solutionhost.ModuleManifest) { m.Generation = 0 }, "generation starts at 1"},
+		"no coordinate":               {func(m *solutionhost.ModuleManifest) { m.Host.Coordinate = "" }, "host coordinate"},
+		"no domain":                   {func(m *solutionhost.ModuleManifest) { m.Host.Domain = "" }, "host domain"},
+		"publisher is a path":         {func(m *solutionhost.ModuleManifest) { m.Release.Publisher = "obin/x" }, "release publisher"},
+		"version is a range":          {func(m *solutionhost.ModuleManifest) { m.Release.Version = "^0.1.0" }, "not semantic"},
+		"no workload":                 {func(m *solutionhost.ModuleManifest) { m.Workloads, m.Endpoints = nil, nil }, "declares no workload"},
+		"service twice":               {func(m *solutionhost.ModuleManifest) { m.Workloads[1].Service = "backend" }, "declared twice"},
+		"no container":                {func(m *solutionhost.ModuleManifest) { m.Workloads[0].Container = "" }, "container"},
 		"endpoint to no workload":     {func(m *solutionhost.ModuleManifest) { m.Endpoints[0].Service = "frontend" }, "no declared workload"},
 		"endpoint without address":    {func(m *solutionhost.ModuleManifest) { m.Endpoints[0].Address = "" }, "address"},
 		"endpoint address multi-line": {func(m *solutionhost.ModuleManifest) { m.Endpoints[0].Address = "http://a\nb" }, "address"},
@@ -221,51 +216,17 @@ func TestANonCanonicalPayloadIsRefusedEvenWhenItParses(t *testing.T) {
 	require.ErrorIs(t, err, solutionhost.ErrNotCanonical)
 }
 
-func TestTheWorkloadIsFoundByItsAttestedAccount(t *testing.T) {
+// A workload is found by the service a credential names; a withdrawn binding
+// runs nothing.
+func TestTheWorkloadIsFoundByItsService(t *testing.T) {
 	manifest := valid(t)
-	workload, found := manifest.WorkloadFor("platform-obin-wiki", "indexer")
+	workload, found := manifest.WorkloadNamed("indexer")
 	require.True(t, found)
 	require.Equal(t, "indexer", workload.Service)
-	for _, miss := range [][2]string{{"platform-obin-wiki", "frontend"}, {"other", "backend"}, {"backend", "platform-obin-wiki"}} {
-		_, found := manifest.WorkloadFor(miss[0], miss[1])
-		require.False(t, found, "%v", miss)
-	}
-	_, found = removed(t).WorkloadFor("platform-obin-wiki", "backend")
+	_, found = manifest.WorkloadNamed("frontend")
+	require.False(t, found)
+	_, found = removed(t).WorkloadNamed("backend")
 	require.False(t, found, "a withdrawn binding runs nothing")
-}
-
-func TestParseWorkloadSPIFFEID(t *testing.T) {
-	account, err := solutionhost.ParseWorkloadSPIFFEID("spiffe://cluster.local/ns/platform-obin-wiki/sa/backend")
-	require.NoError(t, err)
-	require.Equal(t, solutionhost.WorkloadAccount{TrustDomain: "cluster.local", Namespace: "platform-obin-wiki", Account: "backend"}, account)
-
-	// A trust domain named "ns" is a trust domain, not a namespace.
-	account, err = solutionhost.ParseWorkloadSPIFFEID("spiffe://ns/ns/acme/sa/reports")
-	require.NoError(t, err)
-	require.Equal(t, "acme", account.Namespace)
-
-	for _, id := range []string{
-		"",
-		"https://cluster.local/ns/a/sa/b",
-		"spiffe://cluster.local",
-		"spiffe://cluster.local/",
-		"spiffe://cluster.local/backend",
-		"spiffe://cluster.local/ns/a/sa/b/extra",
-		"spiffe://cluster.local/sa/b/ns/a",
-		"spiffe://cluster.local/ns//sa/b",
-		"spiffe://cluster.local/ns/A/sa/b",
-		"spiffe://cluster.local/ns/a/sa/b_c",
-		"spiffe://Cluster.local/ns/a/sa/b",
-		"spiffe://cluster.local:8443/ns/a/sa/b",
-		"spiffe://user@cluster.local/ns/a/sa/b",
-		"spiffe://cluster.local/ns/a/sa/b?x=1",
-		"spiffe://cluster.local/ns/a/sa/b#f",
-		"spiffe://cluster.local/ns/%61/sa/b",
-		"spiffe:///ns/a/sa/b",
-	} {
-		_, err := solutionhost.ParseWorkloadSPIFFEID(id)
-		require.Error(t, err, "%q", id)
-	}
 }
 
 // The standalone frontend file is the authored half: the renderer's payload
