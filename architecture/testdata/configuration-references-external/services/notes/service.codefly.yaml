@@ -1,0 +1,15 @@
+kind: service
+name: notes
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.1
+    publisher: codefly.ai
+workspace-configuration-dependencies:
+    - platform
+endpoints:
+    - name: grpc
+      visibility: public
+      exposure: none
+      api: grpc
