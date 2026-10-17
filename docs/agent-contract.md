@@ -212,9 +212,13 @@ returns the executable of the last successful `BuildBinary` as the host sees it,
 which is the file `Runner()` runs, and reports `false` where there is no such
 file to name: before a build succeeds — the state `Runner()` itself refuses from
 — and for a Docker companion, whose executable exists only inside that
-container. The runner owns that answer because it owns the name and the
-backend's layout; an agent deriving them again drifts into reporting a file that
-is not there, which a consumer digests rather than refuses.
+container. It is absolute, because `BuildBinary` records the target absolute
+when it writes it, resolved against the directory the build process ran in; a
+relative runner directory or cache location would otherwise leave a path that
+this contract forbids and that `exec.LookPath` resolves somewhere else again.
+The runner owns that answer because it owns the name and the backend's layout;
+an agent deriving them again drifts into reporting a file that is not there,
+which a consumer digests rather than refuses.
 
 `runtime-started-artifact/v1` names this optional operation contract. It is
 host support here: a runtime advertises it in its own capabilities only once

@@ -477,10 +477,13 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 const binaryName = "main"
 
 // hostVisibleBuild reports whether the executable this runner builds is a file
-// on the host. A Docker companion mounts the host cache directory at /build and
-// the toolchain writes through that mount, so the path the build environment
-// uses names nothing the host can open; native and Nix builds write the host
-// path itself.
+// on the host. Only a Docker companion's is not: it mounts the host cache
+// directory at /build and the toolchain writes through that mount, so the path
+// the build environment uses names nothing the host can open. Every other
+// backend writes the host path itself — native, Nix, and a companion that fell
+// back to BackendLocal or BackendNix because no Docker engine was running,
+// which is why this asks the companion's backend rather than whether it has
+// one.
 //
 // binaryPath and HostExecutable both read it, so the question "is this path the
 // host's?" is answered once: an agent reporting what it started must not decide
@@ -515,8 +518,17 @@ func (r *GoRunnerEnvironment) binaryPath(ctx context.Context) string {
 //   - the build is a Docker companion's, whose executable exists only inside
 //     that container. A consumer that digests the file would be handed a path
 //     its own filesystem resolves to something else entirely, or to nothing.
+//   - the recorded path is not absolute, which only a working directory that
+//     could not be read leaves behind. The contract names absolute paths and a
+//     consumer refuses a relative one rather than resolving it against a user's
+//     terminal, so this refuses it first and by the same rule.
+//
+// The path is absolute because BuildBinary records targetPath absolute — see
+// there for why resolving it at read time is not good enough — and the guard
+// below makes that a property of what this returns rather than a claim about
+// what wrote it.
 func (r *GoRunnerEnvironment) HostExecutable() (string, bool) {
-	if r.targetPath == "" || !r.hostVisibleBuild() {
+	if r.targetPath == "" || !r.hostVisibleBuild() || !filepath.IsAbs(r.targetPath) {
 		return "", false
 	}
 	return r.targetPath, true
@@ -574,8 +586,39 @@ func (r *GoRunnerEnvironment) BuildBinary(ctx context.Context) error {
 	if err := proc.Run(ctx); err != nil {
 		return w.Wrapf(err, "cannot run go build")
 	}
-	r.targetPath = target
+	r.targetPath = r.recordedTarget(target)
 	return nil
+}
+
+// recordedTarget is the path BuildBinary keeps for the executable it just
+// wrote: absolute, so every later reader means the same file.
+//
+// The runner's directory and cache location are the caller's, and a relative
+// one leaves `target` relative. The toolchain resolved it against the build
+// process's directory — sourceDir, set by configureBuildProcess — so that is
+// what it is resolved against here, and here is the only place that knows it:
+// resolving at read time instead would re-answer the question against whatever
+// this process's working directory had become by then, and Runner() would
+// meanwhile hand the raw relative path to exec.LookPath, which resolves against
+// this process rather than sourceDir and so cannot find the file the build
+// wrote. One absolute path recorded once makes both readers agree.
+//
+// A Docker companion's target is already absolute (/build/<binaryName>) and
+// passes through untouched: it is the container's path, and Runner() runs the
+// process inside that container.
+func (r *GoRunnerEnvironment) recordedTarget(target string) string {
+	if filepath.IsAbs(target) {
+		return target
+	}
+	absolute, err := filepath.Abs(filepath.Join(r.sourceDir, target))
+	if err != nil {
+		// Only a working directory that cannot be read reaches this. The
+		// relative path still names the file from sourceDir, so keep it rather
+		// than discard a successful build; HostExecutable's caller is the one
+		// that requires absolute, and the contract's consumer refuses it.
+		return target
+	}
+	return absolute
 }
 
 func (r *GoRunnerEnvironment) buildFlags() []string {
