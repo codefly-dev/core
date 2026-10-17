@@ -63,6 +63,7 @@ func Fixtures() ([]Fixture, error) {
 	}{
 		{name: "valid", file: "valid.module.contract.codefly.yaml", outcome: OutcomeAccepted},
 		{name: "upper-case-slot-key", file: "upper-case-slot-key.yaml", outcome: OutcomeAccepted},
+		{name: "binding-optional-local-development", file: "binding-optional-local-development.yaml", outcome: OutcomeAccepted},
 
 		{name: "not-yaml", file: "not-yaml.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "yaml", rule: ruleWellFormed},
 		{name: "slot-names-from-twice", file: "slot-names-from-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "from" twice`, rule: ruleMappingKeysOnce},
@@ -126,6 +127,8 @@ func Fixtures() ([]Fixture, error) {
 		{name: "unknown-operation", file: "unknown-operation.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "not one of", rule: ruleOperationKnown},
 		{name: "operation-declared-twice", file: "operation-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "model" declares operation "invoke" twice`, rule: ruleOperationUnique},
 		{name: "lookup-method-without-lookup", file: "lookup-method-without-lookup.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "evidence" declares a lookup method without the lookup operation`, rule: ruleLookupNeedsOperation},
+		{name: "binding-optional-unknown-policy", file: "binding-optional-unknown-policy.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "annotations" is optional under "everywhere", which is not a policy this reader knows`, rule: ruleOptionalPolicyKnown},
+		{name: "binding-optional-without-key", file: "binding-optional-without-key.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "annotations" is optional under "local-development" and declares no binding_key slot`, rule: ruleOptionalHasBindingKey},
 		{name: "lookup-method-not-a-name", file: "lookup-method-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `lookup method "Profile" is not a lowercase name`, rule: ruleLookupMethodName},
 
 		{name: "literal-audience", file: "literal-audience.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "slot is {from: <group>/<key>}, not the literal", rule: ruleSlotIsAReference},

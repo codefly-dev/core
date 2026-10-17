@@ -86,6 +86,8 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"binding-action-not-a-name", "binding-id-not-a-name",
 		"binding-key-from-bare-name", "binding-key-literal",
 		"binding-key-slot-key-malformed", "binding-key-slot-with-default",
+		"binding-optional-local-development", "binding-optional-unknown-policy",
+		"binding-optional-without-key",
 		"binding-without-operation", "ceiling-entry-actions-not-a-list",
 		"ceiling-entry-alias-key", "ceiling-entry-names-a-field-twice",
 		"ceiling-entry-nested-list", "ceiling-entry-with-empty-field-name",

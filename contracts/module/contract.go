@@ -231,7 +231,22 @@ type Binding struct {
 	// most carry. Every declared operation names its ceiling: a binding
 	// declaring no scopes for an operation cannot be minted that way at all.
 	ScopeCeiling map[string]Ceiling `yaml:"scope_ceiling"`
+	// Optional names the policy under which the module runs without this
+	// binding when the composition installs no key for it: local-development,
+	// and nothing else. It changes nothing for Resolve, which is strict.
+	// Declared only with a binding_key slot, which is what decides.
+	Optional OmissionPolicy `yaml:"optional,omitempty"`
 }
+
+// OmissionPolicy is the policy a binding may be omitted under, authored by the
+// module. It is an enum and never a bool, so the marker cannot read as
+// "optional everywhere": one value exists, and a reader refuses any other by
+// name.
+type OmissionPolicy string
+
+// OmitInLocalDevelopment marks a binding the module runs without in a local
+// development run whose composition installs no key for it.
+const OmitInLocalDevelopment OmissionPolicy = "local-development"
 
 // Ceiling is one operation's scope ceiling, in exactly one of two spellings:
 // bare actions qualified by the binding's resource_kind slot, or explicit
@@ -527,6 +542,77 @@ type Resolved struct {
 	ScopeCeilings []ScopeCeiling
 	Bindings      []ResolvedBinding
 	Destinations  []Destination
+	// Policy is the policy that produced this resolution. Core enforces
+	// nothing with it by itself: a consumer that derives a rendered or
+	// published document calls RequireStrict, which refuses any but Strict().
+	Policy ResolutionPolicy
+	// Excluded are the bindings omitted under Policy and left out of
+	// Bindings, in the contract's order. Empty under Strict. It is evidence
+	// for the caller to narrate, never part of a delivered document: a module
+	// observes only the absence.
+	Excluded []ExcludedBinding
+}
+
+// ResolutionPolicy is the policy a contract is resolved under, chosen by the
+// caller's code path and never read from a value or an environment name. It
+// is opaque and comparable, with exactly two values, Strict() and
+// LocalDevelopment().
+//
+// They are functions and not package variables: an exported variable is
+// assignable from any importing package, so `Strict = LocalDevelopment`
+// would make every strict resolution in the process omit bindings while its
+// Policy still compared equal to Strict.
+type ResolutionPolicy struct{ omits OmissionPolicy }
+
+// Strict is the zero policy: every binding is required, marker or not.
+// Resolve resolves under it, and RequireStrict accepts nothing else.
+func Strict() ResolutionPolicy { return ResolutionPolicy{} }
+
+// LocalDevelopment omits a binding marked local-development whose binding_key
+// record is absent. Only a native local run resolves under it.
+func LocalDevelopment() ResolutionPolicy {
+	return ResolutionPolicy{omits: OmitInLocalDevelopment}
+}
+
+// ErrNotStrict means a resolution was produced under a policy other than
+// Strict, and so cannot be derived into a rendered or published document.
+var ErrNotStrict = errors.New("module contract resolution is not strict")
+
+// RequireStrict is the ONE refusal of a resolution a rendered or published
+// document cannot be derived from: one produced under any policy but Strict,
+// naming every binding it omitted. A consumer that renders or publishes calls
+// it on every Resolved it derives from; only a native local run's delivery
+// does not.
+func (resolved *Resolved) RequireStrict() error {
+	if resolved == nil {
+		return fmt.Errorf("%w: there is no resolution", ErrNotStrict)
+	}
+	if resolved.Policy == (ResolutionPolicy{}) {
+		return nil
+	}
+	omitted := "it omitted no binding"
+	if len(resolved.Excluded) > 0 {
+		reasons := make([]string, 0, len(resolved.Excluded))
+		for _, excluded := range resolved.Excluded {
+			reasons = append(reasons, excluded.Reason())
+		}
+		omitted = strings.Join(reasons, "; ")
+	}
+	return fmt.Errorf("%w: resolved under local development (%s); a rendered or published document is derived from a strict resolution only", ErrNotStrict, omitted)
+}
+
+// ExcludedBinding is one binding omitted from a resolution, and the slot whose
+// absence omitted it.
+type ExcludedBinding struct {
+	// ID is the binding's id.
+	ID string
+	// From is the binding_key slot, <group>/<key>.
+	From string
+}
+
+// Reason is the one diagnostic a consumer narrates for the omission.
+func (excluded ExcludedBinding) Reason() string {
+	return "binding " + excluded.ID + " omitted under local development: binding_key " + excluded.From + " absent"
 }
 
 // ResolvedBinding is one binding with its audience, resource kind and binding
@@ -553,13 +639,27 @@ type ResolvedBinding struct {
 // secret or ambiguous slot is reported in one error carrying every sentinel
 // that applies, so a composition is fixed in one pass rather than one slot per
 // render; a secret's value is never part of the message.
+//
+// It is ResolveUnder(values, Strict()): every binding is required, and a binding
+// marked optional whose key is absent is refused like any other.
 func (contract *Contract) Resolve(values Values) (*Resolved, error) {
-	return contract.resolve(values, "")
+	// The zero literal, not Strict(): nothing outside this line decides it.
+	return contract.resolve(values, "", ResolutionPolicy{})
 }
 
-// resolve is Resolve with one resolution rule removed, for the kit's
+// ResolveUnder resolves the contract under a policy. Under LocalDevelopment,
+// and only there, a binding marked local-development whose binding_key record
+// is ABSENT — no record in either spelling — is left out of Bindings, none of
+// its other slots is resolved, and it is recorded in Excluded. A record that is
+// present and empty, secret, ambiguous or unreadable fails closed under either
+// policy, exactly as Resolve refuses it: empty is invalid, never "off".
+func (contract *Contract) ResolveUnder(values Values, policy ResolutionPolicy) (*Resolved, error) {
+	return contract.resolve(values, "", policy)
+}
+
+// resolve is ResolveUnder with one resolution rule removed, for the kit's
 // completeness self-check.
-func (contract *Contract) resolve(values Values, without string) (*Resolved, error) {
+func (contract *Contract) resolve(values Values, without string, policy ResolutionPolicy) (*Resolved, error) {
 	if err := contract.Validate(); err != nil {
 		return nil, err
 	}
@@ -569,25 +669,36 @@ func (contract *Contract) resolve(values Values, without string) (*Resolved, err
 		Queues:        slices.Clone(contract.Queues),
 		ScopeCeilings: slices.Clone(contract.ScopeCeilings),
 		Destinations:  slices.Clone(contract.Destinations),
+		Policy:        policy,
 	}
 	var unresolved, secret, ambiguous []string
 	// One Records call per group, so a provider is asked for a group's records
 	// once and every slot of that group is resolved from the same answer.
-	groups := map[string][]Record{}
+	type read struct {
+		records []Record
+		err     error
+	}
+	groups := map[string]read{}
+	// lookup answers one slot; resolve below does the refusal bookkeeping,
+	// so an optional binding's selector can be asked about without being
+	// refused for its absence.
+	lookup := func(slot *Slot, kind bool) resolution {
+		group, held := groups[slot.Group()]
+		if !held {
+			records, err := values.Records(slot.Group())
+			group = read{records, err}
+			groups[slot.Group()] = group
+		}
+		if group.err != nil {
+			return resolution{reason: "(the composition's values cannot be read: " + group.err.Error() + ")"}
+		}
+		return resolveSlot(group.records, slot.Key(), kind, without)
+	}
 	resolve := func(label string, slot *Slot, kind bool) string {
 		if slot == nil {
 			return ""
 		}
-		records, held := groups[slot.Group()]
-		if !held {
-			supplied, err := values.Records(slot.Group())
-			if err != nil {
-				ambiguous = append(ambiguous, label+" ← "+slot.From+" (the composition's values cannot be read: "+err.Error()+")")
-				return ""
-			}
-			records, groups[slot.Group()] = supplied, supplied
-		}
-		answer := resolveSlot(records, slot.Key(), kind, without)
+		answer := lookup(slot, kind)
 		switch {
 		case answer.reason != "":
 			ambiguous = append(ambiguous, label+" ← "+slot.From+" "+answer.reason)
@@ -602,6 +713,15 @@ func (contract *Contract) resolve(values Values, without string) (*Resolved, err
 		return answer.value
 	}
 	for _, binding := range contract.Bindings {
+		// Validate has held a marked binding to a binding_key slot. The
+		// zero policy omits nothing, and an unmarked binding is never
+		// omitted, so the marker must be present AND be the policy's.
+		if binding.Optional != "" && binding.Optional == policy.omits && without != ruleOptionalAbsentOmits {
+			if lookup(binding.BindingKey, false).absent() {
+				resolved.Excluded = append(resolved.Excluded, ExcludedBinding{ID: binding.ID, From: binding.BindingKey.From})
+				continue
+			}
+		}
 		revision := binding.Revision
 		if revision == 0 {
 			revision = 1

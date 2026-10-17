@@ -55,6 +55,8 @@ const (
 	ruleOperationUnique       = "operation-unique"
 	ruleLookupNeedsOperation  = "lookup-needs-operation"
 	ruleLookupMethodName      = "lookup-method-name"
+	ruleOptionalPolicyKnown   = "binding-optional-policy-known"
+	ruleOptionalHasBindingKey = "binding-optional-has-binding-key"
 	ruleSlotIsAReference      = "slot-is-a-reference"
 	ruleSlotCarriesOnlyFrom   = "slot-carries-only-from"
 	ruleSlotDecodes           = "slot-decodes"
@@ -105,6 +107,8 @@ func rules() []rule {
 		{name: ruleOperationUnique, check: checkOperationsUnique},
 		{name: ruleLookupNeedsOperation, check: checkLookupNeedsOperation},
 		{name: ruleLookupMethodName, check: checkLookupMethodNames},
+		{name: ruleOptionalPolicyKnown, check: checkOptionalPoliciesKnown},
+		{name: ruleOptionalHasBindingKey, check: checkOptionalBindingsHaveKeys},
 		{name: ruleSlotIsAReference, check: checkSlotsAreReferences},
 		{name: ruleSlotCarriesOnlyFrom, check: checkSlotsCarryOnlyFrom},
 		{name: ruleSlotDecodes, check: checkSlotsDecode},
@@ -380,6 +384,29 @@ func checkLookupMethodNames(contract *Contract) error {
 	for _, binding := range contract.Bindings {
 		if binding.Lookup != nil && !namePattern.MatchString(binding.Lookup.Method) {
 			return fmt.Errorf("%w: binding %q lookup method %q is not a lowercase name", ErrInvalid, binding.ID, binding.Lookup.Method)
+		}
+	}
+	return nil
+}
+
+// checkOptionalPoliciesKnown: the marker names the one policy a binding may be
+// omitted under, so a value this reader does not know is refused by name
+// rather than read as "optional" under some policy nobody resolves with.
+func checkOptionalPoliciesKnown(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Optional != "" && binding.Optional != OmitInLocalDevelopment {
+			return fmt.Errorf("%w: binding %q is optional under %q, which is not a policy this reader knows (%s)", ErrInvalid, binding.ID, binding.Optional, OmitInLocalDevelopment)
+		}
+	}
+	return nil
+}
+
+// checkOptionalBindingsHaveKeys: the installed binding key is the selector, so
+// an optional binding without a binding_key slot has nothing to decide by.
+func checkOptionalBindingsHaveKeys(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Optional != "" && binding.BindingKey == nil {
+			return fmt.Errorf("%w: binding %q is optional under %q and declares no binding_key slot; the installed key is what decides whether it is present", ErrInvalid, binding.ID, binding.Optional)
 		}
 	}
 	return nil
