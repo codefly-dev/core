@@ -276,6 +276,7 @@ func LoadWorkspaceFromDir(ctx context.Context, dir string) (*Workspace, error) {
 	if err != nil {
 		return nil, w.Wrap(err)
 	}
+	workspace.overlay = filterLocalOverlay(ctx, workspace.overlay)
 	if err := workspace.composeWorkspaces(ctx); err != nil {
 		return nil, w.Wrap(err)
 	}

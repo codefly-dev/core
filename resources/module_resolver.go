@@ -174,6 +174,46 @@ func LoadLocalOverlay(ctx context.Context, dir string) (*LocalOverlay, error) {
 	}
 }
 
+// LocalOverlayFilter rewrites one overlay directive before a workspace load
+// resolves with it. It receives the module name and the directive
+// codefly.local.yaml holds for it, and returns the directive the load uses: the
+// same one to keep it, another to replace it, nil to drop it so the module
+// falls through to committed configuration. It is the host's seam for loading
+// one workspace under a different view of its machine-local overlay without
+// touching the file — a CLI rendering a hosted environment replaces a
+// developer's checkout override with the pinned materialization it displaced,
+// while the file keeps the override for the next local run.
+type LocalOverlayFilter func(module string, directive *ModuleResolveDirective) *ModuleResolveDirective
+
+type localOverlayFilterKey struct{}
+
+// WithLocalOverlayFilter attaches filter to one load without process-global
+// state, the way WithWorkspaceResolver attaches a resolver. Every workspace
+// LoadWorkspaceFromDir loads under ctx — the one asked for and each workspace
+// it composes — resolves against the filtered view. LoadLocalOverlay itself is
+// never filtered: it is the file reader a writer pairs with SaveLocalOverlay,
+// and saving a filtered view would erase what the filter hid.
+func WithLocalOverlayFilter(ctx context.Context, filter LocalOverlayFilter) context.Context {
+	return context.WithValue(ctx, localOverlayFilterKey{}, filter)
+}
+
+// filterLocalOverlay is the view ctx asks for of overlay: the overlay itself
+// when no filter is attached, otherwise a copy with every entry passed through
+// the filter. The loaded overlay is never mutated.
+func filterLocalOverlay(ctx context.Context, overlay *LocalOverlay) *LocalOverlay {
+	filter, _ := ctx.Value(localOverlayFilterKey{}).(LocalOverlayFilter)
+	if filter == nil || overlay == nil {
+		return overlay
+	}
+	filtered := &LocalOverlay{dir: overlay.dir, Resolve: make(map[string]*ModuleResolveDirective, len(overlay.Resolve))}
+	for _, module := range sortedKeys(overlay.Resolve) {
+		if directive := filter(module, overlay.Resolve[module]); directive != nil {
+			filtered.Resolve[module] = directive
+		}
+	}
+	return filtered
+}
+
 // SaveLocalOverlay writes the overlay as codefly.local.yaml directly in dir
 // (it does not search up — a save targets one concrete workspace). Tooling that
 // edits the overlay (e.g. `codefly add module --source`) loads, mutates, and
