@@ -993,3 +993,52 @@ func TestOverlayServiceOverrideUnknownServiceRejectedInAFlatWorkspace(t *testing
 	require.ErrorContains(t, err, "apu")
 	require.ErrorContains(t, err, "api")
 }
+
+// A host loads one workspace under a filtered view of its overlay: the
+// directive the filter replaces resolves to the replacement, the entries it
+// keeps stand, and the file — which LoadLocalOverlay reads for a writer —
+// still says what the developer wrote.
+func TestLocalOverlayFilterRewritesOneLoadNotTheFile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	writeWorkspace(t, dir, "name: solution\nlayout: modules\nmodules:\n  - name: saas\n    source: acme/host\n  - name: billing\n    source: acme/billing\n")
+	for _, module := range []string{"checkout", "pinned", "billing"} {
+		writeModule(t, filepath.Join(dir, module), "kind: module\nname: saas\nservices:\n  - name: gateway\n")
+		writeGatewayService(t, filepath.Join(dir, module))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, resources.LocalOverlayConfigurationName),
+		[]byte("resolve:\n  saas:\n    path: checkout\n    services:\n      gateway:\n        path: checkout/services/gateway\n  billing:\n    path: billing\n"), 0o600))
+
+	var seen []string
+	filtered := resources.WithLocalOverlayFilter(ctx, func(module string, directive *resources.ModuleResolveDirective) *resources.ModuleResolveDirective {
+		seen = append(seen, module)
+		if module == "saas" {
+			require.Equal(t, "checkout", directive.Path)
+			require.Contains(t, directive.Services, "gateway")
+			return &resources.ModuleResolveDirective{Path: filepath.Join(dir, "pinned")}
+		}
+		return directive
+	})
+	workspace, err := resources.LoadWorkspaceFromDir(filtered, dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"billing", "saas"}, seen)
+
+	saas, err := workspace.ResolveModule(ctx, workspace.Modules[0])
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(dir, "pinned"), saas.Dir)
+	require.Empty(t, saas.Services, "the replacement carries no service override")
+	billing, err := workspace.ResolveModule(ctx, workspace.Modules[1])
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(dir, "billing"), billing.Dir)
+
+	// The same directory loaded without the filter, and the file itself, keep
+	// the developer's override.
+	plain, err := resources.LoadWorkspaceFromDir(ctx, dir)
+	require.NoError(t, err)
+	resolution, err := plain.ResolveModule(ctx, plain.Modules[0])
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(dir, "checkout"), resolution.Dir)
+	overlay, err := resources.LoadLocalOverlay(filtered, dir)
+	require.NoError(t, err)
+	require.Equal(t, "checkout", overlay.Resolve["saas"].Path, "LoadLocalOverlay is the file reader a writer pairs with Save, never filtered")
+}
