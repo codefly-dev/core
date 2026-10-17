@@ -476,14 +476,50 @@ func (r *GoRunnerEnvironment) GoModuleHandling(ctx context.Context) error {
 // key again.
 const binaryName = "main"
 
+// hostVisibleBuild reports whether the executable this runner builds is a file
+// on the host. A Docker companion mounts the host cache directory at /build and
+// the toolchain writes through that mount, so the path the build environment
+// uses names nothing the host can open; native and Nix builds write the host
+// path itself.
+//
+// binaryPath and HostExecutable both read it, so the question "is this path the
+// host's?" is answered once: an agent reporting what it started must not decide
+// it a second time and disagree.
+func (r *GoRunnerEnvironment) hostVisibleBuild() bool {
+	return r.companion == nil || r.companion.Backend() != companion.BackendDocker
+}
+
 // binaryPath is the executable's path as the build environment sees it. A
 // Docker companion mounts the host cache directory at /build; native and Nix
 // builds write the host path.
 func (r *GoRunnerEnvironment) binaryPath(ctx context.Context) string {
-	if r.companion != nil && r.companion.Backend() == companion.BackendDocker {
+	if !r.hostVisibleBuild() {
 		return path.Join("/build", binaryName)
 	}
 	return path.Join(r.LocalCacheDir(ctx), binaryName)
+}
+
+// HostExecutable is the executable of the last successful BuildBinary as the
+// HOST sees it, and false when there is no such file to name.
+//
+// It exists so an agent reporting what it started (runtime-started-artifact/v1)
+// names the executable this runner actually produced and Runner() actually
+// runs, rather than reconstructing it from binaryName and the backend's cache
+// layout — a second answer to a question this type already answers, which drifts
+// into a report naming a file that is not there.
+//
+// False has two causes, and neither is a path the caller may substitute:
+//   - no build has succeeded, so there is nothing running to describe. This
+//     tracks Runner()'s own refusal: both read the targetPath that BuildBinary
+//     clears before its first fallible step and sets only on a real exit 0.
+//   - the build is a Docker companion's, whose executable exists only inside
+//     that container. A consumer that digests the file would be handed a path
+//     its own filesystem resolves to something else entirely, or to nothing.
+func (r *GoRunnerEnvironment) HostExecutable() (string, bool) {
+	if r.targetPath == "" || !r.hostVisibleBuild() {
+		return "", false
+	}
+	return r.targetPath, true
 }
 
 // BuildBinary runs `go build -o` on the runner's executable, every time. The
