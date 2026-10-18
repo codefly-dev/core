@@ -73,16 +73,6 @@ const (
 	FixturePrincipalEpoch = 2
 	// FixtureInstallationRevision is the live installation revision.
 	FixtureInstallationRevision = 3
-	// FixtureBuildIncarnation is the live build incarnation.
-	FixtureBuildIncarnation = 11
-	// FixtureImageDigest is the approved build for the fixture installation.
-	FixtureImageDigest = "sha256:eca6c756839cbd532a6c7cb16fa75263600f3c710738ac267fb3988e03e146aa"
-
-	// FixtureOtherImageDigest is a well-formed digest the fixture issuer does
-	// NOT approve, so the kit can present a capability sealed to an unapproved
-	// build AT THE LIVE INCARNATION — the shape a verifier comparing only
-	// counters accepts.
-	FixtureOtherImageDigest = "sha256:1dc9f4d2af4bb3d4a8c5d1f2e0b7a6c3d8e5f2a9b6c3d0e7f4a1b8c5d2e9f6a3"
 	// FixtureActorEpoch is FixtureActor's live epoch, distinct from the
 	// owner's so a fixture that advances one does not move the other.
 	FixtureActorEpoch = 5
@@ -271,11 +261,6 @@ func FixtureSeals() *MemorySealSource {
 	}); err != nil {
 		panic(err)
 	}
-	// The approved execution is held per PRINCIPAL now, not on the
-	// installation seal, which is what lets a delegated hop attest its own.
-	if err := source.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
-		panic(err)
-	}
 	// The owner's epoch is recorded like every other principal's, through the
 	// one writer. Put no longer does it as a side effect: that side effect was
 	// a second source of truth for the epoch, and recording an unrelated
@@ -288,16 +273,6 @@ func FixtureSeals() *MemorySealSource {
 	}
 	if err := source.PutEpoch(FixtureApprover, 1); err != nil {
 		panic(err)
-	}
-	// Every delegated principal in the kit is an AGENT, and an agent runs an
-	// approved build. They carried no execution record at all, which was
-	// readable as "bears no execution" only because an unknown principal used
-	// to answer that — so the kit's delegated fixtures demonstrated a hop with
-	// an empty execution and nothing objected.
-	for _, principal := range []string{FixtureActor, FixtureApprover} {
-		if err := source.PutApprovedBuild(principal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
-			panic(err)
-		}
 	}
 	for _, binding := range []OperationBinding{
 		// Granted to the OWNER, for the session fixtures.
@@ -455,12 +430,8 @@ func Fixtures(now time.Time) ([]Fixture, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The grant's subject attests its own execution, on the same terms as a
-	// delegation hop: a grant hop is the one hop that may hold authority the
-	// previous hop did not, which makes attesting it more important, not less.
 	grant, _, err := authority.Grant(ctx, verifiedDelegated, GrantInput{
-		Execution: fixtureExecutionFor(ctx, authority, FixtureActor),
-		Grant:     FixtureGrant(now), TTL: time.Minute,
+		Grant: FixtureGrant(now), TTL: time.Minute,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("work context fixtures: grant: %w", err)
@@ -517,20 +488,7 @@ func fixtureSession(ctx context.Context, authority *Authority, binding string) (
 // principal does not hold" is only producible by sealing to one the live
 // source has never heard of — which means minting against a source that has.
 func fixtureSessionOn(ctx context.Context, authority *Authority, installation, binding string) (string, *Verified, error) {
-	// The attested execution is whatever the source being minted AGAINST
-	// approves, not the live constants. A negative fixture mints against a
-	// divergent source on purpose — that is how "sealed to a replaced build
-	// incarnation" is producible at all — and attesting the live values there
-	// would make the mint refuse instead of producing the capability the
-	// fixture exists to be.
-	// Whatever the source being minted AGAINST approves, and NOTHING when it
-	// says the principal bears none — which is how the execution-missing
-	// fixture is producible at all. This used to fall back to the live
-	// constants on any error, so a bears-none source made the mint refuse
-	// instead of producing the capability the fixture exists to present.
-	attested := fixtureExecutionFor(ctx, authority, FixturePrincipal)
 	token, _, err := authority.Start(ctx, StartInput{
-		Execution:          attested,
 		TenantID:           FixtureTenant,
 		OwnerPrincipalID:   FixturePrincipal,
 		OwnerPrincipalKind: "human",
@@ -554,11 +512,6 @@ func fixtureSessionOn(ctx context.Context, authority *Authority, installation, b
 
 func fixtureDelegated(ctx context.Context, authority *Authority, parent *Verified, binding string) (string, *Verified, error) {
 	token, _, err := authority.Child(ctx, parent, ChildInput{
-		// The hop attests the build it is running, which for an agent fixture
-		// is the one the fixture issuer approves for it. Read from the source
-		// being minted against, for the reason fixtureSessionOn reads it
-		// there: a divergent source is how a negative fixture is producible.
-		Execution:          fixtureExecutionFor(ctx, authority, FixtureActor),
 		PrincipalID:        FixtureActor,
 		PrincipalKind:      "agent",
 		AgentID:            FixtureAgentID,
@@ -613,26 +566,24 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	// holds 4 — produced here the other way round, by minting at a revision
 	// the live source does not hold.
 	for _, moved := range []struct {
-		name        string
-		seal        Seal
-		epoch       uint64
-		digest      string
-		incarnation uint64
-		rule        string
-		field       string
+		name  string
+		seal  Seal
+		epoch uint64
+		rule  string
+		field string
 	}{
 		{
 			name: "stale-installation-revision",
 			seal: Seal{InstallationID: FixtureInstallation,
 				InstallationRevision: FixtureInstallationRevision - 1},
-			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation,
-			rule: "sealed to an installation revision the issuer has moved past", field: "installation revision",
+			epoch: FixturePrincipalEpoch,
+			rule:  "sealed to an installation revision the issuer has moved past", field: "installation revision",
 		},
 		{
 			name: "future-installation-revision",
 			seal: Seal{InstallationID: FixtureInstallation,
 				InstallationRevision: FixtureInstallationRevision + 1},
-			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation,
+			epoch: FixturePrincipalEpoch,
 			rule:  "sealed to an installation revision ahead of the issuer's; comparison is exact equality, not \"at least\"",
 			field: "installation revision",
 		},
@@ -640,34 +591,15 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			name: "stale-principal-epoch",
 			seal: Seal{InstallationID: FixtureInstallation,
 				InstallationRevision: FixtureInstallationRevision},
-			epoch: FixturePrincipalEpoch - 1, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation,
-			rule: "sealed to a superseded principal epoch", field: "principal epoch",
-		},
-		{
-			name: "stale-build-incarnation",
-			seal: Seal{InstallationID: FixtureInstallation,
-				InstallationRevision: FixtureInstallationRevision},
-			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation - 1,
-			rule: "sealed to a replaced build incarnation", field: "build incarnation",
-		},
-		{
-			// THE APPROVED BUILD ITSELF, which the kit did not cover: a review
-			// deleted the verifier's digest comparison and the kit stayed green,
-			// because every fixture carried the approved digest and so none could
-			// tell the check from its absence. The incarnation MATCHES here on
-			// purpose, so a verifier comparing only counters accepts it.
-			name: "unapproved-build",
-			seal: Seal{InstallationID: FixtureInstallation,
-				InstallationRevision: FixtureInstallationRevision},
-			epoch: FixturePrincipalEpoch, digest: FixtureOtherImageDigest, incarnation: FixtureBuildIncarnation,
-			rule: "sealed to a build the issuer does not approve, at the live incarnation", field: "image digest",
+			epoch: FixturePrincipalEpoch - 1,
+			rule:  "sealed to a superseded principal epoch", field: "principal epoch",
 		},
 		{
 			name: "unknown-installation",
 			seal: Seal{InstallationID: "installation-conformance-other",
 				InstallationRevision: FixtureInstallationRevision},
-			epoch: FixturePrincipalEpoch, digest: FixtureImageDigest, incarnation: FixtureBuildIncarnation,
-			rule: "sealed to an installation the principal does not hold", field: "installation",
+			epoch: FixturePrincipalEpoch,
+			rule:  "sealed to an installation the principal does not hold", field: "installation",
 		},
 	} {
 		divergent := NewMemorySealSource()
@@ -675,9 +607,6 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			return nil, err
 		}
 		if err := divergent.PutEpoch(FixturePrincipal, moved.epoch); err != nil {
-			return nil, err
-		}
-		if err := divergent.PutApprovedBuild(FixturePrincipal, moved.digest, moved.incarnation); err != nil {
 			return nil, err
 		}
 		for _, binding := range []OperationBinding{
@@ -700,39 +629,6 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		})
 	}
 
-	// THE CORRESPONDENCE FROM THE OTHER SIDE, which no fixture covered: a
-	// capability carrying NO execution whose exercising principal the live
-	// issuer approves a build for. That is the shape a minter which forgot to
-	// stamp the execution produces, and only the "carries none" branch
-	// refuses it. Minted against a source where the owner bears no execution.
-	bearsNone := NewMemorySealSource()
-	if err := bearsNone.Put(FixturePrincipal, Seal{
-		InstallationID: FixtureInstallation, InstallationRevision: FixtureInstallationRevision,
-	}); err != nil {
-		return nil, err
-	}
-	if err := bearsNone.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
-		return nil, err
-	}
-	if err := bearsNone.PutBearsNoExecution(FixturePrincipal); err != nil {
-		return nil, err
-	}
-	if err := bearsNone.PutBinding(OperationBinding{
-		ID: FixtureBindingID, PrincipalID: FixturePrincipal, InstallationID: FixtureInstallation,
-		Revision: FixtureBindingRevision, Incarnation: FixtureBindingIncarnation,
-	}); err != nil {
-		return nil, err
-	}
-	noExecution, _, err := fixtureSessionOn(ctx, fixtureAuthority(now, bearsNone), FixtureInstallation, "")
-	if err != nil {
-		return nil, err
-	}
-	fixtures = append(fixtures, Fixture{
-		Name: "execution-missing", Form: FormSession, Token: noExecution,
-		Outcome: OutcomeRejected, Err: ErrRevoked, NeedsLiveState: true,
-		Reason: "carries no execution, and the issuer approves a build for the principal exercising it",
-	})
-
 	// Sealed to the wrong binding: one the issuer DOES hold, so the refusal is
 	// "this capability is sealed to a binding whose revision does not match"
 	// and not "no such binding". A verifier that searched the bindings for one
@@ -744,9 +640,6 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		return nil, err
 	}
 	if err := divergent.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
-		return nil, err
-	}
-	if err := divergent.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 		return nil, err
 	}
 	// Granted to the OWNER at the SAME installation, differing from the live
@@ -889,13 +782,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 	if err := staleActor.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
 		return nil, err
 	}
-	if err := staleActor.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
-		return nil, err
-	}
 	if err := staleActor.PutEpoch(FixtureActor, FixtureActorEpoch-1); err != nil {
-		return nil, err
-	}
-	if err := staleActor.PutApprovedBuild(FixtureActor, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 		return nil, err
 	}
 	staleActorAuthority := fixtureAuthority(now, staleActor)
@@ -960,9 +847,6 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		}); err != nil {
 			return nil, err
 		}
-		if err := permissive.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
-			return nil, err
-		}
 		if err := permissive.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
 			return nil, err
 		}
@@ -1007,26 +891,6 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			name:  "zero-installation-revision",
 			rule:  "a seal carrying installation revision 0",
 			apply: func(wc *basev0.WorkContextV1) { wc.Seal.InstallationRevision = 0 },
-		},
-		{
-			// THE PAIRING RULE, which had no fixture: one execution field
-			// without the other names a run nothing can check, and the schema
-			// refuses it before any state is consulted.
-			name: "seal-half-execution",
-			rule: "a seal carrying an image digest with no incarnation",
-			apply: func(wc *basev0.WorkContextV1) {
-				digest := FixtureImageDigest
-				wc.Seal.ImageDigest = &digest
-				wc.Seal.BuildIncarnation = nil
-			},
-		},
-		{
-			name: "zero-build-incarnation",
-			rule: "a seal carrying build incarnation 0",
-			apply: func(wc *basev0.WorkContextV1) {
-				zero := uint64(0)
-				wc.Seal.BuildIncarnation = &zero
-			},
 		},
 		{
 			name: "partial-operation-binding",
@@ -1125,9 +989,6 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 		if err := permissive.Put(FixturePrincipal, Seal{
 			InstallationID: FixtureInstallation, InstallationRevision: FixtureInstallationRevision,
 		}); err != nil {
-			return nil, err
-		}
-		if err := permissive.PutApprovedBuild(FixturePrincipal, FixtureImageDigest, FixtureBuildIncarnation); err != nil {
 			return nil, err
 		}
 		if err := permissive.PutEpoch(FixturePrincipal, FixturePrincipalEpoch); err != nil {
@@ -1291,19 +1152,6 @@ var fixturePublicKey = [ed25519.PublicKeySize]byte{
 	0xcd, 0x49, 0x36, 0x20, 0x71, 0x98, 0xa6, 0x0c, 0xd0, 0x22, 0x0e, 0xb6,
 	0x5d, 0x7d, 0xcc, 0xd8, 0x4e, 0x25, 0x8f, 0x09, 0xf7, 0xe2, 0xc8, 0x1d,
 	0x1a, 0xb7, 0x86, 0x38, 0xc9, 0x7d, 0x11, 0xfb,
-}
-
-// fixtureExecutionFor is the execution a fixture hop attests: whatever the
-// source being minted AGAINST approves for that principal, or none when it
-// bears none. A negative fixture mints against a divergent source on purpose,
-// so attesting the live constants there would make the mint refuse instead of
-// producing the capability the fixture exists to present.
-func fixtureExecutionFor(ctx context.Context, authority *Authority, principalID string) Execution {
-	digest, incarnation, err := authority.Seals.ApprovedBuild(ctx, principalID)
-	if err != nil {
-		return Execution{}
-	}
-	return Execution{ImageDigest: digest, BuildIncarnation: incarnation}
 }
 
 // cloneClaims is proto.Clone with the assertion checked, because an unchecked

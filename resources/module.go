@@ -158,16 +158,14 @@ type Module struct {
 
 	// Vendored are the path prefixes, relative to the module directory, that
 	// hold code this module vendors rather than authors — the client kits a
-	// module copies in from the modules it talks to. A build fact that counts
-	// the module's size excludes them and records the list it excluded
-	// (solutionhost.BuildSize), so the exclusion is the manifest's: when a
-	// module stops vendoring, the declaration goes and the number follows.
+	// module copies in from the modules it talks to. Core no longer counts a
+	// build's size from it (the signed build size left with the presence
+	// document); the declaration stays for the tools that read it.
 	//
 	// Each entry is held to names.IsPathPrefix — slash-separated, relative,
-	// in path.Clean's spelling — so one directory has one spelling here and
-	// in the presence document that repeats it. An entry may not appear
-	// twice and may not lie under another: a path inside an excluded one
-	// excludes nothing more.
+	// in path.Clean's spelling — so one directory has one spelling. An entry
+	// may not appear twice and may not lie under another: a path inside an
+	// excluded one excludes nothing more.
 	Vendored []string `yaml:"vendored,omitempty"`
 
 	// internal

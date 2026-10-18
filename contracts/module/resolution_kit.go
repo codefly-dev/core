@@ -8,7 +8,7 @@ import (
 // The resolution kit. The document kit proves a reader refuses the documents
 // this package refuses; it says nothing about how a consumer's configuration
 // reaches a slot, and that is the other half of this contract: two consumers
-// resolving one composition into two different authority documents is the same
+// resolving one composition into two different authority requests is the same
 // failure as two readers disagreeing about a file.
 //
 // So a consumer is driven through these too, with the provider it actually

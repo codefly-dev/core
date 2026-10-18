@@ -59,6 +59,52 @@ workspace groups fail unless the product supplies that group. Existing module
 configuration fallback remains below workspace-owned configuration. Imported
 environments never override the product's deployment target.
 
+### Solution groups
+
+A product that composes MANY solutions can organise them for presentation —
+and for nothing else — with `solution-groups`, unrelated to the configuration
+groups below:
+
+```yaml
+solution-groups:
+  - id: knowledge
+    title: Knowledge
+    order: 2
+    solutions: [wiki, proposals]
+  - id: identity
+    title: Identity
+    order: 1
+    solutions: [lastlogin-go]
+```
+
+A group is a heading in the host's navigation, where it sorts, and the
+solutions shown under it, named as the composition carries them
+(`Member.Name`). It is **presentation only**: a group grants no access, installs
+nothing, and is not an identity anything is granted or installed under — the
+host groups its navigation AFTER each solution's own entitlements are judged,
+and a solution's stable identity is unchanged by the group it is shown in. It
+is authored by the **composing product**, never by a solution's package, and
+it is not inherited: a composed workspace's groups organise that workspace's
+own view and say nothing about the product's. Groups are optional and flat.
+
+They are validated once the composition is resolved, against the composed set
+(`resources.SolutionGroup`): an id of the grammar
+`resources.ValidateSolutionGroupID` holds — lowercase letters and digits,
+dash-separated — once per workspace; a title that is one non-blank line
+without control characters (`ValidateSolutionGroupTitle`); id and title each
+within `SolutionGroupTextMaxBytes` (1 KiB); an order within
+`SolutionGroupOrderMin..SolutionGroupOrderMax`, a signed 32-bit integer, which
+every host wire and client number represents exactly
+(`ValidateSolutionGroupOrder`); at least one member; and every member an
+**effective solution** of this composition (a module of the product or of a
+composed workspace is not groupable) that no other group names. The module
+manifest holds its `group` block to the same three functions. `Workspace.SolutionGroupOf(name)` answers a solution's group after
+loading, which is what the renderer projects into the solution's manifest as
+its top-level `group` block — independent of any frontend, so a headless
+solution is organised in the host's catalogue too; see
+[the module manifest](module-manifest.md#the-document),
+where the same id grammar is held and a group on a module is refused.
+
 ### Overriding a composed module's group
 
 A composed module brings its `configurations/<profile>/*` into the consuming

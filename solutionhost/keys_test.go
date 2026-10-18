@@ -64,23 +64,23 @@ func TestPinnedKeysVerifyOffline(t *testing.T) {
 	require.NoError(t, err)
 	p256, err := solutionhost.NewInMemorySigner("local-person", ecdsaKey)
 	require.NoError(t, err)
-	for _, signer := range []*solutionhost.InMemorySigner{solutionhost.FixtureSigner(), p256} {
+	for _, signer := range []*solutionhost.InMemorySigner{signerFor(t, testKeyID), p256} {
 		for _, kind := range []solutionhost.KeyKind{solutionhost.KeyKindRelease, solutionhost.KeyKindPerson} {
 			t.Run(signer.KeyID()+"/"+string(kind), func(t *testing.T) {
-				verifier := verifierFor(t, pinFor(t, signer, kind, solutionhost.FixtureDomain))
-				presence, err := solutionhost.SignedPayload(valid(t))
+				verifier := verifierFor(t, pinFor(t, signer, kind, testDomain))
+				payload, err := solutionhost.SignedPayload(valid(t))
 				require.NoError(t, err)
-				carrier := signedWith(t, presence, signer)
+				carrier := signedWith(t, payload, signer)
 				delivered, err := solutionhost.VerifyDelivered(context.Background(), carrier, verifier)
 				require.NoError(t, err)
 				// An independently encoded PAE verifies, while a signature over
 				// the bare document must fail for both supported algorithms.
 				for _, usePAE := range []bool{true, false} {
 					changed := changeEnvelope(t, carrier, func(e *wireEnvelope) {
-						require.Equal(t, "application/vnd.codefly.solution-presence+json", e.PayloadType)
-						message := presence
+						require.Equal(t, "application/vnd.codefly.module-manifest+json", e.PayloadType)
+						message := payload
 						if usePAE {
-							message = []byte(fmt.Sprintf("DSSEv1 %d %s %d %s", len(e.PayloadType), e.PayloadType, len(presence), presence))
+							message = []byte(fmt.Sprintf("DSSEv1 %d %s %d %s", len(e.PayloadType), e.PayloadType, len(payload), payload))
 						}
 						sig, err := signer.Sign(message)
 						require.NoError(t, err)
@@ -96,25 +96,18 @@ func TestPinnedKeysVerifyOffline(t *testing.T) {
 				}
 				want := solutionhost.SignerIdentity{KeyID: signer.KeyID(), Kind: kind}
 				require.Equal(t, want, delivered.Signer())
-				require.Equal(t, want.KeyID, delivered.DeliveredBy())
-				require.Equal(t, presence, delivered.Payload())
-				authority, err := solutionhost.SignedPayloadFor(validAuthority(t))
-				require.NoError(t, err)
-				deliveredAuthority, err := solutionhost.VerifyDeliveredAuthority(context.Background(), signedWith(t, authority, signer), verifier)
-				require.NoError(t, err)
-				require.Equal(t, want, deliveredAuthority.Signer())
-				require.Equal(t, want.KeyID, deliveredAuthority.DeliveredBy())
+				require.Equal(t, payload, delivered.Payload())
 			})
 		}
 	}
 }
 
 func TestPinnedKeyVerificationRefusesUntrustedCarriers(t *testing.T) {
-	signer, other := solutionhost.FixtureSigner(), signerFor(t, "other-key")
+	signer, other := signerFor(t, testKeyID), signerFor(t, "other-key")
 	verifier := verifierFor(t,
-		pinFor(t, signer, solutionhost.KeyKindRelease, solutionhost.FixtureDomain),
-		pinFor(t, other, solutionhost.KeyKindPerson, solutionhost.FixtureDomain))
-	carrier := parseSigned(t, "presence")
+		pinFor(t, signer, solutionhost.KeyKindRelease, testDomain),
+		pinFor(t, other, solutionhost.KeyKindPerson, testDomain))
+	carrier := signedValid(t)
 	t.Run("unpinned key", func(t *testing.T) {
 		_, err := solutionhost.VerifyDelivered(context.Background(), signedWith(t, carrier.Document, signerFor(t, "unknown")), verifier)
 		require.ErrorIs(t, err, solutionhost.ErrUnsigned)
@@ -142,15 +135,13 @@ func TestPinnedKeyVerificationRefusesUntrustedCarriers(t *testing.T) {
 		require.ErrorContains(t, err, "invalid DSSE signature")
 	})
 	t.Run("same ID different public key", func(t *testing.T) {
-		wrongKey := signerFor(t, signer.KeyID())
+		wrongKey := differentKey(t, signer.KeyID())
 		_, err := solutionhost.VerifyDelivered(context.Background(), signedWith(t, carrier.Document, wrongKey), verifier)
 		require.ErrorIs(t, err, solutionhost.ErrUnsigned)
 	})
 	t.Run("key not allowed for ownership domain", func(t *testing.T) {
 		wrongDomain := verifierFor(t, pinFor(t, signer, solutionhost.KeyKindRelease, "other-domain"))
 		_, err := solutionhost.VerifyDelivered(context.Background(), carrier, wrongDomain)
-		require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
-		_, err = solutionhost.VerifyDeliveredAuthority(context.Background(), parseSigned(t, "authority"), wrongDomain)
 		require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
 		// Restoring the allowed domain makes the identical carrier valid.
 		_, err = solutionhost.VerifyDelivered(context.Background(), carrier, verifier)
@@ -172,7 +163,7 @@ func TestPinnedKeyVerificationRefusesUntrustedCarriers(t *testing.T) {
 	t.Run("signed with wrong payloadType", func(t *testing.T) {
 		// A valid signature over a different type must still be refused.
 		changed := changeEnvelope(t, carrier, func(e *wireEnvelope) {
-			e.PayloadType = solutionhost.PayloadTypeAuthority
+			e.PayloadType = "application/vnd.codefly.solution-presence+json"
 			message := []byte(fmt.Sprintf("DSSEv1 %d %s %d %s", len(e.PayloadType), e.PayloadType, len(carrier.Document), carrier.Document))
 			signature, err := signer.Sign(message)
 			require.NoError(t, err)
@@ -189,7 +180,7 @@ func TestPinnedKeyVerificationRefusesUntrustedCarriers(t *testing.T) {
 		"invalid payload base64":   func(e *wireEnvelope) { e.Payload = "!" },
 		"missing payload":          func(e *wireEnvelope) { e.Payload = "" },
 		"payload mismatch":         func(e *wireEnvelope) { e.Payload = base64.StdEncoding.EncodeToString([]byte("tampered")) },
-		"wrong payloadType":        func(e *wireEnvelope) { e.PayloadType = solutionhost.PayloadTypeAuthority },
+		"retired payloadType":      func(e *wireEnvelope) { e.PayloadType = "application/vnd.codefly.solution-authority+json" },
 		"unknown payloadType":      func(e *wireEnvelope) { e.PayloadType = "application/json" },
 		"missing payloadType":      func(e *wireEnvelope) { e.PayloadType = "" },
 		"no signatures":            func(e *wireEnvelope) { e.Signatures = nil },
@@ -207,7 +198,7 @@ func TestPinnedKeyVerificationRefusesUntrustedCarriers(t *testing.T) {
 }
 
 func TestPinnedKeySetIsStrictAndImmutable(t *testing.T) {
-	base := pinFor(t, solutionhost.FixtureSigner(), solutionhost.KeyKindRelease, solutionhost.FixtureDomain)
+	base := pinFor(t, signerFor(t, testKeyID), solutionhost.KeyKindRelease, testDomain)
 	for name, change := range map[string]func(*solutionhost.PinnedKey){
 		"empty ID":         func(p *solutionhost.PinnedKey) { p.KeyID = "" },
 		"non-UTF8 ID":      func(p *solutionhost.PinnedKey) { p.KeyID = "key\xff" },
@@ -274,23 +265,23 @@ func TestPinnedKeySetIsStrictAndImmutable(t *testing.T) {
 	policy := keys.DomainsBySigner()
 	policy[base.KeyID][0] = "other-domain"
 	delete(policy, base.KeyID)
-	delivered, err := solutionhost.VerifyDelivered(context.Background(), parseSigned(t, "presence"), verifier)
+	delivered, err := solutionhost.VerifyDelivered(context.Background(), signedValid(t), verifier)
 	require.NoError(t, err)
 	require.Equal(t, solutionhost.KeyKindRelease, delivered.Signer().Kind)
-	require.Equal(t, []string{solutionhost.FixtureDomain}, keys.DomainsBySigner()[base.KeyID])
+	require.Equal(t, []string{testDomain}, keys.DomainsBySigner()[base.KeyID])
 	identity := delivered.Signer()
 	identity.KeyID = "other-key"
-	require.Equal(t, solutionhost.FixtureDeliveredBy, delivered.DeliveredBy())
-	replacement, err := solutionhost.NewPinnedKeySet(pinFor(t, signerFor(t, base.KeyID), solutionhost.KeyKindPerson, "other-domain"))
+	require.Equal(t, testKeyID, delivered.Signer().KeyID)
+	replacement, err := solutionhost.NewPinnedKeySet(pinFor(t, differentKey(t, base.KeyID), solutionhost.KeyKindPerson, "other-domain"))
 	require.NoError(t, err)
 	*keys = *replacement
-	delivered, err = solutionhost.VerifyDelivered(context.Background(), parseSigned(t, "presence"), verifier)
+	delivered, err = solutionhost.VerifyDelivered(context.Background(), signedValid(t), verifier)
 	require.NoError(t, err, "replacing the caller's pin set must not change an existing verifier")
 	require.Equal(t, solutionhost.KeyKindRelease, delivered.Signer().Kind)
 }
 
 func TestEnvelopeRejectsUnexpectedWireShapes(t *testing.T) {
-	carrier := parseSigned(t, "presence")
+	carrier := signedValid(t)
 	var envelope map[string]any
 	require.NoError(t, json.Unmarshal(carrier.Envelope, &envelope))
 	for _, field := range []string{"publicKey", "certificate", "verificationMaterial", "algorithm", "url"} {
@@ -298,7 +289,7 @@ func TestEnvelopeRejectsUnexpectedWireShapes(t *testing.T) {
 			envelope[field] = "unexpected"
 			encoded, err := json.Marshal(envelope)
 			require.NoError(t, err)
-			_, err = fixtureVerifier(t).VerifyEnvelope(context.Background(), carrier.Document, encoded)
+			_, err = testVerifier(t).VerifyEnvelope(context.Background(), carrier.Document, encoded)
 			require.ErrorContains(t, err, "unknown field")
 			delete(envelope, field)
 		})
@@ -313,14 +304,14 @@ func TestEnvelopeRejectsUnexpectedWireShapes(t *testing.T) {
 		"signature extra field": []byte(`{"payloadType":"application/json","payload":"e30=","signatures":[{"keyid":"key","sig":"e30=","algorithm":"unknown"}]}`),
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := fixtureVerifier(t).VerifyEnvelope(context.Background(), carrier.Document, encoded)
+			_, err := testVerifier(t).VerifyEnvelope(context.Background(), carrier.Document, encoded)
 			require.Error(t, err)
 		})
 	}
 }
 
 func TestDSSEAcceptsURLSafeBase64(t *testing.T) {
-	carrier := parseSigned(t, "presence")
+	carrier := signedValid(t)
 	changed := changeEnvelope(t, carrier, func(e *wireEnvelope) {
 		payload, err := base64.StdEncoding.DecodeString(e.Payload)
 		require.NoError(t, err)
@@ -329,7 +320,7 @@ func TestDSSEAcceptsURLSafeBase64(t *testing.T) {
 		e.Payload = base64.URLEncoding.EncodeToString(payload)
 		e.Signatures[0].Sig = base64.URLEncoding.EncodeToString(sig)
 	})
-	_, err := solutionhost.VerifyDelivered(context.Background(), changed, fixtureVerifier(t))
+	_, err := solutionhost.VerifyDelivered(context.Background(), changed, testVerifier(t))
 	require.NoError(t, err)
 }
 

@@ -155,11 +155,9 @@ func LoadFromBytes[C Configuration](content []byte) (*C, error) {
 // declares, so that a key the loader does not know is refused rather than
 // dropped.
 //
-// Module is closed. Its manifest declares `vendored:`, the input to a build
-// fact the presence document signs (solutionhost.BuildSize): a declaration a
-// lenient loader dropped — `vendorred:`, a tab for a space — would make the
-// count include the kit while the document truthfully said nothing was
-// excluded, and nothing would say so. The one other document that shares the
+// Module is closed. Its manifest declares `vendored:`: a declaration a
+// lenient loader dropped — `vendorred:`, a tab for a space — would read as
+// "nothing is vendored", and nothing would say so. The one other document that shares the
 // file name, the composition descriptor (`kind: composed-module`,
 // composition.Descriptor), has its own strict loader and is told apart by its
 // kind, which postLoad refuses here by name.

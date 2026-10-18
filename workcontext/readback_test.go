@@ -107,7 +107,6 @@ func TestReadBack_ReadsBackOnlyWhatThisAuthoritySigned(t *testing.T) {
 	token, _, err := impostor.Start(context.Background(), workcontext.StartInput{
 		TenantID: tenant, OwnerPrincipalID: ownerID, OwnerPrincipalKind: "human", OrganizationID: organization,
 		TaskID: taskID, Audience: audience, InstallationID: installation, TTL: time.Hour,
-		Execution: workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 	})
 	require.NoError(t, err)
 

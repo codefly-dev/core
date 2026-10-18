@@ -66,29 +66,9 @@ func newHarness(t *testing.T) *harness {
 		Revision: 4, Incarnation: 1,
 	}))
 	// Every principal that appears as an actor needs a live epoch, because a
-	// hop without one cannot be revoked and is refused — and now an approved
-	// EXECUTION too, because a derivation attests the build its own hop is
-	// running rather than inheriting the parent's. A principal with no
-	// approved build bears no execution, which is the human case and is
-	// exercised separately.
-	// EVERY PRINCIPAL RUNS A DISTINCT BUILD, and that is what lets this
-	// harness see a whole class of defect it was blind to.
-	//
-	// Every principal used to share FixtureImageDigest at incarnation 11, so
-	// any confusion between one link's execution and another's was invisible:
-	// a derivation that substituted the OWNER's execution for the hop's — the
-	// R6-1 regression — compared one value against an identical one and
-	// passed. Two reviewers found it by executing with distinct builds, which
-	// is also what a real fleet looks like: an agent is not the same image as
-	// a human's session or another agent.
-	require.NoError(t, h.seals.PutApprovedBuild(ownerID, workcontext.FixtureImageDigest, 11))
-	for principal, digest := range map[string]string{
-		agentID:  agentBuildDigest,
-		"a-sub":  subBuildDigest,
-		approver: approverBuildDigest,
-	} {
+	// hop without one cannot be revoked and is refused.
+	for _, principal := range []string{agentID, "a-sub", approver} {
 		require.NoError(t, h.seals.PutEpoch(principal, 1))
-		require.NoError(t, h.seals.PutApprovedBuild(principal, digest, 11))
 	}
 	h.authority = &workcontext.Authority{
 		Issuer:    issuer,
@@ -150,7 +130,6 @@ func scope(kind string, actions []string, ids []string) *basev0.WorkScopeV1 {
 func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:          workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID:     installation,
 		TenantID:           tenant,
 		OwnerPrincipalID:   ownerID,
@@ -169,7 +148,6 @@ func (h *harness) ownerSession(aud string) (string, *workcontext.Verified) {
 func (h *harness) agentSession(parent *workcontext.Verified, aud string) (string, *workcontext.Verified) {
 	h.t.Helper()
 	token, _, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -229,7 +207,6 @@ func TestChild_NeverExtendsExpiry(t *testing.T) {
 	_, owner := h.ownerSession(audience)
 
 	token, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",
@@ -257,7 +234,6 @@ func TestChild_RejectsWidening(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := h.authority.Child(context.Background(), agent, workcontext.ChildInput{
-				Execution:     workcontext.Execution{ImageDigest: subBuildDigest, BuildIncarnation: 11},
 				PrincipalID:   "a-sub",
 				PrincipalKind: "agent",
 				AgentID:       "codefly.dev/sub:1.0.0",
@@ -392,11 +368,3 @@ func (h *harness) resignWithAnotherKey(t *testing.T, token string) string {
 	require.NoError(t, err)
 	return payload + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(other, claims))
 }
-
-// Distinct builds per principal. A shared digest made every execution
-// comparison tautological; see newHarness.
-var (
-	agentBuildDigest    = "sha256:" + strings.Repeat("a1", 32)
-	subBuildDigest      = "sha256:" + strings.Repeat("b2", 32)
-	approverBuildDigest = "sha256:" + strings.Repeat("c3", 32)
-)

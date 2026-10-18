@@ -50,12 +50,7 @@ func TestDecodeAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		// the whole point: a hand parser reached a different one.
 		"zero-principal-epoch":       workcontext.ErrInvalid,
 		"zero-installation-revision": workcontext.ErrInvalid,
-		"zero-build-incarnation":     workcontext.ErrInvalid,
 		"partial-operation-binding":  workcontext.ErrInvalid,
-		// The execution PAIRING rule, which is a schema message rule rather
-		// than a field rule — so Decode reaches it exactly as it reaches the
-		// field rules above.
-		"seal-half-execution": workcontext.ErrInvalid,
 		// Structural too, and deliberately so: a consumer's early refusal
 		// catches a token some other minter wrote, before it goes on a request.
 		"unknown-field": workcontext.ErrInvalid,
@@ -267,7 +262,6 @@ func TestNoDeclarationTurnsAnInspectedOrDecodedCapabilityIntoAVerifiedOne(t *tes
 func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
 		TTL: 30 * 24 * time.Hour,
@@ -282,7 +276,6 @@ func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	// advice to drop its own ceiling, correctly.
 	h.authority.MaxTTL = 30 * 24 * time.Hour
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
 		TTL: 48 * time.Hour,
@@ -293,7 +286,6 @@ func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	// A host with a longer legitimate need states it, within the bound.
 	h.authority.MaxTTL = 12 * time.Hour
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
 		TTL: 8 * time.Hour,
@@ -306,7 +298,6 @@ func TestChild_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},

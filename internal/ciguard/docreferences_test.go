@@ -19,9 +19,9 @@ import (
 // This guard exists because of a specific escape. A review found that the
 // documented way for a host to remove a binding was unsound — it told the host
 // to treat absence as removal — and the function it named was deleted. The
-// prose telling hosts to call it was not, so `docs/solution-host-binding.md`
-// went on instructing consumers to call `solutionhost.ByDomain(docs...)`, a
-// function that no longer existed, through a green suite: compilation does not
+// prose telling hosts to call it was not, so the solution-host document
+// (since replaced by docs/module-manifest.md) went on instructing consumers
+// to call `solutionhost.ByDomain(docs...)`, a function that no longer existed, through a green suite: compilation does not
 // read Markdown, and nothing else did either.
 //
 // That is the shape worth catching rather than the one instance. A document
@@ -78,11 +78,11 @@ func TestDocumentsNameIdentifiersThatExist(t *testing.T) {
 
 	documents := []string{
 		filepath.Join("docs", "architecture.md"),
-		filepath.Join("docs", "solution-host-binding.md"),
+		filepath.Join("docs", "module-manifest.md"),
+		filepath.Join("docs", "module-contract.md"),
 		filepath.Join("docs", "work-context.md"),
 		filepath.Join("docs", "readiness.md"),
 		filepath.Join("workcontext", "README.md"),
-		filepath.Join("solutionhost", "testdata", "README.md"),
 	}
 	// `package.Identifier` where Identifier starts with a capital. Reached
 	// through a code span or bare prose alike; the pattern does not care.
@@ -202,7 +202,7 @@ type documentedCall struct {
 //
 // This closes the second of the three blind spots named above, and it is named
 // there because it let a false statement through: after Activate changed to
-// take a single ActivationRequest, docs/solution-host-binding.md went on
+// take a single ActivationRequest, the solution-host document went on
 // showing `solutionhost.Activate(authority, presence, build)` through a green
 // suite. The guard above resolves that name happily, because Activate still
 // exists — it catches a DELETED api, not a wrong one. A reader copying the
@@ -244,11 +244,11 @@ func TestDocumentedCallsHaveTheRightArity(t *testing.T) {
 
 	documents := []string{
 		filepath.Join("docs", "architecture.md"),
-		filepath.Join("docs", "solution-host-binding.md"),
+		filepath.Join("docs", "module-manifest.md"),
+		filepath.Join("docs", "module-contract.md"),
 		filepath.Join("docs", "work-context.md"),
 		filepath.Join("docs", "readiness.md"),
 		filepath.Join("workcontext", "README.md"),
-		filepath.Join("solutionhost", "testdata", "README.md"),
 	}
 
 	checked := 0

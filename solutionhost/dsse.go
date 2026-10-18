@@ -13,12 +13,9 @@ import (
 	"strconv"
 )
 
-const (
-	// PayloadTypePresence identifies canonical solution presence JSON in DSSE.
-	PayloadTypePresence = "application/vnd.codefly.solution-presence+json"
-	// PayloadTypeAuthority identifies canonical solution authority JSON in DSSE.
-	PayloadTypeAuthority = "application/vnd.codefly.solution-authority+json"
-)
+// PayloadTypeModuleManifest identifies a canonical module manifest in DSSE.
+// It is the one payload type this package signs or verifies.
+const PayloadTypeModuleManifest = "application/vnd.codefly.module-manifest+json"
 
 // Strings enforce base64 on the wire: encoding/json also accepts byte arrays
 // for []byte, which is not the DSSE envelope format.
@@ -34,14 +31,10 @@ type dsseSignature struct {
 }
 
 func payloadTypeFor(document []byte) (string, error) {
-	switch schema := documentSchema(document); schema {
-	case SchemaPresenceV1:
-		return PayloadTypePresence, nil
-	case SchemaAuthorityV1:
-		return PayloadTypeAuthority, nil
-	default:
-		return "", fmt.Errorf("%w: no DSSE payload type for document schema %q", ErrSchema, schema)
+	if schema := documentSchema(document); schema != SchemaModuleManifestV1 {
+		return "", schemaRefusal(schema, SchemaModuleManifestV1)
 	}
+	return PayloadTypeModuleManifest, nil
 }
 
 // pae implements DSSE pre-authentication encoding. Lengths count bytes, and

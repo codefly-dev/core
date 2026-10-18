@@ -43,10 +43,10 @@ func TestAttestVerifyAndDeterministicDigest(t *testing.T) {
 	if verified.GetPayloadSha256() == "" {
 		t.Fatal("verified receipt has no payload digest")
 	}
-	if got := verified.GetPayloadSha256(); got != "350da2b91d37c445768536587de8d772bcabecb2411265eaf7d7202cdf003b51" {
+	if got := verified.GetPayloadSha256(); got != "144e4da6cd2aa4fa188635c701b490c101510f2feb4ebd219dd8d7debdbc9056" {
 		t.Fatalf("payload_sha256 golden = %s", got)
 	}
-	if got := hex.EncodeToString(attestation.GetSignature()); got != "29741b88a7e7a9b2b6fd94b31016381623ffa6b672b7abb8b7f68326e9c3a0faf17336e95d6b3cb86c4b8d831223fb178cc2b08fbbd28fb6e5c2452a8f5b0e03" {
+	if got := hex.EncodeToString(attestation.GetSignature()); got != "ed1664627a992fff0bba00fecc2156850bf281ab4e22f932f19db635950fcd79ddff78d1cdfdfd7f1e1bf1e08d150d9763a447fa1a32940f9301420b2db9b305" {
 		t.Fatalf("signature golden = %s", got)
 	}
 
@@ -194,11 +194,6 @@ func validReceipt() *executionv1.ExecutionReceiptV1 {
 			Seal: &basev0.WorkSealV1{
 				PrincipalEpoch: 2, InstallationId: "installation-1",
 				InstallationRevision: 3,
-				// The execution fields carry explicit presence now, because a
-				// principal that bears no execution — a human session —
-				// carries neither, and the schema requires them as a pair.
-				BuildIncarnation: receiptIncarnation(),
-				ImageDigest:      receiptDigest(),
 			},
 			ActorChain: []*basev0.WorkActorV1{{
 				PrincipalId: "principal-claude", PrincipalKind: "agent", DelegationId: "delegation-1",
@@ -231,12 +226,4 @@ func stringPointer(value string) *string {
 	return &value
 }
 
-func receiptIncarnation() *uint64 {
-	value := uint64(11)
-	return &value
-}
 
-func receiptDigest() *string {
-	value := "sha256:eca6c756839cbd532a6c7cb16fa75263600f3c710738ac267fb3988e03e146aa"
-	return &value
-}

@@ -69,11 +69,28 @@ func validateModuleReferencePathOverride(override *string) error {
 	return nil
 }
 
+// validateCarrierName holds a module or service name to the path-component
+// rule and to the grammar that keeps every carrier built from it unambiguous:
+// a carrier spells the name with "-" as "_" and separates structure from key
+// with "__" (UniqueToKey, NameToKey), so the name may not carry consecutive
+// separators of its own — "public--auth" and "public__auth" would both spell
+// PUBLIC__AUTH, and a service carrier built from either reads the first
+// segment of its key as structure, classifying a public value by its group.
+func validateCarrierName(kind, name string) error {
+	if err := validateResourcePathComponent(kind, name); err != nil {
+		return err
+	}
+	if strings.Contains(NameToKey(name), "__") {
+		return fmt.Errorf("%s name %q carries consecutive separators, which its carriers would spell as %q where \"__\" separates structure from the key; use single dashes", kind, name, NameToKey(name))
+	}
+	return nil
+}
+
 func validateModuleReferencePath(ref *ModuleReference) error {
 	if ref == nil {
 		return fmt.Errorf("module reference cannot be nil")
 	}
-	if err := validateResourcePathComponent("module", ref.Name); err != nil {
+	if err := validateCarrierName("module", ref.Name); err != nil {
 		return err
 	}
 	if err := validateModuleReferencePathOverride(ref.PathOverride); err != nil {
@@ -96,7 +113,7 @@ func validateServiceReferencePath(ref *ServiceReference) error {
 	if ref == nil {
 		return fmt.Errorf("service reference cannot be nil")
 	}
-	if err := validateResourcePathComponent("service", ref.Name); err != nil {
+	if err := validateCarrierName("service", ref.Name); err != nil {
 		return err
 	}
 	return validateResourcePathOverride("service", ref.PathOverride)
@@ -175,7 +192,7 @@ func (workspace *Workspace) validatePaths() error {
 }
 
 func (mod *Module) validatePaths() error {
-	if err := validateResourcePathComponent("module", mod.Name); err != nil {
+	if err := validateCarrierName("module", mod.Name); err != nil {
 		return err
 	}
 	if err := mod.validateVendored(); err != nil {
@@ -191,7 +208,7 @@ func (mod *Module) validatePaths() error {
 		return err
 	}
 	if mod.ServiceEntry != "" {
-		if err := validateResourcePathComponent("service entry", mod.ServiceEntry); err != nil {
+		if err := validateCarrierName("service entry", mod.ServiceEntry); err != nil {
 			return err
 		}
 		found := false
@@ -229,7 +246,7 @@ func (mod *Module) validatePaths() error {
 }
 
 func (service *Service) validatePaths() error {
-	if err := validateResourcePathComponent("service", service.Name); err != nil {
+	if err := validateCarrierName("service", service.Name); err != nil {
 		return err
 	}
 	return validateResourcePathOverride("service", service.PathOverride)

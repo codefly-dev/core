@@ -16,32 +16,33 @@ import (
 // delivered signature into a verification failure nobody can read. JSON has no
 // folding, and a JSON object is valid YAML, so the carrier still travels
 // through a pipeline that classifies delivery documents by this extension.
-const SignedFileName = "solution-host-binding.signed.codefly.yaml"
+const SignedFileName = "module-manifest.signed.codefly.yaml"
 
 var (
-	// ErrUnsigned means a carrier is not a signed document this package reads —
-	// a missing document, a missing envelope, or an invalid carrier shape.
-	ErrUnsigned = errors.New("solution host document is not a signed document")
+	// ErrUnsigned means a carrier is not a signed manifest this package reads —
+	// a missing document, a missing envelope, an invalid carrier shape, or an
+	// attestation that does not hold.
+	ErrUnsigned = errors.New("module manifest is not a signed document")
 
 	// ErrNotCanonical means a payload is not the canonical encoding of the
 	// document it decodes to. It is refused even when the signature over those
 	// bytes is genuine: a signer and a host that disagree about which bytes
 	// represent the document disagree about what was approved, and the host's
 	// stored digest would not match the payload that was attested.
-	ErrNotCanonical = errors.New("solution host document payload is not its canonical encoding")
+	ErrNotCanonical = errors.New("module manifest payload is not its canonical encoding")
 )
 
-// Signed carries a canonical document and the DSSE envelope attesting it.
+// Signed carries a canonical manifest and the DSSE envelope attesting it.
 // Verification is offline, using only the Go standard library and the host's
 // pinned public keys. No third-party service or carrier-supplied trust material
 // participates. SignEnvelope uses a caller-held Signer to produce the envelope.
 //
-// ParseSigned only decodes the carrier. VerifyDelivered and
-// VerifyDeliveredAuthority verify it before returning a document for admission.
+// ParseSigned only decodes the carrier. VerifyDelivered verifies it before
+// returning a manifest for admission.
 type Signed struct {
-	// Document contains the canonical document bytes verbatim. Its schema and
-	// the envelope's payloadType must agree, and its bytes must be identical
-	// to the envelope's decoded payload. Re-encoding is not verification.
+	// Document contains the canonical manifest bytes verbatim. They must be
+	// identical to the envelope's decoded payload. Re-encoding is not
+	// verification.
 	Document json.RawMessage `json:"document"`
 
 	// Envelope is a DSSE JSON object with exactly one signature.
@@ -95,68 +96,32 @@ func (signed *Signed) validate() error {
 	return nil
 }
 
-// PresenceFromVerified turns payload bytes the caller HAS ALREADY VERIFIED into
-// a presence document.
+// ManifestFromVerified turns payload bytes the caller HAS ALREADY VERIFIED
+// into a manifest. It verifies no signature: a caller that reaches it without
+// verifying the envelope over these exact bytes has authenticated nothing.
+// VerifyDelivered is the entrypoint that does both.
 //
-// This function verifies no signature and checks no pinned key. A caller
-// that reaches it without verifying the envelope over these exact bytes has
-// authenticated nothing. A successful return here is not evidence that
-// anything was signed.
-//
-// What it does own is the document half, and all three parts matter:
-//
-//   - strict parse, so an unknown field is a version step rather than a
-//     silently ignored intention;
-//   - the schema, which names the document TYPE and is inside the signed bytes,
-//     so a verified authority payload cannot be read as a presence document;
-//   - the canonical round-trip, which refuses a payload that is not the
-//     canonical encoding of the document it decodes to. That is refused even
-//     when the attestation over those bytes is genuine, because a signer and a
-//     host that disagree about which bytes represent the document disagree
-//     about what was approved — and the digest the host stores would not match
-//     the bytes that were attested.
-func PresenceFromVerified(payload []byte) (*SolutionHostBinding, error) {
-	return fromVerified(payload, Parse, SchemaPresenceV1, func(document *SolutionHostBinding) ([]byte, error) {
-		return document.CanonicalBytes()
-	})
-}
-
-// AuthorityFromVerified turns payload bytes the caller has already verified
-// into an authority document. Everything PresenceFromVerified says applies.
-//
-// Validating it against an envelope, and matching it to a presence document and
-// a build, are separate steps: see (*AuthorityDocument).ValidateAgainst and
-// Activate.
-func AuthorityFromVerified(payload []byte) (*AuthorityDocument, error) {
-	return fromVerified(payload, ParseAuthority, SchemaAuthorityV1, func(document *AuthorityDocument) ([]byte, error) {
-		return document.CanonicalBytes()
-	})
-}
-
-func fromVerified[T any](
-	payload []byte,
-	parse func([]byte) (*T, error),
-	schema string,
-	canonical func(*T) ([]byte, error),
-) (*T, error) {
+// What it owns is the document half: the strict parse, the schema (inside the
+// signed bytes), and the canonical round-trip, which refuses a payload that is
+// not the canonical encoding of the manifest it decodes to — even under a
+// genuine signature, because a signer and a host that disagree about which
+// bytes are the manifest disagree about what was delivered.
+func ManifestFromVerified(payload []byte) (*ModuleManifest, error) {
 	if len(bytes.TrimSpace(payload)) == 0 {
 		return nil, fmt.Errorf("%w: no payload", ErrUnsigned)
 	}
-	document, err := parse(payload)
+	manifest, err := Parse(payload)
 	if err != nil {
 		return nil, err
 	}
-	if got := documentSchema(payload); got != schema {
-		return nil, fmt.Errorf("%w: the payload declares %q, not %q", ErrSchema, got, schema)
-	}
-	encoded, err := canonical(document)
+	encoded, err := manifest.CanonicalBytes()
 	if err != nil {
 		return nil, err
 	}
 	if !bytes.Equal(encoded, payload) {
 		return nil, ErrNotCanonical
 	}
-	return document, nil
+	return manifest, nil
 }
 
 // documentSchema reads the document kind. Invalid JSON or a missing schema
@@ -171,20 +136,10 @@ func documentSchema(payload []byte) string {
 	return header.Schema
 }
 
-// SignedPayload returns the canonical payload bytes for a validated
-// presence document, and SignedPayloadFor does the same for an authority
-// document. They exist so the signing pipeline never reimplements the canonical
-// encoding, and so that "what was signed" has one answer on both sides.
-//
-// Pass these bytes to SignEnvelope with a platform-owned Signer.
-func SignedPayload(document *SolutionHostBinding) ([]byte, error) {
-	return document.CanonicalBytes()
-}
-
-// SignedPayloadFor returns the canonical payload bytes for a validated
-// authority document.
-func SignedPayloadFor(document *AuthorityDocument) ([]byte, error) {
-	return document.CanonicalBytes()
+// SignedPayload returns the canonical bytes of a valid manifest: what
+// SignEnvelope signs, so the signing pipeline never reimplements the encoding.
+func SignedPayload(manifest *ModuleManifest) ([]byte, error) {
+	return manifest.CanonicalBytes()
 }
 
 // Carrier assembles the delivered form from a payload and the envelope attesting
@@ -198,14 +153,11 @@ func Carrier(payload []byte, envelope json.RawMessage) (*Signed, error) {
 	if err := signed.validate(); err != nil {
 		return nil, err
 	}
-	// The payload must be canonical for SOMETHING, or the carrier is built
-	// around bytes no consumer can round-trip. Checking it here fails the
-	// render that produced it rather than the host that received it.
-	if _, presence := PresenceFromVerified(payload); presence != nil {
-		if _, authority := AuthorityFromVerified(payload); authority != nil {
-			return nil, fmt.Errorf("%w: the payload is neither a canonical presence document (%v) nor a canonical authority document (%v)",
-				ErrUnsigned, presence, authority)
-		}
+	// The payload must be a canonical manifest, or the carrier is built around
+	// bytes no host can round-trip. Checking it here fails the render that
+	// produced it rather than the host that received it.
+	if _, err := ManifestFromVerified(payload); err != nil {
+		return nil, fmt.Errorf("%w: the payload is not a canonical module manifest: %w", ErrUnsigned, err)
 	}
 	return signed, nil
 }

@@ -147,12 +147,15 @@ func TestTheConsumptionRevisionIsBumpable(t *testing.T) {
 }
 
 // A solution that asks for no scopes asks for no authority.
-func TestConsumptionContractIsNilWithoutScopes(t *testing.T) {
+func TestConsumptionContractDeclaresEmptyBindingsWithoutScopes(t *testing.T) {
 	m, err := manifest.Load([]byte(validManifest))
 	require.NoError(t, err)
 	contract, err := m.ConsumptionContract("fixture")
 	require.NoError(t, err)
-	require.Nil(t, contract)
+	require.NotNil(t, contract)
+	require.Equal(t, "fixture", contract.Principal)
+	require.NotNil(t, contract.Bindings)
+	require.Empty(t, contract.Bindings)
 }
 
 // The scopes are canonical in the digest.
@@ -281,7 +284,8 @@ func TestLoadConsumptionReadsOnlyTheConsumption(t *testing.T) {
 			require.NotEmpty(t, m.API.Consumes)
 			contract, err := m.ConsumptionContract("consumer")
 			require.NoError(t, err)
-			require.Nil(t, contract, "it asks for nothing")
+			require.NotNil(t, contract)
+			require.Empty(t, contract.Bindings, "it asks for no consumed permission")
 		})
 	}
 	t.Run("scoped-consumer.yaml", func(t *testing.T) {

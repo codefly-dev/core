@@ -87,32 +87,14 @@ untouched, and it is the one fixture that *must* report a signature failure;
 real precisely so that a verifier checking the signature first would still
 refuse it — with the wrong error.
 
-## `SealSource` has four methods, and the fourth is per-principal
+## `SealSource` has three methods
 
-`Seal` (installation state), `PrincipalEpoch`, `ApprovedBuild`, and
-`OperationBinding`.
-
-`ApprovedBuild(ctx, principalID) (digest string, incarnation uint64, err error)`
-is the newest and the reason the others changed shape: the approved execution
-used to live on `Seal`, read for the task's OWNER, so a derived capability's
-execution described the owner's workload no matter who held it — and a hop's
-principal does not hold the owner's installation, so a derivation had nothing
-to attest against. Minting was execution-bound at `Start` and nowhere else.
-
-Two things to implement deliberately rather than by default:
-
-- **Return `ErrNoApprovedBuild` for a principal that bears no execution.** It
-  is the right answer for a human session, not a missing record. Do NOT return
-  an empty digest: a verifier cannot tell that from an issuer that has lost the
-  record, and those two must not read alike.
-- **Key it on the principal and nothing else.** A lookup by (service account,
-  image digest) answers "approved" for whatever a superseded pod presents,
-  which is the hole the field exists to close.
-
-`MemorySealSource.PutApprovedBuild` is monotone in the incarnation and free in
-the digest — approving a different build is not a rewind, it is what approving
-a build is, and the incarnation advancing with it separates the runs. A
-principal that bears no execution is recorded by recording nothing.
+`Seal` (installation state), `PrincipalEpoch` and `OperationBinding`. There is
+no build in a seal: what a workload runs is checked where it mints, by the host
+that attests it (core `workloadidentity`), and a change of approved builds
+revokes through the principal's epoch and the installation's revision. See
+[docs/work-context.md](../docs/work-context.md), "What a workload runs is
+checked where it mints, not sealed".
 
 ## What a consumer owes
 
@@ -258,20 +240,13 @@ shape that has now appeared three times in this contract, tabulated in
 [`docs/architecture.md`](../docs/architecture.md) under "A required input needs
 an independent source":
 
-- **Where a host gets `Execution.ImageDigest`.** This is the big one. The field
-  is the running build, and `SealSource.ApprovedBuild` answers the APPROVED
-  build; a host that fills the first from the record that produced the second
-  compares approved against approved, so the mint passes for every caller —
-  including the superseded pod the field exists to refuse. **The kit itself
-  does this**, in `fixtureSessionOn`: it reads `ApprovedBuild` and attests the
-  answer back.
-  That is deliberate and unavoidable here — a fixture has no pod, and a
-  negative fixture must mint against a divergent source or the capability it
-  exists to present cannot be produced — but it means the reference
-  implementation demonstrates the shortcut, so copying its shape is copying
-  the tautology. The test that catches it needs a host and cannot live here:
-  take a pod from a SUPERSEDED generation and confirm the mint refuses. "A
-  sound execution mints" passes either way.
+- **Where a host gets the running build.** The host compares the build its
+  workload attester reports with the build its declared workload is approved
+  for. Filling the first from the record that produced the second compares
+  approved against approved and passes for every caller — including a pod from
+  a superseded generation. The test that catches it needs a host and cannot
+  live here: take a pod from a SUPERSEDED generation and confirm the mint
+  refuses.
 - **Who may hold the key.** The kit asserts nothing about key custody; its own
   key is refused by default for the reason in the next section.
 - **That a consumer imports core rather than reimplementing it.** The kit runs
