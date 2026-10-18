@@ -321,3 +321,181 @@ func TestAdmitEnvelope(t *testing.T) {
 		})
 	}
 }
+
+// The first envelope is admitted under whatever domain it declares, from any
+// release key pinned for that domain, and its domain then owns the host's
+// envelope. Core cannot know which domain should; this pins that contract, so
+// a host that does not pin the owner of its envelope and check it before
+// admission is visibly relying on trust on first use.
+func TestTheFirstEnvelopeIsAdmittedUnderAnyPinnedDomainSoTheHostPinsItsOwner(t *testing.T) {
+	const owner, foreign = testDomain, "acme"
+	acme := signerFor(t, "acme-release")
+	verifier := verifierFor(t,
+		pinFor(t, signerFor(t, testKeyID), solutionhost.KeyKindRelease, owner),
+		pinFor(t, acme, solutionhost.KeyKindRelease, foreign))
+
+	claim := validEnvelope(t)
+	claim.Host.Domain = foreign
+	claim.Revision = 1
+	delivered, err := solutionhost.VerifyDeliveredEnvelope(context.Background(), signedWith(t, envelopePayload(t, claim), acme), verifier)
+	require.NoError(t, err, "acme's key is a release key pinned for the domain the envelope declares")
+	first, err := delivered.Envelope()
+	require.NoError(t, err)
+	decision, err := solutionhost.AdmitEnvelope(testCoordinate, nil, first)
+	require.NoError(t, err)
+	require.Equal(t, solutionhost.DecisionAccept, decision, "with nothing delivered, Core has no domain to hold the first envelope to")
+
+	// From then on the first domain owns the host's envelope, whatever the
+	// revision: the rightful owner is locked out.
+	rightful := validEnvelope(t)
+	rightful.Revision = 99
+	_, err = solutionhost.AdmitEnvelope(testCoordinate, first, rightful)
+	require.ErrorIs(t, err, solutionhost.ErrWrongDomain)
+
+	// Which is why the host checks the domain it pins as owner first.
+	require.NotEqual(t, owner, first.Host.Domain)
+}
+
+// The signer's kind is checked before the document is read: a person key is
+// refused as a person key, whatever bytes it signed.
+func TestAPersonKeyIsRefusedAsSuchWhateverItSigned(t *testing.T) {
+	person := verifierFor(t, pinFor(t, signerFor(t, testKeyID), solutionhost.KeyKindPerson, testDomain))
+	canonical := envelopePayload(t, validEnvelope(t))
+	manifest, err := solutionhost.SignedPayload(valid(t))
+	require.NoError(t, err)
+	for name, payload := range map[string][]byte{
+		"canonical envelope":     canonical,
+		"non-canonical envelope": append(append([]byte{}, canonical...), '\n'),
+		"manifest":               manifest,
+	} {
+		signed, err := solutionhost.SignEnvelope(payload, signerFor(t, testKeyID))
+		require.NoError(t, err)
+		_, err = solutionhost.VerifyDeliveredEnvelope(context.Background(), &solutionhost.Signed{Document: payload, Envelope: signed}, person)
+		require.ErrorIs(t, err, solutionhost.ErrEnvelopeSignerNotRelease, name)
+	}
+}
+
+// The size bound holds before any byte is verified or decoded: an oversized
+// carrier from an unpinned key is refused for its size, not its signature.
+func TestADeliveredEnvelopeIsBoundedBeforeItIsVerified(t *testing.T) {
+	huge := []byte(`{"schema":"` + solutionhost.SchemaModuleEnvelopeV1 + `","pad":"` + strings.Repeat("x", solutionhost.EnvelopeMaxBytes) + `"}`)
+	_, err := solutionhost.VerifyDeliveredEnvelope(context.Background(), &solutionhost.Signed{Document: huge, Envelope: json.RawMessage(`{}`)}, testVerifier(t))
+	require.ErrorIs(t, err, solutionhost.ErrEnvelopeInvalid)
+	require.NotErrorIs(t, err, solutionhost.ErrUnsigned)
+
+	carrier := signedWith(t, envelopePayload(t, validEnvelope(t)), signerFor(t, "stranger"))
+	carrier.Envelope = json.RawMessage(`{"pad":"` + strings.Repeat("x", 2*solutionhost.EnvelopeMaxBytes) + `"}`)
+	_, err = solutionhost.VerifyDeliveredEnvelope(context.Background(), carrier, testVerifier(t))
+	require.ErrorIs(t, err, solutionhost.ErrEnvelopeInvalid)
+}
+
+// An envelope refusal keeps the shared sentinel for errors.Is, but never calls
+// the document a module manifest — a host surfaces these words to a person.
+func TestEnvelopeRefusalsNameTheEnvelope(t *testing.T) {
+	ctx := context.Background()
+	payload := envelopePayload(t, validEnvelope(t))
+	type refusal struct{ err, want error }
+	refusals := map[string]refusal{}
+	var err error
+
+	replaced := []byte(`{"schema":"codefly/solution-authority/v1"}`)
+	_, err = solutionhost.EnvelopeFromVerified(replaced)
+	refusals["replaced family"] = refusal{err, solutionhost.ErrSchema}
+	_, err = solutionhost.VerifyDeliveredEnvelope(ctx, signedValid(t), testVerifier(t))
+	refusals["manifest document"] = refusal{err, solutionhost.ErrSchema}
+	_, err = solutionhost.VerifyDeliveredEnvelope(ctx, &solutionhost.Signed{Document: replaced, Envelope: json.RawMessage(`{}`)}, testVerifier(t))
+	refusals["unknown document"] = refusal{err, solutionhost.ErrUnsigned}
+	_, err = solutionhost.VerifyDeliveredEnvelope(ctx, &solutionhost.Signed{Document: payload}, testVerifier(t))
+	refusals["no signature envelope"] = refusal{err, solutionhost.ErrUnsigned}
+	_, err = solutionhost.VerifyDeliveredEnvelope(ctx, signedWith(t, payload, signerFor(t, "stranger")), testVerifier(t))
+	refusals["untrusted"] = refusal{err, solutionhost.ErrUnsigned}
+	_, err = solutionhost.EnvelopeFromVerified(append(append([]byte{}, payload...), ' '))
+	refusals["not canonical"] = refusal{err, solutionhost.ErrNotCanonical}
+	_, err = solutionhost.EnvelopeFromVerified(nil)
+	refusals["empty"] = refusal{err, solutionhost.ErrUnsigned}
+	otherDomain := verifierFor(t, pinFor(t, signerFor(t, testKeyID), solutionhost.KeyKindRelease, "other"))
+	_, err = solutionhost.VerifyDeliveredEnvelope(ctx, signedWith(t, payload, signerFor(t, testKeyID)), otherDomain)
+	refusals["wrong domain"] = refusal{err, solutionhost.ErrWrongDomain}
+	elsewhere := validEnvelope(t)
+	elsewhere.Host.Coordinate = "obin/local/other"
+	_, err = solutionhost.AdmitEnvelope(testCoordinate, nil, elsewhere)
+	refusals["wrong host"] = refusal{err, solutionhost.ErrWrongHost}
+	unusable := validEnvelope(t)
+	unusable.Revision = 0
+	_, err = solutionhost.AdmitEnvelope(testCoordinate, unusable, validEnvelope(t))
+	refusals["unusable previous"] = refusal{err, solutionhost.ErrAppliedUnusable}
+	other := validEnvelope(t)
+	other.Host.Domain = "other"
+	_, err = solutionhost.AdmitEnvelope(testCoordinate, validEnvelope(t), other)
+	refusals["domain change"] = refusal{err, solutionhost.ErrWrongDomain}
+
+	for name, refused := range refusals {
+		require.ErrorIs(t, refused.err, refused.want, name)
+		require.NotContains(t, refused.err.Error(), "module manifest", name)
+		require.Contains(t, refused.err.Error(), "module envelope", name)
+	}
+	require.NotContains(t, refusals["replaced family"].err.Error(), "replaced")
+}
+
+// Characters encoding/json escapes or repairs — HTML, the line separators,
+// invalid UTF-8 — reach one canonical form and survive the carrier byte for
+// byte. The raw spellings are not that form, so they are refused.
+func TestAGrantsEscapedCharactersSurviveTheCarrier(t *testing.T) {
+	envelope := validEnvelope(t)
+	envelope.Principals["wiki"] = json.RawMessage("{\"html\":\"<a href='x'>&</a>\",\"separator\":\"\u2028\u2029\",\"broken\":\"\xff\"}")
+	payload := envelopePayload(t, envelope)
+	require.Contains(t, string(payload), `\u003ca href='x'\u003e\u0026\u003c/a\u003e`)
+	require.Contains(t, string(payload), `\u2028\u2029`)
+	require.Contains(t, string(payload), "\ufffd")
+
+	written, err := solutionhost.MarshalSigned(signedWith(t, payload, signerFor(t, testKeyID)))
+	require.NoError(t, err)
+	read, err := solutionhost.ParseSigned(written)
+	require.NoError(t, err)
+	delivered, err := solutionhost.VerifyDeliveredEnvelope(context.Background(), read, testVerifier(t))
+	require.NoError(t, err)
+	require.Equal(t, payload, delivered.Payload())
+	again, err := delivered.Envelope()
+	require.NoError(t, err)
+	digest, err := again.Digest()
+	require.NoError(t, err)
+	want, err := envelope.Digest()
+	require.NoError(t, err)
+	require.Equal(t, want, digest)
+
+	raw := strings.Replace(string(payload), `\u003ca`, `<a`, 1)
+	_, err = solutionhost.EnvelopeFromVerified([]byte(raw))
+	require.ErrorIs(t, err, solutionhost.ErrNotCanonical)
+}
+
+// Whatever bytes arrive, an accepted envelope is a fixed point of its own
+// canonical encoding, declares the envelope schema, and is never a manifest.
+func FuzzEnvelopeFromVerified(f *testing.F) {
+	envelope := &solutionhost.ModuleEnvelope{
+		Schema: solutionhost.SchemaModuleEnvelopeV1, Host: solutionhost.HostTarget{Coordinate: testCoordinate, Domain: testDomain},
+		Revision: 1, Principals: map[string]json.RawMessage{"wiki": json.RawMessage(`{"n":12345678901234567890,"s":"<\u2028>"}`)},
+	}
+	canonical, err := envelope.CanonicalBytes()
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(canonical)
+	f.Add([]byte(`{"host":{"coordinate":"a","domain":"b"},"principals":{},"revision":1,"schema":"codefly/module-envelope/v1"}`))
+	f.Add([]byte(`{"schema":"codefly/module-envelope/v1","principals":{"a":{"x":1,"x":2}}}`))
+	f.Fuzz(func(t *testing.T, payload []byte) {
+		read, err := solutionhost.EnvelopeFromVerified(payload)
+		if err != nil {
+			return
+		}
+		again, err := read.CanonicalBytes()
+		if err != nil || string(again) != string(payload) {
+			t.Fatalf("accepted %q, whose canonical encoding is %q (%v)", payload, again, err)
+		}
+		if schema := solutionhost.SchemaOf(payload); schema != solutionhost.SchemaModuleEnvelopeV1 {
+			t.Fatalf("accepted %q declaring schema %q", payload, schema)
+		}
+		if _, err := solutionhost.ManifestFromVerified(payload); err == nil {
+			t.Fatalf("%q is both an envelope and a manifest", payload)
+		}
+	})
+}

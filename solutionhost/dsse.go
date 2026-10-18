@@ -34,17 +34,20 @@ type dsseSignature struct {
 // payloadTypeFor names the DSSE payload type of a document from the schema
 // inside its bytes. Signing and verifying both derive it here, never from the
 // envelope, so the type a signature binds is the type the document declares.
+//
+// Any other schema is refused as the manifest path always refused it — the
+// same classification and the same text, which other repos match — except a
+// version of the envelope family, which is told the envelope schema it missed.
 func payloadTypeFor(document []byte) (string, error) {
-	switch schema := documentSchema(document); schema {
-	case SchemaModuleManifestV1:
+	switch schema := documentSchema(document); {
+	case schema == SchemaModuleManifestV1:
 		return PayloadTypeModuleManifest, nil
-	case SchemaModuleEnvelopeV1:
+	case schema == SchemaModuleEnvelopeV1:
 		return PayloadTypeModuleEnvelope, nil
+	case schemaFamily(schema) == schemaFamily(SchemaModuleEnvelopeV1):
+		return "", envelopeSchemaRefusal(schema)
 	default:
-		if replacedFamily(schema) {
-			return "", schemaRefusal(schema, SchemaModuleManifestV1)
-		}
-		return "", fmt.Errorf("%w: %q (this Core signs %q and %q)", ErrSchema, schema, SchemaModuleManifestV1, SchemaModuleEnvelopeV1)
+		return "", schemaRefusal(schema, SchemaModuleManifestV1)
 	}
 }
 

@@ -230,8 +230,14 @@ func (v *Verifier) VerifyEnvelope(ctx context.Context, document []byte, encoded 
 }
 
 func (v *Verifier) checkDomain(signer SignerIdentity, domain string) error {
-	if !slices.Contains(v.keys.keys[signer.KeyID].domains, domain) {
+	if !v.mayDeliver(signer, domain) {
 		return fmt.Errorf("%w: pinned key %q may not deliver under ownership domain %q", ErrWrongDomain, signer.KeyID, domain)
 	}
 	return nil
+}
+
+// mayDeliver is the pinned domain policy itself: whether signer is pinned for
+// domain.
+func (v *Verifier) mayDeliver(signer SignerIdentity, domain string) bool {
+	return slices.Contains(v.keys.keys[signer.KeyID].domains, domain)
 }

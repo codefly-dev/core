@@ -79,22 +79,32 @@ func ParseSigned(data []byte) (*Signed, error) {
 }
 
 func (signed *Signed) validate() error {
+	if defect := signed.defect(); defect != "" {
+		return fmt.Errorf("%w: %s", ErrUnsigned, defect)
+	}
+	return nil
+}
+
+// defect names what is wrong with the carrier's shape, "" when nothing is.
+// It is the words without the sentinel, so the envelope path can say them
+// about an envelope.
+func (signed *Signed) defect() string {
 	if len(bytes.TrimSpace(signed.Document)) == 0 {
-		return fmt.Errorf("%w: the carrier holds no document", ErrUnsigned)
+		return "the carrier holds no document"
 	}
 	// An envelope that is absent, empty or JSON null is no attestation. The shape
 	// parser requires its presence; Verifier checks its contents.
 	trimmed := bytes.TrimSpace(signed.Envelope)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return fmt.Errorf("%w: the carrier holds no signature envelope", ErrUnsigned)
+		return "the carrier holds no signature envelope"
 	}
 	// An object, because an envelope is one. Refusing the other JSON shapes keeps
 	// a single wire form: a base64 string of an envelope would also decode as
 	// valid JSON here, and two accepted shapes is two code paths downstream.
 	if trimmed[0] != '{' {
-		return fmt.Errorf("%w: the signature envelope must be a JSON object", ErrUnsigned)
+		return "the signature envelope must be a JSON object"
 	}
-	return nil
+	return ""
 }
 
 // ManifestFromVerified turns payload bytes the caller HAS ALREADY VERIFIED
@@ -160,19 +170,19 @@ func Carrier(payload []byte, envelope json.RawMessage) (*Signed, error) {
 	}
 	// The payload must be a canonical document, or the carrier is built around
 	// bytes no host can round-trip. Checking it here fails the render that
-	// produced it rather than the host that received it.
-	switch SchemaOf(payload) {
-	case SchemaModuleManifestV1:
-		if _, err := ManifestFromVerified(payload); err != nil {
-			return nil, fmt.Errorf("%w: the payload is not a canonical module manifest: %w", ErrUnsigned, err)
-		}
-	case SchemaModuleEnvelopeV1:
+	// produced it rather than the host that received it. Only a payload that
+	// declares the envelope schema is read as one: everything else — a
+	// manifest, YAML, a payload with no readable schema — is refused by the
+	// manifest reader exactly as it was before envelopes existed, so a
+	// manifest caller's classification of a bad payload does not move.
+	if SchemaOf(payload) == SchemaModuleEnvelopeV1 {
 		if _, err := EnvelopeFromVerified(payload); err != nil {
-			return nil, fmt.Errorf("%w: the payload is not a canonical module envelope: %w", ErrUnsigned, err)
+			return nil, refuseEnvelope(ErrUnsigned, err, "the payload is not a canonical module envelope")
 		}
-	default:
-		_, err := payloadTypeFor(payload)
-		return nil, fmt.Errorf("%w: the payload is neither a module manifest nor a module envelope: %w", ErrUnsigned, err)
+		return signed, nil
+	}
+	if _, err := ManifestFromVerified(payload); err != nil {
+		return nil, fmt.Errorf("%w: the payload is not a canonical module manifest: %w", ErrUnsigned, err)
 	}
 	return signed, nil
 }

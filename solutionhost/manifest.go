@@ -315,16 +315,17 @@ var replacedFamilies = []string{
 	"codefly/endpoint-delivery",
 }
 
-func replacedFamily(declared string) bool {
-	family := declared
+// schemaFamily is a schema without its version: "codefly/module-manifest" for
+// "codefly/module-manifest/v1".
+func schemaFamily(declared string) string {
 	if cut := strings.LastIndex(declared, "/"); cut >= 0 {
-		family = declared[:cut]
+		return declared[:cut]
 	}
-	return slices.Contains(replacedFamilies, family)
+	return declared
 }
 
 func schemaRefusal(declared, accepted string) error {
-	if replacedFamily(declared) {
+	if slices.Contains(replacedFamilies, schemaFamily(declared)) {
 		return fmt.Errorf("%w: %q is a presence, authority or endpoint-delivery document, which the module manifest (%q) replaced; re-render it with a current Codefly CLI",
 			ErrSchema, declared, accepted)
 	}
