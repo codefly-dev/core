@@ -67,11 +67,13 @@ second document is refused rather than repaired — and validates. Rules
   `module` or `solution`; the generation is at least 1; the host coordinate
   and domain are names; the release publisher and name are single segments
   and the version is exact semver;
-- a live manifest declares at least one workload; services are unique; each
-  SPIFFE ID parses strictly as `spiffe://<trust domain>/ns/<namespace>/sa/<account>`
-  (`solutionhost.ParseWorkloadSPIFFEID`), and one (namespace, account)
-  appears once, because it is all a mint finds a workload by
-  (`solutionhost.ModuleManifest.WorkloadFor`);
+- a live manifest declares at least one workload, each a (service, container)
+  pair and nothing of where it runs; services are unique. A cell spells the
+  rest by rule — the namespace named after the module, the ServiceAccount named
+  after the service — and the rule reads both ways in `workloadidentity`
+  (`Workload.KubernetesNamespace`, `Workload.KubernetesAccount`, `Workload.SPIFFEID`,
+  `FromKubernetes`), so no typed SPIFFE ID is declared and a mint finds a
+  workload by that rule, by service (`solutionhost.ModuleManifest.WorkloadNamed`);
 - each endpoint names a declared workload's service and carries one address;
 - the frontend and the group are held to their block rules (bounded texts,
   decimal numbers, surfaces, the payload's digest and media type; a group only
