@@ -19,9 +19,9 @@ import (
 const SignedFileName = "module-manifest.signed.codefly.yaml"
 
 var (
-	// ErrUnsigned means a carrier is not a signed manifest this package reads —
-	// a missing document, a missing envelope, an invalid carrier shape, or an
-	// attestation that does not hold.
+	// ErrUnsigned means a carrier is not a signed document this package reads
+	// (a manifest or an envelope) — a missing document, a missing envelope, an
+	// invalid carrier shape, or an attestation that does not hold.
 	ErrUnsigned = errors.New("module manifest is not a signed document")
 
 	// ErrNotCanonical means a payload is not the canonical encoding of the
@@ -32,15 +32,16 @@ var (
 	ErrNotCanonical = errors.New("module manifest payload is not its canonical encoding")
 )
 
-// Signed carries a canonical manifest and the DSSE envelope attesting it.
+// Signed carries a canonical document — a manifest or an envelope — and the
+// DSSE envelope attesting it.
 // Verification is offline, using only the Go standard library and the host's
 // pinned public keys. No third-party service or carrier-supplied trust material
 // participates. SignEnvelope uses a caller-held Signer to produce the envelope.
 //
 // ParseSigned only decodes the carrier. VerifyDelivered verifies it before
-// returning a manifest for admission.
+// returning a manifest for admission, VerifyDeliveredEnvelope an envelope.
 type Signed struct {
-	// Document contains the canonical manifest bytes verbatim. They must be
+	// Document contains the canonical document bytes verbatim. They must be
 	// identical to the envelope's decoded payload. Re-encoding is not
 	// verification.
 	Document json.RawMessage `json:"document"`
@@ -143,8 +144,12 @@ func SignedPayload(manifest *ModuleManifest) ([]byte, error) {
 }
 
 // Carrier assembles the delivered form from a payload and the envelope attesting
-// it. SignEnvelope produces an envelope using a caller-held key. Carrier checks the
-// document shape; acceptance still requires the host's pinned-key Verifier.
+// it. SignEnvelope produces an envelope using a caller-held key. The payload is a
+// canonical module manifest or a canonical module envelope, told apart by the
+// schema inside it; the carrier is one shape for both, and VerifyDelivered or
+// VerifyDeliveredEnvelope is what says which document a host accepts from it.
+// Carrier checks the document shape; acceptance still requires the host's
+// pinned-key Verifier.
 func Carrier(payload []byte, envelope json.RawMessage) (*Signed, error) {
 	signed := &Signed{
 		Document: bytes.Clone(payload),
@@ -153,11 +158,21 @@ func Carrier(payload []byte, envelope json.RawMessage) (*Signed, error) {
 	if err := signed.validate(); err != nil {
 		return nil, err
 	}
-	// The payload must be a canonical manifest, or the carrier is built around
+	// The payload must be a canonical document, or the carrier is built around
 	// bytes no host can round-trip. Checking it here fails the render that
 	// produced it rather than the host that received it.
-	if _, err := ManifestFromVerified(payload); err != nil {
-		return nil, fmt.Errorf("%w: the payload is not a canonical module manifest: %w", ErrUnsigned, err)
+	switch SchemaOf(payload) {
+	case SchemaModuleManifestV1:
+		if _, err := ManifestFromVerified(payload); err != nil {
+			return nil, fmt.Errorf("%w: the payload is not a canonical module manifest: %w", ErrUnsigned, err)
+		}
+	case SchemaModuleEnvelopeV1:
+		if _, err := EnvelopeFromVerified(payload); err != nil {
+			return nil, fmt.Errorf("%w: the payload is not a canonical module envelope: %w", ErrUnsigned, err)
+		}
+	default:
+		_, err := payloadTypeFor(payload)
+		return nil, fmt.Errorf("%w: the payload is neither a module manifest nor a module envelope: %w", ErrUnsigned, err)
 	}
 	return signed, nil
 }

@@ -195,8 +195,8 @@ func NewVerifier(keys *PinnedKeySet) (*Verifier, error) {
 // The payloadType must match the document's schema, and the decoded payload
 // must be byte-identical to document. Identity is returned only after the
 // signature over DSSE's PAE verifies. The envelope supplies no trust material.
-// Use VerifyDelivered to also check the canonical manifest and its ownership
-// domain.
+// Use VerifyDelivered or VerifyDeliveredEnvelope to also check the canonical
+// document and its ownership domain.
 func (v *Verifier) VerifyEnvelope(ctx context.Context, document []byte, encoded json.RawMessage) (SignerIdentity, error) {
 	if err := ctx.Err(); err != nil {
 		return SignerIdentity{}, err

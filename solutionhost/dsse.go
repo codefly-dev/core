@@ -14,7 +14,8 @@ import (
 )
 
 // PayloadTypeModuleManifest identifies a canonical module manifest in DSSE.
-// It is the one payload type this package signs or verifies.
+// It and PayloadTypeModuleEnvelope are the two payload types this package
+// signs or verifies.
 const PayloadTypeModuleManifest = "application/vnd.codefly.module-manifest+json"
 
 // Strings enforce base64 on the wire: encoding/json also accepts byte arrays
@@ -30,11 +31,21 @@ type dsseSignature struct {
 	Sig   string `json:"sig"`
 }
 
+// payloadTypeFor names the DSSE payload type of a document from the schema
+// inside its bytes. Signing and verifying both derive it here, never from the
+// envelope, so the type a signature binds is the type the document declares.
 func payloadTypeFor(document []byte) (string, error) {
-	if schema := documentSchema(document); schema != SchemaModuleManifestV1 {
-		return "", schemaRefusal(schema, SchemaModuleManifestV1)
+	switch schema := documentSchema(document); schema {
+	case SchemaModuleManifestV1:
+		return PayloadTypeModuleManifest, nil
+	case SchemaModuleEnvelopeV1:
+		return PayloadTypeModuleEnvelope, nil
+	default:
+		if replacedFamily(schema) {
+			return "", schemaRefusal(schema, SchemaModuleManifestV1)
+		}
+		return "", fmt.Errorf("%w: %q (this Core signs %q and %q)", ErrSchema, schema, SchemaModuleManifestV1, SchemaModuleEnvelopeV1)
 	}
-	return PayloadTypeModuleManifest, nil
 }
 
 // pae implements DSSE pre-authentication encoding. Lengths count bytes, and
