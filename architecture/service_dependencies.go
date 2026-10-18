@@ -579,7 +579,12 @@ func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context
 					d.recordReferenceDependency(consumer, producer, endpoint)
 					continue
 				}
-				if graph.reachesInStage(consumer, producer, resources.StageRun) {
+				// Any path back closes a cycle, an external one included: the
+				// edge orders no stage, but it is in the graph an unstaged
+				// OrderTo sorts, so a reference against it would make the
+				// composition unsortable (a declares b external, and b's group
+				// names a).
+				if graph.reachesInStage(consumer, producer, resources.StageRun) || graph.ReachableFrom(consumer, producer) {
 					w.Debug("skipping a configuration reference that would close a cycle",
 						wool.Field("consumer", consumer), wool.Field("producer", producer), wool.Field("group", group))
 					// Participation is recorded above, but no start-time health
