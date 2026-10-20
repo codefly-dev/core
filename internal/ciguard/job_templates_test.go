@@ -312,7 +312,7 @@ func credentialJobIsAccepted(t *testing.T, wf isolatedWorkflow, id string) (bool
 var recordedJobDigests = map[string]string{
 	"test-publish-service-image.yml/publish": "2ce352c0cd7b9d3265d098d99ac5800d3d1a8eee9fd891e51827690c6b56df61",
 	"combine-deps.yml/publish":               "fcfd1bedfe6a650e26faf14c165c6b6c96809557db594408c33a984e4d7532b1",
-	"go-service-release.yml/goreleaser":      "236e993f0419411c4093519708ebe76694d7df482bf98b8c26d8396999fd9f25",
+	"go-service-release.yml/goreleaser":      "fed5d8c6104823c87ec76d1b6a108c9dd9198ae772fc59a896d02e7bd11bb9bc",
 	"go.yml/coverage-badge":                  "ce7ceb87ecc2b05048a724a4f5fd6fd2a9611c7849eeabd1629a89266e265ac1",
 	"go.yml/notify":                          "150388315f3784739566d301151e8fc74cc6715e54b2af8420c5fdd6b59aaf75",
 	"version-tag.yml/tag":                    "447e0de19e05b354745c839d84f533fcfcb58716d7fa120bdb42846270bf0a65",
