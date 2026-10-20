@@ -2049,17 +2049,15 @@ func (docker *DockerEnvironment) ImageExists(ctx context.Context, imag *resource
 
 func ImageExists(ctx context.Context, c *client.Client, imag *resources.DockerImage) (bool, error) {
 	w := wool.Get(ctx).In("Docker.ImageExists")
-	images, err := c.ImageList(ctx, image.ListOptions{})
+	// Docker resolves equivalent names and digest references. RepoTags are a
+	// display spelling: a local image tagged org/app:v1 may be requested as
+	// docker.io/org/app:v1, and an image selected by digest need not have a tag.
+	_, err := c.ImageInspect(ctx, imag.FullName())
+	if errdefs.IsNotFound(err) {
+		return false, nil
+	}
 	if err != nil {
-		return false, w.Wrapf(err, "cannot list images")
+		return false, w.Wrapf(err, "cannot inspect image")
 	}
-	for i := range images {
-		img := &images[i]
-		for _, repoTag := range img.RepoTags {
-			if repoTag == imag.FullName() {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
+	return true, nil
 }
