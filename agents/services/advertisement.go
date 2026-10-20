@@ -1,6 +1,7 @@
 package services
 
 import (
+	"github.com/codefly-dev/core/agents/contract"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	base "github.com/codefly-dev/core/runners/base"
 )
@@ -15,6 +16,12 @@ type Advertisement struct {
 	// Backends declares which execution backends the plugin is capable of; they
 	// are resolved to what is actually installed on this host (LOCAL>NIX>DOCKER).
 	Backends base.BackendSupport
+	// BackendsComplete advertises runtime-backend-declaration/v1: Backends is
+	// the complete set of ways this plugin can run, so a host may substitute a
+	// declared backend for a runtime context the plugin cannot honour, and may
+	// read an empty resolution as "nothing here can run this plugin". Leave it
+	// false while Backends is only partly declared.
+	BackendsComplete bool
 	// Toolchains the plugin needs to run in LOCAL mode.
 	Toolchains []agentv0.Toolchain_Type
 	// HotReload advertises HOT_RELOAD in addition to BUILDER+RUNTIME.
@@ -73,6 +80,10 @@ func (a Advertisement) Build() *agentv0.AgentInformation {
 		Protocols:               []*agentv0.Protocol{},
 		Validation:              a.Validation,
 		EffectiveInputsVersions: a.EffectiveInputsVersions,
+	}
+	if a.BackendsComplete {
+		info.Contract = contract.Current()
+		info.Contract.Capabilities = append(info.Contract.Capabilities, contract.RuntimeBackendDeclaration)
 	}
 	for _, t := range a.Toolchains {
 		info.Toolchains = append(info.Toolchains, &agentv0.Toolchain{Type: t})
