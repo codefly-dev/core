@@ -30,6 +30,17 @@ const RuntimeInitImage = "runtime-init-image/v1"
 // ReportStartedArtifact must not advertise it.
 const RuntimeStartedArtifact = "runtime-started-artifact/v1"
 
+// RuntimeBackendDeclaration identifies agents whose
+// AgentInformation.supported_backends is the COMPLETE set of execution backends
+// they can use on THIS host, in their own preference order. A host reconciles a
+// requested runtime context against it, substituting the agent's preferred
+// backend for a context the agent cannot honour, and reads an empty declaration
+// as "nothing this agent can run exists here" rather than as "this agent
+// declared nothing". Both are the same empty repeated field on the wire, so the
+// promise is named rather than inferred: an agent whose supported_backends is
+// only partly declared must not advertise it.
+const RuntimeBackendDeclaration = "runtime-backend-declaration/v1"
+
 // DeploymentCompositionProvenance identifies builders that judge deployment
 // dependency edges with the request's resolved composition membership.
 const DeploymentCompositionProvenance = "deployment-composition-provenance/v1"

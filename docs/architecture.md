@@ -410,6 +410,15 @@ The same code runs in four contexts:
 
 `CODEFLY__RUNTIME_CONTEXT` environment variable controls which context is active. `NetworkAccessFromRuntimeContext()` maps context to the correct network access type.
 
+A requested context is a **preference**, not an assertion every service of a run
+can honour. Each plugin declares which execution backends it can use on this
+host in `AgentInformation.supported_backends`, and
+`services.PlanRuntimeContexts` reconciles the request against that declaration
+before anything boots: a service that can only run as a container runs as one
+under `native`, reported once as a substitution, and a service that can run
+nowhere here is named up front rather than failing deep in its own Init. See
+[the runtime contexts a plugin can run in](agent-contract.md#the-runtime-contexts-a-plugin-can-run-in).
+
 `kubernetes` is written by the builder into every Kubernetes render's
 ConfigMap (all output profiles), so a deployed service can tell it is deployed
 without comparing environment names. It is not a run context: it is absent from

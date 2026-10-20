@@ -234,6 +234,47 @@ again after a failed one. It reports `StartedArtifact{Executable: path}` with
 no sources, since the executable is the build; it never derives the path from
 the cache directory's layout.
 
+### The runtime contexts a plugin can run in
+
+`AgentInformation.supported_backends` is the plugin's own answer to "how can I
+run on this host": `LOCAL`, `NIX` and `DOCKER`, in the plugin's preference
+order, already filtered to what the machine has (`runners/base.BackendSupport`).
+`services.PlanRuntimeContexts` reconciles a run's requested runtime context
+against it, for every service, **before anything boots**.
+
+A requested context is a preference, not an assertion every service of a graph
+can honour. A plugin that *is* its runtime image — a LibreOffice engine, not a
+compiled binary the host can run — declares `DOCKER` alone, and under
+`--runtime-context native` it runs as a container, reported once as a
+substitution. The alternative, which this replaces, was the plugin refusing at
+its own Init with an error about an image field the user never set, and taking
+the whole run down with it ([core#820](https://github.com/codefly-dev/core/issues/820)).
+
+A non-empty declaration is read as complete whether or not the plugin advertises
+anything: a list naming only `DOCKER` is already evidence that there is no
+native path. An **empty** one is the ambiguous case — an older plugin that never
+filled the field and a plugin that can run nowhere on this host are the same
+empty repeated field on the wire. `runtime-backend-declaration/v1` names which:
+a plugin advertising it owns the completeness of `supported_backends`, so an
+empty resolution means nothing here can run it, and every such service is named
+in one `services.ErrNoRuntimeBackend`. Without it, an empty declaration is
+unjudged and the request passes through, which is what it did before plugins
+declared backends at all. A plugin whose `BackendSupport` is only partly
+declared must not advertise it; `services.Advertisement.BackendsComplete` is the
+agent-side opt-in, and the shared contract never advertises it for every plugin
+built on this Core.
+
+A caller holding host state the declaration cannot carry — a Docker engine that
+is installed but not running — drops those backends from
+`RuntimeContextRequest.Backends` before planning. Core reconciles a declaration;
+it does not probe a daemon.
+
+This is the Core half: the host contract and its reconciliation. The CLI's run
+resolves only the `free` hint today and honours an explicit context untouched,
+so the substitution and the up-front refusal reach a user only once
+`pkg/orchestration` plans through this. Core tests do not qualify that adoption
+or any plugin's.
+
 ### Compatibility reporting
 
 - Incompatible lifecycle semantics increment `protocol_version`. Both peers
@@ -259,6 +300,8 @@ roots. Only plans selecting an explicit root use v4; default service-root plans
 retain v3 and its digest. The plan version, not the agent identity or Core pin,
 prevents an older host from silently building the wrong tree. See
 [build recipe context selection](build-cache.md#cli-executor-selection).
+`runtime-backend-declaration/v1` is explicitly advertised by plugins that own
+the completeness of their `supported_backends`, as above.
 `runtime-init-dependency-mappings/v1` is explicitly advertised by runtimes that
 consume `InitRequest.dependencies_network_mappings` before executing a test
 whose target is never started. These are the dependencies' accepted addresses,
