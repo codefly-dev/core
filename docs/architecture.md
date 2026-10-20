@@ -415,8 +415,11 @@ can honour. Each plugin declares which execution backends it can use on this
 host in `AgentInformation.supported_backends`, and
 `services.PlanRuntimeContexts` reconciles the request against that declaration
 before anything boots: a service that can only run as a container runs as one
-under `native`, reported once as a substitution, and a service that can run
-nowhere here is named up front rather than failing deep in its own Init. See
+under `native`, and a service left with no usable backend is named up front
+rather than failing deep in its own Init. Each decision says whose fact caused
+it — the plugin's declaration or the host's own report that a backend is
+unusable — and flags the one substitution that is more than a preference, giving
+up a container image whose engine version wrote the service's state. See
 [the runtime contexts a plugin can run in](agent-contract.md#the-runtime-contexts-a-plugin-can-run-in).
 
 `kubernetes` is written by the builder into every Kubernetes render's

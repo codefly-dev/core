@@ -245,10 +245,30 @@ against it, for every service, **before anything boots**.
 A requested context is a preference, not an assertion every service of a graph
 can honour. A plugin that *is* its runtime image — a LibreOffice engine, not a
 compiled binary the host can run — declares `DOCKER` alone, and under
-`--runtime-context native` it runs as a container, reported once as a
-substitution. The alternative, which this replaces, was the plugin refusing at
+`--runtime-context native` it runs as a container. The alternative, which this replaces, was the plugin refusing at
 its own Init with an error about an image field the user never set, and taking
 the whole run down with it ([core#820](https://github.com/codefly-dev/core/issues/820)).
+
+Not every substitution costs the same, so the decision says which one happened.
+Moving *into* a container is safe — the image brings its own engine. Giving one
+*up* is not: a stateful service then pairs on-disk state with whatever engine
+version the host-native backend brings, and a data directory written by a
+postgres 16 image, read by a nix postgres 17, fails later and opaquely.
+`RuntimeContextDecision.LeavesContainerImage` marks exactly that hop, so a run
+reports it apart from the substitutions that cost nothing but isolation. It
+marks what is visible here and no more: a plugin whose `supported_backends`
+omits `DOCKER` because the docker CLI is absent is indistinguishable from one
+that ships no image, so a `free` run on such a host is not flagged.
+
+`RuntimeContextDecision.Cause` separates whose fact caused a substitution. The
+plugin's declaration is one input; the host's own state — a Docker engine that
+is installed but not running — is another, and it arrives as
+`RuntimeContextRequest.Unavailable`, never subtracted from `Backends`. Core
+reconciles a declaration and probes nothing, so a host fact that is folded into
+the declaration becomes indistinguishable from it, and every diagnostic
+downstream then tells the user to fix the plugin when the remedy was to start a
+daemon. `SubstitutionUnavailable` and `SubstitutionUndeclared` are that
+distinction.
 
 A non-empty declaration is read as complete whether or not the plugin advertises
 anything: a list naming only `DOCKER` is already evidence that there is no
@@ -256,18 +276,22 @@ native path. An **empty** one is the ambiguous case — an older plugin that nev
 filled the field and a plugin that can run nowhere on this host are the same
 empty repeated field on the wire. `runtime-backend-declaration/v1` names which:
 a plugin advertising it owns the completeness of `supported_backends`, so an
-empty resolution means nothing here can run it, and every such service is named
-in one `services.ErrNoRuntimeBackend`. Without it, an empty declaration is
-unjudged and the request passes through, which is what it did before plugins
-declared backends at all. A plugin whose `BackendSupport` is only partly
-declared must not advertise it; `services.Advertisement.BackendsComplete` is the
-agent-side opt-in, and the shared contract never advertises it for every plugin
-built on this Core.
+empty declaration is the plugin's own verdict that nothing here can run it.
+Without it, an empty declaration is unjudged and the request passes through,
+which is what it did before plugins declared backends at all. A plugin whose
+`BackendSupport` is only partly declared must not advertise it;
+`services.Advertisement.BackendsComplete` is the agent-side opt-in, and the
+shared contract never advertises it for every plugin built on this Core.
 
-A caller holding host state the declaration cannot carry — a Docker engine that
-is installed but not running — drops those backends from
-`RuntimeContextRequest.Backends` before planning. Core reconciles a declaration;
-it does not probe a daemon.
+Every service left with no usable backend is refused together, in one
+`services.NoRuntimeBackendError`, before anything boots. It carries the refusals
+as data rather than only as prose, because the remedy belongs to whoever owns
+the fact that caused each one: a refusal whose `Unavailable` is empty is the
+plugin's own verdict and nothing a user can act on, while one naming backends is
+the host's report, and the host reaches these through `errors.As` to print what
+it alone knows — which endpoint was unreachable, and how to start it — beside
+them. `errors.Is` against `services.ErrNoRuntimeBackend` is the cheap check for
+a caller that needs none of that.
 
 This is the Core half: the host contract and its reconciliation. The CLI's run
 resolves only the `free` hint today and honours an explicit context untouched,
