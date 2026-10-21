@@ -152,7 +152,7 @@ func TestBuildxCapabilitiesCheckedBeforeBuildOverGRPC(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			implementation := &buildxTestServer{
-				DefaultBuilder:  NewDefaultBuilder(&BuilderWrapper{Base: &Base{loaded: true}}),
+				DefaultBuilder:  NewDefaultBuilder(&BuilderWrapper{Base: &Base{loaded: true}, BuildResult: &builderv0.BuildResult{Kind: &builderv0.BuildResult_DockerBuildResult{DockerBuildResult: &builderv0.DockerBuildResult{}}}}), // an in-agent build: the one answer that owes an acknowledgement
 				capabilities:    &builderv0.BuildCapabilitiesResponse{BuildxSelection: tc.supported},
 				capabilityError: tc.probeError,
 				acknowledgement: tc.ack,
