@@ -374,7 +374,9 @@ type DockerBuildRecipe struct {
 	// build, and supplies it to the build as a bare repository mirror. A recipe
 	// that declares them therefore needs no credential inside the build. A
 	// non-empty list requires the v6 recipe contract and participates in its
-	// digest; older hosts reject v6 rather than build without supplying it.
+	// digest, in order; older hosts reject v6 rather than build without
+	// supplying it. A host accepts a v6 plan only after it has fetched every
+	// declared source, and refuses a declaration it did not fetch.
 	GitSourceDownloads []*GitSourceDownload `protobuf:"bytes,11,rep,name=git_source_downloads,json=gitSourceDownloads,proto3" json:"git_source_downloads,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -551,9 +553,11 @@ func (x *GoModuleDownload) GetProxyContext() string {
 type GitSourceDownload struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// repository is the URL the build fetches from, exactly as the lockfile
-	// records it, without query or fragment: https, ssh or git+ssh, carrying no
-	// password or token. The Dockerfile maps this URL onto the supplied mirror
-	// (git's url.<base>.insteadOf), so it must match the lockfile byte for byte.
+	// records it: https:// or ssh://, spelled in lowercase, a host, an optional
+	// port and a path, every character in [A-Za-z0-9._~/@:%+-], with no query,
+	// fragment, password or token (ssh may name a login user). The Dockerfile
+	// maps this URL onto the supplied mirror (git's url.<base>.insteadOf), so it
+	// must match the lockfile byte for byte.
 	Repository string `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
 	// commit is the full object id the lockfile pins: 40 (SHA-1) or 64 (SHA-256)
 	// lowercase hexadecimal characters.
@@ -562,10 +566,10 @@ type GitSourceDownload struct {
 	// commits as: a directory holding one bare repository per declared
 	// repository, named by the lowercase hex SHA-256 of the repository string
 	// followed by ".git" (services.GitSourceMirrorPath in Go), each holding every
-	// declared commit under refs/commit/<commit>. Several downloads may
-	// share one mirror context. The Dockerfile declares a stage of the same name
-	// (FROM scratch) so it still builds, from the network, when no caller
-	// supplies one.
+	// declared commit under refs/commit/<commit> (services.GitSourceMirrorRef).
+	// Several downloads may share one mirror context. The Dockerfile declares a
+	// stage of the same name (FROM scratch) so it still builds, from the network,
+	// when no caller supplies one.
 	MirrorContext string `protobuf:"bytes,3,opt,name=mirror_context,json=mirrorContext,proto3" json:"mirror_context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

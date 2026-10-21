@@ -88,27 +88,12 @@ func TestRecipeGitSourceDownloadsWithGoModules(t *testing.T) {
 	recipe.ContextRoot = builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT
 	recipe.GitSourceDownloads[0].MirrorContext = "gomodproxy"
 	_, err = BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
-	require.ErrorContains(t, err, "both")
+	require.ErrorContains(t, err, "also a Go module proxy context")
 }
 
 func TestRecipeGitSourceDownloadsAreValidated(t *testing.T) {
 	dir := recipeDir(t)
 	for name, mutate := range map[string]func(*builderv0.GitSourceDownload){
-		"empty repository": func(s *builderv0.GitSourceDownload) { s.Repository = "" },
-		"http scheme":      func(s *builderv0.GitSourceDownload) { s.Repository = "http://git.example.com/team/lib" },
-		"file scheme":      func(s *builderv0.GitSourceDownload) { s.Repository = "file:///srv/lib" },
-		"ext scheme":       func(s *builderv0.GitSourceDownload) { s.Repository = "ext::sh -c touch% /tmp/x" },
-		"scp-like":         func(s *builderv0.GitSourceDownload) { s.Repository = "git@git.example.com:team/lib.git" },
-		"https token":      func(s *builderv0.GitSourceDownload) { s.Repository = "https://token@git.example.com/team/lib" },
-		"https password":   func(s *builderv0.GitSourceDownload) { s.Repository = "https://user:secret@git.example.com/team/lib" },
-		"ssh password":     func(s *builderv0.GitSourceDownload) { s.Repository = "ssh://git:secret@git.example.com/team/lib" },
-		"no host":          func(s *builderv0.GitSourceDownload) { s.Repository = "https:///team/lib" },
-		"no path":          func(s *builderv0.GitSourceDownload) { s.Repository = "https://git.example.com/" },
-		"query":            func(s *builderv0.GitSourceDownload) { s.Repository = "https://git.example.com/team/lib?rev=main" },
-		"empty query":      func(s *builderv0.GitSourceDownload) { s.Repository = "https://git.example.com/team/lib?" },
-		"fragment": func(s *builderv0.GitSourceDownload) {
-			s.Repository = "https://git.example.com/team/lib#" + lockedCommit
-		},
 		"short commit":        func(s *builderv0.GitSourceDownload) { s.Commit = lockedCommit[:12] },
 		"uppercase commit":    func(s *builderv0.GitSourceDownload) { s.Commit = strings.ToUpper(lockedCommit) },
 		"41-char commit":      func(s *builderv0.GitSourceDownload) { s.Commit = lockedCommit + "0" },
@@ -125,12 +110,12 @@ func TestRecipeGitSourceDownloadsAreValidated(t *testing.T) {
 		})
 	}
 
-	// Accepted forms: ssh with a login name, git+ssh, a SHA-256 commit, and the
-	// same repository locked at two commits.
+	// Accepted forms: ssh with a login name and a port, a SHA-256 commit, a
+	// percent-escape, and the same repository locked at two commits.
 	recipe := gitSourceRecipe()
 	recipe.GitSourceDownloads = append(recipe.GitSourceDownloads,
-		&builderv0.GitSourceDownload{Repository: "ssh://git@git.example.com/team/lib.git", Commit: lockedCommit, MirrorContext: "gitsources"},
-		&builderv0.GitSourceDownload{Repository: "git+ssh://git@git.example.com/team/lib.git", Commit: strings.Repeat("b", 64), MirrorContext: "gitsources"},
+		&builderv0.GitSourceDownload{Repository: "ssh://git@git.example.com:2222/team/lib.git", Commit: lockedCommit, MirrorContext: "gitsources"},
+		&builderv0.GitSourceDownload{Repository: "https://git.example.com/team/my%2Blib~v1_x-y", Commit: strings.Repeat("b", 64), MirrorContext: "gitsources"},
 		&builderv0.GitSourceDownload{Repository: "https://git.example.com/team/lib", Commit: strings.Repeat("c", 40), MirrorContext: "gitsources"})
 	_, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
 	require.NoError(t, err)
@@ -138,6 +123,63 @@ func TestRecipeGitSourceDownloadsAreValidated(t *testing.T) {
 	recipe.GitSourceDownloads = append(recipe.GitSourceDownloads, gitSource())
 	_, err = BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
 	require.ErrorContains(t, err, "twice")
+}
+
+// A refused repository may be a credential pasted into a URL. The error names
+// the declaration and the reason, and never the URL or any part of it, because
+// a builder's error reaches the caller's RPC status and logs.
+func TestRecipeGitSourceRepositoryRefusalsNeverEchoTheURL(t *testing.T) {
+	dir := recipeDir(t)
+	for name, repository := range map[string]string{
+		"empty":                "",
+		"http":                 "http://git.example.com/team/lib",
+		"file":                 "file:///srv/lib",
+		"ext":                  "ext::sh -c touch% /tmp/x",
+		"git+ssh":              "git+ssh://git@git.example.com/team/lib",
+		"uppercase SSH":        "SSH://git@git.example.com/team/lib",
+		"mixed-case https":     "Https://git.example.com/team/lib",
+		"scp-like":             "git@git.example.com:team/lib.git",
+		"https token":          "https://s3cr3tvalue@git.example.com/team/lib",
+		"https password":       "https://user:s3cr3tvalue@git.example.com/team/lib",
+		"ssh password":         "ssh://git:s3cr3tvalue@git.example.com/team/lib",
+		"query token":          "https://git.example.com/team/lib?token=s3cr3tvalue",
+		"empty query":          "https://git.example.com/team/lib?",
+		"fragment":             "https://git.example.com/team/lib#" + lockedCommit,
+		"no host":              "https:///team/lib",
+		"no path":              "https://git.example.com",
+		"root path":            "https://git.example.com/",
+		"bad port":             "https://git.example.com:http/team/lib",
+		"bad escape":           "https://git.example.com/team/%zzlib",
+		"space":                "https://git.example.com/team/my lib",
+		"double quote":         `https://git.example.com/team/"lib`,
+		"single quote":         "https://git.example.com/team/'lib",
+		"backquote":            "https://git.example.com/team/`id`",
+		"command substitution": "https://git.example.com/team/$(id)",
+		"variable":             "https://git.example.com/team/${HOME}",
+		"semicolon":            "https://git.example.com/team/lib;id",
+		"ampersand":            "https://git.example.com/team/lib&id",
+		"pipe":                 "https://git.example.com/team/lib|id",
+		"redirect":             "https://git.example.com/team/lib>out",
+		"backslash":            `https://git.example.com/team\lib`,
+		"newline":              "https://git.example.com/team/lib\nRUN id",
+		"tab":                  "https://git.example.com/team/\tlib",
+		"glob":                 "https://git.example.com/team/*",
+		"brackets":             "https://git.example.com/team/[lib]",
+		"equals":               "https://git.example.com/team/a=b",
+		"comma":                "https://git.example.com/team/a,b",
+		"non-ascii":            "https://git.example.com/team/lib\u00e9",
+		"ssh user quote":       "ssh://g'it@git.example.com/team/lib",
+		"host underscore":      "https://git_example.com/team/lib",
+	} {
+		t.Run(name, func(t *testing.T) {
+			recipe := gitSourceRecipe()
+			recipe.GitSourceDownloads[0].Repository = repository
+			_, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
+			require.ErrorContains(t, err, "git source 0: repository")
+			require.NotContains(t, err.Error(), "s3cr3tvalue")
+			require.NotContains(t, err.Error(), "git.example.com")
+		})
+	}
 }
 
 func TestGitSourceMirrorPath(t *testing.T) {
@@ -155,12 +197,15 @@ func TestGitSourceMirrorPath(t *testing.T) {
 		"https://git.example.com/team/lib/",
 		"https://git.example.com/Team/lib",
 		"ssh://git@git.example.com/team/lib",
-		"git+ssh://git@git.example.com/team/lib",
 	} {
 		mirror := GitSourceMirrorPath(repository)
 		require.NotContains(t, seen, mirror, "%s collides with %s", repository, seen[mirror])
 		seen[mirror] = repository
 	}
+}
+
+func TestGitSourceMirrorRef(t *testing.T) {
+	require.Equal(t, "refs/commit/"+lockedCommit, GitSourceMirrorRef(lockedCommit))
 }
 
 func TestSingleImageBuildPlanDeclaresGitSourceDownloads(t *testing.T) {

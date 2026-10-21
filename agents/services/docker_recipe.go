@@ -256,9 +256,13 @@ func WithGoModuleDownloads(downloads ...*builderv0.GoModuleDownload) RecipeOptio
 
 // WithGitSourceDownloads declares the locked git commits the recipe fetches
 // while it builds (DockerBuildRecipe.git_source_downloads). The caller fetches
-// each into a bare mirror at GitSourceMirrorPath(repository) inside the named
-// mirror context before any image build, so the build needs no credential. A
-// recipe carrying one emits the v6 contract.
+// each into a bare mirror at GitSourceMirrorPath(repository), under
+// GitSourceMirrorRef(commit), inside the named mirror context before any image
+// build, so the build needs no credential. A recipe carrying one emits the v6
+// contract, and a host must fetch every declared source, and refuse a
+// declaration it did not fetch, before it accepts a v6 plan. Declarations are
+// digested in the order given and an exact duplicate is refused, so declare
+// them sorted and de-duplicated.
 func WithGitSourceDownloads(downloads ...*builderv0.GitSourceDownload) RecipeOption {
 	return func(recipe *builderv0.DockerBuildRecipe) {
 		recipe.GitSourceDownloads = append(recipe.GitSourceDownloads, downloads...)
@@ -272,6 +276,13 @@ func WithGitSourceDownloads(downloads ...*builderv0.GitSourceDownload) RecipeOpt
 func GitSourceMirrorPath(repository string) string {
 	sum := sha256.Sum256([]byte(repository))
 	return hex.EncodeToString(sum[:]) + ".git"
+}
+
+// GitSourceMirrorRef is the ref under which a git source mirror holds commit.
+// It is the ref a fetch by commit id writes, so a build fetching the locked
+// commit from the mirror finds it there.
+func GitSourceMirrorRef(commit string) string {
+	return "refs/commit/" + commit
 }
 
 func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emitted []string, options ...RecipeOption) (*builderv0.DockerBuildPlan, error) {
@@ -501,66 +512,74 @@ func validateGoModuleDownloads(recipe *builderv0.DockerBuildRecipe) error {
 // gitCommitID is a full git object id: SHA-1 (40) or SHA-256 (64), lowercase.
 var gitCommitID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 
+// gitSourceRepository is the accepted shape of a git source URL: https or ssh,
+// spelled exactly so, an optional login name (ssh only, checked below), a host,
+// an optional port and a non-empty path. Every character is one a Dockerfile
+// and a git config value carry without quoting, so the URL can be written into
+// either verbatim.
+var gitSourceRepository = regexp.MustCompile(`^(https|ssh)://(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(?::[0-9]{1,5})?/[A-Za-z0-9._~/@:%+-]*[A-Za-z0-9._~@:%+-][A-Za-z0-9._~/@:%+-]*$`)
+
 // validateGitSourceDownloads checks a recipe's declared git sources: each names
-// a credential-free https, ssh or git+ssh URL with no query or fragment, a full
-// commit id, and a valid build-context name that is not also a Go module proxy
+// a credential-free https or ssh URL with no query or fragment, a full commit
+// id, and a valid build-context name that is not also a Go module proxy
 // context. The same repository may be declared at several commits; the same
-// (repository, commit, context) twice is refused.
+// (repository, commit, context) twice is refused. A refused repository may
+// carry a credential, so errors name the declaration by position, never by URL.
 func validateGitSourceDownloads(recipe *builderv0.DockerBuildRecipe) error {
 	proxies := make(map[string]struct{}, len(recipe.GetGoModuleDownloads()))
 	for _, download := range recipe.GetGoModuleDownloads() {
 		proxies[download.GetProxyContext()] = struct{}{}
 	}
 	seen := make(map[[3]string]struct{}, len(recipe.GetGitSourceDownloads()))
-	for _, download := range recipe.GetGitSourceDownloads() {
-		repository := download.GetRepository()
-		if err := validateGitSourceRepository(repository); err != nil {
-			return fmt.Errorf("recipe %q git source %q: %w", recipe.GetName(), repository, err)
+	for index, download := range recipe.GetGitSourceDownloads() {
+		if reason := gitSourceRepositoryProblem(download.GetRepository()); reason != "" {
+			return fmt.Errorf("recipe %q git source %d: repository %s", recipe.GetName(), index, reason)
 		}
 		if !gitCommitID.MatchString(download.GetCommit()) {
-			return fmt.Errorf("recipe %q git source %q commit %q is not a full lowercase hex object id", recipe.GetName(), repository, download.GetCommit())
+			return fmt.Errorf("recipe %q git source %d: commit is not a full lowercase hex object id", recipe.GetName(), index)
 		}
 		name := download.GetMirrorContext()
 		if !proxyContextName.MatchString(name) {
-			return fmt.Errorf("recipe %q git source mirror context %q is not a valid build context name", recipe.GetName(), name)
+			return fmt.Errorf("recipe %q git source %d: mirror context %q is not a valid build context name", recipe.GetName(), index, name)
 		}
 		if _, ok := proxies[name]; ok {
-			return fmt.Errorf("recipe %q uses build context %q for both Go modules and git sources", recipe.GetName(), name)
+			return fmt.Errorf("recipe %q git source %d: build context %q is also a Go module proxy context", recipe.GetName(), index, name)
 		}
-		key := [3]string{repository, download.GetCommit(), name}
+		key := [3]string{download.GetRepository(), download.GetCommit(), name}
 		if _, ok := seen[key]; ok {
-			return fmt.Errorf("recipe %q declares git source %q at %s in %q twice", recipe.GetName(), repository, download.GetCommit(), name)
+			return fmt.Errorf("recipe %q git source %d: declared twice", recipe.GetName(), index)
 		}
 		seen[key] = struct{}{}
 	}
 	return nil
 }
 
-func validateGitSourceRepository(repository string) error {
-	parsed, err := url.Parse(repository)
-	if err != nil {
-		return fmt.Errorf("not a URL: %w", err)
+// gitSourceRepositoryProblem returns why repository is refused, or "". The
+// reason never quotes the URL.
+func gitSourceRepositoryProblem(repository string) string {
+	scheme, rest, found := strings.Cut(repository, "://")
+	if !found || (scheme != "https" && scheme != "ssh") {
+		return "must start with https:// or ssh://"
 	}
-	switch parsed.Scheme {
-	case "https":
-		if parsed.User != nil {
-			return fmt.Errorf("an https URL must carry no user information")
+	if strings.ContainsAny(repository, "?#") {
+		return "must carry no query or fragment"
+	}
+	authority, _, _ := strings.Cut(rest, "/")
+	if userinfo, _, hasUser := strings.Cut(authority, "@"); hasUser {
+		if scheme == "https" {
+			return "must carry no user information over https"
 		}
-	case "ssh", "git+ssh":
-		// An ssh login name such as git@ is ordinary; a password never is.
-		if _, hasPassword := parsed.User.Password(); hasPassword {
-			return fmt.Errorf("an ssh URL must carry no password")
+		if strings.Contains(userinfo, ":") {
+			return "must carry no password"
 		}
-	default:
-		return fmt.Errorf("scheme must be https, ssh or git+ssh")
 	}
-	if parsed.Host == "" || parsed.Path == "" || parsed.Path == "/" {
-		return fmt.Errorf("URL must name a host and a repository path")
+	if !gitSourceRepository.MatchString(repository) {
+		return "must be a host and repository path in [A-Za-z0-9._~/@:%+-], with an optional port"
 	}
-	if parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.ContainsAny(repository, "?#") {
-		return fmt.Errorf("URL must carry no query or fragment")
+	if _, err := url.Parse(repository); err != nil {
+		return "is not a valid URL"
 	}
-	return nil
+	return ""
 }
 
 // recipeRelPath validates that p is a non-empty relative path that stays inside

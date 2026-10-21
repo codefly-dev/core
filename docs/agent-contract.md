@@ -259,6 +259,17 @@ roots. Only plans selecting an explicit root use v4; default service-root plans
 retain v3 and its digest. The plan version, not the agent identity or Core pin,
 prevents an older host from silently building the wrong tree. See
 [build recipe context selection](build-cache.md#cli-executor-selection).
+`codefly.dev/docker-build-recipe/v5` records support for declared Go module
+downloads (`DockerBuildRecipe.go_module_downloads`). Only plans declaring one
+use v5. A v5 host fetches each declared module graph before any image build,
+supplies it as the named proxy build context, and refuses a declaration it did
+not fetch.
+`codefly.dev/docker-build-recipe/v6` records support for declared git source
+downloads (`DockerBuildRecipe.git_source_downloads`). Only plans declaring one
+use v6, and v6 also covers v5's declarations. A v6 host fetches each declared
+commit into a bare mirror at `services.GitSourceMirrorPath(repository)`, under
+`services.GitSourceMirrorRef(commit)`, supplies the mirrors as the named build
+context, and refuses a declaration it did not fetch.
 `runtime-init-dependency-mappings/v1` is explicitly advertised by runtimes that
 consume `InitRequest.dependencies_network_mappings` before executing a test
 whose target is never started. These are the dependencies' accepted addresses,
