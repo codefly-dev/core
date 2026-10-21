@@ -58,7 +58,13 @@ func (b *BuilderAgent) Build(ctx context.Context, req *builderv0.BuildRequest, o
 	if err == nil && cache != nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildPlan() == nil && resp.GetCacheContractVersion() != dockerhelpers.CacheContractVersion {
 		return nil, fmt.Errorf("builder agent did not acknowledge build cache contract %s; upgrade the agent or remove cache options", dockerhelpers.CacheContractVersion)
 	}
-	if selected != "" && err == nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildPlan() == nil && resp.GetBuildxBuilder() != selected {
+	// Only an in-agent image build has an executor to acknowledge. A recipe
+	// (docker_build_plan) is built by the caller, on the builder it selected;
+	// an answer with no result kind built nothing — a vendor-image agent whose
+	// image is published elsewhere — and has nothing to acknowledge either.
+	// Reading "no recipe" as "built in-agent" refused every render composing
+	// such an agent the moment the environment selected a builder.
+	if selected != "" && err == nil && resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS && resp.GetResult().GetDockerBuildResult() != nil && resp.GetBuildxBuilder() != selected {
 		return nil, fmt.Errorf("builder agent did not acknowledge requested Buildx builder %q; upgrade the agent", selected)
 	}
 	if err == nil && req.GetExecution() != nil {
