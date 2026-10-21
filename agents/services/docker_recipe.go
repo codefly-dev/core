@@ -286,6 +286,21 @@ func GitSourceMirrorRef(commit string) string {
 	return "refs/commit/" + commit
 }
 
+// GitSourceRepositoryProblem returns why a recipe would refuse repository as a
+// git source, or "" when it would accept it. An agent reading a lockfile calls
+// it before declaring a source, so it can leave a source the contract cannot
+// carry to the build's own fetch, or refuse it naming the package. The reason
+// never quotes the URL.
+func GitSourceRepositoryProblem(repository string) string {
+	return gitSourceRepositoryProblem(repository)
+}
+
+// IsGitSourceCommit reports whether commit is a full lowercase hex object id
+// (SHA-1 or SHA-256), the only form a recipe accepts.
+func IsGitSourceCommit(commit string) bool {
+	return gitCommitID.MatchString(commit)
+}
+
 func SingleImageBuildPlan(outputDirectory, image string, platforms []string, emitted []string, options ...RecipeOption) (*builderv0.DockerBuildPlan, error) {
 	dockerignore := ""
 	for _, name := range emitted {

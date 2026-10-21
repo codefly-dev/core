@@ -267,3 +267,22 @@ func TestSingleImageBuildPlanDeclaresGitSourceDownloads(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, DockerBuildRecipeGitSourcesContractVersion, resp.GetResult().GetDockerBuildPlan().GetContractVersion())
 }
+
+func TestGitSourceChecksAreExportedForAgents(t *testing.T) {
+	require.Empty(t, GitSourceRepositoryProblem("https://git.example.com/team/lib"))
+	require.Empty(t, GitSourceRepositoryProblem("ssh://git@git.example.com:2222/team/lib.git"))
+	for _, refused := range []string{
+		"http://git.example.com/team/lib",
+		"https://user@git.example.com/team/lib",
+		"https://git.example.com/team/a%20b",
+		"ssh://git.example.com/team/other@evil/lib",
+	} {
+		reason := GitSourceRepositoryProblem(refused)
+		require.NotEmpty(t, reason, refused)
+		require.NotContains(t, reason, "example")
+	}
+	require.True(t, IsGitSourceCommit(strings.Repeat("a", 40)))
+	require.True(t, IsGitSourceCommit(strings.Repeat("b", 64)))
+	require.False(t, IsGitSourceCommit(strings.Repeat("A", 40)))
+	require.False(t, IsGitSourceCommit("main"))
+}
