@@ -554,8 +554,9 @@ type GitSourceDownload struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// repository is the URL the build fetches from, exactly as the lockfile
 	// records it: https:// or ssh://, spelled in lowercase, a host, an optional
-	// port and a path, every character in [A-Za-z0-9._~/@:%+-], with no query,
-	// fragment, password or token (ssh may name a login user). The Dockerfile
+	// port and a path, every path character in [A-Za-z0-9._~/:+-] (no "@", no
+	// percent-encoding), with no query, fragment, password or token (ssh may
+	// name a login user). The Dockerfile
 	// maps this URL onto the supplied mirror (git's url.<base>.insteadOf), so it
 	// must match the lockfile byte for byte.
 	Repository string `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`

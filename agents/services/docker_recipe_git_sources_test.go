@@ -77,6 +77,12 @@ func TestRecipeGitSourceDownloadsWithGoModules(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, DockerBuildRecipeGitSourcesContractVersion, plan.GetContractVersion())
 
+	// A host that knows only v5 expects v5 for these recipes and refuses.
+	plan.ContractVersion = DockerBuildRecipeGoModulesContractVersion
+	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "contract")
+	plan.ContractVersion = DockerBuildRecipeGitSourcesContractVersion
+	require.NoError(t, VerifyDockerBuildPlan(dir, plan))
+
 	// v6 still digests what v4 and v5 introduced.
 	recipe.GoModuleDownloads[0].ModuleRoot = "other"
 	require.ErrorContains(t, VerifyDockerBuildPlan(dir, plan), "digest")
@@ -115,7 +121,7 @@ func TestRecipeGitSourceDownloadsAreValidated(t *testing.T) {
 	recipe := gitSourceRecipe()
 	recipe.GitSourceDownloads = append(recipe.GitSourceDownloads,
 		&builderv0.GitSourceDownload{Repository: "ssh://git@git.example.com:2222/team/lib.git", Commit: lockedCommit, MirrorContext: "gitsources"},
-		&builderv0.GitSourceDownload{Repository: "https://git.example.com/team/my%2Blib~v1_x-y", Commit: strings.Repeat("b", 64), MirrorContext: "gitsources"},
+		&builderv0.GitSourceDownload{Repository: "https://git.example.com/team/my+lib~v1_x-y", Commit: strings.Repeat("b", 64), MirrorContext: "gitsources"},
 		&builderv0.GitSourceDownload{Repository: "https://git.example.com/team/lib", Commit: strings.Repeat("c", 40), MirrorContext: "gitsources"})
 	_, err := BuildDockerBuildPlan(dir, []*builderv0.DockerBuildRecipe{recipe})
 	require.NoError(t, err)
@@ -178,6 +184,38 @@ func TestRecipeGitSourceRepositoryRefusalsNeverEchoTheURL(t *testing.T) {
 			require.ErrorContains(t, err, "git source 0: repository")
 			require.NotContains(t, err.Error(), "s3cr3tvalue")
 			require.NotContains(t, err.Error(), "git.example.com")
+		})
+	}
+}
+
+// git decodes percent-encoding before it splits an ssh URL into user, host and
+// path, so an encoded bracket or "@" could move the host past the checks. Such
+// URLs are refused both when a plan is built and when one is verified.
+func TestRecipeGitSourceRepositoryRefusesEncodedAuthorityTricks(t *testing.T) {
+	for name, repository := range map[string]string{
+		"ssh encoded brackets": "ssh://git.example.com/team/other@%5B::1%5D/repo",
+		"ssh @ in path":        "ssh://git.example.com/team/other@evil.example/repo",
+		"ssh encoded @":        "ssh://git@git.example.com/team/other%40evil/repo",
+		"https encoded slash":  "https://git.example.com/team%2F..%2Fother/lib",
+		"https encoded @":      "https://git.example.com/team/other%40evil/lib",
+		"https encoded [":      "https://git.example.com/team/%5B::1%5D/lib",
+		"https encoded colon":  "https://git.example.com/team/a%3Ab",
+		"https encoded %":      "https://git.example.com/team/a%25b",
+		"https @ in path":      "https://git.example.com/team/other@evil.example/lib",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := recipeDir(t)
+			source := gitSource()
+			source.Repository = repository
+			_, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"}, WithGitSourceDownloads(source))
+			require.ErrorContains(t, err, "git source 0: repository")
+
+			plan, err := SingleImageBuildPlan(dir, "example/app:v1", RecipeBuildPlatforms(), []string{"Dockerfile"}, WithGitSourceDownloads(gitSource()))
+			require.NoError(t, err)
+			plan.GetRecipes()[0].GetGitSourceDownloads()[0].Repository = repository
+			err = VerifyDockerBuildPlan(dir, plan)
+			require.ErrorContains(t, err, "git source 0: repository")
+			require.NotContains(t, err.Error(), "example")
 		})
 	}
 }

@@ -514,10 +514,10 @@ var gitCommitID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 
 // gitSourceRepository is the accepted shape of a git source URL: https or ssh,
 // spelled exactly so, an optional login name (ssh only, checked below), a host,
-// an optional port and a non-empty path. Every character is one a Dockerfile
+// an optional port and a non-empty path with no "@" and no percent-encoding. Every character is one a Dockerfile
 // and a git config value carry without quoting, so the URL can be written into
 // either verbatim.
-var gitSourceRepository = regexp.MustCompile(`^(https|ssh)://(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(?::[0-9]{1,5})?/[A-Za-z0-9._~/@:%+-]*[A-Za-z0-9._~@:%+-][A-Za-z0-9._~/@:%+-]*$`)
+var gitSourceRepository = regexp.MustCompile(`^(https|ssh)://(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(?::[0-9]{1,5})?/[A-Za-z0-9._~/:+-]*[A-Za-z0-9._~:+-][A-Za-z0-9._~/:+-]*$`)
 
 // validateGitSourceDownloads checks a recipe's declared git sources: each names
 // a credential-free https or ssh URL with no query or fragment, a full commit
@@ -564,7 +564,16 @@ func gitSourceRepositoryProblem(repository string) string {
 	if strings.ContainsAny(repository, "?#") {
 		return "must carry no query or fragment"
 	}
-	authority, _, _ := strings.Cut(rest, "/")
+	// git decodes percent-encoding before it splits an ssh URL into user, host
+	// and path, so an encoded "[", "@" or "/" would move the host after this
+	// check has passed; no lockfile URL needs one, so none is accepted.
+	if strings.Contains(repository, "%") {
+		return "must carry no percent-encoding"
+	}
+	authority, path, _ := strings.Cut(rest, "/")
+	if strings.Contains(path, "@") {
+		return "must carry no @ in the path"
+	}
 	if userinfo, _, hasUser := strings.Cut(authority, "@"); hasUser {
 		if scheme == "https" {
 			return "must carry no user information over https"
@@ -574,7 +583,7 @@ func gitSourceRepositoryProblem(repository string) string {
 		}
 	}
 	if !gitSourceRepository.MatchString(repository) {
-		return "must be a host and repository path in [A-Za-z0-9._~/@:%+-], with an optional port"
+		return "must be a host and repository path in [A-Za-z0-9._~/:+-], with an optional port"
 	}
 	if _, err := url.Parse(repository); err != nil {
 		return "is not a valid URL"
