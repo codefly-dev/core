@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/codefly-dev/core/templates"
@@ -513,10 +514,10 @@ func validateGoModuleDownloads(recipe *builderv0.DockerBuildRecipe) error {
 var gitCommitID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 
 // gitSourceRepository is the accepted shape of a git source URL: https or ssh,
-// spelled exactly so, an optional login name (ssh only, checked below), a host,
-// an optional port and a non-empty path with no "@" and no percent-encoding. Every character is one a Dockerfile
-// and a git config value carry without quoting, so the URL can be written into
-// either verbatim.
+// spelled exactly so, an optional login name (ssh only, checked below), a
+// host, an optional port and a non-empty path with no "@" and no
+// percent-encoding. Every character is one a Dockerfile and a git config value
+// carry without quoting, so the URL can be written into either verbatim.
 var gitSourceRepository = regexp.MustCompile(`^(https|ssh)://(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(?::[0-9]{1,5})?/[A-Za-z0-9._~/:+-]*[A-Za-z0-9._~:+-][A-Za-z0-9._~/:+-]*$`)
 
 // validateGitSourceDownloads checks a recipe's declared git sources: each names
@@ -585,8 +586,20 @@ func gitSourceRepositoryProblem(repository string) string {
 	if !gitSourceRepository.MatchString(repository) {
 		return "must be a host and repository path in [A-Za-z0-9._~/:+-], with an optional port"
 	}
-	if _, err := url.Parse(repository); err != nil {
+	parsed, err := url.Parse(repository)
+	if err != nil {
 		return "is not a valid URL"
+	}
+	// git refuses an ssh login name or host that starts with "-" (it would read
+	// as an option) and a port outside 1-65535, so neither is a source a build
+	// could fetch.
+	if strings.HasPrefix(parsed.User.Username(), "-") || strings.HasPrefix(parsed.Hostname(), "-") {
+		return "must not start its login name or host with -"
+	}
+	if port := parsed.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return "must carry a port between 1 and 65535"
+		}
 	}
 	return ""
 }

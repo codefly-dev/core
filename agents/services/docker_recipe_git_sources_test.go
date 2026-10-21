@@ -202,6 +202,10 @@ func TestRecipeGitSourceRepositoryRefusesEncodedAuthorityTricks(t *testing.T) {
 		"https encoded colon":  "https://git.example.com/team/a%3Ab",
 		"https encoded %":      "https://git.example.com/team/a%25b",
 		"https @ in path":      "https://git.example.com/team/other@evil.example/lib",
+		"ssh port too large":   "ssh://git.example.com:65536/team/repo",
+		"https port zero":      "https://git.example.com:0/team/lib",
+		"ssh login dash":       "ssh://-git@git.example.com/team/repo",
+		"ssh host dash":        "ssh://-host.example/team/repo",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := recipeDir(t)
