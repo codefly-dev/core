@@ -19,24 +19,8 @@ jobs:
           echo "pid1: $(cat /proc/1/comm)"; echo "apparmor userns restrict: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)"
           echo "ancestry:"; p=$$; while [ "$p" != 1 ] && [ -n "$p" ]; do echo "  $(ps -o pid=,ppid=,comm= -p $p)"; p=$(ps -o ppid= -p $p | tr -d ' '); done
           sudo apt-get install -y -qq bubblewrap >/dev/null; bwrap --version; mount | grep -E " /tmp | /proc " || true
-      - name: bwrap parent lifetime under strace
-        shell: bash {0}
+      - name: the sandbox test on this runner
         run: |
-          sudo apt-get install -y -qq strace >/dev/null 2>&1 || true
-          W=$(mktemp -d /tmp/bw-XXXX); mkdir -p $W/stage
-          run_case() {
-            NAME=$1; shift
-            echo "=== case $NAME: bwrap $*"
-            ( strace -f -tt -o $W/$NAME.trace -e trace=process,signal bwrap "$@" --ro-bind $W/stage $W/stage -- /bin/sh -c 'sleep 20' ) > $W/$NAME.out 2>&1 &
-            P=$!; sleep 1.5
-            echo "--- forest after 1.5s (strace pid $P)"; ps -eo pid,ppid,pgid,sid,stat,comm --forest | grep -E "strace|bwrap|sleep| sh" | grep -vE "grep|ps -eo" | cut -c1-120 || true
-            BW=$(pgrep -x bwrap | head -1); echo "bwrap pid: ${BW:-none}"
-            echo "--- parent trace (first 40 process/signal events)"; grep -vE "SIGCHLD|rt_sigaction|rt_sigprocmask" $W/$NAME.trace | head -40 | cut -c1-200
-            echo "--- stderr"; cat $W/$NAME.out | head -5
-            echo "--- kill -TERM the sleep's ancestors group and check survivors"; for pid in $(pgrep -x bwrap); do kill -TERM $pid; done; sleep 1; ps -eo pid,ppid,pgid,sid,stat,comm | grep -E "bwrap|sleep" | grep -v grep || echo "  none left"
-            pkill -KILL -x sleep 2>/dev/null || true; pkill -KILL -x bwrap 2>/dev/null || true; sleep 0.5
-          }
-          run_case default --die-with-parent --new-session --proc /proc --dev /dev --tmpfs /tmp --ro-bind-try /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin --ro-bind-try /etc /etc --unshare-net
-          run_case nosession --die-with-parent --proc /proc --dev /dev --tmpfs /tmp --ro-bind-try /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin --ro-bind-try /etc /etc --unshare-net
-          run_case unsharepid --die-with-parent --new-session --unshare-pid --proc /proc --dev /dev --tmpfs /tmp --ro-bind-try /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin --ro-bind-try /etc /etc --unshare-net
-          run_case bare --proc /proc --dev /dev --ro-bind-try /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind-try /bin /bin --ro-bind-try /etc /etc
+          sudo apt-get install -y -qq bubblewrap >/dev/null
+          go test -tags sandbox_e2e -run 'TestLoadArtifactSandbox|TestBwrap' -count=1 -v ./agents/manager ./runners/sandbox 2>&1 | grep -vE "^go: downloading" | tail -30
+          echo "--- survivors"; ps -eo pid,ppid,pgid,sid,stat,comm | grep -E "executor|bwrap" | grep -v grep || echo "none"
