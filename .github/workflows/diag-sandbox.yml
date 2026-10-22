@@ -20,9 +20,21 @@ jobs:
           echo "ancestry:"; p=$$; while [ "$p" != 1 ] && [ -n "$p" ]; do echo "  $(ps -o pid=,ppid=,comm= -p $p)"; p=$(ps -o ppid= -p $p | tr -d ' '); done
           sudo apt-get install -y -qq bubblewrap >/dev/null; bwrap --version; mount | grep -E " /tmp | /proc " || true
       - name: test with process snapshots
+        shell: bash {0}
         run: |
-          ( while true; do sleep 5; echo "--- ps $(date +%T)"; ps -eo pid,ppid,pgid,sid,stat,comm | grep -E "executor|bwrap|acquired|manager.test|codefly" | grep -v grep; done ) &
+          snapshot() {
+            echo "--- ps $(date +%T)"
+            ps -eo pid,ppid,pgid,sid,stat,uid,comm | grep -E "executor|bwrap|acquired|manager.test" | grep -v grep || true
+            for pid in $(pgrep -x -f '.*acquired.*|bwrap|executor' 2>/dev/null; pgrep executor; pgrep acquired; pgrep bwrap); do
+              [ -r /proc/$pid/status ] || continue
+              echo "  /proc/$pid: $(grep -E '^(Name|State|PPid|NSpid|Uid|CapEff|Seccomp):' /proc/$pid/status | tr '\n' ' ' | tr -s '\t ' ' ')"
+              pg=$(ps -o pgid= -p $pid | tr -d ' '); kill -0 -- -$pg 2>&1 && echo "  kill -0 -$pg: ok" || echo "  kill -0 -$pg: refused ($?)"
+            done
+          }
+          ( while true; do sleep 4; snapshot; done ) &
           SNAP=$!
-          go test -tags sandbox_e2e -run 'TestLoadArtifactSandbox' -count=1 -v ./agents/manager 2>&1 | tail -80
-          kill $SNAP || true
+          go test -tags sandbox_e2e -run 'TestLoadArtifactSandbox' -count=1 -v ./agents/manager 2>&1 | grep -vE "^go: downloading" | tail -60
+          kill $SNAP 2>/dev/null || true
+          echo "--- after"; snapshot
           echo "--- leftovers"; ls -la /tmp/executor-* 2>/dev/null || true
+          echo "--- dmesg tail"; sudo dmesg 2>/dev/null | tail -15 || true
