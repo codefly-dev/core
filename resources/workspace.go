@@ -698,6 +698,9 @@ func (workspace *Workspace) postLoad(ctx context.Context) error {
 		// Backward compat: migrate from module.codefly.yaml if it exists
 		moduleFile := path.Join(workspace.Dir(), ModuleConfigurationName)
 		if ok, _ := shared.FileExists(ctx, moduleFile); ok {
+			if refuse, _ := ctx.Value(workspaceMigrationRefusalKey{}).(bool); refuse {
+				return w.NewError("workspace %q has a legacy %s pending migration; inspection refuses before rewriting workspace files", workspace.Dir(), ModuleConfigurationName)
+			}
 			mod, loadErr := LoadFromDir[Module](ctx, workspace.Dir())
 			if loadErr != nil {
 				return w.Wrapf(loadErr, "cannot load legacy module for migration")
