@@ -22,25 +22,17 @@ jobs:
       - name: test with process snapshots
         shell: bash {0}
         run: |
+          echo "bwrap: $(ls -l /usr/bin/bwrap) :: $(file -b /usr/bin/bwrap | cut -c1-60)"
+          echo "yama: $(cat /proc/sys/kernel/yama/ptrace_scope)"
           snapshot() {
-            echo "--- ps $(date +%T)"
-            ps -eo pid,ppid,pgid,sid,stat,uid,comm | grep -E "executor|bwrap|acquired|manager.test|\.test$" | grep -v grep || true
-            for pid in $(pgrep executor; pgrep acquired; pgrep bwrap); do
-              [ -r /proc/$pid/status ] || continue
-              echo "  /proc/$pid: $(grep -E '^(Name|State|PPid|NSpid|Uid|CapEff|NoNewPrivs|Seccomp):' /proc/$pid/status | tr '\n' ' ' | tr -s '\t ' ' ')"
-              echo "  exe: $(readlink /proc/$pid/exe 2>&1)"; echo "  stat: $(cut -c1-120 /proc/$pid/stat 2>&1)"
-              echo "  environ: $(tr '\0' '\n' < /proc/$pid/environ 2>&1 | grep -cE '.' ) lines; $(tr '\0' '\n' < /proc/$pid/environ 2>&1 | grep -E 'CODEFLY' | cut -c1-40 | tr '\n' ' ')"
-              echo "  ns: $(ls -l /proc/$pid/ns/ 2>&1 | awk '{print $9, $11}' | tr '\n' ' ')"; echo "  self ns: $(ls -l /proc/self/ns/ | awk '{print $9, $11}' | tr '\n' ' ')"
-              echo "  apparmor: $(cat /proc/$pid/attr/current 2>&1)"; echo "  cmdline: $(tr '\0' ' ' < /proc/$pid/cmdline 2>&1 | cut -c1-200)"
-              pg=$(ps -o pgid= -p $pid | tr -d ' '); kill -0 -- -$pg 2>&1 && echo "  kill -0 -$pg: ok" || echo "  kill -0 -$pg: refused ($?)"
-            done
+            T=$(ps -eo pid,ppid,pgid,sid,stat,comm,args --forest 2>/dev/null | grep -vE "ps -eo|grep|snapshot|sleep" | grep -E "manager.test|executor|bwrap|acquired|codefly|CODEFLY| sh |sh -c" || true)
+            if [ "$T" != "$LAST" ]; then echo "--- ps $(date +%T.%N | cut -c1-12)"; echo "$T" | cut -c1-200; LAST="$T"; fi
           }
-          echo "yama: $(cat /proc/sys/kernel/yama/ptrace_scope)"; echo "self apparmor: $(cat /proc/self/attr/current)"; mount | grep -E " /proc " || true
-          cat /etc/apparmor.d/bwrap* 2>/dev/null | grep -vE "^\s*#|^\s*$" | head -30 || true
-          ( for i in $(seq 1 12); do sleep 1; snapshot; done; while true; do sleep 5; snapshot; done ) &
+          ( LAST=""; while true; do snapshot; sleep 0.3; done ) &
           SNAP=$!
-          go test -tags sandbox_e2e -run 'TestLoadArtifactSandbox' -count=1 -v ./agents/manager 2>&1 | grep -vE "^go: downloading" | tail -60
+          go test -tags sandbox_e2e -run 'TestLoadArtifactSandbox' -count=1 -v ./agents/manager 2>&1 | grep -vE "^go: downloading" | tail -40
           kill $SNAP 2>/dev/null || true
-          echo "--- after"; snapshot
-          echo "--- leftovers"; ls -la /tmp/executor-* 2>/dev/null || true
-          echo "--- dmesg tail"; sudo dmesg 2>/dev/null | tail -15 || true
+          echo "--- pgid records"; find /tmp -name '*.pgid' 2>/dev/null | while read f; do echo "$f"; cat "$f" | cut -c1-400; echo; done
+          echo "--- survivors"; ps -eo pid,ppid,pgid,sid,stat,comm,args | grep -E "executor|bwrap" | grep -v grep || true
+          for pid in $(pgrep executor); do echo "  SIGTERM $pid"; kill -TERM $pid; sleep 2; ps -o pid,stat,comm -p $pid || true; echo "  SIGKILL $pid"; kill -KILL $pid; sleep 1; ps -o pid,stat,comm -p $pid || echo "  gone"; done
+          echo "--- apparmor audit"; sudo dmesg 2>/dev/null | grep -iE "apparmor|DENIED" | grep -vE "systemd-detect|rsyslog|snap|docker|STATUS" | tail -20 || true
