@@ -19,20 +19,24 @@ jobs:
           echo "pid1: $(cat /proc/1/comm)"; echo "apparmor userns restrict: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)"
           echo "ancestry:"; p=$$; while [ "$p" != 1 ] && [ -n "$p" ]; do echo "  $(ps -o pid=,ppid=,comm= -p $p)"; p=$(ps -o ppid= -p $p | tr -d ' '); done
           sudo apt-get install -y -qq bubblewrap >/dev/null; bwrap --version; mount | grep -E " /tmp | /proc " || true
-      - name: test with process snapshots
+      - name: bwrap parent lifetime under strace
         shell: bash {0}
         run: |
-          echo "bwrap: $(ls -l /usr/bin/bwrap) :: $(file -b /usr/bin/bwrap | cut -c1-60)"
-          echo "yama: $(cat /proc/sys/kernel/yama/ptrace_scope)"
-          snapshot() {
-            T=$(ps -eo pid,ppid,pgid,sid,stat,comm,args --forest 2>/dev/null | grep -vE "ps -eo|grep|snapshot|sleep" | grep -E "manager.test|executor|bwrap|acquired|codefly|CODEFLY| sh |sh -c" || true)
-            if [ "$T" != "$LAST" ]; then echo "--- ps $(date +%T.%N | cut -c1-12)"; echo "$T" | cut -c1-200; LAST="$T"; fi
+          sudo apt-get install -y -qq strace >/dev/null 2>&1 || true
+          W=$(mktemp -d /tmp/bw-XXXX); mkdir -p $W/stage
+          run_case() {
+            NAME=$1; shift
+            echo "=== case $NAME: bwrap $*"
+            ( strace -f -tt -o $W/$NAME.trace -e trace=process,signal bwrap "$@" --ro-bind $W/stage $W/stage -- /bin/sh -c 'sleep 20' ) > $W/$NAME.out 2>&1 &
+            P=$!; sleep 1.5
+            echo "--- forest after 1.5s (strace pid $P)"; ps -eo pid,ppid,pgid,sid,stat,comm --forest | grep -E "strace|bwrap|sleep| sh" | grep -vE "grep|ps -eo" | cut -c1-120 || true
+            BW=$(pgrep -x bwrap | head -1); echo "bwrap pid: ${BW:-none}"
+            echo "--- parent trace (first 40 process/signal events)"; grep -vE "SIGCHLD|rt_sigaction|rt_sigprocmask" $W/$NAME.trace | head -40 | cut -c1-200
+            echo "--- stderr"; cat $W/$NAME.out | head -5
+            echo "--- kill -TERM the sleep's ancestors group and check survivors"; for pid in $(pgrep -x bwrap); do kill -TERM $pid; done; sleep 1; ps -eo pid,ppid,pgid,sid,stat,comm | grep -E "bwrap|sleep" | grep -v grep || echo "  none left"
+            pkill -KILL -x sleep 2>/dev/null || true; pkill -KILL -x bwrap 2>/dev/null || true; sleep 0.5
           }
-          ( LAST=""; while true; do snapshot; sleep 0.3; done ) &
-          SNAP=$!
-          go test -tags sandbox_e2e -run 'TestLoadArtifactSandbox' -count=1 -v ./agents/manager 2>&1 | grep -vE "^go: downloading" | tail -40
-          kill $SNAP 2>/dev/null || true
-          echo "--- pgid records"; find /tmp -name '*.pgid' 2>/dev/null | while read f; do echo "$f"; cat "$f" | cut -c1-400; echo; done
-          echo "--- survivors"; ps -eo pid,ppid,pgid,sid,stat,comm,args | grep -E "executor|bwrap" | grep -v grep || true
-          for pid in $(pgrep executor); do echo "  SIGTERM $pid"; kill -TERM $pid; sleep 2; ps -o pid,stat,comm -p $pid || true; echo "  SIGKILL $pid"; kill -KILL $pid; sleep 1; ps -o pid,stat,comm -p $pid || echo "  gone"; done
-          echo "--- apparmor audit"; sudo dmesg 2>/dev/null | grep -iE "apparmor|DENIED" | grep -vE "systemd-detect|rsyslog|snap|docker|STATUS" | tail -20 || true
+          run_case default --die-with-parent --new-session --proc /proc --dev /dev --tmpfs /tmp --ro-bind-try /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin --ro-bind-try /etc /etc --unshare-net
+          run_case nosession --die-with-parent --proc /proc --dev /dev --tmpfs /tmp --ro-bind-try /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin --ro-bind-try /etc /etc --unshare-net
+          run_case unsharepid --die-with-parent --new-session --unshare-pid --proc /proc --dev /dev --tmpfs /tmp --ro-bind-try /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin --ro-bind-try /etc /etc --unshare-net
+          run_case bare --proc /proc --dev /dev --ro-bind-try /usr /usr --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind-try /bin /bin --ro-bind-try /etc /etc
