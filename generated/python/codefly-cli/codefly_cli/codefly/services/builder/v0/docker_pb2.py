@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(codefly/services/builder/v0/docker.proto\x12\x1b\x63odefly.services.builder.v0\"\xd1\x01\n\x12\x44ockerBuildContext\x12+\n\x11\x64ocker_repository\x18\x01 \x01(\tR\x10\x64ockerRepository\x12!\n\x0cimage_digest\x18\x02 \x01(\tR\x0bimageDigest\x12\x44\n\x05\x63\x61\x63he\x18\x03 \x01(\x0b\x32..codefly.services.builder.v0.BuildCacheOptionsR\x05\x63\x61\x63he\x12%\n\x0e\x62uildx_builder\x18\x04 \x01(\tR\rbuildxBuilder\"+\n\x11\x44ockerBuildResult\x12\x16\n\x06images\x18\x01 \x03(\tR\x06images\"L\n\nRecipeFile\x12\x12\n\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n\x06\x64igest\x18\x02 \x01(\tR\x06\x64igest\x12\x12\n\x04mode\x18\x03 \x01(\rR\x04mode\"\x9f\x04\n\x11\x44ockerBuildRecipe\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n\ndockerfile\x18\x02 \x01(\tR\ndockerfile\x12\x18\n\x07\x63ontext\x18\x03 \x01(\tR\x07\x63ontext\x12\"\n\x0c\x64ockerignore\x18\x04 \x01(\tR\x0c\x64ockerignore\x12\x14\n\x05image\x18\x05 \x01(\tR\x05image\x12\x1c\n\tplatforms\x18\x06 \x03(\tR\tplatforms\x12\\\n\nbuild_args\x18\x07 \x03(\x0b\x32=.codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntryR\tbuildArgs\x12\x16\n\x06target\x18\x08 \x01(\tR\x06target\x12Q\n\x0c\x63ontext_root\x18\t \x01(\x0e\x32..codefly.services.builder.v0.RecipeContextRootR\x0b\x63ontextRoot\x12]\n\x13go_module_downloads\x18\n \x03(\x0b\x32-.codefly.services.builder.v0.GoModuleDownloadR\x11goModuleDownloads\x1a<\n\x0e\x42uildArgsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x02\x38\x01\"X\n\x10GoModuleDownload\x12\x1f\n\x0bmodule_root\x18\x01 \x01(\tR\nmoduleRoot\x12#\n\rproxy_context\x18\x02 \x01(\tR\x0cproxyContext\"\xa6\x02\n\x0f\x44ockerBuildPlan\x12H\n\x07recipes\x18\x01 \x03(\x0b\x32..codefly.services.builder.v0.DockerBuildRecipeR\x07recipes\x12=\n\x05\x66iles\x18\x02 \x03(\x0b\x32\'.codefly.services.builder.v0.RecipeFileR\x05\x66iles\x12\x16\n\x06\x64igest\x18\x03 \x01(\tR\x06\x64igest\x12)\n\x10\x63ontract_version\x18\x04 \x01(\tR\x0f\x63ontractVersion\x12G\n\x05scope\x18\x05 \x01(\x0e\x32\x31.codefly.services.builder.v0.RecipeInventoryScopeR\x05scope\"\x8b\x01\n\x11\x42uildCacheOptions\x12\x18\n\x07imports\x18\x01 \x03(\tR\x07imports\x12\x18\n\x07\x65xports\x18\x02 \x03(\tR\x07\x65xports\x12\x14\n\x05scope\x18\x03 \x01(\tR\x05scope\x12\x12\n\x04mode\x18\x04 \x01(\tR\x04mode\x12\x18\n\x07\x62\x61\x63kend\x18\x05 \x01(\tR\x07\x62\x61\x63kend*y\n\x11RecipeContextRoot\x12#\n\x1fRECIPE_CONTEXT_ROOT_UNSPECIFIED\x10\x00\x12\x1f\n\x1bRECIPE_CONTEXT_ROOT_SERVICE\x10\x01\x12\x1e\n\x1aRECIPE_CONTEXT_ROOT_OUTPUT\x10\x02*\x83\x01\n\x14RecipeInventoryScope\x12&\n\"RECIPE_INVENTORY_SCOPE_UNSPECIFIED\x10\x00\x12\"\n\x1eRECIPE_INVENTORY_SCOPE_EMITTED\x10\x01\x12\x1f\n\x1bRECIPE_INVENTORY_SCOPE_TREE\x10\x02\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(codefly/services/builder/v0/docker.proto\x12\x1b\x63odefly.services.builder.v0\"\xd1\x01\n\x12\x44ockerBuildContext\x12+\n\x11\x64ocker_repository\x18\x01 \x01(\tR\x10\x64ockerRepository\x12!\n\x0cimage_digest\x18\x02 \x01(\tR\x0bimageDigest\x12\x44\n\x05\x63\x61\x63he\x18\x03 \x01(\x0b\x32..codefly.services.builder.v0.BuildCacheOptionsR\x05\x63\x61\x63he\x12%\n\x0e\x62uildx_builder\x18\x04 \x01(\tR\rbuildxBuilder\"+\n\x11\x44ockerBuildResult\x12\x16\n\x06images\x18\x01 \x03(\tR\x06images\"L\n\nRecipeFile\x12\x12\n\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n\x06\x64igest\x18\x02 \x01(\tR\x06\x64igest\x12\x12\n\x04mode\x18\x03 \x01(\rR\x04mode\"\x81\x05\n\x11\x44ockerBuildRecipe\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n\ndockerfile\x18\x02 \x01(\tR\ndockerfile\x12\x18\n\x07\x63ontext\x18\x03 \x01(\tR\x07\x63ontext\x12\"\n\x0c\x64ockerignore\x18\x04 \x01(\tR\x0c\x64ockerignore\x12\x14\n\x05image\x18\x05 \x01(\tR\x05image\x12\x1c\n\tplatforms\x18\x06 \x03(\tR\tplatforms\x12\\\n\nbuild_args\x18\x07 \x03(\x0b\x32=.codefly.services.builder.v0.DockerBuildRecipe.BuildArgsEntryR\tbuildArgs\x12\x16\n\x06target\x18\x08 \x01(\tR\x06target\x12Q\n\x0c\x63ontext_root\x18\t \x01(\x0e\x32..codefly.services.builder.v0.RecipeContextRootR\x0b\x63ontextRoot\x12]\n\x13go_module_downloads\x18\n \x03(\x0b\x32-.codefly.services.builder.v0.GoModuleDownloadR\x11goModuleDownloads\x12`\n\x14git_source_downloads\x18\x0b \x03(\x0b\x32..codefly.services.builder.v0.GitSourceDownloadR\x12gitSourceDownloads\x1a<\n\x0e\x42uildArgsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x02\x38\x01\"X\n\x10GoModuleDownload\x12\x1f\n\x0bmodule_root\x18\x01 \x01(\tR\nmoduleRoot\x12#\n\rproxy_context\x18\x02 \x01(\tR\x0cproxyContext\"r\n\x11GitSourceDownload\x12\x1e\n\nrepository\x18\x01 \x01(\tR\nrepository\x12\x16\n\x06\x63ommit\x18\x02 \x01(\tR\x06\x63ommit\x12%\n\x0emirror_context\x18\x03 \x01(\tR\rmirrorContext\"\xa6\x02\n\x0f\x44ockerBuildPlan\x12H\n\x07recipes\x18\x01 \x03(\x0b\x32..codefly.services.builder.v0.DockerBuildRecipeR\x07recipes\x12=\n\x05\x66iles\x18\x02 \x03(\x0b\x32\'.codefly.services.builder.v0.RecipeFileR\x05\x66iles\x12\x16\n\x06\x64igest\x18\x03 \x01(\tR\x06\x64igest\x12)\n\x10\x63ontract_version\x18\x04 \x01(\tR\x0f\x63ontractVersion\x12G\n\x05scope\x18\x05 \x01(\x0e\x32\x31.codefly.services.builder.v0.RecipeInventoryScopeR\x05scope\"\x8b\x01\n\x11\x42uildCacheOptions\x12\x18\n\x07imports\x18\x01 \x03(\tR\x07imports\x12\x18\n\x07\x65xports\x18\x02 \x03(\tR\x07\x65xports\x12\x14\n\x05scope\x18\x03 \x01(\tR\x05scope\x12\x12\n\x04mode\x18\x04 \x01(\tR\x04mode\x12\x18\n\x07\x62\x61\x63kend\x18\x05 \x01(\tR\x07\x62\x61\x63kend*y\n\x11RecipeContextRoot\x12#\n\x1fRECIPE_CONTEXT_ROOT_UNSPECIFIED\x10\x00\x12\x1f\n\x1bRECIPE_CONTEXT_ROOT_SERVICE\x10\x01\x12\x1e\n\x1aRECIPE_CONTEXT_ROOT_OUTPUT\x10\x02*\x83\x01\n\x14RecipeInventoryScope\x12&\n\"RECIPE_INVENTORY_SCOPE_UNSPECIFIED\x10\x00\x12\"\n\x1eRECIPE_INVENTORY_SCOPE_EMITTED\x10\x01\x12\x1f\n\x1bRECIPE_INVENTORY_SCOPE_TREE\x10\x02\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,10 +33,10 @@ if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._loaded_options = None
   _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._serialized_options = b'8\001'
-  _globals['_RECIPECONTEXTROOT']._serialized_start=1483
-  _globals['_RECIPECONTEXTROOT']._serialized_end=1604
-  _globals['_RECIPEINVENTORYSCOPE']._serialized_start=1607
-  _globals['_RECIPEINVENTORYSCOPE']._serialized_end=1738
+  _globals['_RECIPECONTEXTROOT']._serialized_start=1697
+  _globals['_RECIPECONTEXTROOT']._serialized_end=1818
+  _globals['_RECIPEINVENTORYSCOPE']._serialized_start=1821
+  _globals['_RECIPEINVENTORYSCOPE']._serialized_end=1952
   _globals['_DOCKERBUILDCONTEXT']._serialized_start=74
   _globals['_DOCKERBUILDCONTEXT']._serialized_end=283
   _globals['_DOCKERBUILDRESULT']._serialized_start=285
@@ -44,13 +44,15 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_RECIPEFILE']._serialized_start=330
   _globals['_RECIPEFILE']._serialized_end=406
   _globals['_DOCKERBUILDRECIPE']._serialized_start=409
-  _globals['_DOCKERBUILDRECIPE']._serialized_end=952
-  _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._serialized_start=892
-  _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._serialized_end=952
-  _globals['_GOMODULEDOWNLOAD']._serialized_start=954
-  _globals['_GOMODULEDOWNLOAD']._serialized_end=1042
-  _globals['_DOCKERBUILDPLAN']._serialized_start=1045
-  _globals['_DOCKERBUILDPLAN']._serialized_end=1339
-  _globals['_BUILDCACHEOPTIONS']._serialized_start=1342
-  _globals['_BUILDCACHEOPTIONS']._serialized_end=1481
+  _globals['_DOCKERBUILDRECIPE']._serialized_end=1050
+  _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._serialized_start=990
+  _globals['_DOCKERBUILDRECIPE_BUILDARGSENTRY']._serialized_end=1050
+  _globals['_GOMODULEDOWNLOAD']._serialized_start=1052
+  _globals['_GOMODULEDOWNLOAD']._serialized_end=1140
+  _globals['_GITSOURCEDOWNLOAD']._serialized_start=1142
+  _globals['_GITSOURCEDOWNLOAD']._serialized_end=1256
+  _globals['_DOCKERBUILDPLAN']._serialized_start=1259
+  _globals['_DOCKERBUILDPLAN']._serialized_end=1553
+  _globals['_BUILDCACHEOPTIONS']._serialized_start=1556
+  _globals['_BUILDCACHEOPTIONS']._serialized_end=1695
 # @@protoc_insertion_point(module_scope)

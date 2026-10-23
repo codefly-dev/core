@@ -84,6 +84,17 @@ message DockerBuildRecipe {
   // non-empty list requires the v5 recipe contract and participates in its
   // digest; older hosts reject v5 rather than build without supplying it.
   repeated GoModuleDownload go_module_downloads = 10;
+  // git_source_downloads are the git commits this recipe's dependency
+  // resolution fetches while it builds, as its lockfile pins them. Declaring
+  // them moves the fetch out of the build: the caller fetches each commit once,
+  // before it builds any image, with the credentials of the machine running the
+  // build, and supplies it to the build as a bare repository mirror. A recipe
+  // that declares them therefore needs no credential inside the build. A
+  // non-empty list requires the v6 recipe contract and participates in its
+  // digest, in order; older hosts reject v6 rather than build without
+  // supplying it. A host accepts a v6 plan only after it has fetched every
+  // declared source, and refuses a declaration it did not fetch.
+  repeated GitSourceDownload git_source_downloads = 11;
 }
 
 // GoModuleDownload is one Go module graph a recipe downloads.
@@ -97,6 +108,30 @@ message GoModuleDownload {
   // Dockerfile declares a stage of the same name (FROM scratch) so it still
   // builds, from the network, when no caller supplies one.
   string proxy_context = 2;
+}
+
+// GitSourceDownload is one locked git commit a recipe fetches.
+message GitSourceDownload {
+  // repository is the URL the build fetches from, exactly as the lockfile
+  // records it: https:// or ssh://, spelled in lowercase, a host, an optional
+  // port and a path, every path character in [A-Za-z0-9._~/:+-] (no "@", no
+  // percent-encoding), with no query, fragment, password or token (ssh may
+  // name a login user). The Dockerfile
+  // maps this URL onto the supplied mirror (git's url.<base>.insteadOf), so it
+  // must match the lockfile byte for byte.
+  string repository = 1;
+  // commit is the full object id the lockfile pins: 40 (SHA-1) or 64 (SHA-256)
+  // lowercase hexadecimal characters.
+  string commit = 2;
+  // mirror_context names the build context the caller supplies the fetched
+  // commits as: a directory holding one bare repository per declared
+  // repository, named by the lowercase hex SHA-256 of the repository string
+  // followed by ".git" (services.GitSourceMirrorPath in Go), each holding every
+  // declared commit under refs/commit/<commit> (services.GitSourceMirrorRef).
+  // Several downloads may share one mirror context. The Dockerfile declares a
+  // stage of the same name (FROM scratch) so it still builds, from the network,
+  // when no caller supplies one.
+  string mirror_context = 3;
 }
 
 // RecipeInventoryScope states what a plan's file inventory claims to cover, so
