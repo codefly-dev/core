@@ -63,6 +63,7 @@ func Fixtures() ([]Fixture, error) {
 	}{
 		{name: "valid", file: "valid.module.contract.codefly.yaml", outcome: OutcomeAccepted},
 		{name: "upper-case-slot-key", file: "upper-case-slot-key.yaml", outcome: OutcomeAccepted},
+		{name: "binding-names-calls", file: "binding-names-calls.yaml", outcome: OutcomeAccepted},
 
 		{name: "not-yaml", file: "not-yaml.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "yaml", rule: ruleWellFormed},
 		{name: "slot-names-from-twice", file: "slot-names-from-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "from" twice`, rule: ruleMappingKeysOnce},
@@ -141,6 +142,10 @@ func Fixtures() ([]Fixture, error) {
 		{name: "mixed-ceiling", file: "mixed-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "mixes bare actions with {resource_kind, actions} entries", rule: ruleCeilingOneSpelling},
 		{name: "ceiling-for-undeclared-operation", file: "ceiling-for-undeclared-operation.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "does not declare", rule: ruleCeilingForDeclaredOp},
 		{name: "operation-without-ceiling", file: "operation-without-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "no scope ceiling", rule: ruleOperationHasCeiling},
+		{name: "calls-for-undeclared-operation", file: "calls-for-undeclared-operation.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names calls for \"headless\", an operation it does not declare", rule: ruleCallsForDeclaredOp},
+		{name: "calls-and-ceiling", file: "calls-and-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names both a scope ceiling and calls", rule: ruleOperationOneSource},
+		{name: "call-not-a-method", file: "call-not-a-method.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "is neither a gRPC method", rule: ruleCallName},
+		{name: "call-declared-twice", file: "call-declared-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names call \"/documents.v1.DocumentsService/ResolveEvidence\" twice", rule: ruleCallUnique},
 		{name: "bare-actions-without-resource-kind", file: "bare-actions-without-resource-kind.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "lists bare actions but the binding declares no resource_kind slot", rule: ruleBareActionsNeedKind},
 		{name: "scope-kind-not-a-name", file: "scope-kind-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `ceiling resource kind "Annotations/Vocabularies" is not a lowercase name`, rule: ruleScopeKindName},
 		{name: "kind-named-twice", file: "kind-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names resource kind "annotations.vocabularies" twice`, rule: ruleScopeKindUnique},

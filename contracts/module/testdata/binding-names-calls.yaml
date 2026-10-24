@@ -1,0 +1,29 @@
+# A binding may name the audience's methods it calls instead of a ceiling: the
+# ceiling is then what those calls require, read from the audience's own
+# declarations when the contract is resolved. gRPC methods and HTTP routes alike.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: [assistant]
+queues: []
+scope_ceilings: []
+bindings:
+    - id: evidence
+      operations: [invoke, lookup]
+      audience: {from: assistant/evidence-audience}
+      binding_key: {from: assistant/evidence-binding}
+      calls:
+          invoke:
+              - /documents.v1.DocumentsService/ResolveEvidence
+              - /documents.v1.DocumentsService/ReadDocumentExcerpt
+      scope_ceiling:
+          lookup:
+              - resource_kind: documents
+                actions: [read]
+    - id: model
+      operations: [invoke]
+      audience: {from: assistant/model-audience}
+      calls:
+          invoke:
+              - GET /v1/model/profiles
+              - POST /v1/model/profiles/{name}:generate
+destinations: []

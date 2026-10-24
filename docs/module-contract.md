@@ -40,6 +40,22 @@ value: agreeing spellings are one value and resolve, and it is the disagreement
 that has no answer — see the resolution rules below. A publisher writes through
 `Encode`, never by marshaling the model.
 
+**A binding may name the calls it makes instead of a ceiling.** For an
+operation, `calls:` lists the audience's methods the binding calls, spelled as
+the audience's own method policy names them: a gRPC method
+(`/documents.v1.DocumentsService/ResolveEvidence`) or an HTTP route
+(`GET /v1/model/profiles`). The operation's ceiling is then what those calls
+require, read from the audience's declarations when the contract is resolved:
+`Resolve(values, modulecontract.WithCallees(callees))`, where `Callees`
+answers, for an audience and a call, the scopes its method policy names. A
+module therefore never names another module's resource kinds, and a callee that
+changes what a call requires changes every caller's ceiling with it. An
+operation takes its ceiling from `scope_ceiling` or from `calls`, never both;
+a call is spelled as a method or a route and listed once; and a `Resolve` with
+no callees, or a call the audience does not serve or that declares nothing, is
+refused under `ErrUnresolvedCall`, naming the binding and the call, never
+delivered with an empty ceiling.
+
 **A solution's consumption is the same request, declared where a solution
 already declares it.** A composed solution is a module, but what it calls is
 declared once, in `solution.codefly.yaml`'s `api.consumes`, which also drives its
@@ -162,7 +178,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (79 documents) ships
+`modulecontract.Fixtures()` (84 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (117

@@ -2,6 +2,8 @@ package module
 
 import (
 	"fmt"
+	"maps"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -66,6 +68,10 @@ const (
 	ruleCeilingOneSpelling    = "ceiling-one-spelling"
 	ruleCeilingForDeclaredOp  = "ceiling-for-declared-operation"
 	ruleOperationHasCeiling   = "operation-has-ceiling"
+	ruleCallsForDeclaredOp    = "calls-for-declared-operation"
+	ruleOperationOneSource    = "operation-one-ceiling-source"
+	ruleCallName              = "call-name"
+	ruleCallUnique            = "call-unique"
 	ruleBareActionsNeedKind   = "bare-actions-need-kind"
 	ruleScopeKindName         = "scope-kind-name"
 	ruleScopeKindUnique       = "scope-kind-unique"
@@ -115,7 +121,11 @@ func rules() []rule {
 		{name: ruleCeilingEntryShape, check: checkCeilingEntryShapes},
 		{name: ruleCeilingOneSpelling, check: checkCeilingsOneSpelling},
 		{name: ruleCeilingForDeclaredOp, check: checkCeilingsForDeclaredOperations},
+		{name: ruleCallsForDeclaredOp, check: checkCallsForDeclaredOperations},
+		{name: ruleOperationOneSource, check: checkOperationsHaveOneCeilingSource},
 		{name: ruleOperationHasCeiling, check: checkOperationsHaveCeilings},
+		{name: ruleCallName, check: checkCallNames},
+		{name: ruleCallUnique, check: checkCallsUnique},
 		{name: ruleBareActionsNeedKind, check: checkBareActionsNeedKind},
 		{name: ruleScopeKindName, check: checkScopeKindNames},
 		{name: ruleScopeKindUnique, check: checkScopeKindsUnique},
@@ -289,13 +299,8 @@ func (contract *Contract) actionLists() []struct {
 
 // sortedOperations lists a ceiling map's keys in a fixed order, so a refusal
 // names the same operation on every run.
-func sortedOperations(ceilings map[string]Ceiling) []string {
-	keys := make([]string, 0, len(ceilings))
-	for operation := range ceilings {
-		keys = append(keys, operation)
-	}
-	slices.Sort(keys)
-	return keys
+func sortedOperations[V any](byOperation map[string]V) []string {
+	return slices.Sorted(maps.Keys(byOperation))
 }
 
 func checkActionNames(contract *Contract) error {
@@ -546,8 +551,64 @@ func checkOperationsHaveCeilings(contract *Contract) error {
 			// The ceiling is the gate: a binding carrying no scopes for an
 			// operation cannot be minted that way at all, so an operation
 			// declared without one is a request for nothing.
-			if binding.ScopeCeiling[operation].empty() {
-				return fmt.Errorf("%w: binding %q declares operation %q with no scope ceiling", ErrInvalid, binding.ID, operation)
+			if binding.ScopeCeiling[operation].empty() && len(binding.Calls[operation]) == 0 {
+				return fmt.Errorf("%w: binding %q declares operation %q with no scope ceiling and no calls", ErrInvalid, binding.ID, operation)
+			}
+		}
+	}
+	return nil
+}
+
+func checkCallsForDeclaredOperations(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		for _, operation := range sortedOperations(binding.Calls) {
+			if !slices.Contains(binding.Operations, operation) {
+				return fmt.Errorf("%w: binding %q names calls for %q, an operation it does not declare", ErrInvalid, binding.ID, operation)
+			}
+		}
+	}
+	return nil
+}
+
+func checkOperationsHaveOneCeilingSource(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		for _, operation := range sortedOperations(binding.Calls) {
+			// One source per operation: a ceiling written beside calls would
+			// make the reader guess whether the calls bound it or widened it.
+			if _, written := binding.ScopeCeiling[operation]; written && len(binding.Calls[operation]) > 0 {
+				return fmt.Errorf("%w: binding %q operation %q names both a scope ceiling and calls; an operation's ceiling is one or the other", ErrInvalid, binding.ID, operation)
+			}
+		}
+	}
+	return nil
+}
+
+// callPattern is a call as an audience's method policy names it: a gRPC method
+// (/<package>.<Service>/<Method>) or an HTTP route (<VERB> <path>).
+var callPattern = regexp.MustCompile(`^(/([A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*/[A-Za-z_][A-Za-z0-9_]*|(GET|HEAD|POST|PUT|PATCH|DELETE) /[^\s]*)$`)
+
+func checkCallNames(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		for _, operation := range sortedOperations(binding.Calls) {
+			for _, call := range binding.Calls[operation] {
+				if !callPattern.MatchString(call) {
+					return fmt.Errorf("%w: binding %q operation %q call %q is neither a gRPC method (/<package>.<Service>/<Method>) nor an HTTP route (<VERB> <path>)", ErrInvalid, binding.ID, operation, call)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func checkCallsUnique(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		for _, operation := range sortedOperations(binding.Calls) {
+			seen := map[string]bool{}
+			for _, call := range binding.Calls[operation] {
+				if seen[call] {
+					return fmt.Errorf("%w: binding %q operation %q names call %q twice", ErrInvalid, binding.ID, operation, call)
+				}
+				seen[call] = true
 			}
 		}
 	}

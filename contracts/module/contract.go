@@ -163,7 +163,30 @@ var (
 	// them would make a delivered document depend on which record a reader
 	// met first.
 	ErrAmbiguousSlot = errors.New("module contract slot resolves ambiguously")
+	// ErrUnresolvedCall means a binding names a call whose requirement cannot
+	// be read: the contract was resolved with no callee declarations, or the
+	// audience does not serve the call, or the call declares nothing.
+	ErrUnresolvedCall = errors.New("module contract call cannot be resolved")
 )
+
+// Callees answers what a call to another module requires, from that module's
+// own declarations: the scopes, each "<resource kind>:<action>", that the
+// audience's method policy for the call names. A call the audience does not
+// serve, or one that declares nothing, is an error naming it.
+type Callees interface {
+	Requires(audience, call string) ([]string, error)
+}
+
+// ResolveOption shapes one resolution.
+type ResolveOption func(*resolveOptions)
+
+type resolveOptions struct{ callees Callees }
+
+// WithCallees resolves the bindings that name calls through callees: each such
+// operation's ceiling is the union of what its calls require.
+func WithCallees(callees Callees) ResolveOption {
+	return func(o *resolveOptions) { o.callees = callees }
+}
 
 var (
 	// namePattern is one lowercase dotted or dashed segment: a principal, a
@@ -228,9 +251,18 @@ type Binding struct {
 	// BindingKey is the key the host installs the binding under, a slot.
 	BindingKey *Slot `yaml:"binding_key,omitempty"`
 	// ScopeCeiling is, per declared operation, the scopes the binding may at
-	// most carry. Every declared operation names its ceiling: a binding
-	// declaring no scopes for an operation cannot be minted that way at all.
-	ScopeCeiling map[string]Ceiling `yaml:"scope_ceiling"`
+	// most carry. Every declared operation names its ceiling here or in Calls:
+	// a binding declaring neither for an operation cannot be minted that way.
+	ScopeCeiling map[string]Ceiling `yaml:"scope_ceiling,omitempty"`
+	// Calls is, per declared operation, the audience's methods the binding
+	// calls, each spelled as the audience's own method policy names it: a
+	// gRPC method ("/<package>.<Service>/<Method>") or an HTTP route ("<VERB>
+	// <path>"). The operation's ceiling is then what those calls require,
+	// read from the audience's declarations when the contract is resolved
+	// (WithCallees), so a module never names another module's resource kinds.
+	// An operation takes its ceiling from ScopeCeiling or from Calls, never
+	// both.
+	Calls map[string][]string `yaml:"calls,omitempty"`
 }
 
 // Ceiling is one operation's scope ceiling, in exactly one of two spellings:
@@ -544,22 +576,30 @@ type ResolvedBinding struct {
 	BindingKey string
 	// Scopes are, per operation, the scope strings the binding may at most
 	// carry, every one "<resource kind>:<action>": the binding's resolved
-	// resource kind qualifies its bare actions, and an explicit scope names
-	// its own. Sorted.
+	// resource kind qualifies its bare actions, an explicit scope names its
+	// own, and an operation that names calls carries what they require.
+	// Sorted, each once.
 	Scopes map[string][]string
+	// Calls are, per operation that names them, the calls its ceiling was
+	// read from. Sorted.
+	Calls map[string][]string
 }
 
 // Resolve resolves every slot of the contract against values. Every unresolved,
 // secret or ambiguous slot is reported in one error carrying every sentinel
 // that applies, so a composition is fixed in one pass rather than one slot per
 // render; a secret's value is never part of the message.
-func (contract *Contract) Resolve(values Values) (*Resolved, error) {
-	return contract.resolve(values, "")
+func (contract *Contract) Resolve(values Values, options ...ResolveOption) (*Resolved, error) {
+	return contract.resolve(values, "", options...)
 }
 
 // resolve is Resolve with one resolution rule removed, for the kit's
 // completeness self-check.
-func (contract *Contract) resolve(values Values, without string) (*Resolved, error) {
+func (contract *Contract) resolve(values Values, without string, options ...ResolveOption) (*Resolved, error) {
+	var opts resolveOptions
+	for _, option := range options {
+		option(&opts)
+	}
 	if err := contract.Validate(); err != nil {
 		return nil, err
 	}
@@ -570,7 +610,7 @@ func (contract *Contract) resolve(values Values, without string) (*Resolved, err
 		ScopeCeilings: slices.Clone(contract.ScopeCeilings),
 		Destinations:  slices.Clone(contract.Destinations),
 	}
-	var unresolved, secret, ambiguous []string
+	var unresolved, secret, ambiguous, calls []string
 	// One Records call per group, so a provider is asked for a group's records
 	// once and every slot of that group is resolved from the same answer.
 	groups := map[string][]Record{}
@@ -627,15 +667,46 @@ func (contract *Contract) resolve(values Values, without string) (*Resolved, err
 					scopes = append(scopes, scope.ResourceKind+":"+action)
 				}
 			}
+			if named := binding.Calls[operation]; len(named) > 0 {
+				if entry.Calls == nil {
+					entry.Calls = map[string][]string{}
+				}
+				entry.Calls[operation] = slices.Sorted(slices.Values(named))
+				label := "binding " + binding.ID + " " + operation
+				switch {
+				case opts.callees == nil:
+					calls = append(calls, label+" names calls, and the contract was resolved with no callee declarations to read them from")
+				case entry.Audience != "":
+					for _, call := range entry.Calls[operation] {
+						required, err := opts.callees.Requires(entry.Audience, call)
+						if err != nil {
+							calls = append(calls, label+" call "+call+" at "+entry.Audience+": "+err.Error())
+							continue
+						}
+						scopes = append(scopes, required...)
+					}
+				}
+			}
 			sort.Strings(scopes)
-			entry.Scopes[operation] = scopes
+			entry.Scopes[operation] = slices.Compact(scopes)
 		}
 		resolved.Bindings = append(resolved.Bindings, entry)
 	}
 	if err := resolutionError(secret, unresolved, ambiguous); err != nil {
+		if len(calls) > 0 {
+			err = errors.Join(err, callsError(calls))
+		}
 		return nil, err
 	}
+	if len(calls) > 0 {
+		return nil, callsError(calls)
+	}
 	return resolved, nil
+}
+
+// callsError names every call a resolution could not read a requirement for.
+func callsError(calls []string) error {
+	return fmt.Errorf("%w: %s; a call's requirement is the audience's own method policy, read from its published contracts", ErrUnresolvedCall, strings.Join(calls, "; "))
 }
 
 // resolutionError is the one error a Resolve reports: every category that
