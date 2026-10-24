@@ -80,6 +80,12 @@ const (
 	ruleDestinationIDUnique   = "destination-id-unique"
 	ruleDestinationTargetName = "destination-target-name"
 	ruleDestinationKindKnown  = "destination-kind-known"
+	ruleForeignMethodName     = "foreign-method-name"
+	ruleForeignMethodUnique   = "foreign-method-unique"
+	ruleForeignMethodRequires = "foreign-method-requires"
+	ruleForeignScopeHasAction = "foreign-method-scope-has-action"
+	ruleForeignMethodOwnKind  = "foreign-method-own-kind"
+	ruleForeignMethodOwnAct   = "foreign-method-own-action"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -136,6 +142,12 @@ func rules() []rule {
 		{name: ruleDestinationIDUnique, check: checkDestinationIDsUnique},
 		{name: ruleDestinationTargetName, check: checkDestinationTargetNames},
 		{name: ruleDestinationKindKnown, check: checkDestinationKindsKnown},
+		{name: ruleForeignMethodName, check: checkForeignMethodNames},
+		{name: ruleForeignMethodUnique, check: checkForeignMethodsUnique},
+		{name: ruleForeignMethodRequires, check: checkForeignMethodsRequire},
+		{name: ruleForeignScopeHasAction, check: checkForeignScopesHaveActions},
+		{name: ruleForeignMethodOwnKind, check: checkForeignMethodsOwnKinds},
+		{name: ruleForeignMethodOwnAct, check: checkForeignMethodsOwnActions},
 	}
 }
 
@@ -698,6 +710,92 @@ func checkDestinationKindsKnown(contract *Contract) error {
 	for _, destination := range contract.Destinations {
 		if !slices.Contains(destinationKinds, destination.Kind) {
 			return fmt.Errorf("%w: destination %q kind %q is not one of %s", ErrInvalid, destination.ID, destination.Kind, strings.Join(destinationKinds, ", "))
+		}
+	}
+	return nil
+}
+
+// grpcMethodPattern is a full gRPC method name: /<package>.<Service>/<Method>.
+var grpcMethodPattern = regexp.MustCompile(`^/([A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*/[A-Za-z_][A-Za-z0-9_]*$`)
+
+func checkForeignMethodNames(contract *Contract) error {
+	for _, method := range contract.ForeignMethods {
+		if !grpcMethodPattern.MatchString(method.Method) {
+			return fmt.Errorf("%w: foreign method %q is not a full gRPC method name (/<package>.<Service>/<Method>)", ErrInvalid, method.Method)
+		}
+	}
+	return nil
+}
+
+func checkForeignMethodsUnique(contract *Contract) error {
+	names := make([]string, 0, len(contract.ForeignMethods))
+	for _, method := range contract.ForeignMethods {
+		names = append(names, method.Method)
+	}
+	if duplicate, found := firstDuplicate(names); found {
+		return fmt.Errorf("%w: foreign method %q is declared twice", ErrInvalid, duplicate)
+	}
+	return nil
+}
+
+func checkForeignMethodsRequire(contract *Contract) error {
+	for _, method := range contract.ForeignMethods {
+		// A method that requires nothing would be open to any checked caller
+		// by omission; a foreign method states what it requires.
+		if len(method.Requires) == 0 {
+			return fmt.Errorf("%w: foreign method %q requires nothing; it names what a call must hold", ErrInvalid, method.Method)
+		}
+	}
+	return nil
+}
+
+func checkForeignScopesHaveActions(contract *Contract) error {
+	for _, method := range contract.ForeignMethods {
+		for _, scope := range method.Requires {
+			if len(scope.Actions) == 0 {
+				return fmt.Errorf("%w: foreign method %q requires %q with no action", ErrInvalid, method.Method, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+// ownCeilings is the module's own vocabulary: each kind and its actions.
+func (contract *Contract) ownCeilings() map[string][]string {
+	own := map[string][]string{}
+	for _, ceiling := range contract.ScopeCeilings {
+		own[ceiling.ResourceKind] = ceiling.Actions
+	}
+	return own
+}
+
+func checkForeignMethodsOwnKinds(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, method := range contract.ForeignMethods {
+		for _, scope := range method.Requires {
+			// A module decides calls to itself in its own vocabulary: a kind
+			// it does not declare is one no caller could be granted here.
+			if _, declared := own[scope.ResourceKind]; !declared {
+				return fmt.Errorf("%w: foreign method %q requires %q, which is not one of the module's own scope ceilings", ErrInvalid, method.Method, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+func checkForeignMethodsOwnActions(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, method := range contract.ForeignMethods {
+		for _, scope := range method.Requires {
+			actions, declared := own[scope.ResourceKind]
+			if !declared {
+				continue
+			}
+			for _, action := range scope.Actions {
+				if !slices.Contains(actions, action) {
+					return fmt.Errorf("%w: foreign method %q requires %s:%s, beyond the module's own ceiling on %s", ErrInvalid, method.Method, scope.ResourceKind, action, scope.ResourceKind)
+				}
+			}
 		}
 	}
 	return nil

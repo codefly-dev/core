@@ -1,0 +1,15 @@
+# A foreign method named as no gRPC method.
+schema: codefly/module-contract/v1
+principal: collector
+namespaces: [collector]
+queues: []
+scope_ceilings:
+    - resource_kind: collector.spans
+      actions: [export]
+bindings: []
+destinations: []
+foreign_methods:
+    - method: TraceService.Export
+      requires:
+          - resource_kind: collector.spans
+            actions: [export]

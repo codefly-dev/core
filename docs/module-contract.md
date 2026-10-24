@@ -56,6 +56,16 @@ no callees, or a call the audience does not serve or that declares nothing, is
 refused under `ErrUnresolvedCall`, naming the binding and the call, never
 delivered with an empty ceiling.
 
+**A module may declare the methods it serves from a protocol it does not own.**
+A method a module defines carries its policy as an option on its own proto; a
+method of a protocol the module only serves (an OpenTelemetry collector's
+`Export`) has no option the module can set. `foreign_methods:` lists each such
+method by its full gRPC name with what a call must hold, in the module's own
+vocabulary: every kind is one of its `scope_ceilings` and every action within
+that ceiling, and the list names each method once, each requiring at least one
+action. The render delivers them beside the methods its published contracts
+declare, so the hop in front of the module decides them like any other.
+
 **A solution's consumption is the same request, declared where a solution
 already declares it.** A composed solution is a module, but what it calls is
 declared once, in `solution.codefly.yaml`'s `api.consumes`, which also drives its
@@ -178,7 +188,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (84 documents) ships
+`modulecontract.Fixtures()` (91 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (117

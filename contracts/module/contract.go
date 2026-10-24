@@ -221,6 +221,20 @@ type Contract struct {
 	// Destinations are the endpoints the module exposes for something else to
 	// route to.
 	Destinations []Destination `yaml:"destinations"`
+	// ForeignMethods are the methods the module serves from a protocol whose
+	// definition it does not own (an OpenTelemetry collector's Export), so no
+	// option of its own can mark them, each with what a call must hold. They
+	// join the methods its published contracts declare, so the hop in front of
+	// the module decides them like any other.
+	ForeignMethods []ForeignMethod `yaml:"foreign_methods,omitempty"`
+}
+
+// ForeignMethod is one served method of a protocol the module does not own,
+// by its full gRPC name, and what a call to it must hold, in the module's own
+// vocabulary.
+type ForeignMethod struct {
+	Method   string         `yaml:"method"`
+	Requires []CeilingScope `yaml:"requires"`
 }
 
 // ScopeCeiling is one resource kind of the module's own vocabulary and the
@@ -553,12 +567,13 @@ func (contract *Contract) Validate() error { return contract.validate("") }
 // Resolved is a contract with every slot resolved to the value the composition
 // supplies, ready to be derived into a manifest's authority.
 type Resolved struct {
-	Principal     string
-	Namespaces    []string
-	Queues        []string
-	ScopeCeilings []ScopeCeiling
-	Bindings      []ResolvedBinding
-	Destinations  []Destination
+	Principal      string
+	Namespaces     []string
+	Queues         []string
+	ScopeCeilings  []ScopeCeiling
+	Bindings       []ResolvedBinding
+	Destinations   []Destination
+	ForeignMethods []ForeignMethod
 }
 
 // ResolvedBinding is one binding with its audience, resource kind and binding
@@ -604,11 +619,12 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		return nil, err
 	}
 	resolved := &Resolved{
-		Principal:     contract.Principal,
-		Namespaces:    slices.Clone(contract.Namespaces),
-		Queues:        slices.Clone(contract.Queues),
-		ScopeCeilings: slices.Clone(contract.ScopeCeilings),
-		Destinations:  slices.Clone(contract.Destinations),
+		Principal:      contract.Principal,
+		Namespaces:     slices.Clone(contract.Namespaces),
+		Queues:         slices.Clone(contract.Queues),
+		ScopeCeilings:  slices.Clone(contract.ScopeCeilings),
+		Destinations:   slices.Clone(contract.Destinations),
+		ForeignMethods: slices.Clone(contract.ForeignMethods),
 	}
 	var unresolved, secret, ambiguous, calls []string
 	// One Records call per group, so a provider is asked for a group's records
