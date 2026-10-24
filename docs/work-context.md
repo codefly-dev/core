@@ -10,13 +10,13 @@ Two packages own this:
 
 - `workcontext` mints and verifies capabilities. `Authority` holds the signing
   key; `Verifier` is the only way to turn a token back into claims.
-- `policy.PrincipalFromWorkContext` derives the `policy.Principal` the PDP,
-  the gateway and audit reason over. It takes a `*workcontext.Verified`, and
-  `Verified`'s fields are unexported with no exported constructor, so `Verify`
-  is the only way to obtain one — the derivation cannot run on anything
-  unverified, and that is a property the compiler holds rather than a
-  convention. It fills `Principal.DelegationChain`, which is therefore
-  derived, never hand-built.
+- Who a call is for is no longer derived here. The authority interface
+  (codefly-dev/authority) checks a context and its hop stamps the call with
+  the identity it answered, so a module reads that identity and never derives
+  a `policy.Principal` from a token itself; core's former derivation,
+  `policy.PrincipalFromWorkContext`, is deleted. `Verified`'s fields stay
+  unexported with no exported constructor, so `Verify` remains the only way to
+  obtain one.
 
 ## Task identity and hops
 
@@ -135,7 +135,7 @@ authority to someone else.
 ## The resume contract
 
 Immutability is what makes returning to the flow work, and it is a contract
-with tests (`workcontext/grant_test.go`, `policy/identity_e2e_test.go`):
+with tests (`workcontext/grant_test.go`):
 
 - a grant capability is rejected for any other tool, subject, request or
   approver set, and on a second use;
@@ -148,7 +148,7 @@ with tests (`workcontext/grant_test.go`, `policy/identity_e2e_test.go`):
 
 ## Audit
 
-`policy.PrincipalFromWorkContext` derives `DelegationChain` as the lenders,
+A delegation chain lists the lenders,
 oldest-first: the owner, then each preceding actor, and **one** link for an
 approval grant. So the scenario in the `Principal` doc comment — U invokes A;
 A acquires escalation from V — reads `[U, V]` with `Principal.ID` = A and the
@@ -175,9 +175,8 @@ capability minted before they existed is still a valid capability, and an
 archived `ExecutionReceiptV1` embedding one still verifies — receipt
 verification validates the whole message before it checks the signature, so a
 schema rule added here would retroactively invalidate every receipt ever
-attested. The requirement lives where the identity is built:
-`PrincipalFromWorkContext` refuses a capability it cannot derive a kind or an
-organization from, naming what is missing. Minting always fills them.
+attested. The requirement lives where the identity is built, never in the
+schema. Minting always fills them.
 
 ## The seal: one installation, and the principal's epoch
 
@@ -536,10 +535,9 @@ strength does not exist:
   capability already in flight. A caller holding none cannot authenticate at
   full strength, and core does not offer it a way to appear to.
 - **The result type carries which question was answered.** `Authenticate`
-  returns `*Authenticated`, never `*Verified`. `policy.PrincipalFromWorkContext`
-  takes a `*Verified`, so an authenticated capability cannot become a
-  `Principal` by accident; `Authority.Child` and `Authority.Grant` take one too,
-  so it cannot be exchanged for a derived capability — which is right beyond
+  returns `*Authenticated`, never `*Verified`. `Authority.Child` and
+  `Authority.Grant` take a `*Verified`, so an authenticated capability cannot
+  be exchanged for a derived capability — which is right beyond
   types, since deriving holds the parent's inherited seal against live state and
   that is the issuer's to answer. There is no conversion in either direction and
   a test guards against one being added, because that addition is the whole
