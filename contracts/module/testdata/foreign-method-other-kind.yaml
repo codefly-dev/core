@@ -1,10 +1,10 @@
 # A foreign method requiring another module's kind.
 schema: codefly/module-contract/v1
-principal: collector
-namespaces: [collector]
+principal: assistant
+namespaces: [assistant]
 queues: []
 scope_ceilings:
-    - resource_kind: collector.spans
+    - resource_kind: assistant.spans
       actions: [export]
 bindings: []
 destinations: []

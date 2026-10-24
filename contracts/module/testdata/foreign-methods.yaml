@@ -1,16 +1,16 @@
 # A module serving a protocol it does not own declares what each of its
 # methods requires, in its own vocabulary, so the hop decides it like any other.
 schema: codefly/module-contract/v1
-principal: collector
-namespaces: [collector]
+principal: assistant
+namespaces: [assistant]
 queues: []
 scope_ceilings:
-    - resource_kind: collector.spans
+    - resource_kind: assistant.spans
       actions: [export]
 bindings: []
 destinations: []
 foreign_methods:
     - method: /opentelemetry.proto.collector.trace.v1.TraceService/Export
       requires:
-          - resource_kind: collector.spans
+          - resource_kind: assistant.spans
             actions: [export]

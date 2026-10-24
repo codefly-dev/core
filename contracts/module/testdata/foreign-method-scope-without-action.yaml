@@ -1,15 +1,15 @@
 # A foreign method requiring a kind with no action.
 schema: codefly/module-contract/v1
-principal: collector
-namespaces: [collector]
+principal: assistant
+namespaces: [assistant]
 queues: []
 scope_ceilings:
-    - resource_kind: collector.spans
+    - resource_kind: assistant.spans
       actions: [export]
 bindings: []
 destinations: []
 foreign_methods:
     - method: /opentelemetry.proto.collector.trace.v1.TraceService/Export
       requires:
-          - resource_kind: collector.spans
+          - resource_kind: assistant.spans
             actions: []
