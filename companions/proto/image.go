@@ -29,6 +29,10 @@ import (
 type foreignNamespace struct {
 	pathPrefix    string
 	packagePrefix string
+	// goOnly marks a namespace whose distribution exists for Go alone: a Go
+	// library imports it from its module, every other language still owns a
+	// generated copy because nothing publishes one for it.
+	goOnly bool
 }
 
 // foreignNamespaces covers google/protobuf (package google.protobuf and
@@ -39,6 +43,15 @@ type foreignNamespace struct {
 var foreignNamespaces = []foreignNamespace{
 	{pathPrefix: "google/", packagePrefix: "google."},
 	{pathPrefix: "buf/validate/", packagePrefix: "buf.validate"},
+	// Codefly's own protos (codefly.base, codefly.runnable, ...) are published
+	// for Go by github.com/codefly-dev/core, and the authority's hop policy
+	// option by github.com/codefly-dev/authority/libraries/hop/go; a service
+	// vendors their .proto under its own tree to compile, and a Go library
+	// generated from it must import them from those modules — emitted again
+	// they register the same files twice and the consuming binary panics at
+	// init.
+	{pathPrefix: "codefly/", packagePrefix: "codefly.", goOnly: true},
+	{pathPrefix: "authority/hop/", packagePrefix: "authority.hop", goOnly: true},
 }
 
 // owns reports whether file belongs to this namespace.
@@ -89,10 +102,19 @@ const (
 
 // isForeign reports whether a library generated for language must not own this
 // file's bindings.
+// IsForeignFile reports whether a generated library for language must import
+// file from its distribution rather than own a copy of its bindings.
+func IsForeignFile(file *descriptorpb.FileDescriptorProto, language languages.Language) bool {
+	return isForeign(file, language)
+}
+
 func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Language) bool {
 	owned := false
 	for _, ns := range foreignNamespaces {
 		if ns.owns(file) {
+			if ns.goOnly {
+				return language == languages.GO
+			}
 			owned = true
 			break
 		}

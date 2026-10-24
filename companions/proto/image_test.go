@@ -356,3 +356,30 @@ func TestRemoveForeignOutput(t *testing.T) {
 func TestRemoveForeignOutputOnEmptyDestination(t *testing.T) {
 	require.NoError(t, removeForeignOutput(context.Background(), t.TempDir()))
 }
+
+// Codefly's own protos and the authority's hop option are foreign to a Go
+// library (their Go modules publish them) and owned by every other language,
+// which has no distribution to import them from.
+func TestCodeflyNamespacesAreForeignForGoAlone(t *testing.T) {
+	base := &descriptorpb.FileDescriptorProto{Name: googleproto.String("codefly/base/v0/agent.proto"), Package: googleproto.String("codefly.base.v0"),
+		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String("github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0")}}
+	hop := &descriptorpb.FileDescriptorProto{Name: googleproto.String("authority/hop/v1/policy.proto"), Package: googleproto.String("authority.hop.v1"),
+		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String("github.com/codefly-dev/authority/libraries/hop/go/gen/authority/hop/v1;hopv1")}}
+	own := &descriptorpb.FileDescriptorProto{Name: googleproto.String("documents/v1/api.proto"), Package: googleproto.String("documents.v1")}
+	for _, file := range []*descriptorpb.FileDescriptorProto{base, hop} {
+		require.True(t, IsForeignFile(file, languages.GO), file.GetName())
+		require.False(t, IsForeignFile(file, languages.PYTHON), file.GetName())
+		require.False(t, IsForeignFile(file, languages.TYPESCRIPT), file.GetName())
+	}
+	require.False(t, IsForeignFile(own, languages.GO))
+
+	data, overrides, err := MarkForeignImports(marshal(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{base, hop, own}}), languages.GO)
+	require.NoError(t, err)
+	var image descriptorpb.FileDescriptorSet
+	require.NoError(t, googleproto.Unmarshal(data, &image))
+	for _, file := range image.GetFile() {
+		require.Equal(t, file.GetName() != "documents/v1/api.proto", isMarkedAsImport(file), file.GetName())
+	}
+	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0", overrides["codefly/base/v0/agent.proto"])
+	require.Equal(t, "github.com/codefly-dev/authority/libraries/hop/go/gen/authority/hop/v1;hopv1", overrides["authority/hop/v1/policy.proto"])
+}
