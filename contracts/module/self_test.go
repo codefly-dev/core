@@ -102,6 +102,23 @@ func TestAFilledSelfBindingReadsItsCallsFromTheModulesOwnDeclarations(t *testing
 	}
 }
 
+// A self binding that names calls is held to the module's own ceilings by
+// what those calls require, exactly as one spelling its scopes out is: a call
+// at itself requiring a scope beyond them is refused naming the scope, never
+// delivered.
+func TestASelfBindingsCallsAreHeldToTheModulesOwnCeilings(t *testing.T) {
+	widening := declaredCallees{"assistant": {"/assistant.v1.TasksService/GetTask": {"assistant.tasks:read", "assistant.tasks:delete", "billing.invoices:read"}}}
+	_, err := selfContract(t).Resolve(selfValues(map[string]string{"occurrence-reads-binding": "reads"}), WithCallees(widening))
+	if !errors.Is(err, ErrUnresolvedCall) {
+		t.Fatalf("a call at itself beyond its own ceilings must be refused, got %v", err)
+	}
+	for _, want := range []string{"binding occurrence-reads invoke call /assistant.v1.TasksService/GetTask is addressed to the module itself", "requires assistant.tasks:delete, billing.invoices:read, beyond the module's own scope_ceilings"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal names %q, got %v", want, err)
+		}
+	}
+}
+
 // A self audience asks the composition for nothing: no group is read for it,
 // and the slot groups a render bakes into the manifest do not include one.
 func TestASelfAudienceReadsNoConfiguration(t *testing.T) {

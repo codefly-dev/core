@@ -391,6 +391,16 @@ implemented host interfaces. Its explicit catalog `services` inventory defines
 what it serves; complete descriptor imports are schemas, not serving claims.
 For a multi-package listener the endpoint and package-manifest contract's
 `package` field is empty, and each service's `fullName` supplies its package.
-Single-package exports keep their package field. `ProtobufProcedures` validates
-every named service and method against the descriptor, and contract evidence
-uses only that inventory, including a restricted subset of a service's methods.
+Single-package exports keep their package field, and every service they name
+lies in that package. `ProtobufProcedures` validates every named service and
+method against the descriptor, and contract evidence uses only that inventory,
+including a restricted subset of a service's methods.
+
+The catalog is still exact. `ProtobufCoverage` holds the listeners that share a
+descriptor (the same service and descriptor digest) to serving, between them,
+every method of every service any of them names and, for a package-qualified
+listener, every service of its package. A restricted listener is one whose
+siblings serve the rest; a method no listener serves is a catalog that was not
+regenerated with its descriptor, refused naming the method, since update
+compatibility would never see a breaking change to it. A service of another
+package that no listener names, an imported schema, needs no row.

@@ -21,16 +21,35 @@ const SignedFileName = "module-manifest.signed.codefly.yaml"
 var (
 	// ErrUnsigned means a carrier is not a signed document this package reads
 	// (a manifest or an envelope) — a missing document, a missing envelope, an
-	// invalid carrier shape, or an attestation that does not hold.
-	ErrUnsigned = errors.New("module manifest is not a signed document")
+	// invalid carrier shape, or an attestation that does not hold. Every such
+	// refusal matches it; one that knows which document it refused names that
+	// document, so an envelope refusal never reads as a manifest's.
+	ErrUnsigned = errors.New("the carrier is not a signed module document")
 
 	// ErrNotCanonical means a payload is not the canonical encoding of the
 	// document it decodes to. It is refused even when the signature over those
 	// bytes is genuine: a signer and a host that disagree about which bytes
 	// represent the document disagree about what was approved, and the host's
-	// stored digest would not match the payload that was attested.
-	ErrNotCanonical = errors.New("module manifest payload is not its canonical encoding")
+	// stored digest would not match the payload that was attested. Like
+	// ErrUnsigned, each refusal names the document it refused.
+	ErrNotCanonical = errors.New("the payload is not its module document's canonical encoding")
+
+	errUnsignedManifest     = documentRefusal{ErrUnsigned, "module manifest is not a signed document"}
+	errUnsignedEnvelope     = documentRefusal{ErrUnsigned, "module envelope is not a signed document"}
+	errManifestNotCanonical = documentRefusal{ErrNotCanonical, "module manifest payload is not its canonical encoding"}
+	errEnvelopeNotCanonical = documentRefusal{ErrNotCanonical, "module envelope payload is not its canonical encoding"}
 )
+
+// documentRefusal is a refusal of one named document: it reads as that
+// document's and matches the sentinel it specializes under errors.Is.
+type documentRefusal struct {
+	sentinel error
+	text     string
+}
+
+func (r documentRefusal) Error() string { return r.text }
+
+func (r documentRefusal) Unwrap() error { return r.sentinel }
 
 // Signed carries a canonical document — a manifest or an envelope — and the
 // DSSE envelope attesting it.
@@ -109,7 +128,7 @@ func (signed *Signed) validate() error {
 // bytes are the manifest disagree about what was delivered.
 func ManifestFromVerified(payload []byte) (*ModuleManifest, error) {
 	if len(bytes.TrimSpace(payload)) == 0 {
-		return nil, fmt.Errorf("%w: no payload", ErrUnsigned)
+		return nil, fmt.Errorf("%w: no payload", errUnsignedManifest)
 	}
 	manifest, err := Parse(payload)
 	if err != nil {
@@ -120,7 +139,7 @@ func ManifestFromVerified(payload []byte) (*ModuleManifest, error) {
 		return nil, err
 	}
 	if !bytes.Equal(encoded, payload) {
-		return nil, ErrNotCanonical
+		return nil, errManifestNotCanonical
 	}
 	return manifest, nil
 }
@@ -164,11 +183,11 @@ func Carrier(payload []byte, envelope json.RawMessage) (*Signed, error) {
 	switch SchemaOf(payload) {
 	case SchemaModuleManifestV1:
 		if _, err := ManifestFromVerified(payload); err != nil {
-			return nil, fmt.Errorf("%w: the payload is not a canonical module manifest: %w", ErrUnsigned, err)
+			return nil, fmt.Errorf("%w: the payload is not a canonical module manifest: %w", errUnsignedManifest, err)
 		}
 	case SchemaModuleEnvelopeV1:
 		if _, err := EnvelopeFromVerified(payload); err != nil {
-			return nil, fmt.Errorf("%w: the payload is not a canonical module envelope: %w", ErrUnsigned, err)
+			return nil, fmt.Errorf("%w: the payload is not a canonical module envelope: %w", errUnsignedEnvelope, err)
 		}
 	default:
 		_, err := payloadTypeFor(payload)

@@ -149,7 +149,7 @@ func (e *ModuleEnvelope) Digest() (string, error) {
 // otherwise resolve silently by keeping the last.
 func EnvelopeFromVerified(payload []byte) (*ModuleEnvelope, error) {
 	if len(bytes.TrimSpace(payload)) == 0 {
-		return nil, fmt.Errorf("%w: no payload", ErrUnsigned)
+		return nil, fmt.Errorf("%w: no payload", errUnsignedEnvelope)
 	}
 	if len(payload) > EnvelopeMaxBytes {
 		return nil, fmt.Errorf("%w: the document is %d bytes, more than the %d an envelope may hold", ErrEnvelopeInvalid, len(payload), EnvelopeMaxBytes)
@@ -176,7 +176,7 @@ func EnvelopeFromVerified(payload []byte) (*ModuleEnvelope, error) {
 		return nil, err
 	}
 	if !bytes.Equal(encoded, payload) {
-		return nil, ErrNotCanonical
+		return nil, errEnvelopeNotCanonical
 	}
 	return &envelope, nil
 }
@@ -215,17 +215,17 @@ func (d *DeliveredEnvelope) Signer() SignerIdentity { return d.signer }
 // revision may be applied over what the host holds is AdmitEnvelope's.
 func VerifyDeliveredEnvelope(ctx context.Context, carrier *Signed, verifier *Verifier) (*DeliveredEnvelope, error) {
 	if carrier == nil {
-		return nil, fmt.Errorf("%w: no carrier", ErrUnsigned)
+		return nil, fmt.Errorf("%w: no carrier", errUnsignedEnvelope)
 	}
 	if err := carrier.validate(); err != nil {
 		return nil, err
 	}
 	if verifier == nil {
-		return nil, fmt.Errorf("%w: no pinned-key verifier", ErrUnsigned)
+		return nil, fmt.Errorf("%w: no pinned-key verifier", errUnsignedEnvelope)
 	}
 	signer, err := verifier.VerifyEnvelope(ctx, carrier.Document, carrier.Envelope)
 	if err != nil {
-		return nil, fmt.Errorf("%w: the attestation does not hold: %w", ErrUnsigned, err)
+		return nil, fmt.Errorf("%w: the attestation does not hold: %w", errUnsignedEnvelope, err)
 	}
 	envelope, err := EnvelopeFromVerified(carrier.Document)
 	if err != nil {

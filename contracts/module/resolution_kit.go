@@ -482,7 +482,11 @@ func lossFixtures(label, role, group, key, upper, lower, value string) []Resolut
 const (
 	audiencesLookup = "owner-audiences"
 	audiencesKey    = "OWNER_AUDIENCES"
-	listScope       = "targets.items:read"
+	listKindsLookup = "owner-resource-kinds"
+	listKindsKey    = "OWNER_RESOURCE_KINDS"
+	listKindsValue  = "documents=documents.passages,robin=robin.tasks"
+	listKind        = "documents.passages"
+	listScope       = listKind + ":read"
 )
 
 // AudienceListFixtures are the audience-list cases. The resolved binding
@@ -493,18 +497,18 @@ func AudienceListFixtures() []ResolutionFixture {
 	return []ResolutionFixture{
 		{
 			Name: "an audience list", Group: group, Key: audiencesLookup, Slot: fieldAudiences, Outcome: OutcomeAccepted,
-			Audience: "documents", Scopes: []string{listScope},
-			Records: []Record{{Key: audiencesKey, Value: "robin,documents"}},
+			Audience: "documents", Kind: listKind, Scopes: []string{listScope},
+			Records: []Record{{Key: audiencesKey, Value: "robin,documents"}, {Key: listKindsKey, Value: listKindsValue}},
 		},
 		{
 			Name: "an audience list naming no one between two commas", Group: group, Key: audiencesLookup, Slot: fieldAudiences,
 			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists "", which is not an audience`, Rule: ruleResolvedList,
-			Records: []Record{{Key: audiencesKey, Value: "robin,,documents"}},
+			Records: []Record{{Key: audiencesKey, Value: "robin,,documents"}, {Key: listKindsKey, Value: listKindsValue}},
 		},
 		{
 			Name: "an audience list naming an audience twice", Group: group, Key: audiencesLookup, Slot: fieldAudiences,
 			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists the audience "robin" twice`, Rule: ruleResolvedList,
-			Records: []Record{{Key: audiencesKey, Value: "robin,documents,robin"}},
+			Records: []Record{{Key: audiencesKey, Value: "robin,documents,robin"}, {Key: listKindsKey, Value: listKindsValue}},
 		},
 	}
 }
@@ -562,10 +566,11 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 		binding.Audience = Slot{From: audienceSlot}
 		binding.BindingKey = &Slot{From: fixture.Group + "/" + fixture.Key}
 	case fieldAudiences:
-		// A list takes no single resource kind, so its ceiling names its kind.
+		// A list takes no single resource kind: each listed audience's kind
+		// qualifies the bare actions for it.
 		binding.Audiences = &Slot{From: fixture.Group + "/" + fixture.Key}
 		binding.ResourceKind = nil
-		binding.ScopeCeiling = map[string]Ceiling{OperationInvoke: {Scopes: []CeilingScope{{ResourceKind: "targets.items", Actions: []string{"read"}}}}}
+		binding.ResourceKinds = &Slot{From: fixture.Group + "/" + listKindsLookup}
 	default:
 		binding.Audience = Slot{From: fixture.Group + "/" + fixture.Key}
 	}

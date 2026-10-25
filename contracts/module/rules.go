@@ -76,6 +76,7 @@ const (
 	ruleCeilingEntryFields    = "ceiling-entry-fields"
 	ruleCeilingEntryShape     = "ceiling-entry-shape"
 	ruleCeilingOneSpelling    = "ceiling-one-spelling"
+	ruleAudiencesNoScopes     = "audiences-without-explicit-scopes"
 	ruleCeilingForDeclaredOp  = "ceiling-for-declared-operation"
 	ruleOperationHasCeiling   = "operation-has-ceiling"
 	ruleCallsForDeclaredOp    = "calls-for-declared-operation"
@@ -103,6 +104,10 @@ const (
 	ruleRoleKindName      = "role-kind-name"
 	ruleRoleKindUnique    = "role-kind-unique"
 	ruleRoleKindHasAction = "role-kind-has-action"
+	ruleRoleBindingKnown  = "role-binding-known"
+	ruleRoleBindingOp     = "role-binding-person-operation"
+	ruleRoleBindingDeclOp = "role-binding-declared-operation"
+	ruleRoleBindingUnique = "role-binding-unique"
 	ruleRoleInstaller     = "role-installer"
 	ruleRoleWithinRequest = "role-within-request"
 )
@@ -153,6 +158,7 @@ func rules() []rule {
 		{name: ruleCeilingEntryFields, check: checkCeilingEntryFields},
 		{name: ruleCeilingEntryShape, check: checkCeilingEntryShapes},
 		{name: ruleCeilingOneSpelling, check: checkCeilingsOneSpelling},
+		{name: ruleAudiencesNoScopes, check: checkAudiencesWithoutExplicitScopes},
 		{name: ruleCeilingForDeclaredOp, check: checkCeilingsForDeclaredOperations},
 		{name: ruleCallsForDeclaredOp, check: checkCallsForDeclaredOperations},
 		{name: ruleOperationOneSource, check: checkOperationsHaveOneCeilingSource},
@@ -183,6 +189,10 @@ func rules() []rule {
 		{name: ruleRoleKindName, check: checkRoleKindNames},
 		{name: ruleRoleKindUnique, check: checkRoleKindsUnique},
 		{name: ruleRoleKindHasAction, check: checkRoleKindsHaveActions},
+		{name: ruleRoleBindingKnown, check: checkRoleBindingsKnown},
+		{name: ruleRoleBindingOp, check: checkRoleBindingsPersonOperations},
+		{name: ruleRoleBindingDeclOp, check: checkRoleBindingsDeclaredOperations},
+		{name: ruleRoleBindingUnique, check: checkRoleBindingsUnique},
 		{name: ruleRoleInstaller, check: checkInstallerRole},
 		{name: ruleRoleWithinRequest, check: checkRolesWithinRequest},
 	}
@@ -725,6 +735,19 @@ func checkCeilingsOneSpelling(contract *Contract) error {
 	return nil
 }
 
+// checkAudiencesWithoutExplicitScopes: an explicit scope names its kind
+// literally, and beside an audience list that one kind would be asked for at
+// every listed audience — one module's vocabulary at every other, exactly what
+// resource_kind is refused there for.
+func checkAudiencesWithoutExplicitScopes(contract *Contract) error {
+	for _, entry := range contract.ceilings() {
+		if entry.binding.Audiences != nil && len(entry.ceiling.Scopes) > 0 {
+			return fmt.Errorf("%w: %s ceiling spells {resource_kind, actions} scopes beside audiences; each audience's kinds are its own, so a list names its calls or qualifies bare actions per audience in resource_kinds", ErrInvalid, entry.label)
+		}
+	}
+	return nil
+}
+
 func checkCeilingsForDeclaredOperations(contract *Contract) error {
 	for _, entry := range contract.ceilings() {
 		if !slices.Contains(entry.binding.Operations, entry.operation) {
@@ -1000,7 +1023,7 @@ func checkRolesUnique(contract *Contract) error {
 
 func checkRolesGrant(contract *Contract) error {
 	for _, role := range contract.Roles {
-		if len(role.Scopes) == 0 {
+		if len(role.Scopes) == 0 && len(role.Bindings) == 0 {
 			return fmt.Errorf("%w: role %q grants nothing", ErrInvalid, role.Name)
 		}
 	}
@@ -1042,6 +1065,65 @@ func checkRoleKindsHaveActions(contract *Contract) error {
 	return nil
 }
 
+// declaredBinding is the contract's binding with id, or nil.
+func (contract *Contract) declaredBinding(id string) *Binding {
+	for index := range contract.Bindings {
+		if contract.Bindings[index].ID == id {
+			return &contract.Bindings[index]
+		}
+	}
+	return nil
+}
+
+func checkRoleBindingsKnown(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, granted := range role.Bindings {
+			if contract.declaredBinding(granted.Binding) == nil {
+				return fmt.Errorf("%w: role %q grants binding %q, which the contract does not declare", ErrInvalid, role.Name, granted.Binding)
+			}
+		}
+	}
+	return nil
+}
+
+// checkRoleBindingsPersonOperations: a role is what a person holds, so it
+// grants only an operation a person causes; a headless operation has no
+// person in it.
+func checkRoleBindingsPersonOperations(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, granted := range role.Bindings {
+			if granted.Operation != OperationInvoke && granted.Operation != OperationLookup {
+				return fmt.Errorf("%w: role %q grants binding %q operation %q; a role grants %s or %s, the operations a person causes", ErrInvalid, role.Name, granted.Binding, granted.Operation, OperationInvoke, OperationLookup)
+			}
+		}
+	}
+	return nil
+}
+
+func checkRoleBindingsDeclaredOperations(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, granted := range role.Bindings {
+			if binding := contract.declaredBinding(granted.Binding); binding != nil && !slices.Contains(binding.Operations, granted.Operation) {
+				return fmt.Errorf("%w: role %q grants binding %q operation %q, an operation the binding does not declare", ErrInvalid, role.Name, granted.Binding, granted.Operation)
+			}
+		}
+	}
+	return nil
+}
+
+func checkRoleBindingsUnique(contract *Contract) error {
+	for _, role := range contract.Roles {
+		granted := make([]string, 0, len(role.Bindings))
+		for _, entry := range role.Bindings {
+			granted = append(granted, entry.Binding+" "+entry.Operation)
+		}
+		if duplicate, found := firstDuplicate(granted); found {
+			return fmt.Errorf("%w: role %q grants binding operation %q twice", ErrInvalid, role.Name, duplicate)
+		}
+	}
+	return nil
+}
+
 func checkInstallerRole(contract *Contract) error {
 	if len(contract.Roles) == 0 {
 		return nil
@@ -1059,7 +1141,8 @@ func checkInstallerRole(contract *Contract) error {
 // lookup) — the permissions at another module the unit asks for on a person's
 // behalf. A headless operation has no person in it, so nothing a person holds
 // comes from one; a bare action or a call names its kind only when the
-// composition resolves it, so a role cannot be held to it here.
+// composition resolves it, so a role cannot be held to it here — a role grants
+// those by naming the binding in its bindings, resolved with it.
 func (contract *Contract) grantable() map[string][]string {
 	grantable := map[string][]string{}
 	for kind, actions := range contract.ownCeilings() {
@@ -1081,7 +1164,7 @@ func checkRolesWithinRequest(contract *Contract) error {
 		for _, scope := range role.Scopes {
 			for _, action := range scope.Actions {
 				if !slices.Contains(grantable[scope.ResourceKind], action) {
-					return fmt.Errorf("%w: role %q grants %s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup", ErrInvalid, role.Name, scope.ResourceKind, action)
+					return fmt.Errorf("%w: role %q grants %s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup (a role grants what a binding's calls require by naming the binding in its bindings)", ErrInvalid, role.Name, scope.ResourceKind, action)
 				}
 			}
 		}

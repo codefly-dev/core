@@ -219,7 +219,9 @@ var (
 	ErrAmbiguousSlot = errors.New("module contract slot resolves ambiguously")
 	// ErrUnresolvedCall means a binding names a call whose requirement cannot
 	// be read: the contract was resolved with no callee declarations, or the
-	// audience does not serve the call, or the call declares nothing.
+	// audience does not serve the call, or the call declares nothing — or one
+	// it cannot be granted: a call a binding addressed to the module itself
+	// names requires a scope beyond the module's own scope_ceilings.
 	ErrUnresolvedCall = errors.New("module contract call cannot be resolved")
 )
 
@@ -312,11 +314,26 @@ type ScopeCeiling struct {
 	Actions      []string `yaml:"actions"`
 }
 
-// Role is one role of a unit's own: its name and the scopes it grants, each a
-// resource kind named literally with the actions granted on it.
+// Role is one role of a unit's own: its name and what it grants — scopes, each
+// a resource kind named literally with the actions granted on it, and binding
+// operations, each granting what that binding carries for it as resolved.
 type Role struct {
 	Name   string         `yaml:"name"`
-	Scopes []CeilingScope `yaml:"scopes"`
+	Scopes []CeilingScope `yaml:"scopes,omitempty"`
+	// Bindings grant what one of the unit's bindings carries for an operation
+	// a person causes (invoke, lookup): its ceiling as Resolve derives it —
+	// the scopes its calls require, read from each audience's declarations,
+	// or those it spells out — at each audience it is delivered to. It is how
+	// a role grants a permission at another module without naming that
+	// module's kinds.
+	Bindings []RoleBinding `yaml:"bindings,omitempty"`
+}
+
+// RoleBinding names one binding of the unit and one operation of it a role
+// grants.
+type RoleBinding struct {
+	Binding   string `yaml:"binding"`
+	Operation string `yaml:"operation"`
 }
 
 // InstallerRole is the role every unit that declares roles declares: whoever
@@ -750,6 +767,9 @@ type Resolved struct {
 	Bindings       []ResolvedBinding
 	Destinations   []Destination
 	ForeignMethods []ForeignMethod
+	// Roles are the contract's roles, in declaration order, each grant
+	// addressed to the audience it is held at.
+	Roles []ResolvedRole
 	// Omitted are the optional bindings the composition fills none of the
 	// slots of, which the resolution leaves out: nothing can be issued
 	// through them. In declaration order.
@@ -761,6 +781,23 @@ type OmittedBinding struct {
 	ID string
 	// Reason says why, naming every slot the composition left unfilled.
 	Reason string
+}
+
+// ResolvedRole is one role with every grant addressed. A role scope names a
+// kind and actions but no audience, and is never ambiguous here: Validate
+// holds it to the unit's own ceilings or to a scope one of its bindings spells
+// out, and Resolve addresses it to the one audience that underwrites it — the
+// unit's principal for its own kind, the binding's resolved audience for a
+// consumed one (a binding spelling scopes names one audience: never a list,
+// whose kinds are each audience's own). A scope two audiences underwrite is
+// refused, naming both; the role then grants the binding it means through
+// bindings, which carries its audience. A grant through an optional binding
+// the composition leaves out is left out with it.
+type ResolvedRole struct {
+	Name string
+	// Grants are, per audience, the scopes "<resource kind>:<action>" the
+	// role grants there. Sorted, each once.
+	Grants map[string][]string
 }
 
 // ResolvedBinding is one binding with its audience, resource kind and binding
@@ -814,6 +851,10 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		ForeignMethods: slices.Clone(contract.ForeignMethods),
 	}
 	var unresolved, secret, ambiguous, calls []string
+	own := contract.ownCeilings()
+	// delivered maps a declared binding to the indexes of what it resolved
+	// to in resolved.Bindings: one entry, one per listed audience, or none.
+	delivered := map[string][]int{}
 	// One Records call per group, so a provider is asked for a group's records
 	// once and every slot of that group is resolved from the same answer.
 	groups := map[string][]Record{}
@@ -922,6 +963,7 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		targets := targetsOf(binding, label)
 		bindingKey := resolve(label+" binding_key", binding.BindingKey, false)
 		for _, target := range targets {
+			delivered[binding.ID] = append(delivered[binding.ID], len(resolved.Bindings))
 			entry := ResolvedBinding{
 				ID: target.id, Revision: revision, Operations: slices.Clone(binding.Operations), Lookup: binding.Lookup,
 				Audience: target.audience, ResourceKind: target.kind, BindingKey: bindingKey,
@@ -960,6 +1002,16 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 								calls = append(calls, operationLabel+" call "+call+" at "+entry.Audience+": "+err.Error())
 								continue
 							}
+							if binding.Audience.Self {
+								// The self rule holds for what calls derive
+								// exactly as for what is spelled out: a scope at
+								// itself beyond its own ceilings is one no host
+								// could grant.
+								if beyond := beyondOwnCeilings(own, required); len(beyond) > 0 {
+									calls = append(calls, operationLabel+" call "+call+" is addressed to the module itself and requires "+strings.Join(beyond, ", ")+", beyond the module's own scope_ceilings")
+									continue
+								}
+							}
 							scopes = append(scopes, required...)
 						}
 					}
@@ -970,6 +1022,7 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 			resolved.Bindings = append(resolved.Bindings, entry)
 		}
 	}
+	resolved.Roles, ambiguous = contract.resolveRoles(resolved, delivered, ambiguous)
 	if err := resolutionError(secret, unresolved, ambiguous); err != nil {
 		if len(calls) > 0 {
 			err = errors.Join(err, callsError(calls))
@@ -980,6 +1033,75 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		return nil, callsError(calls)
 	}
 	return resolved, nil
+}
+
+// resolveRoles addresses every grant of every role (ResolvedRole), appending
+// to ambiguous each role scope two audiences underwrite.
+func (contract *Contract) resolveRoles(resolved *Resolved, delivered map[string][]int, ambiguous []string) ([]ResolvedRole, []string) {
+	own := contract.ownCeilings()
+	// underwriters are the audiences a literal role scope is held at: the
+	// principal for the unit's own kind, and each delivered audience of a
+	// binding that spells the scope out for an operation a person causes.
+	underwriters := func(kind, action string) []string {
+		var audiences []string
+		if slices.Contains(own[kind], action) {
+			audiences = append(audiences, contract.Principal)
+		}
+		for _, binding := range contract.Bindings {
+			for _, operation := range []string{OperationInvoke, OperationLookup} {
+				if slices.ContainsFunc(binding.ScopeCeiling[operation].Scopes, func(scope CeilingScope) bool {
+					return scope.ResourceKind == kind && slices.Contains(scope.Actions, action)
+				}) {
+					for _, index := range delivered[binding.ID] {
+						audiences = append(audiences, resolved.Bindings[index].Audience)
+					}
+				}
+			}
+		}
+		slices.Sort(audiences)
+		return slices.Compact(audiences)
+	}
+	roles := make([]ResolvedRole, 0, len(contract.Roles))
+	for _, role := range contract.Roles {
+		grants := map[string][]string{}
+		for _, scope := range role.Scopes {
+			for _, action := range scope.Actions {
+				audiences := underwriters(scope.ResourceKind, action)
+				if len(audiences) > 1 {
+					ambiguous = append(ambiguous, fmt.Sprintf("role %s grants %s:%s, which is underwritten at %s; a role grants a scope at one audience, so it names the binding it means in bindings", role.Name, scope.ResourceKind, action, strings.Join(audiences, " and ")))
+					continue
+				}
+				for _, audience := range audiences {
+					grants[audience] = append(grants[audience], scope.ResourceKind+":"+action)
+				}
+			}
+		}
+		for _, granted := range role.Bindings {
+			for _, index := range delivered[granted.Binding] {
+				binding := resolved.Bindings[index]
+				grants[binding.Audience] = append(grants[binding.Audience], binding.Scopes[granted.Operation]...)
+			}
+		}
+		for audience, scopes := range grants {
+			slices.Sort(scopes)
+			grants[audience] = slices.Compact(scopes)
+		}
+		roles = append(roles, ResolvedRole{Name: role.Name, Grants: grants})
+	}
+	return roles, ambiguous
+}
+
+// beyondOwnCeilings lists the scopes, each "<resource kind>:<action>", that
+// are not within the module's own ceilings, in the order given.
+func beyondOwnCeilings(own map[string][]string, scopes []string) []string {
+	var beyond []string
+	for _, scope := range scopes {
+		kind, action, _ := strings.Cut(scope, ":")
+		if !slices.Contains(own[kind], action) {
+			beyond = append(beyond, scope)
+		}
+	}
+	return beyond
 }
 
 // bindingTarget is one place a binding is delivered: the id it is delivered
