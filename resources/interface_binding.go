@@ -3,10 +3,12 @@ package resources
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/wool"
 )
 
@@ -47,6 +49,9 @@ type InterfaceBinding struct {
 type interfaceBinding struct {
 	module    string
 	endpoints []*EndpointReference
+	// implementing is the provider's endpoint that implements the interface,
+	// empty for a capability: what a host hands an agent to bind the same way.
+	implementing string
 }
 
 func (s *ServiceDependency) interfaceOnly() bool {
@@ -127,6 +132,7 @@ func (workspace *Workspace) InterfaceProviders(ctx context.Context) ([]*Interfac
 func (workspace *Workspace) BindInterfaceDependencies(ctx context.Context, service *Service) error {
 	w := wool.Get(ctx).In("Workspace::BindInterfaceDependencies", wool.NameField(service.label()))
 	if !service.hasInterfaceDependencies() {
+		service.interfacesBound = true
 		return nil
 	}
 	providers, err := workspace.InterfaceProviders(ctx)
@@ -137,6 +143,7 @@ func (workspace *Workspace) BindInterfaceDependencies(ctx context.Context, servi
 	if err != nil {
 		return w.Wrap(err)
 	}
+	service.interfacesBound = true
 	// With a resolver attached, each implementation a consumer is bound to is
 	// checked against its published definition, and only those: a definition
 	// the host cannot resolve fails the consumers relying on it, not every
@@ -225,7 +232,7 @@ func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider,
 // implementing the interface on endpoint (empty for a capability), keeping
 // what the author declared for a save to write back.
 func (s *ServiceDependency) bindTo(module, service, endpoint string) {
-	s.binding = &interfaceBinding{module: s.Module, endpoints: s.Endpoints}
+	s.binding = &interfaceBinding{module: s.Module, endpoints: s.Endpoints, implementing: endpoint}
 	s.Name = service
 	s.Module = module
 	// A completion edge waits for finished work and consumes no endpoint,
@@ -233,6 +240,70 @@ func (s *ServiceDependency) bindTo(module, service, endpoint string) {
 	if endpoint != "" && len(s.Endpoints) == 0 && s.Kind != DependencyKindCompletion {
 		s.Endpoints = []*EndpointReference{{Name: endpoint}}
 	}
+}
+
+// InterfaceBindingsProto is how a workspace bound the service's interface
+// dependencies, for a host to hand the agent that serves it: an agent loads
+// the service by directory and cannot resolve a composition that imports
+// other workspaces. It is nil when no workspace bound the service — a module
+// loaded on its own — so the agent is not told that nothing is bound when
+// nothing tried.
+func (s *Service) InterfaceBindingsProto() *basev0.ServiceInterfaceBindings {
+	if !s.interfacesBound {
+		return nil
+	}
+	out := &basev0.ServiceInterfaceBindings{}
+	for _, dep := range s.ServiceDependencies {
+		if dep.binding == nil {
+			continue
+		}
+		out.Bindings = append(out.Bindings, &basev0.ServiceInterfaceBinding{
+			Interface: dep.Interface,
+			Module:    dep.Module,
+			Service:   dep.Name,
+			Endpoint:  dep.binding.implementing,
+		})
+	}
+	return out
+}
+
+// ApplySuppliedInterfaceBindings binds the interface dependencies of a service
+// loaded by directory as the host's composition bound them, without loading
+// any workspace. A requirement with no entry stays unbound; a dependency that
+// names its service was checked by the host. An entry for a requirement the
+// service does not declare is refused: the host and the agent would be reading
+// different declarations.
+func ApplySuppliedInterfaceBindings(service *Service, supplied *basev0.ServiceInterfaceBindings) error {
+	byInterface := make(map[string]*basev0.ServiceInterfaceBinding, len(supplied.GetBindings()))
+	for _, binding := range supplied.GetBindings() {
+		if binding.GetInterface() == "" || binding.GetModule() == "" || binding.GetService() == "" {
+			return fmt.Errorf("service %s: a supplied interface binding must name the interface, module and service", service.label())
+		}
+		if _, exists := byInterface[binding.GetInterface()]; exists {
+			return fmt.Errorf("service %s: interface %s is bound twice", service.label(), binding.GetInterface())
+		}
+		byInterface[binding.GetInterface()] = binding
+	}
+	for _, dep := range service.ServiceDependencies {
+		switch {
+		case dep.Interface == "" || dep.binding != nil || dep.interfaceVerified:
+		case dep.interfaceOnly():
+			binding, ok := byInterface[dep.Interface]
+			if !ok {
+				continue
+			}
+			delete(byInterface, dep.Interface)
+			dep.bindTo(binding.GetModule(), binding.GetService(), binding.GetEndpoint())
+		default:
+			dep.interfaceVerified = true
+		}
+	}
+	if len(byInterface) > 0 {
+		return fmt.Errorf("service %s declares no interface-only dependency on %s, which the host bound",
+			service.label(), strings.Join(slices.Sorted(maps.Keys(byInterface)), ", "))
+	}
+	service.interfacesBound = true
+	return nil
 }
 
 // validateInterfaceBindings checks every binding the workspace declares, not
@@ -401,6 +472,7 @@ func ApplyInterfaceBindings(ctx context.Context, service *Service, workspaceDir 
 // require the same interface twice, once from whichever provider is bound and
 // once from a service it names.
 func (s *Service) adoptInterfaceBindings(previous *Service) {
+	s.interfacesBound = previous.interfacesBound
 	resolved := make(map[string]*ServiceDependency)
 	verified := make(map[string]bool)
 	for _, dep := range previous.ServiceDependencies {
@@ -419,7 +491,7 @@ func (s *Service) adoptInterfaceBindings(previous *Service) {
 			if !ok {
 				continue
 			}
-			dep.binding = &interfaceBinding{module: dep.Module, endpoints: dep.Endpoints}
+			dep.binding = &interfaceBinding{module: dep.Module, endpoints: dep.Endpoints, implementing: source.binding.implementing}
 			dep.Name = source.Name
 			dep.Module = source.Module
 			dep.Endpoints = source.Endpoints

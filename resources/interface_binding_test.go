@@ -791,3 +791,79 @@ func TestOnlyAnUnimplementedInterfaceStaysUnbound(t *testing.T) {
 	require.True(t, web.ServiceDependencies[0].Unbound())
 	requireBound(t, web.ServiceDependencies[1], "platform", "redis")
 }
+
+// importingWorkspace is a product workspace that imports, by version, the
+// workspace composing the platform module: only a host with a workspace
+// resolver can load it. It returns the product root and the imported one.
+func importingWorkspace(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"core/workspace.codefly.yaml":                               "name: platform-core\nlayout: modules\nmodules:\n    - name: platform\n",
+		"core/modules/platform/module.codefly.yaml":                 platformModule,
+		"core/modules/platform/services/redis/service.codefly.yaml": bindingService("redis", "tcp", ""),
+		"core/modules/platform/services/api/service.codefly.yaml":   bindingService("api", "grpc", ""),
+		"product/workspace.codefly.yaml":                            "name: product\nlayout: modules\nworkspaces:\n    - name: platform-core\n      source: team/platform-core\n      version: 1.0.0\nmodules:\n    - name: apps\n",
+		"product/modules/apps/module.codefly.yaml":                  "kind: module\nname: apps\nservices:\n    - name: web\n",
+		"product/modules/apps/services/web/service.codefly.yaml": bindingService("web", "http",
+			webDependencies+"    - interface: codefly.dev/authority@0.1.0\n      kind: external\n    - name: api\n      module: platform\n      interface: example.dev/widgets@^1.1\n"),
+	}
+	for name, content := range files {
+		path := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	}
+	return filepath.Join(root, "product"), filepath.Join(root, "core")
+}
+
+// An agent loads the service it serves by directory, with no workspace
+// resolver, so it cannot load a workspace that imports another by version. The
+// host, which can, hands it the binding; applied, it binds exactly as the host
+// did, and leaves unbound what nothing in the composition implements.
+func TestHostSuppliedBindingNeedsNoWorkspace(t *testing.T) {
+	product, core := importingWorkspace(t)
+	host := resources.WithWorkspaceResolver(context.Background(), func(context.Context, *resources.WorkspaceReference) (string, error) {
+		return core, nil
+	})
+	workspace, err := resources.LoadWorkspaceFromDir(host, product)
+	require.NoError(t, err)
+	composed, err := workspace.LoadService(host, &resources.ServiceWithModule{Module: "apps", Name: "web"})
+	require.NoError(t, err)
+	supplied := composed.InterfaceBindingsProto()
+	require.NotNil(t, supplied)
+	require.Len(t, supplied.Bindings, 2, "the two interface-only requirements a provider implements")
+
+	ctx := context.Background()
+	dir := filepath.Join(product, "modules/apps/services/web")
+	agent, err := resources.LoadServiceFromDir(ctx, dir)
+	require.NoError(t, err)
+	agent.WithModule("apps")
+	require.ErrorContains(t, resources.ApplyInterfaceBindings(ctx, agent, product), "requires host resolution")
+
+	agent, err = resources.LoadServiceFromDir(ctx, dir)
+	require.NoError(t, err)
+	agent.WithModule("apps")
+	require.NoError(t, resources.ApplySuppliedInterfaceBindings(agent, supplied))
+	for i, dep := range composed.ServiceDependencies {
+		require.Equal(t, dep.Unbound(), agent.ServiceDependencies[i].Unbound(), dep.Interface)
+		require.Equal(t, dep.Unique(), agent.ServiceDependencies[i].Unique(), dep.Interface)
+		require.Equal(t, dep.Endpoints, agent.ServiceDependencies[i].Endpoints, dep.Interface)
+	}
+	requireBound(t, agent.ServiceDependencies[0], "platform", "redis")
+	requireBound(t, agent.ServiceDependencies[1], "platform", "api", "grpc")
+	require.True(t, agent.ServiceDependencies[2].Unbound())
+
+	// A binding the agent's declaration has no requirement for means the two
+	// read different manifests: refused, never ignored.
+	agent, err = resources.LoadServiceFromDir(ctx, dir)
+	require.NoError(t, err)
+	supplied.Bindings = append(supplied.Bindings, &basev0.ServiceInterfaceBinding{Interface: "example.dev/other@^1", Module: "platform", Service: "api"})
+	require.ErrorContains(t, resources.ApplySuppliedInterfaceBindings(agent, supplied), "declares no interface-only dependency on example.dev/other@^1")
+
+	// A module loaded on its own bound nothing, so it tells an agent nothing.
+	apps, err := resources.LoadModuleFromDir(ctx, filepath.Join(product, "modules/apps"))
+	require.NoError(t, err)
+	standalone, err := apps.LoadServiceFromName(ctx, "web")
+	require.NoError(t, err)
+	require.Nil(t, standalone.InterfaceBindingsProto())
+}
