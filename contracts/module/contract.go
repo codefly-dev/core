@@ -64,6 +64,26 @@
 // a capability for it is addressed to), resource_kind a *-resource-kind key and
 // binding_key a *-binding key, in either spelling core accepts.
 //
+// # Audience lists
+//
+// A generic module reaches whichever modules a composition wires to it — a
+// store of comments reaches the owner of each kind of thing commented on —
+// so the audiences of one of its bindings are a LIST only the composition can
+// write. Such a binding declares `audiences` in place of `audience`: a slot
+// whose key is a *-audiences one and whose value is comma-separated names
+// (robin,documents). It means "this binding may be exercised toward any of
+// these audiences", and the resolution delivers it as one binding per listed
+// audience, each its own unit of authority at the issuer: id
+// <binding>:<audience> (AudienceBindingID), the audience, and the ceiling
+// resolved for THAT audience — the calls it names read from that audience's
+// own declarations, so two owners declaring one protocol's methods differently
+// get two different ceilings, and a call one of them does not serve is refused
+// by name. A bare-action ceiling is qualified per audience by resource_kinds
+// (a *-resource-kinds key, <audience>=<kind>,...), because each audience's
+// kinds are its own vocabulary: one resource_kind for many audiences would
+// name one module's kind at another, and one binding_key would install N
+// bindings under one key, so neither is written beside audiences.
+//
 // # Scope ceilings
 //
 // A binding's ceiling is written per operation in one of two spellings. Bare
@@ -125,12 +145,27 @@ var operations = []string{OperationInvoke, OperationLookup, OperationHeadless}
 // The slot fields of a binding, as the file spells them: what a refusal names
 // and what the key-naming convention is keyed by.
 const (
-	fieldAudience     = "audience"
-	fieldResourceKind = "resource_kind"
-	fieldBindingKey   = "binding_key"
-	fieldActions      = "actions"
-	fieldFrom         = "from"
+	fieldAudience      = "audience"
+	fieldAudiences     = "audiences"
+	fieldResourceKind  = "resource_kind"
+	fieldResourceKinds = "resource_kinds"
+	fieldBindingKey    = "binding_key"
+	fieldActions       = "actions"
+	fieldFrom          = "from"
 )
+
+// audienceBindingSeparator joins a binding declaring an audience list to one
+// audience it lists. It is outside the binding-id grammar (namePattern), so a
+// derived id never collides with a binding a contract declares, and inside the
+// opaque-id grammar a delivered manifest holds a binding id to.
+const audienceBindingSeparator = ":"
+
+// AudienceBindingID is the id a binding that declares an audience list is
+// delivered under for one audience it lists: the operation binding a module
+// names when it is issued a context toward that audience.
+func AudienceBindingID(binding, audience string) string {
+	return binding + audienceBindingSeparator + audience
+}
 
 // Destination kinds. The vocabulary belongs with the host's envelope table;
 // these three are what is written until that table names it.
@@ -257,12 +292,24 @@ type Binding struct {
 	// Lookup carries the lookup method when the binding declares lookup.
 	Lookup *Lookup `yaml:"lookup,omitempty"`
 	// Audience is the operation audience, a slot into the composition.
-	Audience Slot `yaml:"audience"`
+	// A binding declares exactly one of Audience and Audiences.
+	Audience Slot `yaml:"audience,omitempty"`
+	// Audiences is the operation audiences, a slot whose value lists them
+	// comma-separated: the binding may be exercised toward any of them, and
+	// is resolved into one binding per listed audience (AudienceBindingID),
+	// each with the ceiling that audience's own declarations give it.
+	Audiences *Slot `yaml:"audiences,omitempty"`
 	// ResourceKind is the other module's resource kind the scopes name, a
 	// slot. Required by a ceiling written as bare actions, which it qualifies;
-	// absent for a binding whose every ceiling spells its scopes out.
+	// absent for a binding whose every ceiling spells its scopes out. Never
+	// beside Audiences: each audience's kinds are its own.
 	ResourceKind *Slot `yaml:"resource_kind,omitempty"`
+	// ResourceKinds is, beside Audiences only, the kind that qualifies the
+	// bare actions per listed audience: a slot whose value is
+	// <audience>=<kind> pairs, comma-separated, one per listed audience.
+	ResourceKinds *Slot `yaml:"resource_kinds,omitempty"`
 	// BindingKey is the key the host installs the binding under, a slot.
+	// Never beside Audiences: one key cannot install a binding per audience.
 	BindingKey *Slot `yaml:"binding_key,omitempty"`
 	// ScopeCeiling is, per declared operation, the scopes the binding may at
 	// most carry. Every declared operation names its ceiling here or in Calls:
@@ -391,6 +438,11 @@ type Lookup struct {
 type Slot struct {
 	From string `yaml:"from"`
 
+	// present records that the document wrote the slot at all, so a binding
+	// writing audience: {} beside audiences is refused rather than read as
+	// declaring only the list.
+	present bool
+
 	// What the decoder saw where a slot belongs and the rule that refuses it:
 	// a literal, or a mapping carrying a field a slot does not, or one that
 	// names a key twice. Presence is a bool and not the name itself: a field
@@ -406,12 +458,12 @@ type Slot struct {
 // delivered manifest's authority beside what its services consume.
 func (contract *Contract) SlotGroups() []string {
 	seen := map[string]struct{}{}
-	for _, binding := range contract.Bindings {
-		for _, slot := range []*Slot{&binding.Audience, binding.ResourceKind, binding.BindingKey} {
-			if slot == nil || slot.From == "" {
+	for index := range contract.Bindings {
+		for _, declared := range contract.Bindings[index].fieldSlots() {
+			if declared.slot.From == "" {
 				continue
 			}
-			seen[slot.Group()] = struct{}{}
+			seen[declared.slot.Group()] = struct{}{}
 		}
 	}
 	groups := make([]string, 0, len(seen))
@@ -427,6 +479,7 @@ func (contract *Contract) SlotGroups() []string {
 // an extra key is a slot trying to carry a default; each is recorded for the
 // rule that refuses it.
 func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
+	slot.present = true
 	if node.Kind != yaml.MappingNode {
 		literal := node.Value
 		slot.literal = &literal
@@ -457,6 +510,35 @@ func (slot Slot) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]string{fieldFrom: slot.From})
 }
 
+// declared reports whether the slot was written: read from a document, or
+// constructed with a reference.
+func (slot Slot) declared() bool { return slot.present || slot.From != "" || slot.literal != nil }
+
+// fieldSlot is one declared slot of a binding and the field it fills.
+type fieldSlot struct {
+	field string
+	slot  *Slot
+}
+
+// fieldSlots lists the binding's declared slots in file order: its audience
+// (unless it declares only an audience list), the list, the resource kind or
+// the per-audience kinds, and the binding key.
+func (binding *Binding) fieldSlots() []fieldSlot {
+	var all []fieldSlot
+	if binding.Audiences == nil || binding.Audience.declared() {
+		all = append(all, fieldSlot{fieldAudience, &binding.Audience})
+	}
+	for _, declared := range []fieldSlot{
+		{fieldAudiences, binding.Audiences}, {fieldResourceKind, binding.ResourceKind},
+		{fieldResourceKinds, binding.ResourceKinds}, {fieldBindingKey, binding.BindingKey},
+	} {
+		if declared.slot != nil {
+			all = append(all, declared)
+		}
+	}
+	return all
+}
+
 // Group and Key split the slot's reference into the workspace configuration
 // group and the key within it.
 func (slot Slot) Group() string { group, _, _ := strings.Cut(slot.From, "/"); return group }
@@ -469,9 +551,11 @@ func (slot Slot) Key() string { _, key, _ := strings.Cut(slot.From, "/"); return
 // Compared in core's normalized spelling, so model-audience and MODEL_AUDIENCE
 // both pass.
 var slotSuffixes = map[string][]string{
-	fieldAudience:     {"_AUDIENCE", "_PREFIX"},
-	fieldResourceKind: {"_RESOURCE_KIND"},
-	fieldBindingKey:   {"_BINDING"},
+	fieldAudience:      {"_AUDIENCE", "_PREFIX"},
+	fieldAudiences:     {"_AUDIENCES"},
+	fieldResourceKind:  {"_RESOURCE_KIND"},
+	fieldResourceKinds: {"_RESOURCE_KINDS"},
+	fieldBindingKey:    {"_BINDING"},
 }
 
 // Destination is one endpoint the module exposes for a caller outside it.
@@ -683,70 +767,119 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		}
 		return answer.value
 	}
+	// targetsOf resolves where a binding is delivered: its one audience and
+	// resource kind under its own id, or — for a binding declaring an audience
+	// list — each listed audience under AudienceBindingID with that audience's
+	// kind. A list that does not resolve is reported and delivers nothing.
+	targetsOf := func(binding Binding, label string) []bindingTarget {
+		if binding.Audiences == nil {
+			return []bindingTarget{{
+				id:       binding.ID,
+				audience: resolve(label+" audience", &binding.Audience, false),
+				kind:     resolve(label+" resource_kind", binding.ResourceKind, true),
+			}}
+		}
+		listed := resolve(label+" audiences", binding.Audiences, false)
+		kinds := resolve(label+" resource_kinds", binding.ResourceKinds, false)
+		if listed == "" || (binding.ResourceKinds != nil && kinds == "") {
+			return nil
+		}
+		audiences, reason := resolveAudienceList(listed, without)
+		if reason != "" {
+			ambiguous = append(ambiguous, label+" audiences ← "+binding.Audiences.From+" "+reason)
+			return nil
+		}
+		var kindOf map[string]string
+		if binding.ResourceKinds != nil {
+			var missing []string
+			kindOf, missing, reason = resolveKindsPerAudience(kinds, audiences, without)
+			switch {
+			case reason != "":
+				ambiguous = append(ambiguous, label+" resource_kinds ← "+binding.ResourceKinds.From+" "+reason)
+				return nil
+			case len(missing) > 0:
+				unresolved = append(unresolved, label+" resource_kinds ← "+binding.ResourceKinds.From+" names no kind for the listed audience "+strings.Join(missing, ", "))
+				return nil
+			}
+		}
+		targets := make([]bindingTarget, 0, len(audiences))
+		for _, audience := range audiences {
+			targets = append(targets, bindingTarget{id: AudienceBindingID(binding.ID, audience), audience: audience, kind: kindOf[audience]})
+		}
+		return targets
+	}
 	for _, binding := range contract.Bindings {
 		label := "binding " + binding.ID
 		if binding.Optional {
-			unfilled, whole := binding.unfilledSlots(recordsOf)
-			if whole {
+			unfilled, none := binding.unfilledSlots(recordsOf)
+			switch {
+			case none:
 				resolved.Omitted = append(resolved.Omitted, OmittedBinding{
 					ID:     binding.ID,
 					Reason: "it is optional and the composition fills none of its slots (" + strings.Join(unfilled, ", ") + "), so nothing can be issued through it",
 				})
 				continue
+			case len(unfilled) > 0:
+				// Filled in part is resolved whole: each slot left unfilled
+				// is refused below by name, with the reason it was not
+				// omitted. Filled whole, it resolves as a mandatory binding.
+				label = "optional binding " + binding.ID + " (filled in part, so resolved whole)"
 			}
-			// Filled in part is resolved whole: each slot left unfilled is
-			// refused below by name, with the reason it was not omitted.
-			label = "optional binding " + binding.ID + " (filled in part, so resolved whole)"
 		}
 		revision := binding.Revision
 		if revision == 0 {
 			revision = 1
 		}
-		entry := ResolvedBinding{
-			ID: binding.ID, Revision: revision, Operations: slices.Clone(binding.Operations), Lookup: binding.Lookup,
-			Audience:     resolve(label+" audience", &binding.Audience, false),
-			ResourceKind: resolve(label+" resource_kind", binding.ResourceKind, true),
-			BindingKey:   resolve(label+" binding_key", binding.BindingKey, false),
-			Scopes:       make(map[string][]string, len(binding.Operations)),
-		}
-		for _, operation := range binding.Operations {
-			ceiling := binding.ScopeCeiling[operation]
-			scopes := make([]string, 0, len(ceiling.Actions)+len(ceiling.Scopes))
-			// Bare actions are qualified by the binding's resolved resource
-			// kind; explicit scopes carry their own, already held to the
-			// grammar by Validate.
-			for _, action := range ceiling.Actions {
-				scopes = append(scopes, entry.ResourceKind+":"+action)
+		targets := targetsOf(binding, label)
+		bindingKey := resolve(label+" binding_key", binding.BindingKey, false)
+		for _, target := range targets {
+			entry := ResolvedBinding{
+				ID: target.id, Revision: revision, Operations: slices.Clone(binding.Operations), Lookup: binding.Lookup,
+				Audience: target.audience, ResourceKind: target.kind, BindingKey: bindingKey,
+				Scopes: make(map[string][]string, len(binding.Operations)),
 			}
-			for _, scope := range ceiling.Scopes {
-				for _, action := range scope.Actions {
-					scopes = append(scopes, scope.ResourceKind+":"+action)
+			for _, operation := range binding.Operations {
+				ceiling := binding.ScopeCeiling[operation]
+				scopes := make([]string, 0, len(ceiling.Actions)+len(ceiling.Scopes))
+				// Bare actions are qualified by the binding's resolved resource
+				// kind; explicit scopes carry their own, already held to the
+				// grammar by Validate.
+				for _, action := range ceiling.Actions {
+					scopes = append(scopes, entry.ResourceKind+":"+action)
 				}
-			}
-			if named := binding.Calls[operation]; len(named) > 0 {
-				if entry.Calls == nil {
-					entry.Calls = map[string][]string{}
-				}
-				entry.Calls[operation] = slices.Sorted(slices.Values(named))
-				operationLabel := label + " " + operation
-				switch {
-				case opts.callees == nil:
-					calls = append(calls, operationLabel+" names calls, and the contract was resolved with no callee declarations to read them from")
-				case entry.Audience != "":
-					for _, call := range entry.Calls[operation] {
-						required, err := opts.callees.Requires(entry.Audience, call)
-						if err != nil {
-							calls = append(calls, operationLabel+" call "+call+" at "+entry.Audience+": "+err.Error())
-							continue
-						}
-						scopes = append(scopes, required...)
+				for _, scope := range ceiling.Scopes {
+					for _, action := range scope.Actions {
+						scopes = append(scopes, scope.ResourceKind+":"+action)
 					}
 				}
+				if named := binding.Calls[operation]; len(named) > 0 {
+					if entry.Calls == nil {
+						entry.Calls = map[string][]string{}
+					}
+					entry.Calls[operation] = slices.Sorted(slices.Values(named))
+					operationLabel := label + " " + operation
+					switch {
+					case opts.callees == nil:
+						calls = append(calls, operationLabel+" names calls, and the contract was resolved with no callee declarations to read them from")
+					case entry.Audience != "":
+						// Read from THIS audience's declarations: one binding
+						// listing two audiences gets each one's ceiling, and a
+						// call one of them does not serve is refused naming it.
+						for _, call := range entry.Calls[operation] {
+							required, err := opts.callees.Requires(entry.Audience, call)
+							if err != nil {
+								calls = append(calls, operationLabel+" call "+call+" at "+entry.Audience+": "+err.Error())
+								continue
+							}
+							scopes = append(scopes, required...)
+						}
+					}
+				}
+				sort.Strings(scopes)
+				entry.Scopes[operation] = slices.Compact(scopes)
 			}
-			sort.Strings(scopes)
-			entry.Scopes[operation] = slices.Compact(scopes)
+			resolved.Bindings = append(resolved.Bindings, entry)
 		}
-		resolved.Bindings = append(resolved.Bindings, entry)
 	}
 	if err := resolutionError(secret, unresolved, ambiguous); err != nil {
 		if len(calls) > 0 {
@@ -760,28 +893,84 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 	return resolved, nil
 }
 
-// unfilledSlots reports whether the composition leaves EVERY slot of the
-// binding unfilled, naming each. A slot is unfilled when no record is its key,
+// bindingTarget is one place a binding is delivered: the id it is delivered
+// under, its audience, and the resource kind its bare actions are qualified by.
+type bindingTarget struct{ id, audience, kind string }
+
+// resolveAudienceList reads an audience list's resolved value: comma-separated
+// names, each once, returned sorted so two compositions listing one set in two
+// orders deliver one document. A value that is not such a list has no
+// audiences to deliver to, and the reason says why. `without` removes the
+// list-grammar rule, for the kit's completeness self-check.
+func resolveAudienceList(value, without string) ([]string, string) {
+	var audiences []string
+	// The value is one line with no space in it (ruleResolvedName), so an
+	// entry is exactly what lies between two commas.
+	for _, audience := range strings.Split(value, ",") {
+		if without != ruleResolvedList {
+			switch {
+			case !namePattern.MatchString(audience):
+				return nil, fmt.Sprintf("lists %q, which is not an audience; an audience list is comma-separated lowercase names", audience)
+			case slices.Contains(audiences, audience):
+				return nil, fmt.Sprintf("lists the audience %q twice", audience)
+			}
+		}
+		audiences = append(audiences, audience)
+	}
+	sort.Strings(audiences)
+	return audiences, ""
+}
+
+// resolveKindsPerAudience reads a per-audience kinds value — <audience>=<kind>
+// pairs, comma-separated — against the listed audiences: each kind held to the
+// grammar a literal kind is, each pair naming a listed audience once. The
+// listed audiences it names no kind for are returned, for the caller to refuse
+// by name.
+func resolveKindsPerAudience(value string, audiences []string, without string) (map[string]string, []string, string) {
+	kinds := map[string]string{}
+	for _, entry := range strings.Split(value, ",") {
+		audience, kind, paired := strings.Cut(entry, "=")
+		if without != ruleResolvedList {
+			switch {
+			case !paired:
+				return nil, nil, fmt.Sprintf("carries %q, which is not <audience>=<kind>", entry)
+			case !slices.Contains(audiences, audience):
+				return nil, nil, fmt.Sprintf("names a kind for %q, which the binding's audience list does not list", audience)
+			case kinds[audience] != "":
+				return nil, nil, fmt.Sprintf("names a kind for the audience %q twice", audience)
+			}
+		}
+		if !namePattern.MatchString(kind) && without != ruleResolvedKind {
+			return nil, nil, fmt.Sprintf("resolves the kind of %q to %q, which is not a lowercase resource kind; a resolved kind is held to the grammar a literal one is, because it is concatenated into a scope", audience, kind)
+		}
+		kinds[audience] = kind
+	}
+	var missing []string
+	for _, audience := range audiences {
+		if kinds[audience] == "" {
+			missing = append(missing, audience)
+		}
+	}
+	return kinds, missing, ""
+}
+
+// unfilledSlots names each slot of the binding the composition leaves
+// unfilled, and reports whether that is every one of them. A slot is unfilled when no record is its key,
 // or every record that is supplies an empty public value — the spelling a
 // module's declared configuration gives a key nobody set. A secret record, or
 // a group whose records cannot be read, counts as filled, so resolution
 // reports it rather than an omission hiding it.
 func (binding Binding) unfilledSlots(recordsOf func(group string) ([]Record, error)) ([]string, bool) {
 	var unfilled []string
-	for _, slot := range []struct {
-		field string
-		slot  *Slot
-	}{{fieldAudience, &binding.Audience}, {fieldResourceKind, binding.ResourceKind}, {fieldBindingKey, binding.BindingKey}} {
-		if slot.slot == nil {
-			continue
-		}
+	slots := binding.fieldSlots()
+	for _, slot := range slots {
 		records, err := recordsOf(slot.slot.Group())
 		if err != nil || slotFilled(records, slot.slot.Key()) {
-			return nil, false
+			continue
 		}
 		unfilled = append(unfilled, slot.field+" ← "+slot.slot.From)
 	}
-	return unfilled, true
+	return unfilled, len(unfilled) == len(slots)
 }
 
 // callsError names every call a resolution could not read a requirement for.

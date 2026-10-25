@@ -78,6 +78,69 @@ A secret-classified record is a value, so a slot carrying one is filled (and
 refused as a secret), never omitted around. `optional: false` is the default
 and is never written.
 
+**A binding may be addressed to a list of audiences.** A generic module reaches
+whichever modules a composition wires to it — a store of comments reaches the
+owner of each kind of thing commented on — so the audiences of one of its
+bindings are a list only the composition can write. Such a binding declares
+`audiences:` in place of `audience:`, a slot whose key is a `*-audiences` one
+and whose value is the audiences comma-separated, with no space
+(`robin,documents`, one line like every slot value). It means *this binding
+may be exercised toward any of these audiences*, and `Resolve` delivers it as
+**one resolved binding per listed audience**, sorted:
+
+```yaml
+bindings:
+  - id: owner
+    optional: true
+    operations: [invoke, headless]
+    audiences: {from: annotation-authorities/owner-audiences}
+    calls:
+      invoke: [/annotations.v1.TargetAuthorityService/Reach]
+      headless: [/annotations.v1.TargetAuthorityService/ListKinds]
+  - id: owner-review
+    optional: true
+    operations: [invoke]
+    audiences: {from: annotation-authorities/owner-audiences}
+    resource_kinds: {from: annotation-authorities/owner-resource-kinds}
+    scope_ceiling:
+      invoke: [read, review]
+```
+
+With `OWNER_AUDIENCES=documents,robin` and
+`OWNER_RESOURCE_KINDS=documents=documents.versions,robin=robin.answers`, that
+resolves to four bindings: `owner:documents`, `owner:robin`,
+`owner-review:documents` and `owner-review:robin`. Each is its own unit of
+authority, delivered in the manifest exactly as a single-audience binding is —
+id `<binding>:<audience>` (`modulecontract.AudienceBindingID`), the audience,
+and the ceiling resolved for **that** audience:
+
+- **`calls`** are read from each listed audience's own declarations
+  (`Callees.Requires(audience, call)`, once per audience), so two owners
+  declaring one protocol's methods with different requirements get two
+  different ceilings, and a call one listed audience does not serve is refused
+  under `ErrUnresolvedCall` naming the binding, the call and that audience.
+- **bare actions** are qualified per audience by `resource_kinds:`, a
+  `*-resource-kinds` slot whose value is `<audience>=<kind>` pairs,
+  comma-separated: each kind held to the literal-kind grammar, each pair naming
+  a listed audience once, and a listed audience with no kind refused under
+  `ErrUnresolvedSlot` by name.
+- Never beside `audiences`: `audience` (a binding is addressed to one or to a
+  list), `resource_kind` (one kind would name one module's vocabulary at every
+  other), `binding_key` (one key cannot install a binding per audience); and
+  `resource_kinds` never without `audiences`. Each is its own named rule.
+
+The derived id's `:` is outside the binding-id grammar a contract declares, so
+it can never collide with a declared binding, and inside the opaque-id grammar
+a delivered manifest holds binding ids to; the issuer looks a binding up by its
+id and holds the issue to that binding's one audience, so a module is issued a
+context toward `documents` by naming `owner:documents` (or naming the audience
+and that binding) — no issuer change. A list that is not comma-separated
+lowercase names, each once, is refused under `ErrAmbiguousSlot`
+(`resolved-list-grammar`). An optional list-addressed binding composes with
+the optional rule unchanged: the list key absent or empty (with its kinds key)
+omits it; the list filled and its kinds key not is filled in part, refused by
+name. A binding with `audience:` resolves exactly as before, under its own id.
+
 **A module may declare the methods it serves from a protocol it does not own.**
 A method a module defines carries its policy as an option on its own proto; a
 method of a protocol the module only serves (an OpenTelemetry collector's
@@ -210,10 +273,10 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (92 documents) ships
+`modulecontract.Fixtures()` (98 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
-reader's own entrypoint through them. `AllResolutionFixtures()` (117
+reader's own entrypoint through them. `AllResolutionFixtures()` (120
 configurations) does the same for resolution, driven by `RunResolution(t,
 provider)`. **Both counts are pinned by a test**, and the resolution kit
 is pinned by NAME and by cases-per-role as well: a documented count written by

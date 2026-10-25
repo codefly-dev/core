@@ -48,8 +48,8 @@ type ResolutionFixture struct {
 	Message string
 	// Rule names the ONE resolution rule this fixture isolates.
 	Rule string
-	// Slot is the binding slot under test — audience, resource_kind or
-	// binding_key — stated rather than inferred from the key's spelling. It
+	// Slot is the binding slot under test — audience, audiences,
+	// resource_kind or binding_key — stated rather than inferred from the key's spelling. It
 	// was inferred, so every secret case landed on the audience and a
 	// provider that declassified only the OTHER two roles passed all sixteen
 	// cases while putting a secret into a scope.
@@ -475,6 +475,40 @@ func lossFixtures(label, role, group, key, upper, lower, value string) []Resolut
 	return fixtures
 }
 
+// The audience-list slot rides the same resolveSlot as every other slot —
+// secret precedence, one value, one line — and then its own grammar: these
+// cases hold a provider to delivering the list's one record whole, and the
+// list rule to refusing a list naming no one or someone twice.
+const (
+	audiencesLookup = "owner-audiences"
+	audiencesKey    = "OWNER_AUDIENCES"
+	listScope       = "targets.items:read"
+)
+
+// AudienceListFixtures are the audience-list cases. The resolved binding
+// compared is the first delivered: the lowest listed audience, under
+// <binding>:<audience>.
+func AudienceListFixtures() []ResolutionFixture {
+	const group = "assistant"
+	return []ResolutionFixture{
+		{
+			Name: "an audience list", Group: group, Key: audiencesLookup, Slot: fieldAudiences, Outcome: OutcomeAccepted,
+			Audience: "documents", Scopes: []string{listScope},
+			Records: []Record{{Key: audiencesKey, Value: "robin,documents"}},
+		},
+		{
+			Name: "an audience list naming no one between two commas", Group: group, Key: audiencesLookup, Slot: fieldAudiences,
+			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists "", which is not an audience`, Rule: ruleResolvedList,
+			Records: []Record{{Key: audiencesKey, Value: "robin,,documents"}},
+		},
+		{
+			Name: "an audience list naming an audience twice", Group: group, Key: audiencesLookup, Slot: fieldAudiences,
+			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists the audience "robin" twice`, Rule: ruleResolvedList,
+			Records: []Record{{Key: audiencesKey, Value: "robin,documents,robin"}},
+		},
+	}
+}
+
 // RunResolution drives a consumer's own value provider through every
 // resolution fixture. The consumer passes the function that builds the
 // provider it RENDERS from, out of a group's records the way its composition
@@ -527,6 +561,11 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 	case fieldBindingKey:
 		binding.Audience = Slot{From: audienceSlot}
 		binding.BindingKey = &Slot{From: fixture.Group + "/" + fixture.Key}
+	case fieldAudiences:
+		// A list takes no single resource kind, so its ceiling names its kind.
+		binding.Audiences = &Slot{From: fixture.Group + "/" + fixture.Key}
+		binding.ResourceKind = nil
+		binding.ScopeCeiling = map[string]Ceiling{OperationInvoke: {Scopes: []CeilingScope{{ResourceKind: "targets.items", Actions: []string{"read"}}}}}
 	default:
 		binding.Audience = Slot{From: fixture.Group + "/" + fixture.Key}
 	}
@@ -575,6 +614,7 @@ func AllResolutionFixtures() []ResolutionFixture {
 	all := append([]ResolutionFixture(nil), ResolutionFixtures()...)
 	all = append(all, ResolvedKindFixtures()...)
 	all = append(all, BindingKeyFixtures()...)
+	all = append(all, AudienceListFixtures()...)
 	for _, role := range lossRoles() {
 		for _, fixture := range lossFixtures(role.label, role.role, "assistant", role.key, role.upper, role.lower, role.value) {
 			fixture.Records = withCompanion(withCompanion(fixture.Records, companionKind), companionAudience)

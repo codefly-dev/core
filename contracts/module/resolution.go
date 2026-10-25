@@ -53,11 +53,16 @@ const (
 	ruleResolvedKind = "resolved-kind-grammar"
 	// ruleResolvedName: a resolved value is one non-empty line.
 	ruleResolvedName = "resolved-single-line"
+	// ruleResolvedList: an audience list resolves to comma-separated names,
+	// each once, and per-audience kinds to <audience>=<kind> pairs naming a
+	// listed audience each, once. Without it, "robin,,documents" delivers a
+	// binding addressed to no one.
+	ruleResolvedList = "resolved-list-grammar"
 )
 
 // resolutionRuleNames is every rule of the resolution half, in apply order.
 func resolutionRuleNames() []string {
-	return []string{ruleSecretPrecedence, ruleOneValue, ruleResolvedName, ruleResolvedKind}
+	return []string{ruleSecretPrecedence, ruleOneValue, ruleResolvedName, ruleResolvedKind, ruleResolvedList}
 }
 
 // resolution is what the rules answer for one slot: the value, or the reason

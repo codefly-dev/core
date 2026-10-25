@@ -57,6 +57,10 @@ const (
 	ruleOperationUnique       = "operation-unique"
 	ruleLookupNeedsOperation  = "lookup-needs-operation"
 	ruleLookupMethodName      = "lookup-method-name"
+	ruleOneAudienceField      = "binding-one-audience-field"
+	ruleKindsNeedAudiences    = "resource-kinds-need-audiences"
+	ruleAudiencesNoKind       = "audiences-without-resource-kind"
+	ruleAudiencesNoKey        = "audiences-without-binding-key"
 	ruleSlotIsAReference      = "slot-is-a-reference"
 	ruleSlotCarriesOnlyFrom   = "slot-carries-only-from"
 	ruleSlotDecodes           = "slot-decodes"
@@ -117,6 +121,10 @@ func rules() []rule {
 		{name: ruleOperationUnique, check: checkOperationsUnique},
 		{name: ruleLookupNeedsOperation, check: checkLookupNeedsOperation},
 		{name: ruleLookupMethodName, check: checkLookupMethodNames},
+		{name: ruleOneAudienceField, check: checkOneAudienceField},
+		{name: ruleKindsNeedAudiences, check: checkKindsNeedAudiences},
+		{name: ruleAudiencesNoKind, check: checkAudiencesWithoutResourceKind},
+		{name: ruleAudiencesNoKey, check: checkAudiencesWithoutBindingKey},
 		{name: ruleSlotIsAReference, check: checkSlotsAreReferences},
 		{name: ruleSlotCarriesOnlyFrom, check: checkSlotsCarryOnlyFrom},
 		{name: ruleSlotDecodes, check: checkSlotsDecode},
@@ -416,15 +424,56 @@ func (contract *Contract) slots() []labelledSlot {
 	for index := range contract.Bindings {
 		binding := &contract.Bindings[index]
 		prefix := "binding " + binding.ID + " "
-		all = append(all, labelledSlot{prefix + fieldAudience, fieldAudience, &binding.Audience})
-		if binding.ResourceKind != nil {
-			all = append(all, labelledSlot{prefix + fieldResourceKind, fieldResourceKind, binding.ResourceKind})
-		}
-		if binding.BindingKey != nil {
-			all = append(all, labelledSlot{prefix + fieldBindingKey, fieldBindingKey, binding.BindingKey})
+		for _, declared := range binding.fieldSlots() {
+			all = append(all, labelledSlot{prefix + declared.field, declared.field, declared.slot})
 		}
 	}
 	return all
+}
+
+// checkOneAudienceField: a binding is addressed to one audience or to a list
+// of them, and a binding writing both says two things about where it may be
+// exercised.
+func checkOneAudienceField(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audiences != nil && binding.Audience.declared() {
+			return fmt.Errorf("%w: binding %q declares both audience and audiences; a binding is addressed to one audience or to a list of them", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkKindsNeedAudiences: per-audience kinds qualify an audience list and
+// nothing else.
+func checkKindsNeedAudiences(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audiences == nil && binding.ResourceKinds != nil {
+			return fmt.Errorf("%w: binding %q declares resource_kinds without audiences; per-audience kinds qualify an audience list, and a binding with one audience names its kind in resource_kind", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkAudiencesWithoutResourceKind: one resource kind beside an audience
+// list would name one module's kind at every other.
+func checkAudiencesWithoutResourceKind(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audiences != nil && binding.ResourceKind != nil {
+			return fmt.Errorf("%w: binding %q declares resource_kind beside audiences; each audience's kinds are its own, so a list qualifies its bare actions per audience in resource_kinds", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkAudiencesWithoutBindingKey: a binding with an audience list is
+// delivered once per listed audience, and one key cannot install them all.
+func checkAudiencesWithoutBindingKey(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audiences != nil && binding.BindingKey != nil {
+			return fmt.Errorf("%w: binding %q declares binding_key beside audiences; it is delivered as one binding per listed audience, and one key cannot install them all", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
 }
 
 func checkSlotsAreReferences(contract *Contract) error {
@@ -629,7 +678,7 @@ func checkCallsUnique(contract *Contract) error {
 
 func checkBareActionsNeedKind(contract *Contract) error {
 	for _, entry := range contract.ceilings() {
-		if len(entry.ceiling.Actions) > 0 && entry.binding.ResourceKind == nil {
+		if len(entry.ceiling.Actions) > 0 && entry.binding.ResourceKind == nil && entry.binding.ResourceKinds == nil {
 			// A scope names a resource kind (core's WorkScopeV1 requires one),
 			// so a bare action with no kind to qualify it is a request nothing
 			// can mint.

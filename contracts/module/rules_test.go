@@ -81,9 +81,10 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 	sort.Strings(names)
 	want := []string{
 		"action-declared-twice", "action-not-a-name", "action-wildcard",
-		"another-schema", "audience-from-profile-key", "bare-action-tagged",
+		"another-schema", "audience-from-profile-key", "audiences-key-not-a-list",
+		"audiences-with-binding-key", "audiences-with-resource-kind", "bare-action-tagged",
 		"bare-actions-without-resource-kind", "binding-action-declared-twice",
-		"binding-action-not-a-name", "binding-id-not-a-name",
+		"binding-action-not-a-name", "binding-audience-and-audiences", "binding-audiences", "binding-id-not-a-name",
 		"binding-key-from-bare-name", "binding-key-literal",
 		"binding-key-slot-key-malformed", "binding-key-slot-with-default",
 		"binding-names-calls", "binding-optional", "binding-without-operation", "call-declared-twice",
@@ -109,7 +110,7 @@ func TestEveryFixtureReachesItsOutcome(t *testing.T) {
 		"operation-delete", "operation-without-ceiling", "principal-upper-case",
 		"queue-declared-twice", "queue-not-a-name", "queues-omitted",
 		"resource-kind-from-endpoint-key", "resource-kind-literal",
-		"resource-kind-slot-with-default", "revision-fractional", "schema-omitted",
+		"resource-kind-slot-with-default", "resource-kinds-without-audiences", "revision-fractional", "schema-omitted",
 		"scope-ceiling-kind-declared-twice", "scope-ceiling-kind-not-a-name",
 		"scope-ceiling-without-action", "scope-kind-not-a-name", "slot-alias-key",
 		"slot-group-not-a-name", "slot-key-not-a-key", "slot-names-from-twice",

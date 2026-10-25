@@ -65,7 +65,14 @@ func Fixtures() ([]Fixture, error) {
 		{name: "upper-case-slot-key", file: "upper-case-slot-key.yaml", outcome: OutcomeAccepted},
 		{name: "binding-names-calls", file: "binding-names-calls.yaml", outcome: OutcomeAccepted},
 		{name: "binding-optional", file: "binding-optional.yaml", outcome: OutcomeAccepted},
+		{name: "binding-audiences", file: "binding-audiences.yaml", outcome: OutcomeAccepted},
 		{name: "foreign-methods", file: "foreign-methods.yaml", outcome: OutcomeAccepted},
+
+		{name: "binding-audience-and-audiences", file: "binding-audience-and-audiences.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares both audience and audiences`, rule: ruleOneAudienceField},
+		{name: "resource-kinds-without-audiences", file: "resource-kinds-without-audiences.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares resource_kinds without audiences`, rule: ruleKindsNeedAudiences},
+		{name: "audiences-with-resource-kind", file: "audiences-with-resource-kind.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares resource_kind beside audiences`, rule: ruleAudiencesNoKind},
+		{name: "audiences-with-binding-key", file: "audiences-with-binding-key.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares binding_key beside audiences`, rule: ruleAudiencesNoKey},
+		{name: "audiences-key-not-a-list", file: "audiences-key-not-a-list.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `audiences slot "assistant/owner-audience" names a key that is not *-audiences`, rule: ruleSlotKeyMeaning},
 
 		{name: "not-yaml", file: "not-yaml.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "yaml", rule: ruleWellFormed},
 		{name: "slot-names-from-twice", file: "slot-names-from-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `names the key "from" twice`, rule: ruleMappingKeysOnce},
