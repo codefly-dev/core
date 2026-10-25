@@ -177,6 +177,7 @@ func TestFileValueCarriesADocumentAndNeverAPath(t *testing.T) {
 		{"a name that is a path", runnable.FileInput, map[string]any{"reference": "r", "media_type": "application/pdf", "name": "../etc/passwd", "content": content}, "", "without a path separator"},
 		{"a path member", runnable.FileInput, map[string]any{"reference": "r", "media_type": "application/pdf", "content": content, "path": "/tmp/x"}, "", `member "path" is not one of`},
 		{"unpadded content", runnable.FileInput, map[string]any{"reference": "r", "media_type": "application/pdf", "content": "JVBERi0xLjc"}, "", "not standard padded base64"},
+		{"content broken over lines", runnable.FileInput, map[string]any{"reference": "r", "media_type": "application/pdf", "content": content[:4] + "\n" + content[4:]}, "", "not standard padded base64"},
 		{"no content", runnable.FileInput, map[string]any{"reference": "r", "media_type": "application/pdf"}, "", "carries no content"},
 		{"an output versioning a document it was not handed", runnable.FileOutput, map[string]any{"reference": "other", "media_type": "application/pdf", "content": content}, "", "no input document of this call"},
 		{"a repeated member", runnable.FileInput, nil, `{"reference":"r","reference":"s","media_type":"application/pdf","content":"` + content + `"}`, "repeated"},

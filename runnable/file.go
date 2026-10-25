@@ -94,8 +94,13 @@ func DecodeFileValue(field *basev0.RunnableField, side FileSide, raw json.RawMes
 			value.Name = text
 		case FileContentMember:
 			// StdEncoding is padded and refuses characters outside the
-			// alphabet, so one document has one spelling of its bytes.
+			// alphabet, and Strict refuses stray padding bits; it still skips
+			// line breaks, which are refused here, so one document has one
+			// spelling of its bytes — the one the harness accepts.
 			decoded, err := base64.StdEncoding.Strict().DecodeString(text)
+			if err == nil && strings.ContainsAny(text, "\r\n") {
+				err = errors.New("line breaks are not part of the encoding")
+			}
 			if err != nil {
 				return nil, fmt.Errorf("%w: FILE value content is not standard padded base64: %v", ErrInvalid, err)
 			}
