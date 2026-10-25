@@ -68,6 +68,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "binding-audiences", file: "binding-audiences.yaml", outcome: OutcomeAccepted},
 		{name: "foreign-methods", file: "foreign-methods.yaml", outcome: OutcomeAccepted},
 		{name: "roles", file: "roles.yaml", outcome: OutcomeAccepted},
+		{name: "roles-grant-bindings", file: "roles-grant-bindings.yaml", outcome: OutcomeAccepted},
 		{name: "binding-self-audience", file: "binding-self-audience.yaml", outcome: OutcomeAccepted},
 
 		{name: "self-beside-from", file: "self-beside-from.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding occurrences audience slot writes self beside from "assistant/evidence-audience"`, rule: ruleSlotSelfBesideFrom},
@@ -82,6 +83,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "binding-audience-and-audiences", file: "binding-audience-and-audiences.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares both audience and audiences`, rule: ruleOneAudienceField},
 		{name: "resource-kinds-without-audiences", file: "resource-kinds-without-audiences.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares resource_kinds without audiences`, rule: ruleKindsNeedAudiences},
 		{name: "audiences-with-resource-kind", file: "audiences-with-resource-kind.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares resource_kind beside audiences`, rule: ruleAudiencesNoKind},
+		{name: "audiences-with-explicit-scopes", file: "audiences-with-explicit-scopes.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "binding owner invoke ceiling spells {resource_kind, actions} scopes beside audiences", rule: ruleAudiencesNoScopes},
 		{name: "audiences-with-binding-key", file: "audiences-with-binding-key.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares binding_key beside audiences`, rule: ruleAudiencesNoKey},
 		{name: "audiences-key-not-a-list", file: "audiences-key-not-a-list.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `audiences slot "assistant/owner-audience" names a key that is not *-audiences`, rule: ruleSlotKeyMeaning},
 
@@ -189,6 +191,10 @@ func Fixtures() ([]Fixture, error) {
 		{name: "role-kind-named-twice", file: "role-kind-named-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" names resource kind "assistant.tasks" twice`, rule: ruleRoleKindUnique},
 		{name: "role-kind-without-action", file: "role-kind-without-action.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants resource kind "assistant.tasks" no action`, rule: ruleRoleKindHasAction},
 		{name: "role-action-not-a-name", file: "role-action-not-a-name.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role installer assistant.tasks action "Read" is not a lowercase action name`, rule: ruleActionName},
+		{name: "role-binding-unknown", file: "role-binding-unknown.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants binding "nowhere", which the contract does not declare`, rule: ruleRoleBindingKnown},
+		{name: "role-binding-headless", file: "role-binding-headless.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants binding "evaluation" operation "headless"; a role grants invoke or lookup`, rule: ruleRoleBindingOp},
+		{name: "role-binding-undeclared-operation", file: "role-binding-undeclared-operation.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants binding "evidence" operation "lookup", an operation the binding does not declare`, rule: ruleRoleBindingDeclOp},
+		{name: "role-binding-granted-twice", file: "role-binding-granted-twice.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants binding operation "evidence invoke" twice`, rule: ruleRoleBindingUnique},
 		{name: "role-without-installer", file: "role-without-installer.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `declares 2 role(s) and none is "installer"`, rule: ruleRoleInstaller},
 		{name: "role-beyond-own-ceiling", file: "role-beyond-own-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants assistant.tasks:delete`, rule: ruleRoleWithinRequest},
 		{name: "role-beyond-consumption", file: "role-beyond-consumption.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `role "installer" grants tracing.trace:read`, rule: ruleRoleWithinRequest},

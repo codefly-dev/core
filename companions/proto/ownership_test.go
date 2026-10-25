@@ -141,6 +141,31 @@ func TestAVendoredFileIsForeignOnlyByADependencyTheServiceDeclares(t *testing.T)
 	require.Empty(t, requires)
 }
 
+// TestANestedModuleRequiringItsParentClassesItsOwnGoPackageForeign pins
+// today's classification of a nested Go module, a known gap (review r4 f7 of
+// core#835): foreignByGoPackage prefix-matches go_package against the requires
+// of the governing go.mod and never consults that go.mod's own module path,
+// so a module github.com/acme/repo/services/api that requires its parent
+// github.com/acme/repo classes its own go_package as the parent's, and its own
+// bindings would be removed. Go's rule is the longest module prefix, which
+// would keep them. No fleet repository generates through this path from such a
+// layout today (module-tracing's nested clients/go/read requires its parent,
+// but generates with buf directly and its proto's go_package lies outside the
+// parent). This test fails the day the classification changes, so that change
+// is made on purpose, with this expectation turned around.
+func TestANestedModuleRequiringItsParentClassesItsOwnGoPackageForeign(t *testing.T) {
+	root := t.TempDir()
+	service := filepath.Join(root, "services", "api")
+	writeFile(t, filepath.Join(service, "go.mod"), "module github.com/acme/repo/services/api\n\ngo 1.24\n\nrequire github.com/acme/repo v0.1.0\n")
+	requires, err := goRequires(filepath.Join(service, "gen"))
+	require.NoError(t, err)
+	require.Equal(t, []string{"github.com/acme/repo"}, requires)
+	own := withGoPackage(fileDescriptor("api/v1/api.proto", "api.v1"), "github.com/acme/repo/services/api/gen/api/v1;apiv1")
+	require.True(t, foreignByGoPackage(own, requires), "today the nested module's own go_package reads as its parent's")
+	parent := withGoPackage(fileDescriptor("shared/v1/shared.proto", "shared.v1"), "github.com/acme/repo/gen/shared/v1;sharedv1")
+	require.True(t, foreignByGoPackage(parent, requires), "the parent's own go_package is foreign, rightly")
+}
+
 func withGoPackage(file *descriptorpb.FileDescriptorProto, goPackage string) *descriptorpb.FileDescriptorProto {
 	file.Options = &descriptorpb.FileOptions{GoPackage: googleproto.String(goPackage)}
 	return file

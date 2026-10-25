@@ -127,8 +127,10 @@ and the ceiling resolved for **that** audience:
   `ErrUnresolvedSlot` by name.
 - Never beside `audiences`: `audience` (a binding is addressed to one or to a
   list), `resource_kind` (one kind would name one module's vocabulary at every
-  other), `binding_key` (one key cannot install a binding per audience); and
-  `resource_kinds` never without `audiences`. Each is its own named rule.
+  other), `{resource_kind, actions}` scopes in a ceiling (the same, spelled in
+  the ceiling: `audiences-without-explicit-scopes`), `binding_key` (one key
+  cannot install a binding per audience); and `resource_kinds` never without
+  `audiences`. Each is its own named rule.
 
 The derived id's `:` is outside the binding-id grammar a contract declares, so
 it can never collide with a declared binding, and inside the opaque-id grammar
@@ -163,7 +165,10 @@ bindings:
 `Resolve` delivers it under its own id with `Audience` = the contract's
 principal, reading no configuration for it (`SlotGroups` lists none), and a
 binding naming `calls` reads them from the module's own declarations
-(`Callees.Requires(<principal>, call)`). It is held by named rules:
+(`Callees.Requires(<principal>, call)`); every scope those calls require is
+held to the module's own `scope_ceilings` exactly as a spelled-out scope is,
+and one beyond them is refused under `ErrUnresolvedCall` naming the call and
+the scope. It is held by named rules:
 
 - `self` and `from` never in one slot (`slot-self-beside-from`), and `self` is
   written only as `self: true` (`slot-self-is-true`); a non-boolean `self` is
@@ -219,19 +224,48 @@ A role grants the unit's **own kinds**, each action within its
 `scope_ceilings`, and the **permissions at another module it consumes**: a
 scope one of its bindings spells out (`{resource_kind, actions}`) for `invoke`
 or `lookup`, the operations a person causes. A `headless` binding's scopes are
-never grantable (no person is in one), and neither is a bare action or a call,
-whose kind only the composition resolves: a role naming one is refused, so
-spell the consumed scope out to grant it. One of the roles is `installer`,
-which whoever installs the unit holds; each role is a lowercase name declared
-once and grants at least one kind, each kind named once with at least one
-action, held to the same kind and action grammar as every other scope here.
-Each of these is its own named rule (`role-name`, `role-unique`,
-`role-grants`, `role-kind-name`, `role-kind-unique`, `role-kind-has-action`,
-`role-installer`, `role-within-request`). A bare module declares no `roles`,
-and omits the key: its access is the organisation's roles. The CLI carries the
-roles, unchanged, into the authority's document delivered with the unit's
-manifest (`AuthorityManifestV1.roles`); this contract is their one declaration
-site.
+never grantable (no person is in one). A bare action or a call names its kind
+only when the composition resolves it, so a role never spells one out; it
+**names the binding** instead:
+
+```yaml
+roles:
+  - name: viewer
+    bindings:
+      - {binding: evidence, operation: lookup}
+```
+
+A `bindings` entry grants what that binding carries for `invoke` or `lookup` as
+`Resolve` derives it — the scopes its calls require, read from each audience's
+declarations, or those it spells out — at each audience it is delivered to, so a
+unit grants a permission at another module without naming that module's kinds.
+It names a declared binding (`role-binding-known`), an operation a person causes
+(`role-binding-person-operation`) that the binding declares
+(`role-binding-declared-operation`), each binding operation once per role
+(`role-binding-unique`). A grant through an optional binding the composition
+leaves out is left out with it.
+
+`Resolved.Roles` addresses every grant: per audience, the scopes the role grants
+there. A role scope names no audience, and is still never ambiguous: it is held
+to the unit's own ceilings or to a scope a binding spells out, and is addressed
+to the one audience that underwrites it — the unit's principal for its own kind,
+that binding's resolved audience for a consumed one (a ceiling that spells
+scopes out belongs to a binding with one audience, never a list). A scope two
+audiences underwrite is refused under `ErrAmbiguousSlot`, naming both; the role
+then names the binding it means in `bindings`.
+
+One of the roles is `installer`, which whoever installs the unit holds; each
+role is a lowercase name declared once and grants at least one kind or binding,
+each kind named once with at least one action, held to the same kind and action
+grammar as every other scope here. Each of these is its own named rule
+(`role-name`, `role-unique`, `role-grants`, `role-kind-name`,
+`role-kind-unique`, `role-kind-has-action`, `role-installer`,
+`role-within-request`). A bare module declares no `roles`, and omits the key:
+its access is the organisation's roles. The CLI carries the roles into the
+authority's document delivered with the unit's manifest
+(`AuthorityManifestV1.roles`); a role's `bindings` reach it only through
+`Resolved.Roles`, which needs the callee declarations its binding's calls are
+read from. This contract is their one declaration site.
 
 **A module may require a policy on every method it publishes.**
 `require_method_policies: true` holds each published method — every RPC of its
@@ -366,7 +400,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (119 documents) ships
+`modulecontract.Fixtures()` (125 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (120

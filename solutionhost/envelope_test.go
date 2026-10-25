@@ -321,3 +321,30 @@ func TestAdmitEnvelope(t *testing.T) {
 		})
 	}
 }
+
+// A refusal names the document it refused: an envelope's never reads as a
+// manifest's, nor a manifest's as an envelope's, and both still match the
+// sentinel a caller tests for.
+func TestARefusalNamesTheDocumentItRefused(t *testing.T) {
+	stranger := func(payload []byte) *solutionhost.Signed { return signedWith(t, payload, signerFor(t, "stranger")) }
+	envelopePayload, err := validEnvelope(t).CanonicalBytes()
+	require.NoError(t, err)
+	manifestPayload := signedValid(t).Document
+
+	_, err = solutionhost.VerifyDeliveredEnvelope(context.Background(), stranger(envelopePayload), testVerifier(t))
+	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+	require.ErrorContains(t, err, "module envelope is not a signed document")
+	require.NotContains(t, err.Error(), "manifest")
+
+	_, err = solutionhost.VerifyDelivered(context.Background(), stranger(manifestPayload), testVerifier(t))
+	require.ErrorIs(t, err, solutionhost.ErrUnsigned)
+	require.ErrorContains(t, err, "module manifest is not a signed document")
+	require.NotContains(t, err.Error(), "envelope is not")
+
+	_, err = solutionhost.EnvelopeFromVerified(append(envelopePayload, ' '))
+	require.ErrorIs(t, err, solutionhost.ErrNotCanonical)
+	require.ErrorContains(t, err, "module envelope payload")
+	_, err = solutionhost.ManifestFromVerified(append(manifestPayload, ' '))
+	require.ErrorIs(t, err, solutionhost.ErrNotCanonical)
+	require.ErrorContains(t, err, "module manifest payload")
+}
