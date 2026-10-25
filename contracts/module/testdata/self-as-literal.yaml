@@ -1,0 +1,32 @@
+# The module itself is written {self: true}, never as a bare word where a
+# slot belongs.
+schema: codefly/module-contract/v1
+principal: scheduler
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: scheduler.tasks
+      actions: [cancel, execute, read, start]
+bindings:
+    - id: occurrences
+      operations: [invoke]
+      audience: self
+      scope_ceiling:
+          invoke:
+              - resource_kind: scheduler.tasks
+                actions: [cancel, execute, start]
+    - id: occurrence-reads
+      optional: true
+      operations: [invoke]
+      audience: {self: true}
+      binding_key: {from: scheduler/occurrence-reads-binding}
+      calls:
+          invoke:
+              - /scheduler.v1.TasksService/GetTask
+    - id: owner
+      operations: [invoke]
+      audience: {from: scheduler-owner/owner-audience}
+      resource_kind: {from: scheduler-owner/owner-resource-kind}
+      scope_ceiling:
+          invoke: [read]
+destinations: []

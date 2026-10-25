@@ -28,7 +28,8 @@ mixed, never a mapping), the queues and namespaces it declares, its own scope
 ceilings and the destinations it exposes. Audience, resource kind and binding
 key are **slots** into the composition's workspace configuration
 (`{from: <group>/<key>}`), whose key name carries its meaning, and a literal
-where a slot belongs is a schema error. `Parse` decodes strictly (an unknown
+where a slot belongs is a schema error; an audience may instead be
+`{self: true}`, the module's own principal. `Parse` decodes strictly (an unknown
 field — a tenancy, a build digest, an identity — is refused, never ignored),
 `Validate` holds every rule — a ceiling in both spellings included, whether
 written or constructed, since `Resolve` would mint scopes from both — and
@@ -140,6 +141,49 @@ lowercase names, each once, is refused under `ErrAmbiguousSlot`
 the optional rule unchanged: the list key absent or empty (with its kinds key)
 omits it; the list filled and its kinds key not is filled in part, refused by
 name. A binding with `audience:` resolves exactly as before, under its own id.
+
+**A binding may be addressed to the module itself.** A module that admits
+work into itself on someone's behalf — a scheduler issued the capability an
+occurrence is admitted under, from a delegation a person granted it — redeems a
+binding whose audience is its own principal. That principal is already the
+contract's (`principal:`), and every renderer holds it to the name the module
+is composed under, so the audience says so instead of naming a configured
+value that would restate an identity the composition already resolves:
+
+```yaml
+bindings:
+  - id: occurrences
+    operations: [invoke]
+    audience: {self: true}
+    scope_ceiling:
+      invoke:
+        - {resource_kind: scheduler.tasks, actions: [cancel, execute, start]}
+```
+
+`Resolve` delivers it under its own id with `Audience` = the contract's
+principal, reading no configuration for it (`SlotGroups` lists none), and a
+binding naming `calls` reads them from the module's own declarations
+(`Callees.Requires(<principal>, call)`). It is held by named rules:
+
+- `self` and `from` never in one slot (`slot-self-beside-from`), and `self` is
+  written only as `self: true` (`slot-self-is-true`); a non-boolean `self` is
+  malformed (`slot-decodes`), and the bare word `audience: self` is a literal
+  where a slot belongs (`slot-is-a-reference`, whose refusal names the
+  spelling).
+- Only an audience may be the module itself — never `audiences`,
+  `resource_kind`, `resource_kinds` or `binding_key` (`self-only-audience`).
+- It asks for the module's own vocabulary: no `resource_kind` slot
+  (`self-audience-no-resource-kind`), and every `{resource_kind, actions}`
+  scope within the module's own `scope_ceilings`
+  (`self-audience-own-scopes`). Bare actions need a `resource_kind` slot, which
+  it cannot declare, so its scopes are spelled out.
+- The module itself is no slot the composition fills, so it neither fills nor
+  leaves unfilled an **optional** binding: an optional self binding is omitted
+  by its other slots alone (a `binding_key`, say), and one with no other slot
+  could never be left out, which is refused (`optional-binding-has-a-slot`).
+- A solution's `api.consumes` entry asks at the module it names, so a
+  `{self: true}` audience there asks for scopes beyond the solution's own
+  (empty) ceilings and is refused by `self-audience-own-scopes`.
 
 **A module may declare the methods it serves from a protocol it does not own.**
 A method a module defines carries its policy as an option on its own proto; a
@@ -322,7 +366,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (110 documents) ships
+`modulecontract.Fixtures()` (119 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (120

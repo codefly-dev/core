@@ -64,8 +64,14 @@ const (
 	ruleSlotIsAReference      = "slot-is-a-reference"
 	ruleSlotCarriesOnlyFrom   = "slot-carries-only-from"
 	ruleSlotDecodes           = "slot-decodes"
+	ruleSlotSelfBesideFrom    = "slot-self-beside-from"
+	ruleSlotSelfIsTrue        = "slot-self-is-true"
+	ruleSelfOnlyAudience      = "self-only-audience"
 	ruleSlotReference         = "slot-reference"
 	ruleSlotKeyMeaning        = "slot-key-meaning"
+	ruleOptionalHasASlot      = "optional-binding-has-a-slot"
+	ruleSelfNoResourceKind    = "self-audience-no-resource-kind"
+	ruleSelfOwnScopes         = "self-audience-own-scopes"
 	ruleCeilingIsAList        = "ceiling-is-a-list"
 	ruleCeilingEntryFields    = "ceiling-entry-fields"
 	ruleCeilingEntryShape     = "ceiling-entry-shape"
@@ -137,8 +143,12 @@ func rules() []rule {
 		{name: ruleSlotIsAReference, check: checkSlotsAreReferences},
 		{name: ruleSlotCarriesOnlyFrom, check: checkSlotsCarryOnlyFrom},
 		{name: ruleSlotDecodes, check: checkSlotsDecode},
+		{name: ruleSlotSelfBesideFrom, check: checkSlotsSelfBesideFrom},
+		{name: ruleSlotSelfIsTrue, check: checkSlotsSelfIsTrue},
+		{name: ruleSelfOnlyAudience, check: checkSelfOnlyAudience},
 		{name: ruleSlotReference, check: checkSlotReferences},
 		{name: ruleSlotKeyMeaning, check: checkSlotKeyMeanings},
+		{name: ruleOptionalHasASlot, check: checkOptionalBindingsHaveASlot},
 		{name: ruleCeilingIsAList, check: checkCeilingsAreLists},
 		{name: ruleCeilingEntryFields, check: checkCeilingEntryFields},
 		{name: ruleCeilingEntryShape, check: checkCeilingEntryShapes},
@@ -149,6 +159,8 @@ func rules() []rule {
 		{name: ruleOperationHasCeiling, check: checkOperationsHaveCeilings},
 		{name: ruleCallName, check: checkCallNames},
 		{name: ruleCallUnique, check: checkCallsUnique},
+		{name: ruleSelfNoResourceKind, check: checkSelfAudienceNoResourceKind},
+		{name: ruleSelfOwnScopes, check: checkSelfAudienceOwnScopes},
 		{name: ruleBareActionsNeedKind, check: checkBareActionsNeedKind},
 		{name: ruleScopeKindName, check: checkScopeKindNames},
 		{name: ruleScopeKindUnique, check: checkScopeKindsUnique},
@@ -504,7 +516,11 @@ func checkAudiencesWithoutBindingKey(contract *Contract) error {
 func checkSlotsAreReferences(contract *Contract) error {
 	for _, entry := range contract.slots() {
 		if entry.slot.literal != nil {
-			return fmt.Errorf("%w: %s slot is {from: <group>/<key>}, not the literal %q; another module's vocabulary is supplied by the composition, never spelled in a module repository", ErrInvalid, entry.label, *entry.slot.literal)
+			hint := ""
+			if entry.field == fieldAudience {
+				hint = "; a binding addressed to the module itself writes audience: {self: true}"
+			}
+			return fmt.Errorf("%w: %s slot is {from: <group>/<key>}, not the literal %q; another module's vocabulary is supplied by the composition, never spelled in a module repository%s", ErrInvalid, entry.label, *entry.slot.literal, hint)
 		}
 	}
 	return nil
@@ -513,7 +529,7 @@ func checkSlotsAreReferences(contract *Contract) error {
 func checkSlotsCarryOnlyFrom(contract *Contract) error {
 	for _, entry := range contract.slots() {
 		if entry.slot.hasExtra {
-			return fmt.Errorf("%w: %s slot carries the unknown slot field %q (a slot carries only from)", ErrInvalid, entry.label, entry.slot.extra)
+			return fmt.Errorf("%w: %s slot carries the unknown slot field %q (a slot carries only from, or an audience only self)", ErrInvalid, entry.label, entry.slot.extra)
 		}
 	}
 	return nil
@@ -534,8 +550,92 @@ func checkSlotsDecode(contract *Contract) error {
 	return nil
 }
 
+// checkSlotsSelfBesideFrom: a slot is a composition reference or the module
+// itself, never both.
+func checkSlotsSelfBesideFrom(contract *Contract) error {
+	for _, entry := range contract.slots() {
+		if entry.slot.Self && entry.slot.From != "" {
+			return fmt.Errorf("%w: %s slot writes self beside from %q; a slot is the composition's value or the module itself, never both", ErrInvalid, entry.label, entry.slot.From)
+		}
+	}
+	return nil
+}
+
+// checkSlotsSelfIsTrue: self is written only as self: true. self: false is a
+// slot naming what it is not, and says nothing about what it is.
+func checkSlotsSelfIsTrue(contract *Contract) error {
+	for _, entry := range contract.slots() {
+		if entry.slot.selfWritten && !entry.slot.Self {
+			return fmt.Errorf("%w: %s slot writes self: false; a slot that is not the module itself writes from, and self is written only as self: true", ErrInvalid, entry.label)
+		}
+	}
+	return nil
+}
+
+// checkSelfOnlyAudience: the module itself is an audience — its principal —
+// and never a resource kind, a binding key, or a list to be delivered once
+// per entry.
+func checkSelfOnlyAudience(contract *Contract) error {
+	for _, entry := range contract.slots() {
+		if entry.slot.Self && entry.field != fieldAudience {
+			return fmt.Errorf("%w: %s slot is {self: true}; only an audience may be the module itself — its principal is no %s", ErrInvalid, entry.label, entry.field)
+		}
+	}
+	return nil
+}
+
+// checkOptionalBindingsHaveASlot: an optional binding is left out by a
+// composition that fills none of its slots, so one with no slot the
+// composition fills — addressed to the module itself and nothing else — could
+// never be left out, and would read as optional while being delivered always.
+func checkOptionalBindingsHaveASlot(contract *Contract) error {
+	for index := range contract.Bindings {
+		binding := &contract.Bindings[index]
+		if binding.Optional && len(binding.composedSlots()) == 0 {
+			return fmt.Errorf("%w: optional binding %q has no slot the composition fills, so no composition can leave it out; a binding addressed to the module itself with nothing else to fill is mandatory", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkSelfAudienceNoResourceKind: a binding addressed to the module itself
+// asks for the module's own vocabulary, which it declares in scope_ceilings
+// and names literally — never reads from the composition.
+func checkSelfAudienceNoResourceKind(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audience.Self && binding.ResourceKind != nil {
+			return fmt.Errorf("%w: binding %q is addressed to the module itself and declares a resource_kind slot; its kinds are its own scope_ceilings, named literally as {resource_kind, actions} entries", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkSelfAudienceOwnScopes: every scope a binding addressed to the module
+// itself names is within the module's own ceiling — a scope at itself beyond
+// what it contributes is one no host could grant.
+func checkSelfAudienceOwnScopes(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, entry := range contract.ceilings() {
+		if !entry.binding.Audience.Self {
+			continue
+		}
+		for _, scope := range entry.ceiling.Scopes {
+			actions, declared := own[scope.ResourceKind]
+			for _, action := range scope.Actions {
+				if !declared || !slices.Contains(actions, action) {
+					return fmt.Errorf("%w: binding %q is addressed to the module itself and its %s ceiling names %s:%s, beyond the module's own scope_ceilings", ErrInvalid, entry.binding.ID, entry.operation, scope.ResourceKind, action)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func checkSlotReferences(contract *Contract) error {
 	for _, entry := range contract.slots() {
+		if entry.slot.Self {
+			continue
+		}
 		group, key, found := strings.Cut(entry.slot.From, "/")
 		if !found || !namePattern.MatchString(group) || !slotKeyPattern.MatchString(key) {
 			return fmt.Errorf("%w: %s slot %q is not <group>/<key>", ErrInvalid, entry.label, entry.slot.From)
@@ -546,6 +646,9 @@ func checkSlotReferences(contract *Contract) error {
 
 func checkSlotKeyMeanings(contract *Contract) error {
 	for _, entry := range contract.slots() {
+		if entry.slot.Self {
+			continue
+		}
 		suffixes := slotSuffixes[entry.field]
 		key := entry.slot.Key()
 		if slices.ContainsFunc(suffixes, func(suffix string) bool { return strings.HasSuffix(normalizeKey(key), suffix) }) {

@@ -68,6 +68,16 @@ func Fixtures() ([]Fixture, error) {
 		{name: "binding-audiences", file: "binding-audiences.yaml", outcome: OutcomeAccepted},
 		{name: "foreign-methods", file: "foreign-methods.yaml", outcome: OutcomeAccepted},
 		{name: "roles", file: "roles.yaml", outcome: OutcomeAccepted},
+		{name: "binding-self-audience", file: "binding-self-audience.yaml", outcome: OutcomeAccepted},
+
+		{name: "self-beside-from", file: "self-beside-from.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding occurrences audience slot writes self beside from "scheduler/owner-audience"`, rule: ruleSlotSelfBesideFrom},
+		{name: "self-false", file: "self-false.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "binding occurrences audience slot writes self: false", rule: ruleSlotSelfIsTrue},
+		{name: "self-tagged", file: "self-tagged.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "binding occurrences audience slot reference is malformed", rule: ruleSlotDecodes},
+		{name: "self-as-literal", file: "self-as-literal.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "a binding addressed to the module itself writes audience: {self: true}", rule: ruleSlotIsAReference},
+		{name: "self-binding-key", file: "self-binding-key.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "binding occurrence-reads binding_key slot is {self: true}; only an audience may be the module itself", rule: ruleSelfOnlyAudience},
+		{name: "self-optional-nothing-to-fill", file: "self-optional-nothing-to-fill.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `optional binding "occurrences" has no slot the composition fills`, rule: ruleOptionalHasASlot},
+		{name: "self-beyond-own-ceiling", file: "self-beyond-own-ceiling.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "names scheduler.tasks:recover, beyond the module's own scope_ceilings", rule: ruleSelfOwnScopes},
+		{name: "self-with-resource-kind", file: "self-with-resource-kind.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "occurrences" is addressed to the module itself and declares a resource_kind slot`, rule: ruleSelfNoResourceKind},
 
 		{name: "binding-audience-and-audiences", file: "binding-audience-and-audiences.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares both audience and audiences`, rule: ruleOneAudienceField},
 		{name: "resource-kinds-without-audiences", file: "resource-kinds-without-audiences.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: `binding "owner" declares resource_kinds without audiences`, rule: ruleKindsNeedAudiences},

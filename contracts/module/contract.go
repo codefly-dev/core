@@ -64,6 +64,24 @@
 // a capability for it is addressed to), resource_kind a *-resource-kind key and
 // binding_key a *-binding key, in either spelling core accepts.
 //
+// # The module itself
+//
+// One audience is not another module's vocabulary: the module's own. A module
+// that admits work into itself on someone's behalf — a scheduler issued the
+// capability an occurrence is admitted under — redeems a binding addressed to
+// its own principal, and that principal is already the contract's (Principal),
+// held by every renderer to the name the module is composed under. So the
+// audience slot alone may say so, as {self: true}, and resolves to Principal:
+// a configured value carrying the module's own name would be a second
+// statement of an identity the composition already resolves, free to drift
+// from it. Self names an audience and nothing else — a resource kind, a list
+// or a binding key is never the module's principal — and a binding addressed
+// to itself asks for its own vocabulary, so it names its kinds literally,
+// each within the module's own scope_ceilings, and declares no resource_kind
+// slot. It is not a slot the composition fills, so it neither fills nor
+// leaves unfilled an optional binding: such a binding is omitted by its other
+// slots, and one with none could never be left out, which is refused.
+//
 // # Audience lists
 //
 // A generic module reaches whichever modules a composition wires to it — a
@@ -152,6 +170,7 @@ const (
 	fieldBindingKey    = "binding_key"
 	fieldActions       = "actions"
 	fieldFrom          = "from"
+	fieldSelf          = "self"
 )
 
 // audienceBindingSeparator joins a binding declaring an audience list to one
@@ -316,7 +335,8 @@ type Binding struct {
 	Operations []string `yaml:"operations"`
 	// Lookup carries the lookup method when the binding declares lookup.
 	Lookup *Lookup `yaml:"lookup,omitempty"`
-	// Audience is the operation audience, a slot into the composition.
+	// Audience is the operation audience, a slot into the composition — or
+	// {self: true}, the module itself, resolved to Principal.
 	// A binding declares exactly one of Audience and Audiences.
 	Audience Slot `yaml:"audience,omitempty"`
 	// Audiences is the operation audiences, a slot whose value lists them
@@ -459,9 +479,14 @@ type Lookup struct {
 
 // Slot is a reference to a workspace configuration value the composition
 // supplies: {from: <group>/<key>}. It is a struct and not a string so that a
-// literal value where a slot belongs is a schema error at the reader.
+// literal value where a slot belongs is a schema error at the reader. An
+// audience slot may instead be {self: true}: the module itself, resolved to
+// the contract's own principal (see "The module itself").
 type Slot struct {
 	From string `yaml:"from"`
+	// Self addresses the binding to the module itself. Only an audience may
+	// be, and never beside From.
+	Self bool `yaml:"self,omitempty"`
 
 	// present records that the document wrote the slot at all, so a binding
 	// writing audience: {} beside audiences is refused rather than read as
@@ -476,6 +501,10 @@ type Slot struct {
 	hasExtra  bool
 	extra     string
 	malformed error
+	// selfWritten records that the document wrote self at all, so self:
+	// false — a slot that says what it is not — is refused rather than read
+	// as a slot naming nothing.
+	selfWritten bool
 }
 
 // SlotGroups lists the workspace configuration groups the contract's slots
@@ -511,33 +540,51 @@ func (slot *Slot) UnmarshalYAML(node *yaml.Node) error {
 		return nil
 	}
 	mapping := wire.ReadMapping(node, func(key string, value *yaml.Node) (bool, error) {
-		if key != fieldFrom {
-			return false, nil
+		switch key {
+		case fieldFrom:
+			// Decoded with its type, not copied off the node: a tagged scalar —
+			// {from: !!int assistant/model-audience} — is refused by the typed
+			// decoder and was silently accepted as a string by reading Value.
+			return true, value.Decode(&slot.From)
+		case fieldSelf:
+			slot.selfWritten = true
+			return true, value.Decode(&slot.Self)
 		}
-		// Decoded with its type, not copied off the node: a tagged scalar —
-		// {from: !!int assistant/model-audience} — is refused by the typed
-		// decoder and was silently accepted as a string by reading Value.
-		return true, value.Decode(&slot.From)
+		return false, nil
 	})
 	slot.hasExtra, slot.extra, slot.malformed = mapping.HasUnknown, mapping.Unknown, mapping.Err
 	return nil
 }
 
-// MarshalYAML writes the slot as {from: <group>/<key>}.
-func (slot Slot) MarshalYAML() (any, error) {
-	return map[string]string{fieldFrom: slot.From}, nil
-}
+// MarshalYAML writes the slot as {from: <group>/<key>}, or {self: true}.
+func (slot Slot) MarshalYAML() (any, error) { return slot.wire(), nil }
 
-// MarshalJSON writes a slot in the spelling the file uses, {"from": ...}, so a
-// document that carries one as JSON — a solution manifest's canonical bytes —
-// spells it as its YAML does.
-func (slot Slot) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]string{fieldFrom: slot.From})
+// MarshalJSON writes a slot in the spelling the file uses, {"from": ...} or
+// {"self": true}, so a document that carries one as JSON — a solution
+// manifest's canonical bytes — spells it as its YAML does.
+func (slot Slot) MarshalJSON() ([]byte, error) { return json.Marshal(slot.wire()) }
+
+// wire is the slot in the spelling the file uses. A slot holding both is
+// refused by Validate and is written with both, so it reads back refused.
+func (slot Slot) wire() map[string]any {
+	if !slot.Self {
+		return map[string]any{fieldFrom: slot.From}
+	}
+	if slot.From == "" {
+		return map[string]any{fieldSelf: true}
+	}
+	return map[string]any{fieldFrom: slot.From, fieldSelf: true}
 }
 
 // declared reports whether the slot was written: read from a document, or
-// constructed with a reference.
-func (slot Slot) declared() bool { return slot.present || slot.From != "" || slot.literal != nil }
+// constructed with a reference or as the module itself.
+func (slot Slot) declared() bool {
+	return slot.present || slot.From != "" || slot.Self || slot.literal != nil
+}
+
+// composed reports a slot the composition fills: every declared slot but the
+// module itself, which the contract's own principal answers.
+func (slot Slot) composed() bool { return !slot.Self }
 
 // fieldSlot is one declared slot of a binding and the field it fills.
 type fieldSlot struct {
@@ -562,6 +609,18 @@ func (binding *Binding) fieldSlots() []fieldSlot {
 		}
 	}
 	return all
+}
+
+// composedSlots is fieldSlots without the module itself: the slots the
+// composition fills.
+func (binding *Binding) composedSlots() []fieldSlot {
+	var composed []fieldSlot
+	for _, declared := range binding.fieldSlots() {
+		if declared.slot.composed() {
+			composed = append(composed, declared)
+		}
+	}
+	return composed
 }
 
 // Group and Key split the slot's reference into the workspace configuration
@@ -772,6 +831,11 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 	resolve := func(label string, slot *Slot, kind bool) string {
 		if slot == nil {
 			return ""
+		}
+		if slot.Self {
+			// The module itself: the contract's principal, which every
+			// renderer holds to the name the module is composed under.
+			return contract.Principal
 		}
 		records, err := recordsOf(slot.Group())
 		if err != nil {
@@ -984,10 +1048,12 @@ func resolveKindsPerAudience(value string, audiences []string, without string) (
 // or every record that is supplies an empty public value — the spelling a
 // module's declared configuration gives a key nobody set. A secret record, or
 // a group whose records cannot be read, counts as filled, so resolution
-// reports it rather than an omission hiding it.
+// reports it rather than an omission hiding it. The module itself is no slot
+// the composition fills, so it is neither (optional-binding-has-a-slot keeps
+// the count above zero).
 func (binding Binding) unfilledSlots(recordsOf func(group string) ([]Record, error)) ([]string, bool) {
 	var unfilled []string
-	slots := binding.fieldSlots()
+	slots := binding.composedSlots()
 	for _, slot := range slots {
 		records, err := recordsOf(slot.slot.Group())
 		if err != nil || slotFilled(records, slot.slot.Key()) {
