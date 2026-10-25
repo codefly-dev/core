@@ -688,3 +688,106 @@ func TestBindingWithoutAResolverSaysWhatWentUnverified(t *testing.T) {
 	require.NotEmpty(t, said, "the skip must leave a breadcrumb; logs=%v", capture.logs)
 	require.Contains(t, said, "platform/redis", "the breadcrumb must name the unverified implementation")
 }
+
+// moduleWorkspace is a module's own workspace: records requires an interface
+// the composition that composes the module implements, and its own store. No
+// unit here implements the interface.
+func moduleWorkspace(t *testing.T, kind string) string {
+	t.Helper()
+	root := t.TempDir()
+	dependencies := "service-dependencies:\n    - name: store\n    - interface: codefly.dev/authority@0.1.0\n"
+	if kind != "" {
+		dependencies += "      kind: " + kind + "\n"
+	}
+	files := map[string]string{
+		"workspace.codefly.yaml":                                     "name: record-store\nlayout: modules\nmodules:\n    - name: record-store\n",
+		"modules/record-store/module.codefly.yaml":                   "kind: module\nname: record-store\nservices:\n    - name: records\n    - name: store\ninterface:\n    endpoints:\n        - service: records\n          endpoint: grpc\n          visibility: public\n",
+		"modules/record-store/services/records/service.codefly.yaml": bindingService("records", "grpc", dependencies),
+		"modules/record-store/services/store/service.codefly.yaml":   bindingService("store", "tcp", ""),
+	}
+	for name, content := range files {
+		path := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	}
+	return root
+}
+
+// A module's own workspace composes nothing that implements an interface its
+// composition supplies. Loading its services leaves the requirement unbound —
+// no edge, no endpoint — so exporting its contracts works, and the
+// requirement still never resolves silently.
+func TestInterfaceNothingInScopeImplementsStaysUnbound(t *testing.T) {
+	ctx := context.Background()
+	root := moduleWorkspace(t, "external")
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, root)
+	require.NoError(t, err)
+	records, err := workspace.LoadService(ctx, &resources.ServiceWithModule{Module: "record-store", Name: "records"})
+	require.NoError(t, err)
+	authority := records.ServiceDependencies[1]
+	require.True(t, authority.Unbound())
+	require.Empty(t, authority.Name)
+	require.Empty(t, authority.Module)
+	require.Empty(t, authority.Endpoints)
+	require.False(t, records.ServiceDependencies[0].Unbound())
+	require.NoError(t, authority.RefuseUnbound("record-store/records"), "an external capability is supplied around the workspace")
+
+	mod, err := workspace.LoadModuleFromName(ctx, "record-store")
+	require.NoError(t, err)
+	exported, err := mod.InterfaceEndpoints(ctx)
+	require.NoError(t, err)
+	require.Len(t, exported, 1)
+
+	// An external capability selects no endpoint, so an agent validating its
+	// dependencies' endpoints has nothing to refuse; a runtime one is refused.
+	require.NoError(t, resources.ValidateDependencyEndpoints([]*resources.ServiceDependency{authority}, nil))
+	_, err = resources.ResolveDependencyNetworkMappings(composition("record-store"), "record-store",
+		[]*resources.ServiceDependency{{Interface: authority.Interface, Kind: resources.DependencyKindRuntime}}, nil)
+	require.ErrorContains(t, err, "is not bound to a provider")
+
+	// Saved as declared: the unbound requirement is written back untouched.
+	require.NoError(t, records.Save(ctx))
+	saved, err := os.ReadFile(filepath.Join(root, "modules/record-store/services/records", resources.ServiceConfigurationName))
+	require.NoError(t, err)
+	require.Contains(t, string(saved), "interface: codefly.dev/authority@0.1.0")
+}
+
+// An unbound requirement whose kind builds, starts or orders its provider is a
+// composition that cannot provide it: loading still works, and the refusal
+// names the interface and the two ways out.
+func TestUnboundRuntimeRequirementIsRefusedWhereItIsProvided(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, moduleWorkspace(t, "runtime"))
+	require.NoError(t, err)
+	records, err := workspace.LoadService(ctx, &resources.ServiceWithModule{Module: "record-store", Name: "records"})
+	require.NoError(t, err)
+	err = records.ServiceDependencies[1].RefuseUnbound("record-store/records")
+	require.ErrorContains(t, err, "record-store/records requires codefly.dev/authority@0.1.0, which no unit in the workspace implements")
+	require.ErrorContains(t, err, `declare the dependency kind "external"`)
+}
+
+// Leaving a requirement unbound is only for an interface nothing implements:
+// an implementation in scope outside the range still refuses, a named service
+// is still checked, and two implementations still need a binding.
+func TestOnlyAnUnimplementedInterfaceStaysUnbound(t *testing.T) {
+	ctx := context.Background()
+	root := bindingWorkspace(t, "", map[string]string{
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http", "service-dependencies:\n    - interface: codefly.dev/cache@^1\n      kind: external\n"),
+	})
+	_, err := loadWeb(ctx, t, root)
+	require.ErrorContains(t, err, "no provider in scope satisfies it; implementations in scope: platform/redis (codefly.dev/cache@0.3.0)")
+
+	root = bindingWorkspace(t, "", map[string]string{
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http", "service-dependencies:\n    - name: api\n      module: platform\n      interface: codefly.dev/authority@0.1.0\n"),
+	})
+	_, err = loadWeb(ctx, t, root)
+	require.ErrorContains(t, err, "the named service platform/api provides no version in range")
+
+	root = bindingWorkspace(t, "", map[string]string{
+		"modules/apps/services/web/service.codefly.yaml": bindingService("web", "http", "service-dependencies:\n    - interface: codefly.dev/authority@0.1.0\n      kind: external\n    - interface: codefly.dev/cache@^0.3\n"),
+	})
+	web, err := loadWeb(ctx, t, root)
+	require.NoError(t, err)
+	require.True(t, web.ServiceDependencies[0].Unbound())
+	requireBound(t, web.ServiceDependencies[1], "platform", "redis")
+}

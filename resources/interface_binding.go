@@ -53,6 +53,30 @@ func (s *ServiceDependency) interfaceOnly() bool {
 	return s.Interface != "" && s.Name == ""
 }
 
+// Unbound reports whether the dependency requires an interface no provider was
+// bound to: nothing in scope implements it — a module's own workspace, where
+// the composition that composes the module supplies the implementation — or
+// the service was loaded with no workspace to bind against. An unbound
+// dependency is no edge and has no endpoint; every path that would start,
+// order or wire its provider refuses it.
+func (s *ServiceDependency) Unbound() bool {
+	return s.interfaceOnly()
+}
+
+// RefuseUnbound is the refusal of a composition that would have to provide an
+// unbound dependency: one whose kind builds, starts or orders its provider, so
+// building or running consumer needs an implementation the composition does
+// not have. An external dependency is a capability codefly never builds,
+// starts or orders — the composition around the workspace supplies it — so
+// leaving it unbound refuses nothing, and it is no edge.
+func (s *ServiceDependency) RefuseUnbound(consumer string) error {
+	if !s.Unbound() || s.Kind == DependencyKindExternal {
+		return nil
+	}
+	return fmt.Errorf("%s requires %s, which no unit in the workspace implements: compose an implementation of it, or declare the dependency kind %q when the environment supplies it",
+		consumer, s.Interface, DependencyKindExternal)
+}
+
 // boundByInterface reports whether Name and Module hold a provider binding
 // chose rather than a service the author named. Such a dependency is the
 // author's requirement of an interface, not of that service: an operation on
@@ -93,9 +117,13 @@ func (workspace *Workspace) InterfaceProviders(ctx context.Context) ([]*Interfac
 // exactly one provider in the workspace. A dependency that also names a
 // service is checked against it. Otherwise the provider is the one satisfying
 // the required range, or the one the workspace's interface-bindings choose.
-// No provider, or several without a binding, is an error: picking one
-// implicitly would make which provider a consumer reaches depend on what else
-// happens to be composed.
+// Several without a binding is an error: picking one implicitly would make
+// which provider a consumer reaches depend on what else happens to be
+// composed. So is an implementation in scope that no version of satisfies the
+// range. An interface nothing in scope implements leaves the dependency
+// unbound — a module's own workspace composes no implementation of what its
+// composition supplies — and the paths that would start or wire its provider
+// refuse it there (see ServiceDependency.Unbound).
 func (workspace *Workspace) BindInterfaceDependencies(ctx context.Context, service *Service) error {
 	w := wool.Get(ctx).In("Workspace::BindInterfaceDependencies", wool.NameField(service.label()))
 	if !service.hasInterfaceDependencies() {
@@ -168,6 +196,12 @@ func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider,
 		if err != nil {
 			return nil, fmt.Errorf("service %s: %w", service.label(), err)
 		}
+		// A workspace binding always names an implementation (validated
+		// above), so only a requirement no unit implements at any version is
+		// left unbound. One that names its service is checked, never left.
+		if dep.interfaceOnly() && !implemented(requirement, providers) {
+			continue
+		}
 		provider, err := selectInterfaceProvider(dep, requirement, providers, chosen[requirement.Key()])
 		if err != nil {
 			return nil, fmt.Errorf("service %s requires %s: %w", service.label(), requirement, err)
@@ -177,14 +211,7 @@ func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider,
 			dep.interfaceVerified = true
 			continue
 		}
-		dep.binding = &interfaceBinding{module: dep.Module, endpoints: dep.Endpoints}
-		dep.Name = provider.Service
-		dep.Module = provider.Module
-		// A completion edge waits for finished work and consumes no endpoint,
-		// so it is never narrowed to the implementing one.
-		if provider.Endpoint != "" && len(dep.Endpoints) == 0 && dep.Kind != DependencyKindCompletion {
-			dep.Endpoints = []*EndpointReference{{Name: provider.Endpoint}}
-		}
+		dep.bindTo(provider.Module, provider.Service, provider.Endpoint)
 	}
 	// Two requirements may bind to one provider — two interfaces one endpoint
 	// serves, or an interface and a service the consumer also names. They are
@@ -192,6 +219,20 @@ func bindInterfaceDependencies(service *Service, providers []*InterfaceProvider,
 	// their edges and unions their kinds, and network mappings union what each
 	// consumes.
 	return bound, nil
+}
+
+// bindTo binds an interface-only dependency to the provider at module/service,
+// implementing the interface on endpoint (empty for a capability), keeping
+// what the author declared for a save to write back.
+func (s *ServiceDependency) bindTo(module, service, endpoint string) {
+	s.binding = &interfaceBinding{module: s.Module, endpoints: s.Endpoints}
+	s.Name = service
+	s.Module = module
+	// A completion edge waits for finished work and consumes no endpoint,
+	// so it is never narrowed to the implementing one.
+	if endpoint != "" && len(s.Endpoints) == 0 && s.Kind != DependencyKindCompletion {
+		s.Endpoints = []*EndpointReference{{Name: endpoint}}
+	}
 }
 
 // validateInterfaceBindings checks every binding the workspace declares, not
@@ -303,6 +344,15 @@ func selectInterfaceProvider(dep *ServiceDependency, requirement *InterfaceRequi
 		return nil, fmt.Errorf("%s %s/%s implements it more than once (%s); name the endpoint in the dependency", source, module, name, describeProviders(satisfying))
 	}
 	return nil, fmt.Errorf("several providers satisfy it (%s); choose one in the workspace's interface-bindings", describeProviders(satisfying))
+}
+
+func implemented(requirement *InterfaceRequirement, providers []*InterfaceProvider) bool {
+	for _, provider := range providers {
+		if provider.Identity.Key() == requirement.Key() {
+			return true
+		}
+	}
+	return false
 }
 
 func namedEndpoints(dep *ServiceDependency) []string {

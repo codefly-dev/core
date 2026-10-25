@@ -511,6 +511,15 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 				continue
 			}
 			for _, dep := range svc.ServiceDependencies {
+				// An interface no unit in the workspace implements has no
+				// producer to be a node: an external one is no edge, and any
+				// other is a composition that cannot build or run its consumer.
+				if dep.Unbound() {
+					if err := dep.RefuseUnbound(identity.Unique()); err != nil {
+						return w.Wrap(err)
+					}
+					continue
+				}
 				if _, excluded := d.options.ExcludeService[dep.Unique()]; excluded {
 					continue
 				}
