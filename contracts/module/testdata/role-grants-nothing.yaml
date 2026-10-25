@@ -1,0 +1,29 @@
+# A role that grants nothing.
+schema: codefly/module-contract/v1
+principal: wiki
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: wiki.page
+      actions: [read, write, publish]
+bindings:
+    - id: documents
+      operations: [invoke]
+      audience: {from: wiki/documents-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: documents
+                actions: [read, write]
+    - id: evaluation
+      operations: [headless]
+      audience: {from: wiki/evaluation-audience}
+      scope_ceiling:
+          headless:
+              - resource_kind: evaluation.definitions
+                actions: [publish]
+destinations: []
+roles:
+    - name: installer
+      scopes: [{resource_kind: wiki.page, actions: [read]}]
+    - name: editor
+      scopes: []

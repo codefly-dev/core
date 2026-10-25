@@ -151,6 +151,44 @@ that ceiling, and the list names each method once, each requiring at least one
 action. The render delivers them beside the methods its published contracts
 declare, so the hop in front of the module decides them like any other.
 
+**A unit a person uses declares its roles beside its own vocabulary.** A
+solution is reached by people, and who may do what on an installation of it is
+a role the installation grants, never the organisation's. `roles:` lists each
+role by name with the scopes it grants, `{resource_kind, actions}` with the kind
+named literally:
+
+```yaml
+scope_ceilings:
+  - resource_kind: wiki.page
+    actions: [read, write, publish]
+roles:
+  - name: installer
+    scopes:
+      - {resource_kind: wiki.page, actions: [read, write, publish]}
+  - name: viewer
+    scopes:
+      - {resource_kind: wiki.page, actions: [read]}
+      - {resource_kind: documents, actions: [read]}
+```
+
+A role grants the unit's **own kinds**, each action within its
+`scope_ceilings`, and the **permissions at another module it consumes**: a
+scope one of its bindings spells out (`{resource_kind, actions}`) for `invoke`
+or `lookup`, the operations a person causes. A `headless` binding's scopes are
+never grantable (no person is in one), and neither is a bare action or a call,
+whose kind only the composition resolves: a role naming one is refused, so
+spell the consumed scope out to grant it. One of the roles is `installer`,
+which whoever installs the unit holds; each role is a lowercase name declared
+once and grants at least one kind, each kind named once with at least one
+action, held to the same kind and action grammar as every other scope here.
+Each of these is its own named rule (`role-name`, `role-unique`,
+`role-grants`, `role-kind-name`, `role-kind-unique`, `role-kind-has-action`,
+`role-installer`, `role-within-request`). A bare module declares no `roles`,
+and omits the key: its access is the organisation's roles. The CLI carries the
+roles, unchanged, into the authority's document delivered with the unit's
+manifest (`AuthorityManifestV1.roles`); this contract is their one declaration
+site.
+
 **A solution's consumption is the same request, declared where a solution
 already declares it.** A composed solution is a module, but what it calls is
 declared once, in `solution.codefly.yaml`'s `api.consumes`, which also drives its
@@ -273,7 +311,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (98 documents) ships
+`modulecontract.Fixtures()` (110 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (120

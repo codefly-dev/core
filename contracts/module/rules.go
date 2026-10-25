@@ -90,6 +90,15 @@ const (
 	ruleForeignScopeHasAction = "foreign-method-scope-has-action"
 	ruleForeignMethodOwnKind  = "foreign-method-own-kind"
 	ruleForeignMethodOwnAct   = "foreign-method-own-action"
+
+	ruleRoleName          = "role-name"
+	ruleRoleUnique        = "role-unique"
+	ruleRoleGrants        = "role-grants"
+	ruleRoleKindName      = "role-kind-name"
+	ruleRoleKindUnique    = "role-kind-unique"
+	ruleRoleKindHasAction = "role-kind-has-action"
+	ruleRoleInstaller     = "role-installer"
+	ruleRoleWithinRequest = "role-within-request"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -156,6 +165,14 @@ func rules() []rule {
 		{name: ruleForeignScopeHasAction, check: checkForeignScopesHaveActions},
 		{name: ruleForeignMethodOwnKind, check: checkForeignMethodsOwnKinds},
 		{name: ruleForeignMethodOwnAct, check: checkForeignMethodsOwnActions},
+		{name: ruleRoleName, check: checkRoleNames},
+		{name: ruleRoleUnique, check: checkRolesUnique},
+		{name: ruleRoleGrants, check: checkRolesGrant},
+		{name: ruleRoleKindName, check: checkRoleKindNames},
+		{name: ruleRoleKindUnique, check: checkRoleKindsUnique},
+		{name: ruleRoleKindHasAction, check: checkRoleKindsHaveActions},
+		{name: ruleRoleInstaller, check: checkInstallerRole},
+		{name: ruleRoleWithinRequest, check: checkRolesWithinRequest},
 	}
 }
 
@@ -312,6 +329,14 @@ func (contract *Contract) actionLists() []struct {
 					actions []string
 				}{label + " " + scope.ResourceKind, scope.Actions})
 			}
+		}
+	}
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			lists = append(lists, struct {
+				label   string
+				actions []string
+			}{"role " + role.Name + " " + scope.ResourceKind, scope.Actions})
 		}
 	}
 	return lists
@@ -843,6 +868,117 @@ func checkForeignMethodsOwnActions(contract *Contract) error {
 			for _, action := range scope.Actions {
 				if !slices.Contains(actions, action) {
 					return fmt.Errorf("%w: foreign method %q requires %s:%s, beyond the module's own ceiling on %s", ErrInvalid, method.Method, scope.ResourceKind, action, scope.ResourceKind)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func checkRoleNames(contract *Contract) error {
+	for _, role := range contract.Roles {
+		if !namePattern.MatchString(role.Name) {
+			return fmt.Errorf("%w: role %q is not a lowercase name", ErrInvalid, role.Name)
+		}
+	}
+	return nil
+}
+
+func checkRolesUnique(contract *Contract) error {
+	names := make([]string, 0, len(contract.Roles))
+	for _, role := range contract.Roles {
+		names = append(names, role.Name)
+	}
+	if duplicate, found := firstDuplicate(names); found {
+		return fmt.Errorf("%w: role %q is declared twice", ErrInvalid, duplicate)
+	}
+	return nil
+}
+
+func checkRolesGrant(contract *Contract) error {
+	for _, role := range contract.Roles {
+		if len(role.Scopes) == 0 {
+			return fmt.Errorf("%w: role %q grants nothing", ErrInvalid, role.Name)
+		}
+	}
+	return nil
+}
+
+func checkRoleKindNames(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			if !namePattern.MatchString(scope.ResourceKind) {
+				return fmt.Errorf("%w: role %q resource kind %q is not a lowercase name", ErrInvalid, role.Name, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+func checkRoleKindsUnique(contract *Contract) error {
+	for _, role := range contract.Roles {
+		kinds := make([]string, 0, len(role.Scopes))
+		for _, scope := range role.Scopes {
+			kinds = append(kinds, scope.ResourceKind)
+		}
+		if duplicate, found := firstDuplicate(kinds); found {
+			return fmt.Errorf("%w: role %q names resource kind %q twice", ErrInvalid, role.Name, duplicate)
+		}
+	}
+	return nil
+}
+
+func checkRoleKindsHaveActions(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			if len(scope.Actions) == 0 {
+				return fmt.Errorf("%w: role %q grants resource kind %q no action", ErrInvalid, role.Name, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+func checkInstallerRole(contract *Contract) error {
+	if len(contract.Roles) == 0 {
+		return nil
+	}
+	for _, role := range contract.Roles {
+		if role.Name == InstallerRole {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: the contract declares %d role(s) and none is %q; whoever installs the unit holds it", ErrInvalid, len(contract.Roles), InstallerRole)
+}
+
+// grantable is what a role may grant: the module's own vocabulary, and each
+// scope a binding spells out for an operation a person causes (invoke,
+// lookup) — the permissions at another module the unit asks for on a person's
+// behalf. A headless operation has no person in it, so nothing a person holds
+// comes from one; a bare action or a call names its kind only when the
+// composition resolves it, so a role cannot be held to it here.
+func (contract *Contract) grantable() map[string][]string {
+	grantable := map[string][]string{}
+	for kind, actions := range contract.ownCeilings() {
+		grantable[kind] = slices.Clone(actions)
+	}
+	for _, binding := range contract.Bindings {
+		for _, operation := range []string{OperationInvoke, OperationLookup} {
+			for _, scope := range binding.ScopeCeiling[operation].Scopes {
+				grantable[scope.ResourceKind] = append(grantable[scope.ResourceKind], scope.Actions...)
+			}
+		}
+	}
+	return grantable
+}
+
+func checkRolesWithinRequest(contract *Contract) error {
+	grantable := contract.grantable()
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			for _, action := range scope.Actions {
+				if !slices.Contains(grantable[scope.ResourceKind], action) {
+					return fmt.Errorf("%w: role %q grants %s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup", ErrInvalid, role.Name, scope.ResourceKind, action)
 				}
 			}
 		}

@@ -251,6 +251,12 @@ type Contract struct {
 	// ScopeCeilings are the module's own permission vocabulary: the widest
 	// authority any credential naming the module's resources may carry.
 	ScopeCeilings []ScopeCeiling `yaml:"scope_ceilings"`
+	// Roles are the roles a person may hold on an installation of a unit a
+	// person uses — a solution — each a set of scopes: its own kinds within
+	// ScopeCeilings, and the permissions at other modules its bindings ask for
+	// on a person's behalf. One of them is InstallerRole. A bare module, whose
+	// access is the organisation's roles, declares none.
+	Roles []Role `yaml:"roles,omitempty"`
 	// Bindings are the operation bindings the module redeems, outward.
 	Bindings []Binding `yaml:"bindings"`
 	// Destinations are the endpoints the module exposes for something else to
@@ -278,6 +284,17 @@ type ScopeCeiling struct {
 	ResourceKind string   `yaml:"resource_kind"`
 	Actions      []string `yaml:"actions"`
 }
+
+// Role is one role of a unit's own: its name and the scopes it grants, each a
+// resource kind named literally with the actions granted on it.
+type Role struct {
+	Name   string         `yaml:"name"`
+	Scopes []CeilingScope `yaml:"scopes"`
+}
+
+// InstallerRole is the role every unit that declares roles declares: whoever
+// installs it holds it on that installation.
+const InstallerRole = "installer"
 
 // Binding is one operation binding the module asks to redeem.
 type Binding struct {
