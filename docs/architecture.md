@@ -476,3 +476,13 @@ and an unrestricted one judges them all, and `Closure.Verify` takes the phase
 the plan is for — the closure walk follows every declared edge, so judging them
 all would make a build input's verdict depend on whether the walk happened to
 reach its consumer.
+
+### Dependency test port allocation
+
+`dependencies.WithDependencies` defaults to disposable OS-probed ports. A
+composition whose configuration references another service before it initializes
+can select `dependencies.WithTemporaryPorts(false)`, the SDK equivalent of the
+CLI's `--temporary-ports=false`. Codefly still derives addresses from the session
+scope and injects endpoint carriers; callers never choose port numbers. The mode
+participates in the reusable-stack fingerprint so sessions cannot borrow a stack
+with a different allocation policy.

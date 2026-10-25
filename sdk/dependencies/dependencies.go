@@ -87,6 +87,7 @@ type Dependencies struct {
 }
 
 type Option struct {
+	TemporaryPorts           *bool
 	Debug                    bool
 	Timeout                  time.Duration
 	CodeflyBinary            string
@@ -129,6 +130,16 @@ func WithCodeflyBinary(path string) OptionFunc {
 		o.CodeflyBinary = path
 	}
 }
+
+// WithTemporaryPorts selects the CLI's port allocation mode. The default is true.
+// False uses Codefly's scope-derived addresses, which can be resolved before a
+// dependency initializes (for example when a hop references its upstreams).
+// Session scopes and endpoint resolution remain owned by Codefly in either mode.
+func WithTemporaryPorts(enabled bool) OptionFunc {
+	return func(o *Option) { o.TemporaryPorts = &enabled }
+}
+
+func temporaryPorts(opt *Option) bool { return opt.TemporaryPorts == nil || *opt.TemporaryPorts }
 
 func WithNamingScope(scope string) OptionFunc {
 	return func(o *Option) {
@@ -738,7 +749,12 @@ func dependencyCommandArguments(opt *Option, scope string) []string {
 	// --headless prevents the CLI from trying to open /dev/tty for
 	// interactive context selection. Always needed when running as a
 	// subprocess (go test, CI, MCP, pipes).
-	args = append(args, "--temporary-ports", "--exclude-root", "--cli-server", "--headless")
+	if temporaryPorts(opt) {
+		args = append(args, "--temporary-ports")
+	} else {
+		args = append(args, "--temporary-ports=false")
+	}
+	args = append(args, "--exclude-root", "--cli-server", "--headless")
 	return args
 }
 
@@ -981,6 +997,7 @@ func reuseFingerprint(ctx context.Context, dir string, opt *Option) string {
 		filepath.Clean(dir),
 		opt.Service,
 		opt.NamingScope,
+		fmt.Sprint(temporaryPorts(opt)),
 		opt.Fixture,
 		opt.RunProfile,
 		opt.DependencyHome,
