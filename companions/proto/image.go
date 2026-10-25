@@ -2,6 +2,7 @@ package proto
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/codefly-dev/core/languages"
@@ -33,6 +34,11 @@ type foreignNamespace struct {
 	// library imports it from its module, every other language still owns a
 	// generated copy because nothing publishes one for it.
 	goOnly bool
+	// goPackagePrefix is the Go import path the namespace's bindings live under
+	// when its files declare no go_package of their own (codefly's protos are
+	// generated under one managed prefix): the override for a marked import is
+	// prefix + "/" + the file's directory, which is how the owner generated it.
+	goPackagePrefix string
 }
 
 // foreignNamespaces covers google/protobuf (package google.protobuf and
@@ -50,7 +56,7 @@ var foreignNamespaces = []foreignNamespace{
 	// generated from it must import them from those modules — emitted again
 	// they register the same files twice and the consuming binary panics at
 	// init.
-	{pathPrefix: "codefly/", packagePrefix: "codefly.", goOnly: true},
+	{pathPrefix: "codefly/", packagePrefix: "codefly.", goOnly: true, goPackagePrefix: "github.com/codefly-dev/core/generated/go"},
 	{pathPrefix: "authority/hop/", packagePrefix: "authority.hop", goOnly: true},
 }
 
@@ -102,6 +108,17 @@ const (
 
 // isForeign reports whether a library generated for language must not own this
 // file's bindings.
+// goPackagePrefixOf is the managed Go import prefix of the namespace that owns
+// file, "" when the namespace has none or none owns it.
+func goPackagePrefixOf(file *descriptorpb.FileDescriptorProto) string {
+	for _, ns := range foreignNamespaces {
+		if ns.owns(file) {
+			return ns.goPackagePrefix
+		}
+	}
+	return ""
+}
+
 // IsForeignFile reports whether a generated library for language must import
 // file from its distribution rather than own a copy of its bindings.
 func IsForeignFile(file *descriptorpb.FileDescriptorProto, language languages.Language) bool {
@@ -198,6 +215,8 @@ func MarkForeignImports(descriptorSet []byte, language languages.Language) ([]by
 		message.SetUnknown(append(unknown, extension...))
 		if pkg := file.GetOptions().GetGoPackage(); pkg != "" {
 			goPackages[file.GetName()] = pkg
+		} else if prefix := goPackagePrefixOf(file); prefix != "" {
+			goPackages[file.GetName()] = prefix + "/" + path.Dir(file.GetName())
 		}
 	}
 	marked, err := googleproto.Marshal(&set)

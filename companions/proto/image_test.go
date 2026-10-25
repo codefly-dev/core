@@ -381,5 +381,12 @@ func TestCodeflyNamespacesAreForeignForGoAlone(t *testing.T) {
 		require.Equal(t, file.GetName() != "documents/v1/api.proto", isMarkedAsImport(file), file.GetName())
 	}
 	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0", overrides["codefly/base/v0/agent.proto"])
+
 	require.Equal(t, "github.com/codefly-dev/authority/libraries/hop/go/gen/authority/hop/v1;hopv1", overrides["authority/hop/v1/policy.proto"])
+	// Codefly's own protos declare no go_package: the override is the managed
+	// prefix they are generated under, by directory.
+	runnable := &descriptorpb.FileDescriptorProto{Name: googleproto.String("codefly/runnable/v0/options.proto"), Package: googleproto.String("codefly.runnable.v0")}
+	data, overrides, err = MarkForeignImports(marshal(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{runnable}}), languages.GO)
+	require.NoError(t, err)
+	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/runnable/v0", overrides["codefly/runnable/v0/options.proto"])
 }
