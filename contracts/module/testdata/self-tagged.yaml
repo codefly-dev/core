@@ -1,10 +1,10 @@
 # self is a boolean, decoded with its type: a quoted true is not one.
 schema: codefly/module-contract/v1
-principal: scheduler
+principal: assistant
 namespaces: []
 queues: []
 scope_ceilings:
-    - resource_kind: scheduler.tasks
+    - resource_kind: assistant.tasks
       actions: [cancel, execute, read, start]
 bindings:
     - id: occurrences
@@ -12,20 +12,20 @@ bindings:
       audience: {self: "true"}
       scope_ceiling:
           invoke:
-              - resource_kind: scheduler.tasks
+              - resource_kind: assistant.tasks
                 actions: [cancel, execute, start]
     - id: occurrence-reads
       optional: true
       operations: [invoke]
       audience: {self: true}
-      binding_key: {from: scheduler/occurrence-reads-binding}
+      binding_key: {from: assistant/occurrence-reads-binding}
       calls:
           invoke:
-              - /scheduler.v1.TasksService/GetTask
-    - id: owner
+              - /assistant.v1.TasksService/GetTask
+    - id: evidence
       operations: [invoke]
-      audience: {from: scheduler-owner/owner-audience}
-      resource_kind: {from: scheduler-owner/owner-resource-kind}
+      audience: {from: assistant/evidence-audience}
+      resource_kind: {from: assistant/evidence-resource-kind}
       scope_ceiling:
           invoke: [read]
 destinations: []

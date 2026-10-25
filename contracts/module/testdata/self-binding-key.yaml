@@ -1,10 +1,10 @@
 # Only an audience may be the module itself; a binding key never is.
 schema: codefly/module-contract/v1
-principal: scheduler
+principal: assistant
 namespaces: []
 queues: []
 scope_ceilings:
-    - resource_kind: scheduler.tasks
+    - resource_kind: assistant.tasks
       actions: [cancel, execute, read, start]
 bindings:
     - id: occurrences
@@ -12,7 +12,7 @@ bindings:
       audience: {self: true}
       scope_ceiling:
           invoke:
-              - resource_kind: scheduler.tasks
+              - resource_kind: assistant.tasks
                 actions: [cancel, execute, start]
     - id: occurrence-reads
       optional: true
@@ -21,11 +21,11 @@ bindings:
       binding_key: {self: true}
       calls:
           invoke:
-              - /scheduler.v1.TasksService/GetTask
-    - id: owner
+              - /assistant.v1.TasksService/GetTask
+    - id: evidence
       operations: [invoke]
-      audience: {from: scheduler-owner/owner-audience}
-      resource_kind: {from: scheduler-owner/owner-resource-kind}
+      audience: {from: assistant/evidence-audience}
+      resource_kind: {from: assistant/evidence-resource-kind}
       scope_ceiling:
           invoke: [read]
 destinations: []

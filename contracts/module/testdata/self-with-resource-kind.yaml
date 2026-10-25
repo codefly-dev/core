@@ -1,31 +1,31 @@
 # A binding addressed to the module itself names its own kinds literally,
 # never from the composition.
 schema: codefly/module-contract/v1
-principal: scheduler
+principal: assistant
 namespaces: []
 queues: []
 scope_ceilings:
-    - resource_kind: scheduler.tasks
+    - resource_kind: assistant.tasks
       actions: [cancel, execute, read, start]
 bindings:
     - id: occurrences
       operations: [invoke]
       audience: {self: true}
-      resource_kind: {from: scheduler/tasks-resource-kind}
+      resource_kind: {from: assistant/tasks-resource-kind}
       scope_ceiling:
           invoke: [start]
     - id: occurrence-reads
       optional: true
       operations: [invoke]
       audience: {self: true}
-      binding_key: {from: scheduler/occurrence-reads-binding}
+      binding_key: {from: assistant/occurrence-reads-binding}
       calls:
           invoke:
-              - /scheduler.v1.TasksService/GetTask
-    - id: owner
+              - /assistant.v1.TasksService/GetTask
+    - id: evidence
       operations: [invoke]
-      audience: {from: scheduler-owner/owner-audience}
-      resource_kind: {from: scheduler-owner/owner-resource-kind}
+      audience: {from: assistant/evidence-audience}
+      resource_kind: {from: assistant/evidence-resource-kind}
       scope_ceiling:
           invoke: [read]
 destinations: []

@@ -25,17 +25,20 @@ func selfContract(t *testing.T) *Contract {
 	return contract
 }
 
-// selfValues fills the owner binding's slots, plus the given ones in the
-// scheduler group. Nothing in them names the scheduler.
-func selfValues(scheduler map[string]string) MapValues {
+// selfValues fills the evidence binding's slots, plus the given ones.
+// Nothing in them names the module itself.
+func selfValues(extra map[string]string) MapValues {
+	assistant := map[string]string{"evidence-audience": "documents", "evidence-resource-kind": "documents.passages"}
+	for key, value := range extra {
+		assistant[key] = value
+	}
 	return MapValues{Public: map[string]map[string]string{
-		"scheduler-owner": {"owner-audience": "documents", "owner-resource-kind": "documents.versions"},
-		"scheduler":       scheduler,
+		"assistant": assistant,
 	}}
 }
 
 var selfDeclarations = declaredCallees{
-	"scheduler": {"/scheduler.v1.TasksService/GetTask": {"scheduler.tasks:read"}},
+	"assistant": {"/assistant.v1.TasksService/GetTask": {"assistant.tasks:read"}},
 }
 
 func resolvedBinding(t *testing.T, resolved *Resolved, id string) ResolvedBinding {
@@ -55,14 +58,14 @@ func TestASelfAudienceResolvesToTheContractsOwnPrincipal(t *testing.T) {
 		t.Fatal(err)
 	}
 	occurrences := resolvedBinding(t, resolved, "occurrences")
-	if occurrences.Audience != resolved.Principal || occurrences.Audience != "scheduler" {
+	if occurrences.Audience != resolved.Principal || occurrences.Audience != "assistant" {
 		t.Fatalf("the self binding is addressed to the module's principal %q, got %q", resolved.Principal, occurrences.Audience)
 	}
-	if want := []string{"scheduler.tasks:cancel", "scheduler.tasks:execute", "scheduler.tasks:start"}; !slices.Equal(occurrences.Scopes[OperationInvoke], want) {
+	if want := []string{"assistant.tasks:cancel", "assistant.tasks:execute", "assistant.tasks:start"}; !slices.Equal(occurrences.Scopes[OperationInvoke], want) {
 		t.Fatalf("the self binding carries its own scopes %v, got %v", want, occurrences.Scopes[OperationInvoke])
 	}
-	if owner := resolvedBinding(t, resolved, "owner"); owner.Audience != "documents" {
-		t.Fatalf("a configured audience beside it is unaffected: %+v", owner)
+	if evidence := resolvedBinding(t, resolved, "evidence"); evidence.Audience != "documents" {
+		t.Fatalf("a configured audience beside it is unaffected: %+v", evidence)
 	}
 }
 
@@ -78,7 +81,7 @@ func TestAnOptionalSelfBindingIsOmittedByItsOtherSlots(t *testing.T) {
 		t.Fatalf("the optional self binding is omitted: %+v", resolved.Omitted)
 	}
 	reason := resolved.Omitted[0].Reason
-	if !strings.Contains(reason, "binding_key ← scheduler/occurrence-reads-binding") || strings.Contains(reason, "audience") {
+	if !strings.Contains(reason, "binding_key ← assistant/occurrence-reads-binding") || strings.Contains(reason, "audience") {
 		t.Fatalf("the reason names the binding key and not the audience: %s", reason)
 	}
 }
@@ -91,7 +94,7 @@ func TestAFilledSelfBindingReadsItsCallsFromTheModulesOwnDeclarations(t *testing
 		t.Fatal(err)
 	}
 	reads := resolvedBinding(t, resolved, "occurrence-reads")
-	if reads.Audience != "scheduler" || reads.BindingKey != "reads" || !slices.Equal(reads.Scopes[OperationInvoke], []string{"scheduler.tasks:read"}) {
+	if reads.Audience != "assistant" || reads.BindingKey != "reads" || !slices.Equal(reads.Scopes[OperationInvoke], []string{"assistant.tasks:read"}) {
 		t.Fatalf("the filled self binding is delivered to the module with its own call's requirement: %+v", reads)
 	}
 	if _, err := selfContract(t).Resolve(selfValues(map[string]string{"occurrence-reads-binding": "reads"}), WithCallees(declaredCallees{})); !errors.Is(err, ErrUnresolvedCall) {
@@ -103,7 +106,7 @@ func TestAFilledSelfBindingReadsItsCallsFromTheModulesOwnDeclarations(t *testing
 // and the slot groups a render bakes into the manifest do not include one.
 func TestASelfAudienceReadsNoConfiguration(t *testing.T) {
 	contract := selfContract(t)
-	if groups := contract.SlotGroups(); !slices.Equal(groups, []string{"scheduler", "scheduler-owner"}) {
+	if groups := contract.SlotGroups(); !slices.Equal(groups, []string{"assistant"}) {
 		t.Fatalf("only the composed slots' groups are listed: %v", groups)
 	}
 	contract.Bindings = slices.DeleteFunc(contract.Bindings, func(binding Binding) bool { return !binding.Audience.Self || binding.Optional })
@@ -111,7 +114,7 @@ func TestASelfAudienceReadsNoConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a contract whose only binding is addressed to itself resolves against no configuration: %v", err)
 	}
-	if len(resolved.Bindings) != 1 || resolved.Bindings[0].Audience != "scheduler" {
+	if len(resolved.Bindings) != 1 || resolved.Bindings[0].Audience != "assistant" {
 		t.Fatalf("it is delivered to the module itself: %+v", resolved.Bindings)
 	}
 }
