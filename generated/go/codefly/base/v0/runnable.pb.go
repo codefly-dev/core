@@ -40,6 +40,23 @@ const (
 	RunnableField_OBJECT RunnableField_Type = 4
 	// ARRAY is a homogeneous list described by items.
 	RunnableField_ARRAY RunnableField_Type = 5
+	// FILE is a document: a reference to one stored document version, its
+	// media type, and its bytes as the caller staged them. A runnable never
+	// receives or returns a path or a URL. The caller resolves the reference
+	// with its own authority before the call and puts the bytes in the
+	// payload; the implementation reads only what it was handed, and what it
+	// returns is published by the caller as a new document or a new version,
+	// never written in place. On the wire a FILE value is one closed JSON
+	// object (runnable.FileValue):
+	//
+	//   reference   the opaque document reference. Required on input. On
+	//               output it is optional and, when present, names an input
+	//               FILE of the same call the output is a new version of;
+	//               absent, the output is a new document.
+	//   media_type  one of the field's media_types, required.
+	//   name        an optional display name, never a path.
+	//   content     the bytes, standard base64 with padding, required.
+	RunnableField_FILE RunnableField_Type = 6
 )
 
 // Enum value maps for RunnableField_Type.
@@ -51,6 +68,7 @@ var (
 		3: "BOOLEAN",
 		4: "OBJECT",
 		5: "ARRAY",
+		6: "FILE",
 	}
 	RunnableField_Type_value = map[string]int32{
 		"UNKNOWN": 0,
@@ -59,6 +77,7 @@ var (
 		"BOOLEAN": 3,
 		"OBJECT":  4,
 		"ARRAY":   5,
+		"FILE":    6,
 	}
 )
 
@@ -649,9 +668,10 @@ func (x *RunnableLocation) GetRelativeToWorkspace() string {
 }
 
 // RunnableField is one field of the bounded schema profile. The profile is
-// deliberately small: object, array, string, integer and boolean, with explicit
-// optional (key may be absent) versus nullable (value may be null). Enumerations,
-// arbitrary JSON Schema, expressions and coercion are not part of the contract.
+// deliberately small: object, array, string, integer, boolean and file, with
+// explicit optional (key may be absent) versus nullable (value may be null).
+// Enumerations, arbitrary JSON Schema, expressions and coercion are not part of
+// the contract.
 type RunnableField struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// name is the field name; empty only for an array's items.
@@ -667,7 +687,12 @@ type RunnableField struct {
 	// fields describes an OBJECT field's members.
 	Fields []*RunnableField `protobuf:"bytes,6,rep,name=fields,proto3" json:"fields,omitempty"`
 	// items describes an ARRAY field's elements.
-	Items         *RunnableField `protobuf:"bytes,7,opt,name=items,proto3" json:"items,omitempty"`
+	Items *RunnableField `protobuf:"bytes,7,opt,name=items,proto3" json:"items,omitempty"`
+	// media_types are the exact media types a FILE field admits, such as
+	// "application/pdf", lowercase type/subtype with no parameters and no
+	// wildcard. Required for FILE and refused on every other type: a document
+	// field that names no media type would admit any bytes at all.
+	MediaTypes    []string `protobuf:"bytes,8,rep,name=media_types,json=mediaTypes,proto3" json:"media_types,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -747,6 +772,13 @@ func (x *RunnableField) GetFields() []*RunnableField {
 func (x *RunnableField) GetItems() *RunnableField {
 	if x != nil {
 		return x.Items
+	}
+	return nil
+}
+
+func (x *RunnableField) GetMediaTypes() []string {
+	if x != nil {
+		return x.MediaTypes
 	}
 	return nil
 }
@@ -2513,7 +2545,7 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\x10RunnableLocation\x12E\n" +
 	"\bidentity\x18\x01 \x01(\v2!.codefly.base.v0.RunnableIdentityB\x06\xbaH\x03\xc8\x01\x01R\bidentity\x12.\n" +
 	"\x0eworkspace_path\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\rworkspacePath\x12;\n" +
-	"\x15relative_to_workspace\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x13relativeToWorkspace\"\xf6\x02\n" +
+	"\x15relative_to_workspace\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x13relativeToWorkspace\"\xa1\x03\n" +
 	"\rRunnableField\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x127\n" +
 	"\x04type\x18\x02 \x01(\x0e2#.codefly.base.v0.RunnableField.TypeR\x04type\x12 \n" +
@@ -2521,7 +2553,9 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\boptional\x18\x04 \x01(\bR\boptional\x12\x1a\n" +
 	"\bnullable\x18\x05 \x01(\bR\bnullable\x126\n" +
 	"\x06fields\x18\x06 \x03(\v2\x1e.codefly.base.v0.RunnableFieldR\x06fields\x124\n" +
-	"\x05items\x18\a \x01(\v2\x1e.codefly.base.v0.RunnableFieldR\x05items\"P\n" +
+	"\x05items\x18\a \x01(\v2\x1e.codefly.base.v0.RunnableFieldR\x05items\x12\x1f\n" +
+	"\vmedia_types\x18\b \x03(\tR\n" +
+	"mediaTypes\"Z\n" +
 	"\x04Type\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\n" +
 	"\n" +
@@ -2530,7 +2564,8 @@ const file_codefly_base_v0_runnable_proto_rawDesc = "" +
 	"\aBOOLEAN\x10\x03\x12\n" +
 	"\n" +
 	"\x06OBJECT\x10\x04\x12\t\n" +
-	"\x05ARRAY\x10\x05\"H\n" +
+	"\x05ARRAY\x10\x05\x12\b\n" +
+	"\x04FILE\x10\x06\"H\n" +
 	"\x0eRunnableSchema\x126\n" +
 	"\x06fields\x18\x01 \x03(\v2\x1e.codefly.base.v0.RunnableFieldR\x06fields\"\xb7\x01\n" +
 	"\x10RunnableContract\x12#\n" +

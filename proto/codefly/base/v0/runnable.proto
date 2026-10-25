@@ -54,9 +54,10 @@ message RunnableLocation {
 }
 
 // RunnableField is one field of the bounded schema profile. The profile is
-// deliberately small: object, array, string, integer and boolean, with explicit
-// optional (key may be absent) versus nullable (value may be null). Enumerations,
-// arbitrary JSON Schema, expressions and coercion are not part of the contract.
+// deliberately small: object, array, string, integer, boolean and file, with
+// explicit optional (key may be absent) versus nullable (value may be null).
+// Enumerations, arbitrary JSON Schema, expressions and coercion are not part of
+// the contract.
 message RunnableField {
   // Type enumerates the value types of the bounded profile.
   enum Type {
@@ -72,6 +73,23 @@ message RunnableField {
     OBJECT = 4;
     // ARRAY is a homogeneous list described by items.
     ARRAY = 5;
+    // FILE is a document: a reference to one stored document version, its
+    // media type, and its bytes as the caller staged them. A runnable never
+    // receives or returns a path or a URL. The caller resolves the reference
+    // with its own authority before the call and puts the bytes in the
+    // payload; the implementation reads only what it was handed, and what it
+    // returns is published by the caller as a new document or a new version,
+    // never written in place. On the wire a FILE value is one closed JSON
+    // object (runnable.FileValue):
+    //
+    //   reference   the opaque document reference. Required on input. On
+    //               output it is optional and, when present, names an input
+    //               FILE of the same call the output is a new version of;
+    //               absent, the output is a new document.
+    //   media_type  one of the field's media_types, required.
+    //   name        an optional display name, never a path.
+    //   content     the bytes, standard base64 with padding, required.
+    FILE = 6;
   }
   // name is the field name; empty only for an array's items.
   string name = 1;
@@ -87,6 +105,11 @@ message RunnableField {
   repeated RunnableField fields = 6;
   // items describes an ARRAY field's elements.
   RunnableField items = 7;
+  // media_types are the exact media types a FILE field admits, such as
+  // "application/pdf", lowercase type/subtype with no parameters and no
+  // wildcard. Required for FILE and refused on every other type: a document
+  // field that names no media type would admit any bytes at all.
+  repeated string media_types = 8;
 }
 
 // RunnableSchema is the typed shape of one invocation payload; the payload is

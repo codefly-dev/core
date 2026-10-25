@@ -71,11 +71,15 @@ const (
 	RunnableFieldBoolean RunnableFieldType = "boolean"
 	RunnableFieldObject  RunnableFieldType = "object"
 	RunnableFieldArray   RunnableFieldType = "array"
+	// RunnableFieldFile is a document: a reference, a media type and the bytes
+	// the caller staged for it (codefly.base.v0.RunnableField.FILE). Its wire
+	// value is runnable.FileValue; a runnable never sees a path or a URL.
+	RunnableFieldFile RunnableFieldType = "file"
 )
 
 // RunnableFieldTypes are every value type of the bounded profile.
 func RunnableFieldTypes() []RunnableFieldType {
-	return []RunnableFieldType{RunnableFieldString, RunnableFieldInteger, RunnableFieldBoolean, RunnableFieldObject, RunnableFieldArray}
+	return []RunnableFieldType{RunnableFieldString, RunnableFieldInteger, RunnableFieldBoolean, RunnableFieldObject, RunnableFieldArray, RunnableFieldFile}
 }
 
 var runnableFieldTypeProto = map[RunnableFieldType]basev0.RunnableField_Type{
@@ -84,7 +88,18 @@ var runnableFieldTypeProto = map[RunnableFieldType]basev0.RunnableField_Type{
 	RunnableFieldBoolean: basev0.RunnableField_BOOLEAN,
 	RunnableFieldObject:  basev0.RunnableField_OBJECT,
 	RunnableFieldArray:   basev0.RunnableField_ARRAY,
+	RunnableFieldFile:    basev0.RunnableField_FILE,
 }
+
+// MaxRunnableMediaTypes bounds the media types one FILE field admits.
+const MaxRunnableMediaTypes = 32
+
+// runnableMediaTypePattern is one exact media type: lowercase type/subtype
+// tokens (RFC 6838 restricted-name characters), no parameters and no
+// wildcard. A wildcard would make the declaration admit bytes its handler
+// was never written for, and a parameter is a property of one document, not
+// of a field.
+var runnableMediaTypePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$`)
 
 // runnableFieldNamePattern keeps field names representable as identifiers in
 // every language a runnable agent generates bindings for.
@@ -100,6 +115,9 @@ type RunnableField struct {
 	Nullable    bool              `yaml:"nullable,omitempty"`
 	Fields      []*RunnableField  `yaml:"fields,omitempty"`
 	Items       *RunnableField    `yaml:"items,omitempty"`
+	// MediaTypes are the exact media types a file field admits; required for
+	// a file and refused on every other type.
+	MediaTypes []string `yaml:"media-types,omitempty"`
 }
 
 // RunnableSchema is the shape of one invocation payload; a payload is always
@@ -370,6 +388,20 @@ type Runnable struct {
 	LibraryDependencies                []*LibraryDependency `yaml:"library-dependencies,omitempty"`
 	WorkspaceConfigurationDependencies []string             `yaml:"workspace-configuration-dependencies,omitempty"`
 
+	// Operation is the execution policy and authority a packaged runnable is
+	// installed with when it is called as an operation: the
+	// codefly.runnable.v0.Operation document a derived operation carries in its
+	// operation.json, here authored beside the contract — its audience, its
+	// invoke and lookup scopes or required scope slots, and its tool exposure,
+	// the marking that lets a caller expose the runnable as a tool with the
+	// contract's typed input and output. The fields the execution block
+	// already states (timeouts, completion, payload bounds, the lookup route)
+	// are derived from it and refused here, so no bound is stated twice.
+	// runnable.AuthoredPolicy reads and validates it; like a derived
+	// operation's policy it is installed with the binding and is not part of
+	// the package digest. Absent, the runnable is not offered as an operation.
+	Operation map[string]any `yaml:"operation,omitempty"`
+
 	// Spec is the agent-specific configuration.
 	Spec map[string]any `yaml:"spec,omitempty"`
 
@@ -601,6 +633,11 @@ func (r *Runnable) Validate() error {
 	} else if r.Entrypoint != nil {
 		return fmt.Errorf("runnable %q entrypoint: no declared facility builds an artifact from this directory, so there is no author entrypoint to name", r.Name)
 	}
+	// A method its owner already publishes declares its policy on the method
+	// option it derives from; an authored policy there would be a second one.
+	if r.Operation != nil && !r.Execution.Packaged() {
+		return fmt.Errorf("runnable %q operation: only a packaged runnable authors its operation policy; a service method declares it on its codefly.runnable.v0.operation option", r.Name)
+	}
 	for _, dep := range r.ServiceDependencies {
 		if dep == nil {
 			return fmt.Errorf("runnable %q contains a nil service dependency", r.Name)
@@ -674,6 +711,12 @@ func (f *RunnableField) validate(at string) error {
 	if f.Type != RunnableFieldArray && f.Items != nil {
 		return fmt.Errorf("%s declares items but is not an array", at)
 	}
+	if f.Type != RunnableFieldFile && len(f.MediaTypes) > 0 {
+		return fmt.Errorf("%s declares media-types but is not a file", at)
+	}
+	if f.Type == RunnableFieldFile {
+		return validateRunnableMediaTypes(at, f.MediaTypes)
+	}
 	if f.Type == RunnableFieldObject {
 		return validateRunnableFields(at, f.Fields)
 	}
@@ -688,6 +731,28 @@ func (f *RunnableField) validate(at string) error {
 			return fmt.Errorf("%s items cannot be optional: an array element is present or the array is shorter", at)
 		}
 		return f.Items.validate(at + "[]")
+	}
+	return nil
+}
+
+// validateRunnableMediaTypes holds a file field to at least one exact,
+// distinct media type.
+func validateRunnableMediaTypes(at string, mediaTypes []string) error {
+	if len(mediaTypes) == 0 {
+		return fmt.Errorf("%s is a file without media-types: name the exact media types its handler reads, such as application/pdf", at)
+	}
+	if len(mediaTypes) > MaxRunnableMediaTypes {
+		return fmt.Errorf("%s declares %d media-types, more than %d", at, len(mediaTypes), MaxRunnableMediaTypes)
+	}
+	seen := make(map[string]struct{}, len(mediaTypes))
+	for _, mediaType := range mediaTypes {
+		if !runnableMediaTypePattern.MatchString(mediaType) {
+			return fmt.Errorf("%s media type %q is not an exact lowercase type/subtype without parameters or wildcards", at, mediaType)
+		}
+		if _, exists := seen[mediaType]; exists {
+			return fmt.Errorf("%s declares media type %q twice", at, mediaType)
+		}
+		seen[mediaType] = struct{}{}
 	}
 	return nil
 }
@@ -854,6 +919,7 @@ func (f *RunnableField) proto() *basev0.RunnableField {
 		Optional:    f.Optional,
 		Nullable:    f.Nullable,
 		Fields:      runnableFieldsProto(f.Fields),
+		MediaTypes:  slices.Clone(f.MediaTypes),
 	}
 	if f.Items != nil {
 		out.Items = f.Items.proto()
@@ -904,6 +970,7 @@ func runnableFieldFromProto(field *basev0.RunnableField) *RunnableField {
 		Optional:    field.GetOptional(),
 		Nullable:    field.GetNullable(),
 		Fields:      runnableFieldsFromProto(field.GetFields()),
+		MediaTypes:  slices.Clone(field.GetMediaTypes()),
 	}
 	if field.GetItems() != nil {
 		out.Items = runnableFieldFromProto(field.GetItems())

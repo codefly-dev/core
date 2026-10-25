@@ -110,13 +110,78 @@ upgrade every checkout of a workspace before adding runnables to it.
 ### Bounded schema profile
 
 The contract's schema is a small typed profile, not JSON Schema: `object`,
-`array`, `string`, `integer`, `boolean`, with `optional` (key may be absent) and
-`nullable` (value may be null) declared separately. Field names are
+`array`, `string`, `integer`, `boolean` and `file`, with `optional` (key may be
+absent) and `nullable` (value may be null) declared separately. Field names are
 identifiers so every language agent can generate typed bindings. Enumerations,
 arbitrary JSON Schema, expressions and coercion are not promised because a YAML
 key can be written. `codefly.runnable.served/v1`, `codefly.runnable.service/v1`
 and `codefly.runnable.function/v1` are the protocols accepted, and which one a
 release may name follows from its facilities.
+
+### Documents: the `file` type
+
+A `file` field is a document, and a runnable never receives or returns a path
+or a URL. The field names the exact media types its handler reads:
+
+```yaml
+input:
+  fields:
+    - name: pdf
+      type: file
+      media-types: [application/pdf]
+```
+
+On the wire a file value is one closed JSON object (`runnable.FileValue`,
+`runnable.DecodeFileValue`): `reference` (the caller's opaque identity of a
+stored document version), `media_type` (one of the field's media types),
+`name` (an optional display name, never a path) and `content` (the bytes,
+standard padded base64). The caller — the side holding the person's authority —
+resolves the reference before the call and stages the bytes; the
+implementation has neither the network nor the authority to dereference it.
+An output value is published by the caller as a new document, or, when it
+names the `reference` of one of the call's input files, as a new version of
+that document: a runnable never writes a document in place, and an output
+naming any other reference is refused. Media types are exact lowercase
+`type/subtype`, without parameters or wildcards, and a `file` field without
+them is refused. The content travels inside the payload, so the operation's
+inline payload bound (1 MiB at most) bounds the documents one call carries.
+
+### An authored runnable as an operation, and as a tool
+
+A packaged runnable is offered to callers as an operation by an `operation`
+block in its declaration: the `codefly.runnable.v0.Operation` document a
+derived operation carries in its `operation.json`, authored beside the
+contract. It states the audience, the invoke and lookup scopes (or required
+scope slots) and, optionally, the `tool` exposure that lets a caller offer the
+runnable as a tool with the contract's typed input and output:
+
+```yaml
+operation:
+  audience: workbench
+  invoke_scopes: [{resource_kind: workbench.tools, actions: [use, read]}]
+  lookup_scopes: [{resource_kind: workbench.tools, actions: [read]}]
+  tool:
+    name: pdf_extract_tables
+    description: Extract the tables of a PDF document as rows of cell text.
+    effect: EFFECT_READ_ONLY
+```
+
+What the execution block already states is derived from it and refused in the
+block — `attempt_timeout`, `total_timeout`, `completion`, `max_input_bytes`,
+`max_output_bytes`, `lookup_method` — so no bound is stated twice. One attempt
+is the default; the attempt bound is the execution timeout, and a
+`receipt`-recovery runnable is looked up on its harness's
+`ServedLookupProcedure`. `runnable.AuthoredOperation` reads and validates the
+block, strictly. Like a derived operation's policy it is installed with the
+binding and is not part of the package digest.
+
+`runnable.PrepareGeneratedService` prepares such a runnable's binding once its
+placement has resolved the harness's HTTP address: the same
+`codefly.runnable-prepared/v3` value a derived operation has, with the
+operation named by the runnable's module, its name and the fixed endpoint
+`runnable`, and the call `ServedInvokeProcedure` in Connect's JSON mode. A
+caller that installs derived operations installs this one unchanged, and
+`ToolFromPrepared` reads its exposure.
 
 ## Immutable installation facts
 
