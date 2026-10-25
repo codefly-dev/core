@@ -86,10 +86,10 @@ func marshal(t *testing.T, set *descriptorpb.FileDescriptorSet) []byte {
 func TestRustForeignBoundary(t *testing.T) {
 	for _, file := range foreignSet().File {
 		want := strings.HasPrefix(file.GetName(), "google/") && (file.GetPackage() == "google.protobuf" || strings.HasPrefix(file.GetPackage(), "google.protobuf."))
-		require.Equal(t, want, isForeign(file, languages.RUST), file.GetName())
+		require.Equal(t, want, isForeign(file, languages.RUST, nil), file.GetName())
 	}
 	file := &descriptorpb.FileDescriptorProto{Name: googleproto.String("google/rpc/status.proto"), Package: googleproto.String("google.rpc")}
-	require.False(t, isForeign(file, languages.RUST))
+	require.False(t, isForeign(file, languages.RUST, nil))
 }
 
 func TestRustRejectsUnresolvedMessageTypes(t *testing.T) {
@@ -357,36 +357,53 @@ func TestRemoveForeignOutputOnEmptyDestination(t *testing.T) {
 	require.NoError(t, removeForeignOutput(context.Background(), t.TempDir()))
 }
 
-// Codefly's own protos and the authority's hop option are foreign to a Go
-// library (their Go modules publish them) and owned by every other language,
-// which has no distribution to import them from.
+// Codefly's own protos are foreign to a Go library (core publishes them), and
+// so is any proto whose go_package lies in a Go module the library depends on
+// — the hop option among them — while every other language owns a copy, having
+// no distribution to import it from. Core names no publisher but itself: the
+// hop is foreign only by the dependency the caller declares, and a module's own
+// proto under the same path stays its own.
 func TestCodeflyNamespacesAreForeignForGoAlone(t *testing.T) {
+	const hopModule = "github.com/codefly-dev/authority/libraries/hop/go"
 	base := &descriptorpb.FileDescriptorProto{Name: googleproto.String("codefly/base/v0/agent.proto"), Package: googleproto.String("codefly.base.v0"),
 		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String("github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0")}}
 	hop := &descriptorpb.FileDescriptorProto{Name: googleproto.String("authority/hop/v1/policy.proto"), Package: googleproto.String("authority.hop.v1"),
-		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String("github.com/codefly-dev/authority/libraries/hop/go/gen/authority/hop/v1;hopv1")}}
+		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String(hopModule + "/gen/authority/hop/v1;hopv1")}}
 	own := &descriptorpb.FileDescriptorProto{Name: googleproto.String("documents/v1/api.proto"), Package: googleproto.String("documents.v1")}
+	// A module's own file under the hop's path and package: its go_package is
+	// in its own module, or it declares none.
+	ownUnderHop := &descriptorpb.FileDescriptorProto{Name: googleproto.String("authority/hop/v1/notes.proto"), Package: googleproto.String("authority.hop.v1"),
+		Options: &descriptorpb.FileOptions{GoPackage: googleproto.String("github.com/acme/notes/pkg/gen/authority/hop/v1;hopv1")}}
+	bareUnderHop := &descriptorpb.FileDescriptorProto{Name: googleproto.String("authority/hop/v1/bare.proto"), Package: googleproto.String("authority.hop.v1")}
 	for _, file := range []*descriptorpb.FileDescriptorProto{base, hop} {
-		require.True(t, IsForeignFile(file, languages.GO), file.GetName())
-		require.False(t, IsForeignFile(file, languages.PYTHON), file.GetName())
-		require.False(t, IsForeignFile(file, languages.TYPESCRIPT), file.GetName())
+		require.True(t, IsForeignFile(file, languages.GO, hopModule), file.GetName())
+		require.False(t, IsForeignFile(file, languages.PYTHON, hopModule), file.GetName())
+		require.False(t, IsForeignFile(file, languages.TYPESCRIPT, hopModule), file.GetName())
 	}
-	require.False(t, IsForeignFile(own, languages.GO))
+	require.False(t, IsForeignFile(hop, languages.GO), "with no dependency declared, core names no publisher of the hop")
+	require.False(t, IsForeignFile(hop, languages.GO, "github.com/codefly-dev/authority/libraries/ho"), "a module path is matched by whole segments")
+	for _, file := range []*descriptorpb.FileDescriptorProto{own, ownUnderHop, bareUnderHop} {
+		require.False(t, IsForeignFile(file, languages.GO, hopModule), file.GetName())
+	}
 
-	data, overrides, err := MarkForeignImports(marshal(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{base, hop, own}}), languages.GO)
+	set := []*descriptorpb.FileDescriptorProto{base, hop, own, ownUnderHop, bareUnderHop}
+	data, overrides, err := MarkForeignImports(marshal(t, &descriptorpb.FileDescriptorSet{File: set}), languages.GO, hopModule)
 	require.NoError(t, err)
 	var image descriptorpb.FileDescriptorSet
 	require.NoError(t, googleproto.Unmarshal(data, &image))
 	for _, file := range image.GetFile() {
-		require.Equal(t, file.GetName() != "documents/v1/api.proto", isMarkedAsImport(file), file.GetName())
+		foreign := file.GetName() == base.GetName() || file.GetName() == hop.GetName()
+		require.Equal(t, foreign, isMarkedAsImport(file), file.GetName())
 	}
 	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/base/v0;basev0", overrides["codefly/base/v0/agent.proto"])
+	require.Equal(t, hopModule+"/gen/authority/hop/v1;hopv1", overrides["authority/hop/v1/policy.proto"])
+	require.NotContains(t, overrides, "authority/hop/v1/notes.proto")
 
-	require.Equal(t, "github.com/codefly-dev/authority/libraries/hop/go/gen/authority/hop/v1;hopv1", overrides["authority/hop/v1/policy.proto"])
 	// Codefly's own protos declare no go_package: the override is the managed
 	// prefix they are generated under, by directory.
 	runnable := &descriptorpb.FileDescriptorProto{Name: googleproto.String("codefly/runnable/v0/options.proto"), Package: googleproto.String("codefly.runnable.v0")}
 	data, overrides, err = MarkForeignImports(marshal(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{runnable}}), languages.GO)
 	require.NoError(t, err)
 	require.Equal(t, "github.com/codefly-dev/core/generated/go/codefly/runnable/v0", overrides["codefly/runnable/v0/options.proto"])
+	_ = data
 }

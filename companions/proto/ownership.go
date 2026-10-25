@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/codefly-dev/core/languages"
+	"golang.org/x/mod/modfile"
 	googleproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
@@ -165,12 +166,13 @@ func pruneEmptyDirs(root string) error {
 
 // A service's Go bindings own no foreign file.
 //
-// A service vendors codefly's protos and the authority's hop option under its
-// own proto tree so its contract compiles, and buf generates every file of its
-// module, so the vendored files came out as a second set of Go bindings — the
-// same files core and the hop library register, emitted again into the
-// service. IsForeignFile is the rule a generated Go library already follows;
-// the service's Go output follows it too. buf cannot drop a file for one
+// A service vendors codefly's protos, or another module's option vocabulary,
+// under its own proto tree so its contract compiles, and buf generates every
+// file of its module, so the vendored files came out as a second set of Go
+// bindings — the same files their owners' Go modules register, emitted again
+// into the service. IsForeignFile is the rule a generated Go library already
+// follows; the service's Go output follows it too, with the Go modules its own
+// go.mod requires as the modules a vendored file's go_package may belong to. buf cannot drop a file for one
 // plugin and keep it for another (a template generating TypeScript beside Go
 // still owns a TypeScript copy of codefly's protos), so the Go bindings of a
 // foreign file are removed from the Go output roots once buf has written them,
@@ -180,10 +182,12 @@ func pruneEmptyDirs(root string) error {
 // the generator directory for the length of one generation.
 const localFilesImage = ".codefly-local-files.binpb"
 
-// goBinding is one generated Go file and the proto file it was generated from.
+// goBinding is one generated Go file, the proto file it was generated from,
+// and the output root it was found under.
 type goBinding struct {
 	file   string
 	source string
+	root   string
 }
 
 // goBindings returns the generated Go files under roots that name the proto
@@ -201,7 +205,7 @@ func goBindings(roots []string) ([]goBinding, error) {
 				return nil, err
 			}
 			if notice.source != "" {
-				bindings = append(bindings, goBinding{file: file, source: notice.source})
+				bindings = append(bindings, goBinding{file: file, source: notice.source, root: root})
 			}
 		}
 	}
@@ -220,11 +224,79 @@ func inForeignNamespacePath(name string) bool {
 	return false
 }
 
-// foreignGoFiles returns the names of the files in set a Go binding must not own.
-func foreignGoFiles(set *descriptorpb.FileDescriptorSet) map[string]bool {
+// goPackageOption reads a go_package option from a .proto source.
+var goPackageOption = regexp.MustCompile(`(?m)^\s*option\s+go_package\s*=\s*"([^"]*)"\s*;`)
+
+// mayBeForeign reports whether binding's source could be a foreign file, so
+// the module's descriptors have to be read to decide: it lies under a
+// foreign namespace's path, or its source declares a go_package in a module
+// requires names. A source that cannot be read below protoDir is a candidate:
+// only the descriptors decide it.
+func mayBeForeign(binding goBinding, requires []string, protoDir string) (bool, error) {
+	if inForeignNamespacePath(binding.source) {
+		return true, nil
+	}
+	if len(requires) == 0 {
+		return false, nil
+	}
+	source := filepath.FromSlash(binding.source)
+	if !filepath.IsLocal(source) {
+		return true, nil
+	}
+	data, err := os.ReadFile(filepath.Join(protoDir, source)) //nolint:gosec // a local path below the module's proto directory, read for one option
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return true, nil
+	case err != nil:
+		return false, err
+	}
+	declared := goPackageOption.FindSubmatch(data)
+	if declared == nil {
+		return false, nil
+	}
+	file := &descriptorpb.FileDescriptorProto{Options: &descriptorpb.FileOptions{GoPackage: googleproto.String(string(declared[1]))}}
+	return foreignByGoPackage(file, requires), nil
+}
+
+// goRequires returns the module paths required by the go.mod that governs
+// dir: the nearest one at or above it, exactly the one the go command builds
+// dir's packages under. No go.mod requires nothing.
+func goRequires(dir string) ([]string, error) {
+	current, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		name := filepath.Join(current, "go.mod")
+		data, err := os.ReadFile(name) //nolint:gosec // the go.mod governing a generated output root
+		switch {
+		case err == nil:
+			parsed, parseErr := modfile.ParseLax(name, data, nil)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parse %s: %w", name, parseErr)
+			}
+			requires := make([]string, 0, len(parsed.Require))
+			for _, require := range parsed.Require {
+				requires = append(requires, require.Mod.Path)
+			}
+			return requires, nil
+		case !errors.Is(err, fs.ErrNotExist):
+			return nil, err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil, nil
+		}
+		current = parent
+	}
+}
+
+// foreignGoFiles returns the names of the files in set a Go binding must not
+// own, for Go code depending on requires.
+func foreignGoFiles(set *descriptorpb.FileDescriptorSet, requires []string) map[string]bool {
 	foreign := map[string]bool{}
 	for _, file := range set.GetFile() {
-		if IsForeignFile(file, languages.GO) {
+		if IsForeignFile(file, languages.GO, requires...) {
 			foreign[file.GetName()] = true
 		}
 	}
@@ -267,10 +339,18 @@ func (g *Buf) removeForeignGoBindings(ctx context.Context, runner ProcessRunner,
 	if err != nil {
 		return fmt.Errorf("inspect generated Go: %w", err)
 	}
+	requires := make(map[string][]string, len(roots))
+	for _, root := range roots {
+		if requires[root], err = goRequires(root); err != nil {
+			return fmt.Errorf("read the Go module of %s: %w", root, err)
+		}
+	}
 	candidate := false
 	for _, binding := range bindings {
-		if inForeignNamespacePath(binding.source) {
-			candidate = true
+		if candidate, err = mayBeForeign(binding, requires[binding.root], templateDir); err != nil {
+			return fmt.Errorf("inspect the source of %s: %w", binding.file, err)
+		}
+		if candidate {
 			break
 		}
 	}
@@ -299,5 +379,16 @@ func (g *Buf) removeForeignGoBindings(ctx context.Context, runner ProcessRunner,
 	if err = googleproto.Unmarshal(data, &set); err != nil {
 		return fmt.Errorf("decode the module's descriptors: %w", err)
 	}
-	return removeForeignBindings(roots, bindings, foreignGoFiles(&set))
+	for _, root := range roots {
+		var under []goBinding
+		for _, binding := range bindings {
+			if binding.root == root {
+				under = append(under, binding)
+			}
+		}
+		if err = removeForeignBindings([]string{root}, under, foreignGoFiles(&set, requires[root])); err != nil {
+			return err
+		}
+	}
+	return nil
 }
