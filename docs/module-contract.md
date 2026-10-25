@@ -254,6 +254,33 @@ scopes out belongs to a binding with one audience, never a list). A scope two
 audiences underwrite is refused under `ErrAmbiguousSlot`, naming both; the role
 then names the binding it means in `bindings`.
 
+**A role may grant a scope only on what the installation owns.**
+`installation_owned_scopes` lists scopes the role grants only on the resources
+the installation it is held on owns — those created or attached through it —
+spelled like `scopes`:
+
+```yaml
+roles:
+  - name: viewer
+    scopes:
+      - {resource_kind: wiki.page, actions: [read]}
+    installation_owned_scopes:
+      - {resource_kind: documents.collection, actions: [read]}
+```
+
+Each names a kind and actions and never resource ids, since ids are each
+installation's own: the entry has no field for them, so one naming
+`resource_ids` is refused as an unknown field. It is held to every rule a role
+scope is — kind and action grammar, each kind once in the list, at least one
+action, within the unit's own ceilings or a scope a binding spells out for
+`invoke` or `lookup` — and refused under the same rule names, its message
+saying "installation-owned". A role may grant through it alone, and a kind may
+appear in both lists, each with its own actions. `Resolved.Roles` addresses it
+exactly as a literal scope, in `InstallationOwnedGrants`. The authority
+resolves it per installation into the same scope limited to the ids that
+installation owns of the kind; a kind it owns nothing of grants nothing, never
+the whole kind.
+
 One of the roles is `installer`, which whoever installs the unit holds; each
 role is a lowercase name declared once and grants at least one kind or binding,
 each kind named once with at least one action, held to the same kind and action
@@ -400,7 +427,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (125 documents) ships
+`modulecontract.Fixtures()` (130 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (120

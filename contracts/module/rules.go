@@ -354,11 +354,13 @@ func (contract *Contract) actionLists() []struct {
 		}
 	}
 	for _, role := range contract.Roles {
-		for _, scope := range role.Scopes {
-			lists = append(lists, struct {
-				label   string
-				actions []string
-			}{"role " + role.Name + " " + scope.ResourceKind, scope.Actions})
+		for _, list := range role.scopeLists() {
+			for _, scope := range list.scopes {
+				lists = append(lists, struct {
+					label   string
+					actions []string
+				}{"role " + role.Name + " " + list.label + scope.ResourceKind, scope.Actions})
+			}
 		}
 	}
 	return lists
@@ -1021,9 +1023,24 @@ func checkRolesUnique(contract *Contract) error {
 	return nil
 }
 
+// roleScopes is one of a role's lists of literal scopes, with the label a
+// refusal names it by: "" for scopes, "installation-owned " for
+// installation_owned_scopes.
+type roleScopes struct {
+	label  string
+	scopes []CeilingScope
+}
+
+// scopeLists are the role's literal scopes, both lists, each held to the same
+// rules: an installation-owned scope differs only in what the authority
+// resolves it to, never in what a role may name.
+func (role Role) scopeLists() []roleScopes {
+	return []roleScopes{{"", role.Scopes}, {"installation-owned ", role.InstallationOwnedScopes}}
+}
+
 func checkRolesGrant(contract *Contract) error {
 	for _, role := range contract.Roles {
-		if len(role.Scopes) == 0 && len(role.Bindings) == 0 {
+		if len(role.Scopes) == 0 && len(role.InstallationOwnedScopes) == 0 && len(role.Bindings) == 0 {
 			return fmt.Errorf("%w: role %q grants nothing", ErrInvalid, role.Name)
 		}
 	}
@@ -1032,23 +1049,30 @@ func checkRolesGrant(contract *Contract) error {
 
 func checkRoleKindNames(contract *Contract) error {
 	for _, role := range contract.Roles {
-		for _, scope := range role.Scopes {
-			if !namePattern.MatchString(scope.ResourceKind) {
-				return fmt.Errorf("%w: role %q resource kind %q is not a lowercase name", ErrInvalid, role.Name, scope.ResourceKind)
+		for _, list := range role.scopeLists() {
+			for _, scope := range list.scopes {
+				if !namePattern.MatchString(scope.ResourceKind) {
+					return fmt.Errorf("%w: role %q %sresource kind %q is not a lowercase name", ErrInvalid, role.Name, list.label, scope.ResourceKind)
+				}
 			}
 		}
 	}
 	return nil
 }
 
+// checkRoleKindsUnique: each list names a kind once. A kind may appear in
+// both, each granting its own actions: on the whole kind, and on what the
+// installation owns of it.
 func checkRoleKindsUnique(contract *Contract) error {
 	for _, role := range contract.Roles {
-		kinds := make([]string, 0, len(role.Scopes))
-		for _, scope := range role.Scopes {
-			kinds = append(kinds, scope.ResourceKind)
-		}
-		if duplicate, found := firstDuplicate(kinds); found {
-			return fmt.Errorf("%w: role %q names resource kind %q twice", ErrInvalid, role.Name, duplicate)
+		for _, list := range role.scopeLists() {
+			kinds := make([]string, 0, len(list.scopes))
+			for _, scope := range list.scopes {
+				kinds = append(kinds, scope.ResourceKind)
+			}
+			if duplicate, found := firstDuplicate(kinds); found {
+				return fmt.Errorf("%w: role %q names %sresource kind %q twice", ErrInvalid, role.Name, list.label, duplicate)
+			}
 		}
 	}
 	return nil
@@ -1056,9 +1080,11 @@ func checkRoleKindsUnique(contract *Contract) error {
 
 func checkRoleKindsHaveActions(contract *Contract) error {
 	for _, role := range contract.Roles {
-		for _, scope := range role.Scopes {
-			if len(scope.Actions) == 0 {
-				return fmt.Errorf("%w: role %q grants resource kind %q no action", ErrInvalid, role.Name, scope.ResourceKind)
+		for _, list := range role.scopeLists() {
+			for _, scope := range list.scopes {
+				if len(scope.Actions) == 0 {
+					return fmt.Errorf("%w: role %q grants %sresource kind %q no action", ErrInvalid, role.Name, list.label, scope.ResourceKind)
+				}
 			}
 		}
 	}
@@ -1161,10 +1187,12 @@ func (contract *Contract) grantable() map[string][]string {
 func checkRolesWithinRequest(contract *Contract) error {
 	grantable := contract.grantable()
 	for _, role := range contract.Roles {
-		for _, scope := range role.Scopes {
-			for _, action := range scope.Actions {
-				if !slices.Contains(grantable[scope.ResourceKind], action) {
-					return fmt.Errorf("%w: role %q grants %s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup (a role grants what a binding's calls require by naming the binding in its bindings)", ErrInvalid, role.Name, scope.ResourceKind, action)
+		for _, list := range role.scopeLists() {
+			for _, scope := range list.scopes {
+				for _, action := range scope.Actions {
+					if !slices.Contains(grantable[scope.ResourceKind], action) {
+						return fmt.Errorf("%w: role %q grants %s%s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup (a role grants what a binding's calls require by naming the binding in its bindings)", ErrInvalid, role.Name, list.label, scope.ResourceKind, action)
+					}
 				}
 			}
 		}
