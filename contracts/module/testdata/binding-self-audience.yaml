@@ -1,0 +1,38 @@
+# A binding may be addressed to the module itself: audience {self: true}
+# resolves to the contract's own principal, which every renderer holds to the
+# name the module is composed under. A scheduler is issued the capability an
+# occurrence is admitted under through such a binding, asking for its own
+# vocabulary, named literally within its own scope_ceilings. Self composes
+# with what is beside it: an optional binding addressed to itself is left out
+# by its other slots, and a binding naming calls reads them from the module's
+# own declarations.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [cancel, execute, read, start]
+bindings:
+    - id: occurrences
+      operations: [invoke]
+      audience: {self: true}
+      scope_ceiling:
+          invoke:
+              - resource_kind: assistant.tasks
+                actions: [cancel, execute, start]
+    - id: occurrence-reads
+      optional: true
+      operations: [invoke]
+      audience: {self: true}
+      binding_key: {from: assistant/occurrence-reads-binding}
+      calls:
+          invoke:
+              - /assistant.v1.TasksService/GetTask
+    - id: evidence
+      operations: [invoke]
+      audience: {from: assistant/evidence-audience}
+      resource_kind: {from: assistant/evidence-resource-kind}
+      scope_ceiling:
+          invoke: [read]
+destinations: []

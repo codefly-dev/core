@@ -2,6 +2,8 @@ package module
 
 import (
 	"fmt"
+	"maps"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -55,17 +57,31 @@ const (
 	ruleOperationUnique       = "operation-unique"
 	ruleLookupNeedsOperation  = "lookup-needs-operation"
 	ruleLookupMethodName      = "lookup-method-name"
+	ruleOneAudienceField      = "binding-one-audience-field"
+	ruleKindsNeedAudiences    = "resource-kinds-need-audiences"
+	ruleAudiencesNoKind       = "audiences-without-resource-kind"
+	ruleAudiencesNoKey        = "audiences-without-binding-key"
 	ruleSlotIsAReference      = "slot-is-a-reference"
 	ruleSlotCarriesOnlyFrom   = "slot-carries-only-from"
 	ruleSlotDecodes           = "slot-decodes"
+	ruleSlotSelfBesideFrom    = "slot-self-beside-from"
+	ruleSlotSelfIsTrue        = "slot-self-is-true"
+	ruleSelfOnlyAudience      = "self-only-audience"
 	ruleSlotReference         = "slot-reference"
 	ruleSlotKeyMeaning        = "slot-key-meaning"
+	ruleOptionalHasASlot      = "optional-binding-has-a-slot"
+	ruleSelfNoResourceKind    = "self-audience-no-resource-kind"
+	ruleSelfOwnScopes         = "self-audience-own-scopes"
 	ruleCeilingIsAList        = "ceiling-is-a-list"
 	ruleCeilingEntryFields    = "ceiling-entry-fields"
 	ruleCeilingEntryShape     = "ceiling-entry-shape"
 	ruleCeilingOneSpelling    = "ceiling-one-spelling"
 	ruleCeilingForDeclaredOp  = "ceiling-for-declared-operation"
 	ruleOperationHasCeiling   = "operation-has-ceiling"
+	ruleCallsForDeclaredOp    = "calls-for-declared-operation"
+	ruleOperationOneSource    = "operation-one-ceiling-source"
+	ruleCallName              = "call-name"
+	ruleCallUnique            = "call-unique"
 	ruleBareActionsNeedKind   = "bare-actions-need-kind"
 	ruleScopeKindName         = "scope-kind-name"
 	ruleScopeKindUnique       = "scope-kind-unique"
@@ -74,6 +90,21 @@ const (
 	ruleDestinationIDUnique   = "destination-id-unique"
 	ruleDestinationTargetName = "destination-target-name"
 	ruleDestinationKindKnown  = "destination-kind-known"
+	ruleForeignMethodName     = "foreign-method-name"
+	ruleForeignMethodUnique   = "foreign-method-unique"
+	ruleForeignMethodRequires = "foreign-method-requires"
+	ruleForeignScopeHasAction = "foreign-method-scope-has-action"
+	ruleForeignMethodOwnKind  = "foreign-method-own-kind"
+	ruleForeignMethodOwnAct   = "foreign-method-own-action"
+
+	ruleRoleName          = "role-name"
+	ruleRoleUnique        = "role-unique"
+	ruleRoleGrants        = "role-grants"
+	ruleRoleKindName      = "role-kind-name"
+	ruleRoleKindUnique    = "role-kind-unique"
+	ruleRoleKindHasAction = "role-kind-has-action"
+	ruleRoleInstaller     = "role-installer"
+	ruleRoleWithinRequest = "role-within-request"
 )
 
 // rules is the order a contract is held to: the document's shape first, then
@@ -105,17 +136,31 @@ func rules() []rule {
 		{name: ruleOperationUnique, check: checkOperationsUnique},
 		{name: ruleLookupNeedsOperation, check: checkLookupNeedsOperation},
 		{name: ruleLookupMethodName, check: checkLookupMethodNames},
+		{name: ruleOneAudienceField, check: checkOneAudienceField},
+		{name: ruleKindsNeedAudiences, check: checkKindsNeedAudiences},
+		{name: ruleAudiencesNoKind, check: checkAudiencesWithoutResourceKind},
+		{name: ruleAudiencesNoKey, check: checkAudiencesWithoutBindingKey},
 		{name: ruleSlotIsAReference, check: checkSlotsAreReferences},
 		{name: ruleSlotCarriesOnlyFrom, check: checkSlotsCarryOnlyFrom},
 		{name: ruleSlotDecodes, check: checkSlotsDecode},
+		{name: ruleSlotSelfBesideFrom, check: checkSlotsSelfBesideFrom},
+		{name: ruleSlotSelfIsTrue, check: checkSlotsSelfIsTrue},
+		{name: ruleSelfOnlyAudience, check: checkSelfOnlyAudience},
 		{name: ruleSlotReference, check: checkSlotReferences},
 		{name: ruleSlotKeyMeaning, check: checkSlotKeyMeanings},
+		{name: ruleOptionalHasASlot, check: checkOptionalBindingsHaveASlot},
 		{name: ruleCeilingIsAList, check: checkCeilingsAreLists},
 		{name: ruleCeilingEntryFields, check: checkCeilingEntryFields},
 		{name: ruleCeilingEntryShape, check: checkCeilingEntryShapes},
 		{name: ruleCeilingOneSpelling, check: checkCeilingsOneSpelling},
 		{name: ruleCeilingForDeclaredOp, check: checkCeilingsForDeclaredOperations},
+		{name: ruleCallsForDeclaredOp, check: checkCallsForDeclaredOperations},
+		{name: ruleOperationOneSource, check: checkOperationsHaveOneCeilingSource},
 		{name: ruleOperationHasCeiling, check: checkOperationsHaveCeilings},
+		{name: ruleCallName, check: checkCallNames},
+		{name: ruleCallUnique, check: checkCallsUnique},
+		{name: ruleSelfNoResourceKind, check: checkSelfAudienceNoResourceKind},
+		{name: ruleSelfOwnScopes, check: checkSelfAudienceOwnScopes},
 		{name: ruleBareActionsNeedKind, check: checkBareActionsNeedKind},
 		{name: ruleScopeKindName, check: checkScopeKindNames},
 		{name: ruleScopeKindUnique, check: checkScopeKindsUnique},
@@ -126,6 +171,20 @@ func rules() []rule {
 		{name: ruleDestinationIDUnique, check: checkDestinationIDsUnique},
 		{name: ruleDestinationTargetName, check: checkDestinationTargetNames},
 		{name: ruleDestinationKindKnown, check: checkDestinationKindsKnown},
+		{name: ruleForeignMethodName, check: checkForeignMethodNames},
+		{name: ruleForeignMethodUnique, check: checkForeignMethodsUnique},
+		{name: ruleForeignMethodRequires, check: checkForeignMethodsRequire},
+		{name: ruleForeignScopeHasAction, check: checkForeignScopesHaveActions},
+		{name: ruleForeignMethodOwnKind, check: checkForeignMethodsOwnKinds},
+		{name: ruleForeignMethodOwnAct, check: checkForeignMethodsOwnActions},
+		{name: ruleRoleName, check: checkRoleNames},
+		{name: ruleRoleUnique, check: checkRolesUnique},
+		{name: ruleRoleGrants, check: checkRolesGrant},
+		{name: ruleRoleKindName, check: checkRoleKindNames},
+		{name: ruleRoleKindUnique, check: checkRoleKindsUnique},
+		{name: ruleRoleKindHasAction, check: checkRoleKindsHaveActions},
+		{name: ruleRoleInstaller, check: checkInstallerRole},
+		{name: ruleRoleWithinRequest, check: checkRolesWithinRequest},
 	}
 }
 
@@ -284,18 +343,21 @@ func (contract *Contract) actionLists() []struct {
 			}
 		}
 	}
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			lists = append(lists, struct {
+				label   string
+				actions []string
+			}{"role " + role.Name + " " + scope.ResourceKind, scope.Actions})
+		}
+	}
 	return lists
 }
 
 // sortedOperations lists a ceiling map's keys in a fixed order, so a refusal
 // names the same operation on every run.
-func sortedOperations(ceilings map[string]Ceiling) []string {
-	keys := make([]string, 0, len(ceilings))
-	for operation := range ceilings {
-		keys = append(keys, operation)
-	}
-	slices.Sort(keys)
-	return keys
+func sortedOperations[V any](byOperation map[string]V) []string {
+	return slices.Sorted(maps.Keys(byOperation))
 }
 
 func checkActionNames(contract *Contract) error {
@@ -399,21 +461,66 @@ func (contract *Contract) slots() []labelledSlot {
 	for index := range contract.Bindings {
 		binding := &contract.Bindings[index]
 		prefix := "binding " + binding.ID + " "
-		all = append(all, labelledSlot{prefix + fieldAudience, fieldAudience, &binding.Audience})
-		if binding.ResourceKind != nil {
-			all = append(all, labelledSlot{prefix + fieldResourceKind, fieldResourceKind, binding.ResourceKind})
-		}
-		if binding.BindingKey != nil {
-			all = append(all, labelledSlot{prefix + fieldBindingKey, fieldBindingKey, binding.BindingKey})
+		for _, declared := range binding.fieldSlots() {
+			all = append(all, labelledSlot{prefix + declared.field, declared.field, declared.slot})
 		}
 	}
 	return all
 }
 
+// checkOneAudienceField: a binding is addressed to one audience or to a list
+// of them, and a binding writing both says two things about where it may be
+// exercised.
+func checkOneAudienceField(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audiences != nil && binding.Audience.declared() {
+			return fmt.Errorf("%w: binding %q declares both audience and audiences; a binding is addressed to one audience or to a list of them", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkKindsNeedAudiences: per-audience kinds qualify an audience list and
+// nothing else.
+func checkKindsNeedAudiences(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audiences == nil && binding.ResourceKinds != nil {
+			return fmt.Errorf("%w: binding %q declares resource_kinds without audiences; per-audience kinds qualify an audience list, and a binding with one audience names its kind in resource_kind", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkAudiencesWithoutResourceKind: one resource kind beside an audience
+// list would name one module's kind at every other.
+func checkAudiencesWithoutResourceKind(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audiences != nil && binding.ResourceKind != nil {
+			return fmt.Errorf("%w: binding %q declares resource_kind beside audiences; each audience's kinds are its own, so a list qualifies its bare actions per audience in resource_kinds", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkAudiencesWithoutBindingKey: a binding with an audience list is
+// delivered once per listed audience, and one key cannot install them all.
+func checkAudiencesWithoutBindingKey(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audiences != nil && binding.BindingKey != nil {
+			return fmt.Errorf("%w: binding %q declares binding_key beside audiences; it is delivered as one binding per listed audience, and one key cannot install them all", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
 func checkSlotsAreReferences(contract *Contract) error {
 	for _, entry := range contract.slots() {
 		if entry.slot.literal != nil {
-			return fmt.Errorf("%w: %s slot is {from: <group>/<key>}, not the literal %q; another module's vocabulary is supplied by the composition, never spelled in a module repository", ErrInvalid, entry.label, *entry.slot.literal)
+			hint := ""
+			if entry.field == fieldAudience {
+				hint = "; a binding addressed to the module itself writes audience: {self: true}"
+			}
+			return fmt.Errorf("%w: %s slot is {from: <group>/<key>}, not the literal %q; another module's vocabulary is supplied by the composition, never spelled in a module repository%s", ErrInvalid, entry.label, *entry.slot.literal, hint)
 		}
 	}
 	return nil
@@ -422,7 +529,7 @@ func checkSlotsAreReferences(contract *Contract) error {
 func checkSlotsCarryOnlyFrom(contract *Contract) error {
 	for _, entry := range contract.slots() {
 		if entry.slot.hasExtra {
-			return fmt.Errorf("%w: %s slot carries the unknown slot field %q (a slot carries only from)", ErrInvalid, entry.label, entry.slot.extra)
+			return fmt.Errorf("%w: %s slot carries the unknown slot field %q (a slot carries only from, or an audience only self)", ErrInvalid, entry.label, entry.slot.extra)
 		}
 	}
 	return nil
@@ -443,8 +550,92 @@ func checkSlotsDecode(contract *Contract) error {
 	return nil
 }
 
+// checkSlotsSelfBesideFrom: a slot is a composition reference or the module
+// itself, never both.
+func checkSlotsSelfBesideFrom(contract *Contract) error {
+	for _, entry := range contract.slots() {
+		if entry.slot.Self && entry.slot.From != "" {
+			return fmt.Errorf("%w: %s slot writes self beside from %q; a slot is the composition's value or the module itself, never both", ErrInvalid, entry.label, entry.slot.From)
+		}
+	}
+	return nil
+}
+
+// checkSlotsSelfIsTrue: self is written only as self: true. self: false is a
+// slot naming what it is not, and says nothing about what it is.
+func checkSlotsSelfIsTrue(contract *Contract) error {
+	for _, entry := range contract.slots() {
+		if entry.slot.selfWritten && !entry.slot.Self {
+			return fmt.Errorf("%w: %s slot writes self: false; a slot that is not the module itself writes from, and self is written only as self: true", ErrInvalid, entry.label)
+		}
+	}
+	return nil
+}
+
+// checkSelfOnlyAudience: the module itself is an audience — its principal —
+// and never a resource kind, a binding key, or a list to be delivered once
+// per entry.
+func checkSelfOnlyAudience(contract *Contract) error {
+	for _, entry := range contract.slots() {
+		if entry.slot.Self && entry.field != fieldAudience {
+			return fmt.Errorf("%w: %s slot is {self: true}; only an audience may be the module itself — its principal is no %s", ErrInvalid, entry.label, entry.field)
+		}
+	}
+	return nil
+}
+
+// checkOptionalBindingsHaveASlot: an optional binding is left out by a
+// composition that fills none of its slots, so one with no slot the
+// composition fills — addressed to the module itself and nothing else — could
+// never be left out, and would read as optional while being delivered always.
+func checkOptionalBindingsHaveASlot(contract *Contract) error {
+	for index := range contract.Bindings {
+		binding := &contract.Bindings[index]
+		if binding.Optional && len(binding.composedSlots()) == 0 {
+			return fmt.Errorf("%w: optional binding %q has no slot the composition fills, so no composition can leave it out; a binding addressed to the module itself with nothing else to fill is mandatory", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkSelfAudienceNoResourceKind: a binding addressed to the module itself
+// asks for the module's own vocabulary, which it declares in scope_ceilings
+// and names literally — never reads from the composition.
+func checkSelfAudienceNoResourceKind(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		if binding.Audience.Self && binding.ResourceKind != nil {
+			return fmt.Errorf("%w: binding %q is addressed to the module itself and declares a resource_kind slot; its kinds are its own scope_ceilings, named literally as {resource_kind, actions} entries", ErrInvalid, binding.ID)
+		}
+	}
+	return nil
+}
+
+// checkSelfAudienceOwnScopes: every scope a binding addressed to the module
+// itself names is within the module's own ceiling — a scope at itself beyond
+// what it contributes is one no host could grant.
+func checkSelfAudienceOwnScopes(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, entry := range contract.ceilings() {
+		if !entry.binding.Audience.Self {
+			continue
+		}
+		for _, scope := range entry.ceiling.Scopes {
+			actions, declared := own[scope.ResourceKind]
+			for _, action := range scope.Actions {
+				if !declared || !slices.Contains(actions, action) {
+					return fmt.Errorf("%w: binding %q is addressed to the module itself and its %s ceiling names %s:%s, beyond the module's own scope_ceilings", ErrInvalid, entry.binding.ID, entry.operation, scope.ResourceKind, action)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func checkSlotReferences(contract *Contract) error {
 	for _, entry := range contract.slots() {
+		if entry.slot.Self {
+			continue
+		}
 		group, key, found := strings.Cut(entry.slot.From, "/")
 		if !found || !namePattern.MatchString(group) || !slotKeyPattern.MatchString(key) {
 			return fmt.Errorf("%w: %s slot %q is not <group>/<key>", ErrInvalid, entry.label, entry.slot.From)
@@ -455,6 +646,9 @@ func checkSlotReferences(contract *Contract) error {
 
 func checkSlotKeyMeanings(contract *Contract) error {
 	for _, entry := range contract.slots() {
+		if entry.slot.Self {
+			continue
+		}
 		suffixes := slotSuffixes[entry.field]
 		key := entry.slot.Key()
 		if slices.ContainsFunc(suffixes, func(suffix string) bool { return strings.HasSuffix(normalizeKey(key), suffix) }) {
@@ -546,8 +740,64 @@ func checkOperationsHaveCeilings(contract *Contract) error {
 			// The ceiling is the gate: a binding carrying no scopes for an
 			// operation cannot be minted that way at all, so an operation
 			// declared without one is a request for nothing.
-			if binding.ScopeCeiling[operation].empty() {
-				return fmt.Errorf("%w: binding %q declares operation %q with no scope ceiling", ErrInvalid, binding.ID, operation)
+			if binding.ScopeCeiling[operation].empty() && len(binding.Calls[operation]) == 0 {
+				return fmt.Errorf("%w: binding %q declares operation %q with no scope ceiling and no calls", ErrInvalid, binding.ID, operation)
+			}
+		}
+	}
+	return nil
+}
+
+func checkCallsForDeclaredOperations(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		for _, operation := range sortedOperations(binding.Calls) {
+			if !slices.Contains(binding.Operations, operation) {
+				return fmt.Errorf("%w: binding %q names calls for %q, an operation it does not declare", ErrInvalid, binding.ID, operation)
+			}
+		}
+	}
+	return nil
+}
+
+func checkOperationsHaveOneCeilingSource(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		for _, operation := range sortedOperations(binding.Calls) {
+			// One source per operation: a ceiling written beside calls would
+			// make the reader guess whether the calls bound it or widened it.
+			if _, written := binding.ScopeCeiling[operation]; written && len(binding.Calls[operation]) > 0 {
+				return fmt.Errorf("%w: binding %q operation %q names both a scope ceiling and calls; an operation's ceiling is one or the other", ErrInvalid, binding.ID, operation)
+			}
+		}
+	}
+	return nil
+}
+
+// callPattern is a call as an audience's method policy names it: a gRPC method
+// (/<package>.<Service>/<Method>) or an HTTP route (<VERB> <path>).
+var callPattern = regexp.MustCompile(`^(/([A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*/[A-Za-z_][A-Za-z0-9_]*|(GET|HEAD|POST|PUT|PATCH|DELETE) /[^\s]*)$`)
+
+func checkCallNames(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		for _, operation := range sortedOperations(binding.Calls) {
+			for _, call := range binding.Calls[operation] {
+				if !callPattern.MatchString(call) {
+					return fmt.Errorf("%w: binding %q operation %q call %q is neither a gRPC method (/<package>.<Service>/<Method>) nor an HTTP route (<VERB> <path>)", ErrInvalid, binding.ID, operation, call)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func checkCallsUnique(contract *Contract) error {
+	for _, binding := range contract.Bindings {
+		for _, operation := range sortedOperations(binding.Calls) {
+			seen := map[string]bool{}
+			for _, call := range binding.Calls[operation] {
+				if seen[call] {
+					return fmt.Errorf("%w: binding %q operation %q names call %q twice", ErrInvalid, binding.ID, operation, call)
+				}
+				seen[call] = true
 			}
 		}
 	}
@@ -556,7 +806,7 @@ func checkOperationsHaveCeilings(contract *Contract) error {
 
 func checkBareActionsNeedKind(contract *Contract) error {
 	for _, entry := range contract.ceilings() {
-		if len(entry.ceiling.Actions) > 0 && entry.binding.ResourceKind == nil {
+		if len(entry.ceiling.Actions) > 0 && entry.binding.ResourceKind == nil && entry.binding.ResourceKinds == nil {
 			// A scope names a resource kind (core's WorkScopeV1 requires one),
 			// so a bare action with no kind to qualify it is a request nothing
 			// can mint.
@@ -637,6 +887,203 @@ func checkDestinationKindsKnown(contract *Contract) error {
 	for _, destination := range contract.Destinations {
 		if !slices.Contains(destinationKinds, destination.Kind) {
 			return fmt.Errorf("%w: destination %q kind %q is not one of %s", ErrInvalid, destination.ID, destination.Kind, strings.Join(destinationKinds, ", "))
+		}
+	}
+	return nil
+}
+
+// grpcMethodPattern is a full gRPC method name: /<package>.<Service>/<Method>.
+var grpcMethodPattern = regexp.MustCompile(`^/([A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*/[A-Za-z_][A-Za-z0-9_]*$`)
+
+func checkForeignMethodNames(contract *Contract) error {
+	for _, method := range contract.ForeignMethods {
+		if !grpcMethodPattern.MatchString(method.Method) {
+			return fmt.Errorf("%w: foreign method %q is not a full gRPC method name (/<package>.<Service>/<Method>)", ErrInvalid, method.Method)
+		}
+	}
+	return nil
+}
+
+func checkForeignMethodsUnique(contract *Contract) error {
+	names := make([]string, 0, len(contract.ForeignMethods))
+	for _, method := range contract.ForeignMethods {
+		names = append(names, method.Method)
+	}
+	if duplicate, found := firstDuplicate(names); found {
+		return fmt.Errorf("%w: foreign method %q is declared twice", ErrInvalid, duplicate)
+	}
+	return nil
+}
+
+func checkForeignMethodsRequire(contract *Contract) error {
+	for _, method := range contract.ForeignMethods {
+		// A method that requires nothing would be open to any checked caller
+		// by omission; a foreign method states what it requires.
+		if len(method.Requires) == 0 {
+			return fmt.Errorf("%w: foreign method %q requires nothing; it names what a call must hold", ErrInvalid, method.Method)
+		}
+	}
+	return nil
+}
+
+func checkForeignScopesHaveActions(contract *Contract) error {
+	for _, method := range contract.ForeignMethods {
+		for _, scope := range method.Requires {
+			if len(scope.Actions) == 0 {
+				return fmt.Errorf("%w: foreign method %q requires %q with no action", ErrInvalid, method.Method, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+// ownCeilings is the module's own vocabulary: each kind and its actions.
+func (contract *Contract) ownCeilings() map[string][]string {
+	own := map[string][]string{}
+	for _, ceiling := range contract.ScopeCeilings {
+		own[ceiling.ResourceKind] = ceiling.Actions
+	}
+	return own
+}
+
+func checkForeignMethodsOwnKinds(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, method := range contract.ForeignMethods {
+		for _, scope := range method.Requires {
+			// A module decides calls to itself in its own vocabulary: a kind
+			// it does not declare is one no caller could be granted here.
+			if _, declared := own[scope.ResourceKind]; !declared {
+				return fmt.Errorf("%w: foreign method %q requires %q, which is not one of the module's own scope ceilings", ErrInvalid, method.Method, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+func checkForeignMethodsOwnActions(contract *Contract) error {
+	own := contract.ownCeilings()
+	for _, method := range contract.ForeignMethods {
+		for _, scope := range method.Requires {
+			actions, declared := own[scope.ResourceKind]
+			if !declared {
+				continue
+			}
+			for _, action := range scope.Actions {
+				if !slices.Contains(actions, action) {
+					return fmt.Errorf("%w: foreign method %q requires %s:%s, beyond the module's own ceiling on %s", ErrInvalid, method.Method, scope.ResourceKind, action, scope.ResourceKind)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func checkRoleNames(contract *Contract) error {
+	for _, role := range contract.Roles {
+		if !namePattern.MatchString(role.Name) {
+			return fmt.Errorf("%w: role %q is not a lowercase name", ErrInvalid, role.Name)
+		}
+	}
+	return nil
+}
+
+func checkRolesUnique(contract *Contract) error {
+	names := make([]string, 0, len(contract.Roles))
+	for _, role := range contract.Roles {
+		names = append(names, role.Name)
+	}
+	if duplicate, found := firstDuplicate(names); found {
+		return fmt.Errorf("%w: role %q is declared twice", ErrInvalid, duplicate)
+	}
+	return nil
+}
+
+func checkRolesGrant(contract *Contract) error {
+	for _, role := range contract.Roles {
+		if len(role.Scopes) == 0 {
+			return fmt.Errorf("%w: role %q grants nothing", ErrInvalid, role.Name)
+		}
+	}
+	return nil
+}
+
+func checkRoleKindNames(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			if !namePattern.MatchString(scope.ResourceKind) {
+				return fmt.Errorf("%w: role %q resource kind %q is not a lowercase name", ErrInvalid, role.Name, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+func checkRoleKindsUnique(contract *Contract) error {
+	for _, role := range contract.Roles {
+		kinds := make([]string, 0, len(role.Scopes))
+		for _, scope := range role.Scopes {
+			kinds = append(kinds, scope.ResourceKind)
+		}
+		if duplicate, found := firstDuplicate(kinds); found {
+			return fmt.Errorf("%w: role %q names resource kind %q twice", ErrInvalid, role.Name, duplicate)
+		}
+	}
+	return nil
+}
+
+func checkRoleKindsHaveActions(contract *Contract) error {
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			if len(scope.Actions) == 0 {
+				return fmt.Errorf("%w: role %q grants resource kind %q no action", ErrInvalid, role.Name, scope.ResourceKind)
+			}
+		}
+	}
+	return nil
+}
+
+func checkInstallerRole(contract *Contract) error {
+	if len(contract.Roles) == 0 {
+		return nil
+	}
+	for _, role := range contract.Roles {
+		if role.Name == InstallerRole {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: the contract declares %d role(s) and none is %q; whoever installs the unit holds it", ErrInvalid, len(contract.Roles), InstallerRole)
+}
+
+// grantable is what a role may grant: the module's own vocabulary, and each
+// scope a binding spells out for an operation a person causes (invoke,
+// lookup) — the permissions at another module the unit asks for on a person's
+// behalf. A headless operation has no person in it, so nothing a person holds
+// comes from one; a bare action or a call names its kind only when the
+// composition resolves it, so a role cannot be held to it here.
+func (contract *Contract) grantable() map[string][]string {
+	grantable := map[string][]string{}
+	for kind, actions := range contract.ownCeilings() {
+		grantable[kind] = slices.Clone(actions)
+	}
+	for _, binding := range contract.Bindings {
+		for _, operation := range []string{OperationInvoke, OperationLookup} {
+			for _, scope := range binding.ScopeCeiling[operation].Scopes {
+				grantable[scope.ResourceKind] = append(grantable[scope.ResourceKind], scope.Actions...)
+			}
+		}
+	}
+	return grantable
+}
+
+func checkRolesWithinRequest(contract *Contract) error {
+	grantable := contract.grantable()
+	for _, role := range contract.Roles {
+		for _, scope := range role.Scopes {
+			for _, action := range scope.Actions {
+				if !slices.Contains(grantable[scope.ResourceKind], action) {
+					return fmt.Errorf("%w: role %q grants %s:%s, which is neither within the module's own scope ceilings nor a scope one of its bindings spells out for invoke or lookup", ErrInvalid, role.Name, scope.ResourceKind, action)
+				}
+			}
 		}
 	}
 	return nil

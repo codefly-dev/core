@@ -1,0 +1,29 @@
+# A binding may be addressed to a LIST of audiences the composition writes: it
+# may be exercised toward any of them, and is delivered as one binding per
+# listed audience (<binding>:<audience>), each with the ceiling that audience's
+# own declarations give the calls it names. A bare-action ceiling is qualified
+# per audience by resource_kinds. Both are optional, so a composition listing no
+# audience omits them.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: [assistant]
+queues: []
+scope_ceilings: []
+bindings:
+    - id: owner
+      optional: true
+      operations: [invoke, headless]
+      audiences: {from: assistant/owner-audiences}
+      calls:
+          invoke:
+              - /targets.v1.TargetService/Reach
+          headless:
+              - /targets.v1.TargetService/ListKinds
+    - id: owner-review
+      optional: true
+      operations: [invoke]
+      audiences: {from: assistant/owner-audiences}
+      resource_kinds: {from: assistant/owner-resource-kinds}
+      scope_ceiling:
+          invoke: [read, review]
+destinations: []

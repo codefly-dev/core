@@ -435,3 +435,32 @@ func TestProtobufContractSourceDerivesTypesAndRejectsStaleCatalog(t *testing.T) 
 	require.NoError(t, err)
 	require.ErrorContains(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items, nil), "catalog procedures")
 }
+
+func TestProtobufContractEvidenceUsesMultiPackageListenerInventory(t *testing.T) {
+	set := &descriptorpb.FileDescriptorSet{}
+	for _, pkg := range []string{"accounts.v1", "host.authority.v1", "foreign.v1"} {
+		set.File = append(set.File, &descriptorpb.FileDescriptorProto{Name: proto.String(pkg + ".proto"), Package: proto.String(pkg), Syntax: proto.String("proto3"),
+			MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Message")}},
+			Service: []*descriptorpb.ServiceDescriptorProto{{Name: proto.String("Service"), Method: []*descriptorpb.MethodDescriptorProto{
+				{Name: proto.String("Served"), InputType: proto.String("." + pkg + ".Message"), OutputType: proto.String("." + pkg + ".Message")},
+				{Name: proto.String("OtherListener"), InputType: proto.String("." + pkg + ".Message"), OutputType: proto.String("." + pkg + ".Message")},
+			}}},
+		})
+	}
+	endpoint := APIContractEndpoint{}
+	for _, pkg := range []string{"accounts.v1", "host.authority.v1"} {
+		endpoint.Services = append(endpoint.Services, APIContractService{Name: "Service", FullName: pkg + ".Service", Procedures: []string{"/" + pkg + ".Service/Served"}})
+	}
+	data, err := proto.Marshal(set)
+	require.NoError(t, err)
+	var items []*updatev0.ContractItem
+	require.NoError(t, protobufContractItems(endpoint, "api/accounts/connect", data, &items, nil))
+	var ids []string
+	for _, item := range items {
+		ids = append(ids, item.Id)
+		require.NotContains(t, item.Id, "OtherListener")
+		require.NotContains(t, item.Id, "foreign.v1")
+	}
+	require.Contains(t, ids, "api/accounts/connect#/host.authority.v1.Service/Served")
+	require.Len(t, items, 4)
+}

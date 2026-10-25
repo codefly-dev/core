@@ -209,6 +209,12 @@ func TestManifestRejectsMalformedConsumption(t *testing.T) {
 		{"a literal audience", func(s string) string {
 			return strings.Replace(s, "audience: {from: documents/documents-prefix}", "audience: documents", 1)
 		}, "module contract refuses"},
+		// A consumption asks at the module it names; the solution's own
+		// principal is never that module, so a self audience asks for scopes
+		// beyond its (empty) own ceiling and the module contract refuses it.
+		{"an audience that is the solution itself", func(s string) string {
+			return strings.Replace(s, "audience: {from: documents/documents-prefix}", "audience: {self: true}", 1)
+		}, "is addressed to the module itself"},
 		{"an audience key that does not say it is one", func(s string) string {
 			return strings.Replace(s, "audience: {from: documents/documents-prefix}", "audience: {from: documents/documents-endpoint}", 1)
 		}, "module contract refuses"},

@@ -10,29 +10,43 @@ import (
 // child may narrow a wildcard parent to explicit ids but may never widen an
 // explicit parent set, and may never name an action the parent does not hold.
 func ScopeContained(child *basev0.WorkScopeV1, parents []*basev0.WorkScopeV1) bool {
+	// A kind can have several rows with different action/resource coverage.
+	// Check each pair against that coverage, never their Cartesian product.
+	kindPresent := false
 	for _, parent := range parents {
-		if parent.GetResourceKind() != child.GetResourceKind() {
-			continue
-		}
-		for _, action := range child.GetActions() {
-			if !slices.Contains(parent.GetActions(), action) {
-				return false
+		kindPresent = kindPresent || parent.GetResourceKind() == child.GetResourceKind()
+	}
+	if !kindPresent {
+		return false
+	}
+	for _, action := range child.GetActions() {
+		wholeKind := false
+		ids := map[string]bool{}
+		for _, parent := range parents {
+			if parent.GetResourceKind() != child.GetResourceKind() || !slices.Contains(parent.GetActions(), action) {
+				continue
+			}
+			if len(parent.GetResourceIds()) == 0 {
+				wholeKind = true
+				break
+			}
+			for _, id := range parent.GetResourceIds() {
+				ids[id] = true
 			}
 		}
-		if len(parent.GetResourceIds()) == 0 {
-			return true
+		if wholeKind {
+			continue
 		}
 		if len(child.GetResourceIds()) == 0 {
 			return false
 		}
 		for _, id := range child.GetResourceIds() {
-			if !slices.Contains(parent.GetResourceIds(), id) {
+			if !ids[id] {
 				return false
 			}
 		}
-		return true
 	}
-	return false
+	return true
 }
 
 // ScopesAttenuate reports whether every scope in child is contained in

@@ -179,7 +179,16 @@ func (s *Base) Load(ctx context.Context, identity *basev0.ServiceIdentity, setti
 	if err = resources.ApplyModuleInterface(ctx, s.Service); err != nil {
 		return s.Wool.Wrapf(err, "cannot apply module interface")
 	}
-	if err = resources.ApplyInterfaceBindings(ctx, s.Service, identity.WorkspacePath); err != nil {
+	// The host's composition binds the interface dependencies: only the host
+	// resolves a workspace that imports other workspaces, so a binding it
+	// supplies is applied as is. An older host supplies none, and the service
+	// is bound against the workspace on disk as before.
+	if supplied := identity.GetInterfaceBindings(); supplied != nil {
+		err = resources.ApplySuppliedInterfaceBindings(s.Service, supplied)
+	} else {
+		err = resources.ApplyInterfaceBindings(ctx, s.Service, identity.WorkspacePath)
+	}
+	if err != nil {
 		return s.Wool.Wrapf(err, "cannot bind interface dependencies")
 	}
 

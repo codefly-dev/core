@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 
@@ -119,15 +118,9 @@ func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []b
 	if err := proto.Unmarshal(data, set); err != nil {
 		return err
 	}
-	actual := ProtobufServices(set, endpoint.Package)
-	expected := slices.Clone(endpoint.Services)
-	for i := range expected {
-		expected[i].Procedures = slices.Clone(expected[i].Procedures)
-		slices.Sort(expected[i].Procedures)
-	}
-	slices.SortFunc(expected, func(a, b APIContractService) int { return strings.Compare(a.FullName, b.FullName) })
-	if !reflect.DeepEqual(actual, expected) {
-		return fmt.Errorf("catalog procedures do not match the descriptor set")
+	procedures, err := ProtobufProcedures(set, endpoint.Services)
+	if err != nil {
+		return fmt.Errorf("catalog procedures do not match the descriptor set: %w", err)
 	}
 	files, err := protodesc.NewFiles(set)
 	if err != nil {
@@ -176,7 +169,7 @@ func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []b
 		*items = append(*items, item)
 		return nil
 	}
-	for _, service := range actual {
+	for _, service := range endpoint.Services {
 		descriptor, err := files.FindDescriptorByName(protoreflect.FullName(service.FullName))
 		if err != nil {
 			return err
@@ -184,6 +177,9 @@ func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []b
 		svc := descriptor.(protoreflect.ServiceDescriptor)
 		for i := 0; i < svc.Methods().Len(); i++ {
 			method := svc.Methods().Get(i)
+			if !slices.Contains(procedures, "/"+service.FullName+"/"+string(method.Name())) {
+				continue
+			}
 			for _, message := range []protoreflect.MessageDescriptor{method.Input(), method.Output()} {
 				if err := addType(message); err != nil {
 					return err

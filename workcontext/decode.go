@@ -163,11 +163,9 @@ func unknownFieldIn(message protoreflect.Message) string {
 // channel — so you can see its expiry and its seal without re-deriving them
 // by hand. Reading your own credential is not an authorization decision.
 //
-// What it cannot do: become authority. Every function that derives identity
-// or mints takes a checked capability — policy.PrincipalFromWorkContext a
-// *Verified, policy.PrincipalFromAuthenticatedWorkContext an *Authenticated,
-// Authority.Child and Authority.Grant a *Verified — so a Decoded capability
-// can become neither a Principal nor a derived capability.
+// What it cannot do: become authority. Every function that mints takes a
+// checked capability — Authority.Child and Authority.Grant a *Verified — so a
+// Decoded capability cannot become a derived capability.
 //
 // There is no function turning a Decoded into any of them, and
 // TestNoDeclarationTurnsAnInspectedOrDecodedCapabilityIntoAVerifiedOne guards

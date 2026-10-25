@@ -36,15 +36,11 @@ var ErrNeedsIssuer = errors.New("work context: this check needs the issuer's own
 // refused if it carried an approval hop at all. The type system carries that
 // difference so a caller cannot lose it:
 //
-//   - An Authenticated capability DOES derive a Principal, through
-//     policy.PrincipalFromAuthenticatedWorkContext, and this bullet used to
-//     say it could not. Closing that door entirely was the mistake: a
-//     verify-only gateway needs an identity to authorize with, and with no
-//     way to derive one it writes its own, re-implementing the
-//     delegation-chain rules. The distinction is kept where it survives
-//     instead of being erased — Principal.EstablishedBy records WHICH
-//     question was answered, so a policy that must not act on the weaker
-//     answer refuses it and an audit record says which it was.
+//   - An Authenticated capability derives no Principal here: who a call is
+//     for is the identity the authority's hop stamps (codefly-dev/authority),
+//     and core's derivations from a token are deleted. Principal.EstablishedBy
+//     still records WHICH question was answered, so a policy that must not
+//     act on the weaker answer refuses it.
 //   - Authority.Child and Authority.Grant take a *Verified, so an
 //     Authenticated capability cannot be exchanged for a derived one. That is
 //     right for a reason beyond types: deriving holds the parent's inherited

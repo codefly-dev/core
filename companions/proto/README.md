@@ -116,6 +116,15 @@ This requires the built proto companion and Cargo. The updated plugins ship in
 companion version 0.0.16; bumping the manifest alone does not publish that image.
 Use the [companion publication procedure](../../docs/runbooks/publish-companions.md).
 
+Python bindings come from the companion's own plugin, `protoc-gen-codefly-python`
+(`facades/python/protoc_gen_codefly_python.py`), as Go's and Rust's come from
+local plugins: it compiles the `*_pb2` messages and `*_pb2_grpc` stubs with the
+`grpc_tools` pinned in the image's venv (`grpcio-tools==1.71.0`,
+`protobuf==5.29.3`), so the gencode is versioned with the image. buf's remote
+`protocolbuffers/python` and `grpc/python` plugins it replaces moved on their
+own, and their gencode outran the protobuf runtime a generated library
+declares. It ships in companion version 0.0.17.
+
 Rust generation stages output before publishing it. `.codefly-rust-output.json`
 records the generated files and their hashes; only unchanged, tracked files may
 be replaced or removed. Unrelated files are preserved. A collision with an
