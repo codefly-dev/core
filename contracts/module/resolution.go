@@ -169,6 +169,20 @@ func (values MapValues) Records(group string) ([]Record, error) {
 	return records, nil
 }
 
+// slotFilled reports whether a group's records fill the slot keyed key: some
+// record is that key and carries a value, or is secret. Only an optional
+// binding asks, to tell a composition that left it out from one that wrote
+// it; the resolution of a filled slot is resolveSlot's, unchanged.
+func slotFilled(records []Record, key string) bool {
+	normalized := normalizeKey(key)
+	for _, record := range records {
+		if normalizeKey(record.Key) == normalized && (record.Secret || strings.TrimSpace(record.Value) != "") {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeKey(key string) string {
 	return strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
 }

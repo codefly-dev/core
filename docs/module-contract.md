@@ -56,6 +56,28 @@ no callees, or a call the audience does not serve or that declares nothing, is
 refused under `ErrUnresolvedCall`, naming the binding and the call, never
 delivered with an empty ceiling.
 
+**A binding may be optional.** A binding is mandatory by default: every
+composition of the module fills its slots, or the render refuses it. A binding
+marked `optional: true` is one a composition may leave out, for a capability
+the module degrades without (ratings that answer "disabled" when no store for
+them is composed). The rule is decided on the slots alone, in `Resolve`:
+
+- **none filled** — every slot's key absent from its group, or supplied empty
+  (the spelling a module's declared configuration gives a key nobody set): the
+  resolution omits the binding and reports it in `Resolved.Omitted` with the
+  reason, naming each unfilled slot. Its calls are never read, so the audience
+  need not be composed. The delivered manifest carries no such binding, and
+  nothing can be issued through it: the authority refuses an issue through a
+  binding it does not know.
+- **all filled** — resolved and delivered exactly as a mandatory binding.
+- **filled in part** — resolved whole, so each unfilled slot is refused by name
+  under its sentinel, the refusal saying the binding is optional and was filled
+  in part: a misspelt key must never silently drop a binding.
+
+A secret-classified record is a value, so a slot carrying one is filled (and
+refused as a secret), never omitted around. `optional: false` is the default
+and is never written.
+
 **A module may declare the methods it serves from a protocol it does not own.**
 A method a module defines carries its policy as an option on its own proto; a
 method of a protocol the module only serves (an OpenTelemetry collector's
@@ -188,7 +210,7 @@ name. An absent field is absent; an empty list is written `[]`.
 **Every refusal is one named rule.** The package holds its rules in a table
 (`rules.go`), applied in a fixed order, so a document is refused for one
 reason, named — the same reason whichever reader refused it. **The kits.**
-`modulecontract.Fixtures()` (91 documents) ships
+`modulecontract.Fixtures()` (92 documents) ships
 every accepted and refused document with the sentinel and the message a
 refusal must carry and the rule it protects, and `Run(t, read)` drives a
 reader's own entrypoint through them. `AllResolutionFixtures()` (117

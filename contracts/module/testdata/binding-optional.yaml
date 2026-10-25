@@ -1,0 +1,29 @@
+# A binding may be optional: a composition that fills none of its slots
+# resolves without it, and one that fills any resolves it whole. Mandatory is
+# the default, so the evidence binding beside it is required of every
+# composition.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: [assistant]
+queues: []
+scope_ceilings: []
+bindings:
+    - id: evidence
+      operations: [invoke]
+      audience: {from: assistant/evidence-audience}
+      binding_key: {from: assistant/evidence-binding}
+      calls:
+          invoke:
+              - /documents.v1.DocumentsService/ResolveEvidence
+    - id: ratings
+      optional: true
+      operations: [invoke, headless]
+      audience: {from: assistant/ratings-audience}
+      resource_kind: {from: assistant/ratings-resource-kind}
+      binding_key: {from: assistant/ratings-binding}
+      scope_ceiling:
+          invoke: [read, write]
+      calls:
+          headless:
+              - /ratings.v1.RatingsService/InstallVocabulary
+destinations: []

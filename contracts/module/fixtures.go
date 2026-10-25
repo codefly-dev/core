@@ -64,6 +64,7 @@ func Fixtures() ([]Fixture, error) {
 		{name: "valid", file: "valid.module.contract.codefly.yaml", outcome: OutcomeAccepted},
 		{name: "upper-case-slot-key", file: "upper-case-slot-key.yaml", outcome: OutcomeAccepted},
 		{name: "binding-names-calls", file: "binding-names-calls.yaml", outcome: OutcomeAccepted},
+		{name: "binding-optional", file: "binding-optional.yaml", outcome: OutcomeAccepted},
 		{name: "foreign-methods", file: "foreign-methods.yaml", outcome: OutcomeAccepted},
 
 		{name: "not-yaml", file: "not-yaml.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "yaml", rule: ruleWellFormed},

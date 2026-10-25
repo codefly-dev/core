@@ -277,6 +277,14 @@ type Binding struct {
 	// An operation takes its ceiling from ScopeCeiling or from Calls, never
 	// both.
 	Calls map[string][]string `yaml:"calls,omitempty"`
+	// Optional marks a binding a composition may leave out. A composition
+	// that fills NONE of its slots — every one absent, or supplied empty —
+	// gets a resolution without it (Resolved.Omitted says so and why), so no
+	// credential can ever be issued through it. A composition that fills any
+	// slot resolves it whole, exactly as a mandatory binding: a slot left
+	// unfilled beside a filled one is refused by name, because a misspelt key
+	// must not silently drop a binding. Mandatory is the default.
+	Optional bool `yaml:"optional,omitempty"`
 }
 
 // Ceiling is one operation's scope ceiling, in exactly one of two spellings:
@@ -574,6 +582,17 @@ type Resolved struct {
 	Bindings       []ResolvedBinding
 	Destinations   []Destination
 	ForeignMethods []ForeignMethod
+	// Omitted are the optional bindings the composition fills none of the
+	// slots of, which the resolution leaves out: nothing can be issued
+	// through them. In declaration order.
+	Omitted []OmittedBinding
+}
+
+// OmittedBinding is one optional binding a resolution left out, and why.
+type OmittedBinding struct {
+	ID string
+	// Reason says why, naming every slot the composition left unfilled.
+	Reason string
 }
 
 // ResolvedBinding is one binding with its audience, resource kind and binding
@@ -630,18 +649,25 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 	// One Records call per group, so a provider is asked for a group's records
 	// once and every slot of that group is resolved from the same answer.
 	groups := map[string][]Record{}
+	recordsOf := func(group string) ([]Record, error) {
+		if records, held := groups[group]; held {
+			return records, nil
+		}
+		supplied, err := values.Records(group)
+		if err != nil {
+			return nil, err
+		}
+		groups[group] = supplied
+		return supplied, nil
+	}
 	resolve := func(label string, slot *Slot, kind bool) string {
 		if slot == nil {
 			return ""
 		}
-		records, held := groups[slot.Group()]
-		if !held {
-			supplied, err := values.Records(slot.Group())
-			if err != nil {
-				ambiguous = append(ambiguous, label+" ← "+slot.From+" (the composition's values cannot be read: "+err.Error()+")")
-				return ""
-			}
-			records, groups[slot.Group()] = supplied, supplied
+		records, err := recordsOf(slot.Group())
+		if err != nil {
+			ambiguous = append(ambiguous, label+" ← "+slot.From+" (the composition's values cannot be read: "+err.Error()+")")
+			return ""
 		}
 		answer := resolveSlot(records, slot.Key(), kind, without)
 		switch {
@@ -658,15 +684,29 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		return answer.value
 	}
 	for _, binding := range contract.Bindings {
+		label := "binding " + binding.ID
+		if binding.Optional {
+			unfilled, whole := binding.unfilledSlots(recordsOf)
+			if whole {
+				resolved.Omitted = append(resolved.Omitted, OmittedBinding{
+					ID:     binding.ID,
+					Reason: "it is optional and the composition fills none of its slots (" + strings.Join(unfilled, ", ") + "), so nothing can be issued through it",
+				})
+				continue
+			}
+			// Filled in part is resolved whole: each slot left unfilled is
+			// refused below by name, with the reason it was not omitted.
+			label = "optional binding " + binding.ID + " (filled in part, so resolved whole)"
+		}
 		revision := binding.Revision
 		if revision == 0 {
 			revision = 1
 		}
 		entry := ResolvedBinding{
 			ID: binding.ID, Revision: revision, Operations: slices.Clone(binding.Operations), Lookup: binding.Lookup,
-			Audience:     resolve("binding "+binding.ID+" audience", &binding.Audience, false),
-			ResourceKind: resolve("binding "+binding.ID+" resource_kind", binding.ResourceKind, true),
-			BindingKey:   resolve("binding "+binding.ID+" binding_key", binding.BindingKey, false),
+			Audience:     resolve(label+" audience", &binding.Audience, false),
+			ResourceKind: resolve(label+" resource_kind", binding.ResourceKind, true),
+			BindingKey:   resolve(label+" binding_key", binding.BindingKey, false),
 			Scopes:       make(map[string][]string, len(binding.Operations)),
 		}
 		for _, operation := range binding.Operations {
@@ -688,15 +728,15 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 					entry.Calls = map[string][]string{}
 				}
 				entry.Calls[operation] = slices.Sorted(slices.Values(named))
-				label := "binding " + binding.ID + " " + operation
+				operationLabel := label + " " + operation
 				switch {
 				case opts.callees == nil:
-					calls = append(calls, label+" names calls, and the contract was resolved with no callee declarations to read them from")
+					calls = append(calls, operationLabel+" names calls, and the contract was resolved with no callee declarations to read them from")
 				case entry.Audience != "":
 					for _, call := range entry.Calls[operation] {
 						required, err := opts.callees.Requires(entry.Audience, call)
 						if err != nil {
-							calls = append(calls, label+" call "+call+" at "+entry.Audience+": "+err.Error())
+							calls = append(calls, operationLabel+" call "+call+" at "+entry.Audience+": "+err.Error())
 							continue
 						}
 						scopes = append(scopes, required...)
@@ -718,6 +758,30 @@ func (contract *Contract) resolve(values Values, without string, options ...Reso
 		return nil, callsError(calls)
 	}
 	return resolved, nil
+}
+
+// unfilledSlots reports whether the composition leaves EVERY slot of the
+// binding unfilled, naming each. A slot is unfilled when no record is its key,
+// or every record that is supplies an empty public value — the spelling a
+// module's declared configuration gives a key nobody set. A secret record, or
+// a group whose records cannot be read, counts as filled, so resolution
+// reports it rather than an omission hiding it.
+func (binding Binding) unfilledSlots(recordsOf func(group string) ([]Record, error)) ([]string, bool) {
+	var unfilled []string
+	for _, slot := range []struct {
+		field string
+		slot  *Slot
+	}{{fieldAudience, &binding.Audience}, {fieldResourceKind, binding.ResourceKind}, {fieldBindingKey, binding.BindingKey}} {
+		if slot.slot == nil {
+			continue
+		}
+		records, err := recordsOf(slot.slot.Group())
+		if err != nil || slotFilled(records, slot.slot.Key()) {
+			return nil, false
+		}
+		unfilled = append(unfilled, slot.field+" ← "+slot.slot.From)
+	}
+	return unfilled, true
 }
 
 // callsError names every call a resolution could not read a requirement for.
