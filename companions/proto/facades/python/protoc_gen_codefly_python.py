@@ -11,7 +11,7 @@ whose versions moved on their own: their gencode outran the protobuf runtime a
 generated library declares, and every import of its bindings failed. Here the
 gencode is the companion image's, versioned with it, as Go's local plugins are.
 
-Every file is compiled without its options, and keeps only the imports its own
+Every file is compiled without its custom options, and keeps only the imports its own
 types need. An import used only for an option — `buf/validate/validate.proto`,
 `google/api/annotations.proto`, a module's own policy options — would otherwise
 become an absolute `from buf.validate import validate_pb2` in the bindings,
@@ -30,13 +30,14 @@ from google.protobuf.compiler import plugin_pb2
 from google.protobuf.descriptor_pb2 import FileDescriptorSet
 from grpc_tools import protoc
 
-from strip_custom_options import clear_enum, clear_message, referenced_types, type_owners
+from strip_custom_options import clear_file_options, referenced_types, type_owners
 
 _WELL_KNOWN_PREFIX = "google/protobuf/"
 
 
 def without_options(files):
-    """files, each with its options cleared and its dependencies narrowed to the
+    """files, each with its custom options cleared (built-in ones, such as
+    map_entry, are kept) and its dependencies narrowed to the
     ones that define a type it references (directly, or through an `import
     public` chain), the well-known types, which ship with the runtime, and its
     own `import public` re-exports, which are part of what it offers."""
@@ -60,17 +61,7 @@ def without_options(files):
         del file_proto.public_dependency[:]
         file_proto.public_dependency.extend(public)
         del file_proto.weak_dependency[:]
-        file_proto.ClearField("options")
-        for message in file_proto.message_type:
-            clear_message(message)
-        for enum in file_proto.enum_type:
-            clear_enum(enum)
-        for extension in file_proto.extension:
-            extension.ClearField("options")
-        for service in file_proto.service:
-            service.ClearField("options")
-            for method in service.method:
-                method.ClearField("options")
+        clear_file_options(file_proto)
         stripped.append(file_proto)
     return stripped
 

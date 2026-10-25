@@ -77,12 +77,14 @@ def test_an_import_used_only_for_an_option_is_dropped():
     assert list(demo.dependency) == ["google/rpc/status.proto"]
 
 
-def test_options_are_cleared_and_the_input_left_untouched():
+def test_custom_options_are_cleared_built_in_ones_kept_and_the_input_left_untouched():
     files = _files()
     demo = {f.name: f for f in plugin.without_options(files)}["demo/v1/demo.proto"]
-    assert not demo.HasField("options")
-    assert not demo.message_type[0].field[0].HasField("options")
-    assert not demo.service[0].method[0].HasField("options")
+    assert demo.options == type(demo.options)(go_package="example.com/demo/v1;demov1")
+    field_options = demo.message_type[0].field[0].options
+    assert field_options == type(field_options)(deprecated=True)  # buf.validate gone
+    method_options = demo.service[0].method[0].options
+    assert method_options == type(method_options)(idempotency_level=method_options.NO_SIDE_EFFECTS)
     # The request's own descriptors are buf's; the plugin works on copies.
     assert "buf/validate/validate.proto" in files[3].dependency
     assert files[3].message_type[0].field[0].options.deprecated
@@ -135,3 +137,48 @@ def test_generated_bindings_import_without_buf_validate(tmp_path, monkeypatch):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     assert module.Ping(id="x").id == "x"
+
+
+def _grid() -> FileDescriptorProto:
+    """`map<string, Cell> cells = 1;` as protoc compiles it: a repeated field of
+    a nested entry message marked map_entry, here with buf.validate on it too."""
+    fd = FileDescriptorProto(name="grid/v1/grid.proto", package="grid.v1", syntax="proto3")
+    fd.dependency.append("buf/validate/validate.proto")
+    fd.message_type.add(name="Cell").field.add(name="value", number=1, type=_STRING, label=_OPTIONAL)
+    sheet = fd.message_type.add(name="Sheet")
+    entry = sheet.nested_type.add(name="CellsEntry")
+    entry.options.map_entry = True
+    entry.field.add(name="key", number=1, type=_STRING, label=_OPTIONAL)
+    entry.field.add(name="value", number=2, type=_MESSAGE, type_name=".grid.v1.Cell", label=_OPTIONAL)
+    cells = sheet.field.add(
+        name="cells", number=1, type=_MESSAGE, type_name=".grid.v1.Sheet.CellsEntry",
+        label=FieldDescriptorProto.LABEL_REPEATED,
+    )
+    cells.options.MergeFromString(b"\xba\x48\x02\x08\x01")
+    return fd
+
+
+def test_a_map_field_generates_a_python_map(tmp_path, monkeypatch):
+    # Clearing every options message dropped map_entry with buf.validate, so the
+    # bindings exposed `cells` as a repeated CellsEntry a service had to .add()
+    # to, where the proto declares a map.
+    pytest.importorskip("grpc_tools")
+    request = plugin_pb2.CodeGeneratorRequest(file_to_generate=["grid/v1/grid.proto"])
+    request.proto_file.extend([_descriptor_proto(), _validate(), _grid()])
+
+    response = plugin.generate(request)
+    assert not response.error, response.error
+    for generated in response.file:
+        path = tmp_path / generated.name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(generated.content)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    spec = importlib.util.spec_from_file_location("grid.v1.grid_pb2", tmp_path / "grid/v1/grid_pb2.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    sheet = module.Sheet()
+    sheet.cells["A1"].value = "42"
+    assert sheet.cells["A1"].value == "42"
+    assert module.Sheet.FromString(sheet.SerializeToString()) == sheet
