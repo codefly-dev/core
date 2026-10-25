@@ -2,7 +2,11 @@ package companions
 
 import (
 	"fmt"
+	"os"
+	"path"
+	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // BaseImageArg is the Docker build argument a companion Dockerfile declares
@@ -105,4 +109,73 @@ func BuildSpecs() ([]BuildSpec, error) {
 		out = append(out, spec)
 	}
 	return out, nil
+}
+
+// CopyKind classifies a Dockerfile line for CopySources.
+type CopyKind int
+
+const (
+	// NotCopy is any line that is not a COPY instruction.
+	NotCopy CopyKind = iota
+	// FromStage is COPY --from=<stage|image>, which reads from another image
+	// rather than from the build context.
+	FromStage
+	// FromContext is a COPY that reads paths out of the build context.
+	FromContext
+	// Unparsed is a COPY whose shape this parser does not understand — the
+	// JSON form, or one with no source and destination. It is reported rather
+	// than skipped: a COPY nobody reads is an image input nothing checks.
+	Unparsed
+)
+
+// CopySources returns the build-context sources of a COPY instruction.
+//
+// Leading flags are stripped rather than abandoning the line. Skipping any
+// flagged COPY would leave `COPY --chown=…` and `COPY --link` — both ordinary
+// context reads — unread, so their sources would escape every check.
+func CopySources(line string) ([]string, CopyKind) {
+	fields := strings.Fields(line)
+	if len(fields) == 0 || fields[0] != "COPY" {
+		return nil, NotCopy
+	}
+	operands := fields[1:]
+	for len(operands) > 0 && strings.HasPrefix(operands[0], "--") {
+		if strings.HasPrefix(operands[0], "--from=") {
+			return nil, FromStage
+		}
+		operands = operands[1:]
+	}
+	if len(operands) < 2 || strings.HasPrefix(operands[0], "[") {
+		return nil, Unparsed
+	}
+	return operands[:len(operands)-1], FromContext
+}
+
+// Inputs returns the repository-root-relative POSIX paths, read from the
+// checkout at root, that this companion's image is built from in this
+// repository: its Dockerfile and every build-context COPY source, a file or a
+// directory. The staged CLI binary is not one: it is built from codefly-dev/cli
+// at publish time. A change under any input changes the image, so it needs a
+// new Version: publishing skips a tag the registry already has.
+func (s BuildSpec) Inputs(root string) ([]string, error) {
+	content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.Dockerfile))) //nolint:gosec // the spec's own Dockerfile under the checkout root
+	if err != nil {
+		return nil, fmt.Errorf("cannot read the <%s> Dockerfile: %w", s.Name, err)
+	}
+	inputs := []string{s.Dockerfile}
+	for number, line := range strings.Split(string(content), "\n") {
+		sources, kind := CopySources(line)
+		switch kind {
+		case Unparsed:
+			return nil, fmt.Errorf("%s:%d is a COPY whose sources cannot be read: %s", s.Dockerfile, number+1, strings.TrimSpace(line))
+		case FromContext:
+			for _, source := range sources {
+				if s.CLIBinary != "" && source == s.CLIBinary {
+					continue
+				}
+				inputs = append(inputs, path.Clean(path.Join(s.Context, source)))
+			}
+		}
+	}
+	return inputs, nil
 }

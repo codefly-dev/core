@@ -216,64 +216,23 @@ func TestBuildSpecsMatchWhatTheCurrentPublisherApplies(t *testing.T) {
 	}
 }
 
-// copyKind classifies a Dockerfile line for copySources.
-type copyKind int
-
-const (
-	// notCopy is any line that is not a COPY instruction.
-	notCopy copyKind = iota
-	// fromStage is COPY --from=<stage|image>, which reads from another image
-	// rather than from the build context.
-	fromStage
-	// fromContext is a COPY that reads paths out of the build context.
-	fromContext
-	// unparsed is a COPY whose shape this parser does not understand — the
-	// JSON form, or one with no source and destination. It is reported rather
-	// than skipped: a COPY nobody checks is exactly the drift these tests
-	// exist to catch.
-	unparsed
-)
-
-// copySources returns the build-context sources of a COPY instruction.
-//
-// Leading flags are stripped rather than abandoning the line. Skipping any
-// flagged COPY would leave `COPY --chown=…` and `COPY --link` — both ordinary
-// context reads — unguarded, so a bad path in one would reach the builder.
-func copySources(line string) ([]string, copyKind) {
-	fields := strings.Fields(line)
-	if len(fields) == 0 || fields[0] != "COPY" {
-		return nil, notCopy
-	}
-	operands := fields[1:]
-	for len(operands) > 0 && strings.HasPrefix(operands[0], "--") {
-		if strings.HasPrefix(operands[0], "--from=") {
-			return nil, fromStage
-		}
-		operands = operands[1:]
-	}
-	if len(operands) < 2 || strings.HasPrefix(operands[0], "[") {
-		return nil, unparsed
-	}
-	return operands[:len(operands)-1], fromContext
-}
-
 func TestCopySourcesReadsEveryContextCopyShape(t *testing.T) {
 	for line, expected := range map[string]struct {
 		sources []string
-		kind    copyKind
+		kind    companions.CopyKind
 	}{
-		"COPY facades/go /src":                          {[]string{"facades/go"}, fromContext},
-		"COPY a b /dst/":                                {[]string{"a", "b"}, fromContext},
-		"COPY --chown=1000:1000 facades/ts /opt":        {[]string{"facades/ts"}, fromContext},
-		"COPY --link --chown=root:root bin/x /bin/x":    {[]string{"bin/x"}, fromContext},
-		"  COPY bin/linux/${TARGETARCH}/codefly /bin/c": {[]string{"bin/linux/${TARGETARCH}/codefly"}, fromContext},
-		"COPY --from=builder /go/bin/buf /usr/local/":   {nil, fromStage},
-		"RUN apk add --no-cache bash":                   {nil, notCopy},
-		"":                                              {nil, notCopy},
-		`COPY ["a", "b"]`:                               {nil, unparsed},
-		"COPY onlyone":                                  {nil, unparsed},
+		"COPY facades/go /src":                          {[]string{"facades/go"}, companions.FromContext},
+		"COPY a b /dst/":                                {[]string{"a", "b"}, companions.FromContext},
+		"COPY --chown=1000:1000 facades/ts /opt":        {[]string{"facades/ts"}, companions.FromContext},
+		"COPY --link --chown=root:root bin/x /bin/x":    {[]string{"bin/x"}, companions.FromContext},
+		"  COPY bin/linux/${TARGETARCH}/codefly /bin/c": {[]string{"bin/linux/${TARGETARCH}/codefly"}, companions.FromContext},
+		"COPY --from=builder /go/bin/buf /usr/local/":   {nil, companions.FromStage},
+		"RUN apk add --no-cache bash":                   {nil, companions.NotCopy},
+		"":                                              {nil, companions.NotCopy},
+		`COPY ["a", "b"]`:                               {nil, companions.Unparsed},
+		"COPY onlyone":                                  {nil, companions.Unparsed},
 	} {
-		sources, kind := copySources(line)
+		sources, kind := companions.CopySources(line)
 		require.Equalf(t, expected.kind, kind, "kind for %q", line)
 		require.Equalf(t, expected.sources, sources, "sources for %q", line)
 	}
@@ -287,11 +246,11 @@ func TestDockerfileCopySourcesResolveInTheDeclaredContext(t *testing.T) {
 	for _, spec := range buildSpecs(t) {
 		context := filepath.Join(root, filepath.FromSlash(spec.Context))
 		for number, line := range strings.Split(dockerfile(t, spec), "\n") {
-			sources, kind := copySources(line)
-			require.NotEqualf(t, unparsed, kind,
+			sources, kind := companions.CopySources(line)
+			require.NotEqualf(t, companions.Unparsed, kind,
 				"%s:%d is a COPY this test cannot read, so nothing checks its sources: %s",
 				spec.Dockerfile, number+1, strings.TrimSpace(line))
-			if kind != fromContext {
+			if kind != companions.FromContext {
 				continue
 			}
 			for _, source := range sources {
@@ -340,7 +299,7 @@ func TestDockerIgnoreExcludesNothingTheBuildsNeed(t *testing.T) {
 			required = append(required, spec.CLIBinary)
 		}
 		for _, line := range strings.Split(dockerfile(t, spec), "\n") {
-			if sources, kind := copySources(line); kind == fromContext {
+			if sources, kind := companions.CopySources(line); kind == companions.FromContext {
 				required = append(required, sources...)
 			}
 		}
