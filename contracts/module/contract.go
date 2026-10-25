@@ -268,6 +268,14 @@ type Contract struct {
 	// join the methods its published contracts declare, so the hop in front of
 	// the module decides them like any other.
 	ForeignMethods []ForeignMethod `yaml:"foreign_methods,omitempty"`
+	// RequireMethodPolicies holds every method the module publishes to an
+	// explicit policy wherever the module is delivered: a method that names
+	// neither requirements nor any checked caller is refused by name before
+	// anything is rendered, even toward a host that does not consume method
+	// policies. Absent, whether an unmarked method is refused before delivery
+	// is the deliverer's call, made from what the host consumes; the hop in
+	// front of the module refuses an undeclared method per call either way.
+	RequireMethodPolicies bool `yaml:"require_method_policies,omitempty"`
 }
 
 // ForeignMethod is one served method of a protocol the module does not own,

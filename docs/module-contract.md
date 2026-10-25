@@ -189,6 +189,17 @@ roles, unchanged, into the authority's document delivered with the unit's
 manifest (`AuthorityManifestV1.roles`); this contract is their one declaration
 site.
 
+**A module may require a policy on every method it publishes.**
+`require_method_policies: true` holds each published method — every RPC of its
+published contracts, every route of its published OpenAPI, every
+`foreign_methods` entry — to an explicit policy (requirements or
+`any_checked_caller`) wherever the module is delivered, so an unmarked method
+is refused by name before anything is rendered. Absent, the deliverer decides
+from what the host consumes: a host that takes method policies refuses an
+unmarked method before delivery, one that does not leaves it to the hop, which
+refuses an undeclared method per call. It is a boolean; any other value is
+refused.
+
 **A solution's consumption is the same request, declared where a solution
 already declares it.** A composed solution is a module, but what it calls is
 declared once, in `solution.codefly.yaml`'s `api.consumes`, which also drives its
