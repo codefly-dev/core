@@ -48,6 +48,9 @@ func SelectClosure(ctx context.Context, workspace *resources.Workspace, target s
 			return nil, w.Wrapf(err, "cannot apply option")
 		}
 	}
+	if len(options.RuntimePrerequisites) > 0 {
+		return nil, w.NewError("SelectClosure does not support runtime prerequisites; use NewServiceDependencies")
+	}
 	unique, err := canonicalTarget(workspace, target)
 	if err != nil {
 		return nil, w.Wrap(err)

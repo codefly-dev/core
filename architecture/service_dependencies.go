@@ -46,6 +46,9 @@ type DependencyOptions struct {
 	// <module>/<service>/<endpoint> references it carries. See
 	// WithConfigurationReferences.
 	ConfigurationProducers map[string][]string
+	// RuntimePrerequisites orders consumers after explicitly named workspace
+	// services without declaring endpoint access. See WithRuntimePrerequisites.
+	RuntimePrerequisites map[string][]string
 }
 
 func (opt *DependencyOptions) clone() *DependencyOptions {
@@ -55,6 +58,7 @@ func (opt *DependencyOptions) clone() *DependencyOptions {
 	}
 	maps.Copy(out.SkipDependencyFor, opt.SkipDependencyFor)
 	maps.Copy(out.ExcludeService, opt.ExcludeService)
+	out.RuntimePrerequisites = cloneRuntimePrerequisites(opt.RuntimePrerequisites)
 	if opt.ConfigurationProducers != nil {
 		out.ConfigurationProducers = make(map[string][]string, len(opt.ConfigurationProducers))
 		for group, producers := range opt.ConfigurationProducers {
@@ -488,6 +492,7 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 	w := wool.Get(ctx).In("loadServiceGraph")
 	w.Debug("analyzing workspace", wool.Field("workspace", workspace.Name), wool.Field("#modules", len(workspace.Modules)))
 	graph := NewDAG(workspace.Name)
+	loaded := make(map[string]bool)
 	for _, modRef := range workspace.Modules {
 		mod, err := workspace.LoadModuleFromReference(ctx, modRef)
 		if err != nil {
@@ -502,6 +507,7 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 			if err != nil {
 				return w.Wrapf(err, "cannot get service identity")
 			}
+			loaded[identity.Unique()] = true
 			if _, excluded := d.options.ExcludeService[identity.Unique()]; excluded {
 				continue
 			}
@@ -547,8 +553,14 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 			}
 		}
 	}
+	if err := d.addRuntimePrerequisiteEdges(ctx, graph, loaded); err != nil {
+		return err
+	}
 	d.addConfigurationReferenceEdges(ctx, graph)
 	d.graph = graph
+	if len(d.options.RuntimePrerequisites) > 0 {
+		return d.VerifyAcyclic(ctx)
+	}
 	return nil
 }
 
