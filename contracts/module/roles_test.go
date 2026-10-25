@@ -20,12 +20,12 @@ func TestRolesAreReadAsDeclaredAndWrittenBack(t *testing.T) {
 	}
 	want := []Role{
 		{Name: InstallerRole, Scopes: []CeilingScope{
-			{ResourceKind: "wiki.page", Actions: []string{"read", "write", "publish"}},
+			{ResourceKind: "assistant.tasks", Actions: []string{"read", "write", "publish"}},
 			{ResourceKind: "documents", Actions: []string{"read", "write"}},
 		}},
-		{Name: "editor", Scopes: []CeilingScope{{ResourceKind: "wiki.page", Actions: []string{"read", "write"}}}},
+		{Name: "editor", Scopes: []CeilingScope{{ResourceKind: "assistant.tasks", Actions: []string{"read", "write"}}}},
 		{Name: "viewer", Scopes: []CeilingScope{
-			{ResourceKind: "wiki.page", Actions: []string{"read"}},
+			{ResourceKind: "assistant.tasks", Actions: []string{"read"}},
 			{ResourceKind: "documents", Actions: []string{"read"}},
 		}},
 	}
