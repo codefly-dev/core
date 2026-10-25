@@ -323,3 +323,13 @@ for every consumer. That relocation is an owner call, not a quiet one.
 
 See `docs/work-context.md`, "Two entrypoints, one implementation, one strength"
 and "The forwarding hop inspects; the callee verifies".
+
+## Action-specific resource scopes
+
+Several scopes may name the same resource kind when their actions cover different
+resource IDs. Containment checks the union of IDs separately for each action.
+For example, `read(a)` and `invoke(b)` allow those two pairs, but neither
+`invoke(a)` nor `read(b)`. Row ordering does not change authority. A kind-wide
+action requires a parent row granting that action without an ID restriction;
+a finite union of IDs cannot become kind-wide. A zero-action row grants nothing
+and can retain an explicit denial for an already-known kind.
