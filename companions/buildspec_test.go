@@ -216,6 +216,18 @@ func TestBuildSpecsMatchWhatTheCurrentPublisherApplies(t *testing.T) {
 	}
 }
 
+// A COPY spread over continued lines is one instruction: its later sources
+// are inputs too, and a comment inside it is not part of it.
+func TestInstructionsJoinContinuedLines(t *testing.T) {
+	dockerfile := "FROM alpine\n# a comment\nCOPY a \\\n  # inside\n  b /dst/\nRUN true\n"
+	instructions := companions.Instructions(dockerfile)
+	require.Len(t, instructions, 3)
+	require.Equal(t, 3, instructions[1].Line)
+	sources, kind := companions.CopySources(instructions[1].Text)
+	require.Equal(t, companions.FromContext, kind)
+	require.Equal(t, []string{"a", "b"}, sources)
+}
+
 func TestCopySourcesReadsEveryContextCopyShape(t *testing.T) {
 	for line, expected := range map[string]struct {
 		sources []string
@@ -229,6 +241,11 @@ func TestCopySourcesReadsEveryContextCopyShape(t *testing.T) {
 		"COPY --from=builder /go/bin/buf /usr/local/":   {nil, companions.FromStage},
 		"RUN apk add --no-cache bash":                   {nil, companions.NotCopy},
 		"":                                              {nil, companions.NotCopy},
+		"copy facades/py /opt":                          {[]string{"facades/py"}, companions.FromContext},
+		"ADD entrypoint.sh /usr/local/bin/":             {[]string{"entrypoint.sh"}, companions.FromContext},
+		"add --chown=1 a https://example.com/x.tgz /d/": {[]string{"a"}, companions.FromContext},
+		"ADD git@github.com:o/r.git /src":               {nil, companions.FromContext},
+		"COPY <<EOF /etc/conf":                          {nil, companions.FromContext},
 		`COPY ["a", "b"]`:                               {nil, companions.Unparsed},
 		"COPY onlyone":                                  {nil, companions.Unparsed},
 	} {
@@ -245,11 +262,11 @@ func TestDockerfileCopySourcesResolveInTheDeclaredContext(t *testing.T) {
 	root := repositoryRoot(t)
 	for _, spec := range buildSpecs(t) {
 		context := filepath.Join(root, filepath.FromSlash(spec.Context))
-		for number, line := range strings.Split(dockerfile(t, spec), "\n") {
-			sources, kind := companions.CopySources(line)
+		for _, instruction := range companions.Instructions(dockerfile(t, spec)) {
+			sources, kind := companions.CopySources(instruction.Text)
 			require.NotEqualf(t, companions.Unparsed, kind,
 				"%s:%d is a COPY this test cannot read, so nothing checks its sources: %s",
-				spec.Dockerfile, number+1, strings.TrimSpace(line))
+				spec.Dockerfile, instruction.Line, strings.TrimSpace(instruction.Text))
 			if kind != companions.FromContext {
 				continue
 			}
@@ -263,7 +280,7 @@ func TestDockerfileCopySourcesResolveInTheDeclaredContext(t *testing.T) {
 				}
 				_, err := os.Stat(filepath.Join(context, filepath.FromSlash(source)))
 				require.NoErrorf(t, err, "%s:%d copies %s, which does not exist in the %s context",
-					spec.Dockerfile, number+1, source, spec.Context)
+					spec.Dockerfile, instruction.Line, source, spec.Context)
 			}
 		}
 	}
@@ -298,8 +315,8 @@ func TestDockerIgnoreExcludesNothingTheBuildsNeed(t *testing.T) {
 		if spec.CLIBinary != "" {
 			required = append(required, spec.CLIBinary)
 		}
-		for _, line := range strings.Split(dockerfile(t, spec), "\n") {
-			if sources, kind := companions.CopySources(line); kind == companions.FromContext {
+		for _, instruction := range companions.Instructions(dockerfile(t, spec)) {
+			if sources, kind := companions.CopySources(instruction.Text); kind == companions.FromContext {
 				required = append(required, sources...)
 			}
 		}

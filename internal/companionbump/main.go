@@ -94,6 +94,17 @@ func git(args ...string) (string, error) {
 	return string(out), nil
 }
 
+// changedFiles lists every path that differs between baseRef's merge base and
+// HEAD. --no-renames lists a moved file at both of its paths: moving a file out
+// of an input changes the image as surely as editing it.
+func changedFiles(baseRef string) ([]string, error) {
+	diff, err := git("diff", "--name-only", "--no-renames", baseRef+"...HEAD")
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(diff), nil
+}
+
 func run(baseRef string) ([]string, error) {
 	specs, err := companions.BuildSpecs()
 	if err != nil {
@@ -107,7 +118,7 @@ func run(baseRef string) ([]string, error) {
 		}
 		all = append(all, companion{name: spec.Name, version: spec.Version, inputs: inputs})
 	}
-	diff, err := git("diff", "--name-only", baseRef+"...HEAD")
+	changed, err := changedFiles(baseRef)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +139,7 @@ func run(baseRef string) ([]string, error) {
 		}
 		return info.Version, true, nil
 	}
-	return unbumped(all, strings.Fields(diff), base)
+	return unbumped(all, changed, base)
 }
 
 func main() {

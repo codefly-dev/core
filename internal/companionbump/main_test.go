@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/codefly-dev/core/companions"
@@ -86,4 +89,35 @@ func TestTheCheckoutsInputsCoverTheFacadePlugins(t *testing.T) {
 		[]string{"companions/proto/facades/python/protoc_gen_codefly_facade_python.py"}))
 	require.Empty(t, touchedInputs(byName["proto"], []string{"companions/proto/README.md"}))
 	require.NotContains(t, byName["codefly"], "bin/linux/${TARGETARCH}/codefly")
+}
+
+// Moving a file out of an input changes the image: git's rename detection
+// would list only the destination, outside every input, and let it through.
+func TestAFileMovedOutOfAnInputIsAChangeToIt(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, out)
+	}
+	run("init", "-q", "-b", "main")
+	plugin := filepath.Join("companions", "proto", "facades", "python", "plugin.py")
+	require.NoError(t, os.MkdirAll(filepath.Dir(plugin), 0o755))
+	require.NoError(t, os.WriteFile(plugin, []byte("print('the facade plugin, long enough to be detected as a rename')\n"), 0o644))
+	run("add", ".")
+	run("commit", "-q", "-m", "base")
+	run("checkout", "-q", "-b", "change")
+	require.NoError(t, os.MkdirAll("elsewhere", 0o755))
+	run("mv", plugin, filepath.Join("elsewhere", "plugin.py"))
+	run("commit", "-q", "-m", "move")
+
+	changed, err := changedFiles("main")
+	require.NoError(t, err)
+	require.Contains(t, changed, "companions/proto/facades/python/plugin.py")
+	refusals, err := unbumped([]companion{proto}, changed, baseAt(map[string]string{"proto": "0.0.17"}))
+	require.NoError(t, err)
+	require.Len(t, refusals, 1)
 }

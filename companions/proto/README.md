@@ -134,8 +134,8 @@ old image.
 
 A change to any of a companion's image inputs (its Dockerfile and every
 build-context `COPY` source, `BuildSpec.Inputs`) must bump its
-`info.codefly.yaml`: `internal/companionbump` refuses a pull request that does
-not.
+`info.codefly.yaml`: `internal/companionbump`, the required `Companion version`
+check on every pull request, refuses one that does not.
 
 Rust generation stages output before publishing it. `.codefly-rust-output.json`
 records the generated files and their hashes; only unchanged, tracked files may

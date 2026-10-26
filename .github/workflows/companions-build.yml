@@ -14,7 +14,6 @@ on:
     paths:
       - companions/**
       - internal/buildspecs/**
-      - internal/companionbump/**
       - .dockerignore
       - .github/workflows/companions-build.yml
   push:
@@ -22,7 +21,6 @@ on:
     paths:
       - companions/**
       - internal/buildspecs/**
-      - internal/companionbump/**
       - .dockerignore
       - .github/workflows/companions-build.yml
   workflow_dispatch:
@@ -31,26 +29,6 @@ permissions:
   contents: read
 
 jobs:
-  # A change to a companion's image inputs must bump its version: publishing
-  # skips a tag the registry already has, and a forced republish swaps the
-  # image under every machine that cached the tag. companions/proto 0.0.17
-  # shipped the streaming Python facade that way (core#837).
-  version:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: every changed companion carries a new version
-        env:
-          BASE_REF: origin/${{ github.base_ref }}
-        run: go run ./internal/companionbump "$BASE_REF"
-
   plan:
     runs-on: ubuntu-latest
     outputs:

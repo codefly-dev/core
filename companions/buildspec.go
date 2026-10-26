@@ -111,31 +111,80 @@ func BuildSpecs() ([]BuildSpec, error) {
 	return out, nil
 }
 
-// CopyKind classifies a Dockerfile line for CopySources.
+// Instruction is one logical Dockerfile instruction: its physical lines
+// joined where a line ends in the escape character, comment lines inside it
+// dropped, and Line the physical line it starts on.
+type Instruction struct {
+	Line int
+	Text string
+}
+
+// Instructions splits a Dockerfile into its logical instructions. A COPY
+// written over several lines is one instruction, so its sources on the later
+// lines are read with it rather than missed.
+func Instructions(dockerfile string) []Instruction {
+	var out []Instruction
+	var current []string
+	start := 0
+	for number, raw := range strings.Split(dockerfile, "\n") {
+		line := strings.TrimRight(raw, " \t\r")
+		trimmed := strings.TrimSpace(line)
+		if len(current) == 0 && (trimmed == "" || strings.HasPrefix(trimmed, "#")) {
+			continue
+		}
+		if len(current) > 0 && strings.HasPrefix(trimmed, "#") {
+			continue // a comment inside a continued instruction is not part of it
+		}
+		if len(current) == 0 {
+			start = number + 1
+		}
+		if strings.HasSuffix(line, "\\") {
+			current = append(current, strings.TrimSuffix(line, "\\"))
+			continue
+		}
+		current = append(current, line)
+		out = append(out, Instruction{Line: start, Text: strings.Join(current, " ")})
+		current = nil
+	}
+	if len(current) > 0 {
+		out = append(out, Instruction{Line: start, Text: strings.Join(current, " ")})
+	}
+	return out
+}
+
+// CopyKind classifies an instruction for CopySources.
 type CopyKind int
 
 const (
-	// NotCopy is any line that is not a COPY instruction.
+	// NotCopy is any instruction that is neither COPY nor ADD.
 	NotCopy CopyKind = iota
 	// FromStage is COPY --from=<stage|image>, which reads from another image
 	// rather than from the build context.
 	FromStage
-	// FromContext is a COPY that reads paths out of the build context.
+	// FromContext is a COPY or ADD that reads paths out of the build context.
+	// An ADD source that is a URL or a git remote is not one, and is left out.
 	FromContext
-	// Unparsed is a COPY whose shape this parser does not understand — the
-	// JSON form, or one with no source and destination. It is reported rather
-	// than skipped: a COPY nobody reads is an image input nothing checks.
+	// Unparsed is a COPY or ADD whose shape this parser does not understand —
+	// the JSON form, or one with no source and destination. It is reported
+	// rather than skipped: a copy nobody reads is an image input nothing
+	// checks.
 	Unparsed
 )
 
-// CopySources returns the build-context sources of a COPY instruction.
+// CopySources returns the build-context sources of a COPY or ADD instruction,
+// in any case (Dockerfile instructions are case-insensitive). Pass it a
+// logical instruction (Instructions), not a physical line.
 //
 // Leading flags are stripped rather than abandoning the line. Skipping any
 // flagged COPY would leave `COPY --chown=…` and `COPY --link` — both ordinary
 // context reads — unread, so their sources would escape every check.
-func CopySources(line string) ([]string, CopyKind) {
-	fields := strings.Fields(line)
-	if len(fields) == 0 || fields[0] != "COPY" {
+func CopySources(instruction string) ([]string, CopyKind) {
+	fields := strings.Fields(instruction)
+	if len(fields) == 0 {
+		return nil, NotCopy
+	}
+	command := strings.ToUpper(fields[0])
+	if command != "COPY" && command != "ADD" {
 		return nil, NotCopy
 	}
 	operands := fields[1:]
@@ -148,12 +197,33 @@ func CopySources(line string) ([]string, CopyKind) {
 	if len(operands) < 2 || strings.HasPrefix(operands[0], "[") {
 		return nil, Unparsed
 	}
-	return operands[:len(operands)-1], FromContext
+	var sources []string
+	for _, source := range operands[:len(operands)-1] {
+		if strings.HasPrefix(source, "<<") {
+			continue // a heredoc: its content is in the Dockerfile itself
+		}
+		if command == "ADD" && remoteSource(source) {
+			continue
+		}
+		sources = append(sources, source)
+	}
+	return sources, FromContext
+}
+
+// remoteSource reports whether an ADD source is fetched rather than read from
+// the build context.
+func remoteSource(source string) bool {
+	for _, prefix := range []string{"http://", "https://", "git@", "git://", "ssh://"} {
+		if strings.HasPrefix(source, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Inputs returns the repository-root-relative POSIX paths, read from the
 // checkout at root, that this companion's image is built from in this
-// repository: its Dockerfile and every build-context COPY source, a file or a
+// repository: its Dockerfile and every build-context COPY or ADD source, a file or a
 // directory. The staged CLI binary is not one: it is built from codefly-dev/cli
 // at publish time. A change under any input changes the image, so it needs a
 // new Version: publishing skips a tag the registry already has.
@@ -163,11 +233,11 @@ func (s BuildSpec) Inputs(root string) ([]string, error) {
 		return nil, fmt.Errorf("cannot read the <%s> Dockerfile: %w", s.Name, err)
 	}
 	inputs := []string{s.Dockerfile}
-	for number, line := range strings.Split(string(content), "\n") {
-		sources, kind := CopySources(line)
+	for _, instruction := range Instructions(string(content)) {
+		sources, kind := CopySources(instruction.Text)
 		switch kind {
 		case Unparsed:
-			return nil, fmt.Errorf("%s:%d is a COPY whose sources cannot be read: %s", s.Dockerfile, number+1, strings.TrimSpace(line))
+			return nil, fmt.Errorf("%s:%d is a COPY or ADD whose sources cannot be read: %s", s.Dockerfile, instruction.Line, strings.TrimSpace(instruction.Text))
 		case FromContext:
 			for _, source := range sources {
 				if s.CLIBinary != "" && source == s.CLIBinary {
