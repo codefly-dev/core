@@ -114,11 +114,12 @@ type Operation struct {
 	// lookup_scopes are the scopes the runtime binds to read an effect receipt.
 	// They must be a read-only subset of invoke_scopes: recovering an outcome
 	// never carries more authority than producing it did. Required slots may
-	// supply all lookup scopes. An operation stating recovery RECOVERY_RECEIPT
-	// may declare none: its receipt is then read under its invoke scopes, the
-	// caller reading the receipt of its own effect (keyed by effect id and
-	// caller identity). With recovery unstated, a resolved policy with none is
-	// still refused.
+	// supply all lookup scopes. Lookup scopes are optional, whatever recovery
+	// says or leaves unsaid: with none, a receipt is read under invoke_scopes
+	// and only by the identity that made the effect — the receipt records its
+	// Work Context owner and acting principal (codefly.runnable.receipts.v0.
+	// ReceiptIdentity) and runnable.AdmitReceiptLookup admits that identity
+	// alone. A recomputed operation declares none: it keeps no receipt.
 	LookupScopes []*v0.WorkScopeV1 `protobuf:"bytes,8,rep,name=lookup_scopes,json=lookupScopes,proto3" json:"lookup_scopes,omitempty"`
 	// lookup_method is a paired method on the same service that takes the effect
 	// id and answers with the receipt, spelled "/package.Service/Method". Empty

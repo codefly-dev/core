@@ -144,6 +144,11 @@ func TestProjectJSONSchemaReadsTheProtoJSONSpellings(t *testing.T) {
 	}{
 		{"timestamp", `{"type":"string","format":"date-time"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "date-time"}},
 		{"bytes", `{"type":"string","format":"byte"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "byte"}},
+		{"int64", `{"type":"string","format":"int64"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: runnable.FormatInt64}},
+		{"uint64", `{"type":"string","format":"uint64"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: runnable.FormatUint64}},
+		{"duration", `{"type":"string","format":"protobuf-duration"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: runnable.FormatProtobufDuration}},
+		// JSON Schema's ISO 8601 duration is not proto3 JSON's: a plain string.
+		{"iso duration", `{"type":"string","format":"duration"}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING}},
 		{"enum", `{"type":"string","enum":["RED","GREEN"]}`, &basev0.RunnableField{Type: basev0.RunnableField_STRING, Values: []string{"RED", "GREEN"}}},
 		{"double", `{"type":"number","format":"double"}`, &basev0.RunnableField{Type: basev0.RunnableField_NUMBER}},
 		{"struct", `{"type":"object"}`, &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: "object"}},

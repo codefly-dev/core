@@ -29,6 +29,22 @@ const MaxProjectionFields = 10000
 // that spelling (wellKnown), never by walking its fields.
 const wellKnownPrefix = "google.protobuf."
 
+// The formats a projected value carries: the spellings proto3 JSON gives a
+// value whose type alone does not say how it is written. The set is closed
+// (resources.RunnableFieldFormats) so a format is a fact, never a hint, and
+// the protobuf-specific ones say so in their name: proto3 JSON writes a
+// Duration as "1.5s", which JSON Schema's ISO 8601 "duration" would refuse.
+const (
+	FormatDateTime         = "date-time"
+	FormatProtobufDuration = "protobuf-duration"
+	FormatFieldMask        = "protobuf-field-mask"
+	FormatByte             = "byte"
+	FormatInt64            = "int64"
+	FormatUint64           = "uint64"
+	FormatObject           = "object"
+	FormatArray            = "array"
+)
+
 // emptyPayload is the one well-known type a payload may be: proto3 JSON
 // carries google.protobuf.Empty as an object with no keys, which is exactly
 // the contract its projection states.
@@ -41,11 +57,14 @@ const emptyPayload = "google.protobuf.Empty"
 //
 // The profile describes the JSON the owner's Connect endpoint reads and
 // writes, so every type is projected by its canonical proto3 JSON mapping: a
-// Timestamp is a "date-time" string, a Duration a "duration" string, an enum
+// Timestamp is a "date-time" string, a Duration a "protobuf-duration" string, an enum
 // a string naming one of its values, bytes a "byte" string, a float or double
-// a NUMBER, an unsigned 64-bit integer a "uint64" string, a Struct, Value,
+// a NUMBER, a 64-bit integer an "int64" or "uint64" decimal string, a Struct, Value,
 // ListValue or map an arbitrary JSON value, a wrapper its wrapped value made
-// nullable, and an authored oneof's members optional keys. What has no
+// nullable, and an authored oneof's members optional keys. Every member is
+// named by its JSON name (lowerCamelCase, or the json_name the owner chose),
+// which is the key a Connect server writes; protojson reads either spelling,
+// so the input loses nothing. What has no
 // canonical JSON a caller can write without the owner's type registry —
 // google.protobuf.Any — and what has no bounded shape — a recursive message —
 // is rejected, named by its full field path, and is never coerced.
@@ -98,7 +117,7 @@ func projectField(fd protoreflect.FieldDescriptor, parent string, enclosing []pr
 	if fd.IsMap() {
 		// proto3 JSON carries a map as an object keyed by the map's keys, which
 		// the owner does not enumerate.
-		return &basev0.RunnableField{Name: string(fd.Name()), Type: basev0.RunnableField_JSON, Format: "object", Optional: true}, nil
+		return &basev0.RunnableField{Name: fd.JSONName(), Type: basev0.RunnableField_JSON, Format: FormatObject, Optional: true}, nil
 	}
 	value, err := projectValue(fd, at, enclosing, budget)
 	if err != nil {
@@ -107,9 +126,9 @@ func projectField(fd protoreflect.FieldDescriptor, parent string, enclosing []pr
 	if fd.IsList() {
 		// An element is present or the list is shorter, so the item carries
 		// neither the field's name nor its optionality.
-		return &basev0.RunnableField{Name: string(fd.Name()), Type: basev0.RunnableField_ARRAY, Items: value}, nil
+		return &basev0.RunnableField{Name: fd.JSONName(), Type: basev0.RunnableField_ARRAY, Items: value}, nil
 	}
-	value.Name = string(fd.Name())
+	value.Name = fd.JSONName()
 	// A required field tracks presence but its key is never absent, so reading
 	// presence alone would mark proto2 required and editions LEGACY_REQUIRED
 	// fields omissible — the inverse of what they declare. A member of an
@@ -128,17 +147,20 @@ func projectValue(fd protoreflect.FieldDescriptor, at string, enclosing []protor
 	case protoreflect.BoolKind:
 		return &basev0.RunnableField{Type: basev0.RunnableField_BOOLEAN}, nil
 	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
-		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
 		protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 		return &basev0.RunnableField{Type: basev0.RunnableField_INTEGER}, nil
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		// proto3 JSON writes a 64-bit integer as a decimal string, so that is
+		// what the contract states: an answer arrives as "7", never 7.
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatInt64}, nil
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		// Its range exceeds the profile's signed 64-bit integer, and proto3
-		// JSON carries it as a decimal string, which is what is stated.
-		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "uint64"}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatUint64}, nil
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
+		// proto3 JSON writes a non-finite value as "NaN", "Infinity" or
+		// "-Infinity"; a NUMBER admits those three strings (RunnableField).
 		return &basev0.RunnableField{Type: basev0.RunnableField_NUMBER}, nil
 	case protoreflect.BytesKind:
-		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "byte"}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatByte}, nil
 	case protoreflect.EnumKind:
 		return enumValue(fd.Enum()), nil
 	case protoreflect.MessageKind, protoreflect.GroupKind:
@@ -172,29 +194,31 @@ func enumValue(ed protoreflect.EnumDescriptor) *basev0.RunnableField {
 func wellKnown(md protoreflect.MessageDescriptor, at string) (*basev0.RunnableField, error) {
 	switch md.FullName() {
 	case "google.protobuf.Timestamp":
-		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "date-time"}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatDateTime}, nil
 	case "google.protobuf.Duration":
-		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "duration"}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatProtobufDuration}, nil
 	case "google.protobuf.FieldMask":
-		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "field-mask"}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatFieldMask}, nil
 	case "google.protobuf.Empty":
 		return &basev0.RunnableField{Type: basev0.RunnableField_OBJECT}, nil
 	case "google.protobuf.Struct":
-		return &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: "object"}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: FormatObject}, nil
 	case "google.protobuf.ListValue":
-		return &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: "array"}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_JSON, Format: FormatArray}, nil
 	case "google.protobuf.Value":
 		return &basev0.RunnableField{Type: basev0.RunnableField_JSON, Nullable: true}, nil
 	case "google.protobuf.StringValue":
 		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Nullable: true}, nil
 	case "google.protobuf.BytesValue":
-		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "byte", Nullable: true}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatByte, Nullable: true}, nil
 	case "google.protobuf.BoolValue":
 		return &basev0.RunnableField{Type: basev0.RunnableField_BOOLEAN, Nullable: true}, nil
-	case "google.protobuf.Int32Value", "google.protobuf.Int64Value", "google.protobuf.UInt32Value":
+	case "google.protobuf.Int32Value", "google.protobuf.UInt32Value":
 		return &basev0.RunnableField{Type: basev0.RunnableField_INTEGER, Nullable: true}, nil
+	case "google.protobuf.Int64Value":
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatInt64, Nullable: true}, nil
 	case "google.protobuf.UInt64Value":
-		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: "uint64", Nullable: true}, nil
+		return &basev0.RunnableField{Type: basev0.RunnableField_STRING, Format: FormatUint64, Nullable: true}, nil
 	case "google.protobuf.FloatValue", "google.protobuf.DoubleValue":
 		return &basev0.RunnableField{Type: basev0.RunnableField_NUMBER, Nullable: true}, nil
 	}

@@ -290,12 +290,14 @@ func OperationForMethod(files *protoregistry.Files, method protoreflect.MethodDe
 		if authority == nil {
 			return nil, false, fmt.Errorf("%w: %s declares no authority policy", ErrNotAnOperation, method.FullName())
 		}
-		spec, err := DefaultOperation(method, authority, audience)
-		return spec, false, err
+		if lookup := receiptLookupOf(method); lookup != "" {
+			return nil, false, fmt.Errorf("%w: %s is the receipt lookup of %s, which recovery calls and no person or agent does", ErrNotAnOperation, method.FullName(), lookup)
+		}
+		return defaultSpec(method, authority, audience)
 	}
-	spec, err := OperationFromMethod(method)
-	if err != nil {
-		return nil, true, err
+	spec, declaredErr := OperationFromMethod(method)
+	if declaredErr != nil {
+		return nil, true, declaredErr
 	}
 	if spec.Tool == nil {
 		spec.Tool = DefaultTool(method, spec.EffectiveRecovery(), authority)
@@ -304,6 +306,43 @@ func OperationForMethod(files *protoregistry.Files, method protoreflect.MethodDe
 		}
 	}
 	return spec, true, nil
+}
+
+// defaultSpec is a default derivation, reporting it as not declared.
+func defaultSpec(method protoreflect.MethodDescriptor, authority *Authority, audience string) (*OperationSpec, bool, error) {
+	spec, err := DefaultOperation(method, authority, audience)
+	return spec, false, err
+}
+
+// receiptLookupOf names the operation a method is the receipt lookup of, or
+// empty: a method another operation of its service names as its
+// lookup_method, or one spelled Lookup<Op> beside a method <Op> of the same
+// service. A receipt lookup is structurally recovery's, so it is never derived
+// as an operation of its own — the one exclusion derivation makes without the
+// owner saying so. Who may reach every other operation is a matter of grants.
+func receiptLookupOf(method protoreflect.MethodDescriptor) string {
+	service, ok := method.Parent().(protoreflect.ServiceDescriptor)
+	if !ok {
+		return ""
+	}
+	full := FullMethodName(method)
+	methods := service.Methods()
+	for i := 0; i < methods.Len(); i++ {
+		sibling := methods.Get(i)
+		options, _ := sibling.Options().(*descriptorpb.MethodOptions)
+		if options == nil || !proto.HasExtension(options, runnablev0.E_Operation) {
+			continue
+		}
+		if declared, isOperation := proto.GetExtension(options, runnablev0.E_Operation).(*runnablev0.Operation); isOperation && declared.GetLookupMethod() == full {
+			return FullMethodName(sibling)
+		}
+	}
+	if operation, found := strings.CutPrefix(string(method.Name()), "Lookup"); found && operation != "" {
+		if sibling := methods.ByName(protoreflect.Name(operation)); sibling != nil {
+			return FullMethodName(sibling)
+		}
+	}
+	return ""
 }
 
 // validateLookupMethod ties the declared receipt lookup to a method that
@@ -451,8 +490,6 @@ func (s *OperationSpec) authority() authoritySpec {
 		invokeScopes:       s.InvokeScopes,
 		lookupScopes:       s.LookupScopes,
 		requiredScopeSlots: s.RequiredScopeSlots,
-		recomputed:         s.EffectiveRecovery() == basev0.RunnableExecution_RECOVERY_RECOMPUTE,
-		lookupUnderInvoke:  s.Recovery == basev0.RunnableExecution_RECOVERY_RECEIPT,
 	}
 }
 
@@ -461,7 +498,18 @@ func (s *OperationSpec) authority() authoritySpec {
 // Fixed scopes are validated identically wherever they appear. A declaration
 // with required slots may defer nonempty scope lists until resolution. Delivered
 // policies refuse unresolved slots, and an installed binding's own authority
-// has no slots, so concrete authority always requires both scope lists.
+// has no slots, so concrete authority always requires invoke scopes.
+//
+// Lookup scopes are optional, under one rule wherever they appear — a
+// declaration, a prepared policy, an installed binding — whatever the
+// operation's recovery says or leaves unsaid. Empty, a receipt is read under
+// the invoke scopes and only by the identity that made the effect: a receipt
+// records its Work Context owner and acting principal, and AdmitReceiptLookup
+// admits a lookup for that same identity alone. That binding, not the
+// spelling of the declaration, is what makes an empty list safe, which is why
+// the rule cannot depend on whether recovery was stated: the installed package
+// carries only the recovery in effect. Declared, lookup scopes keep every rule
+// below — read-only, and inside the invoke scopes.
 type authoritySpec struct {
 	// subject names what the authority belongs to, for the error message: an
 	// operation spelling, or a binding's facility.
@@ -471,16 +519,6 @@ type authoritySpec struct {
 	lookupScopes []*basev0.WorkScopeV1
 	// requiredScopeSlots exists only while an owner declaration awaits selection.
 	requiredScopeSlots []*runnablev0.ScopeSlot
-	// recomputed is an operation with no receipt, whose authority is its
-	// invoke scopes alone.
-	recomputed bool
-	// lookupUnderInvoke is an operation that states RECOVERY_RECEIPT: one
-	// declaring no lookup scopes reads its receipt under its invoke scopes —
-	// the caller reads the receipt of its own effect, keyed by effect id and
-	// caller identity, with the authority that made the effect and never more.
-	// An operation leaving recovery unstated keeps the older rule that lookup
-	// scopes are required, so no declaration written before changes meaning.
-	lookupUnderInvoke bool
 }
 
 func (a authoritySpec) validate() error {
@@ -493,7 +531,8 @@ func (a authoritySpec) validate() error {
 	if err := a.validateScopes("invoke_scopes", a.invokeScopes); err != nil {
 		return err
 	}
-	if (a.recomputed || a.lookupUnderInvoke) && len(a.lookupScopes) == 0 {
+	if len(a.lookupScopes) == 0 {
+		// Identity-bound under the invoke scopes (see authoritySpec).
 		return nil
 	}
 	if err := a.validateScopes("lookup_scopes", a.lookupScopes); err != nil {

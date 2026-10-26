@@ -11,10 +11,20 @@ import "google/rpc/status.proto";
 //
 // The tenant is deliberately absent from every request below: it comes from the
 // verified Work Context the call carries, so one tenant cannot name another's
-// effect. Authority is the operation's lookup_scopes, which are a read-only
-// subset of its invoke_scopes — recovering an outcome never carries more
-// authority than producing it did. Binding those scopes to the operation named
-// in the request is the server's job, and LookupRequest.method says why.
+// effect.
+//
+// A receipt belongs to the caller that made the effect. The owner records,
+// with every receipt, the ReceiptIdentity of the Work Context the effect was
+// made under, and a lookup is admitted only for that same identity — the same
+// owner principal and the same acting principal — so no other caller in the
+// tenant reads it, whatever scopes it holds and whatever effect id it
+// presents. On top of the identity, the presented context must cover the
+// operation's lookup_scopes, or, when the operation declares none, its
+// invoke_scopes: the receipt is then read with exactly the authority that made
+// the effect, never more. Binding those scopes to the operation named in the
+// request is the server's job, and LookupRequest.method says why.
+// codefly-dev/core's runnable.AdmitReceiptLookup is the one decision, so every
+// server makes it the same way.
 service Receipts {
   // Lookup answers with the receipt one invocation's effect committed.
   //
@@ -36,7 +46,9 @@ message LookupRequest {
   //
   // It is also the authorization subject, and it is request data while the
   // scopes authorizing it are Work Context data. A server must therefore
-  // reject a method whose lookup_scopes the presented context does not cover.
+  // reject a method whose lookup_scopes (or, when it declares none, whose
+  // invoke_scopes) the presented context does not cover, and a receipt whose
+  // recorded ReceiptIdentity is not the presented context's.
   // Accept the method unchecked and a caller holding lookup authority for one
   // operation reads another operation's receipt from inside its own tenant,
   // which the Work Context alone does not stop.
@@ -68,4 +80,18 @@ message LookupResponse {
     // codefly.base.v0.Failure belongs when the owner sends one.
     google.rpc.Status status = 2;
   }
+}
+
+// ReceiptIdentity is who made an effect, recorded with its receipt in the same
+// transaction that commits the effect, and compared on every lookup. It is the
+// verified Work Context's owner principal and its acting principal — the last
+// actor of its chain, or the owner when the chain is empty — because those are
+// the two a delegation can vary: the same person through another agent is
+// another caller, and the same agent for another person is too.
+message ReceiptIdentity {
+  // owner_principal_id is the Work Context's owner_principal_id.
+  string owner_principal_id = 1;
+  // acting_principal_id is the principal_id of the last actor in the Work
+  // Context's actor_chain, or owner_principal_id when the chain is empty.
+  string acting_principal_id = 2;
 }

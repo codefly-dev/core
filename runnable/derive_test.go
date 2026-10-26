@@ -1,6 +1,7 @@
 package runnable_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -80,8 +81,12 @@ func hopMethod(t *testing.T, policyFile protoreflect.FileDescriptor, name string
 
 func hopFiles(t *testing.T, methods ...*descriptorpb.MethodDescriptorProto) *protoregistry.Files {
 	t.Helper()
+	return hopFilesFor(t, ingestion(nil, methods...))
+}
+
+func hopFilesFor(t *testing.T, spec fileSpec) *protoregistry.Files {
+	t.Helper()
 	policyFile := hopPolicyFile(t)
-	spec := ingestion(nil, methods...)
 	spec.imports = append(spec.imports, "authority/hop/v1/policy.proto")
 	resolver := &protoregistry.Files{}
 	require.NoError(t, resolver.RegisterFile(policyFile))
@@ -221,28 +226,128 @@ func preparedFor(t *testing.T, spec *runnable.OperationSpec) *runnablev0.Prepare
 	return delivered
 }
 
-// A receipt read under the invoke scopes is the stated form only: an operation
-// leaving recovery unstated still needs its lookup scopes, so no declaration
-// written before the rule changes meaning.
-func TestALookupUnderTheInvokeScopesIsStatedNeverInferred(t *testing.T) {
+// An empty lookup is identity-bound under the invoke scopes whatever recovery
+// says or leaves unsaid: one rule, because the installed package carries only
+// the recovery in effect. Declared lookup scopes keep every rule.
+func TestAnEmptyLookupIsIdentityBoundWhateverRecoverySays(t *testing.T) {
+	for _, recovery := range []basev0.RunnableExecution_Recovery{basev0.RunnableExecution_RECOVERY_UNKNOWN, basev0.RunnableExecution_RECOVERY_RECEIPT} {
+		declared := declaredOperation()
+		declared.LookupScopes, declared.LookupMethod = nil, ""
+		declared.Recovery = recovery
+		pkg, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
+		require.NoError(t, err)
+		require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, pkg.GetExecution().GetRecovery())
+		require.Empty(t, spec.LookupScopes)
+		require.Empty(t, preparedFor(t, spec).GetPolicy().GetLookupScopes())
+	}
+
 	declared := declaredOperation()
-	declared.LookupScopes, declared.LookupMethod = nil, ""
+	declared.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest"}}}
 	_, _, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
 	require.ErrorIs(t, err, runnable.ErrInvalid)
-	require.ErrorContains(t, err, "lookup_scopes")
-
-	declared.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
-	pkg, spec, err := runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
-	require.NoError(t, err)
-	require.Equal(t, basev0.RunnableExecution_RECOVERY_RECEIPT, pkg.GetExecution().GetRecovery())
-	require.Empty(t, spec.LookupScopes)
-	// It delivers: a prepared binding with no lookup scopes verifies.
-	delivered := preparedFor(t, spec)
-	require.Empty(t, delivered.GetPolicy().GetLookupScopes())
-
-	// Lookup scopes it does declare keep every rule: read-only, inside invoke.
-	declared.LookupScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest"}}}
-	_, _, err = runnable.PackageFromMethod(ingestionFiles(t, declared), ingestLocation(), ingestOwner(), applyText)
-	require.ErrorIs(t, err, runnable.ErrInvalid)
 	require.ErrorContains(t, err, "not read-only")
+}
+
+// Both derived forms install on the runtime: a recomputed read and a receipt
+// mutation, each with no lookup scopes (r86 B2).
+func TestTheRuntimeInstallsBothDerivedForms(t *testing.T) {
+	for _, recovery := range []basev0.RunnableExecution_Recovery{basev0.RunnableExecution_RECOVERY_RECOMPUTE, basev0.RunnableExecution_RECOVERY_RECEIPT} {
+		t.Run(recovery.String(), func(t *testing.T) {
+			declared := ownerHandlerPackage(t)
+			declared.Execution.Recovery = recovery
+			pkg, err := runnable.PreparePackage(declared)
+			require.NoError(t, err)
+			binding := sampleBinding(pkg, nil, basev0.RunnableFacility_SERVICE)
+			binding.Implementation = &basev0.RunnableBinding_ServiceOperation{ServiceOperation: sampleServiceOperation()}
+			binding.Authority.LookupScopes = nil
+			installed, err := runnable.PrepareBinding(binding, pkg)
+			require.NoError(t, err)
+			require.NoError(t, runnable.VerifyBinding(installed, pkg))
+
+			binding.Authority.InvokeScopes = nil
+			_, err = runnable.PrepareBinding(binding, pkg)
+			require.ErrorIs(t, err, runnable.ErrInvalid, "invoke authority stays required")
+		})
+	}
+}
+
+func workContext(owner string, actors ...string) *basev0.WorkContextV1 {
+	wc := &basev0.WorkContextV1{OwnerPrincipalId: owner}
+	for _, actor := range actors {
+		wc.ActorChain = append(wc.ActorChain, &basev0.WorkActorV1{PrincipalId: actor, PrincipalKind: "agent"})
+	}
+	return wc
+}
+
+// A receipt belongs to the caller that made the effect: owner and acting
+// principal both, then the authority it is read under (r86 B1).
+func TestAReceiptIsReadOnlyByTheCallerThatMadeIt(t *testing.T) {
+	write := []*basev0.WorkScopeV1{{ResourceKind: "annotations.annotations", Actions: []string{"write"}}}
+	read := []*basev0.WorkScopeV1{{ResourceKind: "annotations.annotations", Actions: []string{"read"}}}
+	identityBound := &runnablev0.Operation{InvokeScopes: write, Recovery: basev0.RunnableExecution_RECOVERY_RECEIPT}
+
+	recorded, err := runnable.ReceiptIdentityOf(workContext("ana", "robin"))
+	require.NoError(t, err)
+	require.Equal(t, "ana", recorded.GetOwnerPrincipalId())
+	require.Equal(t, "robin", recorded.GetActingPrincipalId())
+	alone, err := runnable.ReceiptIdentityOf(workContext("ana"))
+	require.NoError(t, err)
+	require.Equal(t, "ana", alone.GetActingPrincipalId(), "no delegation: the owner acts")
+
+	require.NoError(t, runnable.AdmitReceiptLookup(identityBound, recorded, workContext("ana", "robin"), write))
+	for name, refused := range map[string]func() error{
+		"another person in the tenant": func() error {
+			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("bob", "robin"), write)
+		},
+		"the same person through another agent": func() error {
+			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("ana", "other-agent"), write)
+		},
+		"the same person acting directly": func() error {
+			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("ana"), write)
+		},
+		"the caller no longer holding the invoke scopes": func() error {
+			return runnable.AdmitReceiptLookup(identityBound, recorded, workContext("ana", "robin"), read)
+		},
+		"a receipt recording no identity": func() error {
+			return runnable.AdmitReceiptLookup(identityBound, nil, workContext("ana", "robin"), write)
+		},
+		"a recomputed read, which keeps no receipt": func() error {
+			return runnable.AdmitReceiptLookup(&runnablev0.Operation{InvokeScopes: read, Recovery: basev0.RunnableExecution_RECOVERY_RECOMPUTE}, recorded, workContext("ana", "robin"), read)
+		},
+		"declared lookup scopes the caller does not hold": func() error {
+			declared := &runnablev0.Operation{InvokeScopes: write, LookupScopes: read}
+			return runnable.AdmitReceiptLookup(declared, recorded, workContext("ana", "robin"), write)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorIs(t, refused(), runnable.ErrReceiptNotAdmitted)
+		})
+	}
+}
+
+// A receipt lookup is recovery's, never an operation of its own.
+func TestAReceiptLookupIsNeverDerived(t *testing.T) {
+	policyFile := hopPolicyFile(t)
+	lookup := hopMethod(t, policyFile, "LookupApplyText", false, requirement{"documents", []string{"read"}})
+	apply := hopMethod(t, policyFile, "ApplyText", false, requirement{"documents", []string{"write"}})
+	files := hopFiles(t, apply, lookup)
+	_, _, err := runnable.PackageFromMethod(files, ingestLocation(), ingestOwner(), "/documents.ingest.v1.IngestionService/LookupApplyText")
+	require.ErrorIs(t, err, runnable.ErrNotAnOperation)
+	require.ErrorContains(t, err, "receipt lookup")
+	// The fixture's LookupText is ApplyText's declared lookup_method.
+	declared := hopMethod(t, policyFile, "LookupText", false, requirement{"documents", []string{"read"}})
+	marked := operationMethod("ApplyText", ".documents.ingest.v1.ApplyTextRequest", ".documents.ingest.v1.ApplyTextResponse", declaredOperation())
+	spec := ingestion(nil, marked)
+	spec.services[0].Method = []*descriptorpb.MethodDescriptorProto{marked, declared}
+	_, _, err = runnable.PackageFromMethod(hopFilesFor(t, spec), ingestLocation(), ingestOwner(), "/documents.ingest.v1.IngestionService/LookupText")
+	require.ErrorIs(t, err, runnable.ErrNotAnOperation)
+}
+
+func TestDerivedNamesAreBoundedDeterministically(t *testing.T) {
+	long := strings.Repeat("GetDocumentTransformationReceipt", 3)
+	bounded := runnable.BoundedName(long, 64, "_")
+	require.Len(t, bounded, 64)
+	require.Equal(t, bounded, runnable.BoundedName(long, 64, "_"))
+	require.NotEqual(t, bounded, runnable.BoundedName(long+"s", 64, "_"))
+	require.Equal(t, "Short", runnable.BoundedName("Short", 64, "_"))
 }

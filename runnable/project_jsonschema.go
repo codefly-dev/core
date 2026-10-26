@@ -16,10 +16,12 @@ import (
 // email and uri are strings.
 var rejectedStringFormats = []string{"binary", "date"}
 
-// keptStringFormats are the formats the proto projection states, read back
-// from the document so a method and its transcription project equal: a
-// Timestamp transcodes to date-time and bytes to byte.
-var keptStringFormats = []string{"date-time", "byte"}
+// keptStringFormats are the string formats the proto projection states, read
+// back from the document so a method and its transcription project one
+// profile: a Timestamp transcodes to date-time, bytes to byte, a 64-bit
+// integer to int64 or uint64, and a Duration or FieldMask to the
+// protobuf-specific spellings. Any other format annotates a plain string.
+var keptStringFormats = []string{FormatDateTime, FormatByte, FormatInt64, FormatUint64, FormatProtobufDuration, FormatFieldMask}
 
 // acceptedNumberFormats are the floating-point widths a NUMBER carries.
 var acceptedNumberFormats = []string{"", "float", "double"}
@@ -197,7 +199,7 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 		if openObject(resolved) {
 			// An object whose members the document does not enumerate is a
 			// Struct or a map, carried as an arbitrary JSON object.
-			field.Type, field.Format = basev0.RunnableField_JSON, "object"
+			field.Type, field.Format = basev0.RunnableField_JSON, FormatObject
 			break
 		}
 		fields, objectErr := projectProperties(doc, resolved, at, open, depth, budget)

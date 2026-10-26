@@ -32,7 +32,9 @@ const (
 	RunnableField_UNKNOWN RunnableField_Type = 0
 	// STRING is a UTF-8 string.
 	RunnableField_STRING RunnableField_Type = 1
-	// INTEGER is a 64-bit signed integer.
+	// INTEGER is a 64-bit signed integer. A protobuf 64-bit integer is not
+	// one on the Connect wire: proto3 JSON writes it as a decimal string, so it
+	// projects as a STRING of format "int64" or "uint64".
 	RunnableField_INTEGER RunnableField_Type = 2
 	// BOOLEAN is a boolean.
 	RunnableField_BOOLEAN RunnableField_Type = 3
@@ -41,7 +43,8 @@ const (
 	// ARRAY is a homogeneous list described by items.
 	RunnableField_ARRAY RunnableField_Type = 5
 	// NUMBER is a floating-point number, as a protobuf float or double is
-	// carried in proto3 JSON.
+	// carried in proto3 JSON: a JSON number, or one of the strings "NaN",
+	// "Infinity" and "-Infinity" proto3 JSON writes a non-finite value as.
 	RunnableField_NUMBER RunnableField_Type = 6
 	// JSON is any JSON value: a google.protobuf.Struct, Value or ListValue,
 	// or a protobuf map, whose members the owner does not enumerate. format
@@ -680,10 +683,11 @@ type RunnableField struct {
 	// items describes an ARRAY field's elements.
 	Items *RunnableField `protobuf:"bytes,7,opt,name=items,proto3" json:"items,omitempty"`
 	// format refines the value's spelling the way proto3 JSON carries it:
-	// "date-time" (a Timestamp, RFC 3339), "duration" (a Duration, "1.5s"),
-	// "field-mask", "byte" (base64 bytes), "uint64" (an unsigned 64-bit
-	// integer, carried as a decimal string), "object" or "array" on a JSON
-	// value. Empty is a plain value of its type.
+	// "date-time" (a Timestamp, RFC 3339), "protobuf-duration" (a Duration,
+	// "1.5s" — not JSON Schema's ISO 8601 duration), "protobuf-field-mask",
+	// "byte" (base64 bytes), "int64" and "uint64" (a 64-bit integer, carried as
+	// a decimal string), "object" or "array" on a JSON value. Empty is a plain
+	// value of its type.
 	Format string `protobuf:"bytes,8,opt,name=format,proto3" json:"format,omitempty"`
 	// values are the names a STRING may take: a protobuf enum, carried by name.
 	Values        []string `protobuf:"bytes,9,rep,name=values,proto3" json:"values,omitempty"`

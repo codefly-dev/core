@@ -94,17 +94,17 @@ func TestScopeSlotsCanSupplyAllOperationAuthority(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, tool.GetEffect())
 
-			for _, clearInvoke := range []bool{true, false} {
-				empty := proto.CloneOf(delivered)
-				if clearInvoke {
-					empty.Policy.InvokeScopes = nil
-				} else {
-					empty.Policy.LookupScopes = nil
-				}
-				require.ErrorIs(t, runnable.VerifyPrepared(empty), runnable.ErrInvalid)
-				_, err = runnable.EncodeResolvedPolicy(receiptFor(empty))
-				require.ErrorIs(t, err, runnable.ErrInvalid)
-			}
+			// No invoke authority is refused. No lookup authority is not: the
+			// receipt is then read under the invoke scopes by the identity
+			// that made the effect (AdmitReceiptLookup).
+			empty := proto.CloneOf(delivered)
+			empty.Policy.InvokeScopes = nil
+			require.ErrorIs(t, runnable.VerifyPrepared(empty), runnable.ErrInvalid)
+			_, err = runnable.EncodeResolvedPolicy(receiptFor(empty))
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			identityBound := proto.CloneOf(delivered)
+			identityBound.Policy.LookupScopes = nil
+			require.NoError(t, runnable.VerifyPrepared(identityBound))
 
 			// No mutation of declaration or selection, and no invented fixed scope.
 			require.True(t, proto.Equal(withTool, spec.Policy()))
@@ -123,11 +123,6 @@ func TestSlotOnlyAuthorityStillRefusesIncompleteOrWidenedSelections(t *testing.T
 			return s
 		},
 		"missing required lookup": func(_ *runnablev0.Operation, s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
-			s[0].Lookup = nil
-			return s
-		},
-		"empty final lookup": func(o *runnablev0.Operation, s []*runnablev0.ScopeSelection) []*runnablev0.ScopeSelection {
-			o.RequiredScopeSlots[0].Lookup = false
 			s[0].Lookup = nil
 			return s
 		},
@@ -156,9 +151,6 @@ func TestSlotOnlyAuthorityStillRefusesIncompleteOrWidenedSelections(t *testing.T
 			require.NoError(t, err, "the declaration is valid before checking its selection")
 			_, err = spec.ResolveScopeSlots(selections)
 			require.ErrorIs(t, err, runnable.ErrInvalid)
-			if name == "empty final lookup" {
-				require.ErrorContains(t, err, "declares no lookup_scopes and no required_scope_slots")
-			}
 		})
 	}
 }

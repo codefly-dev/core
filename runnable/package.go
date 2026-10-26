@@ -547,6 +547,10 @@ func validateBinding(binding *basev0.RunnableBinding, pkg *basev0.RunnablePackag
 // scopes. That reasoning is what made identity a property of where an operation
 // happened to run, and its effect was that function and job invocations ran as
 // the platform rather than as the principal whose work it was.
+//
+// Both derived forms install: a recomputed read carries no lookup scopes, and
+// a receipt operation may carry none, its receipt then read under its invoke
+// scopes by the identity that made the effect (authoritySpec).
 func validateBindingAuthority(binding *basev0.RunnableBinding) error {
 	authority := binding.GetAuthority()
 	if authority == nil {

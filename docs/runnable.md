@@ -375,19 +375,40 @@ a call through holding:
 | The policy requires | Effect | Recovery | Authority | Attempts |
 |---|---|---|---|---|
 | only `read`, on every kind | `EFFECT_READ_ONLY` | `RECOVERY_RECOMPUTE`: no receipt, no lookup scopes, no lookup method | invoke = the required scopes | 3, on `UNAVAILABLE` |
-| anything else | `EFFECT_MUTATION` | `RECOVERY_RECEIPT`, read through the SDK's generic receipt lookup | invoke = the required scopes; no lookup scopes — the receipt is read under the invoke scopes | 1 |
+| anything else | `EFFECT_MUTATION` | `RECOVERY_RECEIPT` | invoke = the required scopes; no lookup scopes — a receipt is read under the invoke scopes, by the identity that made the effect | 1 |
 
 A read is safe to re-run, so it carries no receipt — which also keeps a read's
-answer (a signed URL, a secret) out of every receipt store. A mutation keeps
-every guarantee a receipt operation has, and is attempted once: a retry is
-exactly-once only where the owner serves a receipt guard, so the default never
-assumes one; an uncertain outcome ends unknown and is resolved by the receipt.
+answer (a signed URL, a secret) out of every receipt store.
+
+A derived mutation is **at-most-once today**, and says so. It is attempted
+once, because a retry is exactly-once only where the owner records a receipt
+and a Receipts server answers for it, and neither exists yet for a derived
+operation: the SDK's receipt guard covers option-marked methods, and no
+generic `codefly.runnable.receipts.v0.Receipts` server is served. An uncertain
+outcome is therefore surfaced as *unknown* — honestly, never as success or
+failure — and a recovery reading "no receipt" stays inconclusive. A caller
+that invokes again after an unknown outcome makes a new effect, so it asks the
+person first. When the guard follows this derivation and the lookup is
+served, the same declaration recovers by receipt with no change.
 The audience is the owner's module unless `ServiceOwner.Audience` names
 another. The tool is presented from the method itself: its name, its leading
 doc comment, and the effect above.
 
+**Who reaches an operation is a matter of grants, not of derivation.** Every
+operation is a tool, and a tool is offered to a person only when the person's
+grants cover its binding: a caller mints the call's Work Context from the
+person's own authority, narrowed to the binding, and the hop refuses a call
+that does not hold what the method requires. A runtime-only or administrative
+operation therefore derives like any other and never reaches a person who is
+not granted it; derivation applies no visibility heuristic of its own. The
+one structural exclusion is a receipt lookup — a method another operation of
+its service names as its `lookup_method`, or one spelled `Lookup<Op>` beside a
+method `<Op>`: it is recovery's, so it is never derived. Hand-marked
+operations derive as they always did, and are tools too.
+
 `codefly.runnable.v0.exclude` keeps a method from being derived, for an
-operation no agent may ever call; it is refused beside an operation option. A
+operation no agent may ever call whatever its grants; it is refused beside an
+operation option. A
 policy requiring nothing (`any_checked_caller`) has no authority to mint a
 call's capability from, and a stream is not one finite call: both, and a
 payload outside the profile, answer `ErrNotDerivable`, a notice the generator
@@ -433,16 +454,21 @@ validates them and hands them back: the method must be unary (a streaming
 method is rejected by name); `attempt_timeout` is 1s–1m, `total_timeout` at
 least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
 `retryable_codes`, each named once and a code of the transport's own
-vocabulary; `audience` is required, and both concrete scope sets are required at
-installation — except that a `RECOVERY_RECOMPUTE` operation has no receipt and
-so no lookup scopes, no lookup method, and only `COMPLETION_CALL`; and an
-operation that *states* `recovery: RECOVERY_RECEIPT` may declare no lookup
-scopes, in which case its receipt is read under its invoke scopes: the caller
-reads the receipt of its own effect, keyed by effect id and caller identity,
-with the authority that made the effect and never more. A module that
-contributes no `read` permission on a kind it writes can therefore still mint
-the mutation. With `recovery` unstated, both scope sets stay required, so no
-earlier declaration changes meaning. An owner declaration may defer scopes to its
+vocabulary; `audience` is required, and concrete invoke scopes are required at
+installation. Lookup scopes are optional, under one rule wherever they appear
+— a declaration, a prepared policy, an installed binding — whether or not the
+operation states its recovery. Declared, they are a read-only subset of the
+invoke scopes. Empty, a receipt is read under the invoke scopes and **only by
+the identity that made the effect**: a receipt records its Work Context's owner
+and acting principal (`codefly.runnable.receipts.v0.ReceiptIdentity`), and
+`runnable.AdmitReceiptLookup` admits a lookup only for that same owner and
+acting principal, holding the scopes the receipt is read under. That binding,
+not the spelling of the declaration, is what makes an empty list safe — which
+is why the rule cannot hang on whether `recovery` was written: the installed
+package carries only the recovery in effect. A module that contributes no
+`read` permission on a kind it writes can therefore still mint the mutation.
+A `RECOVERY_RECOMPUTE` operation has no receipt at all: no lookup scopes, no
+lookup method, and only `COMPLETION_CALL`. An owner declaration may defer scopes to its
 [required scope slots](#required-scope-slots); supplied scopes carry the runtime's
 own value bounds. An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
@@ -476,17 +502,17 @@ document transcoded from them project to **equal** `RunnableSchema`s.
 | Protobuf | JSON Schema | Bounded profile | Note |
 |---|---|---|---|
 | `string` | `type: string`, `format` absent or outside the rejected list below | `STRING` | `uuid`, `email`, `uri` annotate a string |
-| `int32`, `sint32`, `sfixed32`, `int64`, `sint64`, `sfixed64`, `uint32`, `fixed32` | `type: integer`, `format` absent, `int32` or `int64` | `INTEGER` | int64 range |
-| `uint64`, `fixed64` | `type: integer` of any other `format` | **rejected** | exceeds int64 |
+| `int32`, `sint32`, `sfixed32`, `uint32`, `fixed32` | `type: integer`, `format` absent, `int32` or `int64` | `INTEGER` | |
+| `int64`, `sint64`, `sfixed64` / `uint64`, `fixed64` | `type: string`, `format: int64` / `uint64` | `STRING`, format `int64` / `uint64` | proto3 JSON writes a 64-bit integer as a decimal string |
 | `bool` | `type: boolean` | `BOOLEAN` | |
 | message | `type: object` with `properties` and `additionalProperties: false` | `OBJECT` with `fields` | depth ≤ 32 and ≤ 10 000 fields in total; recursion (a message or a `$ref` reaching itself) rejected |
 | `repeated T` | `type: array` with a single `items` schema | `ARRAY` with `items` | |
 | proto3 `optional` / message-typed field | a name absent from `required` | `optional: true` | absent key |
 | — | `nullable: true`, or `type: [T, "null"]` | `nullable: true` | protobuf has no null value |
-| `float`, `double` | `type: number`, `format` absent, `float` or `double` | `NUMBER` | |
+| `float`, `double` | `type: number`, `format` absent, `float` or `double` | `NUMBER` | also `"NaN"`, `"Infinity"`, `"-Infinity"`, as proto3 JSON writes a non-finite value |
 | `enum` | `type: string` with a string `enum` | `STRING` with `values` | carried by name |
 | `bytes` | `type: string`, `format: byte` | `STRING`, format `byte` | base64 |
-| `google.protobuf.Timestamp` / `Duration` / `FieldMask` | `type: string`, `format: date-time` (Timestamp) | `STRING`, format `date-time` / `duration` / `field-mask` | RFC 3339, `"1.5s"`, `"a.b,c"` |
+| `google.protobuf.Timestamp` / `Duration` / `FieldMask` | `type: string`, `format: date-time` / `protobuf-duration` / `protobuf-field-mask` | `STRING`, the same format | RFC 3339, `"1.5s"` (never JSON Schema's ISO 8601 `duration`), `"a.b,c"` |
 | `map<>`, `Struct`, `ListValue`, `Value` | `type: object` without `properties` and not closed | `JSON`, format `object` / `array` | members not enumerated |
 | `oneof` member | — | `optional: true` | each member is its own key |
 | wrappers (`StringValue`, …) | — | the wrapped type, `nullable: true` | |
@@ -525,10 +551,12 @@ anyway would hand back a contract silent about a key the owner marked mandatory.
 Reading the columns together says what a transcription has to spell, and the
 fixture pair is what enforces it. A proto3 field with implicit presence has a
 key that is always there, so it is `required` in the document; a message-typed
-or `optional` field has one that may be absent, so it is not. An `int64` is an
-`integer` of format `int64` and never the string proto3 JSON would carry it as:
-the bounded profile has a 64-bit integer of its own and does not borrow that
-encoding. An object's members are projected in the order the source spells
+or `optional` field has one that may be absent, so it is not. **The schema is
+the wire.** A member is named by its JSON name — lowerCamelCase, or the
+`json_name` the owner chose — which is the key a Connect server writes, and a
+64-bit integer is the decimal string proto3 JSON writes; protojson reads either
+name and either integer spelling, so a caller's input loses nothing. A
+transcribed document spells the same names and `type: string, format: int64`. An object's members are projected in the order the source spells
 them, because the profile's `fields` are an ordered list the package digest is
 taken over.
 
@@ -1025,11 +1053,12 @@ Required slots may supply **all** of an operation's resource authority. An
 unresolved declaration may leave both fixed `invoke_scopes` and `lookup_scopes`
 empty; it need not invent an unrelated fixed permission or a wildcard of the
 selected kind. Supplied fixed scopes still satisfy the usual bounds and lookup
-subset rules. After every slot is resolved, both concrete scope lists must be
-nonempty. `lookup: true` additionally requires read-only lookup over the same
+subset rules. After every slot is resolved, the concrete scope lists must be
+nonempty — invoke always; lookup unless the receipt is read under invoke (see
+above). `lookup: true` additionally requires read-only lookup over the same
 exact ids for every invoke kind selected into that slot. A slot without that
-flag may supply lookup too, but a completed policy with no lookup authority
-is refused. The [slot-only fixture](../runnable/testdata/scope-slots/slot-only-operation.json)
+flag may supply lookup too; a completed policy with no lookup scopes reads its
+receipts under its invoke scopes, by the identity that made each effect. The [slot-only fixture](../runnable/testdata/scope-slots/slot-only-operation.json)
 is exercised through derivation, resolution, prepared delivery and the matching
 resolved-policy receipt.
 

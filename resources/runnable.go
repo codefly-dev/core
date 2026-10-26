@@ -84,7 +84,7 @@ func RunnableFieldTypes() []RunnableFieldType {
 // proto3 JSON gives a value whose type alone does not say how it is written.
 // The set is closed, so a format is a fact every reader knows, never a hint.
 var runnableFieldFormats = map[RunnableFieldType][]string{
-	RunnableFieldString: {"date-time", "duration", "field-mask", "byte", "uint64"},
+	RunnableFieldString: {"date-time", "protobuf-duration", "protobuf-field-mask", "byte", "int64", "uint64"},
 	RunnableFieldJSON:   {"object", "array"},
 }
 

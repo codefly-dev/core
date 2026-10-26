@@ -1,6 +1,8 @@
 package runnable
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -115,7 +117,11 @@ func AuthorityFromMethod(files *protoregistry.Files, method protoreflect.MethodD
 
 // excluded reports the codefly.runnable.v0.exclude option.
 func excluded(options *descriptorpb.MethodOptions) bool {
-	return options != nil && proto.HasExtension(options, runnablev0.E_Exclude) && proto.GetExtension(options, runnablev0.E_Exclude).(bool)
+	if options == nil || !proto.HasExtension(options, runnablev0.E_Exclude) {
+		return false
+	}
+	exclude, isBool := proto.GetExtension(options, runnablev0.E_Exclude).(bool)
+	return isBool && exclude
 }
 
 // extensionValue finds an extension on options by its full name. A program
@@ -217,19 +223,24 @@ func DefaultTool(method protoreflect.MethodDescriptor, recovery basev0.RunnableE
 }
 
 // toolDescription normalises a doc comment into the bounded description a
-// tool carries: each line trimmed, blank runs collapsed, cut at a rune
-// boundary within the bound.
+// tool carries: its first paragraph only — what the method does; the
+// paragraphs after it are for the owner's maintainers (wiring, mesh and
+// authority detail a model has no use for) — each line trimmed and joined, cut
+// at a rune boundary within the bound.
 func toolDescription(comment string) string {
 	lines := strings.Split(strings.ReplaceAll(comment, "\x00", ""), "\n")
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" && (len(kept) == 0 || kept[len(kept)-1] == "") {
+		if line == "" {
+			if len(kept) > 0 {
+				break
+			}
 			continue
 		}
 		kept = append(kept, line)
 	}
-	text := strings.TrimSpace(strings.Join(kept, "\n"))
+	text := strings.TrimSpace(strings.Join(kept, " "))
 	if !utf8.ValidString(text) {
 		text = strings.ToValidUTF8(text, "")
 	}
@@ -256,13 +267,27 @@ func toolName(raw string) string {
 		}
 	}
 	out := strings.Trim(name.String(), "_")
-	if len(out) > 64 {
-		out = out[:64]
-	}
 	if out == "" {
 		return "operation"
 	}
-	return out
+	return BoundedName(out, maxToolName, "_")
+}
+
+// maxToolName is the longest tool name ValidateToolExposure admits.
+const maxToolName = 64
+
+// BoundedName shortens a derived name to at most limit bytes, deterministically
+// and without collapsing two long names into one: a stable prefix, the
+// separator, and the first eight hex digits of the full name's SHA-256. A name
+// within the limit is returned unchanged, so a short name never moves.
+func BoundedName(name string, limit int, separator string) string {
+	if len(name) <= limit {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	suffix := separator + hex.EncodeToString(sum[:])[:8]
+	prefix := strings.TrimRight(name[:limit-len(suffix)], separator+"-_")
+	return prefix + suffix
 }
 
 // PreparedTool presents a delivered binding whose policy names no tool, as

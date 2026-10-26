@@ -12,7 +12,7 @@
         "additionalProperties": false,
         "properties": {
           "label": {"type": "string"},
-          "weight": {"type": "integer", "format": "int64"}
+          "weight": {"type": "string", "format": "int64"}
         },
         "required": ["label", "weight"]
       },
