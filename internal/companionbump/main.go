@@ -96,13 +96,21 @@ func git(args ...string) (string, error) {
 
 // changedFiles lists every path that differs between baseRef's merge base and
 // HEAD. --no-renames lists a moved file at both of its paths: moving a file out
-// of an input changes the image as surely as editing it.
+// of an input changes the image as surely as editing it. -z keeps each path as
+// it is: without it git quotes a path with a space or a non-ASCII byte, and the
+// quoted spelling matches no input.
 func changedFiles(baseRef string) ([]string, error) {
-	diff, err := git("diff", "--name-only", "--no-renames", baseRef+"...HEAD")
+	diff, err := git("diff", "--name-only", "--no-renames", "-z", baseRef+"...HEAD")
 	if err != nil {
 		return nil, err
 	}
-	return strings.Fields(diff), nil
+	var files []string
+	for _, file := range strings.Split(diff, "\x00") {
+		if file != "" {
+			files = append(files, file)
+		}
+	}
+	return files, nil
 }
 
 func run(baseRef string) ([]string, error) {

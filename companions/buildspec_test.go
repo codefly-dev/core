@@ -228,6 +228,36 @@ func TestInstructionsJoinContinuedLines(t *testing.T) {
 	require.Equal(t, []string{"a", "b"}, sources)
 }
 
+// A blank line inside a continuation does not end it: BuildKit skips it, so
+// the sources after it belong to the same COPY.
+func TestABlankLineInsideAContinuationKeepsTheInstruction(t *testing.T) {
+	instructions := companions.Instructions("FROM alpine\nCOPY a \\\n\n  b /dst/\n")
+	require.Len(t, instructions, 2)
+	sources, kind := companions.CopySources(instructions[1].Text)
+	require.Equal(t, companions.FromContext, kind)
+	require.Equal(t, []string{"a", "b"}, sources)
+}
+
+// `# escape=` names the continuation character; a backslash is then an
+// ordinary character (a Windows path), not a continuation.
+func TestTheEscapeDirectiveNamesTheContinuation(t *testing.T) {
+	dockerfile := "# syntax=docker/dockerfile:1\n# escape=`\nFROM alpine\nCOPY a `\n  b C:\\dst\\\nRUN true\n"
+	instructions := companions.Instructions(dockerfile)
+	require.Len(t, instructions, 3)
+	sources, kind := companions.CopySources(instructions[1].Text)
+	require.Equal(t, companions.FromContext, kind)
+	require.Equal(t, []string{"a", "b"}, sources)
+	require.Equal(t, "RUN true", instructions[2].Text)
+}
+
+// A directive after the first instruction is an ordinary comment.
+func TestAnEscapeDirectiveAfterAnInstructionIsAComment(t *testing.T) {
+	instructions := companions.Instructions("FROM alpine\n# escape=`\nCOPY a \\\n  b /dst/\n")
+	require.Len(t, instructions, 2)
+	sources, _ := companions.CopySources(instructions[1].Text)
+	require.Equal(t, []string{"a", "b"}, sources)
+}
+
 func TestCopySourcesReadsEveryContextCopyShape(t *testing.T) {
 	for line, expected := range map[string]struct {
 		sources []string

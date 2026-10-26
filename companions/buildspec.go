@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -112,34 +113,52 @@ func BuildSpecs() ([]BuildSpec, error) {
 }
 
 // Instruction is one logical Dockerfile instruction: its physical lines
-// joined where a line ends in the escape character, comment lines inside it
-// dropped, and Line the physical line it starts on.
+// joined where a line ends in the escape character, comment and blank lines
+// inside it dropped, and Line the physical line it starts on.
 type Instruction struct {
 	Line int
 	Text string
 }
 
-// Instructions splits a Dockerfile into its logical instructions. A COPY
-// written over several lines is one instruction, so its sources on the later
-// lines are read with it rather than missed.
+// escapeDirective is the `# escape=` parser directive, which may only appear
+// among the comment lines at the top of a Dockerfile.
+var escapeDirective = regexp.MustCompile(`^#\s*escape\s*=\s*(\S)\s*$`)
+
+// directive is any parser directive line: `# key=value`.
+var directive = regexp.MustCompile(`^#\s*[a-zA-Z]+\s*=`)
+
+// Instructions splits a Dockerfile into its logical instructions, as BuildKit
+// reads them. A COPY written over several lines is one instruction, so its
+// sources on the later lines are read with it rather than missed: the line
+// continuation is the escape character (`\` unless an `# escape=` directive
+// names another), and a blank or comment line inside a continuation neither
+// ends nor joins it.
 func Instructions(dockerfile string) []Instruction {
+	lines := strings.Split(dockerfile, "\n")
+	escape := "\\"
+	for _, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if !directive.MatchString(trimmed) {
+			break // directives end at the first line that is not one
+		}
+		if match := escapeDirective.FindStringSubmatch(trimmed); match != nil {
+			escape = match[1]
+		}
+	}
 	var out []Instruction
 	var current []string
 	start := 0
-	for number, raw := range strings.Split(dockerfile, "\n") {
+	for number, raw := range lines {
 		line := strings.TrimRight(raw, " \t\r")
 		trimmed := strings.TrimSpace(line)
-		if len(current) == 0 && (trimmed == "" || strings.HasPrefix(trimmed, "#")) {
-			continue
-		}
-		if len(current) > 0 && strings.HasPrefix(trimmed, "#") {
-			continue // a comment inside a continued instruction is not part of it
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue // between instructions or inside a continuation alike
 		}
 		if len(current) == 0 {
 			start = number + 1
 		}
-		if strings.HasSuffix(line, "\\") {
-			current = append(current, strings.TrimSuffix(line, "\\"))
+		if strings.HasSuffix(line, escape) {
+			current = append(current, strings.TrimSuffix(line, escape))
 			continue
 		}
 		current = append(current, line)

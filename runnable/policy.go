@@ -42,5 +42,6 @@ func (s *OperationSpec) Policy() *runnablev0.Operation {
 		Completion:         s.Completion,
 		Tool:               proto.CloneOf(s.Tool),
 		RequiredScopeSlots: clonedSlots(s.RequiredScopeSlots),
+		Recovery:           s.Recovery,
 	}
 }

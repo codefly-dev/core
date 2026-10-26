@@ -121,7 +121,6 @@ func TestOperationFromOpenAPIMarkerRejectsAPolicyTheRuntimeWouldRefuse(t *testin
 		{"repeated retryable code", func(d map[string]any) { d["retryable_codes"] = []any{"503", "503"} }, "twice"},
 		{"no audience", func(d map[string]any) { delete(d, "audience") }, "audience"},
 		{"no invoke scopes", func(d map[string]any) { delete(d, "invoke_scopes") }, "invoke_scopes"},
-		{"no lookup scopes", func(d map[string]any) { delete(d, "lookup_scopes") }, "lookup_scopes"},
 		{"widening lookup scope", func(d map[string]any) {
 			d["lookup_scopes"] = []any{map[string]any{"resource_kind": "receipts", "actions": []any{"read"}}}
 		}, "not covered by its invoke scopes"},

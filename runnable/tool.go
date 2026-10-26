@@ -1,7 +1,6 @@
 package runnable
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -9,9 +8,6 @@ import (
 	runnablev0 "github.com/codefly-dev/core/generated/go/codefly/runnable/v0"
 	"google.golang.org/protobuf/proto"
 )
-
-// ErrNotATool distinguishes a valid operation that its owner did not expose.
-var ErrNotATool = errors.New("operation is not exposed as a tool")
 
 // ValidateToolExposure checks an explicit exposure without inferring effects
 // from scopes, names or transports. Nil is valid for a non-tool operation.
@@ -45,7 +41,9 @@ func validateToolMetadata(name, description string, effect runnablev0.ToolExposu
 }
 
 // ToolFromPrepared verifies the entire prepared binding before projecting its
-// exposure. The returned copy carries no route, credential or scope. Consumers
+// exposure. Every runnable is a tool: a binding whose policy names no tool is
+// presented from its operation (preparedTool), read-only exactly when it
+// recomputes. The returned copy carries no route, credential or scope. Consumers
 // obtain schemas from that same binding's Contract and freeze its identity at
 // admission; they must still check installation and current caller authority.
 // This projection does not authenticate the source of a delivered binding.
@@ -54,7 +52,7 @@ func ToolFromPrepared(binding *runnablev0.PreparedBinding) (*runnablev0.ToolExpo
 		return nil, err
 	}
 	if binding.GetPolicy().GetTool() == nil {
-		return nil, ErrNotATool
+		return preparedTool(binding), nil
 	}
 	return proto.CloneOf(binding.GetPolicy().GetTool()), nil
 }
