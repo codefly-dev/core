@@ -37,12 +37,6 @@
 //     Kind, OrgID, AgentID, optional DelegationChain, the verified
 //     credential. Validated at construction; immutable.
 //
-//   - PrincipalFromWorkContext (workcontext.go)
-//     The derivation from the signed, canonical identity carrier.
-//     Takes a verified codefly.base.v0.WorkContextV1 and fills the
-//     Principal, DelegationChain included — that chain is derived
-//     here, never assembled by hand. See docs/work-context.md.
-//
 //   - WithPrincipal / PrincipalFrom (principal.go)
 //     Context helpers: stamp a Principal on a ctx, retrieve it
 //     downstream. The gRPC interceptor (in core/agents) is the

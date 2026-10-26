@@ -1,0 +1,18 @@
+kind: service
+name: chat
+version: 0.0.0
+agent:
+    kind: runtime::service
+    name: go-grpc
+    version: 0.0.1
+    publisher: codefly.ai
+endpoints:
+    - name: grpc
+      visibility: public
+      exposure: none
+      api: grpc
+service-dependencies:
+    - name: notes
+      kind: external
+      endpoints:
+        - name: grpc

@@ -227,3 +227,25 @@ func TestReciprocalConfigurationReferenceRetainsProducer(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, order)
 }
+
+// A reference against a `kind: external` declaration the other way is a mesh
+// cycle, not an ordering one: chat declares notes external, notes' group names
+// chat. The external edge orders no stage but stays in the unstaged graph, so
+// a reference edge against it would make every unstaged OrderTo report a
+// cycle. It is skipped like any reciprocal reference.
+func TestAReferenceAgainstAnExternalDeclarationClosesNoCycle(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := resources.LoadWorkspaceFromDir(ctx, "testdata/configuration-references-external")
+	require.NoError(t, err)
+	chat := shared.Must(workspace.FindUniqueServiceByName(ctx, "chat")).MustUnique()
+	notes := shared.Must(workspace.FindUniqueServiceByName(ctx, "notes")).MustUnique()
+	dep, err := architecture.NewServiceDependencies(ctx, workspace, architecture.WithConfigurationReferences(map[string][]string{
+		"platform": {chat + "/grpc"},
+	}))
+	require.NoError(t, err)
+	require.NoError(t, dep.VerifyAcyclic(ctx))
+	for _, root := range []string{chat, notes} {
+		_, err := dep.OrderTo(ctx, root)
+		require.NoError(t, err, root)
+	}
+}

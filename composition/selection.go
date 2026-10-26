@@ -69,6 +69,13 @@ type ReleaseArtifact struct {
 	MediaType string          `yaml:"media-type,omitempty" json:"mediaType,omitempty"`
 }
 
+// ValidateReleaseArtifactName holds a name to the grammar a release artifact
+// is declared under (ReleaseArtifact.Name), for a reader that carries such a
+// name without the manifest: a presence document's frontend payload names the
+// runtime artifact it was generated from, and is held to this and not to a
+// second spelling of it.
+func ValidateReleaseArtifactName(name string) error { return validateInstanceName(name) }
+
 type ArtifactReference struct {
 	Target string `yaml:"target,omitempty" json:"target,omitempty"`
 	Name   string `yaml:"name" json:"name"`
@@ -245,7 +252,7 @@ func (manifest *PackageManifest) validateSelections() error {
 				return err
 			}
 		}
-		if err := validateInstanceName(artifact.Name); err != nil {
+		if err := ValidateReleaseArtifactName(artifact.Name); err != nil {
 			return err
 		}
 		if seen[artifact.Name] {

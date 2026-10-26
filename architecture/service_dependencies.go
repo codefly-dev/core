@@ -46,6 +46,9 @@ type DependencyOptions struct {
 	// <module>/<service>/<endpoint> references it carries. See
 	// WithConfigurationReferences.
 	ConfigurationProducers map[string][]string
+	// RuntimePrerequisites orders consumers after explicitly named workspace
+	// services without declaring endpoint access. See WithRuntimePrerequisites.
+	RuntimePrerequisites map[string][]string
 }
 
 func (opt *DependencyOptions) clone() *DependencyOptions {
@@ -55,6 +58,7 @@ func (opt *DependencyOptions) clone() *DependencyOptions {
 	}
 	maps.Copy(out.SkipDependencyFor, opt.SkipDependencyFor)
 	maps.Copy(out.ExcludeService, opt.ExcludeService)
+	out.RuntimePrerequisites = cloneRuntimePrerequisites(opt.RuntimePrerequisites)
 	if opt.ConfigurationProducers != nil {
 		out.ConfigurationProducers = make(map[string][]string, len(opt.ConfigurationProducers))
 		for group, producers := range opt.ConfigurationProducers {
@@ -488,6 +492,7 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 	w := wool.Get(ctx).In("loadServiceGraph")
 	w.Debug("analyzing workspace", wool.Field("workspace", workspace.Name), wool.Field("#modules", len(workspace.Modules)))
 	graph := NewDAG(workspace.Name)
+	loaded := make(map[string]bool)
 	for _, modRef := range workspace.Modules {
 		mod, err := workspace.LoadModuleFromReference(ctx, modRef)
 		if err != nil {
@@ -502,6 +507,7 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 			if err != nil {
 				return w.Wrapf(err, "cannot get service identity")
 			}
+			loaded[identity.Unique()] = true
 			if _, excluded := d.options.ExcludeService[identity.Unique()]; excluded {
 				continue
 			}
@@ -511,6 +517,15 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 				continue
 			}
 			for _, dep := range svc.ServiceDependencies {
+				// An interface no unit in the workspace implements has no
+				// producer to be a node: an external one is no edge, and any
+				// other is a composition that cannot build or run its consumer.
+				if dep.Unbound() {
+					if err := dep.RefuseUnbound(identity.Unique()); err != nil {
+						return w.Wrap(err)
+					}
+					continue
+				}
 				if _, excluded := d.options.ExcludeService[dep.Unique()]; excluded {
 					continue
 				}
@@ -538,8 +553,14 @@ func (d *ServiceDependencies) loadServiceGraph(ctx context.Context, workspace *r
 			}
 		}
 	}
+	if err := d.addRuntimePrerequisiteEdges(ctx, graph, loaded); err != nil {
+		return err
+	}
 	d.addConfigurationReferenceEdges(ctx, graph)
 	d.graph = graph
+	if len(d.options.RuntimePrerequisites) > 0 {
+		return d.VerifyAcyclic(ctx)
+	}
 	return nil
 }
 
@@ -579,7 +600,12 @@ func (d *ServiceDependencies) addConfigurationReferenceEdges(ctx context.Context
 					d.recordReferenceDependency(consumer, producer, endpoint)
 					continue
 				}
-				if graph.reachesInStage(consumer, producer, resources.StageRun) {
+				// Any path back closes a cycle, an external one included: the
+				// edge orders no stage, but it is in the graph an unstaged
+				// OrderTo sorts, so a reference against it would make the
+				// composition unsortable (a declares b external, and b's group
+				// names a).
+				if graph.reachesInStage(consumer, producer, resources.StageRun) || graph.ReachableFrom(consumer, producer) {
 					w.Debug("skipping a configuration reference that would close a cycle",
 						wool.Field("consumer", consumer), wool.Field("producer", producer), wool.Field("group", group))
 					// Participation is recorded above, but no start-time health

@@ -390,6 +390,9 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 		"a secret occurrence in the other spelling",
 		"a secret resource kind",
 		"a value that is not one line",
+		"an audience list",
+		"an audience list naming an audience twice",
+		"an audience list naming no one between two commas",
 		"an audience carrying a DEL",
 		"an audience carrying a NUL",
 		"an audience carrying a byte-order mark",
@@ -536,7 +539,7 @@ func TestTheResolutionKitShipsExactlyTheseFixtures(t *testing.T) {
 const lossCasesPerRole = 2 + 2 + 2*2*(2*2)
 
 func TestTheDocumentedResolutionCountIsTheKit(t *testing.T) {
-	const path = "../../docs/solution-host-binding.md"
+	const path = "../../docs/module-contract.md"
 	document, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

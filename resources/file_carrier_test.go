@@ -87,6 +87,8 @@ func TestResolveFileCarriersFailsClosed(t *testing.T) {
 	dir := t.TempDir()
 	value := filepath.Join(dir, "value")
 	require.NoError(t, os.WriteFile(value, []byte("content"), 0o600))
+	empty := filepath.Join(dir, "empty")
+	require.NoError(t, os.WriteFile(empty, nil, 0o600))
 	public := "CODEFLY__WORKSPACE_CONFIGURATION__GROUP__VALUE"
 	secret := "CODEFLY__WORKSPACE_SECRET_CONFIGURATION__GROUP__VALUE"
 
@@ -99,6 +101,9 @@ func TestResolveFileCarriersFailsClosed(t *testing.T) {
 		"relative path":      {resources.FileCarrierKey(public) + "=value"},
 		"missing file":       {resources.FileCarrierKey(public) + "=" + filepath.Join(dir, "absent")},
 		"a directory":        {resources.FileCarrierKey(public) + "=" + dir},
+		// A value goes by file only above FileCarrierThreshold, so an empty
+		// file is a broken delivery, not an unset value.
+		"an empty file": {resources.FileCarrierKey(public) + "=" + empty},
 	}
 	for name, environ := range cases {
 		_, err := resources.ResolveFileCarriers(environ)

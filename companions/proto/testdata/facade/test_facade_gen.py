@@ -256,3 +256,143 @@ def test_main_reports_error_via_response(monkeypatch):
     response = plugin_pb2.CodeGeneratorResponse.FromString(written["data"])
     assert "method name collision" in response.error
     assert not response.file
+
+
+# --- streaming shapes against an in-process grpcio server --------------------
+
+SHAPES_PROTO = "shapes/v1/shapes.proto"
+
+
+class ChannelGateway:
+    """A gateway over a `grpc.Channel`: each seam is the channel multicallable of
+    the same name (`unary` is `unary_unary`)."""
+
+    def __init__(self, channel):
+        self._channel = channel
+
+    def _callable(self, kind, procedure, response_type):
+        return getattr(self._channel, kind)(
+            procedure,
+            request_serializer=lambda message: message.SerializeToString(),
+            response_deserializer=response_type.FromString,
+        )
+
+    def unary(self, procedure, request, response_type):
+        return self._callable("unary_unary", procedure, response_type)(request, timeout=10)
+
+    def unary_stream(self, procedure, request, response_type):
+        return self._callable("unary_stream", procedure, response_type)(request, timeout=10)
+
+    def stream_unary(self, procedure, requests, response_type):
+        return self._callable("stream_unary", procedure, response_type)(requests, timeout=10)
+
+    def stream_stream(self, procedure, requests, response_type):
+        return self._callable("stream_stream", procedure, response_type)(requests, timeout=10)
+
+
+def _shapes_facade(tmp_path: Path):
+    root = tmp_path / "sdk"
+    root.mkdir()
+    subprocess.run(["protoc", "-I", str(FIXTURES), f"--python_out={root}", SHAPES_PROTO], check=True)
+    for package in ("shapes", "shapes/v1"):
+        (root / package / "__init__.py").touch()
+    out = tmp_path / "shapes.pb"
+    subprocess.run(
+        ["protoc", "-I", str(FIXTURES), "--include_imports", f"--descriptor_set_out={out}", SHAPES_PROTO],
+        check=True,
+    )
+    request = plugin_pb2.CodeGeneratorRequest(parameter="module=echoes")
+    request.proto_file.extend(FileDescriptorSet.FromString(out.read_bytes()).file)
+    request.file_to_generate.append(SHAPES_PROTO)
+    facade = facade_gen.generate(request).file[0]
+    (root / facade.name).write_text(facade.content)
+
+    sys.path.insert(0, str(root))
+    try:
+        for mod in list(sys.modules):
+            if mod == "echoes" or mod == "shapes" or mod.startswith("shapes."):
+                del sys.modules[mod]
+        return facade.content, importlib.import_module("echoes"), importlib.import_module("shapes.v1.shapes_pb2")
+    finally:
+        sys.path.remove(str(root))
+
+
+def test_each_rpc_shape_calls_its_gateway_seam(tmp_path):
+    content, _, _ = _shapes_facade(tmp_path)
+
+    assert 'def echo(self, request):\n        return self._gateway.unary("/shapes.v1.EchoService/Echo", request,' in content
+    assert 'def fan(self, request):\n        return self._gateway.unary_stream("/shapes.v1.EchoService/Fan", request,' in content
+    assert 'def gather(self, requests):\n        return self._gateway.stream_unary("/shapes.v1.EchoService/Gather", requests,' in content
+    assert 'def chat(self, requests):\n        return self._gateway.stream_stream("/shapes.v1.EchoService/Chat", requests,' in content
+    assert "`unary_stream`, `stream_unary`, `stream_stream`" in content
+
+
+def test_unary_only_facade_keeps_its_header(tmp_path):
+    content = facade_gen.generate(_request(tmp_path, "module=accounts")).file[0].content
+    assert "`unary(procedure, request, response_type)` owns the transport, bearer, and" in content
+    assert "unary_stream" not in content
+
+
+def test_every_rpc_shape_streams_through_grpc(tmp_path):
+    grpc = pytest.importorskip("grpc")
+    from concurrent import futures
+
+    _, echoes, pb = _shapes_facade(tmp_path)
+    Note = pb.Note
+    seen_by_server: dict[str, list[str]] = {}
+
+    def echo(request, _context):
+        return Note(text=request.text.upper())
+
+    def fan(request, _context):
+        for index in range(request.count):
+            yield Note(text=f"{request.text}-{index}", count=index)
+
+    def gather(requests, _context):
+        texts = [note.text for note in requests]
+        seen_by_server["gather"] = texts
+        return Note(text="+".join(texts), count=len(texts))
+
+    def chat(requests, _context):
+        received = seen_by_server.setdefault("chat", [])
+        for note in requests:
+            received.append(note.text)
+            yield Note(text=f"re:{note.text}", count=len(received))
+
+    def handler(kind, behaviour):
+        return kind(behaviour, request_deserializer=Note.FromString, response_serializer=Note.SerializeToString)
+
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    server.add_generic_rpc_handlers((
+        grpc.method_handlers_generic_handler(
+            "shapes.v1.EchoService",
+            {
+                "Echo": handler(grpc.unary_unary_rpc_method_handler, echo),
+                "Fan": handler(grpc.unary_stream_rpc_method_handler, fan),
+                "Gather": handler(grpc.stream_unary_rpc_method_handler, gather),
+                "Chat": handler(grpc.stream_stream_rpc_method_handler, chat),
+            },
+        ),
+    ))
+    port = server.add_insecure_port("127.0.0.1:0")
+    server.start()
+    try:
+        with grpc.insecure_channel(f"127.0.0.1:{port}") as channel:
+            client = echoes.echoes(ChannelGateway(channel)).echo()
+
+            reply = client.echo(Note(text="hi"))
+            assert isinstance(reply, Note) and reply.text == "HI"
+
+            fanned = list(client.fan(Note(text="n", count=3)))
+            assert [(n.text, n.count) for n in fanned] == [("n-0", 0), ("n-1", 1), ("n-2", 2)]
+            assert all(isinstance(n, Note) for n in fanned)
+
+            gathered = client.gather(iter([Note(text="a"), Note(text="b"), Note(text="c")]))
+            assert (gathered.text, gathered.count) == ("a+b+c", 3)
+            assert seen_by_server["gather"] == ["a", "b", "c"]
+
+            chatted = list(client.chat(iter([Note(text="x"), Note(text="y")])))
+            assert [(n.text, n.count) for n in chatted] == [("re:x", 1), ("re:y", 2)]
+            assert seen_by_server["chat"] == ["x", "y"]
+    finally:
+        server.stop(grace=None)

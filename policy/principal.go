@@ -79,9 +79,9 @@ type Principal struct {
 	// [U, V] — A's own ID is the Principal.ID; the chain shows whose
 	// authority is in play. Audit logs the full chain verbatim.
 	//
-	// When the identity comes from a Work Context, this is derived
-	// by PrincipalFromWorkContext out of the verified actor chain
-	// and grant hop, never assembled by hand.
+	// When the identity comes from a Work Context, it is the chain the
+	// authority answered for that context (codefly-dev/authority), never
+	// assembled by hand.
 	DelegationChain []DelegationLink
 
 	// EstablishedBy records which question the identity check answered. See

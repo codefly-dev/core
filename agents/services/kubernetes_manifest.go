@@ -1158,11 +1158,19 @@ func resourcesKeyIsSensitive(key string) bool {
 	return credentialLikeEnvironmentKey(key)
 }
 
+// credentialLikeEnvironmentKey classifies an environment variable NAME as a
+// rendered manifest carries it — a ConfigMap or Secret data key, an inline env
+// name, a configuration key — through the one carrier-aware classifier,
+// resources.IsSensitiveEnvironmentVariable: a secret carrier is sensitive
+// whatever its key, a configuration carrier is read by its complete key, an
+// address carrier by its operator prefix, and a plain name whole. It used to
+// strip everything through the last "__" and classify the suffix, which lost
+// an explicit secret carrier's marker (…SECRET_CONFIGURATION__…__CLIENT_ID read
+// as CLIENT_ID) and the credential half of a key carrying its own double
+// underscore (ACCESS_TOKEN__FORMAT read as FORMAT), so a restricted render
+// certified a tree its own model calls secret.
 func credentialLikeEnvironmentKey(key string) bool {
-	if separator := strings.LastIndex(key, "__"); separator >= 0 {
-		key = key[separator+2:]
-	}
-	return key != "" && resources.IsSensitiveKey(key)
+	return key != "" && resources.IsSensitiveEnvironmentVariable(key)
 }
 
 func stableViolations(violations []string) []string {

@@ -1,0 +1,28 @@
+# An installation-owned scope naming resource ids: its ids are each
+# installation's own, so the scope has no field to name them in.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read, write]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read, write]
+    - name: viewer
+      installation_owned_scopes:
+          - resource_kind: documents.collection
+            actions: [read]
+            resource_ids: [collection-a]
+bindings:
+    - id: collections
+      operations: [invoke]
+      audience: {from: assistant/collections-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: documents.collection
+                actions: [read]
+destinations: []

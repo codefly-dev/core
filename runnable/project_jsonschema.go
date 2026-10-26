@@ -10,13 +10,21 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 )
 
-// rejectedStringFormats carry a value the bounded profile has no
-// representation for. They are what the protobuf types the proto projection
-// rejects transcode to — bytes becomes byte or binary, Timestamp becomes
-// date-time, a calendar date becomes date — so a payload refused as a
-// descriptor is refused as a document too. Every other format annotates a
-// string the profile already carries: uuid, email and uri are strings.
-var rejectedStringFormats = []string{"binary", "byte", "date", "date-time"}
+// rejectedStringFormats carry a value no JSON string spells: binary is raw
+// octets, and a calendar date is not what a protobuf Timestamp transcodes to.
+// Every other format annotates a string the profile already carries: uuid,
+// email and uri are strings.
+var rejectedStringFormats = []string{"binary", "date"}
+
+// keptStringFormats are the string formats the proto projection states, read
+// back from the document so a method and its transcription project one
+// profile: a Timestamp transcodes to date-time, bytes to byte, a 64-bit
+// integer to int64 or uint64, and a Duration or FieldMask to the
+// protobuf-specific spellings. Any other format annotates a plain string.
+var keptStringFormats = []string{FormatDateTime, FormatByte, FormatInt64, FormatUint64, FormatProtobufDuration, FormatFieldMask}
+
+// acceptedNumberFormats are the floating-point widths a NUMBER carries.
+var acceptedNumberFormats = []string{"", "float", "double"}
 
 // acceptedIntegerFormats are the widths the profile's signed 64-bit integer
 // covers. Any other width names a range it does not.
@@ -148,7 +156,7 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 	for _, composed := range []struct {
 		keyword string
 		value   json.RawMessage
-	}{{"enum", resolved.Enum}, {"oneOf", resolved.OneOf}, {"anyOf", resolved.AnyOf}, {"allOf", resolved.AllOf}} {
+	}{{"oneOf", resolved.OneOf}, {"anyOf", resolved.AnyOf}, {"allOf", resolved.AllOf}} {
 		if len(composed.value) > 0 {
 			return nil, fmt.Errorf("%w: %s declares %s, which the bounded profile does not cover", ErrInvalid, at, composed.keyword)
 		}
@@ -157,6 +165,9 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 	if err != nil {
 		return nil, err
 	}
+	if len(resolved.Enum) > 0 && named != "string" {
+		return nil, fmt.Errorf("%w: %s declares enum on a %s, and the bounded profile names values of a string only", ErrInvalid, at, named)
+	}
 	field := &basev0.RunnableField{Nullable: nullable}
 	switch named {
 	case "string":
@@ -164,6 +175,19 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 			return nil, fmt.Errorf("%w: %s is a string of format %q, which carries a value the bounded profile has no representation for", ErrInvalid, at, resolved.Format)
 		}
 		field.Type = basev0.RunnableField_STRING
+		if slices.Contains(keptStringFormats, resolved.Format) {
+			field.Format = resolved.Format
+		}
+		if len(resolved.Enum) > 0 {
+			if err = json.Unmarshal(resolved.Enum, &field.Values); err != nil {
+				return nil, fmt.Errorf("%w: %s declares an enum that is not a list of names: %v", ErrInvalid, at, err)
+			}
+		}
+	case "number":
+		if !slices.Contains(acceptedNumberFormats, resolved.Format) {
+			return nil, fmt.Errorf("%w: %s is a number of format %q, which the bounded profile does not cover", ErrInvalid, at, resolved.Format)
+		}
+		field.Type = basev0.RunnableField_NUMBER
 	case "integer":
 		if !slices.Contains(acceptedIntegerFormats, resolved.Format) {
 			return nil, fmt.Errorf("%w: %s is an integer of format %q, whose range the signed 64-bit integer the bounded profile carries does not cover", ErrInvalid, at, resolved.Format)
@@ -172,6 +196,12 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 	case "boolean":
 		field.Type = basev0.RunnableField_BOOLEAN
 	case "object":
+		if openObject(resolved) {
+			// An object whose members the document does not enumerate is a
+			// Struct or a map, carried as an arbitrary JSON object.
+			field.Type, field.Format = basev0.RunnableField_JSON, FormatObject
+			break
+		}
 		fields, objectErr := projectProperties(doc, resolved, at, open, depth, budget)
 		if objectErr != nil {
 			return nil, objectErr
@@ -187,6 +217,12 @@ func projectSchema(doc *OpenAPIDocument, schema *JSONSchema, at string, open []s
 		return nil, fmt.Errorf("%w: %s is of type %q, which the bounded profile does not cover", ErrInvalid, at, named)
 	}
 	return field, nil
+}
+
+// openObject reports an object that does not close its members: no
+// properties and no additionalProperties: false.
+func openObject(schema *JSONSchema) bool {
+	return schema.Properties == nil && !bytes.Equal(bytes.TrimSpace(schema.AdditionalProperties), []byte("false"))
 }
 
 // resolve follows a $ref to the component it names. A $ref beside other

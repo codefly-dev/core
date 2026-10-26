@@ -2,6 +2,7 @@ package proto
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/codefly-dev/core/languages"
@@ -29,6 +30,15 @@ import (
 type foreignNamespace struct {
 	pathPrefix    string
 	packagePrefix string
+	// goOnly marks a namespace whose distribution exists for Go alone: a Go
+	// library imports it from its module, every other language still owns a
+	// generated copy because nothing publishes one for it.
+	goOnly bool
+	// goPackagePrefix is the Go import path the namespace's bindings live under
+	// when its files declare no go_package of their own (codefly's protos are
+	// generated under one managed prefix): the override for a marked import is
+	// prefix + "/" + the file's directory, which is how the owner generated it.
+	goPackagePrefix string
 }
 
 // foreignNamespaces covers google/protobuf (package google.protobuf and
@@ -39,6 +49,36 @@ type foreignNamespace struct {
 var foreignNamespaces = []foreignNamespace{
 	{pathPrefix: "google/", packagePrefix: "google."},
 	{pathPrefix: "buf/validate/", packagePrefix: "buf.validate"},
+	// Codefly's own protos (codefly.base, codefly.runnable, ...) are published
+	// for Go by github.com/codefly-dev/core; a service vendors their .proto
+	// under its own tree to compile, and a Go library generated from it must
+	// import them from core — emitted again they register the same files twice
+	// and the consuming binary panics at init. Any other publisher's protos
+	// are foreign by their go_package, never by a row here: see
+	// foreignByGoPackage.
+	{pathPrefix: "codefly/", packagePrefix: "codefly.", goOnly: true, goPackagePrefix: "github.com/codefly-dev/core/generated/go"},
+}
+
+// foreignByGoPackage reports whether file's Go bindings belong to another Go
+// module: the file declares a go_package whose import path lies in one of
+// goRequires, the Go modules the consuming Go module depends on. Its owner
+// publishes those bindings at that path, so a Go library or service must
+// import them rather than emit a second copy that registers the same file
+// twice. The consumer declares what it depends on (a service's go.mod, a
+// library's caller), so no publisher is named here, and a module's own proto
+// stays its own whatever path it sits under: its go_package lies in its own
+// module, or it declares none.
+func foreignByGoPackage(file *descriptorpb.FileDescriptorProto, goRequires []string) bool {
+	importPath, _, _ := strings.Cut(file.GetOptions().GetGoPackage(), ";")
+	if importPath == "" {
+		return false
+	}
+	for _, module := range goRequires {
+		if module != "" && (importPath == module || strings.HasPrefix(importPath, module+"/")) {
+			return true
+		}
+	}
+	return false
 }
 
 // owns reports whether file belongs to this namespace.
@@ -89,16 +129,38 @@ const (
 
 // isForeign reports whether a library generated for language must not own this
 // file's bindings.
-func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Language) bool {
+// goPackagePrefixOf is the managed Go import prefix of the namespace that owns
+// file, "" when the namespace has none or none owns it.
+func goPackagePrefixOf(file *descriptorpb.FileDescriptorProto) string {
+	for _, ns := range foreignNamespaces {
+		if ns.owns(file) {
+			return ns.goPackagePrefix
+		}
+	}
+	return ""
+}
+
+// IsForeignFile reports whether a generated library for language must import
+// file from its distribution rather than own a copy of its bindings.
+// goRequires are the Go modules the consuming Go code depends on; a file whose
+// go_package lies in one is foreign to Go (see foreignByGoPackage).
+func IsForeignFile(file *descriptorpb.FileDescriptorProto, language languages.Language, goRequires ...string) bool {
+	return isForeign(file, language, goRequires)
+}
+
+func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Language, goRequires []string) bool {
 	owned := false
 	for _, ns := range foreignNamespaces {
 		if ns.owns(file) {
+			if ns.goOnly {
+				return language == languages.GO
+			}
 			owned = true
 			break
 		}
 	}
 	if !owned {
-		return false
+		return language == languages.GO && foreignByGoPackage(file, goRequires)
 	}
 	// Go and Python name a dropped file's package absolutely — a rewritten
 	// go_package, an untouched `from buf.validate import validate_pb2` — so
@@ -154,7 +216,11 @@ func isForeign(file *descriptorpb.FileDescriptorProto, language languages.Langua
 // A caller that already marked its image loses nothing by this running again:
 // a second field-8042 submessage merges with the first, and is_import=true
 // merged onto true stays true.
-func MarkForeignImports(descriptorSet []byte, language languages.Language) ([]byte, map[string]string, error) {
+//
+// goRequires are the Go modules the generated library depends on, declared by
+// the caller: a file whose go_package lies in one is foreign to Go and keeps
+// that go_package (see foreignByGoPackage).
+func MarkForeignImports(descriptorSet []byte, language languages.Language, goRequires ...string) ([]byte, map[string]string, error) {
 	var set descriptorpb.FileDescriptorSet
 	if err := googleproto.Unmarshal(descriptorSet, &set); err != nil {
 		return nil, nil, err
@@ -168,7 +234,7 @@ func MarkForeignImports(descriptorSet []byte, language languages.Language) ([]by
 	extension := protowire.AppendBytes(protowire.AppendTag(nil, bufImageFileExtensionField, protowire.BytesType), isImport)
 	goPackages := make(map[string]string)
 	for _, file := range set.GetFile() {
-		if !isForeign(file, language) {
+		if !isForeign(file, language, goRequires) {
 			continue
 		}
 		message := file.ProtoReflect()
@@ -176,6 +242,8 @@ func MarkForeignImports(descriptorSet []byte, language languages.Language) ([]by
 		message.SetUnknown(append(unknown, extension...))
 		if pkg := file.GetOptions().GetGoPackage(); pkg != "" {
 			goPackages[file.GetName()] = pkg
+		} else if prefix := goPackagePrefixOf(file); prefix != "" {
+			goPackages[file.GetName()] = prefix + "/" + path.Dir(file.GetName())
 		}
 	}
 	marked, err := googleproto.Marshal(&set)

@@ -32,7 +32,7 @@ The value is a `codefly.runnable.v0.PreparedBinding`, schema
 | Field | What it is |
 | --- | --- |
 | `operation` | the owner coordinates (module, service, endpoint) and the operation **as the owner spells it**: `/pkg.Service/Method` or `POST /path`. This is the audit identity, and what an effect receipt is keyed by |
-| `call` | where one call is sent: the `address` the environment resolves — an HTTP base URL, since both routes are HTTP — and a typed route: `connect` (a procedure POSTed as JSON on the owner's Connect endpoint) or `rest` (the owner's own verb and path with the plain JSON body) |
+| `call` | where one call is sent: the `address` the environment resolves — an HTTP base URL, since both routes are HTTP — and a typed route: `connect` (a procedure POSTed as JSON on the owner's Connect endpoint) or `rest` (the owner's own verb and path: `POST` or `PUT` with the plain JSON body, or `GET` — a read only — with the input object as its query, each member one parameter of that name) |
 | `contract` | the bounded input and output schema, carried whole |
 | `contract_digest` | `sha256:<hex>` over that contract's canonical form (`runnable.ContractDigest`) |
 | `policy` | the `codefly.runnable.v0.Operation` the owner declared — the attempt budget, the authority (audience, invoke and lookup scopes), the completion mode and, when the owner exposed the operation as a tool, that exposure — with every required scope slot already resolved to the exact ids the composition selected (`runnable.OperationSpec.ResolveScopeSlots`). A writer produces it with `runnable.OperationSpec.Policy` from the resolved spec rather than copying fields, so every field the schema declares travels; a policy still carrying a slot is refused with `runnable.ErrUnresolvedScopeSlots` |
@@ -101,6 +101,9 @@ had to act on. `runnable.VerifyPrepared` then holds it to four things:
   are checked together because they had one cause: a form that read one string
   as both the audit identity and the dial target refused every REST operation,
   since `POST /path` is not a method path;
+- **a `GET` is a read**: its policy recomputes, its tool (if stated) is
+  read-only and its invoke scopes require only `read`, the rule the derivation
+  applies, held again here rather than trusted;
 - **the policy is inside the bounds an installation enforces**, by reading it
   back as the `OperationSpec` core already validates. The retry vocabulary
   follows from the route — `google.rpc.Code` names for `connect`, HTTP statuses
@@ -206,8 +209,10 @@ Everything fails closed, and as early as the information exists:
   ConfigMap and Secret it loads as the container's environment, and refuses a
   file ConfigMap or Secret above 1 MiB, the API server's object limit.
 - **Read time.** A file carrier whose path is relative, is not a regular file,
-  exceeds `resources.MaxFileCarrierBytes`, or cannot be read is an error, not
-  an absent value: an unreadable credential never reads as an unset one. A key
+  is empty, exceeds `resources.MaxFileCarrierBytes`, or cannot be read is an
+  error, not an absent value: an unreadable credential never reads as an unset
+  one. An empty file is a truncated write or a mount race, since only a value
+  above `resources.FileCarrierThreshold` is delivered by file. A key
   delivered both inline and by file is refused as two sources for one fact.
 - **Install time.** A contract digest that does not cover the contract delivered
   with it, a route that is not the operation the value names, a policy outside

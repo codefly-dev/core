@@ -154,16 +154,16 @@ The three instances, so the shape is recognisable rather than abstract:
 
 | input | the independent source it needs | what the only reachable source was |
 | --- | --- | --- |
-| `workcontext.Execution.ImageDigest` | the orchestrator's record of what is RUNNING | the issuer's record of what is APPROVED — so approved is compared against approved, and the superseded pod the field exists to refuse passes |
-| the same field, in the conformance kit | a pod | `Seals.Seal`, read and attested straight back, because a fixture has no pod |
-| `solutionhost.RenderedActivationRequest.Envelope` | the platform's ceiling | the document under check — so `ValidateAgainst` tested a document's own approved build against a list built from that build |
+| the attested execution digest a mint once took (removed) | the orchestrator's record of what is RUNNING | the issuer's record of what is APPROVED — so approved is compared against approved, and the superseded pod the field exists to refuse passes |
+| the same field, in the conformance kit (removed) | a pod | `Seals.Seal`, read and attested straight back, because a fixture has no pod |
+| the envelope of a renderer's activation request (removed with the authority document) | the platform's ceiling | the document under check — so containment tested a document's own approved build against a list built from that build |
 
 **The one place this was recognised first**, and therefore the mitigation:
-`Activate` takes the build as an explicit parameter rather than reading it out
-of the authority document, and says why — "reading the build out of the
-document that approves it would make the question answer itself"
-(`solutionhost/authority.go`). The same sentence applies to all three rows
-above. It was written before any of them.
+the authority document's activation took the build as an explicit parameter
+rather than reading it out of the document, and said why — "reading the build
+out of the document that approves it would make the question answer itself".
+The same sentence applies to all three rows above. It was written before any
+of them.
 
 So the test for a new required input is not "is it checked". It is: **name the
 caller, and name where that caller gets this value from.** If the answer is
@@ -171,9 +171,11 @@ caller, and name where that caller gets this value from.** If the answer is
 wrong, or the check belongs to a different party — which is how the envelope
 ended up back with the host and the renderer ended up taking a revision
 number. If no caller can answer, say so in the doc rather than requiring it in
-the indicative: `Execution.ImageDigest` stays required because dropping it
-would be a worse trade, and its comment now states plainly that no consumer can
-source it correctly yet.
+the indicative. The first two rows were resolved by moving the check to the
+party that holds both sources: core no longer seals a build into a capability.
+All three then ended when build approval left the runtime path altogether: a
+module manifest carries no digest, and "only approved images run" is
+deploy-time admission ([module-manifest.md](module-manifest.md)).
 
 The pattern was named by a client consumer after the third instance, which
 is itself the finding: three single bugs looked like three bugs, and only
@@ -206,7 +208,7 @@ layout: modules     # or "flat"
 kind: module         # a `composed-module` here is a composition descriptor, read by composition.LoadDescriptor
 name: backend
 vendored:            # path prefixes this module vendors rather than authors (client kits);
-  - web/src/clients  # the build's size excludes them and records the list, see docs/solution-host-binding.md
+  - web/src/clients  # declared, strictly loaded; core itself no longer counts a build's size
 
 # service.codefly.yaml — inside each service directory
 name: api-server
@@ -367,6 +369,32 @@ except a closed list of public words — `AUTHOR(S)`, `AUTHORITY`/`AUTHORITIES`,
 `IDENTITY_AUTHORIZE_URL` stay public, while a credential noun beside a public
 word (`CERTIFICATE_AUTHORITY_KEY`) keeps the key sensitive. A new public word
 is added with a test, never inferred.
+
+An environment variable NAME is classified by
+`resources.IsSensitiveEnvironmentVariable`, which reads a codefly carrier by
+what it carries rather than by its whole spelling: a secret carrier
+(`CODEFLY__*_SECRET_CONFIGURATION__…`) is always sensitive; an endpoint or
+route carrier is an address; a service or workspace configuration carrier is
+classified by its configuration KEY alone — the module, service and
+configuration-group segments are structure, so a public group named
+`datasource-oauth` does not make its `PROVIDERS` or `CLIENT_ID` a credential,
+while a `CLIENT_SECRET` key in that group, and any value that rides a secret
+carrier, stays sensitive. The OUTERMOST carrier is read first, by its own
+grammar: a configuration key that happens to spell an address carrier
+(`…__SETTINGS__CODEFLY__ENDPOINT__APP__SVC__REST__ACCESS_TOKEN`) is still a
+key, classified whole, so a token cannot hide behind an address spelling; an
+address carrier is one at the start of the name or behind an operator prefix
+that is a plain prefix (no double underscore). `resources.ConfigurationCarrierKey`
+is the one parser of the key segment, for every reader that scans a carrier
+for credential words — the rendered-manifest validator and the CLI's render
+scan included — so no reader runs a word list over the whole name. The parser
+is unambiguous because no structural segment spells a double underscore: a
+module name, a service name and a configuration file name that carry
+consecutive separators (`public--auth`, `policy__auth.env`) are refused where
+they are loaded, since both spellings become `…__AUTH` and shift the first
+segment of the key into the structure or the group into the key. A renderer
+refusing a public value by its group name is a defect here, never a reason to
+rename the group.
 
 ## Runtime Contexts
 

@@ -1,0 +1,8 @@
+name: config-refs-external
+layout: flat
+# chat names notes as an external dependency (an edge that orders nothing), and
+# notes reaches chat only through a workspace configuration group: a mesh
+# cycle between two services, which must not become an ordering cycle.
+services:
+    - name: chat
+    - name: notes

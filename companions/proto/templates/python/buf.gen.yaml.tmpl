@@ -1,8 +1,10 @@
 version: v1
+# The companion's local plugin, as Go's are: the *_pb2 messages and *_pb2_grpc
+# stubs compiled by the grpc_tools pinned in the image, so the gencode is the
+# image's. buf's remote python plugins moved on their own and outran the
+# protobuf runtime a generated library declares.
 plugins:
-  - plugin: buf.build/protocolbuffers/python
-    out: {{.Destination}}
-  - plugin: buf.build/grpc/python
+  - name: codefly-python
     out: {{.Destination}}
 {{- if .Facade }}
   - name: codefly-facade-python

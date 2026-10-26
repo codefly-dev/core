@@ -207,12 +207,32 @@ The answer is the agent's to give. A consumer that needs an artifact and is
 reported none MUST refuse, naming the agent; there is no path it may derive
 instead.
 
+A Go runtime does not reconstruct that path. `GoRunnerEnvironment.HostExecutable`
+returns the executable of the last successful `BuildBinary` as the host sees it,
+which is the file `Runner()` runs, and reports `false` where there is no such
+file to name: before a build succeeds — the state `Runner()` itself refuses from
+— and for a Docker companion, whose executable exists only inside that
+container. It is absolute, because `BuildBinary` records the target absolute
+when it writes it, resolved against the directory the build process ran in; a
+relative runner directory or cache location would otherwise leave a path that
+this contract forbids and that `exec.LookPath` resolves somewhere else again.
+The runner owns that answer because it owns the name and the backend's layout;
+an agent deriving them again drifts into reporting a file that is not there,
+which a consumer digests rather than refuses.
+
 `runtime-started-artifact/v1` names this optional operation contract. It is
 host support here: a runtime advertises it in its own capabilities only once
 it calls `ReportStartedArtifact`, and the shared contract never advertises it
 for every agent built on this Core — that would be the false promise a
 consumer then trusts. Wire protocol 1 and startup protocol 2 are unchanged.
 Core tests do not qualify any agent's adoption.
+
+A Go runtime built on `runners/golang` names its executable with
+`GoRunnerEnvironment.Executable()`: the absolute path of the last successful
+`BuildBinary`, the one `Runner` starts, empty with an error before a build and
+again after a failed one. It reports `StartedArtifact{Executable: path}` with
+no sources, since the executable is the build; it never derives the path from
+the cache directory's layout.
 
 ### Compatibility reporting
 
@@ -239,6 +259,17 @@ roots. Only plans selecting an explicit root use v4; default service-root plans
 retain v3 and its digest. The plan version, not the agent identity or Core pin,
 prevents an older host from silently building the wrong tree. See
 [build recipe context selection](build-cache.md#cli-executor-selection).
+`codefly.dev/docker-build-recipe/v5` records support for declared Go module
+downloads (`DockerBuildRecipe.go_module_downloads`). Only plans declaring one
+use v5. A v5 host fetches each declared module graph before any image build,
+supplies it as the named proxy build context, and refuses a declaration it did
+not fetch.
+`codefly.dev/docker-build-recipe/v6` records support for declared git source
+downloads (`DockerBuildRecipe.git_source_downloads`). Only plans declaring one
+use v6, and v6 also covers v5's declarations. A v6 host fetches each declared
+commit into a bare mirror at `services.GitSourceMirrorPath(repository)`, under
+`services.GitSourceMirrorRef(commit)`, supplies the mirrors as the named build
+context, and refuses a declaration it did not fetch.
 `runtime-init-dependency-mappings/v1` is explicitly advertised by runtimes that
 consume `InitRequest.dependencies_network_mappings` before executing a test
 whose target is never started. These are the dependencies' accepted addresses,

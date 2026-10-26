@@ -46,6 +46,12 @@ type ClientRequest struct {
 	// for the Sources path (the sources are the targets) and for non-Python or
 	// non-facade generation.
 	TargetFiles []string
+	// GoRequires are the Go modules a Go library generated here depends on for
+	// bindings it must import rather than own: a descriptor-set file whose
+	// go_package lies in one is marked as an import and keeps its go_package,
+	// so the library never registers a second copy of a file its owner already
+	// publishes. Declared by the caller, which knows what the library links.
+	GoRequires []string
 	// Sources are .proto files written to the temp dir — today's
 	// GenerateGRPC path. Each carries its repo-relative path, not just content:
 	// the path decides the generated module/import names, so it must match the
@@ -80,6 +86,7 @@ func GenerateClient(ctx context.Context, req ClientRequest) error {
 		service:       service,
 		descriptorSet: req.DescriptorSet,
 		targetFiles:   req.TargetFiles,
+		goRequires:    req.GoRequires,
 		facade: FacadeOptions{
 			Facade:   req.Facade,
 			Services: req.Services,
@@ -99,6 +106,7 @@ type clientSpec struct {
 	sources       []Source
 	descriptorSet []byte
 	targetFiles   []string
+	goRequires    []string
 	facade        FacadeOptions
 }
 
@@ -128,7 +136,7 @@ func generateClient(ctx context.Context, spec clientSpec) error {
 	var goPackageOverrides map[string]string
 	if len(spec.descriptorSet) > 0 {
 		var merr error
-		if markedDescriptorSet, goPackageOverrides, merr = MarkForeignImports(spec.descriptorSet, spec.language); merr != nil {
+		if markedDescriptorSet, goPackageOverrides, merr = MarkForeignImports(spec.descriptorSet, spec.language, spec.goRequires...); merr != nil {
 			return w.Wrapf(merr, "cannot mark foreign imports in descriptor set")
 		}
 	}

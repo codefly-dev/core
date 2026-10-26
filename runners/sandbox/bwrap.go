@@ -12,6 +12,7 @@ import (
 //	bwrap \
 //	  --die-with-parent \
 //	  --new-session \
+//	  --unshare-pid \
 //	  --proc /proc \
 //	  --dev /dev \
 //	  --tmpfs /tmp \
@@ -24,9 +25,18 @@ import (
 //	  [--unshare-net]
 //	  -- <originalCmd> <originalArgs...>
 //
-// `--die-with-parent` ensures the bwrap child gets SIGTERM if the Go
+// `--die-with-parent` asks for the bwrap child to be killed if the Go
 // parent dies abnormally. `--new-session` blocks TIOCSTI escapes from
-// the sandboxed process onto the controlling tty. The system-image
+// the sandboxed process onto the controlling tty. `--unshare-pid` is
+// what actually bounds the payload's lifetime: with it the payload runs
+// under a pid-namespace init bubblewrap supervises, so ending the
+// supervisor ends the namespace and every process in it. Without it the
+// bound rests on the parent-death signal alone, and that signal is not
+// delivered on every platform: on Ubuntu 26.04 (kernel 7.0, bubblewrap
+// 0.11.1 confined as bwrap//&unpriv_bwrap) a payload outlived its
+// terminated supervisor, in its own session because of --new-session,
+// holding the supervisor's stdio pipes, so the caller's reaper never
+// returned and cleanup ran into its deadline. The system-image
 // binds (/usr, /lib, etc.) are required because most binaries are
 // dynamically linked to libraries rooted there; without them, even
 // `cat` fails to start in the sandbox.
@@ -108,6 +118,7 @@ func (s *bwrapSandbox) buildArgs() []string {
 	args := []string{
 		"--die-with-parent",
 		"--new-session",
+		"--unshare-pid",
 		"--proc", "/proc",
 		"--dev", "/dev",
 		"--tmpfs", "/tmp",

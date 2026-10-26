@@ -1154,6 +1154,31 @@ func TestReferenceOnlyManifestFormats(t *testing.T) {
 	require.True(t, database.Data.Secret)
 }
 
+// A configuration name is a structural segment of every carrier built from it.
+// "policy--auth" and "policy__auth" would both spell POLICY__AUTH, and a
+// carrier built from either reads as configuration "policy" with key
+// "AUTH__CLIENT_ID" — a public CLIENT_ID refused as a credential by its group.
+// The ambiguity is refused where the name enters, for public and secret files
+// alike; a single dash is a name.
+func TestConfigurationNameWithConsecutiveSeparatorsIsRefused(t *testing.T) {
+	for _, filename := range []string{"policy--auth.env", "policy__auth.env", "policy-_auth.secret.env", "nested/policy--auth.yaml"} {
+		t.Run(filename, func(t *testing.T) {
+			dir := t.TempDir()
+			writeConfigurationFile(t, dir, filename, "CLIENT_ID=public-client\n")
+			_, err := configurations.LoadConfigurationInformationsFromFiles(context.Background(), dir)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "carries consecutive separators")
+			require.Contains(t, err.Error(), filename)
+		})
+	}
+	dir := t.TempDir()
+	writeConfigurationFile(t, dir, "policy-auth.env", "CLIENT_ID=public-client\n")
+	writeConfigurationFile(t, dir, "datasource-oauth.env", "PROVIDERS=example\n")
+	infos, err := configurations.LoadConfigurationInformationsFromFiles(context.Background(), dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"datasource-oauth", "policy-auth"}, []string{infos[0].Name, infos[1].Name})
+}
+
 func TestReferenceOnlyManifestRejectsUnsafeScalars(t *testing.T) {
 	const canary = "PLAINTEXT_SECRET_CANARY"
 	tests := []struct {
