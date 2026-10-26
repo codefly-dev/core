@@ -62,7 +62,7 @@ func TestPackageFromOpenAPIOperationIsByteStable(t *testing.T) {
 	pkg, spec := derivedRestIngestion(t)
 	require.NoError(t, runnable.VerifyPackage(pkg))
 	require.Equal(t, applyTextRoute, spec.Method)
-	require.Equal(t, "d6a8f8c69ff924836aa768cf1286a6524065671282932a6867e5b85fa7034458", pkg.GetDigest())
+	require.Equal(t, "7b138d4415778bb8722d2f26da399ab6a40b1b95c069573846d25de17d8bb128", pkg.GetDigest())
 
 	again, _ := derivedRestIngestion(t)
 	require.True(t, proto.Equal(pkg, again))
@@ -301,7 +301,7 @@ func TestPackageFromOpenAPIOperationRefusesWhatABoundedContractCannotDescribe(t 
 		{name: "unprojectable payload", edit: func(doc map[string]any) {
 			schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
 			schemas["ApplyTextRequest"].(map[string]any)["properties"].(map[string]any)["cursor"] =
-				map[string]any{"type": "number"}
+				map[string]any{"type": "string", "format": "binary"}
 		}, because: "#/components/schemas/ApplyTextRequest/properties/cursor"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
