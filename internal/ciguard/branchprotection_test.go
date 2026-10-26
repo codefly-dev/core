@@ -34,6 +34,7 @@ import (
 // docs/runbooks/branch-protection.md tells an operator to apply.
 var requiredChecks = []string{
 	"Build",
+	"Companion version",
 	"Proto",
 	"pnpm source evidence",
 	"Registry cache clean runner (go)",
