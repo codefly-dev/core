@@ -39,11 +39,11 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 	if !found {
 		return nil, nil, nil, fmt.Errorf("%w: token is not <payload>.<signature>", ErrInvalid)
 	}
-	claims, err := base64.RawURLEncoding.DecodeString(payload)
+	claims, err := decodeSegment(payload)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: payload is not base64url: %v", ErrInvalid, err)
 	}
-	sig, err := base64.RawURLEncoding.DecodeString(signature)
+	sig, err := decodeSegment(signature)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: signature is not base64url: %v", ErrInvalid, err)
 	}
@@ -104,6 +104,20 @@ func decodeClaims(encoded string) (*basev0.WorkContextV1, []byte, []byte, error)
 			ErrInvalid, lifetime, MaxTTLCeiling)
 	}
 	return wc, claims, sig, nil
+}
+
+// decodeSegment requires the exact unpadded base64url spelling. DecodeString
+// alone ignores CR/LF and accepts nonzero unused bits. Re-encoding catches both
+// while preserving empty signatures for the authentication check to refuse.
+func decodeSegment(segment string) ([]byte, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(segment)
+	if err != nil {
+		return nil, err
+	}
+	if base64.RawURLEncoding.EncodeToString(decoded) != segment {
+		return nil, fmt.Errorf("noncanonical base64url encoding")
+	}
+	return decoded, nil
 }
 
 // unknownFieldIn reports the path of the first unknown field it finds,
