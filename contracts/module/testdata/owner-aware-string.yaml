@@ -1,5 +1,5 @@
 schema: codefly/module-contract/v1
-principal: shop
+principal: assistant
 owner_aware: yes
 namespaces: []
 queues: []
