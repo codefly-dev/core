@@ -9,6 +9,11 @@ import (
 // ScopeContained applies the Work Context attenuation rule to one scope: a
 // child may narrow a wildcard parent to explicit ids but may never widen an
 // explicit parent set, and may never name an action the parent does not hold.
+// The resource owner narrows the same way: a parent row naming an owner
+// covers only a child naming that same owner, so a child can add an owner to
+// a row that names none but never drop or change one. A reader asking about a
+// resource asks with the resource's owner; an ask naming no owner is never
+// covered by an owner-selected row, so an owner-blind check fails closed.
 func ScopeContained(child *basev0.WorkScopeV1, parents []*basev0.WorkScopeV1) bool {
 	// A kind can have several rows with different action/resource coverage.
 	// Check each pair against that coverage, never their Cartesian product.
@@ -24,6 +29,9 @@ func ScopeContained(child *basev0.WorkScopeV1, parents []*basev0.WorkScopeV1) bo
 		ids := map[string]bool{}
 		for _, parent := range parents {
 			if parent.GetResourceKind() != child.GetResourceKind() || !slices.Contains(parent.GetActions(), action) {
+				continue
+			}
+			if owner := parent.GetResourceOwnerId(); owner != "" && owner != child.GetResourceOwnerId() {
 				continue
 			}
 			if len(parent.GetResourceIds()) == 0 {

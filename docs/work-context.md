@@ -87,10 +87,17 @@ child born superseded whenever a revocation landed in between. A `Grant`
 keeps the revision the decision was made at, because bumping past it is
 exactly what revokes an unspent grant.
 
-`WorkScopeV1` is `(resource_kind, actions, resource_ids)`. Attenuation
-(`workcontext.ScopeContained`) lets a child narrow a wildcard parent to
-explicit ids and never the reverse, and never name an action the parent does
-not hold.
+`WorkScopeV1` is `(resource_kind, actions, resource_ids, resource_owner_id)`.
+Attenuation (`workcontext.ScopeContained`) lets a child narrow a wildcard
+parent to explicit ids and never the reverse, and never name an action the
+parent does not hold. `resource_owner_id` selects the resources one principal
+owns (an installed solution's principal), and narrows the same way: a child
+may add an owner to a row that names none, never drop or change one. With ids,
+a resource is covered only when both match. A reader asks with the resource's
+owner; an ask naming no owner is never covered by an owner-selected row, so an
+owner-blind check fails closed rather than reading the scope as the whole
+kind. Runnable operations never declare an owner: the authority selects it for
+an installation.
 
 Every exchange deep-copies the parent's claims. Sharing hop or scope messages
 would let a mutation of the new capability rewrite what the parent is

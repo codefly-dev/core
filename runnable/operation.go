@@ -424,6 +424,9 @@ func (a authoritySpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) e
 		if len(scope.GetActions()) == 0 || len(scope.GetActions()) > MaxScopeActions {
 			return fmt.Errorf("%w: %s %s scope %q names %d actions; between 1 and %d are required", ErrInvalid, a.subject, at, kind, len(scope.GetActions()), MaxScopeActions)
 		}
+		if owner := scope.GetResourceOwnerId(); owner != "" {
+			return fmt.Errorf("%w: %s %s scope %q selects resource owner %q; an owner is the authority's to select for an installation, never declared", ErrInvalid, a.subject, at, kind, owner)
+		}
 		if len(scope.GetResourceIds()) > MaxScopeResourceIds {
 			return fmt.Errorf("%w: %s %s scope %q names %d resource ids; at most %d may be declared", ErrInvalid, a.subject, at, kind, len(scope.GetResourceIds()), MaxScopeResourceIds)
 		}

@@ -286,6 +286,9 @@ func TestOperationFromMethodEnforcesThePolicyBounds(t *testing.T) {
 			}
 			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: ids}}
 		}, "resource ids"},
+		{"a declared resource owner", func(o *runnablev0.Operation) {
+			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceOwnerId: "principal-u"}}
+		}, "never declared"},
 		{"repeated resource id", func(o *runnablev0.Operation) {
 			o.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "documents", Actions: []string{"ingest", "read"}, ResourceIds: []string{"one", "one"}}}
 		}, "twice"},
