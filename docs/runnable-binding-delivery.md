@@ -206,8 +206,10 @@ Everything fails closed, and as early as the information exists:
   ConfigMap and Secret it loads as the container's environment, and refuses a
   file ConfigMap or Secret above 1 MiB, the API server's object limit.
 - **Read time.** A file carrier whose path is relative, is not a regular file,
-  exceeds `resources.MaxFileCarrierBytes`, or cannot be read is an error, not
-  an absent value: an unreadable credential never reads as an unset one. A key
+  is empty, exceeds `resources.MaxFileCarrierBytes`, or cannot be read is an
+  error, not an absent value: an unreadable credential never reads as an unset
+  one. An empty file is a truncated write or a mount race, since only a value
+  above `resources.FileCarrierThreshold` is delivered by file. A key
   delivered both inline and by file is refused as two sources for one fact.
 - **Install time.** A contract digest that does not cover the contract delivered
   with it, a route that is not the operation the value names, a policy outside
