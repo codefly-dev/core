@@ -1488,7 +1488,7 @@ func (proc *DockerProc) prepareCommand() []string {
 	// remain those of the requested process.
 	wrapper := []string{
 		"/bin/sh", "-c",
-		`umask 077; printf '%s\n' "$$" > "$1"; shift; exec "$@"`,
+		`(umask 077; printf '%s\n' "$$" > "$1") || exit; shift; exec "$@"`,
 		"codefly-exec", proc.pidFile,
 	}
 	return append(wrapper, proc.cmd...)
