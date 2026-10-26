@@ -16,8 +16,9 @@ import (
 // descriptor set that imports both buf/validate/validate.proto and an
 // org-shared options proto (saas/policy), and asserts that only the named
 // target survives — every shared import, whatever its path, is dropped, and
-// the target's field options are cleared. It needs a python with the protobuf
-// runtime; without one it skips (this test is not Docker-gated).
+// the target's custom options are cleared while its built-in ones stay. It
+// needs a python with the protobuf runtime; without one it skips (this test is
+// not Docker-gated).
 //
 // saas/policy is the case a path-prefix guess would have wrongly kept: it is
 // neither a google well-known type nor under buf/, yet keeping it re-registers
@@ -42,7 +43,7 @@ func TestStripCustomOptions(t *testing.T) {
 						Number:  proto.Int32(1),
 						Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 						Label:   descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
-						Options: &descriptorpb.FieldOptions{Deprecated: proto.Bool(true)},
+						Options: withCustomOption(&descriptorpb.FieldOptions{Deprecated: proto.Bool(true)}),
 					}},
 				}},
 			},
@@ -69,9 +70,73 @@ func TestStripCustomOptions(t *testing.T) {
 			t.Errorf("target still depends on stripped file %s", dep)
 		}
 	}
-	if target.GetMessageType()[0].GetField()[0].Options != nil {
-		t.Error("field options were not cleared")
+	options := target.GetMessageType()[0].GetField()[0].GetOptions()
+	if len(options.ProtoReflect().GetUnknown()) != 0 {
+		t.Error("the custom field option (buf.validate.field) survived the strip")
 	}
+	if !options.GetDeprecated() {
+		t.Error("the built-in deprecated option was stripped with the custom one")
+	}
+}
+
+// TestStripKeepsMapEntry pins the built-in option the strip used to destroy: a
+// proto `map<K, V>` field is a repeated field of a nested entry message marked
+// map_entry. Clearing every options message dropped the flag, and the Python
+// bindings exposed the map as a repeated entry message services had to .add()
+// to. The custom option on the same field still goes.
+func TestStripKeepsMapEntry(t *testing.T) {
+	python := pythonWithProtobuf(t)
+
+	str := descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum()
+	optional := descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum()
+	set := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{{
+			Name:    proto.String("svc/v1/grid.proto"),
+			Package: proto.String("svc.v1"),
+			Syntax:  proto.String("proto3"),
+			MessageType: []*descriptorpb.DescriptorProto{{
+				Name: proto.String("Sheet"),
+				NestedType: []*descriptorpb.DescriptorProto{{
+					Name: proto.String("LabelsEntry"),
+					Field: []*descriptorpb.FieldDescriptorProto{
+						{Name: proto.String("key"), Number: proto.Int32(1), Type: str, Label: optional},
+						{Name: proto.String("value"), Number: proto.Int32(2), Type: str, Label: optional},
+					},
+					Options: withCustomOption(&descriptorpb.MessageOptions{MapEntry: proto.Bool(true)}),
+				}},
+				Field: []*descriptorpb.FieldDescriptorProto{{
+					Name:     proto.String("labels"),
+					Number:   proto.Int32(1),
+					Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+					Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+					TypeName: proto.String(".svc.v1.Sheet.LabelsEntry"),
+					Options:  withCustomOption(&descriptorpb.FieldOptions{}),
+				}},
+			}},
+		}},
+	}
+
+	stripped := runStrip(t, python, set, "svc/v1/grid.proto")
+
+	sheet := stripped.GetFile()[0].GetMessageType()[0]
+	entry := sheet.GetNestedType()[0].GetOptions()
+	if !entry.GetMapEntry() {
+		t.Fatal("map_entry was stripped: the map field would generate as a repeated entry message")
+	}
+	if len(entry.ProtoReflect().GetUnknown()) != 0 {
+		t.Error("the custom option on the entry message survived the strip")
+	}
+	if sheet.GetField()[0].Options != nil {
+		t.Error("a field whose only option is custom kept an options message")
+	}
+}
+
+// withCustomOption adds buf.validate's field extension (1159) as an unknown
+// field, which is how a custom option reaches the strip: its defining file is
+// in the image, but the strip's protobuf runtime never registered it.
+func withCustomOption[M proto.Message](options M) M {
+	options.ProtoReflect().SetUnknown([]byte{0xba, 0x48, 0x02, 0x08, 0x01})
+	return options
 }
 
 // TestStripKeepsTypeDependencies covers the edges the strip must not cut when a

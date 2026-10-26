@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -87,12 +86,21 @@ func (s *buildxTestServer) Build(ctx context.Context, req *builderv0.BuildReques
 	return resp, err
 }
 
+// Only an in-agent build has an executor to acknowledge: a recipe is built by
+// the caller on the builder it selected, and an answer that built nothing (a
+// vendor-image agent) has nothing to acknowledge. Treating "no recipe" as
+// "built in-agent" refused every render composing a vendor-image agent.
 func TestBuildxSelectionRequiresExecutorAcknowledgementOverGRPC(t *testing.T) {
-	for _, recipe := range []bool{false, true} {
-		t.Run(fmt.Sprintf("recipe=%t", recipe), func(t *testing.T) {
+	for name, result := range map[string]*builderv0.BuildResult{
+		"in-agent build": {Kind: &builderv0.BuildResult_DockerBuildResult{DockerBuildResult: &builderv0.DockerBuildResult{}}},
+		"recipe":         {Kind: &builderv0.BuildResult_DockerBuildPlan{DockerBuildPlan: &builderv0.DockerBuildPlan{}}},
+		"nothing built":  nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			recipe := name != "in-agent build"
 			wrapper := &BuilderWrapper{Base: &Base{loaded: true}}
-			if recipe {
-				wrapper.BuildResult = &builderv0.BuildResult{Kind: &builderv0.BuildResult_DockerBuildPlan{DockerBuildPlan: &builderv0.DockerBuildPlan{}}}
+			if result != nil {
+				wrapper.BuildResult = result
 			}
 			server := grpc.NewServer()
 			builderv0.RegisterBuilderServer(server, &buildxTestServer{
@@ -144,7 +152,7 @@ func TestBuildxCapabilitiesCheckedBeforeBuildOverGRPC(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			implementation := &buildxTestServer{
-				DefaultBuilder:  NewDefaultBuilder(&BuilderWrapper{Base: &Base{loaded: true}}),
+				DefaultBuilder:  NewDefaultBuilder(&BuilderWrapper{Base: &Base{loaded: true}, BuildResult: &builderv0.BuildResult{Kind: &builderv0.BuildResult_DockerBuildResult{DockerBuildResult: &builderv0.DockerBuildResult{}}}}), // an in-agent build: the one answer that owes an acknowledgement
 				capabilities:    &builderv0.BuildCapabilitiesResponse{BuildxSelection: tc.supported},
 				capabilityError: tc.probeError,
 				acknowledgement: tc.ack,

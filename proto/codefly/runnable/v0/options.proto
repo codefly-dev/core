@@ -7,10 +7,13 @@ import "google/protobuf/descriptor.proto";
 import "google/protobuf/duration.proto";
 
 /*
-A unary, idempotent method an owner service already publishes becomes a
-Runnable by derivation, not by authoring: the method option below says which
-methods are operations and under what execution policy, and the message
-descriptors say what the contract is. Nothing here is a second spelling of the
+A unary method an owner service already publishes becomes a Runnable by
+derivation, not by authoring, and every Runnable is a tool. A method that
+declares its authority policy (authority.hop.v1.policy) is derived with no
+option at all: its effect follows from the actions that policy requires, and
+the policy below is the default for that effect. The option exists to override
+those defaults, and `exclude` to keep a method away from every caller that is
+not its own client; the message descriptors say what the contract is. Nothing here is a second spelling of the
 contract — a package built from a method is
 codefly.base.v0.RunnablePackage like any other.
 
@@ -29,7 +32,7 @@ invoke_scopes — is the one that matters most.
 // contract, and two installations of it may run under different policies.
 //
 // The option's presence is the marking; every field below except
-// lookup_method, max_input_bytes, max_output_bytes, tool and
+// lookup_method, max_input_bytes, max_output_bytes, tool, recovery and
 // required_scope_slots and the scope lists is required, completion included. An attempt
 // budget and an authority nobody chose are not defaults core may invent on an
 // owner's behalf, so an empty option is rejected rather than filled in.
@@ -56,7 +59,12 @@ message Operation {
   // lookup_scopes are the scopes the runtime binds to read an effect receipt.
   // They must be a read-only subset of invoke_scopes: recovering an outcome
   // never carries more authority than producing it did. Required slots may
-  // supply all lookup scopes; a resolved policy with none is still refused.
+  // supply all lookup scopes. Lookup scopes are optional, whatever recovery
+  // says or leaves unsaid: with none, a receipt is read under invoke_scopes
+  // and only by the identity that made the effect — the receipt records its
+  // Work Context owner and acting principal (codefly.runnable.receipts.v0.
+  // ReceiptIdentity) and runnable.AdmitReceiptLookup admits that identity
+  // alone. A recomputed operation declares none: it keeps no receipt.
   repeated codefly.base.v0.WorkScopeV1 lookup_scopes = 8;
   // lookup_method is a paired method on the same service that takes the effect
   // id and answers with the receipt, spelled "/package.Service/Method". Empty
@@ -76,9 +84,12 @@ message Operation {
   // a caller that assumed wrongly either abandons work that is still running or
   // waits for a reply that was never going to come.
   codefly.base.v0.RunnableExecution.Completion completion = 12;
-  // tool explicitly permits discovery as a tool. Absent means not exposed;
-  // presence never grants a caller authority to discover or invoke it. The
-  // host still checks installation, exposure and current caller permissions.
+  // tool is how the operation is presented as a tool. Every Runnable is a
+  // tool; this only names and describes it. A derivation fills it from the
+  // method's own name, its leading doc comment and its effect when the owner
+  // writes none, so a delivered policy always carries it. Presence never grants
+  // a caller authority to discover or invoke it: the host still checks
+  // installation and current caller permissions.
   ToolExposure tool = 13;
   // required_scope_slots are authority the owner cannot spell alone: a model
   // whose resource kind another module defines, a tool whose kinds and actions
@@ -92,6 +103,14 @@ message Operation {
   // runnable.OperationSpec.ResolveScopeSlots is the one resolution to a
   // concrete policy.
   repeated ScopeSlot required_scope_slots = 14;
+  // recovery is how an uncertain outcome is resolved. RECOVERY_RECOMPUTE is a
+  // read: re-running it is safe, so it carries no receipt, no lookup scopes and
+  // no lookup method, answers synchronously, and its tool effect is read-only.
+  // RECOVERY_RECEIPT is anything else: an uncertain outcome is resolved by
+  // reading the effect receipt and never by re-running. Unset is
+  // RECOVERY_RECEIPT, the reading that never repeats an effect, so every
+  // operation declared before this field existed keeps the recovery it had.
+  codefly.base.v0.RunnableExecution.Recovery recovery = 15;
 }
 
 // ToolExposure is an owner's explicit tool contribution. Input and output
@@ -162,4 +181,9 @@ extend google.protobuf.MethodOptions {
   // operation marks the method as a Runnable operation; its presence is the
   // marking, and its value is the execution policy.
   Operation operation = 51003;
+  // exclude keeps a method that declares an authority policy from being
+  // derived as a Runnable, and therefore as a tool: an operation no agent may
+  // ever call. It is the one per-method word a derivation needs, and it is
+  // refused beside an operation option, which would say the opposite.
+  bool exclude = 51004;
 }

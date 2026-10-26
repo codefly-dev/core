@@ -419,7 +419,7 @@ func TestProtobufContractSourceDerivesTypesAndRejectsStaleCatalog(t *testing.T) 
 	require.NoError(t, err)
 	endpoint := APIContractEndpoint{Package: "accounts.v1", Services: ProtobufServices(set, "accounts.v1")}
 	var items []*updatev0.ContractItem
-	require.NoError(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items, nil))
+	require.NoError(t, protobufContractItems(endpoint, []APIContractEndpoint{endpoint}, "api/accounts/grpc", data, &items, nil))
 	require.Len(t, items, 2)
 	require.Equal(t, "api/accounts/grpc#accounts.v1.Account", items[0].Id)
 	require.Contains(t, items[1].Dependencies, items[0].Id)
@@ -428,10 +428,126 @@ func TestProtobufContractSourceDerivesTypesAndRejectsStaleCatalog(t *testing.T) 
 	data, err = proto.Marshal(set)
 	require.NoError(t, err)
 	items = nil
-	require.NoError(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items, nil))
+	require.NoError(t, protobufContractItems(endpoint, []APIContractEndpoint{endpoint}, "api/accounts/grpc", data, &items, nil))
 	require.NotEqual(t, original, items[0].Digest)
 	set.File[0].Service[0].Method = nil
 	data, err = proto.Marshal(set)
 	require.NoError(t, err)
-	require.ErrorContains(t, protobufContractItems(endpoint, "api/accounts/grpc", data, &items, nil), "catalog procedures")
+	require.ErrorContains(t, protobufContractItems(endpoint, []APIContractEndpoint{endpoint}, "api/accounts/grpc", data, &items, nil), "catalog procedures")
+}
+
+// accountsDescriptor declares accounts.v1.Accounts with the given methods, each
+// taking and returning its own message, so an omitted method's types are
+// evidence only it contributes.
+func accountsDescriptor(methods ...string) *descriptorpb.FileDescriptorSet {
+	file := &descriptorpb.FileDescriptorProto{Name: proto.String("accounts.proto"), Package: proto.String("accounts.v1"), Syntax: proto.String("proto3"),
+		Service: []*descriptorpb.ServiceDescriptorProto{{Name: proto.String("Accounts")}}}
+	for _, method := range methods {
+		file.MessageType = append(file.MessageType, &descriptorpb.DescriptorProto{Name: proto.String(method + "Request")})
+		file.Service[0].Method = append(file.Service[0].Method, &descriptorpb.MethodDescriptorProto{Name: proto.String(method),
+			InputType: proto.String(".accounts.v1." + method + "Request"), OutputType: proto.String(".accounts.v1." + method + "Request")})
+	}
+	return &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{file}}
+}
+
+// A catalog that omits a method its descriptor declares was not regenerated
+// with it: refused, with or without a package, so a breaking change to the
+// omitted method's messages cannot pass update compatibility unseen.
+func TestProtobufContractEvidenceRefusesACatalogOmittingADescriptorMethod(t *testing.T) {
+	data, err := proto.Marshal(accountsDescriptor("Get", "Delete"))
+	require.NoError(t, err)
+	onlyGet := []APIContractService{{Name: "Accounts", FullName: "accounts.v1.Accounts", Procedures: []string{"/accounts.v1.Accounts/Get"}}}
+	for _, pkg := range []string{"accounts.v1", ""} {
+		endpoint := APIContractEndpoint{Service: "accounts", Endpoint: "grpc", Package: pkg, Services: onlyGet}
+		var items []*updatev0.ContractItem
+		err := protobufContractItems(endpoint, []APIContractEndpoint{endpoint}, "api/accounts/grpc", data, &items, nil)
+		require.ErrorContains(t, err, "catalog procedures")
+		require.ErrorContains(t, err, "/accounts.v1.Accounts/Delete is served by no listener")
+	}
+}
+
+// A package-qualified endpoint is exact about its package: a service of that
+// package the catalog does not list is refused, and a listed service outside
+// it is refused, as before listener inventories.
+func TestProtobufContractEvidenceHonoursTheEndpointPackage(t *testing.T) {
+	set := accountsDescriptor("Get")
+	set.File = append(set.File, &descriptorpb.FileDescriptorProto{Name: proto.String("audit.proto"), Package: proto.String("accounts.v1"), Syntax: proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Entry")}},
+		Service: []*descriptorpb.ServiceDescriptorProto{{Name: proto.String("Audit"), Method: []*descriptorpb.MethodDescriptorProto{
+			{Name: proto.String("Query"), InputType: proto.String(".accounts.v1.Entry"), OutputType: proto.String(".accounts.v1.Entry")}}}},
+	}, &descriptorpb.FileDescriptorProto{Name: proto.String("other.proto"), Package: proto.String("other.v1"), Syntax: proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("M")}},
+		Service: []*descriptorpb.ServiceDescriptorProto{{Name: proto.String("Other"), Method: []*descriptorpb.MethodDescriptorProto{
+			{Name: proto.String("Do"), InputType: proto.String(".other.v1.M"), OutputType: proto.String(".other.v1.M")}}}},
+	})
+	data, err := proto.Marshal(set)
+	require.NoError(t, err)
+	var items []*updatev0.ContractItem
+	accountsOnly := APIContractEndpoint{Service: "accounts", Endpoint: "grpc", Package: "accounts.v1", Services: ProtobufServices(accountsDescriptor("Get"), "accounts.v1")}
+	require.ErrorContains(t, protobufContractItems(accountsOnly, []APIContractEndpoint{accountsOnly}, "api/accounts/grpc", data, &items, nil),
+		"/accounts.v1.Audit/Query is served by no listener")
+	whole := APIContractEndpoint{Service: "accounts", Endpoint: "grpc", Package: "accounts.v1", Services: ProtobufServices(set, "accounts.v1")}
+	require.NoError(t, protobufContractItems(whole, []APIContractEndpoint{whole}, "api/accounts/grpc", data, &items, nil),
+		"another package's service no listener lists is a schema, not a served service")
+	whole.Services = append(whole.Services, ProtobufServices(set, "other.v1")...)
+	require.ErrorContains(t, protobufContractItems(whole, []APIContractEndpoint{whole}, "api/accounts/grpc", data, &items, nil),
+		"service other.v1.Other is outside the endpoint's package accounts.v1")
+}
+
+// A listener may serve part of a service — the methods its owner routes to it
+// — and serve services of several packages, its own and a foreign protocol's,
+// as long as the listeners sharing its descriptor serve every method between
+// them. The evidence of each is what it serves; an imported package's service
+// no listener lists is not served.
+func TestProtobufContractEvidenceUsesMultiPackageListenerInventory(t *testing.T) {
+	set := &descriptorpb.FileDescriptorSet{}
+	for _, pkg := range []string{"accounts.v1", "host.authority.v1", "foreign.v1"} {
+		set.File = append(set.File, &descriptorpb.FileDescriptorProto{Name: proto.String(pkg + ".proto"), Package: proto.String(pkg), Syntax: proto.String("proto3"),
+			MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Message")}},
+			Service: []*descriptorpb.ServiceDescriptorProto{{Name: proto.String("Service"), Method: []*descriptorpb.MethodDescriptorProto{
+				{Name: proto.String("Served"), InputType: proto.String("." + pkg + ".Message"), OutputType: proto.String("." + pkg + ".Message")},
+				{Name: proto.String("OtherListener"), InputType: proto.String("." + pkg + ".Message"), OutputType: proto.String("." + pkg + ".Message")},
+			}}},
+		})
+	}
+	connect := APIContractEndpoint{Service: "accounts", Endpoint: "connect", Digest: "same"}
+	internal := APIContractEndpoint{Service: "accounts", Endpoint: "internal", Digest: "same"}
+	for _, pkg := range []string{"accounts.v1", "host.authority.v1"} {
+		connect.Services = append(connect.Services, APIContractService{Name: "Service", FullName: pkg + ".Service", Procedures: []string{"/" + pkg + ".Service/Served"}})
+		internal.Services = append(internal.Services, APIContractService{Name: "Service", FullName: pkg + ".Service", Procedures: []string{"/" + pkg + ".Service/OtherListener"}})
+	}
+	data, err := proto.Marshal(set)
+	require.NoError(t, err)
+	var items []*updatev0.ContractItem
+	require.NoError(t, protobufContractItems(connect, []APIContractEndpoint{connect, internal}, "api/accounts/connect", data, &items, nil))
+	var ids []string
+	for _, item := range items {
+		ids = append(ids, item.Id)
+		require.NotContains(t, item.Id, "OtherListener")
+		require.NotContains(t, item.Id, "foreign.v1")
+	}
+	require.Contains(t, ids, "api/accounts/connect#/host.authority.v1.Service/Served")
+	require.Len(t, items, 4)
+
+	// Without the listener that serves the rest, the methods nobody serves
+	// are a stale catalog, not a restricted listener.
+	require.ErrorContains(t, protobufContractItems(connect, []APIContractEndpoint{connect}, "api/accounts/connect", data, &items, nil),
+		"/accounts.v1.Service/OtherListener is served by no listener")
+}
+
+// The listeners sharing a descriptor are the catalog's protobuf endpoints of
+// the same service at the same digest.
+func TestProtobufListenersShareServiceAndDescriptor(t *testing.T) {
+	catalog := &APIContractCatalog{Endpoints: []APIContractEndpoint{
+		{Service: "accounts", Endpoint: "connect", Kind: APIContractKindProtobuf, Digest: "a"},
+		{Service: "accounts", Endpoint: "internal", Kind: APIContractKindProtobuf, Digest: "a"},
+		{Service: "accounts", Endpoint: "admin", Kind: APIContractKindProtobuf, Digest: "b"},
+		{Service: "billing", Endpoint: "connect", Kind: APIContractKindProtobuf, Digest: "a"},
+		{Service: "accounts", Endpoint: "rest", Kind: APIContractKindOpenAPI, Digest: "a"},
+	}}
+	var names []string
+	for _, listener := range protobufListeners(catalog, catalog.Endpoints[0]) {
+		names = append(names, listener.Endpoint)
+	}
+	require.Equal(t, []string{"connect", "internal"}, names)
 }

@@ -1,0 +1,101 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "releases solution backend",
+    "version": "0.3.0"
+  },
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "paths": {
+    "/recorded": {
+      "get": {
+        "operationId": "Releases_Get_Recorded",
+        "summary": "Read the board as records holds it, without asking GitHub",
+        "x-codefly-authority-policy": {"requires": [{"resource_kind": "records.records", "actions": ["read"]}]},
+        "x-codefly-operation": {
+          "attempt_timeout": "30s",
+          "total_timeout": "90s",
+          "max_attempts": 3,
+          "backoff": "1s",
+          "retryable_codes": ["503"],
+          "audience": "releases",
+          "invoke_scopes": [{"resource_kind": "records.records", "actions": ["read"]}],
+          "completion": "COMPLETION_CALL",
+          "recovery": "RECOVERY_RECOMPUTE",
+          "tool": {
+            "name": "Releases_Get_Recorded",
+            "description": "Read the board as records holds it, without asking GitHub",
+            "effect": "EFFECT_READ_ONLY"
+          }
+        },
+        "responses": {
+          "200": {"description": "A successful response.", "schema": {"$ref": "#/definitions/Board"}},
+          "401": {"description": "No Work Context.", "schema": {"$ref": "#/definitions/Error"}}
+        }
+      }
+    },
+    "/history": {
+      "get": {
+        "operationId": "Releases_Get_History",
+        "summary": "Read the recorded tags of one repository and the recorded pins of one component",
+        "x-codefly-authority-policy": {"requires": [{"resource_kind": "records.records", "actions": ["read"]}]},
+        "x-codefly-operation": {
+          "attempt_timeout": "30s",
+          "total_timeout": "90s",
+          "max_attempts": 3,
+          "backoff": "1s",
+          "retryable_codes": ["503"],
+          "audience": "releases",
+          "invoke_scopes": [{"resource_kind": "records.records", "actions": ["read"]}],
+          "completion": "COMPLETION_CALL",
+          "recovery": "RECOVERY_RECOMPUTE",
+          "tool": {
+            "name": "Releases_Get_History",
+            "description": "Read the recorded tags of one repository and the recorded pins of one component",
+            "effect": "EFFECT_READ_ONLY"
+          }
+        },
+        "parameters": [
+          {"name": "repo", "in": "query", "required": true, "type": "string"},
+          {"name": "component", "in": "query", "required": false, "type": "string"}
+        ],
+        "responses": {
+          "200": {"description": "A successful response.", "schema": {"$ref": "#/definitions/History"}},
+          "401": {"description": "No Work Context.", "schema": {"$ref": "#/definitions/Error"}}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Board": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observedAt": {"type": "string"},
+        "components": {"type": "array", "items": {"$ref": "#/definitions/Component"}}
+      }
+    },
+    "Component": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "pinned": {"type": "string"},
+        "latest": {"type": "string"}
+      }
+    },
+    "History": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repo": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"error": {"type": "string"}}
+    }
+  }
+}

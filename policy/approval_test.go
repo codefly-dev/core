@@ -14,6 +14,19 @@ import (
 	"github.com/codefly-dev/core/policy"
 )
 
+// The call an approval is asked for, as the gateway names it.
+const (
+	toolboxID         = "codefly.dev/github-bot:0.1.0"
+	mergeToolName     = "github.merge_pr"
+	mergeSubject      = "repo:codefly/core"
+	callDigest        = "sha256:9f1c0b"
+	approvalRequestID = "ar-77"
+)
+
+func workScope(kind, action, resourceID string) *basev0.WorkScopeV1 {
+	return &basev0.WorkScopeV1{ResourceKind: kind, Actions: []string{action}, ResourceIds: []string{resourceID}}
+}
+
 func approvalSignal() *basev0.ApprovalRequiredV1 {
 	return &basev0.ApprovalRequiredV1{
 		RequestId:      approvalRequestID,

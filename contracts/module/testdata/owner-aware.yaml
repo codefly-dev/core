@@ -1,0 +1,7 @@
+schema: codefly/module-contract/v1
+principal: assistant
+owner_aware: true
+namespaces: []
+queues: []
+bindings: []
+destinations: []

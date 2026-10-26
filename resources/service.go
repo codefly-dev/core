@@ -90,6 +90,11 @@ type Service struct {
 	// internal
 	dir    string
 	module string
+
+	// interfacesBound records that a workspace bound the interface
+	// dependencies, so what is left unbound is what nothing in it implements,
+	// not what nothing tried to bind (InterfaceBindingsProto).
+	interfacesBound bool
 }
 
 // TestFormula is the language-agnostic test invocation as DATA — the yaml mirror

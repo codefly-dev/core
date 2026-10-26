@@ -121,7 +121,6 @@ func TestOperationFromOpenAPIMarkerRejectsAPolicyTheRuntimeWouldRefuse(t *testin
 		{"repeated retryable code", func(d map[string]any) { d["retryable_codes"] = []any{"503", "503"} }, "twice"},
 		{"no audience", func(d map[string]any) { delete(d, "audience") }, "audience"},
 		{"no invoke scopes", func(d map[string]any) { delete(d, "invoke_scopes") }, "invoke_scopes"},
-		{"no lookup scopes", func(d map[string]any) { delete(d, "lookup_scopes") }, "lookup_scopes"},
 		{"widening lookup scope", func(d map[string]any) {
 			d["lookup_scopes"] = []any{map[string]any{"resource_kind": "receipts", "actions": []any{"read"}}}
 		}, "not covered by its invoke scopes"},
@@ -167,4 +166,22 @@ func TestOperationFromMethodStillNamesGRPCCodes(t *testing.T) {
 func TestMarkerKeyIsTheOneTheDocumentSpells(t *testing.T) {
 	require.Equal(t, "x-codefly-operation", runnable.OpenAPIOperationMarker)
 	require.True(t, strings.HasPrefix(runnable.OpenAPIOperationMarker, "x-"), "an OpenAPI vendor extension starts with x-")
+}
+
+// TestOperationLookupCoverageIsTheWorkContextRule: a lookup scope is covered by
+// the invoke scopes under the one attenuation rule core has
+// (workcontext.ScopeContained): a lookup may narrow an invoke scope's ids,
+// never name an id outside them.
+func TestOperationLookupCoverageIsTheWorkContextRule(t *testing.T) {
+	withIDs := func(lookupIDs ...any) func(map[string]any) {
+		return func(d map[string]any) {
+			d["invoke_scopes"] = []any{map[string]any{"resource_kind": "documents", "actions": []any{"ingest", "read"}, "resource_ids": []any{"a", "b"}}}
+			d["lookup_scopes"] = []any{map[string]any{"resource_kind": "documents", "actions": []any{"read"}, "resource_ids": lookupIDs}}
+		}
+	}
+	_, err := markerSpec(t, withIDs("a"))
+	require.NoError(t, err, "a lookup naming an id the invoke scope holds narrows it")
+	_, err = markerSpec(t, withIDs("c"))
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "not covered by its invoke scopes")
 }

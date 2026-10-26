@@ -1,18 +1,23 @@
 """Descriptor-level tests for the strip-options companion.
 
-An enum with `option allow_alias = true` carries two names on one number, which
-is only legal while the flag is set. The strip step must drop custom/extension
-options without discarding allow_alias, or the generator's reparse rejects the
-descriptor (issue #398).
+The strip drops custom options (extensions of a google.protobuf.*Options
+message, whose defining files leave the output) and keeps the built-in ones,
+which change what the descriptor means. An enum with `option allow_alias = true`
+carries two names on one number, which is only legal while the flag is set, or
+the generator's reparse rejects the descriptor (issue #398). A `map<K, V>` field
+is a repeated entry message marked `map_entry`; without the flag the generated
+class has a repeated field where the proto declares a map.
 """
 
 from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from google.protobuf import descriptor_pool, message_factory
 from google.protobuf.descriptor_pb2 import (
     FieldDescriptorProto,
     FileDescriptorProto,
@@ -22,10 +27,26 @@ from google.protobuf.descriptor_pb2 import (
 import strip_custom_options as strip_options
 
 
+# buf.validate's field option number: an extension the strip's protobuf runtime
+# has never heard of, so it parses as an unknown field — exactly how a real
+# custom option arrives in the image.
+_CUSTOM_OPTION = 1159
+
+
+def _set_custom_option(options, number=_CUSTOM_OPTION):
+    """Add an unregistered varint extension (number = 1) to an options message."""
+    tag, encoded = (number << 3) | 0, b""
+    while tag > 0x7F:
+        encoded += bytes([(tag & 0x7F) | 0x80])
+        tag >>= 7
+    options.MergeFromString(encoded + bytes([tag, 1]))
+    assert options.ByteSize() > 0
+
+
 def _aliased_enum(container, name):
     enum = container.enum_type.add(name=name)
     enum.options.allow_alias = True
-    enum.options.deprecated = True
+    _set_custom_option(enum.options)
     enum.value.add(name=f"{name}_UNSPECIFIED", number=0)
     enum.value.add(name=f"{name}_PRINCIPAL", number=1)
     enum.value.add(name=f"{name}_USER", number=1)
@@ -40,7 +61,7 @@ def test_strip_preserves_allow_alias_on_top_level_enum():
 
     enum = fd.enum_type[0]
     assert enum.options.allow_alias is True
-    assert enum.options.deprecated is False  # non-alias options still stripped
+    assert enum.options == type(enum.options)(allow_alias=True)  # custom stripped
 
 
 def test_strip_preserves_allow_alias_on_nested_enum():
@@ -52,18 +73,47 @@ def test_strip_preserves_allow_alias_on_nested_enum():
 
     enum = fd.message_type[0].enum_type[0]
     assert enum.options.allow_alias is True
-    assert enum.options.deprecated is False
+    assert enum.options == type(enum.options)(allow_alias=True)
 
 
-def test_strip_clears_options_on_non_aliased_enum():
+def test_strip_clears_custom_only_options_on_enum():
     fd = FileDescriptorProto(name="common.proto", package="svc.v1")
     enum = fd.enum_type.add(name="Plain")
-    enum.options.deprecated = True
+    _set_custom_option(enum.options)
     enum.value.add(name="PLAIN_UNSPECIFIED", number=0)
 
     strip_options.strip(fd, {"common.proto"})
 
     assert not fd.enum_type[0].HasField("options")
+
+
+def test_strip_keeps_built_in_options_everywhere():
+    # Built-in options are declared fields of the options messages, not
+    # extensions: they belong to the descriptor's meaning, never to a dropped
+    # file, so none of them is stripped alongside the custom ones.
+    fd = FileDescriptorProto(name="common.proto", package="svc.v1")
+    fd.options.go_package = "example.com/svc/v1"
+    _set_custom_option(fd.options)
+    message = fd.message_type.add(name="Subject")
+    message.options.deprecated = True
+    field = message.field.add(
+        name="ids", number=1, type=FieldDescriptorProto.TYPE_INT32,
+        label=FieldDescriptorProto.LABEL_REPEATED,
+    )
+    field.options.packed = True
+    _set_custom_option(field.options)
+    service = fd.service.add(name="Svc")
+    method = service.method.add(name="Get", input_type=".svc.v1.Subject", output_type=".svc.v1.Subject")
+    method.options.idempotency_level = method.options.NO_SIDE_EFFECTS
+    _set_custom_option(method.options, number=72295728)  # google.api.http
+
+    strip_options.strip(fd, {"common.proto"})
+
+    assert fd.options == type(fd.options)(go_package="example.com/svc/v1")
+    assert fd.message_type[0].options.deprecated is True
+    assert fd.message_type[0].field[0].options == type(field.options)(packed=True)
+    kept = fd.service[0].method[0].options
+    assert kept == type(kept)(idempotency_level=kept.NO_SIDE_EFFECTS)
 
 
 def test_strip_clears_oneof_options():
@@ -74,6 +124,7 @@ def test_strip_clears_oneof_options():
     message = fd.message_type.add(name="Subject")
     oneof = message.oneof_decl.add(name="ref")
     oneof.options.uninterpreted_option.add()
+    _set_custom_option(oneof.options)
 
     strip_options.strip(fd, {"common.proto"})
 
@@ -83,7 +134,7 @@ def test_strip_clears_oneof_options():
 def test_strip_clears_enum_value_options():
     fd = FileDescriptorProto(name="common.proto", package="svc.v1")
     enum = _aliased_enum(fd, "SubjectKind")
-    enum.value[2].options.deprecated = True
+    _set_custom_option(enum.value[2].options)
 
     strip_options.strip(fd, {"common.proto"})
 
@@ -97,12 +148,12 @@ def test_strip_clears_extension_options():
     file_ext = fd.extension.add(
         name="file_ext", number=1000, extendee=".google.protobuf.MessageOptions"
     )
-    file_ext.options.deprecated = True
+    _set_custom_option(file_ext.options)
     message = fd.message_type.add(name="Subject")
     msg_ext = message.extension.add(
         name="msg_ext", number=1001, extendee=".google.protobuf.MessageOptions"
     )
-    msg_ext.options.deprecated = True
+    _set_custom_option(msg_ext.options)
 
     strip_options.strip(fd, {"common.proto"})
 
@@ -127,8 +178,7 @@ def test_main_round_trips_allow_alias(tmp_path, monkeypatch):
 
     out = FileDescriptorSet.FromString(out_path.read_bytes())
     enum = out.file[0].enum_type[0]
-    assert enum.options.allow_alias is True
-    assert enum.options.deprecated is False
+    assert enum.options == type(enum.options)(allow_alias=True)
 
 
 def _run(tmp_path, monkeypatch, source, *targets):
@@ -384,3 +434,96 @@ def test_stripped_descriptor_regenerates_with_protoc(tmp_path, monkeypatch):
     )
 
     assert (generated / "saas/jobs/v1/jobs_pb2.py").exists()
+
+
+def _map_source():
+    """svc/v1/grid.proto as protoc compiles `map<string, string> labels = 1;
+    map<string, Cell> cells = 2;` — each map is a repeated field of a nested
+    entry message marked map_entry — with a custom option on the map field."""
+    source = FileDescriptorSet()
+    grid = source.file.add(name="svc/v1/grid.proto", package="svc.v1", syntax="proto3")
+    grid.message_type.add(name="Cell").field.add(
+        name="value", number=1, json_name="value",
+        type=FieldDescriptorProto.TYPE_STRING, label=FieldDescriptorProto.LABEL_OPTIONAL,
+    )
+    sheet = grid.message_type.add(name="Sheet")
+    for number, (name, entry, value_type, value_type_name) in enumerate(
+        [
+            ("labels", "LabelsEntry", FieldDescriptorProto.TYPE_STRING, ""),
+            ("cells", "CellsEntry", FieldDescriptorProto.TYPE_MESSAGE, ".svc.v1.Cell"),
+        ],
+        start=1,
+    ):
+        nested = sheet.nested_type.add(name=entry)
+        nested.options.map_entry = True
+        nested.field.add(
+            name="key", number=1, json_name="key",
+            type=FieldDescriptorProto.TYPE_STRING, label=FieldDescriptorProto.LABEL_OPTIONAL,
+        )
+        value = nested.field.add(
+            name="value", number=2, json_name="value", type=value_type,
+            label=FieldDescriptorProto.LABEL_OPTIONAL,
+        )
+        if value_type_name:
+            value.type_name = value_type_name
+        field = sheet.field.add(
+            name=name, number=number, json_name=name,
+            type=FieldDescriptorProto.TYPE_MESSAGE, label=FieldDescriptorProto.LABEL_REPEATED,
+            type_name=f".svc.v1.Sheet.{entry}",
+        )
+        _set_custom_option(field.options)
+    return source
+
+
+def test_main_keeps_map_entry_so_a_map_field_stays_a_map(tmp_path, monkeypatch):
+    # The regression: clearing every options message dropped map_entry, so the
+    # generated class exposed `cells` as a repeated CellsEntry a caller had to
+    # .add() to, where the proto declares a map.
+    out = _run(tmp_path, monkeypatch, _map_source(), "svc/v1/grid.proto")
+
+    sheet = out["svc/v1/grid.proto"].message_type[1]
+    for entry in sheet.nested_type:
+        assert entry.options.map_entry is True
+    for field in sheet.field:
+        assert not field.HasField("options")  # the custom option is gone
+
+    # Build the class from the stripped descriptor, as the generated _pb2 does.
+    pool = descriptor_pool.DescriptorPool()
+    pool.Add(out["svc/v1/grid.proto"])
+    Sheet = message_factory.GetMessageClass(pool.FindMessageTypeByName("svc.v1.Sheet"))
+    message = Sheet()
+    message.labels["region"] = "eu"
+    message.cells["A1"].value = "42"
+    assert dict(message.labels) == {"region": "eu"}
+    assert message.cells["A1"].value == "42"
+    assert Sheet.FromString(message.SerializeToString()) == message
+
+
+@pytest.mark.skipif(shutil.which("protoc") is None, reason="protoc not installed")
+def test_stripped_map_field_generates_a_python_map(tmp_path, monkeypatch):
+    """End to end through protoc --python_out: the generated module's map
+    fields are maps, not repeated entry messages."""
+    out = _run(tmp_path, monkeypatch, _map_source(), "svc/v1/grid.proto")
+    stripped = tmp_path / "stripped.binpb"
+    stripped.write_bytes(
+        FileDescriptorSet(file=list(out.values())).SerializeToString()
+    )
+    generated = tmp_path / "gen"
+    generated.mkdir()
+    subprocess.run(
+        ["protoc", f"--descriptor_set_in={stripped}", f"--python_out={generated}",
+         "svc/v1/grid.proto"],
+        check=True,
+    )
+
+    script = (
+        "from svc.v1 import grid_pb2\n"
+        "sheet = grid_pb2.Sheet()\n"
+        "sheet.labels['region'] = 'eu'\n"
+        "sheet.cells['A1'].value = '42'\n"
+        "assert dict(sheet.labels) == {'region': 'eu'}, sheet\n"
+        "assert sheet.cells['A1'].value == '42', sheet\n"
+    )
+    # A fresh interpreter: the generated module registers into the default
+    # pool, which this process shares with every other test.
+    subprocess.run([sys.executable, "-c", script], cwd=generated, check=True)

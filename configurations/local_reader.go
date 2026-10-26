@@ -200,7 +200,8 @@ type ownedWorkspaceConfigurations struct {
 }
 
 // A product inherits its selected workspace's wiring. Its own groups override
-// the inherited groups; sibling workspaces must agree unless the product chooses.
+// the inherited groups unless configuration-extensions requests additive composition;
+// sibling workspaces must agree unless the product replaces the group.
 // Module defaults are composed separately, retaining their existing precedence.
 //
 // Provenance is reported, not just the result, because the two kinds are not
@@ -237,7 +238,7 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 		childUnsupplied := contributed.Unsupplied
 		for _, info := range contributed.Infos {
 			fromComposed[info.Name] = true
-			if owned[info.Name] {
+			if _, extend := workspace.ConfigurationExtensions[info.Name]; owned[info.Name] && !extend {
 				if trace := configurationOriginsFrom(ctx); trace != nil {
 					trace.shadowedImport(workspace.Name, child.Name, info, infos)
 				}
@@ -250,16 +251,38 @@ func readOwnedWorkspaceConfigurations(ctx context.Context, workspace *resources.
 				continue
 			}
 			inherited[info.Name], owners[info.Name] = info, child.Name
-			infos = append(infos, info)
+			if !owned[info.Name] {
+				infos = append(infos, info)
+			}
 		}
 		// A composed workspace's requirement travels with the group it belongs to:
 		// a group this workspace owns wins, so only what was actually inherited is
 		// still owed.
 		for _, requirement := range childUnsupplied {
-			if owned[requirement.Group] {
+			if _, extend := workspace.ConfigurationExtensions[requirement.Group]; owned[requirement.Group] && !extend {
 				continue
 			}
 			unsupplied = append(unsupplied, requirement)
+		}
+	}
+	names := make([]string, 0, len(workspace.ConfigurationExtensions))
+	for name := range workspace.ConfigurationExtensions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if !owned[name] || inherited[name] == nil {
+			return nil, fmt.Errorf("workspace %s configuration extension %q requires both an own and an imported group", workspace.Name, name)
+		}
+		for i, info := range infos {
+			if info.Name != name {
+				continue
+			}
+			extended, err := extendWorkspaceConfiguration(ctx, inherited[name], info, workspace.ConfigurationExtensions[name])
+			if err != nil {
+				return nil, fmt.Errorf("workspace %s extending %s from %s: %w", workspace.Name, name, owners[name], err)
+			}
+			infos[i] = extended
 		}
 	}
 	return &ownedWorkspaceConfigurations{

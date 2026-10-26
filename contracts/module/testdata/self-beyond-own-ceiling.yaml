@@ -1,0 +1,32 @@
+# A binding addressed to the module itself asks within its own scope_ceilings:
+# recover is not one of them.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [cancel, execute, read, start]
+bindings:
+    - id: occurrences
+      operations: [invoke]
+      audience: {self: true}
+      scope_ceiling:
+          invoke:
+              - resource_kind: assistant.tasks
+                actions: [cancel, execute, recover, start]
+    - id: occurrence-reads
+      optional: true
+      operations: [invoke]
+      audience: {self: true}
+      binding_key: {from: assistant/occurrence-reads-binding}
+      calls:
+          invoke:
+              - /assistant.v1.TasksService/GetTask
+    - id: evidence
+      operations: [invoke]
+      audience: {from: assistant/evidence-audience}
+      resource_kind: {from: assistant/evidence-resource-kind}
+      scope_ceiling:
+          invoke: [read]
+destinations: []

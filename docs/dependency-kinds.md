@@ -17,7 +17,7 @@ Declaring a `kind` says which execution stage the edge constrains.
 | `schema` | The producer's declared API contract is read at build time | build | nothing |
 | `runtime` | A consumed endpoint | run | consumed endpoint health |
 | `completion` | One-shot work (a migration, a seed job) must finish | run | completed run |
-| `external` | A capability provided outside the workspace | none | nothing (unless a workspace configuration reference binds the pair — see below) |
+| `external` | A capability provided outside the workspace | none | nothing (unless composition ordering binds the pair — see below) |
 
 ## Stages and phases are different things
 
@@ -55,7 +55,7 @@ other consumer runs; the external declaration only means the declaring service
 does not pull it in or wait for it. The order services are listed in never
 changes this.
 
-### The one thing that does change it
+### Composition ordering can supersede it
 
 A composition root can bind the same two services itself, by writing an
 `${endpoint:<module>/<service>/<endpoint>}` reference into a workspace
@@ -74,6 +74,28 @@ as above. Declaring `external` a producer the composition root binds anyway is
 worth rewriting as `kind: runtime`, which says the same thing in the consumer's
 own manifest — the override exists so a composition that did not is still
 correct, not as a second way to spell it.
+
+An explicit runtime prerequisite can also supersede an external graph edge.
+`architecture.WithRuntimePrerequisites` takes consumer-to-prerequisite
+`module/service` identities when constructing `NewServiceDependencies`. It adds
+ordering through the existing runtime graph, without modifying service manifests
+or granting endpoint access, configuration or readiness declarations. The caller
+still owns the actual readiness or admission condition before starting a consumer.
+No configuration group or endpoint reference is needed for a pure ordering rule.
+
+Both identities must name loaded workspace services; a dangling dependency node
+is not a loaded service. A real excluded or skipped consumer imposes no outgoing
+requirement. An active consumer naming a missing or excluded prerequisite is
+refused. A skipped prerequisite remains selectable by its consumers. Mandatory
+prerequisites are applied before configuration-reference edges, and cycles are
+refused per stage rather than silently dropping a mandatory edge. They affect
+run ordering and transitive closure, not build ordering. Use stage views as for
+other kinded edges; a union of build/run graphs can contain a legitimate cycle.
+
+The option snapshots its input; repeated uses replace the previous map. Derived
+graph views hold independent copies. Nil or empty input is a no-op. The older
+manifest-only `SelectClosure` walk refuses a nonempty runtime prerequisite option
+instead of silently returning a closure that omits it.
 
 ## Cycles are a per-stage property
 

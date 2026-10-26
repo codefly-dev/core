@@ -402,7 +402,7 @@ func (manifest *PackageManifest) Validate() error {
 			if contract.Kind != APIContractKindProtobuf && contract.Kind != APIContractKindOpenAPI {
 				return fmt.Errorf("%s kind %q must be %q or %q", label, contract.Kind, APIContractKindProtobuf, APIContractKindOpenAPI)
 			}
-			if strings.TrimSpace(contract.Package) == "" {
+			if contract.Kind != APIContractKindProtobuf && strings.TrimSpace(contract.Package) == "" {
 				return fmt.Errorf("%s package is required", label)
 			}
 			if err := validateContractPath(label, contract.Path); err != nil {

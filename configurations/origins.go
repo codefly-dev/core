@@ -33,15 +33,17 @@ type configurationOriginsKey struct{}
 // origin is guessed by comparing values, so equal-valued overrides keep the
 // overriding file's identity. State belongs to one synchronous workspace read.
 type configurationOrigins struct {
-	root             string
-	defaultDecisions map[moduleGroup]int
-	profiles         []*ConfigurationProfileSelection
-	profileTargets   map[int]profileOriginTarget
-	selectedGroups   []*basev0.ConfigurationInformation
-	decisions        []*ConfigurationDecision
-	values           map[*basev0.ConfigurationValue]string
-	valueParents     map[*basev0.ConfigurationValue]*basev0.ConfigurationValue
-	documents        map[*basev0.ConfigurationData]string
+	root              string
+	defaultDecisions  map[moduleGroup]int
+	profiles          []*ConfigurationProfileSelection
+	profileTargets    map[int]profileOriginTarget
+	selectedGroups    []*basev0.ConfigurationInformation
+	decisions         []*ConfigurationDecision
+	values            map[*basev0.ConfigurationValue]string
+	valueParents      map[*basev0.ConfigurationValue]*basev0.ConfigurationValue
+	valueContributors map[*basev0.ConfigurationValue][]*basev0.ConfigurationValue
+	documentParents   map[*basev0.ConfigurationData][]*basev0.ConfigurationData
+	documents         map[*basev0.ConfigurationData]string
 }
 
 type moduleGroup struct {
@@ -124,16 +126,33 @@ func (t *configurationOrigins) finalDecisions(infos []*basev0.ConfigurationInfor
 	final := make(map[*basev0.ConfigurationInformation]bool)
 	values := make(map[*basev0.ConfigurationValue]bool)
 	documents := make(map[*basev0.ConfigurationData]bool)
+	var markValue func(*basev0.ConfigurationValue)
+	markValue = func(value *basev0.ConfigurationValue) {
+		if value == nil || values[value] {
+			return
+		}
+		values[value] = true
+		markValue(t.valueParents[value])
+		for _, parent := range t.valueContributors[value] {
+			markValue(parent)
+		}
+	}
+	var markDocument func(*basev0.ConfigurationData)
+	markDocument = func(document *basev0.ConfigurationData) {
+		if document == nil || documents[document] {
+			return
+		}
+		documents[document] = true
+		for _, parent := range t.documentParents[document] {
+			markDocument(parent)
+		}
+	}
 	for _, info := range infos {
 		final[info] = true
 		for _, value := range info.GetConfigurationValues() {
-			for v := value; v != nil; v = t.valueParents[v] {
-				values[v] = true
-			}
+			markValue(value)
 		}
-		if info.GetData() != nil {
-			documents[info.GetData()] = true
-		}
+		markDocument(info.GetData())
 	}
 	for i := range t.decisions {
 		t.decisions[i].Final = final[t.selectedGroups[i]]
@@ -236,9 +255,15 @@ func (t *configurationOrigins) project(infos []*basev0.ConfigurationInformation)
 	out := make([]*ConfigurationOrigin, 0)
 	for _, info := range infos {
 		for _, value := range info.GetConfigurationValues() {
+			for _, parent := range t.valueContributors[value] {
+				out = append(out, t.project([]*basev0.ConfigurationInformation{{Name: info.Name, ConfigurationValues: []*basev0.ConfigurationValue{parent}}})...)
+			}
 			if file, ok := t.values[value]; ok {
 				out = append(out, &ConfigurationOrigin{Group: info.GetName(), Key: value.GetKey(), File: file})
 			}
+		}
+		for _, parent := range t.documentParents[info.GetData()] {
+			out = append(out, t.project([]*basev0.ConfigurationInformation{{Name: info.Name, Data: parent}})...)
 		}
 		if file, ok := t.documents[info.GetData()]; ok {
 			out = append(out, &ConfigurationOrigin{Group: info.GetName(), File: file, Document: true})
@@ -248,7 +273,10 @@ func (t *configurationOrigins) project(infos []*basev0.ConfigurationInformation)
 		if out[i].Group != out[j].Group {
 			return out[i].Group < out[j].Group
 		}
-		return out[i].Key < out[j].Key
+		if out[i].Key != out[j].Key {
+			return out[i].Key < out[j].Key
+		}
+		return out[i].File < out[j].File
 	})
 	return out
 }
