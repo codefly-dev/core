@@ -90,7 +90,7 @@ func ScopesAttenuate(child, parents []*basev0.WorkScopeV1) bool {
 // closed, with ErrInvalid naming the reason, when no owner covers the scope
 // (the parent does not hold it), when several do (the runtime must mint one
 // child per owner rather than have one chosen for it), when only several
-// owners' rows together cover it (split it by owner), and when a requested
+// owners' rows together cover it, and when a requested
 // scope already names an owner the parent does not cover it under — an owner
 // someone wrote is never replaced. The result is a fresh copy; requested and
 // parent are only read, and the result attenuates parent.
@@ -129,7 +129,10 @@ func InheritResourceOwner(requested, parent []*basev0.WorkScopeV1) ([]*basev0.Wo
 		case 0:
 			child.ResourceOwnerId = ""
 			if owners := coveringOwners(child, parent); len(owners) > 1 {
-				return nil, fmt.Errorf("%w: owner-scoped parent: scope %q is covered only across resource owners %q together, never under one; split it into one child per owner", ErrInvalid, child.GetResourceKind(), owners)
+				if splitsByResource(child, parent) {
+					return nil, fmt.Errorf("%w: owner-scoped parent: scope %q is covered only across resource owners %q together, never under one; each of its resources is covered under one owner, so invoke it once per owner on that owner's resources", ErrInvalid, child.GetResourceKind(), owners)
+				}
+				return nil, fmt.Errorf("%w: owner-scoped parent: scope %q is covered only across resource owners %q together, never under one; they split its actions, so no child can hold the whole scope and the parent must hold it under one owner", ErrInvalid, child.GetResourceKind(), owners)
 			}
 			return nil, fmt.Errorf("%w: scope %q is not covered by the parent, with or without a resource owner", ErrInvalid, child.GetResourceKind())
 		case 1:
@@ -182,4 +185,33 @@ func coveringOwners(child *basev0.WorkScopeV1, parent []*basev0.WorkScopeV1) []s
 		}
 	}
 	return owners
+}
+
+// splitsByResource reports whether a scope that only several owners cover
+// together is split between them by resource id: every one of its ids is
+// covered, with all of the scope's actions, under a single owner. Then the
+// operation can run once per owner on that owner's resources. A scope naming
+// no ids, or one whose actions are split between owners, has no such split:
+// every child would lack an action the operation's one declared scope needs.
+func splitsByResource(child *basev0.WorkScopeV1, parent []*basev0.WorkScopeV1) bool {
+	if len(child.GetResourceIds()) == 0 {
+		return false
+	}
+	for _, id := range child.GetResourceIds() {
+		point := &basev0.WorkScopeV1{ResourceKind: child.GetResourceKind(), Actions: child.GetActions(), ResourceIds: []string{id}}
+		covered := false
+		for _, row := range parent {
+			if owner := row.GetResourceOwnerId(); owner != "" && row.GetResourceKind() == child.GetResourceKind() {
+				point.ResourceOwnerId = owner
+				if ScopeContained(point, parent) {
+					covered = true
+					break
+				}
+			}
+		}
+		if !covered {
+			return false
+		}
+	}
+	return true
 }

@@ -224,12 +224,19 @@ func TestInheritResourceOwner(t *testing.T) {
 		"ids covered only by two owners together": {
 			requested: rows(scope("doc", []string{"read"}, []string{"a", "b"})),
 			parent:    rows(owned("doc", []string{"read"}, []string{"a"}, "P"), owned("doc", []string{"read"}, []string{"b"}, "Q")),
-			refusal:   `owner-scoped parent: scope "doc" is covered only across resource owners ["P" "Q"] together`,
+			refusal:   `owner-scoped parent: scope "doc" is covered only across resource owners ["P" "Q"] together, never under one; each of its resources is covered under one owner, so invoke it once per owner`,
 		},
 		"actions covered only by two owners together": {
 			requested: rows(scope("doc", []string{"read", "write"}, nil)),
 			parent:    rows(owned("doc", []string{"read"}, nil, "P"), owned("doc", []string{"write"}, nil, "Q")),
-			refusal:   `covered only across resource owners ["P" "Q"] together`,
+			refusal:   `covered only across resource owners ["P" "Q"] together, never under one; they split its actions, so no child can hold the whole scope`,
+		},
+		// Ids named, but the owners split the actions on each: no per-owner
+		// invocation could hold the operation's whole scope.
+		"named ids whose actions two owners split": {
+			requested: rows(scope("doc", []string{"read", "write"}, []string{"a"})),
+			parent:    rows(owned("doc", []string{"read"}, []string{"a"}, "P"), owned("doc", []string{"write"}, []string{"a"}, "Q")),
+			refusal:   "they split its actions",
 		},
 		"an id no owner covers beside ids two owners do": {
 			requested: rows(scope("doc", []string{"read"}, []string{"a", "c"})),
