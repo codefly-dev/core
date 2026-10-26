@@ -201,7 +201,7 @@ jobs:
         # setup-uv is the de-facto standard installer for GH Actions: pinned,
         # deterministic, adds uv to PATH. uv provisions its own Python on
         # demand, so no separate python setup is needed.
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
 
       - name: Python agent contract SDK
         env:
@@ -310,7 +310,7 @@ jobs:
         # to carry `contents: write`, and this job has just run the suite from
         # the head of whatever branch is under review. The badge is written by
         # the coverage-badge job below, from the profile this one uploads.
-        uses: vladopajic/go-test-coverage@f484eec846448c97c777a26f8b58c5a69a327e12 # v2.20.0
+        uses: vladopajic/go-test-coverage@239670d50ed072bfce8b9ab1765227a53429d664 # v2.20.1
         with:
           config: ./.testcoverage.yaml
 
@@ -429,7 +429,7 @@ jobs:
         # cannot report a number the gate did not decide on.
         # internal/ciguard/coverage_gate_test.go checks every use of it against
         # the Makefile's pin.
-        uses: vladopajic/go-test-coverage@f484eec846448c97c777a26f8b58c5a69a327e12 # v2.20.0
+        uses: vladopajic/go-test-coverage@239670d50ed072bfce8b9ab1765227a53429d664 # v2.20.1
         with:
           config: ./.testcoverage.yaml
           git-token: ${{ github.token }}
