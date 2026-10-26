@@ -159,8 +159,14 @@ func ToolsFromProjection(binding *runnablev0.PreparedBinding, projection *runnab
 	if projection.GetContractDigest() != binding.GetContractDigest() {
 		return nil, fmt.Errorf("%w: projection contract_digest differs from prepared binding", ErrInvalid)
 	}
+	// Every runnable is a tool, so the generic method's own name is taken
+	// whether or not its policy spells it.
+	direct := binding.GetPolicy().GetTool()
+	if direct == nil {
+		direct = preparedTool(binding)
+	}
 	for _, tool := range projection.GetTools() {
-		if tool.GetName() == binding.GetPolicy().GetTool().GetName() {
+		if tool.GetName() == direct.GetName() {
 			return nil, fmt.Errorf("%w: projected tool %q collides with direct tool exposure", ErrInvalid, tool.GetName())
 		}
 		found := false

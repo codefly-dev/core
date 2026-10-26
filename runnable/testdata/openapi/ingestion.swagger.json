@@ -1,0 +1,142 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "documents/runtime-worker",
+    "version": "0.1.0"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/ingest/text": {
+      "post": {
+        "operationId": "ApplyText",
+        "summary": "Apply a text document to the store",
+        "x-codefly-operation": {
+          "attempt_timeout": "10s",
+          "total_timeout": "60s",
+          "max_attempts": 1,
+          "backoff": "1s",
+          "retryable_codes": [
+            "503"
+          ],
+          "audience": "documents.ingestion",
+          "invoke_scopes": [
+            {
+              "resource_kind": "documents",
+              "actions": [
+                "ingest",
+                "read"
+              ]
+            }
+          ],
+          "completion": "COMPLETION_CALL",
+          "lookup_scopes": [
+            {
+              "resource_kind": "documents",
+              "actions": [
+                "read"
+              ]
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ApplyTextRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the applied document",
+            "schema": {
+              "$ref": "#/definitions/ApplyTextResponse"
+            }
+          },
+          "401": {
+            "description": "no Work Context",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "ApplyTextRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "type": "string"
+        },
+        "container": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "cursor": {
+          "type": "string",
+          "format": "int64"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "ApplyTextResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reference": {
+          "type": "string"
+        },
+        "contentHash": {
+          "type": "string"
+        },
+        "effectDigest": {
+          "type": "string"
+        },
+        "minted": {
+          "type": "boolean"
+        },
+        "skipped": {
+          "type": "boolean"
+        },
+        "quarantined": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

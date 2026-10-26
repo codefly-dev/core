@@ -468,3 +468,32 @@ func TestReportsEveryResolutionFailureAtOnce(t *testing.T) {
 		t.Fatalf("the refusal carries the secret's value: %v", err)
 	}
 }
+
+// TestAModuleMayRequireAPolicyOnEveryMethod: the opt-in is a plain boolean,
+// absent by default, and it survives the model's own writer.
+func TestAModuleMayRequireAPolicyOnEveryMethod(t *testing.T) {
+	contract, err := Parse(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contract.RequireMethodPolicies {
+		t.Fatal("a contract that says nothing must not require a policy on every method")
+	}
+	opted, err := Parse(append(fixture(t), []byte("require_method_policies: true\n")...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opted.RequireMethodPolicies {
+		t.Fatal("require_method_policies: true was not read")
+	}
+	encoded, err := opted.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), "require_method_policies: true") {
+		t.Fatalf("the opt-in is not written back:\n%s", encoded)
+	}
+	if _, err := Parse(append(fixture(t), []byte("require_method_policies: sometimes\n")...)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a value that is not a boolean must be refused, got %v", err)
+	}
+}

@@ -17,10 +17,15 @@ func exposedTool() *runnablev0.ToolExposure {
 }
 
 func TestToolExposureHasNoImplicitEffectOrExposure(t *testing.T) {
-	hidden, err := runnable.DecodePrepared(encoded(t, connectBinding()))
+	// Every runnable is a tool. A binding whose policy names none is presented
+	// from its operation, and an unstated recovery is a receipt, so a mutation:
+	// omission is never read-only.
+	unnamed, err := runnable.DecodePrepared(encoded(t, connectBinding()))
 	require.NoError(t, err)
-	_, err = runnable.ToolFromPrepared(hidden)
-	require.ErrorIs(t, err, runnable.ErrNotATool)
+	presented, err := runnable.ToolFromPrepared(unnamed)
+	require.NoError(t, err)
+	require.Equal(t, runnablev0.ToolExposure_EFFECT_MUTATION, presented.GetEffect())
+	require.NoError(t, runnable.ValidateToolExposure(presented))
 	tests := map[string]func(*runnablev0.ToolExposure){
 		"empty":                func(v *runnablev0.ToolExposure) { *v = runnablev0.ToolExposure{} },
 		"omitted effect":       func(v *runnablev0.ToolExposure) { v.Effect = runnablev0.ToolExposure_EFFECT_UNSPECIFIED },

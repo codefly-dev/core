@@ -713,6 +713,11 @@ func serviceDependencyCandidates(service *ServiceDependency, endpoints []*basev0
 		return nil, fmt.Errorf("service dependency cannot be nil")
 	}
 	if service.interfaceOnly() {
+		// An external capability consumes no endpoint, so an unbound one has
+		// nothing to select; any other kind needs the provider nothing bound.
+		if service.Kind == DependencyKindExternal {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("service dependency on interface %s is not bound to a provider", service.Interface)
 	}
 	var candidates []*basev0.Endpoint

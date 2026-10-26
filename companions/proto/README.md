@@ -116,6 +116,27 @@ This requires the built proto companion and Cargo. The updated plugins ship in
 companion version 0.0.16; bumping the manifest alone does not publish that image.
 Use the [companion publication procedure](../../docs/runbooks/publish-companions.md).
 
+Python bindings come from the companion's own plugin, `protoc-gen-codefly-python`
+(`facades/python/protoc_gen_codefly_python.py`), as Go's and Rust's come from
+local plugins: it compiles the `*_pb2` messages and `*_pb2_grpc` stubs with the
+`grpc_tools` pinned in the image's venv (`grpcio-tools==1.71.0`,
+`protobuf==5.29.3`), so the gencode is versioned with the image. buf's remote
+`protocolbuffers/python` and `grpc/python` plugins it replaces moved on their
+own, and their gencode outran the protobuf runtime a generated library
+declares. It ships in companion version 0.0.17.
+
+The Python facade plugin (`facades/python/protoc_gen_codefly_facade_python.py`)
+calls the gateway seam named for each RPC's shape: `unary`, `unary_stream`,
+`stream_unary` or `stream_stream`. It ships in companion version 0.0.18. An
+earlier `0.0.17` image renders every RPC as `unary`; 0.0.17 was republished
+with the streaming plugin, and a machine that had pulled it before keeps the
+old image.
+
+A change to any of a companion's image inputs (its Dockerfile and every
+build-context `COPY` source, `BuildSpec.Inputs`) must bump its
+`info.codefly.yaml`: `internal/companionbump`, the required `Companion version`
+check on every pull request, refuses one that does not.
+
 Rust generation stages output before publishing it. `.codefly-rust-output.json`
 records the generated files and their hashes; only unchanged, tracked files may
 be replaced or removed. Unrelated files are preserved. A collision with an

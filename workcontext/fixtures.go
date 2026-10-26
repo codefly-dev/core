@@ -122,6 +122,13 @@ const (
 	FixtureGrantSubject = "resource-conformance"
 	// FixtureGrantRequestDigest is the call that grant was approved for.
 	FixtureGrantRequestDigest = "sha256:conformance"
+
+	// FixtureResourceOwner is the resource owner the owner-selected fixtures
+	// name: the principal whose resources their scopes cover.
+	FixtureResourceOwner = "principal-resource-owner"
+	// FixtureOtherResourceOwner is an owner no fixture's authority selects;
+	// a hop naming it changes the owner.
+	FixtureOtherResourceOwner = "principal-resource-owner-other"
 )
 
 // Form is which shape of capability a fixture is. Every form this package mints
@@ -474,6 +481,11 @@ func Fixtures(now time.Time) ([]Fixture, error) {
 		return nil, err
 	}
 	fixtures = append(fixtures, negatives...)
+	owned, err := fixtureOwnerSelected(ctx, authority)
+	if err != nil {
+		return nil, err
+	}
+	fixtures = append(fixtures, owned...)
 	sort.Slice(fixtures, func(i, j int) bool { return fixtures[i].Name < fixtures[j].Name })
 	return fixtures, nil
 }
@@ -669,15 +681,7 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 
 	// Rewritten capabilities, re-signed with the fixture key so the signature
 	// is genuine and the rule being tested is the one that refuses them.
-	_, private := FixtureKeyPair()
-	resign := func(wc *basev0.WorkContextV1) (string, error) {
-		payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(wc)
-		if err != nil {
-			return "", err
-		}
-		return base64.RawURLEncoding.EncodeToString(payload) + "." +
-			base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, payload)), nil
-	}
+	resign := fixtureResign
 
 	unsealed := cloneClaims(session.Context())
 	unsealed.Seal = nil
@@ -1044,6 +1048,98 @@ func fixtureNegatives(ctx context.Context, now time.Time, session, delegated *Ve
 			Name: name, Form: FormForeign, Token: token,
 			Outcome: OutcomeRejected, Err: ErrInvalid,
 			Reason: "not the token shape; refused before anything is trusted",
+		})
+	}
+	return fixtures, nil
+}
+
+// fixtureResign signs rewritten claims with the fixture key, so the signature
+// is genuine and the rule a fixture tests is the one that refuses it.
+func fixtureResign(wc *basev0.WorkContextV1) (string, error) {
+	_, private := FixtureKeyPair()
+	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(wc)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload) + "." +
+		base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, payload)), nil
+}
+
+// fixtureOwnerSelected mints the resource-owner vectors: a session whose
+// authority selects FixtureResourceOwner's records, one delegation hop that
+// narrows within that owner (accepted), and that hop rewritten to drop the
+// owner and to change it, re-signed so only attenuation refuses them. A
+// second implementation that compares kind, actions and ids but not the owner
+// accepts both rewrites, and these are the fixtures that say so.
+func fixtureOwnerSelected(ctx context.Context, authority *Authority) ([]Fixture, error) {
+	owned := func(id, owner string) *basev0.WorkScopeV1 {
+		scope := fixtureScope("record", "read", id)
+		scope.ResourceOwnerId = owner
+		return scope
+	}
+	token, _, err := authority.Start(ctx, StartInput{
+		TenantID:           FixtureTenant,
+		OwnerPrincipalID:   FixturePrincipal,
+		OwnerPrincipalKind: "human",
+		OrganizationID:     FixtureOrganization,
+		TaskID:             FixtureTask,
+		Audience:           FixtureAudience,
+		AuthorityScopes:    []*basev0.WorkScopeV1{owned("", FixtureResourceOwner)},
+		InstallationID:     FixtureInstallation,
+		TTL:                time.Hour,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("work context fixtures: owner-selected session: %w", err)
+	}
+	parent, err := fixtureVerify(ctx, authority, token)
+	if err != nil {
+		return nil, err
+	}
+	delegated, _, err := authority.Child(ctx, parent, ChildInput{
+		PrincipalID:   FixtureActor,
+		PrincipalKind: "agent",
+		AgentID:       FixtureAgentID,
+		DelegationID:  "delegation-conformance-owner",
+		GrantedScopes: []*basev0.WorkScopeV1{owned("record-conformance", FixtureResourceOwner)},
+		Audience:      FixtureAudience,
+		TTL:           time.Hour,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("work context fixtures: owner-selected delegation: %w", err)
+	}
+	verified, err := fixtureVerify(ctx, authority, delegated)
+	if err != nil {
+		return nil, err
+	}
+	fixtures := []Fixture{{
+		Name: "owner-delegated", Form: FormDelegated, Token: delegated, Outcome: OutcomeAccepted,
+		Reason: "a session whose authority selects one resource owner's records, and a delegation hop that narrows " +
+			"to named ids within that same owner; an owner narrows a scope the way ids do",
+	}}
+	for _, rewrite := range []struct {
+		name, owner, rule string
+	}{
+		{
+			name: "owner-dropped-by-hop", owner: "",
+			rule: "a genuinely signed delegation hop that drops its parent's resource owner, which would read one " +
+				"owner's records as the whole kind; containment refuses it as a widening",
+		},
+		{
+			name: "owner-changed-by-hop", owner: FixtureOtherResourceOwner,
+			rule: "a genuinely signed delegation hop that names another resource owner than its parent's; an owner " +
+				"row covers only a child naming that same owner, so this is a widening, not a narrowing",
+		},
+	} {
+		altered := cloneClaims(verified.Context())
+		hop := altered.ActorChain[len(altered.ActorChain)-1]
+		hop.GrantedScopes = []*basev0.WorkScopeV1{owned("record-conformance", rewrite.owner)}
+		token, err := fixtureResign(altered)
+		if err != nil {
+			return nil, err
+		}
+		fixtures = append(fixtures, Fixture{
+			Name: rewrite.name, Form: FormDelegated, Token: token,
+			Outcome: OutcomeRejected, Err: ErrInvalid, Message: "widens authority", Reason: rewrite.rule,
 		})
 	}
 	return fixtures, nil

@@ -213,6 +213,9 @@ func (s *OperationSpec) validateSelectedScope(slot, at string, scope *basev0.Wor
 	if !boundedScopeValue(kind, MaxScopeKindLength) || strings.Contains(kind, "*") {
 		return fmt.Errorf("%w: %s scope slot %q selects an %s scope with resource kind %q, which is not an exact kind", ErrInvalid, s.Method, slot, at, kind)
 	}
+	if owner := scope.GetResourceOwnerId(); owner != "" {
+		return fmt.Errorf("%w: %s scope slot %q %s scope over kind %q selects resource owner %q in the composition's selection; %s", ErrInvalid, s.Method, slot, at, kind, owner, ownerScopedParent)
+	}
 	actions := scope.GetActions()
 	if len(actions) == 0 || len(actions) > MaxScopeActions {
 		return fmt.Errorf("%w: %s scope slot %q %s scope over kind %q names %d actions; between 1 and %d are required", ErrInvalid, s.Method, slot, at, kind, len(actions), MaxScopeActions)

@@ -62,7 +62,7 @@ func TestPackageFromOpenAPIOperationIsByteStable(t *testing.T) {
 	pkg, spec := derivedRestIngestion(t)
 	require.NoError(t, runnable.VerifyPackage(pkg))
 	require.Equal(t, applyTextRoute, spec.Method)
-	require.Equal(t, "d6a8f8c69ff924836aa768cf1286a6524065671282932a6867e5b85fa7034458", pkg.GetDigest())
+	require.Equal(t, "7b138d4415778bb8722d2f26da399ab6a40b1b95c069573846d25de17d8bb128", pkg.GetDigest())
 
 	again, _ := derivedRestIngestion(t)
 	require.True(t, proto.Equal(pkg, again))
@@ -171,15 +171,21 @@ func TestPackageFromOpenAPIOperationReadsParameterLocationsAsAnAllowList(t *test
 	}
 }
 
-// TestParseOpenAPIDocumentRefusesSwaggerAsItself covers the document core's own
-// OpenAPICombinator still writes. Swagger 2.0 puts a request body in an
-// `in: body` parameter and a response schema on the response itself, so reading
-// one as OpenAPI 3 finds no request body and says so — pointing at the wrong
-// part of a document that plainly declares one.
-func TestParseOpenAPIDocumentRefusesSwaggerAsItself(t *testing.T) {
+// TestParseOpenAPIDocumentReadsEachDialectAsItself covers the two versions a
+// document is derived from. Swagger 2.0 — what core's own OpenAPICombinator
+// and solution-runtime-go write — is read as itself, and any other Swagger
+// version is refused by name rather than read as an OpenAPI 3 document that
+// declares nothing.
+func TestParseOpenAPIDocumentReadsEachDialectAsItself(t *testing.T) {
 	_, err := runnable.ParseOpenAPIDocument([]byte(`{"swagger":"2.0","paths":{},"definitions":{}}`))
-	require.ErrorIs(t, err, runnable.ErrInvalid)
-	require.ErrorContains(t, err, `swagger "2.0"`)
+	require.NoError(t, err)
+	for _, declared := range []string{`"swagger":"1.2"`, `"swagger":"3.0.3"`, `"swagger":"2.0","openapi":"3.0.3"`} {
+		t.Run(declared, func(t *testing.T) {
+			_, err = runnable.ParseOpenAPIDocument([]byte(`{` + declared + `,"paths":{}}`))
+			require.ErrorIs(t, err, runnable.ErrInvalid)
+			require.ErrorContains(t, err, "swagger")
+		})
+	}
 
 	for _, declared := range []string{`"openapi":"2.0"`, `"openapi":"4.0.0"`, `"openapi":""`} {
 		t.Run(declared, func(t *testing.T) {
@@ -243,9 +249,10 @@ func TestPackageFromOpenAPIOperationRefusesWhatABoundedContractCannotDescribe(t 
 		edit    func(map[string]any)
 		because string
 	}{
-		{name: "get", method: "GET", because: "is not POST or PUT"},
-		{name: "delete", method: "DELETE", because: "is not POST or PUT"},
-		{name: "patch", method: "PATCH", because: "is not POST or PUT"},
+		{name: "unpublished get", method: "GET", because: "publishes no GET"},
+		{name: "delete", method: "DELETE", because: "is not GET, POST or PUT"},
+		{name: "patch", method: "PATCH", because: "is not GET, POST or PUT"},
+		{name: "path template", path: "/ingest/{kind}", because: "is a path template"},
 		{name: "unpublished path", path: "/ingest/blob", because: "publishes no path"},
 		{name: "unpublished method", edit: func(doc map[string]any) {
 			delete(pathItem(doc), "post")
@@ -301,7 +308,7 @@ func TestPackageFromOpenAPIOperationRefusesWhatABoundedContractCannotDescribe(t 
 		{name: "unprojectable payload", edit: func(doc map[string]any) {
 			schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
 			schemas["ApplyTextRequest"].(map[string]any)["properties"].(map[string]any)["cursor"] =
-				map[string]any{"type": "number"}
+				map[string]any{"type": "string", "format": "binary"}
 		}, because: "#/components/schemas/ApplyTextRequest/properties/cursor"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
