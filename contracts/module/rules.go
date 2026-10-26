@@ -29,15 +29,16 @@ type rule struct {
 // The rules, by name. A refused fixture names one of these; a reader that
 // drops one fails the kit on that fixture.
 const (
-	ruleWellFormed      = "well-formed"
-	ruleSchema          = "schema"
-	ruleKnownFields     = "known-fields"
-	ruleOneDocument     = "one-document"
-	ruleMappingKeysOnce = "mapping-keys-once"
-	ruleNoMergeKeys     = "no-merge-keys"
-	ruleNoNulls         = "no-explicit-nulls"
-	ruleKeyIsAName      = "key-is-a-name"
-	ruleWholeNumbers    = "numbers-are-whole"
+	ruleWellFormed        = "well-formed"
+	ruleSchema            = "schema"
+	ruleKnownFields       = "known-fields"
+	ruleOwnerAwareBoolean = "owner-aware-boolean"
+	ruleOneDocument       = "one-document"
+	ruleMappingKeysOnce   = "mapping-keys-once"
+	ruleNoMergeKeys       = "no-merge-keys"
+	ruleNoNulls           = "no-explicit-nulls"
+	ruleKeyIsAName        = "key-is-a-name"
+	ruleWholeNumbers      = "numbers-are-whole"
 
 	rulePrincipal       = "principal-name"
 	ruleListsDeclared   = "lists-declared"
@@ -121,6 +122,7 @@ func rules() []rule {
 		{name: ruleWellFormed, inherent: true, check: func(*Contract) error { return nil }},
 		{name: ruleSchema, check: checkSchema},
 		{name: ruleKnownFields, check: func(*Contract) error { return nil }},
+		{name: ruleOwnerAwareBoolean, check: func(*Contract) error { return nil }},
 		{name: ruleOneDocument, check: func(*Contract) error { return nil }},
 		{name: ruleMappingKeysOnce, check: func(*Contract) error { return nil }},
 		{name: ruleNoMergeKeys, check: func(*Contract) error { return nil }},

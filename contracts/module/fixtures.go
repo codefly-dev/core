@@ -61,6 +61,8 @@ func Fixtures() ([]Fixture, error) {
 		outcome                   Outcome
 		sentinel                  error
 	}{
+		{name: "owner-aware", file: "owner-aware.yaml", outcome: OutcomeAccepted},
+		{name: "owner-aware-string", file: "owner-aware-string.yaml", outcome: OutcomeRefused, sentinel: ErrInvalid, message: "owner_aware must be a boolean", rule: ruleOwnerAwareBoolean},
 		{name: "valid", file: "valid.module.contract.codefly.yaml", outcome: OutcomeAccepted},
 		{name: "upper-case-slot-key", file: "upper-case-slot-key.yaml", outcome: OutcomeAccepted},
 		{name: "binding-names-calls", file: "binding-names-calls.yaml", outcome: OutcomeAccepted},
