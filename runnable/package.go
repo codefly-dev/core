@@ -555,6 +555,7 @@ func validateBindingAuthority(binding *basev0.RunnableBinding) error {
 	}
 	return authoritySpec{
 		subject:      "binding on facility " + binding.GetFacility().GetKind().String(),
+		origin:       "installation binding",
 		audience:     authority.GetAudience(),
 		invokeScopes: authority.GetInvokeScopes(),
 		lookupScopes: authority.GetLookupScopes(),

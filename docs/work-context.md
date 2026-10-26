@@ -87,17 +87,58 @@ child born superseded whenever a revocation landed in between. A `Grant`
 keeps the revision the decision was made at, because bumping past it is
 exactly what revokes an unspent grant.
 
+### Scopes and the resource owner
+
 `WorkScopeV1` is `(resource_kind, actions, resource_ids, resource_owner_id)`.
 Attenuation (`workcontext.ScopeContained`) lets a child narrow a wildcard
 parent to explicit ids and never the reverse, and never name an action the
 parent does not hold. `resource_owner_id` selects the resources one principal
 owns (an installed solution's principal), and narrows the same way: a child
 may add an owner to a row that names none, never drop or change one. With ids,
-a resource is covered only when both match. A reader asks with the resource's
-owner; an ask naming no owner is never covered by an owner-selected row, so an
-owner-blind check fails closed rather than reading the scope as the whole
-kind. Runnable operations never declare an owner: the authority selects it for
-an installation.
+a resource is covered only when both match. The owner is at most 512 bytes of
+UTF-8 with no ASCII or Unicode whitespace, no control, format (zero-width) or
+private-use character and no `*` — the schema's rule, which `protovalidate`
+enforces at mint and at decode — so two owners that print alike are the same
+bytes.
+
+A reader asks with the resource's owner. An ask naming no owner is never
+covered by an owner-selected row, so an owner-blind check **built on
+`ScopeContained`** (or `ScopesAttenuate`) fails closed rather than reading the
+scope as the whole kind. That guarantee is the function's, not the field's. A
+reader that inspects `WorkScopeV1` itself — flattening a scope with no ids to
+`kind:action`, or copying kind, actions and ids into a type of its own — reads
+an owner-selected scope as the whole kind once its core pin knows field 4,
+because the unknown-field refusal that used to reject the whole token no longer
+fires. Until such a reader compares owners it must refuse, or grant nothing
+from, any scope with a non-empty `resource_owner_id`, and an issuer must not
+mint an owner-selected scope to its audience. The readers known to inspect
+scopes directly at the time of writing:
+
+| Reader | Where | Owner-blind because |
+| --- | --- | --- |
+| authority hop library (Go) | `libraries/hop/go/hop.go` (`flatten`) | stamps `kind:action` for every scope without ids, so `Identity.Has` widens |
+| authority client (Python) | `authority_client/work_context.py` (`Scope`, `scope_contained`) | the `Scope` tuple drops the owner and containment ignores it |
+| authority hop (Python) | `codefly_hop` (`_flatten`) | same flattening as the Go hop |
+| module-annotations | `pkg/infra/workcontext/authority.go` | reads kind, actions and ids field by field |
+| module-evaluation | `identity.go` | reads kind, actions and ids field by field |
+| module-record-store | `adapters/operations.go` | reads kind, actions and ids field by field |
+| cli execution recorder | `pkg/executionrecorder/work_context_authority.go` | reads kind, actions and ids field by field |
+
+The authority's `Claims.Allows` builds on `ScopeContained` and fails closed.
+
+Runnable operations never carry an owner: not in the owner's declaration, not
+in an installation's binding, not in a composition's scope-slot selection —
+each refusal says which, and says `owner-scoped parent`. The owner comes from
+the capability the operation is invoked under. A runtime minting an operation
+child under an owner-scoped parent passes the operation's owner-less scopes
+through `workcontext.InheritResourceOwner(requested, parent.EffectiveScopes())`
+and mints the child with the result: a scope the parent covers as written is
+kept, one the parent covers only under an owner gets that owner, and it is
+refused — never guessed — when no owner covers it, when several do (mint one
+child per owner), or when the scope already names another owner. Minting the
+operation's scopes as written under an owner-scoped parent is refused by
+`Child` as a widening, because an owner-less child is never covered by an
+owner row.
 
 Every exchange deep-copies the parent's claims. Sharing hop or scope messages
 would let a mutation of the new capability rewrite what the parent is

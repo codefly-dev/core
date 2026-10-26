@@ -401,7 +401,10 @@ least one attempt, `max_attempts` 1–5, `backoff` 100ms–1m and at most 16
 vocabulary; `audience` is required, and both concrete scope sets are required at
 installation. An owner declaration may defer scopes to its
 [required scope slots](#required-scope-slots); supplied scopes carry the runtime's
-own value bounds. An operation with no
+own value bounds. No scope here names a `resource_owner_id` — not a declaration,
+a binding or a slot selection: an owner is inherited from the capability the
+operation is invoked under, with `workcontext.InheritResourceOwner`
+([Work Context](work-context.md#scopes-and-the-resource-owner)). An operation with no
 audience and no scopes is not a lenient one: there is nothing to mint a child
 capability from, and the runtime refuses the installation rather than calling
 without authority. `lookup_scopes` must be a subset of `invoke_scopes` under

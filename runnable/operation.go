@@ -347,6 +347,7 @@ func (s *OperationSpec) Validate() error {
 func (s *OperationSpec) authority() authoritySpec {
 	return authoritySpec{
 		subject:            s.Method,
+		origin:             "declaration",
 		audience:           s.Audience,
 		invokeScopes:       s.InvokeScopes,
 		lookupScopes:       s.LookupScopes,
@@ -363,7 +364,10 @@ func (s *OperationSpec) authority() authoritySpec {
 type authoritySpec struct {
 	// subject names what the authority belongs to, for the error message: an
 	// operation spelling, or a binding's facility.
-	subject      string
+	subject string
+	// origin says where the scopes were written — the owner's declaration or
+	// an installation's binding — so a refusal names the record to correct.
+	origin       string
 	audience     string
 	invokeScopes []*basev0.WorkScopeV1
 	lookupScopes []*basev0.WorkScopeV1
@@ -425,7 +429,7 @@ func (a authoritySpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) e
 			return fmt.Errorf("%w: %s %s scope %q names %d actions; between 1 and %d are required", ErrInvalid, a.subject, at, kind, len(scope.GetActions()), MaxScopeActions)
 		}
 		if owner := scope.GetResourceOwnerId(); owner != "" {
-			return fmt.Errorf("%w: %s %s scope %q selects resource owner %q; an owner is the authority's to select for an installation, never declared", ErrInvalid, a.subject, at, kind, owner)
+			return fmt.Errorf("%w: %s %s scope %q selects resource owner %q in its %s; %s", ErrInvalid, a.subject, at, kind, owner, a.origin, ownerScopedParent)
 		}
 		if len(scope.GetResourceIds()) > MaxScopeResourceIds {
 			return fmt.Errorf("%w: %s %s scope %q names %d resource ids; at most %d may be declared", ErrInvalid, a.subject, at, kind, len(scope.GetResourceIds()), MaxScopeResourceIds)
@@ -439,6 +443,14 @@ func (a authoritySpec) validateScopes(at string, scopes []*basev0.WorkScopeV1) e
 	}
 	return nil
 }
+
+// ownerScopedParent is why no operation authority names a resource owner. An
+// owner comes from the capability the operation is invoked under; the runtime
+// carries it onto the operation child with workcontext.InheritResourceOwner,
+// so a declaration, a binding or a slot selection naming one would pin every
+// invocation to one owner whatever capability it ran under.
+const ownerScopedParent = "owner-scoped parent: a resource owner is inherited from the capability the operation is invoked under " +
+	"(workcontext.InheritResourceOwner, when the runtime mints the operation child), never written into an operation's authority"
 
 func (a authoritySpec) validateScopeValues(at, kind, what string, values []string, bound int) error {
 	seen := make(map[string]struct{}, len(values))
