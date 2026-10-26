@@ -293,3 +293,30 @@ func TestDefaultRouteOperationIsTheMarkerAnOwnerPublishes(t *testing.T) {
 		})
 	}
 }
+
+// TestAPreparedGetIsHeldToBeingARead: the schema now admits GET, so an
+// installer holds a delivered GET binding to the rule the derivation applies,
+// rather than trust that a generator did.
+func TestAPreparedGetIsHeldToBeingARead(t *testing.T) {
+	read := restBinding()
+	read.Operation.Spelling = "GET /v1/items"
+	read.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "GET", Path: "/v1/items"}}
+	read.Policy.Recovery = basev0.RunnableExecution_RECOVERY_RECOMPUTE
+	read.Policy.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read"}}}
+	read.Policy.LookupScopes = nil
+	_, err := runnable.DecodePrepared(encoded(t, read))
+	require.NoError(t, err)
+
+	mutation := proto.CloneOf(read)
+	mutation.Policy.Recovery = basev0.RunnableExecution_RECOVERY_RECEIPT
+	mutation.Policy.InvokeScopes = []*basev0.WorkScopeV1{{ResourceKind: "acme.item", Actions: []string{"read", "write"}}}
+	_, err = runnable.EncodePrepared(mutation)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+	require.ErrorContains(t, err, "is a GET, which is admitted only as a read")
+
+	deleted := proto.CloneOf(read)
+	deleted.Call.Route = &runnablev0.PreparedCall_Rest{Rest: &runnablev0.HTTPRoute{Verb: "DELETE", Path: "/v1/items"}}
+	deleted.Operation.Spelling = "DELETE /v1/items"
+	_, err = runnable.EncodePrepared(deleted)
+	require.ErrorIs(t, err, runnable.ErrInvalid)
+}

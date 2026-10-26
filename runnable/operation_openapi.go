@@ -311,14 +311,16 @@ func joinedMethods() string {
 
 // readOnlyRoute holds a GET to being a read in every half of its operation: it
 // recomputes, so an uncertain outcome is asked again rather than resolved by a
-// receipt; its tool says it only reads; and it is invoked holding nothing but
+// receipt; its tool, when it states one, says it only reads (a recomputed
+// operation stating none is presented as a read, preparedTool); and it is
+// invoked holding nothing but
 // the read action, so the capability a call presents cannot change what it
 // reads whatever the route does. A mutation keeps its body, its receipt and its
 // POST or PUT.
 func readOnlyRoute(spec *OperationSpec, route string) error {
 	invoked := &Authority{Requires: spec.InvokeScopes}
 	if spec.EffectiveRecovery() != basev0.RunnableExecution_RECOVERY_RECOMPUTE ||
-		spec.Tool.GetEffect() != runnablev0.ToolExposure_EFFECT_READ_ONLY || !invoked.ReadOnly() {
+		(spec.Tool != nil && spec.Tool.GetEffect() != runnablev0.ToolExposure_EFFECT_READ_ONLY) || !invoked.ReadOnly() {
 		return fmt.Errorf("%w: %s is a GET, which is admitted only as a read: recovery %s, a %s tool, and invoke scopes requiring only %q; a mutation is published as POST or PUT",
 			ErrInvalid, route, basev0.RunnableExecution_RECOVERY_RECOMPUTE, runnablev0.ToolExposure_EFFECT_READ_ONLY, ReadOnlyScopeAction)
 	}
