@@ -34,11 +34,14 @@ repositories the rulesets are:
 Queried, not inferred. Ruleset 24397257, `target: branch`,
 `enforcement: active`, `bypass_actors: []`, conditions `refs/heads/main`:
 
-- **`required_status_checks`** — `Build`, `Proto`, `Registry cache cold (go)`,
-  `Registry cache cold (next)`, `Registry cache clean runner (go)`,
-  `Registry cache clean runner (next)`. Six, not the eight below:
-  `pnpm source evidence` is derived as safe to require and is **not** in the
-  live ruleset; `Companion version` joins it once #838 merges.
+- **`required_status_checks`** — `Build`, `Companion version`, `Proto`,
+  `Registry cache cold (go)`, `Registry cache cold (next)`,
+  `Registry cache clean runner (go)`, `Registry cache clean runner (next)`.
+  Seven, not the eight below: `pnpm source evidence` is derived as safe to
+  require and is **not** in the live ruleset. `Companion version` was added
+  on 2026-10-26 by appending that one context to the live ruleset (GET,
+  append, PUT), not by applying the payload below, which would also change
+  the decisions listed under it.
 - **`strict_required_status_checks_policy: false`** — a pull request that went
   green against an older `main` can land without being retested. The `"strict":
   true` recommended below is not what is applied.

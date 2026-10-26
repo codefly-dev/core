@@ -91,28 +91,55 @@ func TestTheCheckoutsInputsCoverTheFacadePlugins(t *testing.T) {
 	require.NotContains(t, byName["codefly"], "bin/linux/${TARGETARCH}/codefly")
 }
 
+// A path git would quote (non-ASCII, a space) is listed as it is, so it still
+// lies under its input.
+func TestAChangedPathIsListedAsItIs(t *testing.T) {
+	gitRepository(t)
+	file := filepath.Join("companions", "proto", "facades", "python", "données plugin.py")
+	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o755))
+	require.NoError(t, os.WriteFile(file, []byte("x\n"), 0o644))
+	gitRun(t, "add", ".")
+	gitRun(t, "commit", "-q", "-m", "change")
+
+	changed, err := changedFiles("main")
+	require.NoError(t, err)
+	require.Equal(t, []string{"companions/proto/facades/python/données plugin.py"}, changed)
+	require.NotEmpty(t, touchedInputs(proto.inputs, changed))
+}
+
+// gitRepository makes a scratch repository the current directory: main holds
+// one commit, and the branch "change" is checked out on top of it.
+func gitRepository(t *testing.T) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	gitRun(t, "init", "-q", "-b", "main")
+	require.NoError(t, os.WriteFile("README", []byte("base\n"), 0o644))
+	gitRun(t, "add", ".")
+	gitRun(t, "commit", "-q", "-m", "base")
+	gitRun(t, "checkout", "-q", "-b", "change")
+}
+
+func gitRun(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+}
+
 // Moving a file out of an input changes the image: git's rename detection
 // would list only the destination, outside every input, and let it through.
 func TestAFileMovedOutOfAnInputIsAChangeToIt(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, "git %v: %s", args, out)
-	}
-	run("init", "-q", "-b", "main")
+	gitRepository(t)
 	plugin := filepath.Join("companions", "proto", "facades", "python", "plugin.py")
 	require.NoError(t, os.MkdirAll(filepath.Dir(plugin), 0o755))
 	require.NoError(t, os.WriteFile(plugin, []byte("print('the facade plugin, long enough to be detected as a rename')\n"), 0o644))
-	run("add", ".")
-	run("commit", "-q", "-m", "base")
-	run("checkout", "-q", "-b", "change")
+	gitRun(t, "add", ".")
+	gitRun(t, "commit", "-q", "-m", "add the plugin")
+	gitRun(t, "branch", "-q", "-f", "main")
 	require.NoError(t, os.MkdirAll("elsewhere", 0o755))
-	run("mv", plugin, filepath.Join("elsewhere", "plugin.py"))
-	run("commit", "-q", "-m", "move")
+	gitRun(t, "mv", plugin, filepath.Join("elsewhere", "plugin.py"))
+	gitRun(t, "commit", "-q", "-m", "move")
 
 	changed, err := changedFiles("main")
 	require.NoError(t, err)
