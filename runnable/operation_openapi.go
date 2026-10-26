@@ -557,12 +557,16 @@ var DefaultReadRetryableStatuses = []string{"503"}
 //
 // A read recomputes and may be served over GET, POST or PUT; anything else is
 // a mutation resolved by its receipt and may not be a GET. A policy requiring
-// nothing, or a mutation over GET, is ErrNotDerivable: the route stays a call
-// its own clients make.
+// nothing, a mutation over GET, or a path template (a relayed subtree, whose
+// input is partly its path) is ErrNotDerivable: the route stays a call its own
+// clients make.
 func DefaultRouteOperation(method, path string, authority *Authority, audience, name, description string) (*OperationSpec, error) {
 	route := Route(method, path)
 	if authority == nil || len(authority.Requires) == 0 {
 		return nil, fmt.Errorf("%w: %s requires no authority, so there is nothing to mint the call's capability from", ErrNotDerivable, route)
+	}
+	if strings.ContainsAny(path, "{}") {
+		return nil, fmt.Errorf("%w: %s is a path template, and an operation's route is one fixed path", ErrNotDerivable, route)
 	}
 	if strings.EqualFold(method, http.MethodGet) && !authority.ReadOnly() {
 		return nil, fmt.Errorf("%w: %s requires more than %q, and a GET is derived only as a read", ErrNotDerivable, route, ReadOnlyScopeAction)

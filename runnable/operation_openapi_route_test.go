@@ -263,6 +263,10 @@ func TestDefaultRouteOperationIsTheMarkerAnOwnerPublishes(t *testing.T) {
 			_, err := runnable.DefaultRouteOperation("GET", "/record", writes, "releases", "", "")
 			return err
 		},
+		"path template": func() error {
+			_, err := runnable.DefaultRouteOperation("GET", "/modules/records/{path=**}", reads, "releases", "", "")
+			return err
+		},
 		"any checked caller": func() error {
 			_, err := runnable.DefaultRouteOperation("GET", "/status", &runnable.Authority{AnyCheckedCaller: true}, "releases", "", "")
 			return err
