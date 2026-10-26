@@ -50,12 +50,7 @@ func TestDecodeAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		// the whole point: a hand parser reached a different one.
 		"zero-principal-epoch":       workcontext.ErrInvalid,
 		"zero-installation-revision": workcontext.ErrInvalid,
-		"zero-build-incarnation":     workcontext.ErrInvalid,
 		"partial-operation-binding":  workcontext.ErrInvalid,
-		// The execution PAIRING rule, which is a schema message rule rather
-		// than a field rule — so Decode reaches it exactly as it reaches the
-		// field rules above.
-		"seal-half-execution": workcontext.ErrInvalid,
 		// Structural too, and deliberately so: a consumer's early refusal
 		// catches a token some other minter wrote, before it goes on a request.
 		"unknown-field": workcontext.ErrInvalid,
@@ -63,6 +58,10 @@ func TestDecodeAgreesWithTheKitOnEveryStructuralRefusal(t *testing.T) {
 		// read refuses it, and no entrypoint ever compares an empty audience
 		// to anything.
 		"empty-audience": workcontext.ErrInvalid,
+		// A hop that drops or changes its parent's resource owner widens the
+		// chain, and attenuation is structure: Decode runs checkStructure.
+		"owner-dropped-by-hop": workcontext.ErrInvalid,
+		"owner-changed-by-hop": workcontext.ErrInvalid,
 	}
 	seen := map[string]bool{}
 	for _, fixture := range fixtures {
@@ -267,7 +266,6 @@ func TestNoDeclarationTurnsAnInspectedOrDecodedCapabilityIntoAVerifiedOne(t *tes
 func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	_, _, err := h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
 		TTL: 30 * 24 * time.Hour,
@@ -282,7 +280,6 @@ func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	// advice to drop its own ceiling, correctly.
 	h.authority.MaxTTL = 30 * 24 * time.Hour
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
 		TTL: 48 * time.Hour,
@@ -293,7 +290,6 @@ func TestStart_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	// A host with a longer legitimate need states it, within the bound.
 	h.authority.MaxTTL = 12 * time.Hour
 	_, _, err = h.authority.Start(context.Background(), workcontext.StartInput{
-		Execution:      workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11},
 		InstallationID: installation, TenantID: tenant, OwnerPrincipalID: ownerID,
 		OwnerPrincipalKind: "human", TaskID: taskID, Audience: audience,
 		TTL: 8 * time.Hour,
@@ -306,7 +302,6 @@ func TestChild_RefusesATTLBeyondTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	_, owner := h.ownerSession(audience)
 	_, _, err := h.authority.Child(context.Background(), owner, workcontext.ChildInput{
-		Execution:   workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID: agentID, PrincipalKind: "agent", AgentID: "fixture.test/agent:1.0.0",
 		DelegationID:  "d-1",
 		GrantedScopes: []*basev0.WorkScopeV1{scope("repo", []string{"read"}, nil)},
@@ -568,4 +563,67 @@ func TestRecheckReVerifiesUnderTheKeyTheVerifierHoldsNow(t *testing.T) {
 	err = rotatedOut.Recheck(context.Background(), verified)
 	require.ErrorIs(t, err, workcontext.ErrInvalid)
 	require.ErrorContains(t, err, "no longer holds, the key")
+}
+
+// Equivalent base64 bytes must not create alternate spellings of a credential.
+func TestTokenSegmentsRequireCanonicalBase64URL(t *testing.T) {
+	h := newHarness(t)
+	aud := audience
+	token, _ := h.ownerSession(aud)
+	payload, signature, _ := strings.Cut(token, ".")
+	if len(payload)%4 == 0 {
+		aud += "x"
+		token, _ = h.ownerSession(aud)
+		payload, signature, _ = strings.Cut(token, ".")
+	}
+	require.NotZero(t, len(payload)%4, "payload must exercise unused bits")
+	checks := map[string]func(string) error{
+		"Decode": func(token string) error { _, err := workcontext.Decode(token); return err },
+		"Verify": func(token string) error { _, err := h.verify(aud, token); return err },
+		"Authenticate": func(token string) error {
+			_, err := h.authenticator(aud).Authenticate(context.Background(), token)
+			return err
+		},
+		"Inspect": func(token string) error { _, err := h.inspector().Inspect(token, aud); return err },
+	}
+	for name, check := range checks {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, check(token), "canonical control")
+			for _, segment := range []struct{ name, text string }{{"payload", payload}, {"signature", signature}} {
+				const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+				last := len(segment.text) - 1
+				unusedBit := segment.text[:last] + string(alphabet[strings.IndexByte(alphabet, segment.text[last])^1])
+				original, err := base64.RawURLEncoding.DecodeString(segment.text)
+				require.NoError(t, err)
+				equivalent, err := base64.RawURLEncoding.DecodeString(unusedBit)
+				require.NoError(t, err)
+				require.Equal(t, original, equivalent, "only unused bits changed")
+				for variant, text := range map[string]string{
+					"unused-bit":     unusedBit,
+					"padding":        segment.text + "=",
+					"double-padding": segment.text + "==",
+					"CR":             segment.text[:1] + "\r" + segment.text[1:],
+					"LF":             segment.text[:1] + "\n" + segment.text[1:],
+					"CRLF":           segment.text[:1] + "\r\n" + segment.text[1:],
+				} {
+					t.Run(segment.name+"/"+variant, func(t *testing.T) {
+						altered := text + "." + signature
+						if segment.name == "signature" {
+							altered = payload + "." + text
+						}
+						err := check(altered)
+						require.ErrorIs(t, err, workcontext.ErrInvalid)
+						require.ErrorContains(t, err, segment.name)
+						require.ErrorContains(t, err, "base64url")
+					})
+				}
+			}
+		})
+	}
+	// Empty signatures are structurally decodable; authentication still refuses
+	// them as signatures, rather than changing their established classification.
+	require.NoError(t, checks["Decode"](payload+"."))
+	for _, name := range []string{"Verify", "Authenticate", "Inspect"} {
+		require.ErrorContains(t, checks[name](payload+"."), "signature")
+	}
 }

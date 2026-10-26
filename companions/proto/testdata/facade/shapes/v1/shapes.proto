@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package shapes.v1;
+
+// One RPC of each gRPC shape, so the Python facade is proven to send each one
+// through the gateway seam that streams it.
+
+message Note {
+  string text = 1;
+  int32 count = 2;
+}
+
+service EchoService {
+  rpc Echo(Note) returns (Note);
+  rpc Fan(Note) returns (stream Note);
+  rpc Gather(stream Note) returns (Note);
+  rpc Chat(stream Note) returns (stream Note);
+}

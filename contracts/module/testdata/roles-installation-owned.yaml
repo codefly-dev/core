@@ -1,0 +1,45 @@
+# A solution's roles granting scopes only on what the installation they are
+# held on owns: the viewer reads the collections its own installation created
+# or attached, never every collection in the tenant. An installation-owned
+# scope names a kind and actions, never ids, and is held to the same ceiling
+# as scopes. A role may grant through installation-owned scopes alone, and a
+# kind may appear in both lists, each with its own actions.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read, write]
+roles:
+    - name: installer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read, write]
+          - resource_kind: documents.collection
+            actions: [read]
+      installation_owned_scopes:
+          - resource_kind: documents.collection
+            actions: [read, write]
+    - name: viewer
+      scopes:
+          - resource_kind: assistant.tasks
+            actions: [read]
+      installation_owned_scopes:
+          - resource_kind: documents.collection
+            actions: [read]
+    - name: auditor
+      installation_owned_scopes:
+          - resource_kind: assistant.tasks
+            actions: [read]
+          - resource_kind: documents.collection
+            actions: [read]
+bindings:
+    - id: collections
+      operations: [invoke]
+      audience: {from: assistant/collections-audience}
+      scope_ceiling:
+          invoke:
+              - resource_kind: documents.collection
+                actions: [read, write]
+destinations: []

@@ -90,6 +90,11 @@ type Service struct {
 	// internal
 	dir    string
 	module string
+
+	// interfacesBound records that a workspace bound the interface
+	// dependencies, so what is left unbound is what nothing in it implements,
+	// not what nothing tried to bind (InterfaceBindingsProto).
+	interfacesBound bool
 }
 
 // TestFormula is the language-agnostic test invocation as DATA — the yaml mirror
@@ -189,7 +194,7 @@ func (mod *Module) NewService(ctx context.Context, action *actionsv0.AddService)
 		return nil, wool.Get(ctx).In("mod.NewService").NewError("service action is nil")
 	}
 	w := wool.Get(ctx).In("mod.NewService", wool.NameField(action.Name))
-	if err := validateResourcePathComponent("service", action.Name); err != nil {
+	if err := validateCarrierName("service", action.Name); err != nil {
 		return nil, w.Wrap(err)
 	}
 	hadReference := mod.ExistsService(ctx, action.Name)

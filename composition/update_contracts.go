@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 
@@ -68,7 +67,7 @@ func BuildPackageContractEvidence(root string) (*moduleupdate.ContractEvidence, 
 		items := []*updatev0.ContractItem{{Id: prefix, Digest: APIContractDigest(context)}}
 		switch endpoint.Kind {
 		case APIContractKindProtobuf:
-			err = protobufContractItems(endpoint, prefix, data, &items, sources)
+			err = protobufContractItems(endpoint, protobufListeners(catalog, endpoint), prefix, data, &items, sources)
 		case APIContractKindOpenAPI:
 			err = openAPIContractItems(endpoint, prefix, data, &items, sources)
 		}
@@ -114,20 +113,33 @@ func BuildPackageContractEvidence(root string) (*moduleupdate.ContractEvidence, 
 	return &moduleupdate.ContractEvidence{Snapshot: normalized, Sources: sources}, nil
 }
 
-func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []byte, items *[]*updatev0.ContractItem, sources map[string]moduleupdate.ContractSource) error {
+// protobufListeners are the catalog's protobuf endpoints that share
+// endpoint's descriptor: the same service, the same descriptor digest. Between
+// them they serve the descriptor (ProtobufCoverage).
+func protobufListeners(catalog *APIContractCatalog, endpoint APIContractEndpoint) []APIContractEndpoint {
+	var listeners []APIContractEndpoint
+	for _, candidate := range catalog.Endpoints {
+		if candidate.Kind == APIContractKindProtobuf && candidate.Service == endpoint.Service && candidate.Digest == endpoint.Digest {
+			listeners = append(listeners, candidate)
+		}
+	}
+	return listeners
+}
+
+// protobufContractItems derives endpoint's evidence from the procedures it
+// serves, after holding it and listeners — every endpoint sharing its
+// descriptor, endpoint among them — to its descriptor exactly.
+func protobufContractItems(endpoint APIContractEndpoint, listeners []APIContractEndpoint, prefix string, data []byte, items *[]*updatev0.ContractItem, sources map[string]moduleupdate.ContractSource) error {
 	set := new(descriptorpb.FileDescriptorSet)
 	if err := proto.Unmarshal(data, set); err != nil {
 		return err
 	}
-	actual := ProtobufServices(set, endpoint.Package)
-	expected := slices.Clone(endpoint.Services)
-	for i := range expected {
-		expected[i].Procedures = slices.Clone(expected[i].Procedures)
-		slices.Sort(expected[i].Procedures)
+	procedures, err := ProtobufProcedures(set, endpoint)
+	if err == nil {
+		err = ProtobufCoverage(set, listeners)
 	}
-	slices.SortFunc(expected, func(a, b APIContractService) int { return strings.Compare(a.FullName, b.FullName) })
-	if !reflect.DeepEqual(actual, expected) {
-		return fmt.Errorf("catalog procedures do not match the descriptor set")
+	if err != nil {
+		return fmt.Errorf("catalog procedures do not match the descriptor set: %w", err)
 	}
 	files, err := protodesc.NewFiles(set)
 	if err != nil {
@@ -176,7 +188,7 @@ func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []b
 		*items = append(*items, item)
 		return nil
 	}
-	for _, service := range actual {
+	for _, service := range endpoint.Services {
 		descriptor, err := files.FindDescriptorByName(protoreflect.FullName(service.FullName))
 		if err != nil {
 			return err
@@ -184,6 +196,9 @@ func protobufContractItems(endpoint APIContractEndpoint, prefix string, data []b
 		svc := descriptor.(protoreflect.ServiceDescriptor)
 		for i := 0; i < svc.Methods().Len(); i++ {
 			method := svc.Methods().Get(i)
+			if !slices.Contains(procedures, "/"+service.FullName+"/"+string(method.Name())) {
+				continue
+			}
 			for _, message := range []protoreflect.MessageDescriptor{method.Input(), method.Output()} {
 				if err := addType(message); err != nil {
 					return err

@@ -26,10 +26,10 @@ type APIContractCatalog struct {
 type APIContractEndpoint struct {
 	Service  string               `json:"service"`
 	Endpoint string               `json:"endpoint"`
-	API      string               `json:"api"`  // grpc | rest | connect | http (standards.APIS())
-	Kind     string               `json:"kind"` // protobuf | openapi
-	Package  string               `json:"package"`
-	Path     string               `json:"path"` // same as ProvidedAPIContract.Path
+	API      string               `json:"api"`     // grpc | rest | connect | http (standards.APIS())
+	Kind     string               `json:"kind"`    // protobuf | openapi
+	Package  string               `json:"package"` // empty for a multi-package protobuf listener; Services carries qualified names
+	Path     string               `json:"path"`    // same as ProvidedAPIContract.Path
 	Digest   string               `json:"digest"`
 	Services []APIContractService `json:"services,omitempty"` // protobuf only
 	Routes   []APIContractRoute   `json:"routes,omitempty"`   // openapi only
@@ -99,7 +99,7 @@ func (endpoint APIContractEndpoint) validate() error {
 	if endpoint.Kind != APIContractKindProtobuf && endpoint.Kind != APIContractKindOpenAPI {
 		return fmt.Errorf("%s kind %q must be %q or %q", label, endpoint.Kind, APIContractKindProtobuf, APIContractKindOpenAPI)
 	}
-	if strings.TrimSpace(endpoint.Package) == "" {
+	if endpoint.Kind != APIContractKindProtobuf && strings.TrimSpace(endpoint.Package) == "" {
 		return fmt.Errorf("%s package is required", label)
 	}
 	if err := validateContractPath(label, endpoint.Path); err != nil {
@@ -236,14 +236,16 @@ func ValidatePackageAPIContracts(moduleDir string, manifest *PackageManifest, ca
 
 // ProtobufServices walks set.File for files in pkg and returns their services
 // with their fully qualified procedures, sorted by full name and procedure.
+// An empty pkg selects all packages; an explicit listener inventory determines
+// which of those services are served.
 func ProtobufServices(set *descriptorpb.FileDescriptorSet, pkg string) []APIContractService {
 	var services []APIContractService
 	for _, file := range set.GetFile() {
-		if file.GetPackage() != pkg {
+		if pkg != "" && file.GetPackage() != pkg {
 			continue
 		}
 		for _, service := range file.GetService() {
-			fullName := pkg + "." + service.GetName()
+			fullName := file.GetPackage() + "." + service.GetName()
 			procedures := make([]string, 0, len(service.GetMethod()))
 			for _, method := range service.GetMethod() {
 				procedures = append(procedures, "/"+fullName+"/"+method.GetName())

@@ -10,13 +10,13 @@ Two packages own this:
 
 - `workcontext` mints and verifies capabilities. `Authority` holds the signing
   key; `Verifier` is the only way to turn a token back into claims.
-- `policy.PrincipalFromWorkContext` derives the `policy.Principal` the PDP,
-  the gateway and audit reason over. It takes a `*workcontext.Verified`, and
-  `Verified`'s fields are unexported with no exported constructor, so `Verify`
-  is the only way to obtain one — the derivation cannot run on anything
-  unverified, and that is a property the compiler holds rather than a
-  convention. It fills `Principal.DelegationChain`, which is therefore
-  derived, never hand-built.
+- Who a call is for is no longer derived here. The authority interface
+  (codefly-dev/authority) checks a context and its hop stamps the call with
+  the identity it answered, so a module reads that identity and never derives
+  a `policy.Principal` from a token itself; core's former derivation,
+  `policy.PrincipalFromWorkContext`, is deleted. `Verified`'s fields stay
+  unexported with no exported constructor, so `Verify` remains the only way to
+  obtain one.
 
 ## Task identity and hops
 
@@ -46,7 +46,7 @@ That pairing holds only while **every session a capability carries is either
 the authenticated caller's own or a fresh one**. An issuer that signs a
 caller-named id lets anyone mint a capability carrying another credential's
 session, and the pairing admits it. Core cannot see where the issuer got the
-bytes, so — like `Execution` — this rests on the issuer: supply a session you
+bytes, so this rests on the issuer: supply a session you
 authenticated, or leave it empty.
 
 ### The lifetime has an absolute ceiling
@@ -87,10 +87,88 @@ child born superseded whenever a revocation landed in between. A `Grant`
 keeps the revision the decision was made at, because bumping past it is
 exactly what revokes an unspent grant.
 
-`WorkScopeV1` is `(resource_kind, actions, resource_ids)`. Attenuation
-(`workcontext.ScopeContained`) lets a child narrow a wildcard parent to
-explicit ids and never the reverse, and never name an action the parent does
-not hold.
+### Scopes and the resource owner
+
+`WorkScopeV1` is `(resource_kind, actions, resource_ids, resource_owner_id)`.
+Attenuation (`workcontext.ScopeContained`) lets a child narrow a wildcard
+parent to explicit ids and never the reverse, and never name an action the
+parent does not hold. `resource_owner_id` selects the resources one principal
+owns (an installed solution's principal), and narrows the same way: a child
+may add an owner to a row that names none, never drop or change one. With ids,
+a resource is covered only when both match. The owner is at most 512 bytes of
+printable ASCII other than space and `*` (`^[!-)+-~]*$`, 0x21–0x29 and
+0x2B–0x7E), the schema's rule, which `protovalidate` enforces at mint and at
+decode. It is an allowlist on purpose: a list of excluded Unicode categories
+let through characters that print as nothing or as another letter (U+034F,
+U+FE0F, U+3164, U+2800, NFD accents, Cyrillic lookalikes), and Go and Python
+protovalidate disagreed on unassigned code points. With ASCII, two owners that
+print alike are the same bytes and every regex engine gives one answer;
+`workcontext/testdata/resource_owner_vectors.json` holds the vectors both are
+checked against. Principal ids are UUIDs, which fit.
+
+A reader asks with the resource's owner. An ask naming no owner is never
+covered by an owner-selected row, so an owner-blind check **built on
+`ScopeContained`** (or `ScopesAttenuate`) fails closed rather than reading the
+scope as the whole kind. That guarantee is the function's, not the field's. A
+reader that inspects `WorkScopeV1` itself — flattening a scope with no ids to
+`kind:action`, or copying kind, actions and ids into a type of its own — reads
+an owner-selected scope as the whole kind once its core pin knows field 4,
+because the unknown-field refusal that used to reject the whole token no longer
+fires. Until such a reader compares owners it must refuse, or grant nothing
+from, any scope with a non-empty `resource_owner_id`, and an issuer must not
+mint an owner-selected scope to its audience. The readers known to inspect
+scopes directly, read at each repository's main on 2026-10-25 (reviews r109,
+r128 and r142; the authority at d091cc7a). It is the list known so far, not a
+proof that no other exists. The first three rows are owner-aware at authority
+main since #18 (f688c549); a consumer pinned before that commit still has the
+owner-blind version:
+
+| Reader | Where | Owner-blind because |
+| --- | --- | --- |
+| authority hop library (Go) | `libraries/hop/go/hop.go:183` (`flatten`) | owner-aware since f688c549: skips an owner-selected scope, so `Identity.Has` never reads it as the whole kind. Before it, stamped `kind:action` for every scope without ids |
+| authority client (Python) | `authority_client/work_context.py:113` (`Scope`), `:218` (`scope_contained`) | owner-aware since f688c549: `Scope` keeps `resource_owner_id` and containment compares it. Before it, the tuple dropped the owner |
+| authority hop (Python) | `codefly_hop/__init__.py:232` (`_flatten`) | owner-aware since f688c549: skips an owner-selected scope, as the Go hop does |
+| authority issuer, `ListResources` | `modules/authority/services/local/code/pkg/business/issuer/issuer.go:88-126` (`whole` at `:103-104`), `state.go:1346` (`coverageOf`, whole kind at `:1359`) | owner-blind: a held scope with no ids sets `whole`, which returns every grant (or the human owner's) for the kind. Unreachable with an owner-selected scope while the issuer mints none (below) |
+| module-annotations | `pkg/infra/workcontext/authority.go` | reads kind, actions and ids field by field |
+| module-evaluation | `identity.go` | reads kind, actions and ids field by field |
+| module-record-store | `adapters/operations.go` | reads kind, actions and ids field by field |
+| module-document-store | `modules/documents/services/documents/code/pkg/business/workclaims/claims.go:191-199` | a matching scope with no resource ids returns allow |
+| module-runtime | `pkg/runnable/installation.go:225`, `pkg/infra/accounts/authority.go:297` | copies kind, actions and ids into its own `Scope` / `WorkContextScope` and drops the owner |
+| saas-sdk-python | `src/saas_sdk/work_context.py:158-163` (`WorkScope`), `:638-646` (`_scopes_of`), `:322-327` (`require_scope`) | `WorkScope` has no owner, `_scopes_of` drops it, and `require_scope` allows the whole kind. It refuses the unknown field today, so it widens once it regenerates from this core |
+| module-saas-starter, module-saas-starter-security accounts | `module/services/accounts/code/pkg/adapters/` (`work_context_rpcs.go`, `delegated_read_audience.go`) | copy kind, actions and ids into their own types and drop the owner |
+| cli execution recorder | `pkg/executionrecorder/work_context_authority.go` | reads kind, actions and ids field by field |
+
+The authority's `Claims.Allows` builds on `ScopeContained` and fails closed,
+but its issuer does not use it. The authority has one service, `local`, and
+one `Issuer`. Since #18 (f688c549) its `Issue` (`issuer.go:205`) and
+`Delegate` (`:662`) refuse, by name, scopes that name a resource owner
+(`refuseOwners`, `:750`: "this authority issues no owner-selected scope
+yet"). Its `ListResources` still reads scopes itself and is owner-blind; it
+can meet an owner-selected scope only once the issuer mints one, so it must be
+made owner-aware before that.
+
+Runnable operations never carry an owner: not in the owner's declaration, not
+in an installation's binding, not in a composition's scope-slot selection —
+each refusal says which, and says `owner-scoped parent`. The owner comes from
+the capability the operation is invoked under. A runtime minting an operation
+child under an owner-scoped parent passes the operation's owner-less scopes
+through `workcontext.InheritResourceOwner(requested, parent.EffectiveScopes())`
+and mints the child with the result: a scope the parent covers as written is
+kept, one the parent covers only under an owner gets that owner, and it is
+refused — never guessed — when no owner covers it, when several do (mint one
+child per owner), when only several owners' rows together cover it (the
+refusal says so rather than "not covered", and advises one invocation per
+owner only when the owners split it by resource; when they split its actions
+no child can hold the whole scope, and the parent must hold it under one
+owner), or when the scope already names another owner. An inherited owner applies to the whole scope:
+under the parent `[doc:read, doc:write@P]` the operation scope
+`doc:{read,write}` becomes `doc:{read,write}@P`, so the child reads only P's
+documents although the parent reads all of them. That is intended and fails
+closed — an operation invoked under an owner-scoped capability is confined to
+that owner's resources — and `TestInheritResourceOwner` pins it. Minting the
+operation's scopes as written under an owner-scoped parent is refused by
+`Child` as a widening, because an owner-less child is never covered by an
+owner row.
 
 Every exchange deep-copies the parent's claims. Sharing hop or scope messages
 would let a mutation of the new capability rewrite what the parent is
@@ -135,7 +213,7 @@ authority to someone else.
 ## The resume contract
 
 Immutability is what makes returning to the flow work, and it is a contract
-with tests (`workcontext/grant_test.go`, `policy/identity_e2e_test.go`):
+with tests (`workcontext/grant_test.go`):
 
 - a grant capability is rejected for any other tool, subject, request or
   approver set, and on a second use;
@@ -148,7 +226,7 @@ with tests (`workcontext/grant_test.go`, `policy/identity_e2e_test.go`):
 
 ## Audit
 
-`policy.PrincipalFromWorkContext` derives `DelegationChain` as the lenders,
+A delegation chain lists the lenders,
 oldest-first: the owner, then each preceding actor, and **one** link for an
 approval grant. So the scenario in the `Principal` doc comment — U invokes A;
 A acquires escalation from V — reads `[U, V]` with `Principal.ID` = A and the
@@ -175,30 +253,22 @@ capability minted before they existed is still a valid capability, and an
 archived `ExecutionReceiptV1` embedding one still verifies — receipt
 verification validates the whole message before it checks the signature, so a
 schema rule added here would retroactively invalidate every receipt ever
-attested. The requirement lives where the identity is built:
-`PrincipalFromWorkContext` refuses a capability it cannot derive a kind or an
-organization from, naming what is missing. Minting always fills them.
+attested. The requirement lives where the identity is built, never in the
+schema. Minting always fills them.
 
-## The seal: one installation, one execution
+## The seal: one installation, and the principal's epoch
 
 A capability's scopes say what it may do. The **seal** says which installation
-and which running build it was minted for, so that authority cannot outlive
-either one. `WorkSealV1` is on every capability and carries five fields, three
-always and two only when the exercising principal bears an execution. They are
-read from two sources — `SealSource.Seal` for the installation, and
-`SealSource.ApprovedBuild` for the execution, keyed per principal:
+it was minted against and which epoch of its principal, so that authority
+cannot outlive either one. `WorkSealV1` is on every capability and carries three
+fields, read from `SealSource.Seal` for the installation and
+`SealSource.PrincipalEpoch` for the epoch:
 
 | field | what moving it invalidates |
 | --- | --- |
 | `principal_epoch` | every capability minted for that principal, at once |
 | `installation_id` | — it is identity, not a counter |
 | `installation_revision` | every capability minted against the installation's previous terms |
-| `build_incarnation` | every capability minted on a replaced run of the build |
-
-`build_incarnation` and `image_digest` are **optional and paired** — absent for
-a principal that bears no execution. See "A principal that bears no execution"
-below; they are read from `SealSource.ApprovedBuild`, keyed on the principal,
-not from the installation seal.
 
 `WorkOperationBindingV1` is on a capability that exercises one unit of
 authority, and carries `binding_id`, `revision` and `incarnation`. The
@@ -212,56 +282,30 @@ missing one refuses every capability rather than reading its absence as "sealing
 off", because that would make the strongest check in the model the easiest one
 to omit.
 
-### The execution belongs to the principal, not to the installation
+### What a workload runs is checked where it mints, not sealed
 
-`SealSource.ApprovedBuild(ctx, principalID) (digest string, incarnation uint64, err error)`
-answers the execution the issuer approves for ONE PRINCIPAL. `Seal` answers
-installation state and nothing else.
+A seal carries **no build**. Fields 4 and 5 of `WorkSealV1` and 8 and 9 of
+`WorkActorV1` (`build_incarnation`, `image_digest`) are reserved: they sealed one
+approved build per principal into every capability and made every verifier ask
+the issuer for that one build. A module that runs as more than one workload —
+each its own build — could be approved for one of them only, so its other
+workloads could never mint.
 
-They were one method, and the split is the fix for a blocker rather than a
-tidy-up. The execution was read from the **owner's** installation record, so a
-capability's execution binding described the owner's workload however many
-delegation hops had been added and whoever was actually exercising it. And a
-delegated hop's principal does not hold the owner's installation at all — so
-there was nothing a derivation could have been attested against even in
-principle. The consequence: **minting was execution-bound only at `Start`.** A
-caller holding a parent capability derived children whatever it was running,
-which is the threat the execution fields exist to stop, left open at every hop
-but the first.
+Build approval then left the runtime path altogether: a module manifest
+carries no digest ([module-manifest.md](module-manifest.md)), and "only approved
+images run" is deploy-time admission. What remains is kept by the parties that
+own it:
 
-So `Child` and `Grant` take an `Execution` too, required on the same terms as
-`Start`'s, and the seal's execution describes whoever will EXERCISE the
-capability. `ApprovedBuild` takes no attribute of the workload, deliberately:
-resolving by (service account, image digest) would answer "approved" for
-whatever a superseded pod presents, which is the hole it exists to close.
+- **The host checks who is calling at the mint, not what it runs.** It attests
+  the caller's workload (core `workloadidentity`), finds the one workload of one
+  applied module manifest that the attested account names, and mints only for
+  an organisation with an active installation of that module.
+- **A redeploy revokes through the seal's own counters.** For a module
+  principal the issuer derives the installation revision from the whole grant —
+  its workloads and the manifest generation included — and advances the
+  principal epoch with the applied generation, so a redeploy invalidates every
+  capability the replaced generation held, owner position and actor hops alike.
 
-### A principal that bears no execution
-
-`ApprovedBuild` returns `ErrNoApprovedBuild` when a principal bears no
-execution. **That is an answer, not a failure** — it is the correct answer for
-a human session, because a person at a terminal runs no approved build.
-
-`build_incarnation` and `image_digest` are therefore `optional` on the wire,
-set as a pair or not at all (a schema message rule, not a convention). This is
-**not** the compatibility hedge two reviews rejected for the seal itself and
-for the actor epochs: that hedge made a field optional so ARCHIVED data would
-still parse, trading every live credential's strength for old bytes. This is
-optional because the field does not APPLY to a whole class of principal, and
-requiring it of a human would force every human session to invent a value —
-which is exactly what the field exists to refuse.
-
-The requirement is not weakened, it is made conditional on something the issuer
-knows and the schema cannot. A capability carries an execution **exactly when**
-its exercising principal bears one, and the verifier enforces the
-correspondence in **both** directions:
-
-- an execution-bearing principal whose capability carries none is refused;
-- a principal that bears none whose capability carries one is refused too,
-  because that is a process claiming to be a workload.
-
-Only the first direction is obvious, and checking only the first is what would
-make the optionality a hole: a human's capability could then be sealed to a
-build nobody approved for it, and nothing would object.
 
 ### Where the binding's incarnation comes from — a seam core does not close
 
@@ -271,7 +315,7 @@ ID. **Nothing in core derives either.** An issuer holds them, and the only
 rules core states are the monotonicity ones: both only advance, a withdrawal
 is terminal, and a reassignment between principals advances the revision.
 
-This is worth naming because the presence generation in `solutionhost` is
+This is worth naming because the manifest generation in `solutionhost` is
 *derived* from the delivered document, so a reader may assume a binding's
 counters are too. A binding has no document — there is no carrier for one — so
 the issuer is the only source. A host that re-creates a binding under a reused
@@ -362,12 +406,6 @@ So the fields are schema-required and `ErrUnsealed` is **deleted** — a
 sentinel no branch can produce is worse than no sentinel. The two
 `executionreceipt` goldens moved with it, deliberately, and the test says why.
 
-The one exception is the EXECUTION pair, `image_digest` and
-`build_incarnation`, which are `optional` and set together or not at all. That
-is not the hedge returning: the field does not **apply** to a principal that
-bears no execution, and requiring it of a human session would force every one
-of them to invent the value the field exists to refuse. See "A principal that
-bears no execution".
 
 ### One implementation, and the gate that keeps it that way
 
@@ -482,32 +520,6 @@ package and runs the conformance helper in its own suites. The
 cutover is cold — every token changes format at once, and an old token is
 refused with `ErrNotACoreToken` rather than accepted.
 
-### The one requirement that rests on the implementer
-
-`WorkSealV1.image_digest` is the **approved** build the issuer holds;
-`StartInput.Execution.ImageDigest` is what the caller **attests it is
-running**. The mint refuses unless they match, which is what binds a
-credential to one execution and refuses a pod from a superseded generation.
-
-**A host that fills the attested execution from the same record it sealed has
-written a tautology.** The mint then compares approved against approved, so the
-check passes for every caller — including the superseded pod the field exists
-to refuse. The defect it closes is reintroduced by the field that closes it.
-
-**Core cannot detect that.** It cannot know where a caller got the bytes, both
-fields are strings, and the tautology type-checks. This is the one requirement
-in the model that rests on the implementer rather than on a check, and it is
-written down here because the first implementer reported that the shortcut was
-the only option available to it — the approved digest, from the admitted
-presence document, is the only image digest its host can currently reach. That
-is how the shortcut gets taken: not carelessly, but because the correct source
-needs workload authentication that is not running yet.
-
-So the test that matters is **not** "does a sound execution mint". It is: take
-a pod from a **superseded generation** and confirm the mint refuses. If that
-passes while the approved build is the only digest the host can reach, the
-digest is being read from the wrong place.
-
 ### One encoding, enforced at the wire
 
 `Verify` used to accept **any** protobuf the key had signed. The signature
@@ -601,10 +613,9 @@ strength does not exist:
   capability already in flight. A caller holding none cannot authenticate at
   full strength, and core does not offer it a way to appear to.
 - **The result type carries which question was answered.** `Authenticate`
-  returns `*Authenticated`, never `*Verified`. `policy.PrincipalFromWorkContext`
-  takes a `*Verified`, so an authenticated capability cannot become a
-  `Principal` by accident; `Authority.Child` and `Authority.Grant` take one too,
-  so it cannot be exchanged for a derived capability — which is right beyond
+  returns `*Authenticated`, never `*Verified`. `Authority.Child` and
+  `Authority.Grant` take a `*Verified`, so an authenticated capability cannot
+  be exchanged for a derived capability — which is right beyond
   types, since deriving holds the parent's inherited seal against live state and
   that is the issuer's to answer. There is no conversion in either direction and
   a test guards against one being added, because that addition is the whole
@@ -658,7 +669,7 @@ it is built the way `Authenticate` is so that it is not a third **strength**:
   kit's `empty-audience` fixture holds that no capability can match one: the
   schema refuses an empty audience in the decode path, before any comparison.
 - **What it cannot see, it forwards.** The authorization revision, the sealed
-  installation's revision, every principal's epoch, the approved build, an
+  installation's revision, every principal's epoch, an
   operation binding's revision, incarnation, withdrawal and association, and
   the issuer's record of a grant are the callee's to hold a capability
   against. A hop that refused on any of them would be claiming a check it

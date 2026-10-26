@@ -102,8 +102,8 @@ modelled, read it there first.
 | `network/` | deterministic port allocation, DNS, native/container/public modes |
 | `configurations/` | what services provide and consume, injected as env vars |
 | `runners/`, `companions/` | process execution; sidecar images for language tooling |
-| `solutionhost/` | `SolutionHostBinding`, the declared record of which solution runs where ([docs](docs/solution-host-binding.md)) |
-| `contracts/module/` | the ONE implementation of `codefly/module-contract/v1` (Go package `module`, imported as `modulecontract`) — the request a module publishes, strict decoding, every refusal as a named rule (`rules.go`), slot resolution, a serialisable model, shipped fixtures every reader is driven through and a self-check that deletes each rule and proves a fixture notices ([docs](docs/solution-host-binding.md#the-module-contract)). The cell (`codefly/cell/v1`) has no implementation in core |
+| `solutionhost/` | `ModuleManifest`, the one signed record of a module instance on a host: its workloads, endpoints and requested authority ([docs](docs/module-manifest.md)) |
+| `contracts/module/` | the ONE implementation of `codefly/module-contract/v1` (Go package `module`, imported as `modulecontract`) — the request a module publishes, strict decoding, every refusal as a named rule (`rules.go`), slot resolution, a serialisable model, shipped fixtures every reader is driven through and a self-check that deletes each rule and proves a fixture notices ([docs](docs/module-contract.md)). The cell (`codefly/cell/v1`) has no implementation in core |
 | `code/semantic` | the **only** package allowed to use cgo (tree-sitter) |
 | `internal/ciguard` | invariants about CI config that no other test would notice |
 

@@ -13,12 +13,10 @@ import (
 	"strconv"
 )
 
-const (
-	// PayloadTypePresence identifies canonical solution presence JSON in DSSE.
-	PayloadTypePresence = "application/vnd.codefly.solution-presence+json"
-	// PayloadTypeAuthority identifies canonical solution authority JSON in DSSE.
-	PayloadTypeAuthority = "application/vnd.codefly.solution-authority+json"
-)
+// PayloadTypeModuleManifest identifies a canonical module manifest in DSSE.
+// It and PayloadTypeModuleEnvelope are the two payload types this package
+// signs or verifies.
+const PayloadTypeModuleManifest = "application/vnd.codefly.module-manifest+json"
 
 // Strings enforce base64 on the wire: encoding/json also accepts byte arrays
 // for []byte, which is not the DSSE envelope format.
@@ -33,14 +31,20 @@ type dsseSignature struct {
 	Sig   string `json:"sig"`
 }
 
+// payloadTypeFor names the DSSE payload type of a document from the schema
+// inside its bytes. Signing and verifying both derive it here, never from the
+// envelope, so the type a signature binds is the type the document declares.
 func payloadTypeFor(document []byte) (string, error) {
 	switch schema := documentSchema(document); schema {
-	case SchemaPresenceV1:
-		return PayloadTypePresence, nil
-	case SchemaAuthorityV1:
-		return PayloadTypeAuthority, nil
+	case SchemaModuleManifestV1:
+		return PayloadTypeModuleManifest, nil
+	case SchemaModuleEnvelopeV1:
+		return PayloadTypeModuleEnvelope, nil
 	default:
-		return "", fmt.Errorf("%w: no DSSE payload type for document schema %q", ErrSchema, schema)
+		if replacedFamily(schema) {
+			return "", schemaRefusal(schema, SchemaModuleManifestV1)
+		}
+		return "", fmt.Errorf("%w: %q (this Core signs %q and %q)", ErrSchema, schema, SchemaModuleManifestV1, SchemaModuleEnvelopeV1)
 	}
 }
 

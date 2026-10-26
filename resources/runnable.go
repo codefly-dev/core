@@ -71,11 +71,21 @@ const (
 	RunnableFieldBoolean RunnableFieldType = "boolean"
 	RunnableFieldObject  RunnableFieldType = "object"
 	RunnableFieldArray   RunnableFieldType = "array"
+	RunnableFieldNumber  RunnableFieldType = "number"
+	RunnableFieldJSON    RunnableFieldType = "json"
 )
 
 // RunnableFieldTypes are every value type of the bounded profile.
 func RunnableFieldTypes() []RunnableFieldType {
-	return []RunnableFieldType{RunnableFieldString, RunnableFieldInteger, RunnableFieldBoolean, RunnableFieldObject, RunnableFieldArray}
+	return []RunnableFieldType{RunnableFieldString, RunnableFieldInteger, RunnableFieldBoolean, RunnableFieldObject, RunnableFieldArray, RunnableFieldNumber, RunnableFieldJSON}
+}
+
+// runnableFieldFormats are the formats each type may carry: the spellings
+// proto3 JSON gives a value whose type alone does not say how it is written.
+// The set is closed, so a format is a fact every reader knows, never a hint.
+var runnableFieldFormats = map[RunnableFieldType][]string{
+	RunnableFieldString: {"date-time", "protobuf-duration", "protobuf-field-mask", "byte", "int64", "uint64"},
+	RunnableFieldJSON:   {"object", "array"},
 }
 
 var runnableFieldTypeProto = map[RunnableFieldType]basev0.RunnableField_Type{
@@ -84,6 +94,8 @@ var runnableFieldTypeProto = map[RunnableFieldType]basev0.RunnableField_Type{
 	RunnableFieldBoolean: basev0.RunnableField_BOOLEAN,
 	RunnableFieldObject:  basev0.RunnableField_OBJECT,
 	RunnableFieldArray:   basev0.RunnableField_ARRAY,
+	RunnableFieldNumber:  basev0.RunnableField_NUMBER,
+	RunnableFieldJSON:    basev0.RunnableField_JSON,
 }
 
 // runnableFieldNamePattern keeps field names representable as identifiers in
@@ -100,6 +112,10 @@ type RunnableField struct {
 	Nullable    bool              `yaml:"nullable,omitempty"`
 	Fields      []*RunnableField  `yaml:"fields,omitempty"`
 	Items       *RunnableField    `yaml:"items,omitempty"`
+	// Format refines how a string or JSON value is spelled (runnableFieldFormats).
+	Format string `yaml:"format,omitempty"`
+	// Values are the names a string may take, as an enum is carried by name.
+	Values []string `yaml:"values,omitempty"`
 }
 
 // RunnableSchema is the shape of one invocation payload; a payload is always
@@ -674,6 +690,21 @@ func (f *RunnableField) validate(at string) error {
 	if f.Type != RunnableFieldArray && f.Items != nil {
 		return fmt.Errorf("%s declares items but is not an array", at)
 	}
+	if f.Format != "" && !slices.Contains(runnableFieldFormats[f.Type], f.Format) {
+		return fmt.Errorf("%s has format %q, which a %s does not carry", at, f.Format, f.Type)
+	}
+	if len(f.Values) > 0 {
+		if f.Type != RunnableFieldString || f.Format != "" {
+			return fmt.Errorf("%s declares values but is not a plain string", at)
+		}
+		seen := make(map[string]struct{}, len(f.Values))
+		for _, value := range f.Values {
+			if _, repeated := seen[value]; repeated || value == "" {
+				return fmt.Errorf("%s declares value %q empty or twice", at, value)
+			}
+			seen[value] = struct{}{}
+		}
+	}
 	if f.Type == RunnableFieldObject {
 		return validateRunnableFields(at, f.Fields)
 	}
@@ -854,6 +885,8 @@ func (f *RunnableField) proto() *basev0.RunnableField {
 		Optional:    f.Optional,
 		Nullable:    f.Nullable,
 		Fields:      runnableFieldsProto(f.Fields),
+		Format:      f.Format,
+		Values:      slices.Clone(f.Values),
 	}
 	if f.Items != nil {
 		out.Items = f.Items.proto()
@@ -904,6 +937,8 @@ func runnableFieldFromProto(field *basev0.RunnableField) *RunnableField {
 		Optional:    field.GetOptional(),
 		Nullable:    field.GetNullable(),
 		Fields:      runnableFieldsFromProto(field.GetFields()),
+		Format:      field.GetFormat(),
+		Values:      slices.Clone(field.GetValues()),
 	}
 	if field.GetItems() != nil {
 		out.Items = runnableFieldFromProto(field.GetItems())

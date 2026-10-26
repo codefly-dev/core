@@ -20,7 +20,6 @@ import (
 const boundSession = "019f6bf7-2222-7222-8222-222222222271"
 
 func (h *harness) startIn(in workcontext.StartInput) (string, error) {
-	in.Execution = workcontext.Execution{ImageDigest: workcontext.FixtureImageDigest, BuildIncarnation: 11}
 	in.InstallationID = installation
 	in.TenantID = tenant
 	in.OwnerPrincipalID = ownerID
@@ -36,7 +35,6 @@ func (h *harness) startIn(in workcontext.StartInput) (string, error) {
 
 func (h *harness) childIn(parent *workcontext.Verified, session string) (string, error) {
 	token, _, err := h.authority.Child(context.Background(), parent, workcontext.ChildInput{
-		Execution:     workcontext.Execution{ImageDigest: agentBuildDigest, BuildIncarnation: 11},
 		PrincipalID:   agentID,
 		PrincipalKind: "agent",
 		AgentID:       "fixture.test/agent:1.0.0",

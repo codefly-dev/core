@@ -33,12 +33,10 @@ import (
 // a module's own declarations; consumption contributes none, and they are
 // written empty, not absent.
 //
-// A solution whose entries ask for no scopes asks for no authority: nil, nil.
+// A solution asking for no scopes still declares its principal with an empty
+// binding set. Delivery must admit it explicitly without granting permissions.
 func (m *Manifest) ConsumptionContract(principal string) (*modulecontract.Contract, error) {
 	contract := consumptionContract(principal, m.API.Consumes)
-	if contract == nil {
-		return nil, nil
-	}
 	if err := contract.Validate(); err != nil {
 		return nil, fmt.Errorf("the authority api.consumes asks for: %w", err)
 	}
@@ -46,7 +44,7 @@ func (m *Manifest) ConsumptionContract(principal string) (*modulecontract.Contra
 }
 
 func consumptionContract(principal string, declarations []APIDeclaration) *modulecontract.Contract {
-	var bindings []modulecontract.Binding
+	bindings := []modulecontract.Binding{}
 	for _, declaration := range declarations {
 		if len(declaration.Scopes) == 0 || declaration.Audience == nil {
 			continue
@@ -62,9 +60,6 @@ func consumptionContract(principal string, declarations []APIDeclaration) *modul
 			Audience:     *declaration.Audience,
 			ScopeCeiling: map[string]modulecontract.Ceiling{modulecontract.OperationInvoke: {Scopes: scopes}},
 		})
-	}
-	if len(bindings) == 0 {
-		return nil
 	}
 	sort.Slice(bindings, func(i, j int) bool { return bindings[i].ID < bindings[j].ID })
 	return &modulecontract.Contract{

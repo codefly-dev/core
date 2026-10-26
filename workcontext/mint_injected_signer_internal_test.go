@@ -56,8 +56,6 @@ func soundClaims() *basev0.WorkContextV1 {
 		Seal: &basev0.WorkSealV1{
 			PrincipalEpoch: 1, InstallationId: "inst",
 			InstallationRevision: 1,
-			BuildIncarnation:     fixtureIncarnationPointer(),
-			ImageDigest:          fixtureDigestPointer(),
 		},
 	}
 }

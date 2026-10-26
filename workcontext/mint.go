@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"crypto/ed25519"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -106,16 +105,6 @@ type StartInput struct {
 	// and incarnation are read from the seal source.
 	OperationBindingID string
 
-	// Execution is what the caller attests it is running: the image-manifest
-	// digest and the incarnation. REQUIRED, and checked against the approved
-	// build the issuer holds rather than recorded.
-	//
-	// It is an input because only the host can resolve it — from the
-	// authenticated workload's own status, never from something the process
-	// asserts over the wire — and it is checked because an unchecked input is
-	// a claim. See workcontext.Execution.
-	Execution Execution
-
 	// SessionID is the session this capability opens, when the ISSUER has one
 	// to bind it to. Empty mints a fresh one, which is what a session no other
 	// credential names should carry.
@@ -138,7 +127,7 @@ func (a *Authority) Start(ctx context.Context, in StartInput) (string, *basev0.W
 	if err != nil {
 		return "", nil, err
 	}
-	seal, binding, err := a.sealFor(ctx, in.OwnerPrincipalID, in.InstallationID, in.OperationBindingID, in.OwnerPrincipalID, in.Execution)
+	seal, binding, err := a.sealFor(ctx, in.OwnerPrincipalID, in.InstallationID, in.OperationBindingID, in.OwnerPrincipalID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -188,16 +177,6 @@ type ChildInput struct {
 	ReplayPolicy   string                // "" defaults to idempotent
 	TTL            time.Duration         // required; clamped to the parent's expiry
 
-	// Execution is what this hop attests it is running, and it is REQUIRED
-	// when the hop's principal bears an approved execution — refused when it
-	// bears none, which is a human taking over a session.
-	//
-	// It exists because minting was execution-bound only at Start: a
-	// derivation inherited the parent's execution and attested nothing, so a
-	// caller holding a parent capability derived children whatever it was
-	// running. See Authority.sealExecutionFor.
-	Execution Execution
-
 	// OperationBindingID is the unit of authority this hop exercises, when it
 	// exercises one. Empty carries the parent's; naming one replaces it, and
 	// the replacement's revision and incarnation are read live.
@@ -226,8 +205,8 @@ type ChildInput struct {
 	// own or a fresh one; an issuer that signs a caller-named id lets any
 	// caller mint a capability carrying another credential's session, and the
 	// pairing then admits it. Core cannot detect that — both are strings and it
-	// cannot know where the issuer got the bytes — so it rests on the issuer,
-	// exactly as Execution does. When the issuer has no authenticated session
+	// cannot know where the issuer got the bytes — so it rests on the issuer.
+	// When the issuer has no authenticated session
 	// to bind, leave it empty.
 	SessionID string
 }
@@ -273,7 +252,7 @@ func (a *Authority) Child(ctx context.Context, parent *Verified, in ChildInput) 
 		return "", nil, err
 	}
 	wc.ActorChain = append(wc.ActorChain, hop)
-	if err := a.deriveSeal(ctx, parent, wc, in.OperationBindingID, in.PrincipalID, in.Execution); err != nil {
+	if err := a.deriveSeal(ctx, parent, wc, in.OperationBindingID, in.PrincipalID); err != nil {
 		return "", nil, err
 	}
 	return a.seal(wc)
@@ -330,29 +309,11 @@ func (a *Authority) requireTrustedParent(parent *Verified) error {
 	return nil
 }
 
-func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0.WorkContextV1, bindingID, exercising string, attested Execution) error {
+func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0.WorkContextV1, bindingID, exercising string) error {
 	if err := a.requireTrustedParent(parent); err != nil {
 		return err
 	}
 	if err := a.carryForwardSeal(ctx, parent.claims()); err != nil {
-		return err
-	}
-	// THE HOP ATTESTS ITS OWN EXECUTION, and this is the blocker that closed.
-	//
-	// Minting was execution-bound only at Start. A derivation inherited the
-	// parent's execution and attested nothing, so a caller holding a parent
-	// capability derived children whatever it was running — which is the
-	// threat the execution fields exist to stop, left open at every hop but
-	// the first. The old comment here said a derivation "does not re-attest:
-	// it is the same execution continuing", and that is true only when the
-	// hop is the same workload. For a NEW principal it is an assumption with
-	// nothing behind it.
-	//
-	// So the seal's execution now describes whoever EXERCISES the capability,
-	// read from ApprovedBuild for that principal, and the caller attests it.
-	// A hop whose principal bears no execution — a human taking over a
-	// session — carries none and must attest none.
-	if err := a.sealExecutionFor(ctx, wc, exercising, attested); err != nil {
 		return err
 	}
 	// The hop's own epoch, read live. A hop is new authority for a new
@@ -397,82 +358,11 @@ func (a *Authority) deriveSeal(ctx context.Context, parent *Verified, wc *basev0
 		return nil
 	}
 	inherited := sealOf(wc)
-	// THE HOP'S OWN EXECUTION, read back off the hop that sealExecutionFor
-	// just stamped — not the seal's, which is the OWNER's.
-	//
-	// This passed the seal's execution while naming the HOP as exercising, so
-	// replacing a binding re-attested the owner's execution as the child's.
-	// It is invisible whenever both principals run the same build, which is
-	// what the existing binding test did, so nothing caught it: the edge the
-	// per-hop fix left behind.
-
-	_, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID, exercising,
-		Execution{ImageDigest: hop.GetImageDigest(), BuildIncarnation: hop.GetBuildIncarnation()})
+	_, binding, err := a.sealFor(ctx, wc.GetOwnerPrincipalId(), inherited.GetInstallationId(), bindingID, exercising)
 	if err != nil {
 		return err
 	}
 	wc.OperationBinding = binding
-	return nil
-}
-
-// sealExecutionFor records, on a derived capability's inherited seal, the
-// execution the issuer approves for the principal that will exercise it —
-// having first required the caller to attest that same execution.
-//
-// It is not "restamping", which carryForwardSeal exists to prevent, and the
-// distinction is worth being exact about. Restamping means overwriting
-// INHERITED state with current counters, so a capability whose installation or
-// epoch has moved is silently renewed by deriving; that remains refused.
-// The execution is not inherited state — it belongs to whoever is running, and
-// a new hop is a new principal who may be running something else entirely.
-// Leaving the parent's execution in place was the thing that made a derived
-// capability's execution a claim nobody checked.
-func (a *Authority) sealExecutionFor(ctx context.Context, wc *basev0.WorkContextV1, exercising string, attested Execution) error {
-	digest, incarnation, err := a.Seals.ApprovedBuild(ctx, exercising)
-	bearsNone := errors.Is(err, ErrNoApprovedBuild)
-	if err != nil && !bearsNone {
-		return fmt.Errorf("work context: approved build for principal %q: %w", exercising, err)
-	}
-	if wc.GetSeal() == nil {
-		return fmt.Errorf("%w: a derived capability inherits a seal, and this one carries none", ErrInvalid)
-	}
-	// THE HOP'S OWN EXECUTION GOES ON THE HOP, and the seal's — the OWNER's —
-	// is never touched.
-	//
-	// This used to write the hop's execution onto the seal, which has one
-	// slot. So a derivation overwrote the owner's execution with the last
-	// hop's, and superseding the owner's build refused the owner's own
-	// capability while every child of it verified and went on minting
-	// grandchildren. The seal records the owner; each hop records itself.
-	if len(wc.GetActorChain()) == 0 {
-		return fmt.Errorf("%w: a derived capability adds an actor hop, and this one has none", ErrInvalid)
-	}
-	hop := wc.ActorChain[len(wc.ActorChain)-1]
-	attestedAny := attested.ImageDigest != "" || attested.BuildIncarnation != 0
-	if bearsNone {
-		if attestedAny {
-			return fmt.Errorf("%w: principal %q bears no execution the issuer approves, so it cannot attest build %s incarnation %d",
-				ErrInvalid, exercising, attested.ImageDigest, attested.BuildIncarnation)
-		}
-		// A hop bearing no execution carries none. Nothing is inherited from
-		// the parent here, which is the point: a human taking over a session
-		// is not running the workload's build.
-		hop.ImageDigest, hop.BuildIncarnation = nil, nil
-		return nil
-	}
-	if !attestedAny {
-		return fmt.Errorf("%w: principal %q exercises build %s incarnation %d, so this derivation must attest the execution it is running; pass Execution on the input",
-			ErrInvalid, exercising, digest, incarnation)
-	}
-	if attested.ImageDigest != digest {
-		return fmt.Errorf("%w: the hop attests build %s and the issuer approves %s for principal %q",
-			ErrRevoked, attested.ImageDigest, digest, exercising)
-	}
-	if attested.BuildIncarnation != incarnation {
-		return fmt.Errorf("%w: the hop attests incarnation %d and the issuer holds %d for principal %q, so this execution has been replaced",
-			ErrRevoked, attested.BuildIncarnation, incarnation, exercising)
-	}
-	hop.ImageDigest, hop.BuildIncarnation = &digest, &incarnation
 	return nil
 }
 
@@ -486,16 +376,6 @@ type GrantInput struct {
 	// TTL bounds the capability. The grant window still wins when it is
 	// shorter, and so does the parent session's expiry.
 	TTL time.Duration
-
-	// Execution is what the grant's subject attests it is running, on the same
-	// terms as ChildInput.Execution: required when that principal bears an
-	// approved execution, refused when it bears none.
-	//
-	// A grant hop is the one hop that may hold authority the previous hop did
-	// not, which makes attesting it MORE important rather than less: an
-	// approval is exactly the capability worth minting from a build nobody
-	// approved.
-	Execution Execution
 }
 
 // Grant mints the capability that carries an approval: a new child session
@@ -569,7 +449,7 @@ func (a *Authority) Grant(ctx context.Context, parent *Verified, in GrantInput) 
 		Subject:       grant.Subject,
 		RequestDigest: grant.RequestDigest,
 	}
-	if err := a.deriveSeal(ctx, parent, wc, "", hop.GetPrincipalId(), in.Execution); err != nil {
+	if err := a.deriveSeal(ctx, parent, wc, "", hop.GetPrincipalId()); err != nil {
 		return "", nil, err
 	}
 	return a.seal(wc)

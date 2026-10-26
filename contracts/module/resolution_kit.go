@@ -8,7 +8,7 @@ import (
 // The resolution kit. The document kit proves a reader refuses the documents
 // this package refuses; it says nothing about how a consumer's configuration
 // reaches a slot, and that is the other half of this contract: two consumers
-// resolving one composition into two different authority documents is the same
+// resolving one composition into two different authority requests is the same
 // failure as two readers disagreeing about a file.
 //
 // So a consumer is driven through these too, with the provider it actually
@@ -48,8 +48,8 @@ type ResolutionFixture struct {
 	Message string
 	// Rule names the ONE resolution rule this fixture isolates.
 	Rule string
-	// Slot is the binding slot under test — audience, resource_kind or
-	// binding_key — stated rather than inferred from the key's spelling. It
+	// Slot is the binding slot under test — audience, audiences,
+	// resource_kind or binding_key — stated rather than inferred from the key's spelling. It
 	// was inferred, so every secret case landed on the audience and a
 	// provider that declassified only the OTHER two roles passed all sixteen
 	// cases while putting a secret into a scope.
@@ -475,6 +475,44 @@ func lossFixtures(label, role, group, key, upper, lower, value string) []Resolut
 	return fixtures
 }
 
+// The audience-list slot rides the same resolveSlot as every other slot —
+// secret precedence, one value, one line — and then its own grammar: these
+// cases hold a provider to delivering the list's one record whole, and the
+// list rule to refusing a list naming no one or someone twice.
+const (
+	audiencesLookup = "owner-audiences"
+	audiencesKey    = "OWNER_AUDIENCES"
+	listKindsLookup = "owner-resource-kinds"
+	listKindsKey    = "OWNER_RESOURCE_KINDS"
+	listKindsValue  = "documents=documents.passages,robin=robin.tasks"
+	listKind        = "documents.passages"
+	listScope       = listKind + ":read"
+)
+
+// AudienceListFixtures are the audience-list cases. The resolved binding
+// compared is the first delivered: the lowest listed audience, under
+// <binding>:<audience>.
+func AudienceListFixtures() []ResolutionFixture {
+	const group = "assistant"
+	return []ResolutionFixture{
+		{
+			Name: "an audience list", Group: group, Key: audiencesLookup, Slot: fieldAudiences, Outcome: OutcomeAccepted,
+			Audience: "documents", Kind: listKind, Scopes: []string{listScope},
+			Records: []Record{{Key: audiencesKey, Value: "robin,documents"}, {Key: listKindsKey, Value: listKindsValue}},
+		},
+		{
+			Name: "an audience list naming no one between two commas", Group: group, Key: audiencesLookup, Slot: fieldAudiences,
+			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists "", which is not an audience`, Rule: ruleResolvedList,
+			Records: []Record{{Key: audiencesKey, Value: "robin,,documents"}, {Key: listKindsKey, Value: listKindsValue}},
+		},
+		{
+			Name: "an audience list naming an audience twice", Group: group, Key: audiencesLookup, Slot: fieldAudiences,
+			Outcome: OutcomeRefused, Sentinel: ErrAmbiguousSlot, Message: `lists the audience "robin" twice`, Rule: ruleResolvedList,
+			Records: []Record{{Key: audiencesKey, Value: "robin,documents,robin"}, {Key: listKindsKey, Value: listKindsValue}},
+		},
+	}
+}
+
 // RunResolution drives a consumer's own value provider through every
 // resolution fixture. The consumer passes the function that builds the
 // provider it RENDERS from, out of a group's records the way its composition
@@ -527,6 +565,12 @@ func runResolutionFixture(t TestingT, fixture ResolutionFixture, values Values, 
 	case fieldBindingKey:
 		binding.Audience = Slot{From: audienceSlot}
 		binding.BindingKey = &Slot{From: fixture.Group + "/" + fixture.Key}
+	case fieldAudiences:
+		// A list takes no single resource kind: each listed audience's kind
+		// qualifies the bare actions for it.
+		binding.Audiences = &Slot{From: fixture.Group + "/" + fixture.Key}
+		binding.ResourceKind = nil
+		binding.ResourceKinds = &Slot{From: fixture.Group + "/" + listKindsLookup}
 	default:
 		binding.Audience = Slot{From: fixture.Group + "/" + fixture.Key}
 	}
@@ -575,6 +619,7 @@ func AllResolutionFixtures() []ResolutionFixture {
 	all := append([]ResolutionFixture(nil), ResolutionFixtures()...)
 	all = append(all, ResolvedKindFixtures()...)
 	all = append(all, BindingKeyFixtures()...)
+	all = append(all, AudienceListFixtures()...)
 	for _, role := range lossRoles() {
 		for _, fixture := range lossFixtures(role.label, role.role, "assistant", role.key, role.upper, role.lower, role.value) {
 			fixture.Records = withCompanion(withCompanion(fixture.Records, companionKind), companionAudience)

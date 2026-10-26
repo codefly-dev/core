@@ -30,10 +30,11 @@ type Buf struct {
 	// internal cache for hash
 	cache string
 
-	// generatedDirs are generator-owned output roots emptied immediately
-	// before buf generate. Cleaning prevents package or service renames from
-	// leaving stale generated Go packages in an otherwise green build. The
-	// roots themselves remain present because local protoc plugins require
+	// generatedDirs are Buf's output roots, emptied of what Buf owns
+	// immediately before buf generate. Cleaning prevents package or service
+	// renames from leaving stale generated Go packages in an otherwise green
+	// build. A file another generator wrote there stays (see ownership.go).
+	// The roots themselves remain present because local protoc plugins require
 	// their configured output directories to exist.
 	generatedDirs []string
 
@@ -92,9 +93,11 @@ func (g *Buf) WithGeneratedRoot(root string) *Buf {
 	return g
 }
 
-// WithGeneratedDirs declares output directories that are wholly owned by Buf
-// generation. Directories must be strict descendants of the generated root;
-// this invariant keeps regeneration cleanup scoped to the managed service.
+// WithGeneratedDirs declares Buf's output directories. Buf owns every file in
+// them except one whose generated-code notice names another generator, such as
+// the permissions table `codefly generate permissions` writes beside the
+// bindings. Directories must be strict descendants of the generated root; this
+// invariant keeps regeneration cleanup scoped to the managed service.
 func (g *Buf) WithGeneratedDirs(dirs ...string) *Buf {
 	g.generatedDirs = append(g.generatedDirs, dirs...)
 	return g
@@ -200,12 +203,17 @@ func (g *Buf) Generate(ctx context.Context) error {
 		return w.Wrapf(err, "cannot generate with buf")
 	}
 
-	// The plugins' Go is not the Go consumers commit; see FormatGoOutputs.
 	templateDir := path.Join(g.Dir, "proto")
 	hostRoot, containerRoot := g.Dir, ""
 	if runner.Backend() == companion.BackendDocker {
 		containerRoot = "/workspace"
 	}
+	// A service's Go bindings own no foreign file; see ownership.go.
+	if err = g.removeForeignGoBindings(ctx, runner, templateDir, "buf.gen.yaml", hostRoot, containerRoot); err != nil {
+		return w.Wrapf(err, "cannot remove foreign Go bindings")
+	}
+
+	// The plugins' Go is not the Go consumers commit; see FormatGoOutputs.
 	if err = FormatGoOutputs(ctx, runner, templateDir, "buf.gen.yaml", hostRoot, containerRoot); err != nil {
 		return w.Wrapf(err, "cannot format generated Go")
 	}
@@ -338,8 +346,8 @@ func (g *Buf) cleanGeneratedDirs() error {
 		if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("generated directory %q is not a strict descendant of %q", output, root)
 		}
-		if err := os.RemoveAll(output); err != nil {
-			return fmt.Errorf("remove generated directory %q: %w", output, err)
+		if err := clearGeneratedDir(output); err != nil {
+			return fmt.Errorf("clear generated directory %q: %w", output, err)
 		}
 		if err := os.MkdirAll(output, 0o755); err != nil {
 			return fmt.Errorf("recreate generated directory %q: %w", output, err)

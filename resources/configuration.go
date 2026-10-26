@@ -211,20 +211,31 @@ var addressCarrierPrefixes = []string{
 // IsSensitiveEnvironmentVariable classifies an environment variable NAME, as
 // it reaches a process or a rendered ConfigMap/Secret, by what it carries.
 //
-// A codefly carrier name embeds structural identity — the module and service
-// names of a service configuration, the module/service/endpoint/API of an
-// endpoint — and those are names, not configuration keys: a service called
-// auth-gateway does not make its endpoint address a credential, and running the
-// key classifier over the whole name says it does. So:
+// A codefly carrier name embeds structure — the module and service names of a
+// service configuration, the configuration (group) name of a service or
+// workspace configuration, the module/service/endpoint/API of an endpoint —
+// and structure is a name, not a configuration key: a service called
+// auth-gateway does not make its endpoint address a credential, a public
+// group called datasource-oauth does not make its providers list one, and
+// running the key classifier over the whole name says they are. Whether a
+// VALUE is a credential is declared where it is authored — a secret value
+// rides a secret carrier, whatever its key — and the key classifier is the
+// defence in depth over the one thing an author named the value by, its key.
+// The OUTERMOST structure is read first, by its own grammar, before anything
+// inside it is looked at: a configuration key that happens to spell an
+// address carrier is still a key, and cannot select the address rule for the
+// name that carries it. So, in this order:
 //
 //   - a secret configuration carrier is always sensitive;
-//   - an endpoint, self-endpoint or REST-route carrier is an address, and only
-//     an operator-chosen prefix in front of it (WithPublicEnvironmentVariablePrefix)
-//     is classified;
-//   - a service configuration carrier is classified by its configuration name
-//     and key, without the module and service segments;
-//   - every other name, including a workspace configuration carrier (which has
-//     no identity segments), is classified whole by IsSensitiveKey.
+//   - a service or workspace configuration carrier is classified by its
+//     complete KEY alone, without the module, service and configuration-name
+//     segments — the same segment the rendered-manifest validator reads;
+//   - an endpoint, self-endpoint or REST-route carrier is an address: at the
+//     start of the name, or behind an operator-chosen prefix
+//     (WithPublicEnvironmentVariablePrefix) that is a plain prefix — one with
+//     no double underscore, so it is no carrier of its own — and only that
+//     prefix is classified;
+//   - every other name is classified whole by IsSensitiveKey.
 func IsSensitiveEnvironmentVariable(name string) bool {
 	canonical := strings.ToUpper(name)
 	for _, prefix := range secretCarrierPrefixes {
@@ -232,18 +243,61 @@ func IsSensitiveEnvironmentVariable(name string) bool {
 			return true
 		}
 	}
+	if key, ok := ConfigurationCarrierKey(canonical); ok {
+		return IsSensitiveKey(key)
+	}
 	for _, prefix := range addressCarrierPrefixes {
-		if at := strings.Index(canonical, prefix); at >= 0 {
+		if at := strings.Index(canonical, prefix); at >= 0 && !strings.Contains(canonical[:at], "__") {
 			return IsSensitiveKey(canonical[:at])
 		}
 	}
-	if rest, ok := strings.CutPrefix(canonical, ServiceConfigurationPrefix+"__"); ok {
-		// rest is MODULE__SERVICE__NAME__KEY (UniqueToKey, then NameToKey).
-		if segments := strings.SplitN(rest, "__", 3); len(segments) == 3 {
-			return IsSensitiveKey(segments[2])
-		}
-	}
 	return IsSensitiveKey(canonical)
+}
+
+// ConfigurationCarrierKey returns the configuration KEY a configuration
+// carrier name ends in, and whether the name is one: a service carrier is
+// PREFIX__MODULE__SERVICE__NAME__KEY (UniqueToKey, then NameToKey twice), a
+// workspace carrier PREFIX__NAME__KEY, under the public or the secret prefix.
+// The structural segments in front of the key never contain a double
+// underscore — a module name, a service name and a configuration name are
+// each refused where they are loaded if their spelling would carry one
+// (validateCarrierName, ConfigurationNameHasAmbiguousSpelling) — so the key
+// is everything after the fixed number of them, whatever it contains. It is the one parser of a carrier's key: a reader that
+// scans a carrier for credential words scans this segment, never the whole
+// name, so the module, service and configuration-name segments cannot trip it.
+func ConfigurationCarrierKey(name string) (string, bool) {
+	canonical := strings.ToUpper(name)
+	for _, carrier := range []struct {
+		prefix    string
+		structure int
+	}{
+		{ServiceConfigurationPrefix + "__", 3},
+		{ServiceSecretConfigurationPrefix + "__", 3},
+		{WorkspaceConfigurationPrefix + "__", 1},
+		{WorkspaceSecretConfigurationPrefix + "__", 1},
+	} {
+		rest, ok := strings.CutPrefix(canonical, carrier.prefix)
+		if !ok {
+			continue
+		}
+		segments := strings.SplitN(rest, "__", carrier.structure+1)
+		if len(segments) != carrier.structure+1 {
+			return "", false
+		}
+		return segments[carrier.structure], true
+	}
+	return "", false
+}
+
+// ConfigurationNameHasAmbiguousSpelling reports a configuration name whose
+// carrier spelling (NameToKey) would carry a double underscore — consecutive
+// dashes or underscores in the name — and so could not be told apart from the
+// structure/key separator by ConfigurationCarrierKey: "policy--auth" and
+// "policy__auth" both spell POLICY__AUTH, and a carrier built from either reads
+// as configuration "policy" with key "AUTH__…". The loader refuses such a name
+// where the file is read, so no carrier is ever ambiguous.
+func ConfigurationNameHasAmbiguousSpelling(name string) bool {
+	return strings.Contains(NameToKey(name), "__")
 }
 
 // configRuntimeKind folds the nix runtime onto native for configuration

@@ -1,0 +1,27 @@
+# A role grants one binding operation once.
+schema: codefly/module-contract/v1
+principal: assistant
+namespaces: []
+queues: []
+scope_ceilings:
+    - resource_kind: assistant.tasks
+      actions: [read]
+roles:
+    - name: installer
+      bindings:
+          - {binding: evidence, operation: invoke}
+          - {binding: evidence, operation: invoke}
+bindings:
+    - id: evidence
+      operations: [invoke]
+      audience: {from: assistant/evidence-audience}
+      calls:
+          invoke:
+              - /documents.v1.DocumentsService/ResolveEvidence
+    - id: evaluation
+      operations: [headless]
+      audience: {from: assistant/evaluation-audience}
+      calls:
+          headless:
+              - /evaluation.v1.Definitions/Publish
+destinations: []
